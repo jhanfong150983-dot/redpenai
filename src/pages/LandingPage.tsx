@@ -15,9 +15,10 @@ import {
   FileText
 } from 'lucide-react'
 import { SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/legal'
+import { buildApiUrl } from '../lib/api-base'
 
 // 登入連結
-const LOGIN_URL = '/api/auth/google'
+const LOGIN_URL = buildApiUrl('/api/auth/google')
 
 export default function LandingPage() {
 

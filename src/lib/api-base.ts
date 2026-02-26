@@ -13,6 +13,10 @@ function toAbsoluteApiUrl(path: string): string {
   return `${apiBase}${path}`
 }
 
+export function buildApiUrl(path: string): string {
+  return toAbsoluteApiUrl(path)
+}
+
 function maybeRewriteAbsoluteApiUrl(url: string): string {
   const originPrefix = `${window.location.origin}/api/`
   if (!url.startsWith(originPrefix)) {
