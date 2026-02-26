@@ -1,0 +1,1415 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RedPen AI · AI學情報告</title>
+  <style>
+    :root {
+      --bg: #f5f5f5;
+      --card: #ffffff;
+      --border: #e0e0e0;
+      --text: #1a1a1a;
+      --muted: #666666;
+      --muted-2: #999999;
+      --primary: #2563eb;
+      --primary-soft: rgba(37, 99, 235, 0.12);
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Noto Sans TC", "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .report {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 3rem;
+    }
+
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .eyebrow {
+      font-size: 0.75rem;
+      color: var(--muted-2);
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      margin: 0.35rem 0 0.5rem;
+    }
+
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin: 0;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .subtitle {
+      font-size: 0.875rem;
+      color: var(--muted);
+    }
+
+    .btn {
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.9rem;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--text);
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .btn:hover {
+      background: #fafafa;
+      border-color: #d0d0d0;
+    }
+
+    .tab-shell {
+      position: relative;
+      display: grid;
+      gap: 1.5rem;
+    }
+
+    .tab-shell input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .tab-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      background: #f3f4f6;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 0.25rem;
+      width: fit-content;
+    }
+
+    .tab-controls label {
+      padding: 0.4rem 0.9rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+
+    .tab-controls label:hover {
+      color: var(--text);
+    }
+
+    .tab-panels {
+      display: grid;
+      gap: 1.5rem;
+    }
+
+    .tab-panel {
+      display: none;
+    }
+
+    #tab-class:checked ~ .tab-controls label[for="tab-class"],
+    #tab-student:checked ~ .tab-controls label[for="tab-student"] {
+      background: #ffffff;
+      color: var(--text);
+      border-color: #d0d0d0;
+    }
+
+    #tab-class:checked ~ .tab-panels .panel-class {
+      display: block;
+    }
+
+    #tab-student:checked ~ .tab-panels .panel-student {
+      display: block;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 1.25rem;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-list {
+      display: grid;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+      font-size: 0.875rem;
+      color: var(--muted);
+    }
+
+    .filters-grid {
+      display: grid;
+      gap: 0.75rem;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      margin-top: 0.75rem;
+    }
+
+    .filters label {
+      display: grid;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .filters select {
+      width: 100%;
+      padding: 0.45rem 0.6rem;
+      border-radius: 0.5rem;
+      border: 1px solid var(--border);
+      background: #ffffff;
+      font-size: 0.875rem;
+      color: var(--text);
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 1rem 1.1rem;
+      display: grid;
+      gap: 0.35rem;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .stat-sub {
+      font-size: 0.75rem;
+      color: var(--muted-2);
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin: 1.25rem 0 0.75rem;
+    }
+
+    .section-title span {
+      font-size: 0.75rem;
+      color: var(--muted-2);
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem;
+    }
+
+    .radar-wrap {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 1rem;
+      align-items: center;
+    }
+
+    .radar-stage {
+      position: relative;
+      width: min(320px, 100%);
+      aspect-ratio: 1 / 1;
+      margin: 0 auto;
+    }
+
+    .radar {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .radar-grid polygon {
+      fill: none;
+      stroke: #e5e7eb;
+      stroke-width: 1;
+    }
+
+    .radar-axis {
+      stroke: #d1d5db;
+      stroke-width: 1;
+      stroke-dasharray: 2 3;
+    }
+
+    .radar-area.class {
+      fill: rgba(37, 99, 235, 0.18);
+      stroke: var(--primary);
+      stroke-width: 2;
+    }
+
+    .radar-area.student {
+      fill: rgba(245, 158, 11, 0.2);
+      stroke: var(--warning);
+      stroke-width: 2;
+    }
+
+    .radar-label {
+      position: absolute;
+      font-size: 0.7rem;
+      color: var(--muted);
+      width: 110px;
+      line-height: 1.2;
+      pointer-events: none;
+    }
+
+    .radar-label.top {
+      top: 0;
+      left: 50%;
+      transform: translate(-50%, -120%);
+      text-align: center;
+    }
+
+    .radar-label.tr {
+      top: 12%;
+      right: 0;
+      transform: translate(100%, -10%);
+      text-align: left;
+    }
+
+    .radar-label.br {
+      bottom: 12%;
+      right: 0;
+      transform: translate(100%, 10%);
+      text-align: left;
+    }
+
+    .radar-label.bottom {
+      bottom: 0;
+      left: 50%;
+      transform: translate(-50%, 120%);
+      text-align: center;
+    }
+
+    .radar-label.bl {
+      bottom: 12%;
+      left: 0;
+      transform: translate(-100%, 10%);
+      text-align: right;
+    }
+
+    .radar-label.tl {
+      top: 12%;
+      left: 0;
+      transform: translate(-100%, -10%);
+      text-align: right;
+    }
+
+    .legend {
+      display: grid;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .legend i {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      display: inline-block;
+    }
+
+    .legend .class { background: var(--primary); }
+    .legend .student { background: var(--warning); }
+
+    .trend-card svg {
+      width: 100%;
+      height: auto;
+      margin-top: 0.75rem;
+    }
+
+    .trend-note {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 0.4rem;
+    }
+
+    .abilities {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    }
+
+    .pill {
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 600;
+    }
+
+    .pill.good {
+      background: #ecfdf3;
+      color: #0f766e;
+    }
+
+    .pill.warn {
+      background: #fffbeb;
+      color: #b45309;
+    }
+
+    .pill.risk {
+      background: #fef2f2;
+      color: #b91c1c;
+    }
+
+    .ability__header {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      align-items: flex-start;
+      margin-bottom: 0.6rem;
+    }
+
+    .ability__header p {
+      font-size: 0.8rem;
+      margin-top: 0.35rem;
+    }
+
+    .progress {
+      background: #f1f5f9;
+      border-radius: 999px;
+      overflow: hidden;
+      height: 0.45rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .progress__bar {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 999px;
+    }
+
+    .ability__meta {
+      font-size: 0.75rem;
+      color: var(--muted-2);
+    }
+
+    .matrix {
+      display: grid;
+      gap: 0.75rem;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+
+    .matrix-card {
+      border-radius: 0.5rem;
+      padding: 0.85rem;
+      border: 1px solid var(--border);
+      background: #fafafa;
+    }
+
+    .matrix-card h4 {
+      margin: 0 0 0.35rem;
+      font-size: 0.85rem;
+      color: var(--text);
+    }
+
+    .matrix-card span {
+      font-size: 0.75rem;
+      color: var(--muted-2);
+    }
+
+    .heat-1 { background: #fff7ed; border-color: #fed7aa; }
+    .heat-2 { background: #ffedd5; border-color: #fdba74; }
+    .heat-3 { background: #fee2e2; border-color: #fecaca; }
+
+    .tag-cloud {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .tag-pill {
+      padding: 0.35rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      font-size: 0.75rem;
+      color: var(--text);
+    }
+
+    .tag-pill.weight-1 {
+      background: #f3f4f6;
+      color: #4b5563;
+    }
+
+    .tag-pill.weight-2 {
+      background: #e0f2fe;
+      border-color: #bae6fd;
+      color: #0369a1;
+    }
+
+    .tag-pill.weight-3 {
+      background: #fee2e2;
+      border-color: #fecaca;
+      color: #b91c1c;
+      font-weight: 600;
+    }
+
+    .severity-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .severity-list {
+      margin: 0;
+      padding-left: 1rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      display: grid;
+      gap: 0.35rem;
+    }
+
+    .quality-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .note-box {
+      margin-top: 1rem;
+      padding: 0.9rem 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1e3a8a;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+
+    .trend-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 0.5rem;
+    }
+
+    .trend-legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .trend-legend i {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+      display: inline-block;
+    }
+
+    .fingerprint-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    }
+
+    .fingerprint-card {
+      display: grid;
+      gap: 0.4rem;
+    }
+
+    .fingerprint-count {
+      font-size: 1.4rem;
+      font-weight: 600;
+    }
+
+    .alert-list {
+      margin: 0;
+      padding-left: 1.1rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      display: grid;
+      gap: 0.4rem;
+    }
+
+    .stability-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    .stability-table th,
+    .stability-table td {
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid #f0f0f0;
+      text-align: left;
+    }
+
+    .stability-table th {
+      font-size: 0.75rem;
+      color: var(--muted-2);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: #fafafa;
+    }
+
+    .insights {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    }
+
+    .insight-block h3 {
+      margin-bottom: 0.6rem;
+    }
+
+    .insight-block ul {
+      padding-left: 1.1rem;
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.85rem;
+      display: grid;
+      gap: 0.4rem;
+    }
+
+    .student-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .student-card {
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      padding: 1rem;
+      background: #ffffff;
+      display: grid;
+      gap: 0.6rem;
+    }
+
+    .student-card.is-warn {
+      border-color: #fed7aa;
+      background: #fff7ed;
+    }
+
+    .student-card.is-risk {
+      border-color: #fecaca;
+      background: #fef2f2;
+    }
+
+    .student-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.6rem;
+      align-items: flex-start;
+    }
+
+    .student-name {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .student-meta {
+      font-size: 0.75rem;
+      color: var(--muted-2);
+    }
+
+    .student-score {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--text);
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .student-score span {
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--muted-2);
+      margin-left: 0.2rem;
+    }
+
+    .student-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+
+    .tag-chip {
+      font-size: 0.7rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      background: #f3f4f6;
+      color: #4b5563;
+    }
+
+    .tag-chip.good {
+      background: #ecfdf3;
+      color: #0f766e;
+    }
+
+    .tag-chip.warn {
+      background: #ffedd5;
+      color: #b45309;
+    }
+
+    .tag-chip.risk {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+
+    .student-flag {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .practice-list {
+      display: grid;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .footnote {
+      margin-top: 1.5rem;
+      font-size: 0.7rem;
+      color: var(--muted-2);
+    }
+
+    @media (max-width: 900px) {
+      .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .tab-controls {
+        width: 100%;
+        justify-content: center;
+      }
+
+      .radar-wrap {
+        grid-template-columns: 1fr;
+      }
+
+      .radar-stage .radar-label {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="report">
+    <header class="page-header">
+      <div>
+        <div class="eyebrow">AI學情報告</div>
+        <h1>六年甲班 · 數學學情摘要</h1>
+        <p class="subtitle">資料區間：2025/12/24–2025/12/26 · 作業 2 份 · 批改 57 份（含 1 筆系統錯誤）</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn">匯出 PDF</button>
+      </div>
+    </header>
+
+    <div class="tab-shell">
+      <input type="radio" name="report-tab" id="tab-class" checked>
+      <input type="radio" name="report-tab" id="tab-student">
+      <div class="tab-controls">
+        <label for="tab-class">作業診斷性快報</label>
+        <label for="tab-student">班級診斷性快報</label>
+      </div>
+      <div class="tab-panels">
+        <section class="tab-panel panel-class">
+          <section class="hero">
+            <div class="card hero-card">
+              <h3>作業診斷性快報</h3>
+              <div class="hero-list">
+                <div>作業日期：2025/12/26（作業 A）、2025/12/24（作業 B）</div>
+                <div>批改份數：作業 A 28 份、作業 B 29 份</div>
+                <div>報告核心：錯誤現象聚類（無題目內容）</div>
+              </div>
+            </div>
+            <div class="card hero-card">
+              <h3>當前顯示：最近作業（作業 A）</h3>
+              <div class="hero-list">
+                <div>主要錯誤：周長/弧長計算概念</div>
+                <div>AI 解析失敗：1 份</div>
+                <div>需關注學生：6 人（錯誤集中）</div>
+              </div>
+            </div>
+            <div class="card filters">
+              <h3>作業選擇</h3>
+              <div class="filters-grid">
+                <label>
+                  作業
+                  <select>
+                    <option>作業 A（12/26）</option>
+                    <option>作業 B（12/24）</option>
+                  </select>
+                </label>
+              </div>
+              <p class="subtitle">切換後，下方統計與標籤雲會更新。</p>
+            </div>
+          </section>
+
+          <section class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-label">完成率</div>
+              <div class="stat-value">96.4%</div>
+              <div class="stat-sub">27 / 28 份成功批改</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">空白率</div>
+              <div class="stat-value">0.0%</div>
+              <div class="stat-sub">0 / 84 題未作答</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">需關注學生</div>
+              <div class="stat-value">6 人</div>
+              <div class="stat-sub">錯誤集中或概念混淆</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">高頻錯誤標籤</div>
+              <div class="stat-value">6 組</div>
+              <div class="stat-sub">以周長/弧長為主</div>
+            </div>
+          </section>
+
+          <div class="section-title">
+            <h2>AI 標籤雲與權重</h2>
+            <span>目前顯示：作業 A（12/26）</span>
+          </div>
+
+          <section class="card">
+            <div class="tag-cloud">
+              <span class="tag-pill weight-3">周長加總漏算 · 5 人</span>
+              <span class="tag-pill weight-2">內外半徑判讀錯 · 4 人</span>
+              <span class="tag-pill weight-2">弧長公式漏乘2 · 3 人</span>
+              <span class="tag-pill weight-1">小數點/數值誤記 · 2 人</span>
+              <span class="tag-pill weight-1">單位漏寫 · 2 人</span>
+              <span class="tag-pill weight-1">AI 解析失敗 · 1 人</span>
+            </div>
+          </section>
+
+          <div class="section-title">
+            <h2>錯誤規模判斷</h2>
+            <span>看同類錯誤在全班的出現比例</span>
+          </div>
+
+          <section class="severity-grid">
+            <div class="card">
+              <h3>全班共通問題（超過三成）</h3>
+              <ul class="severity-list">
+                <li>本次作業無超過三成的共通錯誤</li>
+                <li>建議追蹤下一份作業的變化</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h3>少數學生問題（少於三成）</h3>
+              <ul class="severity-list">
+                <li>周長加總漏算（5 人）</li>
+                <li>內外半徑判讀錯（4 人）</li>
+                <li>弧長公式漏乘2（3 人）</li>
+                <li>小數點/數值誤記（2 人）</li>
+                <li>單位漏寫（2 人）</li>
+                <li>AI 解析失敗（1 人）</li>
+              </ul>
+            </div>
+          </section>
+
+          <div class="section-title">
+            <h2>作業品質指標</h2>
+            <span>從批改行為側觀察作業難度</span>
+          </div>
+
+          <section class="quality-grid">
+            <div class="card">
+              <h3>空白率</h3>
+              <div class="stat-value">0.0%</div>
+              <p>本次作業無空白作答。</p>
+            </div>
+            <div class="card">
+              <h3>AI 解析失敗</h3>
+              <div class="stat-value">1 份</div>
+              <p>發生於 12/26 作業，建議重新拍攝。</p>
+            </div>
+          </section>
+
+          <div class="note-box">
+            老師看到什麼：作業 A 主要卡在「周長加總/半徑判讀」，建議先統整周長構成（外弧 + 內弧 + 兩側直線）
+            再分組補強。切換作業可查看作業 B 的敬老票與表達錯誤。
+          </div>
+        </section>
+        <section class="tab-panel panel-student">
+          <section class="hero">
+            <div class="card hero-card">
+              <h3>班級診斷性快報</h3>
+              <div class="hero-list">
+                <div>累積期間：2025/12/24–12/26 · 作業 2 份</div>
+                <div>高風險類型：概念性錯誤、審題錯誤、表達錯誤</div>
+                <div>需關注學生：5 人（高風險類型集中）</div>
+              </div>
+            </div>
+            <div class="card hero-card">
+              <h3>整體觀察重點</h3>
+              <div class="hero-list">
+                <div>概念性錯誤佔比最高（幾何與周長）</div>
+                <div>審題錯誤集中在條件題</div>
+                <div>表達錯誤以答案格式/單位為主</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-label">穩定學生</div>
+              <div class="stat-value">18 人</div>
+              <div class="stat-sub">近期作業表現穩定</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">固定死角</div>
+              <div class="stat-value">3 人</div>
+              <div class="stat-sub">同類錯誤重複出現</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">不穩定學習</div>
+              <div class="stat-value">5 人</div>
+              <div class="stat-sub">錯誤類型變動大</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">補強重點</div>
+              <div class="stat-value">2 組</div>
+              <div class="stat-sub">概念與審題為主</div>
+            </div>
+          </section>
+
+          <div class="section-title">
+            <h2>錯誤類型分布</h2>
+            <span>以更上位類型統整近期作業</span>
+          </div>
+
+          <section class="card trend-card">
+            <h3>整體錯誤結構</h3>
+            <div class="radar-wrap">
+              <div class="radar-stage">
+                <svg class="radar" viewBox="0 0 320 320" aria-label="錯誤類型雷達圖">
+                  <g class="radar-grid">
+                    <polygon points="160,50 260,230 60,230"></polygon>
+                    <polygon points="160,94 220,202 100,202"></polygon>
+                  </g>
+                  <g>
+                    <line class="radar-axis" x1="160" y1="160" x2="160" y2="50" />
+                    <line class="radar-axis" x1="160" y1="160" x2="260" y2="230" />
+                    <line class="radar-axis" x1="160" y1="160" x2="60" y2="230" />
+                  </g>
+                  <polygon class="radar-area class" points="160,50 239,215 101,202"></polygon>
+                </svg>
+                <div class="radar-label top">概念性錯誤<br>42%</div>
+                <div class="radar-label br">審題錯誤<br>33%</div>
+                <div class="radar-label bl">表達錯誤<br>25%</div>
+              </div>
+              <div class="legend">
+                <span><i style="background:#2563eb"></i>錯誤分布（相對比例）</span>
+              </div>
+            </div>
+            <div class="trend-note">以最高類型為 100% 的相對比例呈現。</div>
+          </section>
+
+          <div class="section-title">
+            <h2>學生錯誤指紋分析</h2>
+            <span>依長期錯誤型態分類</span>
+          </div>
+
+          <section class="fingerprint-grid">
+            <div class="card fingerprint-card">
+              <h3>概念性錯誤</h3>
+              <div class="fingerprint-count">5 人</div>
+              <p>常見於幾何概念與公式理解。</p>
+            </div>
+            <div class="card fingerprint-card">
+              <h3>審題錯誤</h3>
+              <div class="fingerprint-count">7 人</div>
+              <p>常見漏掉題目條件或錯用票價。</p>
+            </div>
+            <div class="card fingerprint-card">
+              <h3>表達錯誤</h3>
+              <div class="fingerprint-count">4 人</div>
+              <p>答案格式、單位或作答完整性不足。</p>
+            </div>
+          </section>
+
+          <div class="section-title">
+            <h2>預測性期中考警示</h2>
+            <span>依近期高頻錯誤整理提醒</span>
+          </div>
+
+          <section class="card">
+            <ul class="alert-list">
+              <li>概念性錯誤占比高，建議加強幾何概念與公式理解。</li>
+              <li>審題錯誤集中於條件題，建議強化審題流程。</li>
+              <li>表達錯誤集中在答案格式與單位，需提醒完整作答。</li>
+            </ul>
+          </section>
+
+          <div class="section-title">
+            <h2>穩定性評估</h2>
+            <span>標籤多樣性 vs 固定死角</span>
+          </div>
+
+          <section class="card">
+            <table class="stability-table">
+              <thead>
+                <tr>
+                  <th>學生</th>
+                  <th>錯誤型態</th>
+                  <th>趨勢</th>
+                  <th>建議</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>學生 04</td>
+                  <td>概念性錯誤</td>
+                  <td>固定死角</td>
+                  <td>概念補強練習</td>
+                </tr>
+                <tr>
+                  <td>學生 06</td>
+                  <td>審題錯誤</td>
+                  <td>固定死角</td>
+                  <td>審題條件再檢核</td>
+                </tr>
+                <tr>
+                  <td>學生 08</td>
+                  <td>概念性錯誤</td>
+                  <td>改善中</td>
+                  <td>圖形概念補強</td>
+                </tr>
+                <tr>
+                  <td>學生 10</td>
+                  <td>表達錯誤</td>
+                  <td>不穩定</td>
+                  <td>提醒完整回答格式</td>
+                </tr>
+                <tr>
+                  <td>學生 23</td>
+                  <td>資料不足</td>
+                  <td>資料不足</td>
+                  <td>請重新上傳作業</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <div class="section-title">
+            <h2>學生清單</h2>
+            <span>示例 24 人 · 疑慮 5 人</span>
+          </div>
+
+          <section class="student-grid">
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 01</div>
+                  <div class="student-meta">座號 01 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+                <span class="tag-chip good">細節到位</span>
+              </div>
+              <div class="student-meta">無明顯弱點，作答穩定。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 02</div>
+                  <div class="student-meta">座號 02 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">題型掌握良好。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 03</div>
+                  <div class="student-meta">座號 03 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">比例與弧長題目準確。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card is-risk">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 04</div>
+                  <div class="student-meta">座號 04 · 最近作業</div>
+                </div>
+                <div class="student-score">31<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip risk">概念性錯誤</span>
+                <span class="tag-chip risk">公式理解</span>
+              </div>
+              <div class="student-meta">幾何概念與公式理解不足，易影響後續計算。</div>
+              <div class="student-flag"><span class="pill risk">需關注</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 05</div>
+                  <div class="student-meta">座號 05 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">作答完整，單位清楚。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card is-warn">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 06</div>
+                  <div class="student-meta">座號 06 · 最近作業</div>
+                </div>
+                <div class="student-score">34<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip warn">審題錯誤</span>
+                <span class="tag-chip warn">條件遺漏</span>
+              </div>
+              <div class="student-meta">應用題條件遺漏，需加強審題。</div>
+              <div class="student-flag"><span class="pill warn">留意</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 07</div>
+                  <div class="student-meta">座號 07 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">比例尺與弧長題型穩定。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card is-risk">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 08</div>
+                  <div class="student-meta">座號 08 · 最近作業</div>
+                </div>
+                <div class="student-score">28<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip risk">概念性錯誤</span>
+                <span class="tag-chip risk">圖形理解</span>
+              </div>
+              <div class="student-meta">圖形概念混淆，周長結構理解不足。</div>
+              <div class="student-flag"><span class="pill risk">需關注</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 09</div>
+                  <div class="student-meta">座號 09 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">計算細心、步驟完整。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card is-warn">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 10</div>
+                  <div class="student-meta">座號 10 · 最近作業</div>
+                </div>
+                <div class="student-score">30<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip warn">表達錯誤</span>
+              </div>
+              <div class="student-meta">答案格式或單位不完整。</div>
+              <div class="student-flag"><span class="pill warn">留意</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 11</div>
+                  <div class="student-meta">座號 11 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">單位標註完整。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 12</div>
+                  <div class="student-meta">座號 12 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">解題步驟清楚。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 13</div>
+                  <div class="student-meta">座號 13 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">比例與弧長題型穩定。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 14</div>
+                  <div class="student-meta">座號 14 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">作答完整且細心。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 15</div>
+                  <div class="student-meta">座號 15 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">比例尺題型正確。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 16</div>
+                  <div class="student-meta">座號 16 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">弧長計算精準。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 17</div>
+                  <div class="student-meta">座號 17 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">題型掌握良好。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 18</div>
+                  <div class="student-meta">座號 18 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">作答清楚完整。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 19</div>
+                  <div class="student-meta">座號 19 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">單位標示清楚。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 20</div>
+                  <div class="student-meta">座號 20 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">步驟清楚、錯誤低。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 21</div>
+                  <div class="student-meta">座號 21 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">作答穩定。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 22</div>
+                  <div class="student-meta">座號 22 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">理解穩定。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+            <div class="student-card is-risk">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 23</div>
+                  <div class="student-meta">座號 23 · 最近作業</div>
+                </div>
+                <div class="student-score">0<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip risk">資料不足</span>
+              </div>
+              <div class="student-meta">建議重新上傳或分批處理。</div>
+              <div class="student-flag"><span class="pill risk">需重送</span></div>
+            </div>
+            <div class="student-card">
+              <div class="student-top">
+                <div>
+                  <div class="student-name">學生 24</div>
+                  <div class="student-meta">座號 24 · 最近作業</div>
+                </div>
+                <div class="student-score">45<span>/45</span></div>
+              </div>
+              <div class="student-tags">
+                <span class="tag-chip good">表現穩定</span>
+              </div>
+              <div class="student-meta">整體表現良好。</div>
+              <div class="student-flag"><span class="pill good">穩定</span></div>
+            </div>
+          </section>
+        </section>
+      </div>
+    </div>
+
+    <p class="footnote">此頁為前端視覺原型，資料與數值為示意（來源：你提供的 57 筆樣本，含 1 筆系統錯誤，共 2 份作業）。</p>
+  </main>
+</body>
+</html>
+
+

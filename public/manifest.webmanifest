@@ -1,0 +1,118 @@
+{
+  "name": "RedPen AI - 作業批改",
+  "short_name": "RedPen AI",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "description": "AI 輔助教師快速批改作業,自動辨識錯誤並提供個人化建議",
+  "id": "/",
+  "scope": "/",
+  "lang": "zh-TW",
+  "dir": "ltr",
+  "orientation": "any",
+  "categories": ["education", "productivity"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/pwa-64x64.png",
+      "sizes": "64x64",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/maskable-icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/maskable-icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-upload.png",
+      "sizes": "844x1500",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "上傳學生作業 - AI 輔助批改系統"
+    },
+    {
+      "src": "/screenshot-grading.png",
+      "sizes": "497x1080",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "AI 智慧批改 - 自動辨識錯誤"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "新增作業",
+      "short_name": "新增",
+      "description": "建立新的批改作業",
+      "url": "/assignment-setup",
+      "icons": [
+        {
+          "src": "/pwa-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "開始批改",
+      "short_name": "批改",
+      "description": "查看待批改作業清單",
+      "url": "/grading-list",
+      "icons": [
+        {
+          "src": "/pwa-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "成績總覽",
+      "short_name": "成績",
+      "description": "查看學生成績統計",
+      "url": "/gradebook",
+      "icons": [
+        {
+          "src": "/pwa-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "share_target": {
+    "action": "/assignment-import",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "files",
+          "accept": ["image/*", "application/pdf"]
+        }
+      ]
+    }
+  }
+}

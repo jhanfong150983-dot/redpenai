@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.vercel.redpen_ai.twa",
+        "sha256_cert_fingerprints": ["2E:EE:74:58:9C:77:6B:87:4C:B2:13:8A:32:4D:67:A9:6B:BB:D8:3D:22:1B:5E:E2:56:C7:E1:23:31:D8:C8:59"]
+      }
+    }]

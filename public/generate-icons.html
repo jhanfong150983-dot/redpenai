@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生成 PWA 圖標</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #2563eb; }
+        canvas {
+            border: 2px solid #ddd;
+            margin: 20px 0;
+            display: block;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1d4ed8;
+        }
+        .info {
+            background: #dbeafe;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 RedPen AI 圖標生成器</h1>
+
+        <div class="info">
+            <strong>說明：</strong>點擊下方按鈕下載 PNG 圖標，然後將它們放到 <code>public/</code> 資料夾中
+        </div>
+
+        <h3>192x192 圖標</h3>
+        <canvas id="canvas192" width="192" height="192"></canvas>
+        <button onclick="downloadIcon(192)">下載 icon-192.png</button>
+
+        <h3>512x512 圖標</h3>
+        <canvas id="canvas512" width="512" height="512"></canvas>
+        <button onclick="downloadIcon(512)">下載 icon-512.png</button>
+    </div>
+
+    <script>
+        function drawIcon(canvas, size) {
+            const ctx = canvas.getContext('2d');
+            const scale = size / 512;
+
+            // 背景
+            ctx.fillStyle = '#2563eb';
+            ctx.roundRect(0, 0, size, size, size / 4);
+            ctx.fill();
+
+            // 設定縮放
+            ctx.scale(scale, scale);
+
+            // 繪製筆身
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 8;
+            ctx.beginPath();
+            ctx.moveTo(176, 136);
+            ctx.lineTo(336, 296);
+            ctx.lineTo(296, 336);
+            ctx.lineTo(136, 176);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // 繪製筆尖（紅色）
+            ctx.fillStyle = '#ef4444';
+            ctx.beginPath();
+            ctx.moveTo(296, 336);
+            ctx.lineTo(316, 356);
+            ctx.lineTo(356, 316);
+            ctx.lineTo(336, 296);
+            ctx.closePath();
+            ctx.fill();
+
+            // 繪製筆帽
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(356, 156, 30, 0, Math.PI * 2);
+            ctx.fill();
+
+            // 繪製紙張線條
+            ctx.strokeStyle = '#60a5fa';
+            ctx.lineWidth = 6;
+            ctx.lineCap = 'round';
+
+            ctx.beginPath();
+            ctx.moveTo(196, 276);
+            ctx.lineTo(276, 356);
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(176, 296);
+            ctx.lineTo(256, 376);
+            ctx.stroke();
+        }
+
+        // 繪製兩個尺寸的圖標
+        drawIcon(document.getElementById('canvas192'), 192);
+        drawIcon(document.getElementById('canvas512'), 512);
+
+        function downloadIcon(size) {
+            const canvas = document.getElementById('canvas' + size);
+            const link = document.createElement('a');
+            link.download = `icon-${size}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        // Canvas rounded rectangle polyfill
+        if (!CanvasRenderingContext2D.prototype.roundRect) {
+            CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+                if (w < 2 * r) r = w / 2;
+                if (h < 2 * r) r = h / 2;
+                this.beginPath();
+                this.moveTo(x + r, y);
+                this.arcTo(x + w, y, x + w, y + h, r);
+                this.arcTo(x + w, y + h, x, y + h, r);
+                this.arcTo(x, y + h, x, y, r);
+                this.arcTo(x, y, x + w, y, r);
+                this.closePath();
+                return this;
+            }
+        }
+    </script>
+</body>
+</html>
