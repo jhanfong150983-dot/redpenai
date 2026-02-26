@@ -79,23 +79,14 @@ export function getSubmissionImageUrl(submission?: {
 
   // 如果使用縮圖模式，優先使用縮圖欄位
   if (useThumbnail) {
-    // 策略 1: 優先使用雲端縮圖 URL（避免一開始就下載全部圖片到本地）
-    const cloudThumbUrl = submission.thumbUrl || submission.thumbnailUrl
-    if (cloudThumbUrl && submission.id) {
-      const params = new URLSearchParams({ submissionId: submission.id, thumb: 'true' })
-      const url = `/api/storage/download?${params.toString()}`
-      debugLog(`✅ 使用雲端縮圖 URL (${browser})`, { submissionId: submission.id, url })
-      return url
-    }
-
-    // 策略 2: 使用本地縮圖 Base64（如果已經下載過）
+    // 策略 1: 使用本地縮圖 Base64（如果已經下載過）
     if (submission.thumbnailBase64) {
       const base64 = fixCorruptedBase64(submission.thumbnailBase64)
       debugLog(`✅ 使用本地縮圖 Base64 (${browser})`, { submissionId: submission.id, length: base64.length })
       return base64
     }
 
-    // 策略 3: 使用本地縮圖 Blob（如果已經下載過）
+    // 策略 2: 使用本地縮圖 Blob（如果已經下載過）
     if (submission.thumbnailBlob && submission.thumbnailBlob.size > 0) {
       try {
         const url = URL.createObjectURL(submission.thumbnailBlob)
@@ -106,7 +97,7 @@ export function getSubmissionImageUrl(submission?: {
       }
     }
 
-    // 策略 4: 使用本地原圖（已存在則直接用，避免額外下載）
+    // 策略 3: 使用本地原圖（已存在則直接用，避免額外下載）
     if (submission.imageBase64) {
       const base64 = fixCorruptedBase64(submission.imageBase64)
       debugLog(`✅ 使用本地原圖 Base64 (${browser})`, { submissionId: submission.id, length: base64.length })
@@ -125,10 +116,12 @@ export function getSubmissionImageUrl(submission?: {
       }
     }
 
-    // Fallback: 雲端已有原圖但沒有縮圖，顯示占位即可
-    if (submission.imageUrl) {
-      debugLog('⚠️ 沒有縮圖，顯示雲端占位', { submissionId: submission.id })
-      return null
+    // 策略 4: 使用雲端下載端點（thumb=true，後端會自動 fallback 到原圖）
+    if (submission.id && (submission.thumbUrl || submission.thumbnailUrl || submission.imageUrl)) {
+      const params = new URLSearchParams({ submissionId: submission.id, thumb: 'true' })
+      const url = `/api/storage/download?${params.toString()}`
+      debugLog(`✅ 使用雲端下載縮圖/原圖 URL (${browser})`, { submissionId: submission.id, url })
+      return url
     }
   }
 

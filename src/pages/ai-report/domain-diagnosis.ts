@@ -417,6 +417,7 @@ async function requestGemini(prompt: string) {
     body: JSON.stringify({
       model: DOMAIN_MODEL,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      routeKey: 'report.domain_diagnosis',
       ...(inkSessionId ? { inkSessionId } : {})
     })
   })

@@ -266,6 +266,7 @@ async function requestGemini(prompt: string) {
     body: JSON.stringify({
       model: SUMMARY_MODEL,
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      routeKey: 'report.teacher_summary',
       ...(inkSessionId ? { inkSessionId } : {})
     })
   })

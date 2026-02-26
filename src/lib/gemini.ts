@@ -190,6 +190,13 @@ type GeminiInlineDataPart = {
 
 type GeminiRequestPart = string | GeminiInlineDataPart
 type GeminiPart = { text: string } | GeminiInlineDataPart
+type GeminiRouteKey =
+  | 'grading.evaluate'
+  | 'answer_key.extract'
+  | 'answer_key.reanalyze'
+  | 'report.teacher_summary'
+  | 'report.domain_diagnosis'
+  | 'unknown'
 
 // 🆕 AnswerKey 緩存引用（用於跨請求共享）
 let cachedAnswerKeyHash: string | null = null
@@ -251,9 +258,10 @@ async function executeGeminiRequest(
   modelName: string,
   parts: GeminiRequestPart[],
   inkSessionId: string | null,
-  options?: { useAnswerKeyCache?: boolean }
+  options?: { useAnswerKeyCache?: boolean; routeKey?: GeminiRouteKey }
 ): Promise<{ text: string; data: any }> {
   const useAnswerKeyCache = options?.useAnswerKeyCache ?? false
+  const routeKey = options?.routeKey || 'unknown'
   
   // 🆕 AnswerKey 緩存邏輯
   let answerKeyPayload: { answerKey?: string; answerKeyRef?: string } = {}
@@ -277,6 +285,7 @@ async function executeGeminiRequest(
       model: modelName,
       contents: [{ role: 'user', parts: normalizeParts(parts) }],
       ...(inkSessionId ? { inkSessionId } : {}),
+      routeKey,
       ...answerKeyPayload
     })
   })
@@ -399,11 +408,12 @@ async function executeGeminiRequest(
 async function generateGeminiText(
   modelName: string,
   parts: GeminiRequestPart[],
-  options?: { useAnswerKeyCache?: boolean }
+  options?: { useAnswerKeyCache?: boolean; routeKey?: GeminiRouteKey }
 ): Promise<string> {
   const MAX_RETRIES = 2
   let lastError: Error | null = null
   const useAnswerKeyCache = options?.useAnswerKeyCache ?? false
+  const routeKey = options?.routeKey || 'unknown'
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -413,7 +423,10 @@ async function generateGeminiText(
       // 如果沒有 session，嘗試建立（但不強制，因為用戶可能在非批改流程）
       // ensureInkSessionFresh 會在批改流程中被呼叫
       
-      const result = await executeGeminiRequest(modelName, parts, inkSessionId, { useAnswerKeyCache })
+      const result = await executeGeminiRequest(modelName, parts, inkSessionId, {
+        useAnswerKeyCache,
+        routeKey
+      })
       return result.text
       
     } catch (error) {
@@ -2223,7 +2236,10 @@ ${forcedIds.map((id) => `- 題號 ${id}：studentAnswer="無法辨識", score=0,
     const apiStartTime = performance.now()
     // 🆕 使用 AnswerKey 緩存（只在有 answerKey 且已設置緩存時啟用）
     const useAnswerKeyCache = Boolean(answerKey) && Boolean(cachedAnswerKeyJson)
-    const text = (await generateGeminiText(currentModelName, requestParts, { useAnswerKeyCache }))
+    const text = (await generateGeminiText(currentModelName, requestParts, {
+      useAnswerKeyCache,
+      routeKey: 'grading.evaluate'
+    }))
       .replace(/```json|```/g, '')
       .trim()
     const apiTime = performance.now() - apiStartTime
@@ -2699,7 +2715,9 @@ export async function extractAnswerKeyFromImage(
   const text = (await generateGeminiText(currentModelName, [
     prompt,
     { inlineData: { mimeType, data: imageBase64 } }
-  ]))
+  ], {
+    routeKey: 'answer_key.extract'
+  }))
     .replace(/```json|```/g, '')
     .trim()
 
@@ -2756,7 +2774,9 @@ ${prompt}
   }
 
   console.log('🤖 發送請求到 Gemini API...')
-  const text = (await generateGeminiText(currentModelName, requestParts))
+  const text = (await generateGeminiText(currentModelName, requestParts, {
+    routeKey: 'answer_key.extract'
+  }))
     .replace(/```json|```/g, '')
     .trim()
 
@@ -2813,7 +2833,9 @@ ${basePrompt}
   const text = (await generateGeminiText(currentModelName, [
     reanalyzePrompt,
     { inlineData: { mimeType, data: imageBase64 } }
-  ]))
+  ], {
+    routeKey: 'answer_key.reanalyze'
+  }))
     .replace(/```json|```/g, '')
     .trim()
 

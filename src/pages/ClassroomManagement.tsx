@@ -1038,9 +1038,16 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                           )}
                         </div>
                       ) : (
-                        <button
-                          type="button"
+                        <div
+                          role="button"
+                          tabIndex={0}
                           onClick={() => setSelectedFolder(folder)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              setSelectedFolder(folder)
+                            }
+                          }}
                           className="flex-1 text-left flex items-center justify-between min-w-0"
                         >
                           <div className="flex items-center gap-1 min-w-0 flex-1">
@@ -1060,7 +1067,7 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                             </button>
                           </div>
                           <span className="text-sm font-semibold ml-2">{count}</span>
-                        </button>
+                        </div>
                       )}
                       <button
                         type="button"
