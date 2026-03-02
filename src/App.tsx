@@ -1128,7 +1128,7 @@ function App() {
             </div>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2 md:gap-3">
               <span className="inline-flex h-11 shrink-0 items-center rounded-lg border border-slate-200 bg-white px-3 shadow-sm">
-                <SyncIndicator autoSync={false} />
+                <SyncIndicator autoSync={true} />
               </span>
               {!isStudent && (
                 <span className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm">
