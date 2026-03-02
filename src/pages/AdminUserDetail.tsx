@@ -123,7 +123,7 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="min-h-screen bg-white p-4">
         <div className="max-w-7xl mx-auto">
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="flex items-center justify-center py-12">
@@ -137,7 +137,7 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
 
   if (error || !detail) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="min-h-screen bg-white p-4">
         <div className="max-w-7xl mx-auto">
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="text-center py-12">
@@ -162,10 +162,10 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className="min-h-screen bg-white p-4">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
-        <div className="bg-white rounded-2xl shadow-xl p-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
           <div className="flex items-center gap-4 mb-6">
             <button
               onClick={onBack}
@@ -395,3 +395,4 @@ function InkLedger({
     </div>
   )
 }
+

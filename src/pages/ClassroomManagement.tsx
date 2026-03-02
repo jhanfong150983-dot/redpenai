@@ -5,29 +5,25 @@ import {
   Edit2,
   Trash2,
   ArrowLeft,
-  Layers,
   Loader,
   Folder,
   X,
-  HelpCircle
+  HelpCircle,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { db, generateId } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { checkFolderNameUnique } from '@/lib/utils'
-import {
-  type SortOption,
-  getSortPreference,
-  setSortPreference,
-  sortClassrooms
-} from '@/lib/sort-preferences'
 import { useTutorial } from '@/hooks/useTutorial'
 import { TutorialOverlay } from '@/components/TutorialOverlay'
 import type { Classroom, Student } from '@/lib/db'
 
 interface ClassroomManagementProps {
   onBack?: () => void
+  embedded?: boolean
 }
 
 interface ClassroomWithStats {
@@ -41,9 +37,26 @@ interface StudentRow {
   tempId: string
   seatNumber: string
   name: string
+  email: string
 }
 
-export default function ClassroomManagement({ onBack }: ClassroomManagementProps) {
+const CLASSROOM_ORDER_STORAGE_KEY = 'redpen-classroom-order'
+const FOLDER_ORDER_STORAGE_KEY = 'redpen-classroom-folder-order'
+
+const reorderList = <T,>(list: T[], draggedItem: T, targetItem: T): T[] => {
+  const fromIndex = list.indexOf(draggedItem)
+  const toIndex = list.indexOf(targetItem)
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return list
+  const next = [...list]
+  const [item] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, item)
+  return next
+}
+
+const isSameStringArray = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index])
+
+export default function ClassroomManagement({ onBack, embedded = false }: ClassroomManagementProps) {
   // 引导式教学
   const tutorial = useTutorial('classroom')
 
@@ -53,18 +66,22 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
 
   // 資料夾篩選
   const [selectedFolder, setSelectedFolder] = useState<string>('__uncategorized__')
+  const [expandedFolders, setExpandedFolders] = useState<string[]>([])
 
-  // 排序功能
-  const [sortOption, setSortOption] = useState<SortOption>(() => getSortPreference('classroom'))
+  // 手動排序（老師自訂）
+  const [classroomOrder, setClassroomOrder] = useState<string[]>([])
+  const [folderOrder, setFolderOrder] = useState<string[]>([])
 
   // 拖放功能
   const [draggedClassroomId, setDraggedClassroomId] = useState<string | null>(null)
+  const [draggedFolderName, setDraggedFolderName] = useState<string | null>(null)
   const [dropTargetFolder, setDropTargetFolder] = useState<string | null>(null)
+  const [dragOverClassroomId, setDragOverClassroomId] = useState<string | null>(null)
+  const [dragOverFolderName, setDragOverFolderName] = useState<string | null>(null)
 
   // 新增班級（透過懸浮視窗）
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [newName, setNewName] = useState('')
-  const [newStudentCount, setNewStudentCount] = useState(30)
   const [importText, setImportText] = useState('')
   const [isCreating, setIsCreating] = useState(false)
 
@@ -165,67 +182,111 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
     const folders = items
       .map((item) => item.classroom.folder)
       .filter((f): f is string => !!f && !!f.trim())
-    const allFolders = [...new Set([...folders, ...emptyFolders])]
+    return [...new Set([...folders, ...emptyFolders])]
+  }, [items, emptyFolders])
 
-    // 根據排序選項排序資料夾
-    if (sortOption === 'name-asc') {
-      // A-Z 中文筆畫排序
-      const collator = new Intl.Collator('zh-Hans-CN', { sensitivity: 'base', numeric: true })
-      return allFolders.sort((a, b) => collator.compare(a, b))
-    } else if (sortOption === 'name-desc') {
-      // Z-A 中文筆畫排序
-      const collator = new Intl.Collator('zh-Hans-CN', { sensitivity: 'base', numeric: true })
-      return allFolders.sort((a, b) => collator.compare(b, a))
-    } else if (sortOption === 'time-desc' || sortOption === 'time-asc') {
-      // 時間排序：按資料夾中班級的時間排序
-      return allFolders.sort((a, b) => {
-        // 找出每個資料夾中的班級
-        const itemsA = items.filter(item => item.classroom.folder === a)
-        const itemsB = items.filter(item => item.classroom.folder === b)
+  const orderedFolders = useMemo(() => {
+    const ordered = folderOrder
+      .map((name) => usedFolders.find((folder) => folder === name))
+      .filter((name): name is string => !!name)
+    const missing = usedFolders.filter((folder) => !ordered.includes(folder))
+    return [...ordered, ...missing]
+  }, [folderOrder, usedFolders])
 
-        // 如果資料夾為空，使用0作為時間
-        const timeA = itemsA.length > 0
-          ? (sortOption === 'time-desc'
-            ? Math.max(...itemsA.map(item => item.classroom.updatedAt ?? 0))
-            : Math.min(...itemsA.map(item => item.classroom.updatedAt ?? 0)))
-          : 0
-        const timeB = itemsB.length > 0
-          ? (sortOption === 'time-desc'
-            ? Math.max(...itemsB.map(item => item.classroom.updatedAt ?? 0))
-            : Math.min(...itemsB.map(item => item.classroom.updatedAt ?? 0)))
-          : 0
+  const orderedItems = useMemo(() => {
+    const ordered = classroomOrder
+      .map((id) => items.find((item) => item.classroom.id === id))
+      .filter((item): item is ClassroomWithStats => !!item)
+    const missing = items.filter(
+      (item) => !ordered.some((orderedItem) => orderedItem.classroom.id === item.classroom.id)
+    )
+    return [...ordered, ...missing]
+  }, [classroomOrder, items])
 
-        return sortOption === 'time-desc' ? timeB - timeA : timeA - timeB
-      })
-    }
+  const uncategorizedItems = useMemo(
+    () => orderedItems.filter((item) => !item.classroom.folder),
+    [orderedItems]
+  )
 
-    return allFolders.sort()
-  }, [items, emptyFolders, sortOption])
-
-  // 篩選邏輯
-  const filteredItems = useMemo(() => {
-    let result = items
-    if (selectedFolder) {
-      result = items.filter((item) =>
-        item.classroom.folder === selectedFolder ||
-        (!item.classroom.folder && selectedFolder === '__uncategorized__')
-      )
-    }
-    // 应用排序
-    return sortClassrooms(result.map(item => item.classroom), sortOption).map(classroom => {
-      const original = result.find(item => item.classroom.id === classroom.id)
-      return original!
+  const classroomsByFolder = useMemo(() => {
+    const map = new Map<string, ClassroomWithStats[]>()
+    orderedFolders.forEach((folder) => map.set(folder, []))
+    orderedItems.forEach((item) => {
+      const folder = item.classroom.folder
+      if (!folder) return
+      const list = map.get(folder) ?? []
+      list.push(item)
+      map.set(folder, list)
     })
-  }, [items, selectedFolder, sortOption])
+    return map
+  }, [orderedFolders, orderedItems])
 
-  // 解析匯入的學生名單（座號 + 姓名）
-  const parseImportedStudents = (text: string): Array<{ seatNumber: number; name: string }> => {
+  useEffect(() => {
+    setExpandedFolders((prev) => {
+      const kept = prev.filter((folder) => orderedFolders.includes(folder))
+      const additions = orderedFolders.filter((folder) => !kept.includes(folder))
+      return [...kept, ...additions]
+    })
+  }, [orderedFolders])
+
+  useEffect(() => {
+    try {
+      const classroomRaw = localStorage.getItem(CLASSROOM_ORDER_STORAGE_KEY)
+      if (classroomRaw) {
+        const parsed = JSON.parse(classroomRaw)
+        if (Array.isArray(parsed)) {
+          setClassroomOrder(parsed.filter((item): item is string => typeof item === 'string'))
+        }
+      }
+      const folderRaw = localStorage.getItem(FOLDER_ORDER_STORAGE_KEY)
+      if (folderRaw) {
+        const parsed = JSON.parse(folderRaw)
+        if (Array.isArray(parsed)) {
+          setFolderOrder(parsed.filter((item): item is string => typeof item === 'string'))
+        }
+      }
+    } catch (storageError) {
+      console.warn('讀取班級排序設定失敗，將使用預設順序', storageError)
+    }
+  }, [])
+
+  useEffect(() => {
+    const ids = items.map((item) => item.classroom.id)
+    setClassroomOrder((prev) => {
+      const kept = prev.filter((id) => ids.includes(id))
+      const additions = ids.filter((id) => !kept.includes(id))
+      const next = [...kept, ...additions]
+      return isSameStringArray(prev, next) ? prev : next
+    })
+  }, [items])
+
+  useEffect(() => {
+    setFolderOrder((prev) => {
+      const kept = prev.filter((folder) => usedFolders.includes(folder))
+      const additions = usedFolders.filter((folder) => !kept.includes(folder))
+      const next = [...kept, ...additions]
+      return isSameStringArray(prev, next) ? prev : next
+    })
+  }, [usedFolders])
+
+  useEffect(() => {
+    localStorage.setItem(CLASSROOM_ORDER_STORAGE_KEY, JSON.stringify(classroomOrder))
+  }, [classroomOrder])
+
+  useEffect(() => {
+    localStorage.setItem(FOLDER_ORDER_STORAGE_KEY, JSON.stringify(folderOrder))
+  }, [folderOrder])
+
+  // 解析匯入的學生名單（座號 + 姓名 + email(可選)）
+  const parseImportedStudents = (
+    text: string
+  ): Array<{ seatNumber: number; name: string; email?: string }> => {
     const lines = text
       .split(/\r?\n/)
       .map((l) => l.trim())
       .filter((l) => l.length > 0)
 
-    const rows: Array<{ seatNumber: number; name: string }> = []
+    const rows: Array<{ seatNumber: number; name: string; email?: string }> = []
 
     for (const line of lines) {
       // 以逗號 / 逗號全形 / 分號 / Tab 切
@@ -236,9 +297,12 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
 
       if (parts.length >= 2 && /^\d+$/.test(parts[0])) {
         const seatNumber = Number.parseInt(parts[0], 10)
-        const name = parts.slice(1).join(' ')
+        const maybeEmail = parts.length >= 3 ? parts[parts.length - 1] : ''
+        const hasEmail = typeof maybeEmail === 'string' && maybeEmail.includes('@')
+        const name = hasEmail ? parts.slice(1, -1).join(' ') : parts.slice(1).join(' ')
+        const email = hasEmail ? maybeEmail.trim().toLowerCase() : undefined
         if (Number.isFinite(seatNumber) && name) {
-          rows.push({ seatNumber, name })
+          rows.push({ seatNumber, name, email })
         }
         continue
       }
@@ -247,9 +311,14 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
       const m = line.match(/^(\d+)\s+(.+)$/)
       if (m) {
         const seatNumber = Number.parseInt(m[1], 10)
-        const name = m[2].trim()
+        const rawName = m[2].trim()
+        const partsBySpace = rawName.split(/\s+/)
+        const maybeEmail = partsBySpace[partsBySpace.length - 1]
+        const hasEmail = maybeEmail.includes('@')
+        const name = hasEmail ? partsBySpace.slice(0, -1).join(' ') : rawName
+        const email = hasEmail ? maybeEmail.trim().toLowerCase() : undefined
         if (Number.isFinite(seatNumber) && name) {
-          rows.push({ seatNumber, name })
+          rows.push({ seatNumber, name, email })
         }
       }
     }
@@ -269,10 +338,8 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
       return
     }
 
-    // 驗證學生人數（當沒有匯入名單時）
-    const studentNum = Number(newStudentCount)
-    if (imported.length === 0 && (!Number.isFinite(studentNum) || studentNum < 1 || studentNum > 100)) {
-      setError('請輸入學生人數，或貼上匯入的學生名單')
+    if (imported.length === 0) {
+      setError('請填寫匯入學生名單（必填）')
       return
     }
 
@@ -287,34 +354,19 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
       }
       await db.classrooms.add(classroom)
 
-      const students: Student[] = []
-
-      if (imported.length > 0) {
-        for (const row of imported) {
-          students.push({
-            id: generateId(),
-            classroomId: classroom.id,
-            seatNumber: row.seatNumber,
-            name: row.name
-          })
-        }
-      } else {
-        for (let i = 1; i <= newStudentCount; i += 1) {
-          students.push({
-            id: generateId(),
-            classroomId: classroom.id,
-            seatNumber: i,
-            name: `學生 ${i}`
-          })
-        }
-      }
+      const students: Student[] = imported.map((row) => ({
+        id: generateId(),
+        classroomId: classroom.id,
+        seatNumber: row.seatNumber,
+        name: row.name,
+        email: row.email
+      }))
 
       if (students.length > 0) {
         await db.students.bulkAdd(students)
       }
 
       setNewName('')
-      setNewStudentCount(30)
       setImportText('')
       setIsCreateModalOpen(false)
       await loadData()
@@ -370,9 +422,16 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
     setDraggedClassroomId(classroomId)
   }
 
+  const handleFolderDragStart = (folderName: string) => {
+    setDraggedFolderName(folderName)
+  }
+
   const handleDragEnd = () => {
     setDraggedClassroomId(null)
+    setDraggedFolderName(null)
     setDropTargetFolder(null)
+    setDragOverClassroomId(null)
+    setDragOverFolderName(null)
   }
 
   const handleDragOver = (e: React.DragEvent, targetFolder: string) => {
@@ -382,6 +441,71 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
 
   const handleDragLeave = () => {
     setDropTargetFolder(null)
+  }
+
+  const handleClassroomCardDragOver = (e: React.DragEvent, targetClassroomId: string) => {
+    if (!draggedClassroomId || draggedClassroomId === targetClassroomId) return
+    e.preventDefault()
+    setDragOverClassroomId(targetClassroomId)
+  }
+
+  const handleClassroomCardDrop = async (e: React.DragEvent, targetClassroomId: string) => {
+    e.preventDefault()
+
+    if (!draggedClassroomId || draggedClassroomId === targetClassroomId) return
+
+    const dragged = items.find((item) => item.classroom.id === draggedClassroomId)
+    const target = items.find((item) => item.classroom.id === targetClassroomId)
+    if (!dragged || !target) return
+
+    try {
+      if (dragged.classroom.folder !== target.classroom.folder) {
+        await db.classrooms.update(draggedClassroomId, {
+          folder: target.classroom.folder,
+          updatedAt: Date.now()
+        })
+        setItems((prev) =>
+          prev.map((item) =>
+            item.classroom.id === draggedClassroomId
+              ? { ...item, classroom: { ...item.classroom, folder: target.classroom.folder } }
+              : item
+          )
+        )
+      }
+
+      setClassroomOrder((prev) => {
+        const base = [...new Set([...prev, ...items.map((item) => item.classroom.id)])]
+        return reorderList(base, draggedClassroomId, targetClassroomId)
+      })
+
+      requestSync()
+    } catch (error) {
+      console.error('調整班級順序失敗:', error)
+      setError('調整班級順序失敗')
+    } finally {
+      setDraggedClassroomId(null)
+      setDropTargetFolder(null)
+      setDragOverClassroomId(null)
+    }
+  }
+
+  const handleFolderDragOver = (e: React.DragEvent, targetFolder: string) => {
+    if (!draggedFolderName || draggedFolderName === targetFolder) return
+    e.preventDefault()
+    setDragOverFolderName(targetFolder)
+  }
+
+  const handleFolderDropReorder = (e: React.DragEvent, targetFolder: string) => {
+    e.preventDefault()
+    if (!draggedFolderName || draggedFolderName === targetFolder) return
+
+    setFolderOrder((prev) => {
+      const base = [...new Set([...prev, ...orderedFolders])]
+      return reorderList(base, draggedFolderName, targetFolder)
+    })
+
+    setDraggedFolderName(null)
+    setDragOverFolderName(null)
   }
 
   const handleDrop = async (e: React.DragEvent, targetFolder: string) => {
@@ -415,6 +539,7 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
     } finally {
       setDraggedClassroomId(null)
       setDropTargetFolder(null)
+      setDragOverClassroomId(null)
     }
   }
 
@@ -588,6 +713,8 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
 
       await db.students.where('classroomId').equals(classroomId).delete()
       if (assignmentIds.length > 0) {
+        await db.answerExtractionCorrections.where('assignmentId').anyOf(assignmentIds).delete()
+        await db.teacherSummaryCache.where('assignmentId').anyOf(assignmentIds).delete()
         await db.submissions.where('assignmentId').anyOf(assignmentIds).delete()
       }
       await db.assignments.where('classroomId').equals(classroomId).delete()
@@ -616,7 +743,8 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
         id: student.id,
         tempId: student.id,
         seatNumber: String(student.seatNumber),
-        name: student.name
+        name: student.name,
+        email: student.email ?? ''
       }))
     )
     setIsStudentModalOpen(true)
@@ -624,7 +752,7 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
 
   const handleStudentRowChange = (
     tempId: string,
-    field: 'seatNumber' | 'name',
+    field: 'seatNumber' | 'name' | 'email',
     value: string | number
   ) => {
     setStudentRows((prev) =>
@@ -644,7 +772,8 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
       {
         tempId: generateId(),
         seatNumber: String(nextSeat),
-        name: ''
+        name: '',
+        email: ''
       }
     ])
   }
@@ -659,6 +788,7 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
       id?: string
       seatNumber: number
       name: string
+      email?: string
     }> = []
 
     for (const row of studentRows) {
@@ -676,34 +806,99 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
         setStudentModalError(`座號 ${seat} 重複，請修正`)
         return
       }
+      const email = row.email.trim()
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setStudentModalError(`座號 ${seat} 的 email 格式不正確`)
+        return
+      }
       seen.add(seat)
-      cleaned.push({ id: row.id, seatNumber: seat, name })
+      cleaned.push({ id: row.id, seatNumber: seat, name, email: email || undefined })
     }
 
     cleaned.sort((a, b) => a.seatNumber - b.seatNumber)
 
     setIsStudentSaving(true)
     try {
-      const records: Student[] = cleaned.map((row) => ({
-        id: row.id ?? generateId(),
-        classroomId: studentModalClassroom.id,
-        seatNumber: row.seatNumber,
-        name: row.name
-      }))
+      const response = await fetch('/api/data/students-batch-upsert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          classroomId: studentModalClassroom.id,
+          students: cleaned.map((row) => ({
+            id: row.id,
+            seatNumber: row.seatNumber,
+            name: row.name,
+            email: row.email
+          }))
+        })
+      })
+
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(result?.error || '儲存學生名單失敗')
+      }
+
+      const rows = Array.isArray(result?.rows) ? result.rows : []
+      const persistedBySeat = new Map<
+        number,
+        { studentId: string; name: string; email?: string }
+      >()
+
+      rows.forEach((row: any) => {
+        const seatNumber = Number.parseInt(String(row?.seat_number ?? ''), 10)
+        const studentId =
+          typeof row?.student_id === 'string' ? row.student_id.trim() : ''
+        const name = typeof row?.name === 'string' ? row.name.trim() : ''
+        const email =
+          typeof row?.email === 'string' && row.email.trim()
+            ? row.email.trim().toLowerCase()
+            : undefined
+        if (!Number.isFinite(seatNumber) || !studentId || !name) return
+        persistedBySeat.set(seatNumber, { studentId, name, email })
+      })
+
+      const existingStudents = await db.students
+        .where('classroomId')
+        .equals(studentModalClassroom.id)
+        .toArray()
+
+      const records: Student[] = cleaned.map((row) => {
+        const persisted = persistedBySeat.get(row.seatNumber)
+        return {
+          id: persisted?.studentId ?? row.id ?? generateId(),
+          classroomId: studentModalClassroom.id,
+          seatNumber: row.seatNumber,
+          name: persisted?.name ?? row.name,
+          email: persisted?.email ?? row.email
+        }
+      })
+
+      const nextIds = new Set(records.map((item) => item.id))
+      const removedStudentIds = existingStudents
+        .map((student) => student.id)
+        .filter((id) => !nextIds.has(id))
 
       await db.students.bulkPut(records)
+      if (removedStudentIds.length > 0) {
+        await db.students.bulkDelete(removedStudentIds)
+        await queueDeleteMany('students', removedStudentIds)
+      }
 
       setStudentRows(
         records.map((student) => ({
           id: student.id,
           tempId: student.id,
           seatNumber: String(student.seatNumber),
-          name: student.name
+          name: student.name,
+          email: student.email ?? ''
         }))
       )
 
       await loadData()
       requestSync()
+      setIsStudentModalOpen(false)
+      setStudentModalError(null)
     } catch (e) {
       console.error(e)
       setStudentModalError(e instanceof Error ? e.message : '更新學生名單失敗')
@@ -768,10 +963,119 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
     }
   }
 
+  const toggleFolderExpanded = (folder: string) => {
+    setSelectedFolder(folder)
+    setExpandedFolders((prev) =>
+      prev.includes(folder)
+        ? prev.filter((item) => item !== folder)
+        : [...prev, folder]
+    )
+  }
+
+  const renderClassroomCard = (
+    item: ClassroomWithStats,
+    tutorialCard?: string
+  ) => (
+    <div
+      key={item.classroom.id}
+      data-tutorial-card={tutorialCard}
+      draggable={editingId !== item.classroom.id}
+      onDragStart={() => handleDragStart(item.classroom.id)}
+      onDragOver={(e) => handleClassroomCardDragOver(e, item.classroom.id)}
+      onDragLeave={() => {
+        if (dragOverClassroomId === item.classroom.id) {
+          setDragOverClassroomId(null)
+        }
+      }}
+      onDrop={(e) => void handleClassroomCardDrop(e, item.classroom.id)}
+      onDragEnd={handleDragEnd}
+      className={`w-full rounded-xl border bg-white px-4 py-4 transition-colors ${
+        dragOverClassroomId === item.classroom.id
+          ? 'border-green-400 ring-1 ring-green-300'
+          : 'border-slate-200'
+      } ${
+        draggedClassroomId === item.classroom.id ? 'cursor-grabbing opacity-50' : 'cursor-grab'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1">
+            {editingId === item.classroom.id ? (
+              <input
+                autoFocus
+                type="text"
+                value={editingName}
+                onChange={(e) => setEditingName(e.target.value)}
+                onBlur={() => void handleCommitEdit()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    void handleCommitEdit()
+                  } else if (e.key === 'Escape') {
+                    setEditingId(null)
+                    setEditingName('')
+                  }
+                }}
+                placeholder="班級名稱"
+                className="w-full max-w-[220px] rounded border border-gray-300 px-2 py-1 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-green-500"
+                disabled={isSaving}
+              />
+            ) : (
+              <>
+                <p className="truncate text-sm font-semibold text-gray-900">
+                  {item.classroom.name}
+                </p>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setEditingId(item.classroom.id)
+                    setEditingName(item.classroom.name)
+                  }}
+                  className="p-1 text-gray-400 hover:text-green-600"
+                  title="更改名稱"
+                >
+                  <Edit2 className="h-3 w-3" />
+                </button>
+              </>
+            )}
+          </div>
+          <p className="mt-0.5 text-xs text-gray-500">
+            {item.studentCount} 位學生 · {item.assignmentCount} 份作業
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              void openStudentEditor(item)
+            }}
+            className="rounded-full border border-gray-200 bg-white p-1.5 text-gray-600 hover:bg-green-50 hover:text-green-700"
+            title="編輯學生名單"
+          >
+            <Users className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              void handleDeleteClassroom(item)
+            }}
+            className="rounded-full border border-gray-200 bg-white p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-60"
+            title="刪除班級"
+            disabled={isSaving}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-5xl mx-auto pt-8">
-        {onBack && (
+    <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
+      <div className={`${embedded ? 'max-w-none mx-0 pt-0' : 'max-w-5xl mx-auto pt-8'}`}>
+        {onBack && !embedded && (
           <button
             onClick={onBack}
             className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
@@ -782,23 +1086,13 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
         )}
 
         {/* 標題區 */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <div className="flex items-center justify-between gap-3 mb-2">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-blue-100 rounded-xl">
-                <Users className="w-8 h-8 text-blue-600" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">班級管理</h1>
-                <p className="text-sm text-gray-600">
-                  檢視、重新命名與刪除班級，並可快速新增班級與學生座號
-                </p>
-              </div>
-            </div>
+        <div className="mb-4 border-b border-slate-200 pb-3">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-2xl font-semibold text-gray-900">班級管理</h1>
             <button
               type="button"
               onClick={() => tutorial.restart()}
-              className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 text-gray-600 shadow hover:bg-gray-200"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-800"
               title="使用教學"
             >
               <HelpCircle className="w-5 h-5" />
@@ -812,120 +1106,27 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
           </div>
         )}
 
-        {/* 左右分欄 */}
-        <div className="bg-white rounded-2xl shadow-xl flex flex-col md:flex-row overflow-hidden">
-          {/* 左側：班級列表 */}
-          <div className="md:w-1/2 border-b md:border-b-0 md:border-r border-gray-200 p-4 md:p-6 max-h-[70vh] overflow-auto">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-blue-500" />
-                <h2 className="text-sm font-semibold text-gray-700">
-                  已建立的班級
-                </h2>
-              </div>
+        <div className="space-y-4 bg-white">
+          <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-600">班級清單</span>
               {isLoading && (
-                <Loader className="w-4 h-4 text-gray-400 animate-spin" />
+                <Loader className="h-4 w-4 animate-spin text-gray-400" />
               )}
-            </div>
-
-            {filteredItems.length === 0 && !isLoading && (
-              <p className="text-sm text-gray-500">
-                {selectedFolder ? '此資料夾中沒有班級。' : '目前尚未建立任何班級，請點右上角的「＋」新增班級。'}
-              </p>
-            )}
-
-            <div className="space-y-2">
-              {filteredItems.map((item, index) => (
-                <div
-                  key={item.classroom.id}
-                  data-tutorial-card={index === 0 ? 'first-classroom-card' : undefined}
-                  draggable={editingId !== item.classroom.id}
-                  onDragStart={() => handleDragStart(item.classroom.id)}
-                  onDragEnd={handleDragEnd}
-                  className={`w-full px-3 py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-between gap-3 transition-opacity ${
-                    draggedClassroomId === item.classroom.id ? 'opacity-50 cursor-grabbing' : 'cursor-grab'
-                  }`}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1">
-                      {editingId === item.classroom.id ? (
-                        <input
-                          autoFocus
-                          type="text"
-                          value={editingName}
-                          onChange={(e) => setEditingName(e.target.value)}
-                          onBlur={() => void handleCommitEdit()}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              void handleCommitEdit()
-                            } else if (e.key === 'Escape') {
-                              setEditingId(null)
-                              setEditingName('')
-                            }
-                          }}
-                          placeholder="班級名稱"
-                          className="px-2 py-1 border border-blue-300 rounded text-sm w-full max-w-[180px] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          disabled={isSaving}
-                        />
-                      ) : (
-                        <>
-                          <p className="text-sm font-semibold text-gray-900 truncate">
-                            {item.classroom.name}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setEditingId(item.classroom.id)
-                              setEditingName(item.classroom.name)
-                            }}
-                            className="p-1 text-gray-400 hover:text-blue-600"
-                            title="更改名稱"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      {item.studentCount} 位學生 · {item.assignmentCount} 份作業
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void openStudentEditor(item)
-                      }}
-                      className="p-1.5 rounded-full text-gray-400 hover:text-blue-600 hover:bg-blue-50"
-                      title="編輯學生名單"
-                    >
-                      <Users className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        void handleDeleteClassroom(item)
-                      }}
-                      className="p-1.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-60"
-                      title="刪除班級"
-                      disabled={isSaving}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-
-              {/* 新增班級按鈕 */}
+              <button
+                type="button"
+                data-tutorial="create-folder"
+                onClick={() => setIsCreateFolderModalOpen(true)}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Plus className="h-4 w-4" />
+                建立資料夾
+              </button>
               <button
                 type="button"
                 data-tutorial="create-classroom"
                 onClick={() => {
                   setNewName('')
-                  setNewStudentCount(30)
                   setImportText('')
                   setIsCreateModalOpen(true)
                   const stepId = tutorial.flow?.steps?.[tutorial.currentStep]?.id
@@ -933,174 +1134,189 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                     tutorial.nextStep()
                   }
                 }}
-                className="w-full px-4 py-6 rounded-xl text-center border-2 border-dashed border-gray-300 text-gray-600 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex flex-col items-center justify-center gap-2"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-green-600 bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700"
               >
-                <Plus className="w-6 h-6" />
-                <span className="font-medium">新增班級</span>
+                <Plus className="h-4 w-4" />
+                新增班級
               </button>
             </div>
           </div>
 
-          {/* 右側：資料夾列表 */}
-          <div className="md:w-1/2 p-6">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                <Folder className="w-4 h-4" />
-                資料夾
-              </h3>
-              <select
-                value={sortOption}
-                onChange={(e) => {
-                  const newOption = e.target.value as SortOption
-                  setSortOption(newOption)
-                  setSortPreference('classroom', newOption)
-                }}
-                className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-700 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                aria-label="排序方式"
-              >
-                <option value="time-desc">依建立時間（新→舊）</option>
-                <option value="time-asc">依建立時間（舊→新）</option>
-                <option value="name-asc">依名稱A-Z（國字筆畫）</option>
-                <option value="name-desc">依名稱Z-A（國字筆畫）</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              {/* 未分類 */}
-              {items.some((item) => !item.classroom.folder) && (
-                <button
-                  type="button"
+          <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+            <div className="space-y-6">
+              <section>
+                <div
                   onClick={() => setSelectedFolder('__uncategorized__')}
                   onDragOver={(e) => handleDragOver(e, '__uncategorized__')}
                   onDragLeave={handleDragLeave}
-                  onDrop={(e) => handleDrop(e, '__uncategorized__')}
-                  className={`w-full px-4 py-3 rounded-xl text-left transition-all ${
-                    selectedFolder === '__uncategorized__'
-                      ? 'bg-blue-100 border-2 border-blue-500 text-blue-900'
-                      : dropTargetFolder === '__uncategorized__'
-                        ? 'bg-green-100 border-2 border-green-500 text-green-900'
-                        : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                  onDrop={(e) => void handleDrop(e, '__uncategorized__')}
+                  className={`transition-colors ${
+                    dropTargetFolder === '__uncategorized__' ? 'bg-green-50/70' : ''
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">全部</span>
-                    <span className="text-sm font-semibold">
-                      {items.filter((item) => !item.classroom.folder).length}
-                    </span>
-                  </div>
-                </button>
-              )}
-
-              {/* 各資料夾 */}
-              {usedFolders.map((folder, index) => {
-                const count = items.filter((item) => item.classroom.folder === folder).length
-                return (
-                  <div
-                    key={folder}
-                    data-tutorial-folder={index === 0 ? 'first-folder' : undefined}
-                    onDragOver={(e) => handleDragOver(e, folder)}
-                    onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, folder)}
-                    className={`w-full px-4 py-3 rounded-xl transition-all ${
-                      selectedFolder === folder
-                        ? 'bg-blue-100 border-2 border-blue-500 text-blue-900'
-                        : dropTargetFolder === folder
-                          ? 'bg-green-100 border-2 border-green-500 text-green-900'
-                          : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      {editingFolderId === folder ? (
-                        <div className="flex-1 flex flex-col gap-1">
-                          <input
-                            autoFocus
-                            type="text"
-                            value={editingFolderName}
-                            onChange={(e) => {
-                              setEditingFolderName(e.target.value)
-                              setEditingFolderError('')
-                            }}
-                            onBlur={() => void handleCommitFolderEdit()}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                void handleCommitFolderEdit()
-                              } else if (e.key === 'Escape') {
-                                setEditingFolderId(null)
-                                setEditingFolderName('')
-                                setEditingFolderError('')
-                              }
-                            }}
-                            placeholder="資料夾名稱"
-                            className="px-2 py-1 border border-blue-300 rounded text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            disabled={isSaving}
-                          />
-                          {editingFolderError && (
-                            <p className="text-xs text-red-600">{editingFolderError}</p>
-                          )}
-                        </div>
-                      ) : (
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => setSelectedFolder(folder)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              setSelectedFolder(folder)
-                            }
-                          }}
-                          className="flex-1 text-left flex items-center justify-between min-w-0"
-                        >
-                          <div className="flex items-center gap-1 min-w-0 flex-1">
-                            <span className="font-medium truncate">{folder}</span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setEditingFolderId(folder)
-                                setEditingFolderName(folder)
-                                setEditingFolderError('')
-                              }}
-                              className="p-1 text-gray-400 hover:text-blue-600"
-                              title="重新命名"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                          <span className="text-sm font-semibold ml-2">{count}</span>
-                        </div>
+                  {uncategorizedItems.length === 0 && !isLoading ? (
+                    <p className="px-1 text-sm text-gray-500">尚無未分類班級。</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {uncategorizedItems.map((item, index) =>
+                        renderClassroomCard(
+                          item,
+                          index === 0 ? 'first-classroom-card' : undefined
+                        )
                       )}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDeleteFolder(folder)
-                        }}
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
-                        title="刪除資料夾"
-                        disabled={isSaving}
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
                     </div>
-                  </div>
-                )
-              })}
+                  )}
+                </div>
+              </section>
 
-              {/* 新建資料夾按鈕 */}
-              <button
-                type="button"
-                data-tutorial="create-folder"
-                onClick={() => setIsCreateFolderModalOpen(true)}
-                className="w-full px-4 py-3 rounded-xl text-left border-2 border-dashed border-gray-300 text-gray-600 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="font-medium">新建資料夾</span>
-              </button>
-            </div>
+              <section>
+                <div className="space-y-3">
+                  {orderedFolders.map((folder, index) => {
+                    const folderClassrooms = classroomsByFolder.get(folder) ?? []
+                    const isExpanded = expandedFolders.includes(folder)
+                    const isAssignmentDropTarget =
+                      !!draggedClassroomId && dropTargetFolder === folder
+                    const isFolderReorderTarget =
+                      !!draggedFolderName && dragOverFolderName === folder
+                    const isSelected = selectedFolder === folder
 
-            <div className="mt-6 p-3 bg-gray-50 rounded-lg text-xs text-gray-600">
-              <p className="font-semibold mb-1">小提示：</p>
-              <p>點擊資料夾可篩選班級，拖曳班級卡片到資料夾中分類。</p>
+                    return (
+                      <div
+                        key={folder}
+                        data-tutorial-folder={index === 0 ? 'first-folder' : undefined}
+                        draggable={editingFolderId !== folder}
+                        onDragStart={() => handleFolderDragStart(folder)}
+                        onDragEnd={handleDragEnd}
+                        onDragOver={(e) => {
+                          handleDragOver(e, folder)
+                          handleFolderDragOver(e, folder)
+                        }}
+                        onDragLeave={() => {
+                          handleDragLeave()
+                          if (dragOverFolderName === folder) {
+                            setDragOverFolderName(null)
+                          }
+                        }}
+                        onDrop={(e) => {
+                          if (draggedClassroomId) {
+                            void handleDrop(e, folder)
+                            return
+                          }
+                          handleFolderDropReorder(e, folder)
+                        }}
+                        className={`rounded-xl border bg-white transition-all ${
+                          isAssignmentDropTarget
+                            ? 'border-green-400 bg-green-50'
+                            : isFolderReorderTarget
+                              ? 'border-blue-400 bg-blue-50/60'
+                            : isSelected
+                              ? 'border-green-300 bg-green-50/40'
+                              : 'border-slate-200'
+                        } ${
+                          draggedFolderName === folder
+                            ? 'opacity-60 cursor-grabbing'
+                            : editingFolderId === folder
+                              ? ''
+                              : 'cursor-grab'
+                        }`}
+                      >
+                        <div className="px-3 py-3">
+                          <div className="flex items-center justify-between gap-2">
+                            {editingFolderId === folder ? (
+                              <div className="flex flex-1 flex-col gap-1">
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  value={editingFolderName}
+                                  onChange={(e) => {
+                                    setEditingFolderName(e.target.value)
+                                    setEditingFolderError('')
+                                  }}
+                                  onBlur={() => void handleCommitFolderEdit()}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      void handleCommitFolderEdit()
+                                    } else if (e.key === 'Escape') {
+                                      setEditingFolderId(null)
+                                      setEditingFolderName('')
+                                      setEditingFolderError('')
+                                    }
+                                  }}
+                                  placeholder="資料夾名稱"
+                                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-green-500"
+                                  disabled={isSaving}
+                                />
+                                {editingFolderError && (
+                                  <p className="text-xs text-red-600">{editingFolderError}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => toggleFolderExpanded(folder)}
+                                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                              >
+                                {isExpanded ? (
+                                  <ChevronDown className="h-4 w-4 flex-shrink-0 text-gray-500" />
+                                ) : (
+                                  <ChevronRight className="h-4 w-4 flex-shrink-0 text-gray-500" />
+                                )}
+                                <Folder className="h-4 w-4 flex-shrink-0 text-gray-500" />
+                                <span className="truncate font-medium text-gray-900">
+                                  {folder}
+                                </span>
+                                <span className="ml-auto text-xs text-gray-500">
+                                  {folderClassrooms.length} 班
+                                </span>
+                              </button>
+                            )}
+                            <div className="flex items-center gap-1">
+                              {editingFolderId !== folder && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setEditingFolderId(folder)
+                                    setEditingFolderName(folder)
+                                    setEditingFolderError('')
+                                  }}
+                                  className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-green-50 hover:text-green-700"
+                                  title="重新命名"
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDeleteFolder(folder)
+                                }}
+                                className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                                title="刪除資料夾"
+                                disabled={isSaving}
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        {isExpanded && (
+                          <div className="border-t border-gray-100 bg-gray-50/40 px-3 py-3">
+                            {folderClassrooms.length === 0 ? (
+                              <p className="px-1 text-sm text-gray-500">此資料夾沒有班級。</p>
+                            ) : (
+                              <div className="space-y-2">
+                                {folderClassrooms.map((item) => renderClassroomCard(item))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
             </div>
           </div>
         </div>
@@ -1153,52 +1369,30 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="例如：七年甲班"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   disabled={isCreating}
                 />
               </div>
 
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    學生人數（自動產生）
-                  </label>
-                  <div className="relative">
-                    <NumericInput
-                      data-tutorial="classroom-student-count"
-                      min={1}
-                      max={100}
-                      value={newStudentCount}
-                      onChange={(v) => setNewStudentCount(typeof v === 'number' ? v : (v === '' ? ('' as unknown as number) : 1))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      disabled={isCreating}
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
-                      人
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500">
-                    若未匯入學生名單，將自動產生「學生 1、學生 2、...」。
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    匯入學生名單（可選）
-                  </label>
-                  <textarea
-                    data-tutorial="classroom-import"
-                    rows={6}
-                    value={importText}
-                    onChange={(e) => setImportText(e.target.value)}
-                    placeholder={`範例（可從 Excel 貼上）：\n1\t王小明\n2\t李小華\n3\t張同學\n\n或使用「1,王小明」這種格式。`}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    disabled={isCreating}
-                  />
-                  <p className="mt-1 text-xs text-gray-500">
-                    若有填寫此區，將以匯入名單為主，忽略上方學生人數。
-                  </p>
-                </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
+                  匯入學生名單 <span className="text-red-500">*</span>
+                  <span className="ml-2 text-[11px] font-normal text-gray-500">
+                    格式：座號,姓名,email(可選)
+                  </span>
+                </label>
+                <textarea
+                  data-tutorial="classroom-import"
+                  rows={8}
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  placeholder={`範例（可從 Excel 貼上）：\n1\t王小明\ts01@example.com\n2\t李小華\ts02@example.com\n3\t張同學\n\n也可用「1,王小明,s01@example.com」格式。`}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  disabled={isCreating}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  建立班級時必須提供名單，系統會依座號建立學生資料。
+                </p>
               </div>
 
               <div className="pt-2 flex justify-end gap-2">
@@ -1218,7 +1412,7 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                   data-tutorial="classroom-submit"
                   type="submit"
                   disabled={isCreating || !newName.trim()}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   {isCreating ? (
                     <>
@@ -1259,7 +1453,7 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                   編輯學生名單 · {studentModalClassroom.name}
                 </h2>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  可調整座號與姓名，新增學生後會依座號排序。
+                  可調整座號、姓名與 email（可留空），新增學生後會依座號排序。
                 </p>
               </div>
               <button
@@ -1283,21 +1477,22 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                 </div>
               )}
 
-              <div className="grid grid-cols-[90px_1fr] gap-2 text-xs text-gray-500">
+              <div className="grid grid-cols-[90px_1fr_1.2fr] gap-2 text-xs text-gray-500">
                 <span>座號</span>
                 <span>學生姓名</span>
+                <span>學生 email（可選）</span>
               </div>
 
               <div className="space-y-2 max-h-[45vh] overflow-auto">
                 {studentRows.map((row) => (
-                  <div key={row.tempId} className="grid grid-cols-[90px_1fr] gap-2">
+                  <div key={row.tempId} className="grid grid-cols-[90px_1fr_1.2fr] gap-2">
                     <NumericInput
                       min={1}
                       value={row.seatNumber}
                       onChange={(v) =>
                         handleStudentRowChange(row.tempId, 'seatNumber', v)
                       }
-                      className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                       disabled={isStudentSaving}
                     />
                     <input
@@ -1306,7 +1501,17 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                       onChange={(e) =>
                         handleStudentRowChange(row.tempId, 'name', e.target.value)
                       }
-                      className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      disabled={isStudentSaving}
+                    />
+                    <input
+                      type="email"
+                      value={row.email}
+                      onChange={(e) =>
+                        handleStudentRowChange(row.tempId, 'email', e.target.value)
+                      }
+                      placeholder="student@example.com"
+                      className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                       disabled={isStudentSaving}
                     />
                   </div>
@@ -1342,7 +1547,7 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                     type="button"
                     onClick={handleSaveStudents}
                     disabled={isStudentSaving || studentRows.length === 0}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
                     {isStudentSaving ? (
                       <>
@@ -1416,7 +1621,7 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                   className={`w-full px-3 py-2 border ${
                     newFolderError ? 'border-red-300' : 'border-gray-300'
                   } rounded-lg text-sm focus:outline-none focus:ring-2 ${
-                    newFolderError ? 'focus:ring-red-500' : 'focus:ring-blue-500'
+                    newFolderError ? 'focus:ring-red-500' : 'focus:ring-green-500'
                   } focus:border-transparent`}
                   autoFocus
                   onKeyDown={(e) => {
@@ -1432,7 +1637,7 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                 )}
               </div>
 
-              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                 <p className="text-xs text-gray-700">
                   建立資料夾後，可將班級卡片拖曳到資料夾中進行分類。
                 </p>
@@ -1455,7 +1660,7 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
                 type="button"
                 onClick={handleCreateFolder}
                 disabled={!newFolderName.trim() || !!newFolderError}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 <Plus className="w-4 h-4" />
                 建立資料夾
@@ -1470,3 +1675,4 @@ export default function ClassroomManagement({ onBack }: ClassroomManagementProps
     </div>
   )
 }
+

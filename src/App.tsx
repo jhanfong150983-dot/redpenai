@@ -1,15 +1,20 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Users,
-  BookOpen,
   Sparkles,
-  FileImage,
-  ClipboardCheck,
   Shield,
   Droplet,
   Crown,
-  BarChart3
+  BarChart3,
+  LayoutDashboard,
+  FilePlus2,
+  FileText,
+  SlidersHorizontal,
+  ChevronDown,
+  Bell,
+  X
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import ClassroomManagement from '@/pages/ClassroomManagement'
 import AssignmentSetup from '@/pages/AssignmentSetup'
 import AssignmentList from '@/pages/AssignmentList'
@@ -20,6 +25,7 @@ import AssignmentScanImport from '@/pages/AssignmentScanImport'
 import CorrectionSelect from '@/pages/CorrectionSelect'
 import CorrectionManagement from '@/pages/CorrectionManagement'
 import Gradebook from '@/pages/Gradebook'
+import StudentPortal from '@/pages/StudentPortal'
 import AdminPanel from '@/pages/AdminPanel'
 import InkTopUp from '@/pages/InkTopUp'
 import AiReport from '@/pages/AiReport'
@@ -32,6 +38,12 @@ import { debugLog } from '@/lib/logger'
 import { LEGAL_MODAL_EVENT, type LegalModalDetail } from '@/lib/legal-events'
 import { TERMS_VERSION, PRIVACY_VERSION, REFUND_FEE_RATE } from '@/lib/legal'
 import AdminUserDetail from '@/pages/AdminUserDetail'
+import TeacherPreferences from '@/pages/TeacherPreferences'
+import {
+  db,
+  type Classroom,
+  type Submission
+} from '@/lib/db'
 
 type Page =
   | 'home'
@@ -49,6 +61,23 @@ type Page =
   | 'admin-panel'
   | 'admin-user-detail'
   | 'ink-topup'
+  | 'teacher-preferences'
+
+type TeacherNotification = {
+  id: number
+  event: string
+  data: Record<string, unknown>
+  is_read: boolean
+  created_at: string
+}
+
+const NOTIFICATION_LABELS: Record<string, string> = {
+  submission_uploaded: '學生已提交作業',
+  grading_completed: '批改完成',
+  correction_dispatched: '已派發訂正',
+  correction_submitted: '學生提交訂正',
+  correction_limit_reached: '訂正次數已達上限'
+}
 
 type AuthState =
   | { status: 'loading' }
@@ -63,6 +92,14 @@ type AuthState =
         role?: string
         permissionTier?: string
         inkBalance?: number
+        student?: {
+          id: string
+          classroomId: string
+          seatNumber: number
+          name: string
+          ownerId: string
+          email?: string | null
+        }
       }
     }
 type InkOrderSummary = {
@@ -77,10 +114,73 @@ type PendingInkSummary = {
   amountTwd: number
 }
 
+type HomeOverviewSummary = {
+  totalAssignments: number
+  assignmentsWithoutUploads: number
+  uploadedSubmissions: number
+  gradedSubmissions: number
+  pendingGradingSubmissions: number
+}
+
+type AssignmentWorkflowStatus =
+  | 'missing-answer-key'
+  | 'missing-submission'
+  | 'pending-grading'
+  | 'correction-followup'
+  | 'completed'
+
+type HomeOverviewItem = {
+  id: string
+  title: string
+  classroomName: string
+  totalStudents: number
+  uploadedCount: number
+  gradedCount: number
+  pendingGradingCount: number
+  correctionCount: number
+  hasAnswerKey: boolean
+  workflowStatus: AssignmentWorkflowStatus
+  workflowPriority: number
+  progressPercent: number
+}
+
+type HomeNavItem = {
+  key: string
+  label: string
+  description: string
+  icon: LucideIcon
+  onClick: () => void
+  disabled?: boolean
+  badge?: string
+}
+
+type HomeNavSection = {
+  title: string
+  items: HomeNavItem[]
+}
+
+type LoginEntryMode = 'teacher' | 'student'
+
+const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
+
+const normalizeLoginEntry = (value: unknown): LoginEntryMode | null => {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'teacher' || normalized === 'student') return normalized
+  return null
+}
+
+const OVERVIEW_VISIBLE_STEP = 3
+
 function App() {
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' })
+  const [loginEntry, setLoginEntry] = useState<LoginEntryMode | null>(null)
   const [currentPage, setCurrentPage] = useState<Page>('home')
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>('')
+  const [gradingSelectedClassroomId, setGradingSelectedClassroomId] = useState<string>('')
+  const [gradingSelectedFolder, setGradingSelectedFolder] = useState<string>('')
+  const [importSelectedClassroomId, setImportSelectedClassroomId] = useState<string>('')
+  const [importSelectedFolder, setImportSelectedFolder] = useState<string>('')
   const [selectedUserId, setSelectedUserId] = useState<string>('')
   const [isAiDisclaimerOpen, setIsAiDisclaimerOpen] = useState(false)
   const [isIpDisclaimerOpen, setIsIpDisclaimerOpen] = useState(false)
@@ -88,11 +188,29 @@ function App() {
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false)
   const [urlPageHandled, setUrlPageHandled] = useState(false)
   const [hasPaidOrder, setHasPaidOrder] = useState(false)
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
+  const [homeOverviewLoading, setHomeOverviewLoading] = useState(false)
+  const [homeOverviewSummary, setHomeOverviewSummary] = useState<HomeOverviewSummary>({
+    totalAssignments: 0,
+    assignmentsWithoutUploads: 0,
+    uploadedSubmissions: 0,
+    gradedSubmissions: 0,
+    pendingGradingSubmissions: 0
+  })
+  const [homeOverviewItems, setHomeOverviewItems] = useState<HomeOverviewItem[]>([])
+  const [visibleOverviewCount, setVisibleOverviewCount] = useState(
+    OVERVIEW_VISIBLE_STEP
+  )
+  const [isCameraCaptureMode, setIsCameraCaptureMode] = useState(false)
   const [pendingInk, setPendingInk] = useState<PendingInkSummary>({
     count: 0,
     totalDrops: 0,
     amountTwd: 0
   })
+  const [notifications, setNotifications] = useState<TeacherNotification[]>([])
+  const [isNotifOpen, setIsNotifOpen] = useState(false)
+  const notifRef = useRef<HTMLDivElement | null>(null)
+  const userMenuRef = useRef<HTMLDivElement | null>(null)
   const inkBalance =
     auth.status === 'authenticated' ? auth.user.inkBalance ?? 0 : null
 
@@ -151,9 +269,45 @@ function App() {
     } catch (error) {
       console.error('登出失敗', error)
     } finally {
+      setIsUserMenuOpen(false)
       setAuth({ status: 'unauthenticated' })
+      setLoginEntry(null)
       setCurrentPage('home')
       setSelectedAssignmentId('')
+      setGradingSelectedClassroomId('')
+      setGradingSelectedFolder('')
+      setImportSelectedClassroomId('')
+      setImportSelectedFolder('')
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(LOGIN_ENTRY_STORAGE_KEY)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const params = new URLSearchParams(window.location.search)
+    const entryFromQuery = normalizeLoginEntry(params.get('entry'))
+    const entryFromStorage = normalizeLoginEntry(
+      window.localStorage.getItem(LOGIN_ENTRY_STORAGE_KEY)
+    )
+    const nextEntry = entryFromQuery ?? entryFromStorage ?? null
+
+    setLoginEntry(nextEntry)
+    if (nextEntry) {
+      window.localStorage.setItem(LOGIN_ENTRY_STORAGE_KEY, nextEntry)
+    } else {
+      window.localStorage.removeItem(LOGIN_ENTRY_STORAGE_KEY)
+    }
+
+    if (entryFromQuery) {
+      params.delete('entry')
+      const query = params.toString()
+      const url = query
+        ? `${window.location.pathname}?${query}`
+        : window.location.pathname
+      window.history.replaceState({}, '', url)
     }
   }, [])
 
@@ -280,6 +434,36 @@ function App() {
     window.addEventListener(LEGAL_MODAL_EVENT, handleLegalModal)
     return () => window.removeEventListener(LEGAL_MODAL_EVENT, handleLegalModal)
   }, [])
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!userMenuRef.current) return
+      if (!userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false)
+      }
+    }
+
+    window.addEventListener('mousedown', handleOutsideClick)
+    return () => window.removeEventListener('mousedown', handleOutsideClick)
+  }, [])
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!notifRef.current) return
+      if (!notifRef.current.contains(event.target as Node)) {
+        setIsNotifOpen(false)
+      }
+    }
+
+    window.addEventListener('mousedown', handleOutsideClick)
+    return () => window.removeEventListener('mousedown', handleOutsideClick)
+  }, [])
+
+  useEffect(() => {
+    if (currentPage !== 'home') {
+      setIsUserMenuOpen(false)
+    }
+  }, [currentPage])
 
   const refundFeePercent = Math.round(REFUND_FEE_RATE * 1000) / 10
   const legalModals = (
@@ -413,6 +597,28 @@ function App() {
 
   const isAdmin =
     auth.status === 'authenticated' && auth.user.role === 'admin'
+  const hasStudentContext =
+    auth.status === 'authenticated' && Boolean(auth.user.student?.id)
+  const viewMode =
+    auth.status !== 'authenticated'
+      ? 'guest'
+      : loginEntry === 'student'
+        ? hasStudentContext
+          ? 'student'
+          : 'student-unlinked'
+        : loginEntry === 'teacher'
+          ? 'teacher'
+          : auth.user.role === 'student'
+            ? 'student'
+            : 'teacher'
+  const isStudent = viewMode === 'student'
+
+  useEffect(() => {
+    if (!isStudent && currentPage !== 'assignment-scan' && isCameraCaptureMode) {
+      setIsCameraCaptureMode(false)
+    }
+  }, [currentPage, isCameraCaptureMode, isStudent])
+
   const isProTier =
     auth.status === 'authenticated' &&
     (auth.user.permissionTier === 'advanced' || hasPaidOrder)
@@ -434,6 +640,137 @@ function App() {
     return true
   }, [auth, setCurrentPage])
 
+  const loadHomeOverview = useCallback(async () => {
+    setHomeOverviewLoading(true)
+    try {
+      const [assignments, classrooms, students, submissions] = await Promise.all([
+        db.assignments.toArray(),
+        db.classrooms.toArray(),
+        db.students.toArray(),
+        db.submissions.toArray()
+      ])
+
+      const classroomMap = new Map<string, Classroom>(
+        classrooms.map((classroom) => [classroom.id, classroom])
+      )
+      const studentCountByClassroom = new Map<string, number>()
+      students.forEach((student) => {
+        const current = studentCountByClassroom.get(student.classroomId) ?? 0
+        studentCountByClassroom.set(student.classroomId, current + 1)
+      })
+
+      const submissionsByAssignment = new Map<string, Submission[]>()
+      submissions.forEach((submission) => {
+        const list = submissionsByAssignment.get(submission.assignmentId) ?? []
+        list.push(submission)
+        submissionsByAssignment.set(submission.assignmentId, list)
+      })
+
+      const overviewItems = assignments
+        .map<HomeOverviewItem>((assignment) => {
+          const relatedSubmissions = submissionsByAssignment.get(assignment.id) ?? []
+          const uploadedCount = relatedSubmissions.filter(
+            (submission) => submission.status !== 'missing'
+          ).length
+          const gradedCount = relatedSubmissions.filter(
+            (submission) => submission.status === 'graded'
+          ).length
+          const pendingGradingCount = relatedSubmissions.filter(
+            (submission) =>
+              submission.status === 'scanned' || submission.status === 'synced'
+          ).length
+          const correctionCount = relatedSubmissions.filter(
+            (submission) => (submission.correctionCount ?? 0) > 0
+          ).length
+          const totalStudents =
+            studentCountByClassroom.get(assignment.classroomId) ?? 0
+          const denominator = Math.max(uploadedCount, totalStudents)
+          const progressPercent =
+            denominator > 0
+              ? Math.round((gradedCount / denominator) * 100)
+              : 0
+          const hasAnswerKey = Boolean(assignment.answerKey)
+          let workflowStatus: AssignmentWorkflowStatus = 'completed'
+          let workflowPriority = 9
+          if (!hasAnswerKey) {
+            workflowStatus = 'missing-answer-key'
+            workflowPriority = 1
+          } else if (uploadedCount === 0) {
+            workflowStatus = 'missing-submission'
+            workflowPriority = 2
+          } else if (pendingGradingCount > 0) {
+            workflowStatus = 'pending-grading'
+            workflowPriority = 3
+          } else if (correctionCount > 0) {
+            workflowStatus = 'correction-followup'
+            workflowPriority = 4
+          }
+
+          return {
+            id: assignment.id,
+            title: assignment.title || '未命名作業',
+            classroomName:
+              classroomMap.get(assignment.classroomId)?.name ?? '未知班級',
+            totalStudents,
+            uploadedCount,
+            gradedCount,
+            pendingGradingCount,
+            correctionCount,
+            hasAnswerKey,
+            workflowStatus,
+            workflowPriority,
+            progressPercent
+          }
+        })
+        .sort((a, b) => a.workflowPriority - b.workflowPriority)
+
+      const uploadedSubmissions = overviewItems.reduce(
+        (sum, item) => sum + item.uploadedCount,
+        0
+      )
+      const gradedSubmissions = overviewItems.reduce(
+        (sum, item) => sum + item.gradedCount,
+        0
+      )
+      const pendingGradingSubmissions = overviewItems.reduce(
+        (sum, item) => sum + item.pendingGradingCount,
+        0
+      )
+      const assignmentsWithoutUploads = overviewItems.filter(
+        (item) => item.uploadedCount === 0
+      ).length
+
+      const summary: HomeOverviewSummary = {
+        totalAssignments: overviewItems.length,
+        assignmentsWithoutUploads,
+        uploadedSubmissions,
+        gradedSubmissions,
+        pendingGradingSubmissions
+      }
+
+      setHomeOverviewSummary(summary)
+      setHomeOverviewItems(overviewItems)
+    } catch (error) {
+      console.error('載入作業總覽失敗', error)
+    } finally {
+      setHomeOverviewLoading(false)
+    }
+  }, [])
+
+  const loadNotifications = useCallback(async () => {
+    if (auth.status !== 'authenticated') return
+    try {
+      const res = await fetch('/api/data/teacher-notifications', { credentials: 'include' })
+      if (!res.ok) return
+      const data = await res.json()
+      if (Array.isArray(data?.notifications)) {
+        setNotifications(data.notifications as TeacherNotification[])
+      }
+    } catch {
+      // ignore
+    }
+  }, [auth.status])
+
   useEffect(() => {
     if (urlPageHandled) return
     if (auth.status !== 'authenticated') return
@@ -443,6 +780,10 @@ function App() {
     let nextPage: Page | null = null
 
     switch (pageParam) {
+      case 'classroom-management':
+      case 'classroom':
+        nextPage = 'classroom-management'
+        break
       case 'ink-topup':
         nextPage = 'ink-topup'
         break
@@ -481,6 +822,28 @@ function App() {
     setUrlPageHandled(true)
   }, [auth.status, canAccessTracking, isAdmin, urlPageHandled])
 
+  useEffect(() => {
+    if (auth.status !== 'authenticated') return
+    if (currentPage !== 'home') return
+    void loadHomeOverview()
+  }, [auth.status, currentPage, loadHomeOverview])
+
+  useEffect(() => {
+    if (currentPage !== 'home') return
+    setVisibleOverviewCount(OVERVIEW_VISIBLE_STEP)
+  }, [currentPage])
+
+  useEffect(() => {
+    if (auth.status !== 'authenticated') return
+    if (!isUserMenuOpen) return
+    void loadHomeOverview()
+  }, [auth.status, isUserMenuOpen, loadHomeOverview])
+
+  useEffect(() => {
+    if (auth.status !== 'authenticated') return
+    void loadNotifications()
+  }, [auth.status, loadNotifications])
+
   if (auth.status === 'loading') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
@@ -496,88 +859,26 @@ function App() {
     return <LandingPage />
   }
 
-  // 班級管理
-  if (currentPage === 'classroom-management') {
+  if (viewMode === 'student-unlinked') {
     return (
-      <ClassroomManagement onBack={() => setCurrentPage('home')} />
-    )
-  }
-
-  // 作業管理
-  if (currentPage === 'assignment-setup') {
-    return (
-      <AssignmentSetup
-        onBack={() => setCurrentPage('home')}
-        inkBalance={auth.user.inkBalance ?? 0}
-        onRequireInkTopUp={() => setCurrentPage('ink-topup')}
-      />
-    )
-  }
-
-  // 作業匯入：選擇作業並決定匯入方式
-  if (currentPage === 'assignment-import-select') {
-    return (
-      <AssignmentImportSelect
-        onBack={() => setCurrentPage('home')}
-        onSelectScanImport={(assignmentId) => {
-          setSelectedAssignmentId(assignmentId)
-          setCurrentPage('assignment-scan')
-        }}
-        onSelectBatchImport={(assignmentId) => {
-          setSelectedAssignmentId(assignmentId)
-          setCurrentPage('assignment-import')
-        }}
-      />
-    )
-  }
-
-  // 掃描匯入
-  if (currentPage === 'assignment-scan' && selectedAssignmentId) {
-    return (
-      <AssignmentScanImport
-        assignmentId={selectedAssignmentId}
-        onBack={() => setCurrentPage('assignment-import-select')}
-        onUploadComplete={() => setCurrentPage('home')}
-      />
-    )
-  }
-
-  // AI 批改：作業列表
-  if (currentPage === 'grading-list') {
-    return (
-      <AssignmentList
-        onBack={() => setCurrentPage('home')}
-        onSelectAssignment={(assignmentId) => {
-          if (!ensureInkNonNegative()) return
-          setSelectedAssignmentId(assignmentId)
-          setCurrentPage('grading')
-        }}
-      />
-    )
-  }
-
-  // 成績簿
-  if (currentPage === 'gradebook') {
-    if (!canAccessTracking) {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
-            <p className="text-sm text-gray-600">
-              Pro 權限才可使用後續追蹤功能。
-            </p>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4">
+        <div className="mx-auto mt-16 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <h1 className="text-xl font-semibold text-slate-900">尚未有班級</h1>
+          <p className="mt-3 text-sm text-slate-600">
+            你尚未被老師加入班級，請向老師確認。
+          </p>
+          <div className="mt-6 flex justify-center">
             <button
               type="button"
-              onClick={() => setCurrentPage('home')}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+              onClick={handleLogout}
+              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
             >
-              返回首頁
+              返回登入
             </button>
           </div>
         </div>
-      )
-    }
-    return (<Gradebook onBack={() => setCurrentPage('home')} />)
+      </div>
+    )
   }
 
   if (currentPage === 'ai-report') {
@@ -686,370 +987,814 @@ function App() {
     )
   }
 
-  // AI 批改：單一作業批改介面
-  if (currentPage === 'grading' && selectedAssignmentId) {
-    return (
-      <GradingPage
-        assignmentId={selectedAssignmentId}
-        onBack={() => setCurrentPage('grading-list')}
-        onRequireInkTopUp={() => setCurrentPage('ink-topup')}
-      />
-    )
-  }
+  const permissionLabel = isAdmin ? '管理者' : isProTier ? 'Pro' : 'Basic'
+  const userDisplayName = isStudent
+    ? auth.user.student?.name || auth.user.name || auth.user.email
+    : auth.user.name || auth.user.email
+  const userInitial = userDisplayName.trim().charAt(0).toUpperCase() || 'U'
+  const todoOverviewItems = homeOverviewItems.filter(
+    (item) => item.workflowStatus !== 'completed'
+  )
+  const visibleOverviewItems = todoOverviewItems.slice(0, visibleOverviewCount)
+  const hasMoreOverviewItems = todoOverviewItems.length > visibleOverviewCount
+  const remainingOverviewItems = Math.max(
+    todoOverviewItems.length - visibleOverviewCount,
+    0
+  )
 
-  // 批次匯入（PDF／檔案）
-  if (currentPage === 'assignment-import' && selectedAssignmentId) {
-    return (
-      <AssignmentImport
-        assignmentId={selectedAssignmentId}
-        onBack={() => setCurrentPage('assignment-import-select')}
-        onUploadComplete={() => setCurrentPage('home')}
-      />
-    )
-  }
-
-  // 訂正管理：選擇作業
-  if (currentPage === 'correction-select') {
-    if (!canAccessTracking) {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
-            <p className="text-sm text-gray-600">
-              Pro 權限才可使用後續追蹤功能。
-            </p>
-            <button
-              type="button"
-              onClick={() => setCurrentPage('home')}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
-            >
-              返回首頁
-            </button>
-          </div>
-        </div>
-      )
+  const isNavItemActive = (key: string): boolean => {
+    switch (key) {
+      case 'overview': return currentPage === 'home'
+      case 'assignment-setup': return currentPage === 'assignment-setup'
+      case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'assignment-import', 'assignment-scan', 'correction-select', 'correction'].includes(currentPage)
+      case 'gradebook': return currentPage === 'gradebook'
+      case 'report': return false
+      case 'classroom-management': return currentPage === 'classroom-management'
+      case 'preferences': return currentPage === 'teacher-preferences'
+      default: return false
     }
-    return (
-      <CorrectionSelect
-        onBack={() => setCurrentPage('home')}
-        onSelectAssignment={(id) => {
-          setSelectedAssignmentId(id)
-          setCurrentPage('correction')
-        }}
-      />
-    )
   }
 
-  // 訂正管理：看板
-  if (currentPage === 'correction' && selectedAssignmentId) {
-    if (!canAccessTracking) {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
-            <p className="text-sm text-gray-600">
-              Pro 權限才可使用後續追蹤功能。
-            </p>
-            <button
-              type="button"
-              onClick={() => setCurrentPage('home')}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
-            >
-              返回首頁
-            </button>
-          </div>
-        </div>
-      )
-    }
-    return (
-      <CorrectionManagement
-        assignmentId={selectedAssignmentId}
-        onBack={() => setCurrentPage('correction-select')}
-      />
-    )
+  const openAssignmentSetup = () => setCurrentPage('assignment-setup')
+  const openOverview = () => setCurrentPage('home')
+  const openGrading = () => {
+    if (!ensureInkNonNegative()) return
+    setCurrentPage('grading-list')
   }
+  const openGradebook = () => {
+    if (!canAccessTracking) return
+    setCurrentPage('gradebook')
+  }
+  const openAiReport = () => {
+    if (!canAccessTracking) return
+    setCurrentPage('ai-report')
+  }
+  const openPreferences = () => {
+    setIsUserMenuOpen(false)
+    setCurrentPage('teacher-preferences')
+  }
+  const openClassroomManagement = () => setCurrentPage('classroom-management')
+  const openAssignmentFromOverview = () => {
+    openGrading()
+  }
+
+  const homeNavSections: HomeNavSection[] = [
+    {
+      title: '常用功能',
+      items: [
+        {
+          key: 'overview',
+          label: '作業總覽',
+          description: '查看待辦與批改進度',
+          icon: LayoutDashboard,
+          onClick: openOverview
+        },
+        {
+          key: 'assignment-setup',
+          label: '作業建立',
+          description: '建立作業題目與答案卷',
+          icon: FilePlus2,
+          onClick: openAssignmentSetup
+        },
+        {
+          key: 'grading-flow',
+          label: '作業批改',
+          description: '蒐集作業、AI 批改與訂正流程',
+          icon: Sparkles,
+          onClick: openGrading
+        }
+      ]
+    },
+    {
+      title: '成果分析',
+      items: [
+        {
+          key: 'gradebook',
+          label: '成績統計',
+          description: '查看成績與學習表現趨勢',
+          icon: BarChart3,
+          onClick: openGradebook,
+          disabled: !canAccessTracking,
+          badge: canAccessTracking ? undefined : 'Pro'
+        },
+        {
+          key: 'report',
+          label: '學情報告',
+          description: 'AI 分析弱點與教學建議',
+          icon: FileText,
+          onClick: openAiReport,
+          disabled: !canAccessTracking,
+          badge: canAccessTracking ? undefined : 'Pro'
+        }
+      ]
+    },
+    {
+      title: '系統設定',
+      items: [
+        {
+          key: 'classroom-management',
+          label: '班級管理',
+          description: '管理班級、座位與學生名單',
+          icon: Users,
+          onClick: openClassroomManagement
+        },
+        {
+          key: 'preferences',
+          label: '偏好設定',
+          description: '開啟帳號資訊、權限與墨水設定',
+          icon: SlidersHorizontal,
+          onClick: openPreferences
+        }
+      ]
+    }
+  ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-5xl bg-white rounded-2xl shadow-xl p-8">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8 gap-4">
-          <div className="flex items-center gap-3">
-            <img
-              src="/logo.png"
-              alt="RedPen AI logo"
-              className="w-[100px] h-[100px] object-contain"
-            />
-            <h1 className="text-3xl font-bold text-gray-900">RedPen AI</h1>
-          </div>
-          <div className="flex items-center gap-3 justify-between md:justify-end">
-            <div className="text-right">
-              <p className="text-xs text-gray-500">已登入</p>
-              <p className="text-sm font-semibold text-gray-800">
-                {auth.user.name || auth.user.email}
-              </p>
-              <div className="mt-1 flex flex-wrap items-center justify-end gap-2">
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[11px] ${
-                    isAdmin
-                      ? 'bg-slate-100 text-slate-600'
-                      : isProTier
-                        ? 'bg-amber-100 text-amber-700'
-                        : 'bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  權限：
-                  {isAdmin ? (
-                    '管理者'
-                  ) : isProTier ? (
-                    <span className="inline-flex items-center gap-1">
-                      <Crown className="w-3.5 h-3.5 text-amber-500" />
-                      Pro
-                    </span>
-                  ) : (
-                    'Basic'
-                  )}
-                </span>
-                <span className="px-2 py-0.5 rounded-full text-[11px] bg-amber-100 text-amber-700">
-                  可用：{auth.user.inkBalance ?? 0} 滴
-                </span>
-                {pendingInk.totalDrops > 0 && (
-                  <span className="px-2 py-0.5 rounded-full text-[11px] bg-amber-50 text-amber-700">
-                    待入帳：{pendingInk.totalDrops} 滴
+    <div className="min-h-screen bg-[#f7f7f5]">
+      <div className="mx-auto flex h-screen w-full max-w-[1280px] flex-col">
+        {!isCameraCaptureMode && (
+          <header className="sticky top-0 z-20 border-b border-slate-200 bg-[#f7f7f5]/95 px-4 py-2 backdrop-blur md:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <img
+                src="/logo.png"
+                alt="RedPen AI logo"
+                className="h-12 w-12 object-contain mix-blend-multiply md:h-14 md:w-14"
+              />
+              <div>
+                <h1 className="text-lg font-semibold text-slate-900 md:text-xl">RedPen AI</h1>
+                <p className="text-xs text-slate-500">教師批改小幫手</p>
+              </div>
+            </div>
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2 md:gap-3">
+              <span className="inline-flex h-11 shrink-0 items-center rounded-lg border border-slate-200 bg-white px-3 shadow-sm">
+                <SyncIndicator autoSync={false} />
+              </span>
+              {!isStudent && (
+                <span className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm">
+                  <Droplet className="h-4 w-4 text-amber-500" />
+                  <span className="font-semibold tabular-nums text-amber-700">
+                    {auth.user.inkBalance ?? 0}
                   </span>
+                </span>
+              )}
+              {!isStudent && (
+                <div ref={notifRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsNotifOpen((prev) => !prev)
+                      void loadNotifications()
+                    }}
+                    className="relative inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white shadow-sm transition-colors hover:border-slate-300"
+                    aria-label="通知"
+                  >
+                    <Bell className="h-5 w-5 text-slate-600" />
+                    {notifications.filter((n) => !n.is_read).length > 0 && (
+                      <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
+                        {Math.min(notifications.filter((n) => !n.is_read).length, 99)}
+                      </span>
+                    )}
+                  </button>
+                  {isNotifOpen && (
+                    <div className="absolute right-0 z-40 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                        <p className="text-sm font-semibold text-slate-900">系統通知</p>
+                        {notifications.some((n) => !n.is_read) && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await fetch('/api/data/teacher-notifications', {
+                                  method: 'POST',
+                                  credentials: 'include',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ markAllRead: true })
+                                })
+                                void loadNotifications()
+                              } catch {
+                                // ignore
+                              }
+                            }}
+                            className="text-xs font-semibold text-sky-600 hover:text-sky-700"
+                          >
+                            全部已讀
+                          </button>
+                        )}
+                      </div>
+                      <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+                        {notifications.length === 0 ? (
+                          <p className="px-4 py-6 text-center text-xs text-slate-500">
+                            目前沒有通知。
+                          </p>
+                        ) : (
+                          notifications.map((notif) => (
+                            <div
+                              key={notif.id}
+                              className={`px-4 py-3 ${notif.is_read ? 'bg-white' : 'bg-sky-50/40'}`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className={`text-xs font-semibold ${notif.is_read ? 'text-slate-700' : 'text-sky-900'}`}>
+                                    {NOTIFICATION_LABELS[notif.event] ?? notif.event}
+                                  </p>
+                                  {typeof notif.data?.assignmentTitle === 'string' && (
+                                    <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                                      {notif.data.assignmentTitle}
+                                    </p>
+                                  )}
+                                  <p className="mt-0.5 text-[11px] text-slate-400">
+                                    {new Date(notif.created_at).toLocaleString('zh-TW', {
+                                      month: 'short',
+                                      day: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </p>
+                                </div>
+                                {!notif.is_read && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        await fetch('/api/data/teacher-notifications', {
+                                          method: 'POST',
+                                          credentials: 'include',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ id: notif.id })
+                                        })
+                                        void loadNotifications()
+                                      } catch {
+                                        // ignore
+                                      }
+                                    }}
+                                    className="mt-0.5 shrink-0"
+                                    aria-label="標記已讀"
+                                  >
+                                    <X className="h-3.5 w-3.5 text-slate-400 hover:text-slate-600" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div ref={userMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsUserMenuOpen((prev) => !prev)}
+                  className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 text-left shadow-sm transition-colors hover:border-slate-300"
+                >
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-slate-100 text-xs font-semibold text-slate-700">
+                    {userInitial}
+                  </span>
+                  <span className="hidden max-w-[140px] truncate text-sm font-medium text-slate-700 sm:block">
+                    {userDisplayName}
+                  </span>
+                  <ChevronDown className="h-4 w-4 text-slate-500" />
+                </button>
+                {isUserMenuOpen && (
+                  <div className="absolute right-0 z-40 mt-2 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                    <div className="border-b border-slate-100 px-4 py-3">
+                      <p className="truncate text-sm font-semibold text-slate-900">{userDisplayName}</p>
+                      <p className="truncate text-xs text-slate-500">{auth.user.email}</p>
+                    </div>
+                    {!isStudent && (
+                      <div className="space-y-2 px-4 py-3 text-xs text-slate-600">
+                        <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                          <span>權限</span>
+                          <span className="inline-flex items-center gap-1 font-semibold text-slate-700">
+                            {permissionLabel === 'Pro' && (
+                              <Crown className="h-3.5 w-3.5 text-amber-500" />
+                            )}
+                            {permissionLabel}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
+                          <span>墨水</span>
+                          <span className="font-semibold text-amber-700">
+                            {auth.user.inkBalance ?? 0} 滴
+                          </span>
+                        </div>
+                        {pendingInk.totalDrops > 0 && (
+                          <div className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-amber-700">
+                            <span>待入帳</span>
+                            <span className="font-semibold">{pendingInk.totalDrops} 滴</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div className="space-y-2 border-t border-slate-100 px-4 py-3">
+                      {!isStudent && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsUserMenuOpen(false)
+                            setCurrentPage('ink-topup')
+                          }}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-700"
+                        >
+                          <Droplet className="h-4 w-4" />
+                          補充墨水
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsUserMenuOpen(false)
+                            setCurrentPage('admin-panel')
+                          }}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-purple-200 px-3 py-2 text-sm font-semibold text-purple-700 transition-colors hover:border-purple-300 hover:text-purple-800"
+                        >
+                          <Shield className="h-4 w-4" />
+                          管理者面板
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:border-red-300 hover:text-red-600"
+                      >
+                        登出
+                      </button>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setCurrentPage('ink-topup')}
-              className="px-3 py-2 text-xs font-semibold rounded-lg border border-sky-200 text-sky-700 hover:border-sky-300 hover:text-sky-800 transition-colors inline-flex items-center gap-2"
-            >
-              <Droplet className="w-4 h-4" />
-              補充墨水
-            </button>
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setCurrentPage('admin-panel')}
-                className="px-3 py-2 text-xs font-semibold rounded-lg border border-purple-200 text-purple-700 hover:border-purple-300 hover:text-purple-800 transition-colors inline-flex items-center gap-2"
-              >
-                <Shield className="w-4 h-4" />
-                管理者面板
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="px-4 py-2 text-xs font-semibold rounded-lg border border-gray-200 text-gray-600 hover:border-red-300 hover:text-red-600 transition-colors"
-            >
-              登出
-            </button>
           </div>
-        </div>
+          </header>
+        )}
 
-        <div className="mb-6">
-          <SyncIndicator />
-        </div>
+        <div className="flex min-h-0 flex-1 overflow-hidden border-x border-slate-200 bg-white shadow-[0_2px_10px_rgba(15,23,42,0.06)]">
+          {!isStudent && (
+            <aside className="border-b border-slate-200 bg-[#F7F8FA] lg:w-[260px] lg:shrink-0 lg:border-b-0 lg:border-r">
+              <div className="h-full overflow-y-auto p-4 md:p-5">
+                {homeNavSections.map((section, sectionIndex) => (
+                  <section
+                    key={section.title}
+                    className={sectionIndex === 0 ? '' : 'mt-5 border-t border-slate-200 pt-5'}
+                  >
+                    <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      {section.title}
+                    </h2>
+                    <div className="space-y-0">
+                      {section.items.map((item) => {
+                        const Icon = item.icon
+                        const active = isNavItemActive(item.key)
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={item.onClick}
+                            disabled={item.disabled}
+                            className={`group flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition ${
+                              item.disabled
+                                ? 'cursor-not-allowed text-slate-400'
+                                : active
+                                  ? 'bg-sky-50 text-sky-700'
+                                  : 'text-slate-700 hover:bg-slate-200/55'
+                            }`}
+                          >
+                            <span
+                              className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded ${
+                                item.disabled
+                                  ? 'bg-slate-200 text-slate-400'
+                                  : active
+                                    ? 'bg-sky-100 text-sky-600'
+                                    : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
+                              <Icon className="h-5 w-5" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-base font-semibold">
+                                {item.label}
+                              </span>
+                            </span>
+                            {item.badge && (
+                              <span className="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                                {item.badge}
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </aside>
+          )}
 
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* 區塊A：作業流程 */}
-          <div className="p-6 rounded-2xl border border-gray-200 bg-gray-50/80">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" />
-              作業流程
-            </h2>
-            <div className="space-y-3">
-              <button
-                onClick={() => setCurrentPage('classroom-management')}
-                className="w-full flex items-center justify-between px-4 py-3 bg-white rounded-xl border border-gray-200 hover:border-blue-400 transition-colors"
-              >
-                <span className="flex items-center gap-2 text-gray-800 font-medium">
-                  <Users className="w-5 h-5 text-blue-600" />
-                  班級管理
-                </span>
-                <span className="text-xs text-gray-500">建立班級與學生</span>
-              </button>
-              <button
-                onClick={() => setCurrentPage('assignment-setup')}
-                className="w-full flex items-center justify-between px-4 py-3 bg-white rounded-xl border border-gray-200 hover:border-green-400 transition-colors"
-              >
-                <span className="flex items-center gap-2 text-gray-800 font-medium">
-                  <BookOpen className="w-5 h-5 text-green-600" />
-                  作業管理
-                </span>
-                <span className="text-xs text-gray-500">建立作業題目與答案</span>
-              </button>
-              <button
-                onClick={() => setCurrentPage('assignment-import-select')}
-                className="w-full flex items-center justify-between px-4 py-3 bg-white rounded-xl border border-gray-200 hover:border-indigo-400 transition-colors"
-              >
-                <span className="flex items-center gap-2 text-gray-800 font-medium">
-                  <FileImage className="w-5 h-5 text-indigo-600" />
-                  作業匯入
-                </span>
-                <span className="text-xs text-gray-500">掃描或批次匯入</span>
-              </button>
-              <button
-                onClick={() => {
-                  if (!ensureInkNonNegative()) return
-                  setCurrentPage('grading-list')
-                }}
-                className="w-full flex items-center justify-between px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 transition-colors"
-              >
-                <span className="flex items-center gap-2 font-medium">
-                  <Sparkles className="w-5 h-5" />
-                  AI 批改
-                </span>
-                <span className="text-xs text-white/80">執行批改並調整分數</span>
-              </button>
+          <main className="flex min-h-0 flex-1 flex-col bg-[#FFFFFF]">
+            <div className={`flex-1 overflow-y-scroll ${isStudent ? '' : 'px-4 py-4 md:px-6 md:py-5'}`}>
+              {isStudent ? (
+                <StudentPortal onCaptureModeChange={setIsCameraCaptureMode} />
+              ) : currentPage === 'assignment-setup' ? (
+                <AssignmentSetup
+                  embedded
+                  onBack={() => setCurrentPage('home')}
+                  inkBalance={auth.user.inkBalance ?? 0}
+                  onRequireInkTopUp={() => setCurrentPage('ink-topup')}
+                />
+              ) : currentPage === 'classroom-management' ? (
+                <ClassroomManagement embedded onBack={() => setCurrentPage('home')} />
+              ) : currentPage === 'assignment-import-select' ? (
+                <AssignmentImportSelect
+                  embedded
+                  onBack={() => setCurrentPage('home')}
+                  initialClassroomId={importSelectedClassroomId}
+                  initialFolder={importSelectedFolder}
+                  onClassroomChange={setImportSelectedClassroomId}
+                  onFolderChange={setImportSelectedFolder}
+                  onSelectScanImport={(assignmentId) => {
+                    setSelectedAssignmentId(assignmentId)
+                    setCurrentPage('assignment-scan')
+                  }}
+                  onSelectBatchImport={(assignmentId) => {
+                    setSelectedAssignmentId(assignmentId)
+                    setCurrentPage('assignment-import')
+                  }}
+                />
+              ) : currentPage === 'assignment-import' && selectedAssignmentId ? (
+                <AssignmentImport
+                  embedded
+                  assignmentId={selectedAssignmentId}
+                  onBack={() => {
+                    setSelectedAssignmentId('')
+                    setCurrentPage('grading')
+                  }}
+                  onUploadComplete={() => setCurrentPage('home')}
+                />
+              ) : currentPage === 'grading-list' ? (
+                <AssignmentList
+                  embedded
+                  initialClassroomId={gradingSelectedClassroomId}
+                  initialFolder={gradingSelectedFolder}
+                  onClassroomChange={setGradingSelectedClassroomId}
+                  onFolderChange={setGradingSelectedFolder}
+                  onSelectScanImport={(assignmentId) => {
+                    setSelectedAssignmentId(assignmentId)
+                    setCurrentPage('assignment-scan')
+                  }}
+                  onSelectBatchImport={(assignmentId) => {
+                    setSelectedAssignmentId(assignmentId)
+                    setCurrentPage('assignment-import')
+                  }}
+                  onSelectAssignment={(assignmentId) => {
+                    if (!ensureInkNonNegative()) return
+                    setSelectedAssignmentId(assignmentId)
+                    setCurrentPage('grading')
+                  }}
+                  onSelectCorrection={(assignmentId) => {
+                    if (!canAccessTracking) return
+                    setSelectedAssignmentId(assignmentId)
+                    setCurrentPage('correction')
+                  }}
+                  canUseCorrection={canAccessTracking}
+                />
+              ) : currentPage === 'grading' && selectedAssignmentId ? (
+                <GradingPage
+                  embedded
+                  assignmentId={selectedAssignmentId}
+                  onBack={() => setCurrentPage('grading-list')}
+                  onRequireInkTopUp={() => setCurrentPage('ink-topup')}
+                />
+              ) : currentPage === 'grading' ? (
+                <AssignmentList
+                  embedded
+                  initialClassroomId={gradingSelectedClassroomId}
+                  initialFolder={gradingSelectedFolder}
+                  onClassroomChange={setGradingSelectedClassroomId}
+                  onFolderChange={setGradingSelectedFolder}
+                  onSelectScanImport={(assignmentId) => {
+                    setSelectedAssignmentId(assignmentId)
+                    setCurrentPage('assignment-scan')
+                  }}
+                  onSelectBatchImport={(assignmentId) => {
+                    setSelectedAssignmentId(assignmentId)
+                    setCurrentPage('assignment-import')
+                  }}
+                  onSelectAssignment={(assignmentId) => {
+                    if (!ensureInkNonNegative()) return
+                    setSelectedAssignmentId(assignmentId)
+                    setCurrentPage('grading')
+                  }}
+                  onSelectCorrection={(assignmentId) => {
+                    if (!canAccessTracking) return
+                    setSelectedAssignmentId(assignmentId)
+                    setCurrentPage('correction')
+                  }}
+                  canUseCorrection={canAccessTracking}
+                />
+              ) : currentPage === 'correction-select' ? (
+                canAccessTracking ? (
+                  <CorrectionSelect
+                    embedded
+                    onBack={() => setCurrentPage('home')}
+                    onSelectAssignment={(id) => {
+                      setSelectedAssignmentId(id)
+                      setCurrentPage('correction')
+                    }}
+                  />
+                ) : (
+                  <div className="mx-auto w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
+                    <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Pro 權限才可使用後續追蹤功能。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage('home')}
+                      className="mt-4 inline-flex rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
+                    >
+                      返回首頁
+                    </button>
+                  </div>
+                )
+              ) : currentPage === 'correction' ? (
+                canAccessTracking ? (
+                  selectedAssignmentId ? (
+                    <CorrectionManagement
+                      embedded
+                      assignmentId={selectedAssignmentId}
+                      onBack={() => setCurrentPage('grading-list')}
+                    />
+                  ) : (
+                    <CorrectionSelect
+                      embedded
+                      onBack={() => setCurrentPage('home')}
+                      onSelectAssignment={(id) => {
+                        setSelectedAssignmentId(id)
+                        setCurrentPage('correction')
+                      }}
+                    />
+                  )
+                ) : (
+                  <div className="mx-auto w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
+                    <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Pro 權限才可使用後續追蹤功能。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage('home')}
+                      className="mt-4 inline-flex rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
+                    >
+                      返回首頁
+                    </button>
+                  </div>
+                )
+              ) : currentPage === 'gradebook' ? (
+                canAccessTracking ? (
+                  <Gradebook embedded onBack={() => setCurrentPage('home')} />
+                ) : (
+                  <div className="mx-auto w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
+                    <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Pro 權限才可使用後續追蹤功能。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage('home')}
+                      className="mt-4 inline-flex rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
+                    >
+                      返回首頁
+                    </button>
+                  </div>
+                )
+              ) : currentPage === 'teacher-preferences' ? (
+                <TeacherPreferences embedded onBack={() => setCurrentPage('home')} />
+              ) : currentPage === 'assignment-scan' && selectedAssignmentId ? (
+                <AssignmentScanImport
+                  embedded
+                  assignmentId={selectedAssignmentId}
+                  onBack={() => {
+                    setSelectedAssignmentId('')
+                    setCurrentPage('grading')
+                  }}
+                  onUploadComplete={() => setCurrentPage('home')}
+                  onCaptureModeChange={setIsCameraCaptureMode}
+                />
+              ) : (
+                <>
+                  <section>
+                    <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
+                      <h1 className="text-2xl font-semibold text-gray-900">作業總覽</h1>
+                      <button
+                        type="button"
+                        onClick={() => void loadHomeOverview()}
+                        className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-800"
+                      >
+                        重新整理
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid gap-0 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="px-2 py-3 xl:border-r xl:border-slate-200">
+                        <p className="text-[11px] text-slate-400">總作業數</p>
+                        <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
+                          {homeOverviewSummary.totalAssignments}
+                        </p>
+                      </div>
+                      <div className="px-2 py-3 xl:border-r xl:border-slate-200">
+                        <p className="text-[11px] text-slate-400">待匯入作業</p>
+                        <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
+                          {homeOverviewSummary.assignmentsWithoutUploads}
+                        </p>
+                      </div>
+                      <div className="px-2 py-3 xl:border-r xl:border-slate-200">
+                        <p className="text-[11px] text-slate-400">待批改份數</p>
+                        <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
+                          {homeOverviewSummary.pendingGradingSubmissions}
+                        </p>
+                      </div>
+                      <div className="px-2 py-3">
+                        <p className="text-[11px] text-slate-400">批改完成率</p>
+                        <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
+                          {homeOverviewSummary.uploadedSubmissions > 0
+                            ? `${Math.round(
+                                (homeOverviewSummary.gradedSubmissions /
+                                  homeOverviewSummary.uploadedSubmissions) *
+                                  100
+                              )}%`
+                            : '0%'}
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <div className="mt-5">
+                    <section className="pt-2">
+                      <div className="mb-2 flex items-center justify-between">
+                        <h3 className="text-base font-semibold text-slate-900">待辦作業</h3>
+                        <span className="text-xs text-slate-500">依狀態優先排序</span>
+                      </div>
+
+                      {homeOverviewLoading ? (
+                        <div className="space-y-3">
+                          {Array.from({ length: 3 }).map((_, index) => (
+                            <div
+                              key={`loading-row-${index}`}
+                              className="h-16 animate-pulse bg-slate-50/70"
+                            />
+                          ))}
+                        </div>
+                      ) : todoOverviewItems.length === 0 ? (
+                        <div className="bg-slate-50/60 px-4 py-8 text-center">
+                          <p className="text-sm text-slate-600">目前沒有待辦作業。</p>
+                          <button
+                            type="button"
+                            onClick={openAssignmentSetup}
+                            className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
+                          >
+                            前往作業建立
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="divide-y divide-slate-200/80">
+                            {visibleOverviewItems.map((item) => {
+                              let actionLabel = '檢視批改'
+                              let statusLabel = '已完成'
+                              let statusClassName = 'text-slate-500'
+
+                              if (item.workflowStatus === 'missing-answer-key') {
+                                actionLabel = '先補答案卷'
+                                statusLabel = '待補答案卷'
+                                statusClassName = 'text-rose-700'
+                              } else if (item.workflowStatus === 'missing-submission') {
+                                actionLabel = '匯入作答'
+                                statusLabel = '待匯入作答'
+                                statusClassName = 'text-sky-700'
+                              } else if (item.workflowStatus === 'pending-grading') {
+                                actionLabel = '繼續批改'
+                                statusLabel = '待批改'
+                                statusClassName = 'text-amber-700'
+                              } else if (item.workflowStatus === 'correction-followup') {
+                                actionLabel = '檢視批改'
+                                statusLabel = '待追蹤訂正'
+                                statusClassName = 'text-violet-700'
+                              }
+
+                              return (
+                                <div
+                                  key={item.id}
+                                  className="px-2 py-3"
+                                >
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate text-base font-semibold tracking-tight text-slate-950">
+                                        {item.title}
+                                      </p>
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        {item.classroomName} · 學生 {item.totalStudents} 人 · 狀態：
+                                        <span className={`ml-1 font-semibold ${statusClassName}`}>
+                                          {statusLabel}
+                                        </span>
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => openAssignmentFromOverview()}
+                                      className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
+                                    >
+                                      {actionLabel}
+                                    </button>
+                                  </div>
+                                  <div className="mt-3">
+                                    <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
+                                      <span>批改進度 {item.progressPercent}%</span>
+                                      <span>
+                                        匯入 {item.uploadedCount} / 已批改 {item.gradedCount} / 待批改{' '}
+                                        {item.pendingGradingCount}
+                                      </span>
+                                    </div>
+                                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                                      <div
+                                        className="h-full rounded-full bg-sky-500 transition-all"
+                                        style={{ width: `${item.progressPercent}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          {hasMoreOverviewItems && (
+                            <div className="px-2 pt-3">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setVisibleOverviewCount(
+                                    (prev) => prev + OVERVIEW_VISIBLE_STEP
+                                  )
+                                }
+                                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
+                              >
+                                看更多（再顯示 {Math.min(OVERVIEW_VISIBLE_STEP, remainingOverviewItems)} 筆）
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </section>
+                  </div>
+                </>
+              )}
+
             </div>
-          </div>
+          </main>
+        </div>
 
-          {/* 區塊B：後續追蹤 */}
-          <div className="p-6 rounded-2xl border border-gray-200 bg-gray-50/80">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" />
-              後續追蹤
-            </h2>
-            <div className="space-y-3">
-              <button
-                onClick={() => {
-                  if (canAccessTracking) {
-                    setCurrentPage('correction-select')
-                  }
-                }}
-                disabled={!canAccessTracking}
-                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-colors ${
-                  canAccessTracking
-                    ? 'bg-white border-gray-200 hover:border-orange-400'
-                    : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
-              >
-                <span
-                  className={`flex items-center gap-2 font-medium ${
-                    canAccessTracking ? 'text-gray-800' : 'text-gray-400'
-                  }`}
+        {!isCameraCaptureMode && (
+          <footer className="sticky bottom-0 z-20 shrink-0 border-t border-slate-200 bg-[#f7f7f5]/95 px-3 py-1 text-[10px] leading-4 text-slate-600 backdrop-blur md:px-6">
+            <div className="overflow-x-auto">
+              <div className="ml-auto min-w-max flex items-center justify-end gap-3 whitespace-nowrap text-right">
+                <button
+                  type="button"
+                  onClick={() => setIsAiDisclaimerOpen(true)}
+                  className="text-sky-700 underline underline-offset-2 hover:text-sky-800"
                 >
-                  <ClipboardCheck
-                    className={`w-5 h-5 ${
-                      canAccessTracking ? 'text-orange-600' : 'text-gray-300'
-                    }`}
-                  />
-                  訂正管理
-                </span>
-                <span className="text-xs text-gray-500">
-                  {canAccessTracking
-                    ? '發訂正單 / 列印 / 模板批改'
-                    : '需要 Pro 權限'}
-                </span>
-              </button>
-              <button
-                onClick={() => {
-                  if (canAccessTracking) {
-                    setCurrentPage('gradebook')
-                  }
-                }}
-                disabled={!canAccessTracking}
-                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-colors ${
-                  canAccessTracking
-                    ? 'bg-white border-gray-200 hover:border-emerald-400'
-                    : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
-              >
-                <span
-                  className={`flex items-center gap-2 font-medium ${
-                    canAccessTracking ? 'text-gray-800' : 'text-gray-400'
-                  }`}
+                  AI 免責
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsIpDisclaimerOpen(true)}
+                  className="text-sky-700 underline underline-offset-2 hover:text-sky-800"
                 >
-                  <Sparkles
-                    className={`w-5 h-5 ${
-                      canAccessTracking ? 'text-emerald-600' : 'text-gray-300'
-                    }`}
-                  />
-                  成績管理
-                </span>
-                <span className="text-xs text-gray-500">
-                  {canAccessTracking ? '查詢成績與匯出' : '需要 Pro 權限'}
-                </span>
-              </button>
-              <button
-                onClick={() => {
-                  if (canAccessTracking) {
-                    setCurrentPage('ai-report')
-                  }
-                }}
-                disabled={!canAccessTracking}
-                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-colors ${
-                  canAccessTracking
-                    ? 'bg-white border-gray-200 hover:border-amber-400'
-                    : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
-                }`}
-              >
-                <span
-                  className={`flex items-center gap-2 font-medium ${
-                    canAccessTracking ? 'text-gray-800' : 'text-gray-400'
-                  }`}
+                  著作權聲明
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsTermsOpen(true)}
+                  className="text-sky-700 underline underline-offset-2 hover:text-sky-800"
                 >
-                  <BarChart3
-                    className={`w-5 h-5 ${
-                      canAccessTracking ? 'text-amber-600' : 'text-gray-300'
-                    }`}
-                  />
-                  AI 學情報告
-                </span>
-                <span className="text-xs text-gray-500">
-                  {canAccessTracking ? '學習狀況與能力分析' : '需要 Pro 權限'}
-                </span>
-              </button>
+                  服務條款
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPrivacyOpen(true)}
+                  className="text-sky-700 underline underline-offset-2 hover:text-sky-800"
+                >
+                  隱私權政策
+                </button>
+                <span className="text-slate-300">|</span>
+                <span className="text-slate-500">jhanfong150983@gmail.com</span>
+                <span className="text-slate-300">|</span>
+                <span className="text-slate-500">0981-716-650</span>
+                <span className="text-slate-300">|</span>
+                <span className="text-slate-400">Copyright © 2026黃政昱</span>
+              </div>
             </div>
-          </div>
-        </div>
-
-        {/* 法律聲明與政策 */}
-        <div className="mt-6 p-4 bg-gray-50 rounded-lg text-sm text-gray-600">
-          <p className="font-semibold mb-2">法律聲明與政策</p>
-          <p>
-            本網站內容包含 AI 生成資訊。使用本網站即表示您已閱讀並同意{' '}
-            <button
-              type="button"
-              onClick={() => setIsAiDisclaimerOpen(true)}
-              className="text-blue-600 underline underline-offset-2 hover:text-blue-700"
-            >
-              AI 使用免責聲明
-            </button>
-            、{' '}
-            <button
-              type="button"
-              onClick={() => setIsIpDisclaimerOpen(true)}
-              className="text-blue-600 underline underline-offset-2 hover:text-blue-700"
-            >
-              著作權聲明
-            </button>
-            、{' '}
-            <button
-              type="button"
-              onClick={() => setIsTermsOpen(true)}
-              className="text-blue-600 underline underline-offset-2 hover:text-blue-700"
-            >
-              服務條款
-            </button>
-            及{' '}
-            <button
-              type="button"
-              onClick={() => setIsPrivacyOpen(true)}
-              className="text-blue-600 underline underline-offset-2 hover:text-blue-700"
-            >
-              隱私權政策
-            </button>
-            。
-          </p>
-          <p className="mt-2 text-gray-500">
-            聯絡資訊 授權合作信箱：jhanfong150983@gmail.com 專線：0981-716-650
-          </p>
-          <p className="mt-2 text-gray-400">
-            Copyright © 2026黃政昱. All Rights Reserved.
-          </p>
-        </div>
+          </footer>
+        )}
       </div>
 
       {isAiDisclaimerOpen && (

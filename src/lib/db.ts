@@ -39,6 +39,10 @@ export interface RubricDimension {
 export interface AnswerKeyQuestion {
   id: string // 例如 "1", "1-1"
   idPath?: string[] // 題號層級路徑，例如 ["8","1"] -> "8-1"
+  // 題號子格順序規則：strict=固定位置，unordered=同組可互換
+  orderMode?: 'strict' | 'unordered'
+  // 當 orderMode=unordered 時，同組題目的群組識別（例如 "1"）
+  unorderedGroupId?: string
 
   // 題型分類：1=唯一答案(精確), 2=多答案可接受(模糊), 3=依表現給分(評價)
   type: QuestionCategoryType
@@ -95,6 +99,8 @@ export interface Student {
   classroomId: string
   seatNumber: number
   name: string
+  email?: string
+  authUserId?: string
   updatedAt?: number
 }
 
@@ -130,12 +136,21 @@ export interface GradingDetail {
   questionId: string
   detectedType?: QuestionCategoryType // 記錄此題的 Type 判定
   studentAnswer?: string
+  studentFinalAnswer?: string
   score: number
   maxScore: number
   isCorrect?: boolean
+  needExplain?: boolean
+  errorType?: string
   reason?: string
   comment?: string
   confidence?: number
+  sourceArea?: 'answer' | 'working' | string
+  questionBbox?: { x: number; y: number; w: number; h: number } | null
+  answerBbox?: { x: number; y: number; w: number; h: number } | null
+  hasWorkingArea?: boolean
+  workingBbox?: { x: number; y: number; w: number; h: number } | null
+  visualKind?: string
   matchedLevel?: string
   // Type 2 專用：匹配詳情
   matchingDetails?: {
@@ -209,6 +224,10 @@ export interface Submission {
 
   // 訂正管理：教師手動紀錄訂正次數
   correctionCount?: number
+  source?: string
+  round?: number
+  parentSubmissionId?: string
+  actorUserId?: string
 }
 
 /**
@@ -488,6 +507,19 @@ class RedPenDatabase extends Dexie {
       return mutableMods
     }
 
+    const normalizeRound = (value: unknown): number => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return Math.max(0, Math.floor(value))
+      }
+      if (typeof value === 'string' && value.trim()) {
+        const parsed = Number(value)
+        if (Number.isFinite(parsed)) {
+          return Math.max(0, Math.floor(parsed))
+        }
+      }
+      return 0
+    }
+
     this.classrooms.hook('creating', (_, obj) => {
       applyUpdatedAtOnCreate(obj)
     })
@@ -507,14 +539,19 @@ class RedPenDatabase extends Dexie {
       if (obj.createdAt === undefined) {
         obj.createdAt = Date.now()
       }
+      obj.round = normalizeRound(obj.round)
       applyUpdatedAtOnCreate(obj)
     })
     this.submissions.hook('updating', (mods) => {
+      const mutableMods = mods as Record<string, unknown>
+      if ('round' in mutableMods) {
+        mutableMods.round = normalizeRound(mutableMods.round)
+      }
       const keys = Object.keys(mods)
       if (keys.length === 1 && keys[0] === 'imageBlob') {
         return mods
       }
-      return applyUpdatedAtOnUpdate(mods)
+      return applyUpdatedAtOnUpdate(mutableMods)
     })
 
     this.folders.hook('creating', (_, obj) => {

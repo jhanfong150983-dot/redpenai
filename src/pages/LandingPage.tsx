@@ -18,9 +18,16 @@ import { SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/legal'
 import { buildApiUrl } from '../lib/api-base'
 
 // 登入連結
-const LOGIN_URL = buildApiUrl('/api/auth/google')
+const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
+const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
+const STUDENT_LOGIN_URL = buildApiUrl('/api/auth/google?entry=student')
 
 export default function LandingPage() {
+  const handleLogin = (entry: 'teacher' | 'student') => {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(LOGIN_ENTRY_STORAGE_KEY, entry)
+    window.location.href = entry === 'student' ? STUDENT_LOGIN_URL : LOGIN_URL
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -32,12 +39,22 @@ export default function LandingPage() {
               <img src="/logo.png" alt="RedPen AI" className="w-8 h-8" />
               <span className="text-xl font-bold text-gray-900">RedPen AI</span>
             </div>
-            <a
-              href={LOGIN_URL}
-              className="px-5 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              登入
-            </a>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleLogin('teacher')}
+                className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                教師登入
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLogin('student')}
+                className="px-4 py-2 border border-blue-200 bg-white text-blue-700 font-semibold rounded-lg hover:bg-blue-50 transition-colors"
+              >
+                學生登入
+              </button>
+            </div>
           </div>
         </div>
       </nav>
@@ -58,13 +75,21 @@ export default function LandingPage() {
                 專為國小、國中老師打造的智慧批改助手。
               </p>
               <div className="mt-8 flex flex-col sm:flex-row gap-4">
-                <a
-                  href={LOGIN_URL}
+                <button
+                  type="button"
+                  onClick={() => handleLogin('teacher')}
                   className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/25"
                 >
-                  立即免費試用
+                  教師入口
                   <ArrowRight className="w-5 h-5" />
-                </a>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleLogin('student')}
+                  className="inline-flex items-center justify-center gap-2 px-6 py-3 border border-blue-200 bg-white text-blue-700 font-semibold rounded-xl hover:bg-blue-50 transition-colors"
+                >
+                  學生入口
+                </button>
                 {/* 查看範例按鈕 - 暫時隱藏
                 <a
                   href="#example"

@@ -4,6 +4,8 @@ import {
   Plus,
   Edit2,
   Trash2,
+  ChevronDown,
+  ChevronRight,
   ArrowLeft,
   AlertCircle,
   X,
@@ -32,12 +34,6 @@ import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { convertPdfToImage, convertPdfToImages, getFileType, fileToBlob, getDefaultImageFormat } from '@/lib/pdfToImage'
 import { compressImageFile } from '@/lib/imageCompression'
 import { checkFolderNameUnique } from '@/lib/utils'
-import {
-  type SortOption,
-  getSortPreference,
-  setSortPreference,
-  sortAssignments
-} from '@/lib/sort-preferences'
 import { useTutorial } from '@/hooks/useTutorial'
 import { TutorialOverlay } from '@/components/TutorialOverlay'
 
@@ -45,12 +41,32 @@ interface AssignmentSetupProps {
   onBack?: () => void
   inkBalance?: number
   onRequireInkTopUp?: () => void
+  embedded?: boolean
 }
+
+const getAssignmentOrderStorageKey = (classroomId: string) =>
+  `redpen-assignment-order-${classroomId}`
+const getFolderOrderStorageKey = (classroomId: string) =>
+  `redpen-assignment-folder-order-${classroomId}`
+
+const reorderList = <T,>(list: T[], draggedItem: T, targetItem: T): T[] => {
+  const fromIndex = list.indexOf(draggedItem)
+  const toIndex = list.indexOf(targetItem)
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return list
+  const next = [...list]
+  const [item] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, item)
+  return next
+}
+
+const isSameStringArray = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index])
 
 export default function AssignmentSetup({
   onBack,
   inkBalance,
-  onRequireInkTopUp
+  onRequireInkTopUp,
+  embedded = false
 }: AssignmentSetupProps) {
   // 引导式教学
   const tutorial = useTutorial('assignment')
@@ -67,13 +83,18 @@ export default function AssignmentSetup({
 
   // 資料夾管理
   const [selectedFolder, setSelectedFolder] = useState('__uncategorized__')
+  const [expandedFolders, setExpandedFolders] = useState<string[]>([])
 
-  // 排序功能
-  const [sortOption, setSortOption] = useState<SortOption>(() => getSortPreference('assignment'))
+  // 手動排序（老師自訂）
+  const [assignmentOrder, setAssignmentOrder] = useState<string[]>([])
+  const [folderOrder, setFolderOrder] = useState<string[]>([])
 
   // 拖放功能
   const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null)
+  const [draggedFolderName, setDraggedFolderName] = useState<string | null>(null)
   const [dropTargetFolder, setDropTargetFolder] = useState<string | null>(null)
+  const [dragOverAssignmentId, setDragOverAssignmentId] = useState<string | null>(null)
+  const [dragOverFolderName, setDragOverFolderName] = useState<string | null>(null)
 
   // Prior Weight：整份作業大部分題目屬性（優先級順序）
   const [priorWeightTypes, setPriorWeightTypes] = useState<QuestionCategoryType[]>([])
@@ -335,55 +356,111 @@ export default function AssignmentSetup({
     const folders = assignments
       .map((a) => a.folder)
       .filter((f): f is string => !!f && !!f.trim())
-    const allFolders = [...new Set([...folders, ...emptyFolders])]
+    return [...new Set([...folders, ...emptyFolders])]
+  }, [assignments, emptyFolders])
 
-    // 根據排序選項排序資料夾
-    if (sortOption === 'name-asc') {
-      // A-Z 中文筆畫排序
-      const collator = new Intl.Collator('zh-Hans-CN', { sensitivity: 'base', numeric: true })
-      return allFolders.sort((a, b) => collator.compare(a, b))
-    } else if (sortOption === 'name-desc') {
-      // Z-A 中文筆畫排序
-      const collator = new Intl.Collator('zh-Hans-CN', { sensitivity: 'base', numeric: true })
-      return allFolders.sort((a, b) => collator.compare(b, a))
-    } else if (sortOption === 'time-desc' || sortOption === 'time-asc') {
-      // 時間排序：按資料夾中作業的時間排序
-      return allFolders.sort((a, b) => {
-        // 找出每個資料夾中的作業
-        const assignmentsA = assignments.filter(assignment => assignment.folder === a)
-        const assignmentsB = assignments.filter(assignment => assignment.folder === b)
+  const orderedFolders = useMemo(() => {
+    const listed = folderOrder.filter((folder) => usedFolders.includes(folder))
+    const missing = usedFolders.filter((folder) => !listed.includes(folder))
+    return [...listed, ...missing]
+  }, [folderOrder, usedFolders])
 
-        // 如果資料夾為空，使用0作為時間
-        const timeA = assignmentsA.length > 0
-          ? (sortOption === 'time-desc'
-            ? Math.max(...assignmentsA.map(assignment => assignment.updatedAt ?? 0))
-            : Math.min(...assignmentsA.map(assignment => assignment.updatedAt ?? 0)))
-          : 0
-        const timeB = assignmentsB.length > 0
-          ? (sortOption === 'time-desc'
-            ? Math.max(...assignmentsB.map(assignment => assignment.updatedAt ?? 0))
-            : Math.min(...assignmentsB.map(assignment => assignment.updatedAt ?? 0)))
-          : 0
+  const orderedAssignments = useMemo(() => {
+    const byId = new Map(assignments.map((assignment) => [assignment.id, assignment]))
+    const listed = assignmentOrder
+      .map((id) => byId.get(id))
+      .filter((item): item is Assignment => !!item)
+    const missing = assignments.filter((assignment) => !assignmentOrder.includes(assignment.id))
+    return [...listed, ...missing]
+  }, [assignments, assignmentOrder])
 
-        return sortOption === 'time-desc' ? timeB - timeA : timeA - timeB
-      })
+  const uncategorizedAssignments = useMemo(
+    () => orderedAssignments.filter((a) => !a.folder),
+    [orderedAssignments]
+  )
+
+  const assignmentsByFolder = useMemo(() => {
+    const folderMap = new Map<string, Assignment[]>()
+    for (const folder of orderedFolders) {
+      folderMap.set(folder, [])
     }
-
-    return allFolders.sort()
-  }, [assignments, emptyFolders, sortOption])
-
-  // 根據選擇的資料夾篩選作業
-  const filteredAssignments = useMemo(() => {
-    let result = assignments
-    if (selectedFolder) {
-      result = assignments.filter((a) =>
-        a.folder === selectedFolder ||
-        (!a.folder && selectedFolder === '__uncategorized__')
-      )
+    for (const assignment of orderedAssignments) {
+      if (!assignment.folder) continue
+      if (!folderMap.has(assignment.folder)) {
+        folderMap.set(assignment.folder, [])
+      }
+      folderMap.get(assignment.folder)?.push(assignment)
     }
-    // 应用排序
-    return sortAssignments(result, sortOption)
-  }, [assignments, selectedFolder, sortOption])
+    return folderMap
+  }, [orderedAssignments, orderedFolders])
+
+  useEffect(() => {
+    setExpandedFolders((prev) => prev.filter((folder) => orderedFolders.includes(folder)))
+  }, [orderedFolders])
+
+  useEffect(() => {
+    if (!selectedClassroomId) {
+      setAssignmentOrder([])
+      return
+    }
+    const allIds = assignments.map((assignment) => assignment.id)
+    const idSet = new Set(allIds)
+    let savedIds: string[] = []
+    try {
+      const raw = localStorage.getItem(getAssignmentOrderStorageKey(selectedClassroomId))
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          savedIds = parsed.filter((item): item is string => typeof item === 'string')
+        }
+      }
+    } catch {
+      savedIds = []
+    }
+    const listed = savedIds.filter((id) => idSet.has(id))
+    const missing = allIds.filter((id) => !listed.includes(id))
+    const next = [...listed, ...missing]
+    setAssignmentOrder((prev) => (isSameStringArray(prev, next) ? prev : next))
+  }, [selectedClassroomId, assignments])
+
+  useEffect(() => {
+    if (!selectedClassroomId) {
+      setFolderOrder([])
+      return
+    }
+    let savedFolders: string[] = []
+    try {
+      const raw = localStorage.getItem(getFolderOrderStorageKey(selectedClassroomId))
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          savedFolders = parsed.filter((item): item is string => typeof item === 'string')
+        }
+      }
+    } catch {
+      savedFolders = []
+    }
+    const listed = savedFolders.filter((folder) => usedFolders.includes(folder))
+    const missing = usedFolders.filter((folder) => !listed.includes(folder))
+    const next = [...listed, ...missing]
+    setFolderOrder((prev) => (isSameStringArray(prev, next) ? prev : next))
+  }, [selectedClassroomId, usedFolders])
+
+  useEffect(() => {
+    if (!selectedClassroomId) return
+    localStorage.setItem(
+      getAssignmentOrderStorageKey(selectedClassroomId),
+      JSON.stringify(assignmentOrder)
+    )
+  }, [selectedClassroomId, assignmentOrder])
+
+  useEffect(() => {
+    if (!selectedClassroomId) return
+    localStorage.setItem(
+      getFolderOrderStorageKey(selectedClassroomId),
+      JSON.stringify(folderOrder)
+    )
+  }, [selectedClassroomId, folderOrder])
 
   const resetForm = () => {
     setAssignmentTitle('')
@@ -533,12 +610,93 @@ export default function AssignmentSetup({
     return indexed.map((item) => item.question)
   }
 
+  const rebalanceAnswerKeyToTargetTotal = (
+    key: AnswerKey,
+    targetTotal: number = 100
+  ): { answerKey: AnswerKey; adjusted: boolean } => {
+    const questions = [...(key.questions ?? [])]
+    if (questions.length === 0) {
+      return { answerKey: { questions, totalScore: 0 }, adjusted: false }
+    }
+
+    const targetUnits = Math.round(targetTotal * 10)
+    const sanitizedWeights = questions.map((q) => {
+      const raw = typeof q.maxScore === 'number' && Number.isFinite(q.maxScore) ? q.maxScore : 0
+      return Math.max(0, raw)
+    })
+    const hasPositiveWeight = sanitizedWeights.some((w) => w > 0)
+    const weights = hasPositiveWeight ? sanitizedWeights : sanitizedWeights.map(() => 1)
+    const weightSum = weights.reduce((sum, w) => sum + w, 0)
+
+    if (!Number.isFinite(weightSum) || weightSum <= 0) {
+      return { answerKey: { questions, totalScore: key.totalScore || 0 }, adjusted: false }
+    }
+
+    const rawUnits = weights.map((w) => (w / weightSum) * targetUnits)
+    const baseUnits = rawUnits.map((value) => Math.floor(value))
+    let assignedUnits = baseUnits.reduce((sum, unit) => sum + unit, 0)
+    let remainingUnits = targetUnits - assignedUnits
+
+    if (remainingUnits > 0) {
+      const byFractionDesc = rawUnits
+        .map((value, idx) => ({ idx, fraction: value - baseUnits[idx] }))
+        .sort((a, b) => b.fraction - a.fraction)
+      let cursor = 0
+      while (remainingUnits > 0) {
+        const target = byFractionDesc[cursor % byFractionDesc.length]
+        baseUnits[target.idx] += 1
+        remainingUnits -= 1
+        cursor += 1
+      }
+    } else if (remainingUnits < 0) {
+      const byFractionAsc = rawUnits
+        .map((value, idx) => ({ idx, fraction: value - baseUnits[idx] }))
+        .sort((a, b) => a.fraction - b.fraction)
+      let cursor = 0
+      while (remainingUnits < 0) {
+        const target = byFractionAsc[cursor % byFractionAsc.length]
+        if (baseUnits[target.idx] > 0) {
+          baseUnits[target.idx] -= 1
+          remainingUnits += 1
+        }
+        cursor += 1
+        if (cursor > byFractionAsc.length * 20) break
+      }
+    }
+
+    const adjustedQuestions = questions.map((question, idx) => ({
+      ...question,
+      maxScore: Number((baseUnits[idx] / 10).toFixed(1))
+    }))
+    const adjustedTotal = Number(
+      adjustedQuestions.reduce((sum, q) => sum + (q.maxScore || 0), 0).toFixed(1)
+    )
+    const originalTotal = Number(
+      questions.reduce((sum, q) => sum + (q.maxScore || 0), 0).toFixed(1)
+    )
+    const adjusted = Math.abs(adjustedTotal - originalTotal) > 0.001 || adjustedTotal !== targetTotal
+
+    return {
+      answerKey: {
+        ...key,
+        questions: adjustedQuestions,
+        totalScore: adjustedTotal
+      },
+      adjusted
+    }
+  }
+
   const normalizeAnswerKey = (ak: AnswerKey): AnswerKey => {
     const questions = (ak.questions ?? []).map((q, idx) => {
       const maxScore =
         typeof q.maxScore === 'number' && Number.isFinite(q.maxScore)
           ? q.maxScore
           : 0
+      const orderMode = q.orderMode === 'unordered' ? 'unordered' : 'strict'
+      const unorderedGroupId =
+        typeof q.unorderedGroupId === 'string' && q.unorderedGroupId.trim()
+          ? q.unorderedGroupId.trim()
+          : undefined
 
       // Convert old QuestionType to QuestionCategoryType if needed
       const questionType = typeof q.type === 'number'
@@ -554,7 +712,9 @@ export default function AssignmentSetup({
         type: questionType as QuestionCategoryType,
         maxScore,
         idPath: q.idPath,
-        uiKey: q.uiKey ?? generateId()
+        uiKey: q.uiKey ?? generateId(),
+        orderMode,
+        unorderedGroupId: orderMode === 'unordered' ? unorderedGroupId : undefined
       }
 
       // Add type-specific fields
@@ -703,8 +863,15 @@ export default function AssignmentSetup({
       console.log('✅ AI 提取完成', { questionCount: extracted.questions.length, totalScore: extracted.totalScore })
       
       const { merged, notice } = mergeAnswerKeys(currentKey, extracted)
-      onSet(merged)
-      setNotice(notice)
+      const rebalanced = rebalanceAnswerKeyToTargetTotal(merged, 100)
+      onSet(rebalanced.answerKey)
+
+      const notices: string[] = []
+      if (notice) notices.push(notice)
+      if (rebalanced.adjusted) {
+        notices.push('已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。')
+      }
+      setNotice(notices.length > 0 ? notices.join(' ') : null)
     } catch (err) {
       console.error('❌ AI 讀取標準答案失敗', err)
       const errorMsg = err instanceof Error ? err.message : String(err)
@@ -784,7 +951,8 @@ export default function AssignmentSetup({
         answerKey: answerKey || undefined
       }
       await db.assignments.add(assignment)
-      setAssignments((prev) => [...prev, assignment])
+      setAssignments((prev) => [assignment, ...prev])
+      setAssignmentOrder((prev) => [assignment.id, ...prev.filter((id) => id !== assignment.id)])
       requestSync()
       resetForm()
       setIsCreateModalOpen(false)
@@ -815,7 +983,7 @@ export default function AssignmentSetup({
     // ✅ 顯示提示，不阻擋（後續壓縮會處理大檔案）
     const totalMB = files.reduce((s, f) => s + f.size, 0) / 1024 / 1024
     if (totalMB > 2.5) {
-      setAnswerKeyNotice(`已選擇 ${totalMB.toFixed(1)}MB，系統會自動壓縮後再交給 AI（建議一次 1–2 個檔案以保留清晰度）`)
+      setAnswerKeyNotice(`已選擇 ${totalMB.toFixed(1)}MB，系統會自動壓縮並分批解析（建議一次 1–3 個檔案以保留清晰度）`)
     } else {
       setAnswerKeyNotice(null)
     }
@@ -923,29 +1091,55 @@ export default function AssignmentSetup({
         imageBlobs.push(imageBlob)
       }
 
-      // 檢查總大小（Base64 編碼後會增加約 33%）
+      // 自動分批：避免一次請求過大觸發 413
+      const base64Overhead = 1.33
+      const maxRequestEstimatedSize = 2 * 1024 * 1024 // 2MB（單次請求保守上限）
       const totalSize = imageBlobs.reduce((sum, blob) => sum + blob.size, 0)
-      const estimatedBase64Size = totalSize * 1.33
-      const maxAllowedSize = 2 * 1024 * 1024  // 2MB（經測試，超過此大小容易導致 413 錯誤）
+      const estimatedBase64Size = totalSize * base64Overhead
 
       console.log('📊 檔案大小統計', {
         檔案數量: imageBlobs.length,
         總大小: `${(totalSize / 1024 / 1024).toFixed(2)} MB`,
         Base64後預估: `${(estimatedBase64Size / 1024 / 1024).toFixed(2)} MB`,
-        限制: '2 MB'
+        單次請求上限: '2 MB',
+        策略: '自動分批'
       })
 
-      if (estimatedBase64Size > maxAllowedSize) {
-        setAnswerKeyError(
-          `檔案總大小過大（預估 ${(estimatedBase64Size / 1024 / 1024).toFixed(1)} MB），超過 AI 處理限制 2 MB。\n建議分批上傳檔案。`
-        )
-        setIsExtractingAnswerKey(false)
-        return
+      const batches: Blob[][] = []
+      let currentBatch: Blob[] = []
+      let currentEstimatedSize = 0
+
+      for (const blob of imageBlobs) {
+        const blobEstimatedSize = blob.size * base64Overhead
+
+        if (blobEstimatedSize > maxRequestEstimatedSize) {
+          setAnswerKeyError(
+            `有單一頁面過大（預估 ${(blobEstimatedSize / 1024 / 1024).toFixed(1)} MB），超過單次請求上限 2 MB。\n請提高拍照清晰度或改用分頁上傳。`
+          )
+          return
+        }
+
+        if (
+          currentBatch.length > 0 &&
+          currentEstimatedSize + blobEstimatedSize > maxRequestEstimatedSize
+        ) {
+          batches.push(currentBatch)
+          currentBatch = [blob]
+          currentEstimatedSize = blobEstimatedSize
+        } else {
+          currentBatch.push(blob)
+          currentEstimatedSize += blobEstimatedSize
+        }
       }
 
-      // 建議：為保持品質，檔案數量不宜過多
-      if (imageBlobs.length > 2) {
-        console.warn(`⚠️ 選擇了 ${imageBlobs.length} 個檔案，建議一次上傳 1-2 個以保持最佳品質`)
+      if (currentBatch.length > 0) {
+        batches.push(currentBatch)
+      }
+
+      if (batches.length > 1) {
+        setAnswerKeyNotice(`檔案較多，系統已自動分成 ${batches.length} 批解析並合併。`)
+      } else {
+        setAnswerKeyNotice(null)
       }
 
       // Save first image blob for re-analysis
@@ -954,23 +1148,46 @@ export default function AssignmentSetup({
         setAnswerSheetImage(imageBlobs[0])
       }
 
-      // 呼叫多圖片版本的 extractAnswerKeyFromImages
-      const extracted = await extractAnswerKeyFromImages(imageBlobs, {
-        domain: assignmentDomain,
-        priorWeightTypes
-      })
+      // 逐批解析並合併（避免單次 payload 過大）
+      let mergedAnswerKey = answerKey ? normalizeAnswerKey(answerKey) : null
+      let duplicateNotice: string | null = null
 
-      console.log('📥 AI 回傳 AnswerKey：', extracted)
-      const normalizedExtracted = normalizeAnswerKey(extracted)
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i]
+        console.log(`🤖 開始解析第 ${i + 1}/${batches.length} 批`, {
+          batchCount: batch.length,
+          estimatedSizeMB: (batch.reduce((s, b) => s + b.size, 0) * base64Overhead / 1024 / 1024).toFixed(2)
+        })
 
-      // 與現有的 answerKey 合併
-      if (answerKey) {
-        console.log('🔄 合併新舊 AnswerKey...')
-        const { merged, notice } = mergeAnswerKeys(answerKey, normalizedExtracted)
-        setAnswerKey(merged)
-        if (notice) setAnswerKeyNotice(notice)
-      } else {
-        setAnswerKey(normalizedExtracted)
+        const extracted = await extractAnswerKeyFromImages(batch, {
+          domain: assignmentDomain,
+          priorWeightTypes
+        })
+        const normalizedExtracted = normalizeAnswerKey(extracted)
+
+        if (mergedAnswerKey) {
+          const { merged, notice } = mergeAnswerKeys(mergedAnswerKey, normalizedExtracted)
+          mergedAnswerKey = merged
+          if (notice) duplicateNotice = notice
+        } else {
+          mergedAnswerKey = normalizedExtracted
+        }
+      }
+
+      if (mergedAnswerKey) {
+        const rebalanced = rebalanceAnswerKeyToTargetTotal(mergedAnswerKey, 100)
+        setAnswerKey(rebalanced.answerKey)
+
+        const notices: string[] = []
+        if (duplicateNotice) notices.push(duplicateNotice)
+        if (rebalanced.adjusted) {
+          notices.push('已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。')
+        }
+        if (notices.length > 0) {
+          setAnswerKeyNotice(notices.join(' '))
+        }
+      } else if (duplicateNotice) {
+        setAnswerKeyNotice(duplicateNotice)
       }
       extractionSucceeded = true
     } catch (err) {
@@ -1069,8 +1286,11 @@ export default function AssignmentSetup({
         return q
       })
 
-      const totalScore = updatedQuestions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
-      setAnswerKeyFn({ questions: updatedQuestions, totalScore })
+      const rebalanced = rebalanceAnswerKeyToTargetTotal(
+        { questions: updatedQuestions, totalScore: 0 },
+        100
+      )
+      setAnswerKeyFn(rebalanced.answerKey)
       setNoticeFn(`已重新分析 ${reanalyzedQuestions.length} 題`)
     } catch (err) {
       console.error('重新分析失敗', err)
@@ -1121,9 +1341,12 @@ export default function AssignmentSetup({
       await queueDeleteMany('assignments', [id])
       await queueDeleteMany('submissions', submissionIds)
 
+      await db.answerExtractionCorrections.where('assignmentId').equals(id).delete()
+      await db.teacherSummaryCache.where('assignmentId').equals(id).delete()
       await db.assignments.delete(id)
       await db.submissions.where('assignmentId').equals(id).delete()
       setAssignments((prev) => prev.filter((a) => a.id !== id))
+      setAssignmentOrder((prev) => prev.filter((item) => item !== id))
       requestSync()
     } catch (err) {
       console.error('刪除作業失敗', err)
@@ -1132,15 +1355,20 @@ export default function AssignmentSetup({
 
   // 拖放處理器
   const handleDragStart = (assignmentId: string) => {
+    setDraggedFolderName(null)
     setDraggedAssignmentId(assignmentId)
   }
 
   const handleDragEnd = () => {
     setDraggedAssignmentId(null)
+    setDraggedFolderName(null)
     setDropTargetFolder(null)
+    setDragOverAssignmentId(null)
+    setDragOverFolderName(null)
   }
 
   const handleDragOver = (e: React.DragEvent, targetFolder: string) => {
+    if (!draggedAssignmentId) return
     e.preventDefault()
     setDropTargetFolder(targetFolder)
   }
@@ -1168,6 +1396,14 @@ export default function AssignmentSetup({
           a.id === draggedAssignmentId ? { ...a, folder: newFolder } : a
         )
       )
+      if (newFolder) {
+        setExpandedFolders((prev) =>
+          prev.includes(newFolder) ? prev : [...prev, newFolder]
+        )
+        setSelectedFolder(newFolder)
+      } else {
+        setSelectedFolder('__uncategorized__')
+      }
 
       requestSync()
     } catch (error) {
@@ -1176,6 +1412,79 @@ export default function AssignmentSetup({
     } finally {
       setDraggedAssignmentId(null)
       setDropTargetFolder(null)
+      setDragOverAssignmentId(null)
+    }
+  }
+
+  const handleFolderDragStart = (folder: string) => {
+    if (editingFolderId === folder) return
+    setDraggedAssignmentId(null)
+    setDraggedFolderName(folder)
+  }
+
+  const handleFolderDragOver = (e: React.DragEvent, folder: string) => {
+    if (!draggedFolderName || draggedFolderName === folder) return
+    e.preventDefault()
+    setDragOverFolderName(folder)
+  }
+
+  const handleFolderDropReorder = (e: React.DragEvent, folder: string) => {
+    e.stopPropagation()
+    if (!draggedFolderName || draggedFolderName === folder) return
+    e.preventDefault()
+    setFolderOrder((prev) => {
+      const base = [...new Set([...prev, ...orderedFolders])]
+      return reorderList(base, draggedFolderName, folder)
+    })
+    setDragOverFolderName(null)
+  }
+
+  const handleAssignmentCardDragOver = (e: React.DragEvent, targetAssignmentId: string) => {
+    if (!draggedAssignmentId || draggedAssignmentId === targetAssignmentId) return
+    e.preventDefault()
+    setDragOverAssignmentId(targetAssignmentId)
+  }
+
+  const handleAssignmentCardDrop = async (e: React.DragEvent, targetAssignmentId: string) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (!draggedAssignmentId || draggedAssignmentId === targetAssignmentId) return
+
+    const dragged = assignments.find((item) => item.id === draggedAssignmentId)
+    const target = assignments.find((item) => item.id === targetAssignmentId)
+    if (!dragged || !target) return
+
+    try {
+      if (dragged.folder !== target.folder) {
+        await db.assignments.update(draggedAssignmentId, { folder: target.folder })
+        setAssignments((prev) =>
+          prev.map((item) =>
+            item.id === draggedAssignmentId ? { ...item, folder: target.folder } : item
+          )
+        )
+        requestSync()
+      }
+
+      setAssignmentOrder((prev) => {
+        const base = [...new Set([...prev, ...orderedAssignments.map((item) => item.id)])]
+        return reorderList(base, draggedAssignmentId, targetAssignmentId)
+      })
+
+      if (target.folder) {
+        setExpandedFolders((prev) =>
+          prev.includes(target.folder as string) ? prev : [...prev, target.folder as string]
+        )
+        setSelectedFolder(target.folder)
+      } else {
+        setSelectedFolder('__uncategorized__')
+      }
+    } catch (error) {
+      console.error('調整作業順序失敗:', error)
+      setError('調整作業順序失敗')
+    } finally {
+      setDraggedAssignmentId(null)
+      setDropTargetFolder(null)
+      setDragOverAssignmentId(null)
     }
   }
 
@@ -1258,6 +1567,11 @@ export default function AssignmentSetup({
       if (selectedFolder === oldName) {
         setSelectedFolder(newName)
       }
+      setExpandedFolders((prev) =>
+        prev.includes(oldName)
+          ? [...prev.filter((folder) => folder !== oldName), newName]
+          : prev
+      )
 
       // 6. 清除編輯狀態
       setEditingFolderId(null)
@@ -1333,6 +1647,7 @@ export default function AssignmentSetup({
 
       // 5. 切換到「全部」
       setSelectedFolder('__uncategorized__')
+      setExpandedFolders((prev) => prev.filter((folder) => folder !== folderName))
     } catch (error) {
       console.error('刪除資料夾失敗:', error)
       setError(error instanceof Error ? error.message : '刪除資料夾失敗')
@@ -1391,6 +1706,10 @@ export default function AssignmentSetup({
           .equals(targetClassroomId)
           .toArray()
         setAssignments(data)
+        setAssignmentOrder((prev) => [
+          newAssignment.id,
+          ...prev.filter((id) => id !== newAssignment.id)
+        ])
       }
 
       setIsCopyModalOpen(false)
@@ -1452,6 +1771,9 @@ export default function AssignmentSetup({
       // 關閉對話框並切換到新資料夾
       setIsCreateFolderModalOpen(false)
       setSelectedFolder(trimmedName)
+      setExpandedFolders((prev) =>
+        prev.includes(trimmedName) ? prev : [...prev, trimmedName]
+      )
       setNewFolderName('')
       setNewFolderError('')
     } catch (error) {
@@ -1492,6 +1814,121 @@ export default function AssignmentSetup({
     setIsExtractingAnswerKeyEdit(false)
     setIsSavingAnswerKey(false)
   }
+
+  const toggleFolderExpanded = (folder: string) => {
+    setExpandedFolders((prev) =>
+      prev.includes(folder)
+        ? prev.filter((item) => item !== folder)
+        : [...prev, folder]
+    )
+    setSelectedFolder(folder)
+  }
+
+  const renderAssignmentCard = (
+    assignment: Assignment,
+    tutorialTag?: string
+  ) => (
+    <div
+      key={assignment.id}
+      data-tutorial-card={tutorialTag}
+      draggable={editingId !== assignment.id}
+      onDragStart={() => handleDragStart(assignment.id)}
+      onDragOver={(e) => handleAssignmentCardDragOver(e, assignment.id)}
+      onDragLeave={() => {
+        if (dragOverAssignmentId === assignment.id) {
+          setDragOverAssignmentId(null)
+        }
+      }}
+      onDrop={(e) => void handleAssignmentCardDrop(e, assignment.id)}
+      onDragEnd={handleDragEnd}
+      className={`w-full rounded-xl border bg-white px-4 py-4 flex items-center justify-between gap-3 transition-colors ${
+        dragOverAssignmentId === assignment.id
+          ? 'border-green-400 ring-1 ring-green-300'
+          : 'border-slate-200'
+      } ${
+        draggedAssignmentId === assignment.id ? 'opacity-50 cursor-grabbing' : 'cursor-grab'
+      }`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1">
+          {editingId === assignment.id ? (
+            <input
+              autoFocus
+              type="text"
+              value={editingTitle}
+              onChange={(e) => setEditingTitle(e.target.value)}
+              onBlur={() => void saveEditTitle(assignment.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  void saveEditTitle(assignment.id)
+                } else if (e.key === 'Escape') {
+                  setEditingId(null)
+                  setEditingTitle('')
+                }
+              }}
+              placeholder="作業標題"
+              className="px-2 py-1 border border-green-300 rounded text-sm w-full max-w-[220px] focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              disabled={isSubmitting}
+            />
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-gray-900 truncate">
+                {assignment.title}
+              </p>
+              <button
+                type="button"
+                onClick={() => startEditTitle(assignment)}
+                className="p-1 text-gray-400 hover:text-green-600"
+                title="修改標題"
+              >
+                <Edit2 className="w-3 h-3" />
+              </button>
+            </>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-0.5">
+          頁數 {assignment.totalPages} 頁 · {assignment.domain || '未設定領域'} ·{' '}
+          {assignment.answerKey ? '已設定標準答案' : '尚未設定標準答案'}
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => openAnswerKeyModal(assignment)}
+          className="p-1.5 rounded-full bg-white border border-gray-200 text-gray-600 hover:bg-gray-100"
+          title="編輯標準答案"
+        >
+          <BookOpen className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            if (!canCreateAssignment) {
+              handleRequireInkTopUp()
+              return
+            }
+            e.stopPropagation()
+            setSourceAssignment(assignment)
+            setTargetClassroomId('')
+            setNewAssignmentTitle('')
+            setIsCopyModalOpen(true)
+          }}
+          className="p-1.5 rounded-full bg-white border border-gray-200 text-green-600 hover:bg-green-50"
+          title="複製作業到其他班級"
+        >
+          <Copy className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleDelete(assignment.id)}
+          className="p-1.5 rounded-full bg-white border border-gray-200 text-red-600 hover:bg-red-50"
+          title="刪除作業"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  )
 
   const saveAnswerKey = async () => {
     console.log(`🚀 [答案解析] saveAnswerKey 函數被呼叫`)
@@ -1568,6 +2005,7 @@ export default function AssignmentSetup({
     const newQuestion: AnswerKeyQuestion = {
       id: `${base.questions.length + 1}`,
       type: 2, // Default to Type 2 (multi-answer acceptable)
+      orderMode: 'strict',
       referenceAnswer: '',
       acceptableAnswers: [],
       maxScore: 0,
@@ -1666,6 +2104,66 @@ export default function AssignmentSetup({
     questions[index] = item
     const totalScore = questions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
     setter({ questions, totalScore })
+  }
+
+  const inferUnorderedGroupId = (question: AnswerKeyQuestion, index: number) => {
+    if (Array.isArray(question.idPath) && question.idPath.length > 0) {
+      const first = (question.idPath[0] ?? '').trim()
+      if (first) return first
+    }
+    const id = (question.id ?? '').trim()
+    if (id.includes('-')) {
+      const [head] = id.split('-')
+      if (head?.trim()) return head.trim()
+    }
+    return `${index + 1}`
+  }
+
+  const updateQuestionOrderMode = (
+    target: 'create' | 'edit',
+    index: number,
+    mode: 'strict' | 'unordered'
+  ) => {
+    const current = target === 'create' ? answerKey : editingAnswerKey
+    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
+    const base = current ?? { questions: [], totalScore: 0 }
+    const questions = [...base.questions]
+    const existing = questions[index]
+    if (!existing) return
+
+    const next: AnswerKeyQuestion = {
+      ...existing,
+      orderMode: mode
+    }
+    if (mode === 'unordered') {
+      next.unorderedGroupId =
+        (existing.unorderedGroupId ?? '').trim() || inferUnorderedGroupId(existing, index)
+    } else {
+      next.unorderedGroupId = undefined
+    }
+    questions[index] = next
+    setter({ questions, totalScore: base.totalScore })
+  }
+
+  const updateQuestionUnorderedGroupId = (
+    target: 'create' | 'edit',
+    index: number,
+    groupId: string
+  ) => {
+    const current = target === 'create' ? answerKey : editingAnswerKey
+    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
+    const base = current ?? { questions: [], totalScore: 0 }
+    const questions = [...base.questions]
+    const existing = questions[index]
+    if (!existing) return
+
+    const trimmed = groupId.trim()
+    questions[index] = {
+      ...existing,
+      orderMode: 'unordered',
+      unorderedGroupId: trimmed || inferUnorderedGroupId(existing, index)
+    }
+    setter({ questions, totalScore: base.totalScore })
   }
 
   // Type 2: Acceptable Answers Management
@@ -1839,7 +2337,7 @@ export default function AssignmentSetup({
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-blue-600 mx-auto mb-4 animate-spin" />
           <p className="text-gray-600">載入中…</p>
@@ -1849,11 +2347,11 @@ export default function AssignmentSetup({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
       {/* AI 使用計算中 Overlay */}
       {isClosingSession && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-          <div className="bg-white rounded-2xl shadow-xl p-8 flex flex-col items-center gap-4">
+          <div className="bg-white rounded-xl border border-slate-200 p-8 flex flex-col items-center gap-4">
             <Loader className="w-10 h-10 text-blue-500 animate-spin" />
             <div className="text-center">
               <p className="text-lg font-semibold text-gray-800">AI 使用計算中...</p>
@@ -1862,34 +2360,27 @@ export default function AssignmentSetup({
           </div>
         </div>
       )}
-      <div className="max-w-5xl mx-auto pt-8">
-        {onBack && (
+      <div className={`${embedded ? 'max-w-none mx-0 pt-0' : 'max-w-5xl mx-auto pt-8'}`}>
+        {onBack && !embedded && (
           <button
             onClick={handleExit}
             className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
-            返回首頁
+            {embedded ? '返回總覽' : '返回首頁'}
           </button>
         )}
 
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6" data-tutorial="assignment-page">
-          <div className="flex items-center justify-between gap-3 mb-2">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-green-100 rounded-xl">
-                <BookOpen className="w-8 h-8 text-green-600" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">作業管理</h1>
-                <p className="text-sm text-gray-600">
-                  檢視、編輯或刪除作業，並可建立新作業與標準答案。
-                </p>
-              </div>
-            </div>
+        <div
+          className="mb-4 border-b border-slate-200 pb-3"
+          data-tutorial="assignment-page"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-2xl font-semibold text-gray-900">作業建立</h1>
             <button
               type="button"
               onClick={() => tutorial.restart()}
-              className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 text-gray-600 shadow hover:bg-gray-200"
+              className="inline-flex items-center justify-center h-9 w-9 rounded-md border border-slate-300 bg-white text-slate-600 hover:border-slate-400 hover:text-slate-800"
               title="使用教學"
             >
               <HelpCircle className="w-5 h-5" />
@@ -1909,7 +2400,7 @@ export default function AssignmentSetup({
         )}
 
         {classrooms.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <AlertCircle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               尚未建立任何班級
@@ -1917,146 +2408,44 @@ export default function AssignmentSetup({
             <p className="text-gray-600 mb-6">
               請先到「班級管理」建立班級後，再回來新增作業。
             </p>
-            {onBack && (
+            {onBack && !embedded && (
               <button
                 onClick={handleExit}
                 className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors"
               >
-                返回班級管理
+                {embedded ? '返回總覽' : '返回班級管理'}
               </button>
             )}
           </div>
         ) : (
-          <div className="bg-white rounded-2xl shadow-xl flex flex-col md:flex-row overflow-hidden">
-            <div className="md:w-1/2 border-b md:border-b-0 md:border-r border-gray-200 p-4 md:p-6 max-h-[70vh] overflow-auto">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold text-gray-700">
-                    已建立的作業
-                  </h2>
-                  {isAssignmentsLoading && (
-                    <Loader className="w-4 h-4 text-gray-400 animate-spin" />
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-xs text-gray-600">班級</label>
-                  <select
-                    value={selectedClassroomId}
-                    data-tutorial="select-classroom"
-                    onChange={(e) => setSelectedClassroomId(e.target.value)}
-                    className="px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  >
-                    {classrooms.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {filteredAssignments.length === 0 && !isAssignmentsLoading && (
-                <p className="text-sm text-gray-500">
-                  {selectedFolder
-                    ? '此資料夾中沒有作業。'
-                    : '此班級尚未新增作業，點擊右上角「＋」快速建立。'}
-                </p>
-              )}
-
-              <div className="space-y-2">
-                {filteredAssignments.map((a, index) => (
-                  <div
-                    key={a.id}
-                    data-tutorial-card={index === 0 ? 'first-assignment-card' : undefined}
-                    draggable={editingId !== a.id}
-                    onDragStart={() => handleDragStart(a.id)}
-                    onDragEnd={handleDragEnd}
-                    className={`w-full px-3 py-3 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-between gap-3 transition-opacity ${
-                      draggedAssignmentId === a.id ? 'opacity-50 cursor-grabbing' : 'cursor-grab'
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1">
-                        {editingId === a.id ? (
-                          <input
-                            autoFocus
-                            type="text"
-                            value={editingTitle}
-                            onChange={(e) => setEditingTitle(e.target.value)}
-                            onBlur={() => void saveEditTitle(a.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                void saveEditTitle(a.id)
-                              } else if (e.key === 'Escape') {
-                                setEditingId(null)
-                                setEditingTitle('')
-                              }
-                            }}
-                            placeholder="作業標題"
-                            className="px-2 py-1 border border-green-300 rounded text-sm w-full max-w-[220px] focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                            disabled={isSubmitting}
-                          />
-                        ) : (
-                          <>
-                            <p className="text-sm font-semibold text-gray-900 truncate">
-                              {a.title}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => startEditTitle(a)}
-                              className="p-1 text-gray-400 hover:text-green-600"
-                              title="修改標題"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        頁數 {a.totalPages} 頁 · {a.domain || '未設定領域'} ·{' '}
-                        {a.answerKey ? '已設定標準答案' : '尚未設定標準答案'}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openAnswerKeyModal(a)}
-                        className="p-1.5 rounded-full bg-white border border-gray-200 text-gray-600 hover:bg-gray-100"
-                        title="編輯標準答案"
-                      >
-                        <BookOpen className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          if (!canCreateAssignment) {
-                            handleRequireInkTopUp()
-                            return
-                          }
-                          e.stopPropagation()
-                          setSourceAssignment(a)
-                          setTargetClassroomId('')
-                          setNewAssignmentTitle('')
-                          setIsCopyModalOpen(true)
-                        }}
-                        className="p-1.5 rounded-full bg-white border border-gray-200 text-green-600 hover:bg-green-50"
-                        title="複製作業到其他班級"
-                      >
-                        <Copy className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDelete(a.id)}
-                        className="p-1.5 rounded-full bg-white border border-gray-200 text-red-600 hover:bg-red-50"
-                        title="刪除作業"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                {/* 新增作業按鈕 */}
+          <div className="space-y-4 bg-white">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="text-xs text-gray-600">班級</label>
+                <select
+                  value={selectedClassroomId}
+                  data-tutorial="select-classroom"
+                  onChange={(e) => setSelectedClassroomId(e.target.value)}
+                  className="px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                >
+                  {classrooms.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                {isAssignmentsLoading && (
+                  <Loader className="w-4 h-4 text-gray-400 animate-spin" />
+                )}
+                <button
+                  type="button"
+                  data-tutorial="create-folder"
+                  onClick={() => setIsCreateFolderModalOpen(true)}
+                  className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  <Plus className="w-4 h-4" />
+                  建立資料夾
+                </button>
                 <button
                   type="button"
                   data-tutorial="create-assignment"
@@ -2067,166 +2456,191 @@ export default function AssignmentSetup({
                     }
                     setIsCreateModalOpen(true)
                   }}
-                  className="w-full px-4 py-6 rounded-xl text-center border-2 border-dashed border-gray-300 text-gray-600 hover:border-green-400 hover:text-green-600 hover:bg-green-50 transition-all flex flex-col items-center justify-center gap-2"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-green-600 bg-green-600 text-white hover:bg-green-700"
                 >
-                  <Plus className="w-6 h-6" />
-                  <span className="font-medium">新增作業</span>
+                  <Plus className="w-4 h-4" />
+                  建立作業
                 </button>
               </div>
             </div>
 
-            <div className="md:w-1/2 p-6">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <Folder className="w-4 h-4" />
-                  資料夾
-                </h3>
-                <select
-                  value={sortOption}
-                  onChange={(e) => {
-                    const newOption = e.target.value as SortOption
-                    setSortOption(newOption)
-                    setSortPreference('assignment', newOption)
-                  }}
-                  className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-700 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  aria-label="排序方式"
-                >
-                  <option value="time-desc">依建立時間（新→舊）</option>
-                  <option value="time-asc">依建立時間（舊→新）</option>
-                  <option value="name-asc">依名稱A-Z（國字筆畫）</option>
-                  <option value="name-desc">依名稱Z-A（國字筆畫）</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                {/* 未分類 */}
-                {assignments.some((a) => !a.folder) && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedFolder('__uncategorized__')}
+            <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+              <div className="space-y-6">
+                <section>
+                  <div
                     onDragOver={(e) => handleDragOver(e, '__uncategorized__')}
                     onDragLeave={handleDragLeave}
-                    onDrop={(e) => handleDrop(e, '__uncategorized__')}
-                    className={`w-full px-4 py-3 rounded-xl text-left transition-all ${
-                      selectedFolder === '__uncategorized__'
-                        ? 'bg-blue-100 border-2 border-blue-500 text-blue-900'
-                        : dropTargetFolder === '__uncategorized__'
-                          ? 'bg-green-100 border-2 border-green-500 text-green-900'
-                          : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                    onDrop={(e) => void handleDrop(e, '__uncategorized__')}
+                    className={`transition-colors ${
+                      dropTargetFolder === '__uncategorized__' ? 'bg-green-50/70' : ''
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">全部</span>
-                      <span className="text-sm font-semibold">
-                        {assignments.filter((a) => !a.folder).length}
-                      </span>
-                    </div>
-                  </button>
-                )}
-
-                {/* 各資料夾 */}
-                {usedFolders.map((folder, index) => {
-                  const count = assignments.filter((a) => a.folder === folder).length
-                  return (
-                    <div
-                      key={folder}
-                      data-tutorial-folder={index === 0 ? 'first-assignment-folder' : undefined}
-                      onDragOver={(e) => handleDragOver(e, folder)}
-                      onDragLeave={handleDragLeave}
-                      onDrop={(e) => handleDrop(e, folder)}
-                      className={`w-full px-4 py-3 rounded-xl transition-all ${
-                        selectedFolder === folder
-                          ? 'bg-blue-100 border-2 border-blue-500 text-blue-900'
-                          : dropTargetFolder === folder
-                            ? 'bg-green-100 border-2 border-green-500 text-green-900'
-                            : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        {editingFolderId === folder ? (
-                          <div className="flex-1 flex flex-col gap-1">
-                            <input
-                              autoFocus
-                              type="text"
-                              value={editingFolderName}
-                              onChange={(e) => {
-                                setEditingFolderName(e.target.value)
-                                setEditingFolderError('')
-                              }}
-                              onBlur={() => void handleCommitFolderEdit()}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  void handleCommitFolderEdit()
-                                } else if (e.key === 'Escape') {
-                                  setEditingFolderId(null)
-                                  setEditingFolderName('')
-                                  setEditingFolderError('')
-                                }
-                              }}
-                              placeholder="資料夾名稱"
-                              className="px-2 py-1 border border-green-300 rounded text-sm w-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                              disabled={isSubmitting}
-                            />
-                            {editingFolderError && (
-                              <p className="text-xs text-red-600">{editingFolderError}</p>
-                            )}
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => setSelectedFolder(folder)}
-                            className="flex-1 text-left flex items-center justify-between min-w-0"
-                          >
-                            <div className="flex items-center gap-1 min-w-0 flex-1">
-                              <span className="font-medium truncate">{folder}</span>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setEditingFolderId(folder)
-                                  setEditingFolderName(folder)
-                                  setEditingFolderError('')
-                                }}
-                                className="p-1 text-gray-400 hover:text-green-600"
-                                title="重新命名"
-                              >
-                                <Edit2 className="w-3 h-3" />
-                              </button>
-                            </div>
-                            <span className="text-sm font-semibold ml-2">{count}</span>
-                          </button>
+                    {uncategorizedAssignments.length === 0 && !isAssignmentsLoading ? (
+                      <p className="text-sm text-gray-500 px-1">尚無作業。</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {uncategorizedAssignments.map((assignment, index) =>
+                          renderAssignmentCard(
+                            assignment,
+                            index === 0 ? 'first-assignment-card' : undefined
+                          )
                         )}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleDeleteFolder(folder)
-                          }}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
-                          title="刪除資料夾"
-                          disabled={isSubmitting}
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
                       </div>
-                    </div>
-                  )
-                })}
+                    )}
+                  </div>
+                </section>
 
-                {/* 新建資料夾按鈕 */}
-                <button
-                  type="button"
-                  data-tutorial="create-folder"
-                  onClick={() => setIsCreateFolderModalOpen(true)}
-                  className="w-full px-4 py-3 rounded-xl text-left border-2 border-dashed border-gray-300 text-gray-600 hover:border-green-400 hover:text-green-600 hover:bg-green-50 transition-all flex items-center justify-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span className="font-medium">新建資料夾</span>
-                </button>
-              </div>
+                <section>
+                  <div className="space-y-3">
+                    {orderedFolders.map((folder, index) => {
+                      const folderAssignments = assignmentsByFolder.get(folder) ?? []
+                      const isExpanded = expandedFolders.includes(folder)
+                      const isAssignmentDropTarget =
+                        !!draggedAssignmentId && dropTargetFolder === folder
+                      const isFolderReorderTarget =
+                        !!draggedFolderName && dragOverFolderName === folder
 
-              <div className="mt-6 p-3 bg-gray-50 rounded-lg text-xs text-gray-600">
-                <p className="font-semibold mb-1">小提示：</p>
-                <p>點擊資料夾可篩選作業，拖曳作業卡片到資料夾中分類。</p>
+                      return (
+                        <div
+                          key={folder}
+                          draggable={editingFolderId !== folder}
+                          onDragStart={() => handleFolderDragStart(folder)}
+                          onDragEnd={handleDragEnd}
+                          onDragOver={(e) => {
+                            handleDragOver(e, folder)
+                            handleFolderDragOver(e, folder)
+                          }}
+                          onDragLeave={() => {
+                            handleDragLeave()
+                            if (dragOverFolderName === folder) {
+                              setDragOverFolderName(null)
+                            }
+                          }}
+                          onDrop={(e) => {
+                            if (draggedAssignmentId) {
+                              void handleDrop(e, folder)
+                              return
+                            }
+                            handleFolderDropReorder(e, folder)
+                          }}
+                          className={`rounded-xl border bg-white transition-all ${
+                            isAssignmentDropTarget
+                              ? 'border-green-400 bg-green-50'
+                              : isFolderReorderTarget
+                                ? 'border-blue-400 bg-blue-50/60'
+                                : 'border-slate-200'
+                          } ${
+                            draggedFolderName === folder
+                              ? 'opacity-60 cursor-grabbing'
+                              : editingFolderId === folder
+                                ? ''
+                                : 'cursor-grab'
+                          }`}
+                        >
+                          <div
+                            data-tutorial-folder={index === 0 ? 'first-assignment-folder' : undefined}
+                            className="px-3 py-3"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              {editingFolderId === folder ? (
+                                <div className="flex-1 flex flex-col gap-1">
+                                  <input
+                                    autoFocus
+                                    type="text"
+                                    value={editingFolderName}
+                                    onChange={(e) => {
+                                      setEditingFolderName(e.target.value)
+                                      setEditingFolderError('')
+                                    }}
+                                    onBlur={() => void handleCommitFolderEdit()}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        void handleCommitFolderEdit()
+                                      } else if (e.key === 'Escape') {
+                                        setEditingFolderId(null)
+                                        setEditingFolderName('')
+                                        setEditingFolderError('')
+                                      }
+                                    }}
+                                    placeholder="資料夾名稱"
+                                    className="px-2 py-1 border border-green-300 rounded text-sm w-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                    disabled={isSubmitting}
+                                  />
+                                  {editingFolderError && (
+                                    <p className="text-xs text-red-600">{editingFolderError}</p>
+                                  )}
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleFolderExpanded(folder)}
+                                  className="flex-1 min-w-0 text-left flex items-center gap-2"
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                  )}
+                                  <Folder className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                  <span className="font-medium text-gray-900 truncate">
+                                    {folder}
+                                  </span>
+                                  <span className="text-xs text-gray-500 ml-auto">
+                                    {folderAssignments.length} 份
+                                  </span>
+                                </button>
+                              )}
+                              <div className="flex items-center gap-1">
+                                {editingFolderId !== folder && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setEditingFolderId(folder)
+                                      setEditingFolderName(folder)
+                                      setEditingFolderError('')
+                                    }}
+                                    className="p-1.5 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                                    title="重新命名"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleDeleteFolder(folder)
+                                  }}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                  title="刪除資料夾"
+                                  disabled={isSubmitting}
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          {isExpanded && (
+                            <div className="border-t border-gray-100 px-3 py-3 bg-gray-50/40">
+                              {folderAssignments.length === 0 ? (
+                                <p className="text-sm text-gray-500 px-1">
+                                  此資料夾沒有作業。
+                                </p>
+                              ) : (
+                                <div className="space-y-2">
+                                  {folderAssignments.map((assignment) =>
+                                    renderAssignmentCard(assignment)
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
               </div>
             </div>
           </div>
@@ -2267,6 +2681,25 @@ export default function AssignmentSetup({
               <div className="space-y-4">
                 <div>
                   <label
+                    htmlFor="assignmentTitle"
+                    className="block text-sm font-medium text-gray-700 mb-2"
+                  >
+                    作業標題
+                  </label>
+                  <input
+                    id="assignmentTitle"
+                    data-tutorial="assignment-title"
+                    type="text"
+                    value={assignmentTitle}
+                    onChange={(e) => setAssignmentTitle(e.target.value)}
+                    placeholder="例：數學作業第 1 份"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
+                    disabled={isSubmitting}
+                  />
+                </div>
+
+                <div>
+                  <label
                     htmlFor="classroom"
                     className="block text-sm font-medium text-gray-700 mb-2"
                   >
@@ -2286,25 +2719,6 @@ export default function AssignmentSetup({
                       </option>
                     ))}
                   </select>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="assignmentTitle"
-                    className="block text-sm font-medium text-gray-700 mb-2"
-                  >
-                    作業標題
-                  </label>
-                  <input
-                    id="assignmentTitle"
-                    data-tutorial="assignment-title"
-                    type="text"
-                    value={assignmentTitle}
-                    onChange={(e) => setAssignmentTitle(e.target.value)}
-                    placeholder="例：數學作業第 1 份"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
-                    disabled={isSubmitting}
-                  />
                 </div>
 
                 <div>
@@ -2476,18 +2890,12 @@ export default function AssignmentSetup({
                     disabled={isSubmitting || isExtractingAnswerKey}
                     className="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
-                    檔案大小限制：單檔壓縮後需小於 1.5 MB。可多次上傳合併；重複題號會自動加上後綴。
-                  </p>
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mt-2">
-                    <p className="text-xs text-blue-800">
-                      💡 <strong>提示：</strong>建議使用<strong className="text-blue-900">紅筆、藍筆或其他彩色筆</strong>填寫答案，AI 會優先識別與印刷黑色不同的彩色筆跡作為標準答案，辨識率更高！
-                    </p>
-                  </div>
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
-                    <p className="text-xs text-amber-800">
-                      ⚠️ <strong>品質優先：</strong>建議<strong className="text-amber-900">一次上傳 1-2 個檔案</strong>，避免過度壓縮影響辨識品質。若檔案較多，可分批上傳後自動合併。
-                    </p>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <p className="text-xs font-semibold text-slate-700">提醒</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-slate-600">
+                      <li>建議使用紅筆、藍筆等彩色筆填寫，AI 較容易辨識標準答案。</li>
+                      <li>系統會自動壓縮與分批解析；檔案較多時建議一次 1-3 檔，品質較穩定。</li>
+                    </ul>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -2609,6 +3017,41 @@ export default function AssignmentSetup({
                                 <X className="w-3 h-3" />
                               </button>
                             </div>
+
+                            <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
+                              <span className="text-[11px] text-gray-500">順序規則</span>
+                              <select
+                                className="w-full px-2 py-1 border border-gray-300 rounded bg-white"
+                                value={q.orderMode === 'unordered' ? 'unordered' : 'strict'}
+                                onChange={(e) =>
+                                  updateQuestionOrderMode(
+                                    'create',
+                                    idx,
+                                    e.target.value === 'unordered' ? 'unordered' : 'strict'
+                                  )
+                                }
+                              >
+                                <option value="strict">固定位置（預設）</option>
+                                <option value="unordered">同組可互換（不限順序）</option>
+                              </select>
+                            </div>
+                            {(q.orderMode ?? 'strict') === 'unordered' && (
+                              <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
+                                <span className="text-[11px] text-gray-500">互換組別</span>
+                                <input
+                                  className="w-full px-2 py-1 border border-gray-300 rounded"
+                                  value={q.unorderedGroupId ?? ''}
+                                  onChange={(e) =>
+                                    updateQuestionUnorderedGroupId(
+                                      'create',
+                                      idx,
+                                      e.target.value
+                                    )
+                                  }
+                                  placeholder="例如：1"
+                                />
+                              </div>
+                            )}
 
                             {/* Type 1: Standard Answer */}
                             {questionType === 1 && (
@@ -2965,7 +3408,7 @@ export default function AssignmentSetup({
                   className="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  檔案大小限制：單檔壓縮後需小於 1.5 MB。可多次上傳，題目會合併；重複題號會自動加上後綴。
+                  系統會自動壓縮後交給 AI。可多次上傳，題目會合併；重複題號會自動加上後綴。
                 </p>
                 <p className="text-xs text-amber-600 mt-1">
                   💡 若要使用「重新分析」功能，請先上傳答案卷並點擊「AI 解析」
@@ -3093,6 +3536,37 @@ export default function AssignmentSetup({
                             <X className="w-3 h-3" />
                           </button>
                         </div>
+
+                        <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
+                          <span className="text-[11px] text-gray-500">順序規則</span>
+                          <select
+                            className="w-full px-2 py-1 border border-gray-300 rounded bg-white"
+                            value={q.orderMode === 'unordered' ? 'unordered' : 'strict'}
+                            onChange={(e) =>
+                              updateQuestionOrderMode(
+                                'edit',
+                                idx,
+                                e.target.value === 'unordered' ? 'unordered' : 'strict'
+                              )
+                            }
+                          >
+                            <option value="strict">固定位置（預設）</option>
+                            <option value="unordered">同組可互換（不限順序）</option>
+                          </select>
+                        </div>
+                        {(q.orderMode ?? 'strict') === 'unordered' && (
+                          <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
+                            <span className="text-[11px] text-gray-500">互換組別</span>
+                            <input
+                              className="w-full px-2 py-1 border border-gray-300 rounded"
+                              value={q.unorderedGroupId ?? ''}
+                              onChange={(e) =>
+                                updateQuestionUnorderedGroupId('edit', idx, e.target.value)
+                              }
+                              placeholder="例如：1"
+                            />
+                          </div>
+                        )}
 
                         {/* Type 1: Standard Answer */}
                         {questionType === 1 && (
@@ -3588,4 +4062,5 @@ export default function AssignmentSetup({
     </div>
   )
 }
+
 

@@ -1,7 +1,0 @@
-
-> redpen-ai@0.0.1 build
-> tsc -b && vite build
-
-[36mvite v5.4.21 [32mbuilding for production...[36m[39m
-transforming...
-[32m✓[39m 1783 modules transformed.

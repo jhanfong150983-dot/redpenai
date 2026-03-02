@@ -6,7 +6,8 @@ import {
   Loader,
   CheckCircle,
   XCircle,
-  CreditCard
+  CreditCard,
+  Receipt
 } from 'lucide-react'
 import { dispatchInkBalance } from '@/lib/ink-events'
 import { dispatchLegalModal } from '@/lib/legal-events'
@@ -55,15 +56,15 @@ function normalizeOrderStatus(status: string) {
 function formatOrderStatus(status: string) {
   const normalized = normalizeOrderStatus(status)
   if (normalized === 'paid') {
-    return { label: '已完成', color: 'text-emerald-600 bg-emerald-50' }
+    return { label: '已完成', color: 'text-emerald-700 bg-emerald-50 border border-emerald-200' }
   }
   if (normalized === 'pending') {
-    return { label: '金流確認中', color: 'text-amber-600 bg-amber-50' }
+    return { label: '金流確認中', color: 'text-amber-700 bg-amber-50 border border-amber-200' }
   }
   if (normalized === 'cancelled' || normalized === 'canceled') {
-    return { label: '付款失敗', color: 'text-red-600 bg-red-50' }
+    return { label: '付款失敗', color: 'text-red-700 bg-red-50 border border-red-200' }
   }
-  return { label: '付款失敗', color: 'text-red-600 bg-red-50' }
+  return { label: '付款失敗', color: 'text-red-700 bg-red-50 border border-red-200' }
 }
 
 function formatDate(value?: string) {
@@ -269,7 +270,6 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
 
         void startPolling()
       }
-
     }
 
     if (params.has('payment') || params.has('orderId')) {
@@ -366,209 +366,208 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-5xl mx-auto pt-8">
+    <div className="min-h-screen bg-[#f7f7f5] px-4 py-6 md:px-8">
+      <div className="mx-auto max-w-3xl space-y-5">
+
+        {/* 返回按鈕 */}
         {onBack && (
           <button
+            type="button"
             onClick={onBack}
-            className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+            className="flex items-center gap-2 text-sm text-slate-600 transition-colors hover:text-slate-900"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="h-4 w-4" />
             返回首頁
           </button>
         )}
 
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="p-3 bg-sky-100 rounded-xl">
-                <Droplet className="w-7 h-7 text-sky-600" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">補充墨水</h1>
-                <p className="text-sm text-gray-600">
-                  僅支援綠界付款，依方案設定加贈免費額度
-                </p>
-              </div>
+        {/* 頁面標題 */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-sky-100">
+              <Droplet className="h-5 w-5 text-sky-600" />
             </div>
-            <div className="text-right">
-              <p className="text-xs text-gray-500">可用墨水</p>
-              <p className="text-lg font-semibold text-gray-900">
-                {currentBalance} 滴
+            <div>
+              <h1 className="text-2xl font-semibold text-slate-900">補充墨水</h1>
+              <p className="text-xs text-slate-500">僅支援綠界付款，依方案設定加贈免費額度</p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-slate-500">目前餘額</p>
+            <p className="text-xl font-bold tabular-nums text-amber-700">{currentBalance} 滴</p>
+            {pendingTotalDrops > 0 && (
+              <p className="mt-0.5 text-xs text-amber-600">
+                待入帳 {pendingTotalDrops} 滴（{pendingAmountTwd} 元）
               </p>
-              {pendingTotalDrops > 0 && (
-                <p className="text-xs text-amber-600 mt-1">
-                  待入帳 {pendingTotalDrops} 滴（{pendingAmountTwd} 元）
-                </p>
-              )}
+            )}
+          </div>
+        </div>
+
+        {/* 選擇方案 */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+          <h2 className="mb-4 text-base font-bold text-slate-800">選擇方案</h2>
+
+          {packageError && (
+            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+              {packageError}
             </div>
-          </div>
+          )}
 
-          <div className="mt-5 grid md:grid-cols-2 gap-4">
-            {packageError && (
-              <div className="col-span-full p-3 bg-red-50 border border-red-200 text-xs text-red-700 rounded-xl">
-                {packageError}
-              </div>
-            )}
-            {packageOptions.map((item) => {
-              const isSelected = selectedPackageId === item.id
-              const itemBonus =
-                typeof item.bonus_drops === 'number' && item.bonus_drops > 0
-                  ? item.bonus_drops
-                  : 0
-              const itemTotal = item.drops + itemBonus
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => handleSelectPackage(item.id)}
-                  className={`p-4 rounded-xl border text-left transition-all ${
-                    isSelected
-                      ? 'border-sky-400 bg-sky-50'
-                      : 'border-gray-200 bg-white hover:border-sky-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold text-gray-900">
-                      {item.label}
-                    </span>
-                    <div className="flex items-center gap-2 text-right">
-                      <span className="text-sm text-sky-600 font-semibold">
-                        {item.drops} 滴
-                      </span>
-                      {itemBonus > 0 && (
-                        <span className="text-xs font-semibold text-emerald-600">
-                          +{itemBonus} 贈送
-                        </span>
-                      )}
+          {isLoadingPackages ? (
+            <div className="flex items-center gap-2 py-4 text-xs text-slate-500">
+              <Loader className="h-3.5 w-3.5 animate-spin" />
+              載入方案中...
+            </div>
+          ) : packageOptions.length === 0 ? (
+            <p className="py-4 text-xs text-slate-500">尚未設定補充方案，請聯繫管理者。</p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {packageOptions.map((item) => {
+                const isSelected = selectedPackageId === item.id
+                const itemBonus =
+                  typeof item.bonus_drops === 'number' && item.bonus_drops > 0
+                    ? item.bonus_drops
+                    : 0
+                const itemTotal = item.drops + itemBonus
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => handleSelectPackage(item.id)}
+                    className={`rounded-xl border p-4 text-left transition-colors ${
+                      isSelected
+                        ? 'border-sky-300 bg-sky-50'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-slate-900">{item.label}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-sky-600">{item.drops} 滴</span>
+                        {itemBonus > 0 && (
+                          <span className="text-xs font-semibold text-emerald-600">
+                            +{itemBonus} 贈
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500">{item.description}</p>
-                  {itemBonus > 0 && (
-                    <p className="mt-1 text-xs text-emerald-600">
-                      實際獲得 {itemTotal} 滴
-                    </p>
-                  )}
-                </button>
-              )
-            })}
-            {isLoadingPackages && (
-              <div className="col-span-full flex items-center gap-2 text-xs text-gray-500">
-                <Loader className="w-3.5 h-3.5 animate-spin" />
-                載入方案中...
-              </div>
-            )}
-            {!isLoadingPackages && packageOptions.length === 0 && (
-              <div className="col-span-full text-xs text-gray-500">
-                尚未設定補充方案，請聯繫管理者。
-              </div>
-            )}
-          </div>
+                    {item.description && (
+                      <p className="mt-1 text-xs text-slate-500">{item.description}</p>
+                    )}
+                    {itemBonus > 0 && (
+                      <p className="mt-1 text-xs text-emerald-600">實際獲得 {itemTotal} 滴</p>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
 
-          <div className="mt-5 grid md:grid-cols-3 gap-3">
-            <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
-              <p className="text-xs text-gray-500">本次金額</p>
-              <p className="text-lg font-semibold text-gray-900">
+          {/* 金額摘要 */}
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+              <p className="text-[11px] text-slate-500">本次金額</p>
+              <p className="mt-0.5 text-base font-semibold text-slate-900">
                 {effectiveDrops ?? 0} 元
               </p>
             </div>
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3">
-              <p className="text-xs text-emerald-700">加贈墨水</p>
-              <p className="text-lg font-semibold text-emerald-700">
-                {bonusDrops} 滴
-              </p>
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5">
+              <p className="text-[11px] text-emerald-600">加贈墨水</p>
+              <p className="mt-0.5 text-base font-semibold text-emerald-700">{bonusDrops} 滴</p>
             </div>
-            <div className="rounded-xl border border-sky-100 bg-sky-50 px-4 py-3">
-              <p className="text-xs text-sky-700">實際獲得</p>
-              <p className="text-lg font-semibold text-sky-700">
-                {totalDrops} 滴
-              </p>
+            <div className="rounded-lg border border-sky-100 bg-sky-50 px-3 py-2.5">
+              <p className="text-[11px] text-sky-600">實際獲得</p>
+              <p className="mt-0.5 text-base font-semibold text-sky-700">{totalDrops} 滴</p>
             </div>
           </div>
+        </div>
 
-          <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-700 space-y-2">
+        {/* 付款條款與結帳 */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+          <h2 className="mb-4 text-base font-bold text-slate-800">付款確認</h2>
+
+          <div className="rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-xs text-red-700 space-y-1.5">
             <p>
               本服務為數位內容／線上服務，一經購買或使用即視為開始提供，依法排除七天鑑賞期。
             </p>
             <p>
               已使用點數不退；未使用點數可退，需扣除 {refundFeePercent}% 手續費。
               贈送點數不具退款價值，退款以購買點數為準。
-              退款請來電聯係處理，將以匯款方式退回(匯款手續費由買方負擔)。
+              退款請來電聯係處理，將以匯款方式退回（匯款手續費由買方負擔）。
             </p>
-            <label className="flex items-start gap-2 text-gray-700">
-              <input
-                type="checkbox"
-                checked={hasAgreed}
-                onChange={(e) => {
-                  setHasAgreed(e.target.checked)
-                  setError(null)
-                }}
-                className="mt-0.5 w-4 h-4 text-emerald-600 border-gray-300 rounded"
-              />
-              <span>
-                我已閱讀說明並同意
-                <button
-                  type="button"
-                  onClick={() => dispatchLegalModal('terms')}
-                  className="text-emerald-700 underline underline-offset-2 mx-1"
-                >
-                  服務條款
-                </button>
-                與
-                <button
-                  type="button"
-                  onClick={() => dispatchLegalModal('privacy')}
-                  className="text-emerald-700 underline underline-offset-2 mx-1"
-                >
-                  隱私權政策
-                </button>
-                ，並同意放棄七天鑑賞期。
-              </span>
-            </label>
           </div>
 
+          <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={hasAgreed}
+              onChange={(e) => {
+                setHasAgreed(e.target.checked)
+                setError(null)
+              }}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-sky-600 accent-sky-600"
+            />
+            <span>
+              我已閱讀說明並同意
+              <button
+                type="button"
+                onClick={() => dispatchLegalModal('terms')}
+                className="mx-1 text-sky-700 underline underline-offset-2 hover:text-sky-800"
+              >
+                服務條款
+              </button>
+              與
+              <button
+                type="button"
+                onClick={() => dispatchLegalModal('privacy')}
+                className="mx-1 text-sky-700 underline underline-offset-2 hover:text-sky-800"
+              >
+                隱私權政策
+              </button>
+              ，並同意放棄七天鑑賞期。
+            </span>
+          </label>
+
           {error && (
-            <div className="mt-4 p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-xl">
+            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
             </div>
           )}
           {message && (
-            <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 text-sm text-emerald-700 rounded-xl">
+            <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
               {message}
             </div>
           )}
           {pendingTotalDrops > 0 && (
-            <div className="mt-4 p-3 bg-amber-50 border border-amber-200 text-xs text-amber-700 rounded-xl">
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
               有待入帳訂單正在金流確認中，完成後會自動入帳；若未完成則視為付款失敗。
             </div>
           )}
 
-          <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <p className="text-xs text-gray-500">
-              付款完成後，系統會自動加點，若未更新可重新整理。
-            </p>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-slate-500">付款完成後，系統會自動加點，若未更新可重新整理。</p>
             <div className="flex flex-wrap gap-2">
               {isCheckoutLocked && (
-                <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                   目前暫停開放付款，請稍後再試。
                 </div>
               )}
               <button
                 type="button"
                 onClick={handleEcpayCheckout}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 disabled={isCheckoutLocked || isEcpaySubmitting || !selectedPackage || !hasAgreed}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {isCheckoutLocked ? (
                   '暫停付款'
                 ) : isEcpaySubmitting ? (
                   <>
-                    <Loader className="w-4 h-4 animate-spin" />
+                    <Loader className="h-4 w-4 animate-spin" />
                     轉接中...
                   </>
                 ) : (
                   <>
-                    <CreditCard className="w-4 h-4" />
+                    <CreditCard className="h-4 w-4" />
                     綠界付款
                   </>
                 )}
@@ -577,29 +576,33 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-gray-900">訂單紀錄</h2>
+        {/* 訂單紀錄 */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-slate-500" />
+              <h2 className="text-base font-bold text-slate-800">訂單紀錄</h2>
+            </div>
             <button
               type="button"
               onClick={() => void loadOrders()}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
               disabled={isLoading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-800 disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
               重新整理
             </button>
           </div>
 
           {isLoading ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500">
-              <Loader className="w-4 h-4 animate-spin" />
+            <div className="flex items-center gap-2 py-4 text-sm text-slate-500">
+              <Loader className="h-4 w-4 animate-spin" />
               載入中...
             </div>
           ) : orders.length === 0 ? (
-            <div className="text-sm text-gray-500">尚無訂單紀錄</div>
+            <p className="py-4 text-sm text-slate-500">尚無訂單紀錄</p>
           ) : (
-            <div className="space-y-3">
+            <div className="divide-y divide-slate-100">
               {orders.map((order) => {
                 const status = formatOrderStatus(order.status)
                 const normalizedStatus = normalizeOrderStatus(order.status)
@@ -612,29 +615,27 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
                 return (
                   <div
                     key={order.id}
-                    className="border border-gray-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
+                    className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900">
                         {orderLabel} / {order.amount_twd} 元
                         {orderBonus > 0 ? `（加贈 ${orderBonus}，共 ${orderTotal} 滴）` : ''}
                       </p>
-                      <p className="text-xs text-gray-500">
+                      <p className="mt-0.5 text-xs text-slate-500">
                         建立時間：{formatDate(order.created_at)}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-medium ${status.color}`}
-                      >
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${status.color}`}>
                         {status.label}
                       </span>
                       {normalizedStatus === 'paid' ? (
-                        <CheckCircle className="w-4 h-4 text-emerald-500" />
+                        <CheckCircle className="h-4 w-4 text-emerald-500" />
                       ) : normalizedStatus === 'pending' ? (
-                        <RefreshCw className="w-4 h-4 text-amber-500 animate-spin" />
+                        <RefreshCw className="h-4 w-4 animate-spin text-amber-500" />
                       ) : (
-                        <XCircle className="w-4 h-4 text-red-400" />
+                        <XCircle className="h-4 w-4 text-red-400" />
                       )}
                     </div>
                   </div>
@@ -643,6 +644,7 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
             </div>
           )}
         </div>
+
       </div>
     </div>
   )

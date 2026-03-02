@@ -103,6 +103,15 @@ const toMillis = (value: unknown): number | undefined => {
   return undefined
 }
 
+const toNumber = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return undefined
+}
+
 export function useSync(options: UseSyncOptions = {}) {
   const { autoSync = true } = options
 
@@ -491,6 +500,7 @@ export function useSync(options: UseSyncOptions = {}) {
         classroomId: s.classroomId,
         seatNumber: s.seatNumber,
         name: s.name,
+        email: s.email,
         updatedAt: s.updatedAt
       }))
 
@@ -528,6 +538,11 @@ export function useSync(options: UseSyncOptions = {}) {
         gradingResult: rest.gradingResult,
         gradedAt: rest.gradedAt,
         correctionCount: rest.correctionCount,
+        source: rest.source,
+        // submissions.round 在後端為 NOT NULL；舊本地資料可能缺值，統一補 0
+        round: toNumber(rest.round) ?? 0,
+        parentSubmissionId: rest.parentSubmissionId,
+        actorUserId: rest.actorUserId,
         updatedAt: rest.updatedAt
       }))
 
@@ -537,6 +552,7 @@ export function useSync(options: UseSyncOptions = {}) {
         id: f.id,
         name: f.name,
         type: f.type,
+        classroomId: f.classroomId ?? undefined,
         updatedAt: f.updatedAt
       }))
 
@@ -649,7 +665,11 @@ export function useSync(options: UseSyncOptions = {}) {
         {
           imageBlob: sub.imageBlob,
           imageBase64: sub.imageBase64,
-          thumbUrl: sub.thumbUrl
+          imageUrl: sub.imageUrl,
+          thumbUrl: sub.thumbUrl,
+          thumbnailBlob: sub.thumbnailBlob,
+          thumbnailBase64: sub.thumbnailBase64,
+          thumbnailUrl: sub.thumbnailUrl
         }
       ])
     )
@@ -666,14 +686,22 @@ export function useSync(options: UseSyncOptions = {}) {
     debugLog(`📊 本地圖片統計: ${blobCount} 個 Blob, ${base64Count} 個 Base64`)
 
     const mergedSubmissions: Submission[] = submissions
-      .filter(
-        (sub: Submission) =>
-          sub?.id &&
-          sub?.assignmentId &&
-          sub?.studentId &&
-          !deletedSubmissionSet.has(sub.id)
-      )
+      .filter((sub: Submission) => {
+        const assignmentId =
+          (sub as Submission & { assignmentId?: string }).assignmentId ??
+          (sub as { assignment_id?: string }).assignment_id
+        const studentId =
+          (sub as Submission & { studentId?: string }).studentId ??
+          (sub as { student_id?: string }).student_id
+        return Boolean(sub?.id && assignmentId && studentId && !deletedSubmissionSet.has(sub.id))
+      })
       .map((sub: Submission) => {
+        const assignmentId =
+          (sub as Submission & { assignmentId?: string }).assignmentId ??
+          (sub as { assignment_id?: string }).assignment_id
+        const studentId =
+          (sub as Submission & { studentId?: string }).studentId ??
+          (sub as { student_id?: string }).student_id
         const createdAt =
           typeof sub.createdAt === 'number' && Number.isFinite(sub.createdAt)
             ? sub.createdAt
@@ -685,12 +713,17 @@ export function useSync(options: UseSyncOptions = {}) {
 
         // 從本地恢復圖片數據
         const localImageData = imageDataMap.get(sub.id)
+        const imageUrl =
+          (sub as Submission & { imageUrl?: string }).imageUrl ??
+          (sub as { image_url?: string }).image_url ??
+          localImageData?.imageUrl
         const thumbUrl =
           (sub as Submission & { thumbUrl?: string }).thumbUrl ??
           (sub as { thumb_url?: string }).thumb_url ??
           (sub as Submission & { thumbnailUrl?: string }).thumbnailUrl ??
           (sub as { thumbnail_url?: string }).thumbnail_url ??
-          localImageData?.thumbUrl
+          localImageData?.thumbUrl ??
+          localImageData?.thumbnailUrl
 
         if (localImageData && (localImageData.imageBlob || localImageData.imageBase64)) {
           debugLog(`🔄 恢復圖片數據: ${sub.id}`, {
@@ -702,8 +735,8 @@ export function useSync(options: UseSyncOptions = {}) {
 
         return {
           id: sub.id,
-          assignmentId: sub.assignmentId,
-          studentId: sub.studentId,
+          assignmentId: assignmentId!,
+          studentId: studentId!,
           status: sub.status || 'synced',
           createdAt,
           score: sub.score,
@@ -711,10 +744,33 @@ export function useSync(options: UseSyncOptions = {}) {
           gradingResult: sub.gradingResult,
           gradedAt,
           correctionCount: sub.correctionCount,
-          imageUrl: sub.imageUrl,
+          source:
+            (sub as Submission & { source?: string }).source ??
+            (sub as { source?: string }).source ??
+            undefined,
+          round:
+            toNumber(
+              (sub as Submission & { round?: unknown }).round ??
+              (sub as { round?: unknown }).round
+            ) ?? 0,
+          parentSubmissionId:
+            (sub as Submission & { parentSubmissionId?: string }).parentSubmissionId ??
+            (sub as { parent_submission_id?: string }).parent_submission_id ??
+            undefined,
+          actorUserId:
+            (sub as Submission & { actorUserId?: string }).actorUserId ??
+            (sub as { actor_user_id?: string }).actor_user_id ??
+            undefined,
+          imageUrl: imageUrl || undefined,
           thumbUrl,
           imageBlob: localImageData?.imageBlob,       // 保留本地 Blob
           imageBase64: localImageData?.imageBase64,   // 保留本地 Base64
+          thumbnailBlob: localImageData?.thumbnailBlob,
+          thumbnailBase64: localImageData?.thumbnailBase64,
+          thumbnailUrl:
+            (sub as Submission & { thumbnailUrl?: string }).thumbnailUrl ??
+            (sub as { thumbnail_url?: string }).thumbnail_url ??
+            localImageData?.thumbnailUrl,
           updatedAt: toMillis(sub.updatedAt ?? (sub as { updated_at?: unknown }).updated_at)
         }
       })
@@ -767,6 +823,11 @@ export function useSync(options: UseSyncOptions = {}) {
         classroomId: s.classroomId,
         seatNumber: s.seatNumber,
         name: s.name,
+        email: (s as Student & { email?: string }).email ?? undefined,
+        authUserId:
+          (s as Student & { authUserId?: string }).authUserId ??
+          (s as { auth_user_id?: string }).auth_user_id ??
+          undefined,
         updatedAt: toMillis(
           (s as Student & { updatedAt?: unknown }).updatedAt ??
             (s as { updated_at?: unknown }).updated_at
@@ -777,6 +838,10 @@ export function useSync(options: UseSyncOptions = {}) {
     const existingAssignments = await db.assignments.toArray()
     const localAssignmentFolderMap = new Map(
       existingAssignments.map((a) => [a.id, { folder: a.folder, priorWeightTypes: a.priorWeightTypes }])
+    )
+    const existingFolders = await db.folders.toArray()
+    const localFolderClassroomMap = new Map(
+      existingFolders.map((folder) => [folder.id, folder.classroomId])
     )
 
     const normalizedAssignments: Assignment[] = assignments
@@ -814,6 +879,11 @@ export function useSync(options: UseSyncOptions = {}) {
         id: f.id,
         name: f.name,
         type: f.type,
+        classroomId:
+          f.classroomId ??
+          f.classroom_id ??
+          localFolderClassroomMap.get(f.id) ??
+          undefined,
         updatedAt: toMillis(
           (f as { updatedAt?: unknown }).updatedAt ??
             (f as { updated_at?: unknown }).updated_at
@@ -825,12 +895,16 @@ export function useSync(options: UseSyncOptions = {}) {
     }
     if (deletedStudentIds.length > 0) {
       await db.students.bulkDelete(deletedStudentIds)
+      await db.answerExtractionCorrections.where('studentId').anyOf(deletedStudentIds).delete()
     }
     if (deletedAssignmentIds.length > 0) {
       await db.assignments.bulkDelete(deletedAssignmentIds)
+      await db.answerExtractionCorrections.where('assignmentId').anyOf(deletedAssignmentIds).delete()
+      await db.teacherSummaryCache.where('assignmentId').anyOf(deletedAssignmentIds).delete()
     }
     if (deletedSubmissionIds.length > 0) {
       await db.submissions.bulkDelete(deletedSubmissionIds)
+      await db.answerExtractionCorrections.where('submissionId').anyOf(deletedSubmissionIds).delete()
     }
     if (deletedFolderIds.length > 0) {
       debugLog('⚠️ 執行刪除 folders:', deletedFolderIds)
@@ -894,9 +968,7 @@ export function useSync(options: UseSyncOptions = {}) {
       console.log('🔄 [同步] 跳過同步：目前正在同步中，已加入佇列')
       debugLog('目前正在同步中，跳過本次')
       syncQueuedRef.current = true
-      // 觸發 notifySyncComplete，讓等待者知道這次請求已被處理（會在進行中的同步完成後執行）
-      // 注意：這不會影響進行中的同步，只是通知等待者不需要再等
-      notifySyncComplete()
+      // 不可在此提早宣告完成；需等實際同步流程完成後再通知
       return
     }
 
@@ -1078,8 +1150,6 @@ export function useSync(options: UseSyncOptions = {}) {
   }, [autoSync, performSync])
 
   useEffect(() => {
-    if (!autoSync) return
-
     const handleSyncRequest = () => {
       void performSync()
     }
@@ -1088,7 +1158,7 @@ export function useSync(options: UseSyncOptions = {}) {
     return () => {
       window.removeEventListener(SYNC_EVENT_NAME, handleSyncRequest)
     }
-  }, [autoSync, performSync])
+  }, [performSync])
 
   return {
     ...status,

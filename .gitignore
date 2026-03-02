@@ -1,7 +1,11 @@
 node_modules/
 dist/
+dev-dist/
 build/
 .DS_Store
 .env
 .env.*
 !.env.example
+*.log
+build-output.*
+tsconfig.tsbuildinfo

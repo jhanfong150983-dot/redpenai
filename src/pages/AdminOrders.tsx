@@ -422,7 +422,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
   }, [orders, query, statusFilter])
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className="min-h-screen bg-white p-4">
       <div className="max-w-6xl mx-auto pt-8">
         {onBack && (
           <button
@@ -434,7 +434,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
           </button>
         )}
 
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">墨水方案設定</h2>
@@ -855,7 +855,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="p-3 bg-sky-100 rounded-xl">
@@ -978,3 +978,4 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
     </div>
   )
 }
+

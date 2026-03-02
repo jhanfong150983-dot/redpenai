@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   ArrowLeft,
   Loader,
@@ -21,12 +21,13 @@ import {
   ChevronLeft
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
-import { requestSync } from '@/lib/sync-events'
+import { requestSync, waitForSync } from '@/lib/sync-events'
 import {
   gradeMultipleSubmissions,
   gradeSubmission,
   isGeminiAvailable
 } from '@/lib/gemini'
+import { buildApiUrl } from '@/lib/api-base'
 import { startInkSession, closeInkSession, getInkSessionId } from '@/lib/ink-session'
 import { downloadImageFromSupabase } from '@/lib/supabase-download'
 import { getSubmissionImageUrl, fixCorruptedBase64 } from '@/lib/utils'
@@ -52,10 +53,157 @@ function getRandomGradingMessage(): string {
   return GRADING_MESSAGES[Math.floor(Math.random() * GRADING_MESSAGES.length)]
 }
 
+function getSubmissionSourceVisual(submission?: Submission) {
+  const source = submission?.source
+  if (source === 'student_upload' || source === 'student_correction') {
+    return {
+      label: source === 'student_correction' ? '學生訂正' : '學生上傳',
+      seatBadgeClass: 'border-blue-200 bg-blue-50 text-blue-700',
+      textClass: 'text-blue-700'
+    }
+  }
+
+  if (
+    source === 'teacher_camera' ||
+    source === 'teacher_scan' ||
+    source === 'teacher_student_upload'
+  ) {
+    return {
+      label: '老師上傳',
+      seatBadgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      textClass: 'text-emerald-700'
+    }
+  }
+
+  if (!source && submission?.status === 'scanned') {
+    return {
+      label: '老師上傳',
+      seatBadgeClass: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      textClass: 'text-emerald-700'
+    }
+  }
+
+  return {
+    label: '來源未知',
+    seatBadgeClass: 'border-slate-200 bg-slate-100 text-slate-600',
+    textClass: 'text-slate-600'
+  }
+}
+
+const LOW_CONFIDENCE_THRESHOLD = 90
+
+const STAGE_LABEL_MAP: Record<string, string> = {
+  ReadAnswer: '答案抄寫',
+  ReadAnswerFinalOnly: '最終答案抄寫',
+  ReadAnswerWork: '計算過程抄寫',
+  ReadAnswerRecheck: '答案重讀',
+  classify: '題目定位',
+  Accessor: '自動評分',
+  explain: '錯因解析'
+}
+
+const CORRECTION_BLOCKING_STATUSES = new Set(['correction_required', 'correction_in_progress'])
+
+const CORRECTION_STATUS_LABEL_MAP: Record<string, string> = {
+  correction_required: '待訂正',
+  correction_in_progress: '訂正中'
+}
+
+function formatDisplayQuestionId(questionId?: string | null) {
+  if (!questionId) return null
+  return questionId.startsWith('#') ? questionId.slice(1) : questionId
+}
+
+function toUserFriendlyReviewReason(rawReason: string) {
+  const raw = (rawReason || '').trim()
+  if (!raw) return ''
+
+  const stageMatch = raw.match(/^\[([^\]]+)\]\s*(.+)$/)
+  const stageKey = stageMatch?.[1]?.trim() || ''
+  const body = (stageMatch?.[2] || raw).trim()
+  const stageLabel = STAGE_LABEL_MAP[stageKey] || stageKey
+
+  const calcMismatchMatch = body.match(
+    /^CALC_ANSWER_MISMATCH\s+questionId=([^\s]+)\s+calc=([^\s]+)\s+stated=([^\s]+)/i
+  )
+  if (calcMismatchMatch) {
+    const questionId = formatDisplayQuestionId(calcMismatchMatch[1]) || calcMismatchMatch[1]
+    const calcValue = calcMismatchMatch[2]
+    const statedValue = calcMismatchMatch[3]
+    return `第${questionId}題：算式結果 ${calcValue} 與作答答案 ${statedValue} 不一致`
+  }
+
+  const finalMismatchDetectedMatch = body.match(/^FINAL_ANSWER_MISMATCH_DETECTED\s+count=(\d+)/i)
+  if (finalMismatchDetectedMatch) {
+    return `偵測到 ${finalMismatchDetectedMatch[1]} 題最終答案不一致，建議人工複核`
+  }
+
+  const finalMismatchUnresolvedMatch = body.match(/^FINAL_ANSWER_MISMATCH_UNRESOLVED\s+count=(\d+)/i)
+  if (finalMismatchUnresolvedMatch) {
+    return `有 ${finalMismatchUnresolvedMatch[1]} 題最終答案不一致且無法自動修正`
+  }
+
+  const alignmentCoverageMatch = raw.match(/Question alignment coverage\s+(\d+)%/i)
+  if (alignmentCoverageMatch) {
+    return `題目定位覆蓋率僅 ${alignmentCoverageMatch[1]}%，可能有題目未正確對齊`
+  }
+
+  const unreadableCountMatch = raw.match(/Unreadable answers:\s*(\d+)/i)
+  if (unreadableCountMatch) {
+    return `有 ${unreadableCountMatch[1]} 題答案無法辨識`
+  }
+
+  const requestFailedMatch = body.match(/^REQUEST_FAILED(?:\s+status=(\d+))?/i)
+  if (requestFailedMatch) {
+    const statusText = requestFailedMatch[1] ? `（狀態碼 ${requestFailedMatch[1]}）` : ''
+    return `${stageLabel || '系統'}請求失敗${statusText}`
+  }
+
+  if (/^JSON_PARSE_FAILED$/i.test(body)) {
+    return `${stageLabel || '系統'}回傳格式異常，需人工複核`
+  }
+
+  if (/^EXECUTION_ERROR$/i.test(body)) {
+    return `${stageLabel || '系統'}執行失敗，需人工複核`
+  }
+
+  if (stageLabel && stageMatch) {
+    return `${stageLabel}：${body}`
+  }
+
+  return raw
+}
+
 interface GradingPageProps {
   assignmentId: string
   onBack?: () => void
   onRequireInkTopUp?: () => void
+  embedded?: boolean
+}
+
+type CorrectionDashboardStudentLite = {
+  studentId?: string
+  name?: string
+  seatNumber?: number | null
+  status?: string
+}
+
+type CorrectionDashboardLite = {
+  dispatchActive?: boolean
+  students?: CorrectionDashboardStudentLite[]
+}
+
+type CorrectionBlockedStudent = {
+  studentId: string
+  seatNumber: number | null
+  name: string
+  status: string
+}
+
+type CorrectionGuardModalState = {
+  title: string
+  description: string
+  blockedStudents?: CorrectionBlockedStudent[]
 }
 
 /**
@@ -115,8 +263,13 @@ function rebuildBlobFromBase64(base64: string): Blob {
 export default function GradingPage({
   assignmentId,
   onBack,
-  onRequireInkTopUp
+  onRequireInkTopUp,
+  embedded = false
 }: GradingPageProps) {
+  const PREVIEW_LENS_SIZE = 140
+  const PREVIEW_ZOOM_SCALE = 2.3
+  const PREVIEW_ZOOM_PANEL_SIZE = 250
+
   const [assignment, setAssignment] = useState<Assignment | null>(null)
   const [classroom, setClassroom] = useState<Classroom | null>(null)
   const [students, setStudents] = useState<Student[]>([])
@@ -125,6 +278,7 @@ export default function GradingPage({
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isGrading, setIsGrading] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
+  const [isCheckingCorrectionState, setIsCheckingCorrectionState] = useState(false)
   const [gradingProgress, setGradingProgress] = useState({ current: 0, total: 0 })
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 })
   const [error, setError] = useState<string | null>(null)
@@ -136,11 +290,22 @@ export default function GradingPage({
   const inkSessionStartRef = useRef<string | null>(null)
   const hasClosedSessionRef = useRef(false)
   const skipInkSessionCleanupRef = useRef(import.meta.env.DEV)
+  const correctionStatusByStudentIdRef = useRef<Map<string, string>>(new Map())
+  const correctionStatusFetchedAtRef = useRef(0)
 
   const [selectedSubmission, setSelectedSubmission] = useState<{
     submission: Submission
     student: Student
   } | null>(null)
+  const [previewLensActive, setPreviewLensActive] = useState(false)
+  const [previewLensState, setPreviewLensState] = useState({
+    x: 0,
+    y: 0,
+    lensLeft: 0,
+    lensTop: 0,
+    width: 0,
+    height: 0
+  })
 
   // 🆕 停止批改相關
   const [stopRequested, setStopRequested] = useState(false)
@@ -150,6 +315,16 @@ export default function GradingPage({
   const [showGradeConfirm, setShowGradeConfirm] = useState(false)
   const [gradeCandidates, setGradeCandidates] = useState<Submission[]>([])
   const [isRegrade, setIsRegrade] = useState(false)
+  const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<Set<string>>(new Set())
+  const [correctionGuardModal, setCorrectionGuardModal] = useState<CorrectionGuardModalState | null>(
+    null
+  )
+  const [gradeResultNotice, setGradeResultNotice] = useState<{
+    stopped: boolean
+    successCount: number
+    failCount: number
+    totalCount: number
+  } | null>(null)
 
   // 🆕 進度詳情
   const [currentGradingStudent, setCurrentGradingStudent] = useState<string>('')
@@ -167,9 +342,11 @@ export default function GradingPage({
   const [regradeAttempts, setRegradeAttempts] = useState<Map<string, Map<string, number>>>(
     new Map()
   )
-  const [activeRegradeId, setActiveRegradeId] = useState<string | null>(null)
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
   const isBusy = isGrading || isDownloading
+  const selectedSubmissionCount = selectedSubmissionIds.size
+  const gradeActionLabel =
+    selectedSubmissionCount > 0 ? `批次批改 (${selectedSubmissionCount})` : '全部批改'
   
   // 🆕 計算待複核數量
   const needsReviewCount = useMemo(() => {
@@ -236,6 +413,46 @@ export default function GradingPage({
     window.location.href = '/?page=ink-topup'
   }, [onRequireInkTopUp])
 
+  const closePreviewLens = useCallback(() => {
+    setPreviewLensActive(false)
+  }, [])
+
+  const handlePreviewLensMove = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+
+    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
+    const x = clamp(event.clientX - rect.left, 0, rect.width)
+    const y = clamp(event.clientY - rect.top, 0, rect.height)
+    const half = PREVIEW_LENS_SIZE / 2
+
+    const lensLeft = clamp(x - half, 0, Math.max(0, rect.width - PREVIEW_LENS_SIZE))
+    const lensTop = clamp(y - half, 0, Math.max(0, rect.height - PREVIEW_LENS_SIZE))
+
+    setPreviewLensState({
+      x,
+      y,
+      lensLeft,
+      lensTop,
+      width: rect.width,
+      height: rect.height
+    })
+    setPreviewLensActive(true)
+  }, [PREVIEW_LENS_SIZE])
+
+  useEffect(() => {
+    setPreviewLensActive(false)
+  }, [selectedSubmission?.submission.id])
+
+  useEffect(() => {
+    const existingSubmissionIds = new Set(Array.from(submissions.values()).map((sub) => sub.id))
+    setSelectedSubmissionIds((prev) => {
+      if (prev.size === 0) return prev
+      const next = new Set(Array.from(prev).filter((id) => existingSubmissionIds.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [submissions])
+
   const handleExit = useCallback(async () => {
     if (!onBack || isClosingSession) return
 
@@ -299,6 +516,120 @@ export default function GradingPage({
       }
     }
   }
+
+  const fetchCorrectionStatusByStudentId = useCallback(async (): Promise<Map<string, string>> => {
+    const query = new URLSearchParams({ assignmentId })
+    const response = await fetch(`/api/data/correction-dashboard?${query.toString()}`, {
+      method: 'GET',
+      credentials: 'include'
+    })
+    const data = (await response.json().catch(() => ({}))) as CorrectionDashboardLite & {
+      error?: string
+    }
+    if (!response.ok) {
+      throw new Error(data.error || '讀取訂正狀態失敗')
+    }
+
+    const nextMap = new Map<string, string>()
+    for (const row of Array.isArray(data.students) ? data.students : []) {
+      const studentId = typeof row?.studentId === 'string' ? row.studentId : ''
+      const status = typeof row?.status === 'string' ? row.status : ''
+      if (!studentId || !status) continue
+      nextMap.set(studentId, status)
+    }
+
+    correctionStatusByStudentIdRef.current = nextMap
+    correctionStatusFetchedAtRef.current = Date.now()
+    return nextMap
+  }, [assignmentId])
+
+  const collectCorrectionBlockedStudents = useCallback(
+    (candidateSubs: Submission[], statusMap: Map<string, string>) => {
+      const byStudent = new Map<string, CorrectionBlockedStudent>()
+
+      for (const submission of candidateSubs) {
+        const studentId = submission.studentId
+        if (!studentId || byStudent.has(studentId)) continue
+        const status = statusMap.get(studentId) || ''
+        if (!CORRECTION_BLOCKING_STATUSES.has(status)) continue
+        const student = students.find((s) => s.id === studentId)
+        byStudent.set(studentId, {
+          studentId,
+          seatNumber:
+            student && Number.isFinite(student.seatNumber) ? Number(student.seatNumber) : null,
+          name: student?.name || studentId,
+          status
+        })
+      }
+
+      return Array.from(byStudent.values()).sort((a, b) => {
+        const seatA = a.seatNumber ?? Number.MAX_SAFE_INTEGER
+        const seatB = b.seatNumber ?? Number.MAX_SAFE_INTEGER
+        if (seatA !== seatB) return seatA - seatB
+        return a.name.localeCompare(b.name, 'zh-Hant')
+      })
+    },
+    [students]
+  )
+
+  const openCorrectionGuardModal = useCallback(
+    (title: string, description: string, blockedStudents: CorrectionBlockedStudent[] = []) => {
+      setCorrectionGuardModal({
+        title,
+        description,
+        blockedStudents
+      })
+    },
+    []
+  )
+
+  const ensureNoCorrectionConflict = useCallback(
+    async (candidateSubs: Submission[]) => {
+      const cachedMap = correctionStatusByStudentIdRef.current
+      const cachedBlockedStudents = collectCorrectionBlockedStudents(candidateSubs, cachedMap)
+      if (cachedBlockedStudents.length > 0) {
+        openCorrectionGuardModal(
+          '目前無法批改',
+          '偵測到訂正中的學生。為避免覆蓋學生端訂正內容，請先到「作業訂正看板」停止訂正後再批改。',
+          cachedBlockedStudents
+        )
+        return false
+      }
+
+      const cacheAgeMs = Date.now() - correctionStatusFetchedAtRef.current
+      const hasRecentStatus = cachedMap.size > 0 && cacheAgeMs <= 12_000
+      if (hasRecentStatus) return true
+
+      setIsCheckingCorrectionState(true)
+      try {
+        const latestMap = await fetchCorrectionStatusByStudentId()
+        const blockedStudents = collectCorrectionBlockedStudents(candidateSubs, latestMap)
+        if (blockedStudents.length > 0) {
+          openCorrectionGuardModal(
+            '目前無法批改',
+            '偵測到訂正中的學生。為避免覆蓋學生端訂正內容，請先到「作業訂正看板」停止訂正後再批改。',
+            blockedStudents
+          )
+          return false
+        }
+        return true
+      } catch (error) {
+        console.warn('⚠️ 檢查訂正狀態失敗:', error)
+        openCorrectionGuardModal(
+          '無法確認訂正狀態',
+          '系統暫時無法確認是否仍有學生在訂正中，請稍後再試，或先到「作業訂正看板」確認後再批改。'
+        )
+        return false
+      } finally {
+        setIsCheckingCorrectionState(false)
+      }
+    },
+    [
+      collectCorrectionBlockedStudents,
+      fetchCorrectionStatusByStudentId,
+      openCorrectionGuardModal
+    ]
+  )
 
   const loadData = useCallback(async () => {
     setIsLoading(true)
@@ -375,6 +706,9 @@ export default function GradingPage({
       }
 
       setSubmissions(map)
+      void fetchCorrectionStatusByStudentId().catch((error) => {
+        console.warn('⚠️ 預載訂正狀態失敗:', error)
+      })
 
       // ✅ 先放行 UI：提早結束 loading 狀態，讓畫面能快速顯示
       setIsLoading(false)
@@ -384,11 +718,21 @@ export default function GradingPage({
       setError(err instanceof Error ? err.message : '載入失敗')
       setIsLoading(false)
     }
-  }, [assignmentId])
+  }, [assignmentId, fetchCorrectionStatusByStudentId])
+
+  const syncAndReload = useCallback(async (timeoutMs = 15000) => {
+    requestSync(true)
+    try {
+      await waitForSync(timeoutMs)
+    } catch (error) {
+      console.warn('⚠️ 進頁同步等待逾時，改用目前資料繼續載入', error)
+    }
+    await loadData()
+  }, [loadData])
 
   useEffect(() => {
-    void loadData()
-  }, [loadData])
+    void syncAndReload()
+  }, [syncAndReload])
 
   useEffect(() => {
     let cancelled = false
@@ -520,9 +864,9 @@ export default function GradingPage({
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true)
-    await loadData()
+    await syncAndReload()
     setIsRefreshing(false)
-  }, [loadData])
+  }, [syncAndReload])
 
   const handleCloseModal = () => {
     setSelectedSubmission(null)
@@ -592,87 +936,6 @@ export default function GradingPage({
       return next
     })
   }
-  const handleRegradeSingle = async (submission: Submission) => {
-    if (inkSessionError) {
-      alert(inkSessionError)
-      return
-    }
-    if (!inkSessionReady) {
-      alert('批改會話尚未準備完成，請稍候')
-      return
-    }
-    if (!isGeminiAvailable) {
-      alert('Gemini 服務未設定')
-      return
-    }
-
-    setActiveRegradeId(submission.id)
-    setIsGrading(true)
-    setGradingMessage(getRandomGradingMessage())
-    setCompletedReviewCount(0)
-    setGradingStartTime(Date.now())
-    try {
-      if (!submission.imageBlob) {
-        // 優先從 Base64 重建 Blob
-        if (submission.imageBase64) {
-          try {
-            console.log('🔧 從 Base64 重建 Blob 用於批改')
-            submission.imageBlob = rebuildBlobFromBase64(submission.imageBase64)
-            console.log(`✅ 從 Base64 重建 Blob 成功: size=${submission.imageBlob.size}, type=${submission.imageBlob.type}`)
-          } catch (error) {
-            console.error('❌ 從 Base64 重建 Blob 失敗:', error)
-            alert('無法重建圖片，請重新上傳作業')
-            return
-          }
-        } else {
-          // 沒有 Base64，嘗試從 Supabase 下載
-          try {
-            const blob = await downloadImageFromSupabase(submission.id)
-            const base64 = await blobToBase64(blob)
-            submission.imageBlob = blob
-            submission.imageBase64 = base64
-            await updateSubmissionWithImages(submission.id, {}, blob, base64)
-          } catch {
-            alert('下載影像失敗，無法重評')
-            return
-          }
-        }
-      }
-
-      const result = await gradeSubmission(submission.imageBlob!, null, assignment?.answerKey, { strict: true, domain: assignment?.domain })
-
-      await updateSubmissionWithImages(
-        submission.id,
-        {
-          status: 'graded',
-          score: result.totalScore,
-          feedback: '',
-          gradingResult: result,
-          gradedAt: Date.now()
-        },
-        submission.imageBlob,
-        submission.imageBase64
-      )
-      requestSync()
-
-      const updatedSub = await db.submissions.get(submission.id)
-      if (updatedSub) {
-        setSubmissions((prev) => new Map(prev).set(updatedSub.studentId, updatedSub))
-
-        if (selectedSubmission?.submission.id === submission.id) {
-          const student = students.find((s) => s.id === submission.studentId)
-          if (student) setSelectedSubmission({ submission: updatedSub, student })
-        }
-      }
-    } catch (err) {
-      console.error(err)
-      alert('重評失敗')
-    } finally {
-      setIsGrading(false)
-      setActiveRegradeId(null)
-    }
-  }
-
   const handleRegradeFlagged = async (submission: Submission) => {
     if (inkSessionError) {
       alert(inkSessionError)
@@ -684,6 +947,11 @@ export default function GradingPage({
     }
     if (!isGeminiAvailable) {
       alert('Gemini 服務未設定')
+      return
+    }
+
+    const canProceed = await ensureNoCorrectionConflict([submission])
+    if (!canProceed) {
       return
     }
 
@@ -848,6 +1116,7 @@ export default function GradingPage({
 
     try {
       // 從數據庫中刪除
+      await db.answerExtractionCorrections.where('submissionId').equals(submission.id).delete()
       await db.submissions.delete(submission.id)
 
       // 加入刪除隊列以同步到雲端
@@ -858,6 +1127,12 @@ export default function GradingPage({
       setSubmissions((prev) => {
         const next = new Map(prev)
         next.delete(student.id)
+        return next
+      })
+      setSelectedSubmissionIds((prev) => {
+        if (!prev.has(submission.id)) return prev
+        const next = new Set(prev)
+        next.delete(submission.id)
         return next
       })
 
@@ -876,6 +1151,23 @@ export default function GradingPage({
     }
   }
 
+  const hasSubmissionImage = (submission: Submission) =>
+    Boolean(submission.imageBase64) ||
+    (submission.imageBlob?.size ?? 0) > 0 ||
+    Boolean(submission.imageUrl)
+
+  const toggleSubmissionSelection = (submissionId: string) => {
+    setSelectedSubmissionIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(submissionId)) {
+        next.delete(submissionId)
+      } else {
+        next.add(submissionId)
+      }
+      return next
+    })
+  }
+
   const handleGradeAll = async () => {
     if (inkSessionError) {
       alert(inkSessionError)
@@ -890,19 +1182,24 @@ export default function GradingPage({
       return
     }
 
-    const allSubs = Array.from(submissions.values())
-    let candidates = allSubs.filter((s) => s.status === 'scanned' || s.status === 'synced')
-    let regrade = false
+    const allSubs = Array.from(submissions.values()).filter((s) => hasSubmissionImage(s))
+    const hasManualSelection = selectedSubmissionIds.size > 0
+    const selectedSubs = hasManualSelection
+      ? allSubs.filter((s) => selectedSubmissionIds.has(s.id))
+      : []
+    const candidates = hasManualSelection ? selectedSubs : allSubs
 
     if (candidates.length === 0) {
-      const graded = allSubs.filter((s) => s.status === 'graded')
-      if (graded.length === 0) {
-        alert('沒有可批改的作業')
-        return
-      }
-      candidates = graded
-      regrade = true
+      alert(hasManualSelection ? '勾選的作業沒有可批改影像' : '沒有可批改的作業')
+      return
     }
+
+    const canProceed = await ensureNoCorrectionConflict(candidates)
+    if (!canProceed) {
+      return
+    }
+
+    const regrade = candidates.some((s) => s.status === 'graded')
 
     // 🆕 顯示確認對話框
     setGradeCandidates(candidates)
@@ -915,7 +1212,13 @@ export default function GradingPage({
     setShowGradeConfirm(false)
     const candidates = gradeCandidates
 
+    const canProceed = await ensureNoCorrectionConflict(candidates)
+    if (!canProceed) {
+      return
+    }
+
     setIsGrading(true)
+    setGradeResultNotice(null)
     setGradingMessage(getRandomGradingMessage())
     setError(null)
     setStopRequested(false)
@@ -1004,7 +1307,12 @@ export default function GradingPage({
           setIsGrading(false)
           setStopRequested(false)
           setCurrentGradingStudent('')
-          alert('已停止批改')
+          setGradeResultNotice({
+            stopped: true,
+            successCount: 0,
+            failCount: 0,
+            totalCount: candidates.length
+          })
           return
         }
 
@@ -1026,6 +1334,7 @@ export default function GradingPage({
       }
 
       console.log(`✅ 準備批改 ${toGrade.length} 份作業`)
+      setGradingProgress({ current: 0, total: toGrade.length })
 
       // 顯示將要批改的數量
       if (toGrade.length < candidates.length) {
@@ -1039,12 +1348,6 @@ export default function GradingPage({
         null,
         (current, total) => {
           setGradingProgress({ current, total })
-          // 🆕 更新當前批改學生
-          const currentSub = toGrade[current - 1]
-          if (currentSub) {
-            const student = students.find(s => s.id === currentSub.studentId)
-            setCurrentGradingStudent(student ? `${student.seatNumber}號 ${student.name}` : '')
-          }
         },
         assignment?.answerKey,
         {
@@ -1057,6 +1360,10 @@ export default function GradingPage({
               next.set(updatedSubmission.studentId, updatedSubmission)
               return next
             })
+            const student = students.find((s) => s.id === updatedSubmission.studentId)
+            if (student) {
+              setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
+            }
             // 🆕 統計需複核數量
             if (result.needsReview) {
               setCompletedReviewCount(prev => prev + 1)
@@ -1080,13 +1387,16 @@ export default function GradingPage({
 
       // loadData() 不再需要，因為已即時更新
       requestSync()
-      
-      // 🆕 根據是否停止顯示不同訊息
-      if (stopped) {
-        alert(`已停止批改！成功批改 ${successCount} 份`)
-      } else {
-        alert(`批改完成！成功批改 ${successCount} 份`)
-      }
+
+      setGradeResultNotice({
+        stopped,
+        successCount,
+        failCount:
+          results && typeof results === 'object' && 'failCount' in results
+            ? Number((results as any).failCount ?? 0)
+            : 0,
+        totalCount: toGrade.length
+      })
     } catch (err) {
       console.error('批改失敗', err)
       setError(err instanceof Error ? err.message : '批改失敗')
@@ -1280,7 +1590,13 @@ export default function GradingPage({
   const getDisplayReviewReasons = useCallback(
     (submission: Submission) => {
       const reasons = submission.gradingResult?.reviewReasons ?? []
-      if (reasons.length > 0) return reasons
+      if (reasons.length > 0) {
+        const parsed = reasons
+          .map((reason) => toUserFriendlyReviewReason(reason))
+          .map((reason) => reason.trim())
+          .filter((reason) => reason.length > 0)
+        return Array.from(new Set(parsed))
+      }
 
       const derived = new Set<string>()
       const details = submission.gradingResult?.details ?? []
@@ -1301,8 +1617,7 @@ export default function GradingPage({
   )
 
   const formatQuestionId = (questionId?: string | null) => {
-    if (!questionId) return null
-    return questionId.startsWith('#') ? questionId.slice(1) : questionId
+    return formatDisplayQuestionId(questionId)
   }
 
   // 錯誤類型 -> 標籤
@@ -1358,27 +1673,8 @@ export default function GradingPage({
   }, [submissions])
 
   const sortedStudents = useMemo(() => {
-    return [...students].sort((a, b) => {
-      const subA = submissions.get(a.id)
-      const subB = submissions.get(b.id)
-      const confA =
-        subA?.gradingResult ? getSubmissionConfidenceAverage(subA.gradingResult) : null
-      const confB =
-        subB?.gradingResult ? getSubmissionConfidenceAverage(subB.gradingResult) : null
-      const isLowA = typeof confA === 'number' && confA < 100
-      const isLowB = typeof confB === 'number' && confB < 100
-      const priorityA = isLowA ? 0 : 1
-      const priorityB = isLowB ? 0 : 1
-
-      if (priorityA !== priorityB) return priorityA - priorityB
-      if (priorityA === 0 && priorityB === 0) {
-        if (confA !== confB) {
-          return (confA ?? 101) - (confB ?? 101)
-        }
-      }
-      return a.seatNumber - b.seatNumber
-    })
-  }, [students, submissions])
+    return [...students].sort((a, b) => a.seatNumber - b.seatNumber)
+  }, [students])
 
   const selectedReviewReasons = selectedSubmission
     ? getDisplayReviewReasons(selectedSubmission.submission)
@@ -1389,15 +1685,17 @@ export default function GradingPage({
   const selectedConfidenceAverage = selectedSubmission?.submission.gradingResult
     ? getSubmissionConfidenceAverage(selectedSubmission.submission.gradingResult)
     : null
-  const selectedConfidenceLabel = selectedMinConfidence
-    ? `最低信心 ${selectedMinConfidence.value}%${
-        selectedMinConfidence.questionId
-          ? `（第${formatQuestionId(selectedMinConfidence.questionId)}題）`
-          : ''
-      }`
-    : typeof selectedConfidenceAverage === 'number'
-      ? `平均信心 ${selectedConfidenceAverage}%`
-      : null
+  const selectedConfidenceLabel =
+    selectedMinConfidence && selectedMinConfidence.value < LOW_CONFIDENCE_THRESHOLD
+      ? `最低信心 ${selectedMinConfidence.value}%${
+          selectedMinConfidence.questionId
+            ? `（第${formatQuestionId(selectedMinConfidence.questionId)}題）`
+            : ''
+        }`
+      : typeof selectedConfidenceAverage === 'number' &&
+          selectedConfidenceAverage < LOW_CONFIDENCE_THRESHOLD
+        ? `平均信心 ${selectedConfidenceAverage}%`
+        : null
   const activeProgress = isDownloading ? downloadProgress : gradingProgress
   const progressPercent =
     activeProgress.total > 0
@@ -1410,7 +1708,7 @@ export default function GradingPage({
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-purple-600 mx-auto mb-4 animate-spin" />
           <p className="text-gray-600">載入中...</p>
@@ -1421,8 +1719,8 @@ export default function GradingPage({
 
   if (inkSessionError) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md">
+      <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center p-4`}>
+        <div className="bg-white rounded-xl border border-slate-200 p-8 max-w-md">
           <AlertTriangle className="w-16 h-16 text-amber-500 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">
             無法進入 AI 批改
@@ -1451,8 +1749,8 @@ export default function GradingPage({
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md">
+      <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center p-4`}>
+        <div className="bg-white rounded-xl border border-slate-200 p-8 max-w-md">
           <XCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-gray-900 mb-2 text-center">載入失敗</h2>
           <p className="text-gray-600 text-center mb-6">{error}</p>
@@ -1470,11 +1768,11 @@ export default function GradingPage({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
       {/* AI 使用計算中 Overlay */}
       {isClosingSession && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-          <div className="bg-white rounded-2xl shadow-xl p-8 flex flex-col items-center gap-4">
+          <div className="bg-white rounded-xl border border-slate-200 p-8 flex flex-col items-center gap-4">
             <Loader className="w-10 h-10 text-blue-500 animate-spin" />
             <div className="text-center">
               <p className="text-lg font-semibold text-gray-800">AI 使用計算中...</p>
@@ -1484,10 +1782,73 @@ export default function GradingPage({
         </div>
       )}
 
+      {isCheckingCorrectionState && (
+        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 w-full max-w-sm mx-4">
+            <div className="flex items-center gap-3">
+              <Loader className="w-6 h-6 text-sky-600 animate-spin" />
+              <div>
+                <p className="text-base font-semibold text-gray-900">檢查訂正狀態中...</p>
+                <p className="text-sm text-gray-500">避免誤覆蓋學生端訂正內容</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {correctionGuardModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-lg w-full mx-4">
+            <div className="flex items-start gap-3 mb-4">
+              <AlertTriangle className="w-6 h-6 text-amber-500 mt-0.5 shrink-0" />
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">{correctionGuardModal.title}</h3>
+                <p className="text-sm text-gray-600 mt-1">{correctionGuardModal.description}</p>
+              </div>
+            </div>
+
+            {Array.isArray(correctionGuardModal.blockedStudents) &&
+              correctionGuardModal.blockedStudents.length > 0 && (
+                <div className="rounded-lg border border-amber-100 bg-amber-50/60 p-3 mb-4 max-h-52 overflow-y-auto">
+                  <p className="text-xs font-semibold text-amber-800 mb-2">訂正中的學生</p>
+                  <div className="space-y-1.5">
+                    {correctionGuardModal.blockedStudents.map((item) => {
+                      const seatText = Number.isFinite(item.seatNumber)
+                        ? `${item.seatNumber}號`
+                        : '未知座號'
+                      const statusLabel = CORRECTION_STATUS_LABEL_MAP[item.status] || item.status
+                      return (
+                        <div
+                          key={item.studentId}
+                          className="text-sm text-amber-900 flex items-center justify-between gap-2"
+                        >
+                          <span className="truncate">{seatText} {item.name}</span>
+                          <span className="shrink-0 text-xs rounded bg-white border border-amber-200 px-2 py-0.5">
+                            {statusLabel}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+            <div className="flex justify-end">
+              <button
+                onClick={() => setCorrectionGuardModal(null)}
+                className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 transition-colors"
+              >
+                知道了
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 🆕 確認對話框 */}
       {showGradeConfirm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-sm w-full mx-4">
             <h3 className="text-lg font-bold text-gray-900 mb-4">
               {isRegrade ? '確認重新批改' : '確認開始批改'}
             </h3>
@@ -1525,64 +1886,103 @@ export default function GradingPage({
           </div>
         </div>
       )}
-      <div className="max-w-7xl mx-auto pt-8">
+
+      {gradeResultNotice && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">
+              {gradeResultNotice.stopped ? '已停止批改' : '批改完成'}
+            </h3>
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <span className="text-gray-600">成功批改</span>
+                <span className="font-semibold text-emerald-600">{gradeResultNotice.successCount} 份</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <span className="text-gray-600">失敗/略過</span>
+                <span className="font-semibold text-rose-600">{gradeResultNotice.failCount} 份</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <span className="text-gray-600">總作業數</span>
+                <span className="font-semibold text-gray-900">{gradeResultNotice.totalCount} 份</span>
+              </div>
+              {gradeResultNotice.stopped && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                  你已手動停止批改，系統僅保留已完成的批改結果。
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setGradeResultNotice(null)}
+              className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-700 transition-colors"
+            >
+              關閉
+            </button>
+          </div>
+        </div>
+      )}
+      <div className={`${embedded ? 'max-w-none mx-0 pt-0' : 'max-w-7xl mx-auto pt-8'}`}>
         {onBack && (
           <button
             onClick={handleExit}
             className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
-            返回
+            返回作業批改
           </button>
         )}
 
         {/* Header */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900 mb-1">{assignment?.title}</h1>
-              <p className="text-gray-600">
-                {classroom?.name} · {students.length} 位學生
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {/* 🆕 待複核按鈕 */}
-              {needsReviewCount > 0 && (
-                <button
-                  onClick={jumpToNextReview}
-                  className="flex items-center gap-2 px-4 py-3 bg-amber-100 text-amber-700 rounded-xl hover:bg-amber-200 transition-all font-medium border border-amber-200"
-                >
-                  <Eye className="w-5 h-5" />
-                  待複核 {needsReviewCount}
-                </button>
-              )}
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-semibold text-gray-900">{assignment?.title}</h1>
+            <p className="mt-1 text-sm text-gray-600">
+              {classroom?.name} · {students.length} 位學生
+            </p>
+          </div>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            {/* 🆕 待複核按鈕 */}
+            {needsReviewCount > 0 && (
               <button
-                onClick={handleRefresh}
-                disabled={isRefreshing}
-                className="flex items-center gap-2 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-medium"
+                onClick={jumpToNextReview}
+                className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100"
               >
-                <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                <Eye className="w-5 h-5" />
+                待複核 {needsReviewCount}
               </button>
-              <button
-                onClick={handleGradeAll}
-                disabled={
-                  isGrading ||
-                  isDownloading ||
-                  !isGeminiAvailable ||
-                  !inkSessionReady
-                }
-                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl font-medium"
-              >
+            )}
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+              重新整理
+            </button>
+            <button
+              onClick={handleGradeAll}
+              disabled={
+                isGrading ||
+                isDownloading ||
+                isCheckingCorrectionState ||
+                !isGeminiAvailable ||
+                !inkSessionReady
+              }
+              className="inline-flex items-center gap-2 rounded-lg border border-green-600 bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isCheckingCorrectionState ? (
+                <Loader className="w-5 h-5 animate-spin" />
+              ) : (
                 <Sparkles className="w-5 h-5" />
-                AI 批改全部
-              </button>
-            </div>
+              )}
+              {isCheckingCorrectionState ? '檢查訂正狀態...' : gradeActionLabel}
+            </button>
           </div>
         </div>
 
         {isBusy && (
           <div className="sticky top-4 z-40 mb-4">
-            <div className="bg-white rounded-2xl shadow-lg px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-3 min-w-0">
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 shrink-0">
                   {isDownloading ? (
@@ -1613,7 +2013,7 @@ export default function GradingPage({
                   <span>
                     {isDownloading
                       ? `下載 ${activeProgress.current}/${activeProgress.total}`
-                      : `批改 ${activeProgress.current}/${activeProgress.total}`}
+                      : `已完成 ${activeProgress.current}/${activeProgress.total}`}
                   </span>
                   <span>{progressPercent}%</span>
                 </div>
@@ -1665,7 +2065,7 @@ export default function GradingPage({
 
         {/* 標籤篩選 */}
         {tagCounts.length > 0 && (
-          <div className="mb-4 bg-white rounded-xl shadow-md p-4 flex flex-wrap items-center gap-2">
+          <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 flex flex-wrap items-center gap-2">
             <span className="text-sm text-gray-600 mr-2">依標籤篩選：</span>
             {tagCounts.map(([tag, count]) => {
               const active = activeTag === tag
@@ -1699,6 +2099,7 @@ export default function GradingPage({
           {sortedStudents.map((student) => {
             const submission = submissions.get(student.id)
             const status = submission?.status ?? 'missing'
+            const sourceVisual = getSubmissionSourceVisual(submission)
             const tags = submission ? getFeedbackTags(submission) : []
             const gradingResult = submission?.gradingResult
             const maxScore = gradingResult ? getSubmissionMaxScore(gradingResult) : null
@@ -1720,9 +2121,13 @@ export default function GradingPage({
               : null
             const confidenceHint = needsReview
               ? minConfidence
-                ? `最低信心 ${minConfidence.value}%`
+                ? minConfidence.value < LOW_CONFIDENCE_THRESHOLD
+                  ? `最低信心 ${minConfidence.value}%`
+                  : null
                 : typeof confidenceAverage === 'number'
-                  ? `平均信心 ${confidenceAverage}%`
+                  ? confidenceAverage < LOW_CONFIDENCE_THRESHOLD
+                    ? `平均信心 ${confidenceAverage}%`
+                    : null
                   : null
               : null
 
@@ -1733,7 +2138,7 @@ export default function GradingPage({
             return (
               <div
                 key={student.id}
-                className="bg-white rounded-xl shadow-sm hover:shadow-md hover:border-blue-400 border border-gray-200 transition-all cursor-pointer group flex flex-col"
+                className="bg-white rounded-xl hover:border-slate-300 border border-slate-200 transition-all cursor-pointer group flex flex-col"
                 onClick={() => {
                   if (!submission) return
                   setSelectedSubmission({ submission, student })
@@ -1817,19 +2222,20 @@ export default function GradingPage({
                     {(status === 'graded' || status === 'synced' || status === 'scanned') &&
                       submission && (
                         <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              void handleRegradeSingle(submission)
-                            }}
-                            className="absolute top-2 left-2 p-1.5 bg-white/90 text-gray-700 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-blue-50 hover:text-blue-600 z-10 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="重新使用 AI 批改此學生"
-                            disabled={isBusy || !inkSessionReady}
+                          <label
+                            className="absolute top-2 left-2 z-10 flex items-center justify-center rounded-md border border-slate-200 bg-white/95 p-1.5 shadow-md"
+                            onClick={(e) => e.stopPropagation()}
+                            title="勾選加入批次批改"
                           >
-                            <RotateCcw
-                              className={`w-4 h-4 ${activeRegradeId === submission.id ? 'animate-spin' : ''}`}
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 cursor-pointer accent-green-600"
+                              checked={selectedSubmissionIds.has(submission.id)}
+                              onChange={() => toggleSubmissionSelection(submission.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              disabled={isBusy || !inkSessionReady || !hasSubmissionImage(submission)}
                             />
-                          </button>
+                          </label>
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
@@ -1847,9 +2253,19 @@ export default function GradingPage({
                 </div>
 
                 <div className="p-3 flex-1 flex flex-col">
-                  <p className="font-semibold text-gray-900 text-sm mb-1">
-                    {student.seatNumber} 號 · {student.name}
-                  </p>
+                  <div className="mb-1 flex items-center gap-2">
+                    <span
+                      className={`inline-flex min-w-[28px] items-center justify-center rounded-md border px-1.5 py-0.5 text-xs font-semibold ${sourceVisual.seatBadgeClass}`}
+                    >
+                      {student.seatNumber}
+                    </span>
+                    <p className="truncate text-sm font-semibold text-gray-900">{student.name}</p>
+                  </div>
+                  {status !== 'missing' && (
+                    <p className={`text-[11px] font-medium ${sourceVisual.textClass}`}>
+                      {sourceVisual.label}
+                    </p>
+                  )}
                   {status === 'graded' && tags.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
                       {tags.slice(0, 2).map((tag, index) => (
@@ -1870,7 +2286,7 @@ export default function GradingPage({
         </div>
 
         {/* Stats */}
-        <div className="mt-6 bg-white rounded-xl shadow-md p-6">
+        <div className="mt-6 bg-white rounded-xl border border-slate-200 p-6">
           <h3 className="font-semibold text-gray-900 mb-4">統計資訊</h3>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="text-center">
@@ -1926,16 +2342,70 @@ export default function GradingPage({
             <div className="flex-1 bg-gray-100 relative overflow-auto p-4">
               {(() => {
                 const imageUrl = getSubmissionImageUrl(selectedSubmission.submission)
+                const hasLocalOriginalImage =
+                  Boolean(selectedSubmission.submission.imageBase64) ||
+                  (selectedSubmission.submission.imageBlob?.size ?? 0) > 0
+                const zoomImageUrl =
+                  !hasLocalOriginalImage &&
+                  selectedSubmission.submission.id
+                    ? buildApiUrl(
+                        `/api/storage/download?submissionId=${encodeURIComponent(
+                          selectedSubmission.submission.id
+                        )}`
+                      )
+                    : imageUrl
+                const zoomBackgroundPosX =
+                  -(previewLensState.x * PREVIEW_ZOOM_SCALE - PREVIEW_ZOOM_PANEL_SIZE / 2)
+                const zoomBackgroundPosY =
+                  -(previewLensState.y * PREVIEW_ZOOM_SCALE - PREVIEW_ZOOM_PANEL_SIZE / 2)
                 return imageUrl ? (
-                  <div className="min-w-full">
+                  <div className="min-w-full relative">
                     <p className="text-xs text-gray-500 mb-2">
                       可上下滑動查看完整作業
                     </p>
-                    <img
-                      src={imageUrl}
-                      alt="作業大圖"
-                      className="w-full h-auto shadow-lg"
-                    />
+                    <div
+                      className="relative w-full cursor-crosshair select-none"
+                      onMouseMove={handlePreviewLensMove}
+                      onMouseLeave={closePreviewLens}
+                    >
+                      <img
+                        src={imageUrl}
+                        alt="作業大圖"
+                        className="w-full h-auto shadow-lg"
+                        draggable={false}
+                      />
+                      {previewLensActive && (
+                        <div
+                          className="pointer-events-none absolute border-2 border-blue-500/90 bg-blue-200/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.15)]"
+                          style={{
+                            width: PREVIEW_LENS_SIZE,
+                            height: PREVIEW_LENS_SIZE,
+                            left: previewLensState.lensLeft,
+                            top: previewLensState.lensTop
+                          }}
+                        />
+                      )}
+                    </div>
+                    {previewLensActive && previewLensState.width > 0 && previewLensState.height > 0 && (
+                      <div className="pointer-events-none absolute right-4 top-10 z-20 rounded-xl border border-blue-200 bg-white/95 p-2 shadow-2xl">
+                        <div className="mb-1 text-[10px] font-semibold tracking-wide text-blue-700">
+                          細節放大
+                        </div>
+                        <div
+                          className="overflow-hidden rounded-lg border border-blue-100 bg-gray-50"
+                          style={{
+                            width: PREVIEW_ZOOM_PANEL_SIZE,
+                            height: PREVIEW_ZOOM_PANEL_SIZE,
+                            backgroundImage: zoomImageUrl ? `url(${zoomImageUrl})` : `url(${imageUrl})`,
+                            backgroundRepeat: 'no-repeat',
+                            backgroundSize: `${previewLensState.width * PREVIEW_ZOOM_SCALE}px ${
+                              previewLensState.height * PREVIEW_ZOOM_SCALE
+                            }px`,
+                            backgroundPosition: `${zoomBackgroundPosX}px ${zoomBackgroundPosY}px`
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-full">
@@ -1993,49 +2463,61 @@ export default function GradingPage({
               <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
                 {/* 🆕 需複核警示 */}
                 {selectedSubmission.submission.gradingResult?.needsReview && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-5 h-5 text-amber-500" />
-                      <div>
-                        <p className="text-sm font-medium text-amber-700">需要複核</p>
-                        <p className="text-xs text-amber-600">
-                          {selectedReviewReasons.length > 0
-                            ? selectedReviewReasons.join('、')
-                            : 'AI 建議人工檢查'}
-                        </p>
-                        {selectedConfidenceLabel && (
-                          <p className="text-xs text-amber-600 mt-1">
-                            {selectedConfidenceLabel}
-                          </p>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-amber-700">需要複核</p>
+                        {selectedReviewReasons.length > 0 ? (
+                          <ul className="mt-2 list-disc space-y-1.5 pl-5">
+                            {selectedReviewReasons.map((reason, index) => (
+                              <li
+                                key={`${reason}-${index}`}
+                                className="text-sm leading-6 text-amber-800 break-words"
+                              >
+                                {reason}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="mt-2 text-sm leading-6 text-amber-700">AI 建議人工檢查</p>
                         )}
                       </div>
                     </div>
-                    <button
-                      onClick={async () => {
-                        const id = selectedSubmission.submission.id
-                        const submission = await db.submissions.get(id)
-                        if (!submission?.gradingResult) return
-                        
-                        const newGradingResult = { 
-                          ...submission.gradingResult, 
-                          needsReview: false, 
-                          reviewReasons: [] 
-                        }
-                        await db.submissions.update(id, { gradingResult: newGradingResult })
-                        requestSync()
-                        
-                        const updated = await db.submissions.get(id)
-                        if (updated) {
-                          setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
-                          const student = students.find((s) => s.id === updated.studentId)
-                          if (student) setSelectedSubmission({ submission: updated, student })
-                        }
-                      }}
-                      className="flex items-center gap-1 px-3 py-1.5 bg-amber-100 text-amber-700 rounded-lg hover:bg-amber-200 transition-colors text-xs font-medium"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      標記已複核
-                    </button>
+
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      {selectedConfidenceLabel ? (
+                        <p className="text-xs text-amber-700">{selectedConfidenceLabel}</p>
+                      ) : (
+                        <span />
+                      )}
+                      <button
+                        onClick={async () => {
+                          const id = selectedSubmission.submission.id
+                          const submission = await db.submissions.get(id)
+                          if (!submission?.gradingResult) return
+
+                          const newGradingResult = {
+                            ...submission.gradingResult,
+                            needsReview: false,
+                            reviewReasons: []
+                          }
+                          await db.submissions.update(id, { gradingResult: newGradingResult })
+                          requestSync()
+
+                          const updated = await db.submissions.get(id)
+                          if (updated) {
+                            setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
+                            const student = students.find((s) => s.id === updated.studentId)
+                            if (student) setSelectedSubmission({ submission: updated, student })
+                          }
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-200"
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        標記已複核
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -2317,13 +2799,18 @@ export default function GradingPage({
                     onClick={() => handleRegradeFlagged(selectedSubmission.submission)}
                     disabled={
                       isBusy ||
+                      isCheckingCorrectionState ||
                       !inkSessionReady ||
                       (answerExtractionFlags.get(selectedSubmission.submission.id)?.size ?? 0) === 0
                     }
                     className="w-full flex items-center justify-center gap-2 py-3 bg-white border border-gray-300 shadow-sm rounded-lg hover:bg-blue-600 hover:text-white hover:border-blue-600 font-medium text-gray-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                  <RotateCcw className={`w-4 h-4 ${isGrading ? 'animate-spin' : ''}`} />
-                  {isGrading ? 'AI 正在再次批改...' : '再次批改'}
+                  <RotateCcw className={`w-4 h-4 ${isGrading || isCheckingCorrectionState ? 'animate-spin' : ''}`} />
+                  {isGrading
+                    ? 'AI 正在再次批改...'
+                    : isCheckingCorrectionState
+                      ? '檢查訂正狀態中...'
+                      : '再次批改'}
                 </button>
               </div>
             </div>
@@ -2333,5 +2820,6 @@ export default function GradingPage({
     </div>
   )
 }
+
 
 

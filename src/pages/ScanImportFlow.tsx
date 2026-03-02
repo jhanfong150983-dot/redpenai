@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Loader } from 'lucide-react'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import type { Student, Submission } from '@/lib/db'
-import { requestSync } from '@/lib/sync-events'
+import { requestSync, waitForSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { safeToBlobWithFallback } from '@/lib/canvasToBlob'
 import { blobToBase64, compressToTargetBytes } from '@/lib/imageCompression'
@@ -16,6 +16,8 @@ interface ScanImportFlowProps {
   pagesPerStudent: number
   onBackToImportSelect?: () => void
   onUploadComplete?: () => void
+  embedded?: boolean
+  onCaptureModeChange?: (isCaptureMode: boolean) => void
 }
 
 type ViewType = 'selection' | 'capture'
@@ -31,31 +33,94 @@ export default function ScanImportFlow({
   assignmentId,
   pagesPerStudent,
   onBackToImportSelect,
-  onUploadComplete
+  onUploadComplete,
+  embedded = false,
+  onCaptureModeChange
 }: ScanImportFlowProps) {
   const [students, setStudents] = useState<Student[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [currentView, setCurrentView] = useState<ViewType>('selection')
   const [selectedStudent, setSelectedStudent] = useState<SelectedStudent | null>(null)
   const [capturedData, setCapturedData] = useState<Map<string, Blob[]>>(new Map())
+  const [submissionSourceByStudent, setSubmissionSourceByStudent] = useState<Record<string, string>>({})
+  const [submissionPreviewByStudent, setSubmissionPreviewByStudent] = useState<
+    Record<string, { submissionId: string; source?: string }>
+  >({})
   const [isSaving, setIsSaving] = useState(false)
+  const [isRefreshingStudentUploads, setIsRefreshingStudentUploads] = useState(false)
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
+
+  const applySeatState = (studentsData: Student[], submissionsData: Submission[]) => {
+    const latestSourceByStudent = new Map<string, { source: string; ts: number; submissionId: string }>()
+    submissionsData.forEach((sub) => {
+      if (!sub.studentId) return
+      const ts =
+        (typeof sub.updatedAt === 'number' && Number.isFinite(sub.updatedAt) ? sub.updatedAt : 0) ||
+        (typeof sub.gradedAt === 'number' && Number.isFinite(sub.gradedAt) ? sub.gradedAt : 0) ||
+        (typeof sub.createdAt === 'number' && Number.isFinite(sub.createdAt) ? sub.createdAt : 0)
+      const source = (typeof sub.source === 'string' && sub.source.length > 0 ? sub.source : 'unknown')
+      const prev = latestSourceByStudent.get(sub.studentId)
+      if (!prev || ts >= prev.ts) {
+        latestSourceByStudent.set(sub.studentId, {
+          source,
+          ts,
+          submissionId: sub.id
+        })
+      }
+    })
+
+    const sourceRecord: Record<string, string> = {}
+    const previewRecord: Record<string, { submissionId: string; source?: string }> = {}
+    latestSourceByStudent.forEach((value, studentId) => {
+      sourceRecord[studentId] = value.source
+      previewRecord[studentId] = {
+        submissionId: value.submissionId,
+        source: value.source
+      }
+    })
+
+    setStudents(studentsData)
+    setSubmissionSourceByStudent(sourceRecord)
+    setSubmissionPreviewByStudent(previewRecord)
+  }
 
   // 調試：檢查 pagesPerStudent
   useEffect(() => {
     console.log('📋 ScanImportFlow - pagesPerStudent:', pagesPerStudent)
   }, [pagesPerStudent])
 
+  useEffect(() => {
+    onCaptureModeChange?.(currentView === 'capture')
+  }, [currentView, onCaptureModeChange])
+
+  useEffect(() => {
+    return () => {
+      onCaptureModeChange?.(false)
+    }
+  }, [onCaptureModeChange])
+
   // 載入學生名單
   useEffect(() => {
     const load = async () => {
       setIsLoading(true)
       try {
-        const studentsData = await db.students
-          .where('classroomId')
-          .equals(classroomId)
-          .sortBy('seatNumber')
-        setStudents(studentsData)
+        // 進頁先向後端同步一次，確保學生剛上傳的作業來源可即時反映到色彩
+        requestSync(true)
+        try {
+          await waitForSync(15000)
+        } catch (syncError) {
+          console.warn('⚠️ [ScanImportFlow] 等待同步逾時，改讀目前本地資料', syncError)
+        }
+
+        const [studentsData, submissionsData] = await Promise.all([
+          db.students
+            .where('classroomId')
+            .equals(classroomId)
+            .sortBy('seatNumber'),
+          db.submissions.where('assignmentId').equals(assignmentId).toArray()
+        ])
+
+        applySeatState(studentsData, submissionsData)
       } catch (error) {
         console.error('載入學生名單失敗:', error)
       } finally {
@@ -64,7 +129,7 @@ export default function ScanImportFlow({
     }
 
     void load()
-  }, [classroomId])
+  }, [classroomId, assignmentId])
 
   const handleSelectStudent = (student: Student) => {
     setSelectedStudent({
@@ -107,7 +172,7 @@ export default function ScanImportFlow({
     }
 
     const confirmed = confirm(
-      `確認要送出 ${capturedData.size} 位學生的作業嗎？\n\n❗ 提醒：請確認所有圖片方向正確\n• 圖片不可以倒置或歪斜\n• 否則可能影響 AI 辨識結果`
+      `確認要送出本次拍攝的 ${capturedData.size} 位學生作業嗎？\n\n❗ 提醒：請確認所有圖片方向正確\n• 圖片不可以倒置或歪斜\n• 否則可能影響 AI 辨識結果`
     )
     if (!confirmed) return
 
@@ -156,6 +221,7 @@ export default function ScanImportFlow({
           assignmentId,
           studentId,
           status: 'scanned',
+          source: 'teacher_camera',
           imageBase64,
           ...(avoidBlobStorage ? {} : { imageBlob }),
           // 新增縮圖欄位
@@ -173,6 +239,7 @@ export default function ScanImportFlow({
               assignmentId: submission.assignmentId,
               studentId: submission.studentId,
               status: submission.status,
+              source: submission.source,
               imageBase64: submission.imageBase64,
               thumbnailBase64: submission.thumbnailBase64,
               createdAt: submission.createdAt
@@ -201,9 +268,77 @@ export default function ScanImportFlow({
     }
   }
 
+  const handleRejectStudentSubmission = async (student: Student, submissionId: string) => {
+    const confirmed = window.confirm(
+      `確定要退回 ${student.seatNumber} 號 ${student.name} 的學生上傳作業嗎？\n\n退回後將解除鎖定，學生需重新上傳。`
+    )
+    if (!confirmed) return
+
+    setIsSaving(true)
+    try {
+      await queueDeleteMany('submissions', [submissionId])
+      await db.submissions.delete(submissionId)
+
+      setCapturedData((prev) => {
+        const next = new Map(prev)
+        next.delete(student.id)
+        return next
+      })
+
+      requestSync(true)
+      try {
+        await waitForSync(15000)
+      } catch (syncError) {
+        console.warn('⚠️ [ScanImportFlow] 退回後等待同步逾時，將繼續刷新本地狀態', syncError)
+      }
+
+      const [studentsData, submissionsData] = await Promise.all([
+        db.students
+          .where('classroomId')
+          .equals(classroomId)
+          .sortBy('seatNumber'),
+        db.submissions.where('assignmentId').equals(assignmentId).toArray()
+      ])
+      applySeatState(studentsData, submissionsData)
+
+      alert('已退回該學生作業，學生可重新上傳。')
+    } catch (error) {
+      console.error('退回學生作業失敗:', error)
+      alert(error instanceof Error ? error.message : '退回失敗，請稍後再試')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleRefreshStudentUploads = async () => {
+    setIsRefreshingStudentUploads(true)
+    try {
+      requestSync(true)
+      try {
+        await waitForSync(15000)
+      } catch (syncError) {
+        console.warn('⚠️ [ScanImportFlow] 同步學生上傳逾時，改讀目前本地資料', syncError)
+      }
+
+      const [studentsData, submissionsData] = await Promise.all([
+        db.students
+          .where('classroomId')
+          .equals(classroomId)
+          .sortBy('seatNumber'),
+        db.submissions.where('assignmentId').equals(assignmentId).toArray()
+      ])
+      applySeatState(studentsData, submissionsData)
+    } catch (error) {
+      console.error('同步學生上傳失敗:', error)
+      alert(error instanceof Error ? error.message : '同步學生上傳失敗')
+    } finally {
+      setIsRefreshingStudentUploads(false)
+    }
+  }
+
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-indigo-600 mx-auto mb-4 animate-spin" />
           <p className="text-gray-600">載入學生名單中...</p>
@@ -214,7 +349,7 @@ export default function ScanImportFlow({
 
   if (isSaving) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-green-600 mx-auto mb-4 animate-spin" />
           <p className="text-gray-600">送出作業中...</p>
@@ -243,10 +378,16 @@ export default function ScanImportFlow({
     <SeatSelectionPage
       students={students}
       capturedData={capturedData}
+      submissionSourceByStudent={submissionSourceByStudent}
+      submissionPreviewByStudent={submissionPreviewByStudent}
       pagesPerStudent={pagesPerStudent}
       onSelectStudent={handleSelectStudent}
       onSubmit={handleSubmit}
+      onRefreshStudentUploads={handleRefreshStudentUploads}
+      isRefreshingStudentUploads={isRefreshingStudentUploads}
+      onRejectStudentSubmission={handleRejectStudentSubmission}
       onBack={onBackToImportSelect}
+      embedded={embedded}
     />
   )
 }
@@ -284,3 +425,4 @@ async function mergeImagesVertically(blobs: Blob[]): Promise<Blob> {
 
   return merged
 }
+

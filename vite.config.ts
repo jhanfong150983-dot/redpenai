@@ -234,7 +234,7 @@ export default defineConfig({
       },
 
       devOptions: {
-        enabled: true,
+        enabled: false,
         type: 'module',
         navigateFallback: 'index.html'
       }
@@ -244,5 +244,9 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+  },
+  esbuild: {
+    // 生產環境 build 時移除所有 console.* 與 debugger，避免洩漏系統資訊
+    drop: ['console', 'debugger'],
   },
 })

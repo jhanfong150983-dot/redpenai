@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
-import { BookOpen, ArrowLeft, Loader, X, Plus, Folder, Users } from 'lucide-react'
+import {
+  BookOpen,
+  ArrowLeft,
+  Loader,
+  X,
+  Plus,
+  Folder,
+  Users,
+  Camera,
+  FileImage,
+  Sparkles,
+  ClipboardCheck
+} from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { db, generateId } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
@@ -16,23 +28,45 @@ import type {
 interface AssignmentListProps {
   onBack?: () => void
   onSelectAssignment?: (assignmentId: string) => void
+  onSelectScanImport?: (assignmentId: string) => void
+  onSelectBatchImport?: (assignmentId: string) => void
+  onSelectCorrection?: (assignmentId: string) => void
+  canUseCorrection?: boolean
+  embedded?: boolean
+  initialClassroomId?: string
+  initialFolder?: string
+  onClassroomChange?: (classroomId: string) => void
+  onFolderChange?: (folder: string) => void
 }
 
 type AssignmentWithMeta = Assignment & {
   classroom?: Classroom
   submissionCount?: number
+  uploadedCount?: number
+  gradedCount?: number
 }
 
 export default function AssignmentList({
   onBack,
-  onSelectAssignment
+  onSelectAssignment,
+  onSelectScanImport,
+  onSelectBatchImport,
+  onSelectCorrection,
+  canUseCorrection = true,
+  embedded = false,
+  initialClassroomId,
+  initialFolder = '__uncategorized__',
+  onClassroomChange,
+  onFolderChange
 }: AssignmentListProps) {
   const [assignments, setAssignments] = useState<AssignmentWithMeta[]>([])
   const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [assignmentFolders, setAssignmentFolders] = useState<AssignmentFolder[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [selectedClassroomId, setSelectedClassroomId] = useState('')
-  const [selectedFolder, setSelectedFolder] = useState('__uncategorized__')
+  const [selectedClassroomId, setSelectedClassroomId] = useState(initialClassroomId || '')
+  const [selectedFolder, setSelectedFolder] = useState(
+    initialFolder || '__uncategorized__'
+  )
 
   const classAssignments = useMemo(() => {
     if (!selectedClassroomId) return assignments
@@ -118,54 +152,6 @@ export default function AssignmentList({
   const sanitizeQuestionId = (value: string | undefined, fallback: string) => {
     const base = (value ?? '').trim() || fallback
     return base.replace(/^[qQ](?=\d)/, '')
-  }
-
-  const normalizeAnswerKey = (ak: AnswerKey): AnswerKey => {
-    const questions = (ak.questions ?? []).map((q, idx) => {
-      const maxScore =
-        typeof q.maxScore === 'number' && Number.isFinite(q.maxScore)
-          ? q.maxScore
-          : 0
-
-      // Convert old QuestionType to QuestionCategoryType if needed
-      const questionType = typeof q.type === 'number'
-        ? q.type
-        : q.type === 'truefalse' || q.type === 'choice'
-          ? 1
-          : q.type === 'fill' || q.type === 'short' || q.type === 'short_sentence'
-            ? 2
-            : 3
-
-      const baseQuestion: AnswerKeyQuestion = {
-        id: sanitizeQuestionId(q.id, `${idx + 1}`),
-        type: questionType as QuestionCategoryType,
-        maxScore,
-        idPath: q.idPath,
-        uiKey: q.uiKey ?? generateId()
-      }
-
-      // Add type-specific fields
-      if (questionType === 1) {
-        baseQuestion.answer = q.answer ?? ''
-        if (q.answerFormat === 'matching') {
-          baseQuestion.answerFormat = 'matching'
-        }
-      } else if (questionType === 2) {
-        baseQuestion.referenceAnswer = q.referenceAnswer ?? ''
-        baseQuestion.acceptableAnswers = q.acceptableAnswers ?? []
-      } else if (questionType === 3) {
-        baseQuestion.referenceAnswer = q.referenceAnswer ?? ''
-        if (q.rubricsDimensions) {
-          baseQuestion.rubricsDimensions = q.rubricsDimensions
-        } else {
-          baseQuestion.rubric = normalizeRubric(q.rubric, maxScore)
-        }
-      }
-
-      return baseQuestion
-    })
-    const totalScore = questions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
-    return { questions, totalScore }
   }
 
   const updateQuestionField = (
@@ -271,23 +257,45 @@ export default function AssignmentList({
     const loadAssignments = async () => {
       setIsLoading(true)
       try {
-        const [assignmentsData, classroomData, folderData] = await Promise.all([
+        const [assignmentsData, classroomData, folderData, submissionsData] = await Promise.all([
           db.assignments.toArray(),
           db.classrooms.toArray(),
-          db.folders.where('type').equals('assignment').toArray()
+          db.folders.where('type').equals('assignment').toArray(),
+          db.submissions.toArray()
         ])
 
         const classroomMap = new Map(classroomData.map((c) => [c.id, c]))
+        const submissionStatsByAssignment = new Map<
+          string,
+          { uploadedCount: number; gradedCount: number }
+        >()
+
+        submissionsData.forEach((submission) => {
+          const current = submissionStatsByAssignment.get(submission.assignmentId) ?? {
+            uploadedCount: 0,
+            gradedCount: 0
+          }
+          if (submission.status !== 'missing') {
+            current.uploadedCount += 1
+          }
+          if (submission.status === 'graded') {
+            current.gradedCount += 1
+          }
+          submissionStatsByAssignment.set(submission.assignmentId, current)
+        })
+
         const assignmentsWithClassroom: AssignmentWithMeta[] = await Promise.all(
           assignmentsData.map(async (assignment) => {
-            const submissionCount = await db.submissions
-              .where('assignmentId')
-              .equals(assignment.id)
-              .count()
+            const stats = submissionStatsByAssignment.get(assignment.id) ?? {
+              uploadedCount: 0,
+              gradedCount: 0
+            }
             return {
               ...assignment,
               classroom: classroomMap.get(assignment.classroomId),
-              submissionCount
+              submissionCount: stats.uploadedCount,
+              uploadedCount: stats.uploadedCount,
+              gradedCount: stats.gradedCount
             }
           })
         )
@@ -306,20 +314,39 @@ export default function AssignmentList({
   }, [])
 
   useEffect(() => {
-    if (classrooms.length > 0 && !selectedClassroomId) {
-      setSelectedClassroomId(classrooms[0].id)
-    }
-  }, [classrooms, selectedClassroomId])
+    if (classrooms.length === 0) return
+    const currentValid =
+      selectedClassroomId &&
+      classrooms.some((classroom) => classroom.id === selectedClassroomId)
+    if (currentValid) return
+
+    const preferredValid =
+      initialClassroomId &&
+      classrooms.some((classroom) => classroom.id === initialClassroomId)
+
+    setSelectedClassroomId(preferredValid ? initialClassroomId! : classrooms[0].id)
+  }, [classrooms, selectedClassroomId, initialClassroomId])
 
   useEffect(() => {
-    if (selectedClassroomId) {
+    if (!onClassroomChange || !selectedClassroomId) return
+    onClassroomChange(selectedClassroomId)
+  }, [onClassroomChange, selectedClassroomId])
+
+  useEffect(() => {
+    if (selectedFolder === '__uncategorized__') return
+    if (!usedFolders.includes(selectedFolder)) {
       setSelectedFolder('__uncategorized__')
     }
-  }, [selectedClassroomId])
+  }, [selectedFolder, usedFolders])
+
+  useEffect(() => {
+    if (!onFolderChange) return
+    onFolderChange(selectedFolder)
+  }, [onFolderChange, selectedFolder])
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-purple-600 mx-auto mb-4 animate-spin" />
           <p className="text-gray-600">載入作業列表中…</p>
@@ -329,10 +356,10 @@ export default function AssignmentList({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-2xl mx-auto pt-8">
+    <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
+      <div className={`${embedded ? 'max-w-none mx-0 pt-0' : 'max-w-2xl mx-auto pt-8'}`}>
         {/* 返回 */}
-        {onBack && (
+        {onBack && !embedded && (
           <button
             onClick={onBack}
             className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
@@ -342,30 +369,25 @@ export default function AssignmentList({
           </button>
         )}
 
-        {/* 標題卡片 */}
-        <div className="bg-white rounded-2xl shadow-xl p-8 mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="p-3 bg-purple-100 rounded-xl">
-              <BookOpen className="w-8 h-8 text-purple-600" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">AI 批改</h1>
-              <p className="text-sm text-gray-600">
-                選擇一份作業進入批改頁面，檢視與調整 AI 批改結果。
-              </p>
-            </div>
+        {/* 標題 */}
+        <div className={`${embedded ? 'mb-4 border-b border-slate-200 pb-3' : 'bg-white rounded-xl border border-slate-200 p-6 mb-6'}`}>
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-2xl font-semibold text-gray-900">作業批改</h1>
           </div>
-          {classrooms.length > 0 && (
-            <div className="mt-4 pt-4 border-t border-gray-100 grid gap-4 md:grid-cols-2">
+        </div>
+
+        {classrooms.length > 0 && (
+          <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+            <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <Users className="w-4 h-4 inline mr-1" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">
+                  <Users className="mr-1 inline h-4 w-4" />
                   選擇班級
                 </label>
                 <select
                   value={selectedClassroomId}
                   onChange={(e) => setSelectedClassroomId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-all bg-white"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
                 >
                   {classrooms.map((classroom) => (
                     <option key={classroom.id} value={classroom.id}>
@@ -375,14 +397,14 @@ export default function AssignmentList({
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <Folder className="w-4 h-4 inline mr-1" />
+                <label className="mb-2 block text-sm font-medium text-gray-700">
+                  <Folder className="mr-1 inline h-4 w-4" />
                   選擇資料夾
                 </label>
                 <select
                   value={selectedFolder}
                   onChange={(e) => setSelectedFolder(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none transition-all bg-white"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
                 >
                   <option value="__uncategorized__">
                     全部 ({classAssignments.filter((a) => !a.folder).length})
@@ -398,12 +420,12 @@ export default function AssignmentList({
                 </select>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* 作業列表 */}
         {assignments.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               尚未建立任何作業
@@ -413,7 +435,7 @@ export default function AssignmentList({
             </p>
           </div>
         ) : filteredAssignments.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               此資料夾中沒有作業
@@ -423,56 +445,80 @@ export default function AssignmentList({
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {filteredAssignments.map((assignment) => (
               <div
                 key={assignment.id}
-                onClick={() => {
-                  onSelectAssignment?.(assignment.id)
-                }}
-                className="w-full bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-all text-left group cursor-pointer"
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-4 text-left transition-colors hover:border-slate-300"
               >
                 <div className="flex items-center justify-between gap-4">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-1 group-hover:text-purple-600 transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="mb-1 text-base font-semibold text-gray-900">
                       {assignment.title}
                     </h3>
                     <p className="text-sm text-gray-600">
-                      {assignment.classroom?.name || '未知班級'} · 共{' '}
-                      {assignment.totalPages} 頁
+                      {assignment.classroom?.name || '未知班級'} · 共 {assignment.totalPages} 頁 ·
+                      已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
                     </p>
-                    {assignment.submissionCount !== undefined &&
-                      assignment.submissionCount > 0 && (
-                        <p className="text-xs text-purple-600 font-medium mt-1">
-                          已有 {assignment.submissionCount} 份作答
-                        </p>
-                      )}
                     {!assignment.answerKey && (
-                      <p className="text-xs text-red-500 mt-1">
+                      <p className="mt-1 text-xs text-red-500">
                         尚未設定標準答案，AI 批改將無法使用。
                       </p>
                     )}
                   </div>
-                  <div className="flex flex-col items-end gap-2">
+
+                  <div className="max-w-[58vw] self-center overflow-x-auto">
+                    <div className="flex items-center justify-end gap-2 whitespace-nowrap pb-1">
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setEditingAssignment(assignment)
-                        setEditingAnswerKey(
-                          normalizeAnswerKey(
-                            assignment.answerKey || {
-                              questions: [],
-                              totalScore: 0
-                            }
-                          )
-                        )
-                        setAnswerKeyError(null)
-                      }}
-                      className="px-3 py-1 rounded-full text-[11px] bg-gray-50 text-gray-700 border border-gray-200 hover:bg-gray-100"
+                      onClick={() => onSelectScanImport?.(assignment.id)}
+                      className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
                     >
-                      編輯標準答案
+                      <Camera className="h-4 w-4" />
+                      <span className="text-center leading-tight">拍照上傳</span>
                     </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onSelectBatchImport?.(assignment.id)}
+                      className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                    >
+                      <FileImage className="h-4 w-4" />
+                      <span className="text-center leading-tight">掃描上傳</span>
+                    </button>
+
+                    <span className="px-1 text-slate-300">›</span>
+
+                    <button
+                      type="button"
+                      onClick={() => onSelectAssignment?.(assignment.id)}
+                      disabled={!assignment.answerKey || (assignment.uploadedCount ?? 0) < 1}
+                      className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
+                        !assignment.answerKey || (assignment.uploadedCount ?? 0) < 1
+                          ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      <span className="text-center leading-tight">AI批改</span>
+                    </button>
+
+                    <span className="px-1 text-slate-300">›</span>
+
+                    <button
+                      type="button"
+                      onClick={() => onSelectCorrection?.(assignment.id)}
+                      disabled={!canUseCorrection || (assignment.gradedCount ?? 0) < 1}
+                      className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
+                        !canUseCorrection || (assignment.gradedCount ?? 0) < 1
+                          ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <ClipboardCheck className="h-4 w-4" />
+                      <span className="text-center leading-tight">訂正作業</span>
+                    </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -730,3 +776,4 @@ export default function AssignmentList({
     </div>
   )
 }
+

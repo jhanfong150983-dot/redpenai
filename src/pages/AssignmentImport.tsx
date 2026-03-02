@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
-import type { Assignment, Classroom, Student, Submission } from '@/lib/db'
+import type { Assignment, Student, Submission } from '@/lib/db'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import {
@@ -24,12 +24,13 @@ import { safeToBlobWithFallback } from '@/lib/canvasToBlob'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-storage'
 
 // 目標檔案大小上限（1.5MB）
-const TARGET_MAX_BYTES = 1.5 * 1024 * 1024
+const TARGET_MAX_BYTES = 1.9 * 1024 * 1024
 
 interface AssignmentImportProps {
   assignmentId: string
   onBack?: () => void
   onUploadComplete?: () => void
+  embedded?: boolean
 }
 
 interface PagePreview {
@@ -134,10 +135,10 @@ async function mergePageBlobs(pageBlobs: Blob[]): Promise<Blob> {
 export default function AssignmentImport({
   assignmentId,
   onBack,
-  onUploadComplete
+  onUploadComplete,
+  embedded = false
 }: AssignmentImportProps) {
   const [assignment, setAssignment] = useState<Assignment | null>(null)
-  const [classroom, setClassroom] = useState<Classroom | null>(null)
   const [students, setStudents] = useState<Student[]>([])
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
 
@@ -206,7 +207,6 @@ export default function AssignmentImport({
         if (!classroomData) {
           throw new Error('找不到對應的班級')
         }
-        setClassroom(classroomData)
 
         const studentsData = await db.students
           .where('classroomId')
@@ -574,10 +574,10 @@ export default function AssignmentImport({
         let imageBlob =
           pageBlobs.length === 1 ? pageBlobs[0] : await mergePageBlobs(pageBlobs)
 
-        // 壓縮到目標大小（1.5MB）：先縮尺寸、再降 quality
-        // 單頁保留較高解析度（1900）以維持 AI 辨識準確度
-        // 合併長圖用較低寬度（1600）以控制檔案大小
-        const compressMaxWidth = pageBlobs.length === 1 ? 1900 : 1600
+        // 壓縮到目標大小（1.9MB）：先縮尺寸、再降 quality
+        // 單頁保留更高解析度（2300）提升放大檢視清晰度
+        // 合併長圖用較高寬度（1900）在清晰度與大小間取得平衡
+        const compressMaxWidth = pageBlobs.length === 1 ? 2300 : 1900
         imageBlob = await compressToTargetBytes(imageBlob, TARGET_MAX_BYTES, { maxWidth: compressMaxWidth })
 
         // 產生縮圖（用於 Grid 顯示，提升效能）
@@ -691,7 +691,7 @@ export default function AssignmentImport({
         // 先設置監聯器，再觸發同步，避免錯過事件
         // 設定 30 秒超時，避免無限等待（離線或同步失敗時）
         const syncPromise = waitForSync(30000)
-        requestSync()
+        requestSync(true)
 
         try {
           // 等待同步完成（30 秒超時）
@@ -718,7 +718,7 @@ export default function AssignmentImport({
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-purple-600 mx-auto mb-4 animate-spin" />
           <p className="text-gray-600">載入中...</p>
@@ -728,8 +728,8 @@ export default function AssignmentImport({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-6xl mx-auto pt-6">
+    <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
+      <div className={`${embedded ? 'max-w-none mx-0 pt-0' : 'max-w-6xl mx-auto pt-6'}`}>
         {onBack && (
           <button
             onClick={onBack}
@@ -741,32 +741,25 @@ export default function AssignmentImport({
         )}
 
         {/* 標題 */}
-        <div className="bg-white rounded-2xl shadow-md p-5 mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-indigo-100">
-              <FileImage className="w-7 h-7 text-indigo-600" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">
-                電子檔匯入 - {assignment?.title}
-              </h1>
-              <p className="text-xs text-gray-500 mt-1">
-                班級：{classroom?.name} · 學生數：{students.length} 人
-              </p>
-            </div>
-          </div>
-          <div className="hidden md:flex flex-col items-end text-xs text-gray-500">
-            <div className="flex items-center gap-1">
-              <Users className="w-4 h-4" />
-              <span>自動配對建議：請先將紙本考卷大致依座號排序</span>
-            </div>
-            {!assignment?.answerKey && (
-              <p className="mt-1 text-red-500 font-semibold">
-                尚未設定標準答案，無法進行 AI 批改。
-              </p>
-            )}
+        <div
+          className={`mb-4 flex items-center justify-between ${
+            embedded
+              ? 'border-b border-slate-200 pb-3'
+              : 'bg-white rounded-xl border border-slate-200 p-5'
+          }`}
+        >
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-semibold text-gray-900">
+              作業匯入：{assignment?.title}
+            </h1>
           </div>
         </div>
+
+        {!assignment?.answerKey && (
+          <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            尚未設定標準答案，無法進行 AI 批改。
+          </div>
+        )}
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-xl">
@@ -775,8 +768,8 @@ export default function AssignmentImport({
         )}
 
         {/* 1. 檔案上傳 + 自動配對設定 */}
-        <div className="bg-white rounded-2xl shadow-md p-4 mb-4 space-y-4">
-          <div className="grid md:grid-cols-3 gap-4 text-sm">
+        <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+          <div className="grid gap-5 text-sm md:grid-cols-3">
             <div className="md:col-span-1">
               <label className="block text-xs font-medium text-gray-600 mb-1">
                 上傳 PDF 檔案
@@ -790,8 +783,8 @@ export default function AssignmentImport({
                 className="block w-full text-xs text-gray-700
                   file:mr-2 file:px-3 file:py-2 file:border-0
                   file:text-xs file:font-semibold
-                  file:bg-indigo-50 file:text-indigo-700
-                  hover:file:bg-indigo-100"
+                  file:bg-green-50 file:text-green-700
+                  hover:file:bg-green-100"
               />
               <p className="text-xs text-gray-500 mt-1">
                 <span className="font-medium">可選擇單一或多個 PDF:</span><br />
@@ -840,7 +833,7 @@ export default function AssignmentImport({
                     max={4}
                     value={pagesPerStudent}
                     onChange={(v) => setPagesPerStudent(typeof v === 'number' ? v : (v === '' ? ('' as unknown as number) : 1))}
-                    className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -852,7 +845,7 @@ export default function AssignmentImport({
                     max={200}
                     value={startSeat}
                     onChange={(v) => setStartSeat(typeof v === 'number' ? v : (v === '' ? ('' as unknown as number) : 1))}
-                    className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   />
                 </div>
               </div>
@@ -893,7 +886,7 @@ export default function AssignmentImport({
         {mappings.length > 0 && (
           <div className="grid lg:grid-cols-[350px_1fr] gap-4 mb-6">
             {/* 左側：學生選單 */}
-            <div className="bg-white rounded-2xl shadow-md p-4">
+            <div className="bg-white rounded-xl border border-slate-200 p-4 md:p-5">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <Users className="w-4 h-4" />
@@ -912,25 +905,25 @@ export default function AssignmentImport({
                     onClick={() => setSelectedMappingIndex(idx)}
                     className={`w-full px-3 py-2.5 rounded-lg text-left transition-colors ${
                       idx === selectedMappingIndex
-                        ? 'bg-indigo-50 border-2 border-indigo-500'
+                        ? 'bg-green-50 border-2 border-green-500'
                         : 'bg-gray-50 border-2 border-transparent hover:bg-gray-100'
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <div>
                         <span className={`text-sm font-semibold ${
-                          idx === selectedMappingIndex ? 'text-indigo-900' : 'text-gray-900'
+                          idx === selectedMappingIndex ? 'text-green-900' : 'text-gray-900'
                         }`}>
                           {m.seatNumber} 號
                         </span>
                         <span className={`ml-2 text-sm ${
-                          idx === selectedMappingIndex ? 'text-indigo-700' : 'text-gray-700'
+                          idx === selectedMappingIndex ? 'text-green-700' : 'text-gray-700'
                         }`}>
                           {m.name}
                         </span>
                       </div>
                       <span className={`text-xs ${
-                        idx === selectedMappingIndex ? 'text-indigo-600' : 'text-gray-500'
+                        idx === selectedMappingIndex ? 'text-green-600' : 'text-gray-500'
                       }`}>
                         第 {m.fromIndex + 1}
                         {m.toIndex === m.fromIndex ? '' : `–${m.toIndex + 1}`} 頁
@@ -988,7 +981,7 @@ export default function AssignmentImport({
             </div>
 
             {/* 右側：頁面預覽 */}
-          <div className="bg-white rounded-2xl shadow-md p-4 flex flex-col gap-3 min-h-[320px]">
+          <div className="bg-white rounded-xl border border-slate-200 p-4 md:p-5 flex flex-col gap-3 min-h-[320px]">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-semibold text-gray-700">頁面預覽</h2>
@@ -1207,3 +1200,4 @@ export default function AssignmentImport({
     </div>
   )
 }
+

@@ -36,6 +36,10 @@ const PAGED_GRADING_OVERLAP_PX = 60
 
 // 分頁批改並行數（不要太高，容易觸發 429）
 const PAGED_GRADING_CONCURRENCY = 2
+// 批量批改並行數（建議保守，避免放大 4-stage 呼叫壓力）
+const BATCH_GRADING_CONCURRENCY = 2
+// 每個 worker 完成一份後的節流延遲
+const BATCH_GRADING_STAGGER_MS = 800
 
 // Gemini 圖片壓縮的解析度底線
 const GEMINI_MIN_WIDTH = 1200      // 一般字 + 手寫仍清楚
@@ -192,6 +196,7 @@ type GeminiRequestPart = string | GeminiInlineDataPart
 type GeminiPart = { text: string } | GeminiInlineDataPart
 type GeminiRouteKey =
   | 'grading.evaluate'
+  | 'grading.locate'
   | 'answer_key.extract'
   | 'answer_key.reanalyze'
   | 'report.teacher_summary'
@@ -262,11 +267,16 @@ async function executeGeminiRequest(
 ): Promise<{ text: string; data: any }> {
   const useAnswerKeyCache = options?.useAnswerKeyCache ?? false
   const routeKey = options?.routeKey || 'unknown'
+  const shouldForceFullAnswerKey = routeKey === 'grading.evaluate'
   
   // 🆕 AnswerKey 緩存邏輯
   let answerKeyPayload: { answerKey?: string; answerKeyRef?: string } = {}
   if (useAnswerKeyCache && cachedAnswerKeyJson) {
-    if (cachedAnswerKeyHash) {
+    if (shouldForceFullAnswerKey) {
+      // 批改流程固定傳完整 AnswerKey，避免 ref miss 造成 422 額外往返
+      answerKeyPayload = { answerKey: cachedAnswerKeyJson }
+      console.log('📤 [AnswerKey] 批改固定完整模式 (' + Math.round(cachedAnswerKeyJson.length / 1024) + 'KB)')
+    } else if (cachedAnswerKeyHash) {
       // 有 hash → 只傳引用
       answerKeyPayload = { answerKeyRef: cachedAnswerKeyHash }
       console.log('📎 [AnswerKey] 使用緩存引用:', cachedAnswerKeyHash.substring(0, 8) + '...')
@@ -803,6 +813,8 @@ function buildGlobalRules(): string {
 {
   "questions": [{
     "id": "1",           // 題號
+    "orderMode": "strict" | "unordered", // strict=固定位置, unordered=同組可互換
+    "unorderedGroupId": "1", // orderMode=unordered 時必填（同組共用）
     "type": 1 | 2 | 3,   // 題型分類（必填）
     "maxScore": 5,       // 滿分
 
@@ -838,6 +850,10 @@ function buildGlobalRules(): string {
 【通用原則】
 - 題號：只為「有答案/作答區」的題目建立題號，必須輸出 idPath，並讓 id = idPath 用 "-" 串接
 - 題號：圖片有就用，無則依題目順序補上（不可跳號）
+- orderMode：
+  - 預設 "strict"（每格固定對應自己的標準答案）
+  - 若題目明確屬於「同組答案可互換、不限填寫順序」（如：任寫 3 個、依任意順序填入）→ 設 "unordered"
+  - 同一可互換組的所有子題，必須設定相同 unorderedGroupId（通常用主題號，如 "1"）
 - 配分：圖片有就用，無則估計（是非/選擇 2-5 分，簡答 5-8 分，申論 8-15 分）
 - totalScore = 所有 maxScore 總和
 - 無法辨識時回傳 {"questions": [], "totalScore": 0}
@@ -1197,6 +1213,203 @@ function fillMissingQuestions(
 function isEmptyStudentAnswer(ans?: string) {
   const a = (ans ?? '').trim()
   return a === '未作答' || a === '無法辨識' || a === '未作答/無法辨識'
+}
+
+type NormalizedBbox = { x: number; y: number; w: number; h: number }
+type LocateQuestionRow = {
+  questionId: string
+  questionBbox?: NormalizedBbox
+  answerBbox?: NormalizedBbox
+  confidence?: number
+}
+
+function buildLocatePrompt(questionIds: string[]): string {
+  return `
+You are stage Locate.
+Task: locate question/answer regions for the provided question IDs on this submission image.
+
+Target question IDs:
+${JSON.stringify(questionIds)}
+
+Rules:
+- Only return question IDs in the target list.
+- If you can find a question stem region, return questionBbox.
+- If you can find the student answer region, return answerBbox.
+- Bboxes must be normalized to [0,1] using:
+  { "x": 0.12, "y": 0.34, "w": 0.20, "h": 0.08 }
+- If uncertain, still give the best approximate box and lower confidence.
+- Return strict JSON only.
+
+Output:
+{
+  "locatedQuestions": [
+    {
+      "questionId": "string",
+      "questionBbox": { "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.08 },
+      "answerBbox": { "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.1 },
+      "confidence": 85
+    }
+  ]
+}
+`.trim()
+}
+
+function parseGeminiJsonText(rawText: string): unknown | null {
+  const cleaned = rawText.replace(/```json|```/gi, '').trim()
+  try {
+    return JSON.parse(cleaned)
+  } catch {
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1))
+      } catch {
+        return null
+      }
+    }
+    return null
+  }
+}
+
+function normalizeBbox(raw: unknown): NormalizedBbox | null {
+  if (!raw || typeof raw !== 'object') return null
+  const source = raw as Record<string, unknown>
+  const toNum = (value: unknown) => (typeof value === 'number' ? value : Number(value))
+  let x = toNum(source.x)
+  let y = toNum(source.y)
+  let w = toNum(source.w)
+  let h = toNum(source.h)
+
+  if (![x, y, w, h].every(Number.isFinite)) return null
+  if (w <= 0 || h <= 0) return null
+
+  x = Math.max(0, Math.min(1, x))
+  y = Math.max(0, Math.min(1, y))
+  w = Math.max(0, Math.min(1, w))
+  h = Math.max(0, Math.min(1, h))
+
+  if (x >= 1 || y >= 1) return null
+  if (x + w > 1) w = 1 - x
+  if (y + h > 1) h = 1 - y
+  if (w <= 0 || h <= 0) return null
+
+  return { x, y, w, h }
+}
+
+function getLocateTargetQuestionIds(details?: GradingResult['details']): string[] {
+  if (!Array.isArray(details) || details.length === 0) return []
+  const ids: string[] = []
+
+  for (const detail of details) {
+    const questionId = (detail?.questionId ?? '').trim()
+    if (!questionId) continue
+    const isWrong = detail?.isCorrect === false
+    const shouldExplain = detail?.needExplain === true
+    const hasBbox = Boolean(detail?.questionBbox || detail?.answerBbox)
+    if ((isWrong || shouldExplain) && !hasBbox) {
+      ids.push(questionId)
+    }
+  }
+
+  return Array.from(new Set(ids))
+}
+
+function parseLocateRows(rawText: string, targetQuestionIds: string[]): LocateQuestionRow[] {
+  const parsed = parseGeminiJsonText(rawText)
+  if (!parsed || typeof parsed !== 'object') return []
+  const parsedRecord = parsed as Record<string, unknown>
+  const rows = Array.isArray(parsedRecord.locatedQuestions) ? parsedRecord.locatedQuestions : []
+  if (rows.length === 0) return []
+
+  const targetSet = new Set(targetQuestionIds.map((id) => id.trim()).filter(Boolean))
+  const byQuestionId = new Map<string, LocateQuestionRow>()
+
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const rowRecord = row as Record<string, unknown>
+    const questionId =
+      typeof rowRecord.questionId === 'string' ? rowRecord.questionId.trim() : ''
+    if (!questionId || !targetSet.has(questionId)) continue
+    const questionBbox = normalizeBbox(rowRecord.questionBbox ?? rowRecord.question_bbox)
+    const answerBbox = normalizeBbox(rowRecord.answerBbox ?? rowRecord.answer_bbox)
+    if (!questionBbox && !answerBbox) continue
+    const confidenceRaw =
+      typeof rowRecord.confidence === 'number'
+        ? rowRecord.confidence
+        : Number(rowRecord.confidence)
+    const confidence = Number.isFinite(confidenceRaw) ? confidenceRaw : undefined
+    byQuestionId.set(questionId, {
+      questionId,
+      ...(questionBbox ? { questionBbox } : {}),
+      ...(answerBbox ? { answerBbox } : {}),
+      ...(confidence !== undefined ? { confidence } : {})
+    })
+  }
+
+  return Array.from(byQuestionId.values())
+}
+
+function applyLocateRowsToDetails(
+  details: GradingResult['details'] | undefined,
+  locateRows: LocateQuestionRow[]
+): number {
+  if (!Array.isArray(details) || details.length === 0 || locateRows.length === 0) return 0
+  const byQuestionId = new Map(locateRows.map((row) => [row.questionId, row]))
+  let appliedCount = 0
+
+  for (const detail of details) {
+    const questionId = (detail?.questionId ?? '').trim()
+    if (!questionId) continue
+    const locate = byQuestionId.get(questionId)
+    if (!locate) continue
+    let touched = false
+
+    if (!detail.questionBbox && locate.questionBbox) {
+      detail.questionBbox = locate.questionBbox
+      touched = true
+    }
+    if (!detail.answerBbox && locate.answerBbox) {
+      detail.answerBbox = locate.answerBbox
+      touched = true
+    }
+
+    if (touched) appliedCount += 1
+  }
+
+  return appliedCount
+}
+
+async function enrichWrongDetailBboxesWithLocate(
+  result: GradingResult,
+  submissionBase64: string,
+  submissionMimeType: string,
+  logPrefix: string = '',
+  targetQuestionIds?: string[]
+): Promise<void> {
+  const targetIds =
+    targetQuestionIds && targetQuestionIds.length > 0
+      ? Array.from(new Set(targetQuestionIds.map((id) => id.trim()).filter(Boolean)))
+      : getLocateTargetQuestionIds(result.details)
+
+  if (targetIds.length === 0) return
+
+  try {
+    console.log(`${logPrefix}📍 [Locate fallback] 目標 ${targetIds.length} 題: ${targetIds.join(', ')}`)
+    const locatePrompt = buildLocatePrompt(targetIds)
+    const locateText = await generateGeminiText(
+      currentModelName,
+      [locatePrompt, { inlineData: { mimeType: submissionMimeType, data: submissionBase64 } }],
+      { routeKey: 'grading.locate' }
+    )
+    const locateRows = parseLocateRows(locateText, targetIds)
+    const appliedCount = applyLocateRowsToDetails(result.details, locateRows)
+    console.log(
+      `${logPrefix}📍 [Locate fallback] 回傳 ${locateRows.length} 題定位，已套用 ${appliedCount} 題`
+    )
+  } catch (error) {
+    console.warn(`${logPrefix}⚠️ [Locate fallback] 失敗，略過不影響批改:`, error)
+  }
 }
 
 // ============================================
@@ -1623,6 +1836,32 @@ async function gradeSubmissionPaged(
   const mergeStartTime = performance.now()
   const merged = mergeGradingResults(results, answerKey)
   const mergeTime = performance.now() - mergeStartTime
+
+  // Step 5: 分頁模式在合併後才做一次 locate（避免片段座標失真）
+  const locateTargetIds = getLocateTargetQuestionIds(merged.details)
+  if (locateTargetIds.length > 0) {
+    const locateStartTime = performance.now()
+    try {
+      const preparedForLocate = await compressForGemini(
+        submissionImage,
+        GEMINI_SINGLE_IMAGE_TARGET_BYTES,
+        '作業定位'
+      )
+      const locateBase64 = await blobToBase64(preparedForLocate)
+      const locateMimeType = preparedForLocate.type || 'image/jpeg'
+      await enrichWrongDetailBboxesWithLocate(
+        merged,
+        locateBase64,
+        locateMimeType,
+        '   ',
+        locateTargetIds
+      )
+      const locateTime = performance.now() - locateStartTime
+      console.log(`   ⏱️ 定位補框耗時: ${locateTime.toFixed(0)}ms`)
+    } catch (error) {
+      console.warn('   ⚠️ 分頁合併後 locate 失敗，略過不影響批改:', error)
+    }
+  }
   
   const totalTime = performance.now() - totalStartTime
   console.log(`📄 [分頁批改] 完成！總分: ${merged.totalScore}，共 ${merged.details?.length ?? 0} 題`)
@@ -1806,6 +2045,9 @@ ${isPartialImage
     - 「引導/選擇」維度（如：步驟一選擇面向）：看「是否完成」而非「是否正確」，只要學生有做選擇就給分
     - 「主要作答」維度（如：步驟二具體內容）：依據 criteria 判斷內容品質並給分
   - 整題的 isCorrect 判斷：以「主要作答」維度為準，不因「引導階段」未完成而判為錯誤
+- 若題目有 orderMode="unordered" 且同組 unorderedGroupId 相同：
+  - 該組子題必須做「集合配對」評分，不可用固定位置（例如 1-1 只能對 1-1）
+  - 只要該組答案集合一致，即可判定為正確（同組內位置可互換）
 `.trim()
       )
     } else if (answerKeyImage) {
@@ -2431,6 +2673,11 @@ ${forcedIds.map((id) => `- 題號 ${id}：studentAnswer="無法辨識", score=0,
       }
     }
 
+    // staged 無法使用時，single-shot fallback 也補齊錯題 bbox
+    if (!isPartialForFill) {
+      await enrichWrongDetailBboxesWithLocate(parsed, submissionBase64, submissionMimeType, logPrefix)
+    }
+
     return parsed
   } catch (error) {
     console.error(`❌ ${currentModelName} 批改失敗:`, error)
@@ -2524,123 +2771,147 @@ export async function gradeMultipleSubmissions(
     }
   }
 
-  for (let i = 0; i < submissions.length; i++) {
-    // 🛑 檢查是否應該停止
-    if (shouldStop?.()) {
-      console.log(`🛑 用戶請求停止批改，已完成 ${successCount} 份`)
-      stopped = true
-      break
-    }
+  const total = submissions.length
+  let nextIndex = 0
+  let dispatchedCount = 0
+  let completedCount = 0
+  const concurrency = Math.max(1, Math.min(BATCH_GRADING_CONCURRENCY, total || 1))
+  console.log(`🚦 批量批改模式：限流併發 ${concurrency}`)
 
-    const sub = submissions[i]
-    console.log(`\n📄 批改第 ${i + 1}/${submissions.length} 份作業: ${sub.id}`)
-    onProgress(i + 1, submissions.length)
-    
-    // 🆕 預取下一份作業（在當前作業批改期間並行準備）
-    prefetchNextSubmission(i)
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-    try {
-      if (!sub.imageBlob) {
-        console.warn(`⚠️ 跳過沒有 imageBlob 的作業: ${sub.id}`)
-        failCount++
-        continue
-      }
-
-      console.log(`🔍 開始批改作業 ${sub.id}...`)
-      
-      // 🆕 檢查是否有預處理好的圖片
-      let result: GradingResult
-      const preparedPromise = preparedSubmissions.get(sub.id!)
-      
-      if (preparedPromise) {
-        const prepared = await preparedPromise
-        if (prepared) {
-          // 使用預處理好的圖片（跳過壓縮步驟）
-          console.log(`   ✨ 使用預處理圖片批改`)
-          result = await gradeSubmissionWithPreparedImage(
-            prepared.blob,
-            prepared.base64,
-            prepared.mimeType,
-            answerKeyBlob,
-            answerKey,
-            gradeOptions
-          )
-        } else {
-          // 預處理失敗，回退到標準流程
-          result = await gradeSubmission(sub.imageBlob, answerKeyBlob, answerKey, gradeOptions)
+  const runWorker = async (workerId: number) => {
+    while (true) {
+      // 🛑 檢查是否應該停止（僅停止派發新任務，進行中的任務會收尾）
+      if (shouldStop?.()) {
+        if (!stopped) {
+          console.log(`🛑 用戶請求停止批改，已完成 ${successCount} 份`)
         }
-      } else {
-        // 沒有預處理，使用標準流程
-        result = await gradeSubmission(sub.imageBlob, answerKeyBlob, answerKey, gradeOptions)
-      }
-      
-      console.log(`📊 批改結果: 得分 ${result.totalScore}`)
-
-      console.log(`💾 儲存批改結果到資料庫...`)
-      let imageBase64 = sub.imageBase64
-      if (avoidBlobStorage && !imageBase64 && sub.imageBlob) {
-        try {
-          imageBase64 = await blobToDataUrl(sub.imageBlob)
-        } catch (error) {
-          console.warn('⚠️ Base64 轉換失敗，將略過 imageBase64:', error)
-        }
+        stopped = true
+        return
       }
 
-      const updatePayload: Partial<Submission> = {
-        status: 'graded',
-        score: result.totalScore,
-        gradingResult: result,
-        gradedAt: Date.now()
-      }
-      if (imageBase64) updatePayload.imageBase64 = imageBase64
-      if (!avoidBlobStorage && sub.imageBlob) updatePayload.imageBlob = sub.imageBlob
-      if (avoidBlobStorage) updatePayload.imageBlob = undefined
+      const i = nextIndex
+      nextIndex += 1
+      if (i >= total) return
 
-      try {
-        await db.submissions.update(sub.id!, updatePayload)
-      } catch (error) {
-        if (!avoidBlobStorage && sub.imageBlob && isIndexedDbBlobError(error)) {
-          const fallback: Partial<Submission> = {
-            status: updatePayload.status,
-            score: updatePayload.score,
-            gradingResult: updatePayload.gradingResult,
-            gradedAt: updatePayload.gradedAt
-          }
-          if (imageBase64) fallback.imageBase64 = imageBase64
-          await db.submissions.update(sub.id!, fallback)
-        } else {
-          throw error
-        }
-      }
-
-      successCount++
+      const sub = submissions[i]
+      dispatchedCount += 1
       console.log(
-        `✅ 批改成功 (${i + 1}/${submissions.length}): ${sub.id}, 得分: ${result.totalScore}, 累計成功: ${successCount}`
+        `\n📄 [W${workerId}] 批改第 ${i + 1}/${total} 份作業: ${sub.id} (派發 ${dispatchedCount}/${total})`
       )
 
-      // 🆕 通知 UI 此份作業已完成，即時更新
-      if (onSubmissionComplete) {
-        const updatedSubmission: Submission = {
-          ...sub,
+      // 🆕 預取下一份作業（在當前作業批改期間並行準備）
+      prefetchNextSubmission(i)
+
+      try {
+        if (!sub.imageBlob) {
+          console.warn(`⚠️ 跳過沒有 imageBlob 的作業: ${sub.id}`)
+          failCount++
+          continue
+        }
+
+        console.log(`🔍 [W${workerId}] 開始批改作業 ${sub.id}...`)
+
+        // 🆕 檢查是否有預處理好的圖片
+        let result: GradingResult
+        const preparedPromise = preparedSubmissions.get(sub.id!)
+
+        if (preparedPromise) {
+          const prepared = await preparedPromise
+          if (prepared) {
+            // 使用預處理好的圖片（跳過壓縮步驟）
+            console.log(`   ✨ [W${workerId}] 使用預處理圖片批改`)
+            result = await gradeSubmissionWithPreparedImage(
+              prepared.blob,
+              prepared.base64,
+              prepared.mimeType,
+              answerKeyBlob,
+              answerKey,
+              gradeOptions
+            )
+          } else {
+            // 預處理失敗，回退到標準流程
+            result = await gradeSubmission(sub.imageBlob, answerKeyBlob, answerKey, gradeOptions)
+          }
+        } else {
+          // 沒有預處理，使用標準流程
+          result = await gradeSubmission(sub.imageBlob, answerKeyBlob, answerKey, gradeOptions)
+        }
+
+        console.log(`📊 [W${workerId}] 批改結果: 得分 ${result.totalScore}`)
+
+        console.log(`💾 [W${workerId}] 儲存批改結果到資料庫...`)
+        let imageBase64 = sub.imageBase64
+        if (avoidBlobStorage && !imageBase64 && sub.imageBlob) {
+          try {
+            imageBase64 = await blobToDataUrl(sub.imageBlob)
+          } catch (error) {
+            console.warn('⚠️ Base64 轉換失敗，將略過 imageBase64:', error)
+          }
+        }
+
+        const updatePayload: Partial<Submission> = {
           status: 'graded',
           score: result.totalScore,
           gradingResult: result,
-          gradedAt: Date.now(),
-          imageBase64: imageBase64 ?? sub.imageBase64
+          gradedAt: Date.now()
         }
-        onSubmissionComplete(updatedSubmission, result)
-      }
-    } catch (e) {
-      failCount++
-      console.error(`❌ 批改作業失敗 (${i + 1}/${submissions.length}): ${sub.id}`, e)
-      console.error(`   累計失敗: ${failCount}`)
-    }
+        if (imageBase64) updatePayload.imageBase64 = imageBase64
+        if (!avoidBlobStorage && sub.imageBlob) updatePayload.imageBlob = sub.imageBlob
+        if (avoidBlobStorage) updatePayload.imageBlob = undefined
 
-    if (i < submissions.length - 1) {
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => setTimeout(r, 2000))
+        try {
+          await db.submissions.update(sub.id!, updatePayload)
+        } catch (error) {
+          if (!avoidBlobStorage && sub.imageBlob && isIndexedDbBlobError(error)) {
+            const fallback: Partial<Submission> = {
+              status: updatePayload.status,
+              score: updatePayload.score,
+              gradingResult: updatePayload.gradingResult,
+              gradedAt: updatePayload.gradedAt
+            }
+            if (imageBase64) fallback.imageBase64 = imageBase64
+            await db.submissions.update(sub.id!, fallback)
+          } else {
+            throw error
+          }
+        }
+
+        successCount++
+        console.log(
+          `✅ [W${workerId}] 批改成功 (${i + 1}/${total}): ${sub.id}, 得分: ${result.totalScore}, 累計成功: ${successCount}`
+        )
+
+        // 🆕 通知 UI 此份作業已完成，即時更新
+        if (onSubmissionComplete) {
+          const updatedSubmission: Submission = {
+            ...sub,
+            status: 'graded',
+            score: result.totalScore,
+            gradingResult: result,
+            gradedAt: Date.now(),
+            imageBase64: imageBase64 ?? sub.imageBase64
+          }
+          onSubmissionComplete(updatedSubmission, result)
+        }
+      } catch (e) {
+        failCount++
+        console.error(`❌ [W${workerId}] 批改作業失敗 (${i + 1}/${total}): ${sub.id}`, e)
+        console.error(`   累計失敗: ${failCount}`)
+      } finally {
+        completedCount += 1
+        onProgress(completedCount, total)
+      }
+
+      // 輕量節流，降低 API 擁塞風險
+      if (!stopped && i < total - 1 && BATCH_GRADING_STAGGER_MS > 0) {
+        await sleep(BATCH_GRADING_STAGGER_MS)
+      }
     }
   }
+
+  await Promise.all(Array.from({ length: concurrency }, (_, idx) => runWorker(idx + 1)))
 
   console.log(`\n🏁 批改${stopped ? '已停止' : '完成'}！總計: ${submissions.length}, 成功: ${successCount}, 失敗: ${failCount}`)
   console.log(`📤 返回結果: { successCount: ${successCount}, failCount: ${failCount}, stopped: ${stopped} }`)

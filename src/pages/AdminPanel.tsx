@@ -39,10 +39,10 @@ export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'u
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className="min-h-screen bg-white p-4">
       <div className="max-w-7xl mx-auto">
         {/* 頂部導航 */}
-        <div className="bg-white rounded-2xl shadow-xl mb-6">
+        <div className="bg-white rounded-xl border border-slate-200 mb-6">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
@@ -90,3 +90,4 @@ export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'u
     </div>
   )
 }
+

@@ -7,7 +7,7 @@ interface SyncStatusProps {
   syncInterval?: number
 }
 
-export default function SyncStatus({ autoSync = true, syncInterval = 30000 }: SyncStatusProps) {
+export default function SyncStatus({ autoSync = false, syncInterval = 30000 }: SyncStatusProps) {
   const isOnline = useOnlineStatus()
   const { isSyncing, lastSyncTime, pendingCount, error, triggerSync } = useSync({
     autoSync,
@@ -112,7 +112,7 @@ export default function SyncStatus({ autoSync = true, syncInterval = 30000 }: Sy
       {/* 離線提示 */}
       {!isOnline && (
         <p className="mt-2 text-xs text-gray-500 text-center">
-          網路恢復後將自動同步
+          {autoSync ? '網路恢復後將自動同步' : '網路恢復後請手動同步'}
         </p>
       )}
     </div>

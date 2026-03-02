@@ -17,3 +17,14 @@
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 }
+
+@layer components {
+  .layout-grid-bg {
+    background-color: #f1f5f9;
+    background-image:
+      linear-gradient(rgba(148, 163, 184, 0.2) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148, 163, 184, 0.2) 1px, transparent 1px);
+    background-size: 32px 32px;
+    background-position: -1px -1px;
+  }
+}

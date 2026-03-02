@@ -2,6 +2,7 @@ import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 import { db } from './db'
 import { debugLog } from './logger'
+import { buildApiUrl } from './api-base'
 
 /**
  * 合併 Tailwind CSS class names
@@ -117,9 +118,9 @@ export function getSubmissionImageUrl(submission?: {
     }
 
     // 策略 4: 使用雲端下載端點（thumb=true，後端會自動 fallback 到原圖）
-    if (submission.id && (submission.thumbUrl || submission.thumbnailUrl || submission.imageUrl)) {
+    if (submission.id) {
       const params = new URLSearchParams({ submissionId: submission.id, thumb: 'true' })
-      const url = `/api/storage/download?${params.toString()}`
+      const url = buildApiUrl(`/api/storage/download?${params.toString()}`)
       debugLog(`✅ 使用雲端下載縮圖/原圖 URL (${browser})`, { submissionId: submission.id, url })
       return url
     }
@@ -168,9 +169,9 @@ export function getSubmissionImageUrl(submission?: {
   }
 
   // 策略 3: 使用云端 URL（從 Supabase 下載）
-  if (submission.imageUrl && submission.id) {
+  if (submission.id) {
     const params = new URLSearchParams({ submissionId: submission.id })
-    const url = `/api/storage/download?${params.toString()}`
+    const url = buildApiUrl(`/api/storage/download?${params.toString()}`)
     debugLog(`✅ 使用雲端 URL (${browser})`, { submissionId: submission.id, url })
     return url
   }

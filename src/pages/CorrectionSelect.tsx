@@ -4,6 +4,7 @@ import { db } from '@/lib/db'
 import type { Assignment, Classroom, Folder as AssignmentFolder } from '@/lib/db'
 
 interface CorrectionSelectProps {
+  embedded?: boolean
   onBack?: () => void
   onSelectAssignment?: (assignmentId: string) => void
 }
@@ -11,6 +12,7 @@ interface CorrectionSelectProps {
 type AssignmentWithClassroom = Assignment & { classroom?: Classroom }
 
 export default function CorrectionSelect({
+  embedded = false,
   onBack,
   onSelectAssignment
 }: CorrectionSelectProps) {
@@ -93,7 +95,7 @@ export default function CorrectionSelect({
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+      <div className={embedded ? 'flex items-center justify-center py-16' : 'min-h-screen bg-white flex items-center justify-center'}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-indigo-600 mx-auto mb-4 animate-spin" />
           <p className="text-gray-600">載入作業列表中…</p>
@@ -103,8 +105,8 @@ export default function CorrectionSelect({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
-      <div className="max-w-2xl mx-auto pt-8">
+    <div className={embedded ? '' : 'min-h-screen bg-white p-4'}>
+      <div className={`max-w-2xl mx-auto ${embedded ? '' : 'pt-8'}`}>
         {onBack && (
           <button
             onClick={onBack}
@@ -115,7 +117,7 @@ export default function CorrectionSelect({
           </button>
         )}
 
-        <div className="bg-white rounded-2xl shadow-xl p-6 mb-6">
+        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
           <div className="flex items-center gap-3 mb-2">
             <div className="p-3 bg-orange-100 rounded-xl">
               <BookOpen className="w-7 h-7 text-orange-600" />
@@ -177,7 +179,7 @@ export default function CorrectionSelect({
         </div>
 
         {filteredAssignments.length === 0 && assignments.length > 0 ? (
-          <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               此資料夾中沒有作業
@@ -187,7 +189,7 @@ export default function CorrectionSelect({
             </p>
           </div>
         ) : assignments.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
               尚未建立任何作業
@@ -231,3 +233,4 @@ export default function CorrectionSelect({
     </div>
   )
 }
+

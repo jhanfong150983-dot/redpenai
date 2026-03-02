@@ -234,7 +234,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
   return (
     <div className="space-y-6">
       {/* Header Card */}
-      <div className="bg-white rounded-2xl shadow-xl p-6">
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-amber-100 rounded-xl">
@@ -605,3 +605,4 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
     </div>
   )
 }
+

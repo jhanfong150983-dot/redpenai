@@ -8,12 +8,16 @@ interface AssignmentScanImportProps {
   assignmentId: string
   onBack?: () => void
   onUploadComplete?: () => void
+  embedded?: boolean
+  onCaptureModeChange?: (isCaptureMode: boolean) => void
 }
 
 export default function AssignmentScanImport({
   assignmentId,
   onBack,
-  onUploadComplete
+  onUploadComplete,
+  embedded = false,
+  onCaptureModeChange
 }: AssignmentScanImportProps) {
   const [assignment, setAssignment] = useState<Assignment | null>(null)
   const [pagesPerStudent, setPagesPerStudent] = useState<number>(1)
@@ -53,12 +57,14 @@ export default function AssignmentScanImport({
           pagesPerStudent={pagesPerStudent}
           onBackToImportSelect={onBack}
           onUploadComplete={onUploadComplete}
+          embedded={embedded}
+          onCaptureModeChange={onCaptureModeChange}
         />
       )
     }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+    <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
       <div className="text-center">
         <Loader className="w-12 h-12 text-purple-600 mx-auto mb-4 animate-spin" />
         <p className="text-gray-600">
@@ -74,3 +80,4 @@ export default function AssignmentScanImport({
     </div>
   )
 }
+

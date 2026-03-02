@@ -6,7 +6,7 @@ interface SyncIndicatorProps {
   autoSync?: boolean
 }
 
-export default function SyncIndicator({ autoSync = true }: SyncIndicatorProps) {
+export default function SyncIndicator({ autoSync = false }: SyncIndicatorProps) {
   const isOnline = useOnlineStatus()
   const { isSyncing, lastSyncTime, pendingCount, error } = useSync({
     autoSync
@@ -32,10 +32,10 @@ export default function SyncIndicator({ autoSync = true }: SyncIndicatorProps) {
   let icon = <CheckCircle className="w-4 h-4 text-green-600" />
 
   if (!isOnline) {
-    text = '離線，待連線後同步'
+    text = autoSync ? '離線，待連線後同步' : '離線，連線後請手動同步'
     icon = <CloudOff className="w-4 h-4 text-gray-400" />
   } else if (error) {
-    text = '同步失敗，等待下次變更'
+    text = autoSync ? '同步失敗，等待下次變更' : '同步失敗，請手動重試'
     icon = <AlertCircle className="w-4 h-4 text-red-500" />
   } else if (isSyncing) {
     text = '同步中...'
@@ -49,7 +49,7 @@ export default function SyncIndicator({ autoSync = true }: SyncIndicatorProps) {
   }
 
   return (
-    <div className="inline-flex items-center gap-2 text-xs text-gray-600">
+    <div className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
       {icon}
       <span>{text}</span>
     </div>

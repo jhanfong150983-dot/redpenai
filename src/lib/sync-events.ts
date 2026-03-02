@@ -1,8 +1,13 @@
 export const SYNC_EVENT_NAME = 'rp-sync-request'
 export const SYNC_COMPLETE_EVENT_NAME = 'rp-sync-complete'
+const SYNC_REQUEST_THROTTLE_MS = 3000
+let lastSyncRequestAt = 0
 
-export function requestSync() {
+export function requestSync(force = false) {
   if (typeof window === 'undefined') return
+  const now = Date.now()
+  if (!force && now - lastSyncRequestAt < SYNC_REQUEST_THROTTLE_MS) return
+  lastSyncRequestAt = now
   window.dispatchEvent(new CustomEvent(SYNC_EVENT_NAME))
 }
 
