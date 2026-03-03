@@ -351,10 +351,8 @@ export default function ScanImportFlow({
     bitmap.close()
 
     return safeToBlobWithFallback(canvas, {
-      mimeType: 'image/jpeg',
-      quality: 0.9,
-      fallbackMimeType: 'image/png',
-      fallbackQuality: 0.9
+      format: 'image/jpeg',
+      quality: 0.9
     })
   }
 
