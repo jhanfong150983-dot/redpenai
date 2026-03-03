@@ -1519,7 +1519,7 @@ function App() {
                     setSelectedAssignmentId('')
                     setCurrentPage('grading')
                   }}
-                  onUploadComplete={() => setCurrentPage('home')}
+                  onUploadComplete={() => setCurrentPage('grading')}
                 />
               ) : currentPage === 'grading-list' ? (
                 <AssignmentList
@@ -1668,7 +1668,7 @@ function App() {
                     setSelectedAssignmentId('')
                     setCurrentPage('grading')
                   }}
-                  onUploadComplete={() => setCurrentPage('home')}
+                  onUploadComplete={() => setCurrentPage('grading')}
                   onCaptureModeChange={setIsCameraCaptureMode}
                 />
               ) : (

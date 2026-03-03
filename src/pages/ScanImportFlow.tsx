@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Loader } from 'lucide-react'
+import { Loader, RotateCw, X } from 'lucide-react'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import type { Student, Submission } from '@/lib/db'
 import { requestSync, waitForSync } from '@/lib/sync-events'
@@ -49,7 +49,38 @@ export default function ScanImportFlow({
   const [correctionStatusByStudent, setCorrectionStatusByStudent] = useState<Record<string, string>>({})
   const [isSaving, setIsSaving] = useState(false)
   const [isRefreshingStudentUploads, setIsRefreshingStudentUploads] = useState(false)
+  const [isSubmitConfirmOpen, setIsSubmitConfirmOpen] = useState(false)
+  const [confirmPreviewStudentId, setConfirmPreviewStudentId] = useState<string | null>(null)
+  const [confirmPreviewUrl, setConfirmPreviewUrl] = useState<string | null>(null)
+  const [isRotatingPreview, setIsRotatingPreview] = useState(false)
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
+
+  useEffect(() => {
+    if (!confirmPreviewUrl) return
+    return () => {
+      URL.revokeObjectURL(confirmPreviewUrl)
+    }
+  }, [confirmPreviewUrl])
+
+  useEffect(() => {
+    if (!isSubmitConfirmOpen || !confirmPreviewStudentId) {
+      setConfirmPreviewUrl(null)
+      return
+    }
+
+    const blobs = capturedData.get(confirmPreviewStudentId)
+    const firstBlob = blobs?.[0]
+    if (!firstBlob) {
+      setConfirmPreviewUrl(null)
+      return
+    }
+
+    const url = URL.createObjectURL(firstBlob)
+    setConfirmPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return url
+    })
+  }, [capturedData, confirmPreviewStudentId, isSubmitConfirmOpen])
 
   const fetchCorrectionStatus = async () => {
     try {
@@ -194,12 +225,19 @@ export default function ScanImportFlow({
       return
     }
 
-    const confirmed = confirm(
-      `確認要送出本次拍攝的 ${capturedData.size} 位學生作業嗎？\n\n❗ 提醒：請確認所有圖片方向正確\n• 圖片不可以倒置或歪斜\n• 否則可能影響 AI 辨識結果`
-    )
-    if (!confirmed) return
+    const firstStudentId = capturedData.keys().next().value as string | undefined
+    setConfirmPreviewStudentId(firstStudentId || null)
+    setIsSubmitConfirmOpen(true)
+  }
+
+  const handleConfirmSubmit = async () => {
+    if (capturedData.size === 0) {
+      setIsSubmitConfirmOpen(false)
+      return
+    }
 
     setIsSaving(true)
+    setIsSubmitConfirmOpen(false)
     let successCount = 0
 
     try {
@@ -287,7 +325,60 @@ export default function ScanImportFlow({
       requestSync()
       // 清空已拍攝數據
       setCapturedData(new Map())
+      setConfirmPreviewStudentId(null)
       onUploadComplete?.()
+    }
+  }
+
+  const rotateImageBlob = async (blob: Blob, degrees: number): Promise<Blob> => {
+    const bitmap = await createImageBitmap(blob)
+    const normalizedDegrees = ((degrees % 360) + 360) % 360
+    const isRotated90or270 = normalizedDegrees === 90 || normalizedDegrees === 270
+
+    const canvas = document.createElement('canvas')
+    canvas.width = isRotated90or270 ? bitmap.height : bitmap.width
+    canvas.height = isRotated90or270 ? bitmap.width : bitmap.height
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      bitmap.close()
+      throw new Error('圖片旋轉失敗：無法取得 Canvas Context')
+    }
+
+    ctx.translate(canvas.width / 2, canvas.height / 2)
+    ctx.rotate((normalizedDegrees * Math.PI) / 180)
+    ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2)
+    bitmap.close()
+
+    return safeToBlobWithFallback(canvas, {
+      mimeType: 'image/jpeg',
+      quality: 0.9,
+      fallbackMimeType: 'image/png',
+      fallbackQuality: 0.9
+    })
+  }
+
+  const handleRotatePreview = async () => {
+    if (!confirmPreviewStudentId || isRotatingPreview) return
+    const currentBlobs = capturedData.get(confirmPreviewStudentId)
+    if (!currentBlobs || currentBlobs.length === 0) return
+
+    setIsRotatingPreview(true)
+    try {
+      const rotatedBlobs = await Promise.all(
+        currentBlobs.map((blob) => rotateImageBlob(blob, 90))
+      )
+
+      setCapturedData((prev) => {
+        const next = new Map(prev)
+        next.set(confirmPreviewStudentId, rotatedBlobs)
+        return next
+      })
+    } catch (error) {
+      console.error('旋轉預覽圖片失敗:', error)
+      alert(error instanceof Error ? error.message : '旋轉失敗，請稍後再試')
+    } finally {
+      setIsRotatingPreview(false)
     }
   }
 
@@ -398,22 +489,131 @@ export default function ScanImportFlow({
     )
   }
 
+  const capturedStudents = students
+    .filter((student) => capturedData.has(student.id))
+    .sort((a, b) => a.seatNumber - b.seatNumber)
+
+  const previewStudent = capturedStudents.find((student) => student.id === confirmPreviewStudentId) || null
+
   return (
-    <SeatSelectionPage
-      students={students}
-      capturedData={capturedData}
-      submissionSourceByStudent={submissionSourceByStudent}
-      submissionPreviewByStudent={submissionPreviewByStudent}
-      correctionStatusByStudent={correctionStatusByStudent}
-      pagesPerStudent={pagesPerStudent}
-      onSelectStudent={handleSelectStudent}
-      onSubmit={handleSubmit}
-      onRefreshStudentUploads={handleRefreshStudentUploads}
-      isRefreshingStudentUploads={isRefreshingStudentUploads}
-      onRejectStudentSubmission={handleRejectStudentSubmission}
-      onBack={onBackToImportSelect}
-      embedded={embedded}
-    />
+    <>
+      <SeatSelectionPage
+        students={students}
+        capturedData={capturedData}
+        submissionSourceByStudent={submissionSourceByStudent}
+        submissionPreviewByStudent={submissionPreviewByStudent}
+        correctionStatusByStudent={correctionStatusByStudent}
+        pagesPerStudent={pagesPerStudent}
+        onSelectStudent={handleSelectStudent}
+        onSubmit={handleSubmit}
+        onRefreshStudentUploads={handleRefreshStudentUploads}
+        isRefreshingStudentUploads={isRefreshingStudentUploads}
+        onRejectStudentSubmission={handleRejectStudentSubmission}
+        onBack={onBackToImportSelect}
+        embedded={embedded}
+      />
+
+      {isSubmitConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <div className="relative w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <button
+              type="button"
+              onClick={() => {
+                if (isRotatingPreview) return
+                setIsSubmitConfirmOpen(false)
+              }}
+              className="absolute right-4 top-4 z-10 rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 hover:text-slate-900"
+              aria-label="關閉確認視窗"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <div className="border-b border-slate-200 px-5 py-4">
+              <h3 className="text-base font-semibold text-slate-900">送出本次拍攝確認</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                共 {capturedData.size} 位學生。請先確認圖片方向正確，必要時可旋轉後再送出。
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-0 md:grid-cols-[220px_1fr]">
+              <div className="max-h-[62vh] overflow-y-auto border-r border-slate-200 bg-slate-50 p-3">
+                <p className="mb-2 text-xs font-semibold text-slate-500">本次拍攝名單</p>
+                <div className="space-y-2">
+                  {capturedStudents.map((student) => {
+                    const pages = capturedData.get(student.id)?.length || 0
+                    const active = student.id === confirmPreviewStudentId
+                    return (
+                      <button
+                        key={student.id}
+                        type="button"
+                        onClick={() => setConfirmPreviewStudentId(student.id)}
+                        className={`w-full rounded-lg border px-3 py-2 text-left transition ${
+                          active
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="text-sm font-semibold">{student.seatNumber} 號 {student.name}</div>
+                        <div className="text-xs opacity-80">{pages} 張</div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="flex min-h-[62vh] flex-col">
+                <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+                  <p className="text-sm text-slate-700">
+                    {previewStudent
+                      ? `預覽：${previewStudent.seatNumber} 號 ${previewStudent.name}`
+                      : '請選擇學生'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void handleRotatePreview()}
+                    disabled={!confirmPreviewStudentId || isRotatingPreview}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RotateCw className={`h-3.5 w-3.5 ${isRotatingPreview ? 'animate-spin' : ''}`} />
+                    向右旋轉 90°
+                  </button>
+                </div>
+
+                <div className="flex flex-1 items-center justify-center bg-slate-100 p-4">
+                  {confirmPreviewUrl ? (
+                    <img
+                      src={confirmPreviewUrl}
+                      alt="拍攝預覽"
+                      className="max-h-[50vh] w-auto max-w-full rounded-md border border-slate-200 bg-white object-contain"
+                    />
+                  ) : (
+                    <p className="text-sm text-slate-500">目前無可預覽圖片</p>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-white px-4 py-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsSubmitConfirmOpen(false)}
+                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:border-slate-400"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmSubmit()}
+                    disabled={capturedData.size === 0 || isRotatingPreview}
+                    className="rounded-md bg-green-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    確認送出本次拍攝
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
