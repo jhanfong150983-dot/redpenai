@@ -32,8 +32,23 @@ function isApiPath(path: string): boolean {
 }
 
 function toAbsoluteApiUrl(path: string): string {
-  if (!effectiveApiBase || !isApiPath(path)) {
+  if (!isApiPath(path)) {
     return path
+  }
+
+  if (!effectiveApiBase) {
+    return path
+  }
+
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    try {
+      const apiOrigin = new URL(effectiveApiBase).origin
+      if (apiOrigin !== window.location.origin) {
+        return path
+      }
+    } catch {
+      return path
+    }
   }
 
   return `${effectiveApiBase}${path}`
