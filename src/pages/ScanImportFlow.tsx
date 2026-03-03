@@ -46,9 +46,31 @@ export default function ScanImportFlow({
   const [submissionPreviewByStudent, setSubmissionPreviewByStudent] = useState<
     Record<string, { submissionId: string; source?: string }>
   >({})
+  const [correctionStatusByStudent, setCorrectionStatusByStudent] = useState<Record<string, string>>({})
   const [isSaving, setIsSaving] = useState(false)
   const [isRefreshingStudentUploads, setIsRefreshingStudentUploads] = useState(false)
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
+
+  const fetchCorrectionStatus = async () => {
+    try {
+      const query = new URLSearchParams({ assignmentId })
+      const response = await fetch(`/api/data/correction-dashboard?${query.toString()}`, {
+        method: 'GET',
+        credentials: 'include'
+      })
+      if (!response.ok) return
+      const data = await response.json().catch(() => ({}))
+      const record: Record<string, string> = {}
+      for (const row of Array.isArray(data?.students) ? data.students : []) {
+        const studentId = typeof row?.studentId === 'string' ? row.studentId : ''
+        const status = typeof row?.status === 'string' ? row.status : ''
+        if (studentId && status) record[studentId] = status
+      }
+      setCorrectionStatusByStudent(record)
+    } catch {
+      // non-blocking，失敗時保持原狀
+    }
+  }
 
   const applySeatState = (studentsData: Student[], submissionsData: Submission[]) => {
     const latestSourceByStudent = new Map<string, { source: string; ts: number; submissionId: string }>()
@@ -121,6 +143,7 @@ export default function ScanImportFlow({
         ])
 
         applySeatState(studentsData, submissionsData)
+        void fetchCorrectionStatus()
       } catch (error) {
         console.error('載入學生名單失敗:', error)
       } finally {
@@ -328,6 +351,7 @@ export default function ScanImportFlow({
         db.submissions.where('assignmentId').equals(assignmentId).toArray()
       ])
       applySeatState(studentsData, submissionsData)
+      void fetchCorrectionStatus()
     } catch (error) {
       console.error('同步學生上傳失敗:', error)
       alert(error instanceof Error ? error.message : '同步學生上傳失敗')
@@ -380,6 +404,7 @@ export default function ScanImportFlow({
       capturedData={capturedData}
       submissionSourceByStudent={submissionSourceByStudent}
       submissionPreviewByStudent={submissionPreviewByStudent}
+      correctionStatusByStudent={correctionStatusByStudent}
       pagesPerStudent={pagesPerStudent}
       onSelectStudent={handleSelectStudent}
       onSubmit={handleSubmit}

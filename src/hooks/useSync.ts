@@ -282,10 +282,13 @@ export function useSync(options: UseSyncOptions = {}) {
         }
       }
 
+      const submissionController = new AbortController()
+      const submissionAbortTimer = setTimeout(() => submissionController.abort(), 30_000)
       const response = await fetch('/api/data/submission', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: submissionController.signal,
         body: JSON.stringify({
           submissionId: submission.id,
           assignmentId: submission.assignmentId,
@@ -296,7 +299,7 @@ export function useSync(options: UseSyncOptions = {}) {
           thumbBase64,
           thumbContentType
         })
-      })
+      }).finally(() => clearTimeout(submissionAbortTimer))
 
       let data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -314,10 +317,13 @@ export function useSync(options: UseSyncOptions = {}) {
             await updateSubmissionImageCache(submission.id, null, base64DataUrl)
           }
 
+          const retryController = new AbortController()
+          const retryAbortTimer = setTimeout(() => retryController.abort(), 30_000)
           const retryResponse = await fetch('/api/data/submission', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
+            signal: retryController.signal,
             body: JSON.stringify({
               submissionId: submission.id,
               assignmentId: submission.assignmentId,
@@ -328,7 +334,7 @@ export function useSync(options: UseSyncOptions = {}) {
               thumbBase64,
               thumbContentType
             })
-          })
+          }).finally(() => clearTimeout(retryAbortTimer))
 
           data = await retryResponse.json().catch(() => ({}))
           if (!retryResponse.ok) {
@@ -558,10 +564,13 @@ export function useSync(options: UseSyncOptions = {}) {
         updatedAt: f.updatedAt
       }))
 
+    const pushController = new AbortController()
+    const pushAbortTimer = setTimeout(() => pushController.abort(), 50_000)
     const response = await fetch(buildSyncUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
+      signal: pushController.signal,
       body: JSON.stringify({
         classrooms: classroomPayload,
         students: studentPayload,
@@ -570,7 +579,7 @@ export function useSync(options: UseSyncOptions = {}) {
         folders: foldersPayload,
         deleted: deletedPayload
       })
-    })
+    }).finally(() => clearTimeout(pushAbortTimer))
 
     const data = await response.json().catch(() => ({}))
     if (!response.ok) {
@@ -599,10 +608,13 @@ export function useSync(options: UseSyncOptions = {}) {
    */
   const pullMetadata = useCallback(async () => {
     debugLog('📥 pullMetadata 開始')
+    const pullController = new AbortController()
+    const pullAbortTimer = setTimeout(() => pullController.abort(), 50_000)
     const response = await fetch(buildSyncUrl(), {
       method: 'GET',
-      credentials: 'include'
-    })
+      credentials: 'include',
+      signal: pullController.signal
+    }).finally(() => clearTimeout(pullAbortTimer))
 
     const data = await response.json().catch(() => ({}))
     if (!response.ok) {
@@ -1028,6 +1040,7 @@ export function useSync(options: UseSyncOptions = {}) {
           isSyncing: false,
           error: null
         }))
+        if (!syncQueuedRef.current) notifySyncComplete()
         return
       }
 
@@ -1041,6 +1054,7 @@ export function useSync(options: UseSyncOptions = {}) {
           isSyncing: false,
           error: null
         }))
+        if (!syncQueuedRef.current) notifySyncComplete()
         return
       }
 
@@ -1055,6 +1069,7 @@ export function useSync(options: UseSyncOptions = {}) {
           isSyncing: false,
           error: null
         }))
+        if (!syncQueuedRef.current) notifySyncComplete()
         return
       }
 
@@ -1073,12 +1088,17 @@ export function useSync(options: UseSyncOptions = {}) {
             : null
       }))
 
-      // 通知同步完成
-      notifySyncComplete()
+      // 只有在沒有排隊中的 sync 時才通知完成。
+      // 若 syncQueuedRef 為 true，表示有另一個 requestSync(true) 在等待，
+      // 需讓排隊的 sync 完成後再通知，確保 waitForSync() 拿到最新資料。
+      if (!syncQueuedRef.current) {
+        notifySyncComplete()
+      }
     } catch (error) {
       if (isRlsError(error)) {
         markSyncBlocked(error instanceof Error ? error.message : String(error))
         setStatus((prev) => ({ ...prev, isSyncing: false, error: null }))
+        notifySyncComplete() // 錯誤時也要通知，避免 waitForSync() 等到 timeout
         return
       }
       console.error('同步過程發生錯誤:', error)
@@ -1087,6 +1107,7 @@ export function useSync(options: UseSyncOptions = {}) {
         isSyncing: false,
         error: error instanceof Error ? error.message : '同步失敗'
       }))
+      notifySyncComplete() // 錯誤時也要通知，避免 waitForSync() 等到 timeout
     } finally {
       isSyncingRef.current = false
       if (syncQueuedRef.current) {

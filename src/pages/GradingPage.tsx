@@ -864,8 +864,11 @@ export default function GradingPage({
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true)
-    await syncAndReload()
-    setIsRefreshing(false)
+    try {
+      await syncAndReload()
+    } finally {
+      setIsRefreshing(false)
+    }
   }, [syncAndReload])
 
   const handleCloseModal = () => {

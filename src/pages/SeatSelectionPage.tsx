@@ -3,6 +3,8 @@ import { CheckCircle, User, ArrowLeft, X, Loader2 } from 'lucide-react'
 import type { Student } from '@/lib/db'
 import { buildApiUrl } from '@/lib/api-base'
 
+const CORRECTION_BLOCKING_STATUSES = new Set(['correction_required', 'correction_in_progress'])
+
 interface SeatSelectionPageProps {
   students: Student[]
   capturedData: Map<string, Blob[]>
@@ -14,6 +16,7 @@ interface SeatSelectionPageProps {
       source?: string
     }
   >
+  correctionStatusByStudent?: Record<string, string>
   pagesPerStudent: number
   onSelectStudent: (student: Student) => void
   onSubmit: () => void
@@ -41,6 +44,7 @@ export default function SeatSelectionPage({
   capturedData,
   submissionSourceByStudent = {},
   submissionPreviewByStudent = {},
+  correctionStatusByStudent = {},
   pagesPerStudent,
   onSelectStudent,
   onSubmit,
@@ -328,9 +332,15 @@ export default function SeatSelectionPage({
               <p className="text-sm font-semibold text-slate-900">
                 學生作業預覽：{previewStudent.seatNumber} 號 · {previewStudent.name}
               </p>
-              <p className="mt-1 text-xs text-slate-500">
-                來源：學生上傳。若內容不符合要求，可退回請學生重新上傳。
-              </p>
+              {CORRECTION_BLOCKING_STATUSES.has(correctionStatusByStudent[previewStudent.id] ?? '') ? (
+                <p className="mt-1 text-xs text-amber-600">
+                  ⚠️ 此學生正在訂正中，無法退回照片。請先至作業訂正看板結束訂正後再操作。
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-slate-500">
+                  來源：學生上傳。若內容不符合要求，可退回請學生重新上傳。
+                </p>
+              )}
             </div>
             <div className="flex min-h-[420px] items-center justify-center bg-slate-50 p-4">
               {isPreviewLoading ? (
@@ -351,7 +361,11 @@ export default function SeatSelectionPage({
             <div className="flex items-center justify-center border-t border-slate-200 bg-white px-4 py-3">
               <button
                 type="button"
-                disabled={!onRejectStudentSubmission || isRejecting}
+                disabled={
+                  !onRejectStudentSubmission ||
+                  isRejecting ||
+                  CORRECTION_BLOCKING_STATUSES.has(correctionStatusByStudent[previewStudent.id] ?? '')
+                }
                 onClick={async () => {
                   if (!onRejectStudentSubmission) return
                   if (!previewEntry?.submissionId) return

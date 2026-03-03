@@ -120,8 +120,11 @@ export default function CorrectionManagement({
 
   const handleRefresh = async () => {
     setIsLoading(true)
-    await loadDashboard()
-    setIsLoading(false)
+    try {
+      await loadDashboard()
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleDispatchSelected = async () => {
