@@ -1,16 +1,42 @@
 const rawApiBase = (import.meta.env.VITE_API_BASE_URL || '').trim()
 const apiBase = rawApiBase.replace(/\/+$/, '')
 
+function isLocalHostname(hostname: string): boolean {
+  const value = hostname.trim().toLowerCase()
+  return value === 'localhost' || value === '127.0.0.1'
+}
+
+function resolveApiBase(): string {
+  if (!apiBase) return ''
+  if (typeof window === 'undefined') return apiBase
+
+  try {
+    const parsed = new URL(apiBase)
+    const currentHost = window.location.hostname
+
+    if (isLocalHostname(parsed.hostname) && !isLocalHostname(currentHost)) {
+      const port = parsed.port ? `:${parsed.port}` : ''
+      return `${parsed.protocol}//${currentHost}${port}`
+    }
+  } catch {
+    return apiBase
+  }
+
+  return apiBase
+}
+
+const effectiveApiBase = resolveApiBase()
+
 function isApiPath(path: string): boolean {
   return path.startsWith('/api/')
 }
 
 function toAbsoluteApiUrl(path: string): string {
-  if (!apiBase || !isApiPath(path)) {
+  if (!effectiveApiBase || !isApiPath(path)) {
     return path
   }
 
-  return `${apiBase}${path}`
+  return `${effectiveApiBase}${path}`
 }
 
 export function buildApiUrl(path: string): string {
