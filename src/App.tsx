@@ -33,6 +33,7 @@ import LandingPage from '@/pages/LandingPage'
 import { SyncIndicator } from '@/components'
 import { checkWebPSupport } from '@/lib/webpSupport'
 import { INK_BALANCE_EVENT, type InkBalanceDetail } from '@/lib/ink-events'
+import { buildApiUrl } from '@/lib/api-base'
 import '@/lib/debug-sync'
 import { debugLog } from '@/lib/logger'
 import { LEGAL_MODAL_EVENT, type LegalModalDetail } from '@/lib/legal-events'
@@ -209,6 +210,10 @@ function App() {
   })
   const [notifications, setNotifications] = useState<TeacherNotification[]>([])
   const [isNotifOpen, setIsNotifOpen] = useState(false)
+  const [ssoPendingSync, setSsoPendingSync] = useState<{
+    dsns: string
+    teacherId: string
+  } | null>(null)
   const notifRef = useRef<HTMLDivElement | null>(null)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
   const inkBalance =
@@ -310,6 +315,83 @@ function App() {
       window.history.replaceState({}, '', url)
     }
   }, [])
+
+  // SSO 入口偵測：1Campus 帶 ?code=XXX&dsns=YYY 進入，或處理後端 SSO 回傳參數
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('code')?.trim() || ''
+    const dsns = params.get('dsns')?.trim() || ''
+
+    // 1Campus 入口：有 code + dsns，且 dsns 格式合法 → 導向後端 SSO handler
+    if (code && dsns && /^[a-zA-Z0-9.\-]+$/.test(dsns) && !dsns.includes('..')) {
+      const redirectUrl = buildApiUrl(
+        `/api/auth/1campus?code=${encodeURIComponent(code)}&dsns=${encodeURIComponent(dsns)}`
+      )
+      window.location.replace(redirectUrl)
+      return
+    }
+
+    // 後端 SSO 完成後回傳的參數
+    const ssoError = params.get('sso_error')?.trim() || ''
+    const ssoProvider = params.get('sso_provider')?.trim() || ''
+    const ssoSync = params.get('sso_sync') === '1'
+    const ssoDsns = params.get('sso_dsns')?.trim() || ''
+    const ssoTeacherId = params.get('sso_teacher_id')?.trim() || ''
+
+    const hasSsoParams = !!(ssoError || ssoProvider || ssoSync)
+    if (!hasSsoParams) return
+
+    if (ssoError) {
+      const errorMessages: Record<string, string> = {
+        invalid_params: '登入參數無效，請重新從 1Campus 進入',
+        identity_failed: '無法驗證您的 1Campus 身份，請重新嘗試',
+        unsupported_role: '目前僅支援教師帳號登入',
+        session_failed: '登入失敗，請重新嘗試',
+        create_user_failed: '建立帳號失敗，請聯絡管理員',
+        oauth_error: 'OAuth 授權失敗，請重新嘗試'
+      }
+      setAuth({
+        status: 'unauthenticated',
+        error: errorMessages[ssoError] || '登入失敗，請重新嘗試'
+      })
+    }
+
+    if (ssoSync && ssoDsns && ssoTeacherId) {
+      setSsoPendingSync({ dsns: ssoDsns, teacherId: ssoTeacherId })
+    }
+
+    // 清除 URL 中的 SSO 參數
+    params.delete('sso_error')
+    params.delete('sso_provider')
+    params.delete('sso_sync')
+    params.delete('sso_dsns')
+    params.delete('sso_teacher_id')
+    const query = params.toString()
+    const cleanUrl = query
+      ? `${window.location.pathname}?${query}`
+      : window.location.pathname
+    window.history.replaceState({}, '', cleanUrl)
+  }, [])
+
+  // 登入後觸發 1Campus 班級同步（背景執行，失敗不影響 UI）
+  useEffect(() => {
+    if (auth.status !== 'authenticated') return
+    if (!ssoPendingSync) return
+
+    const { dsns, teacherId } = ssoPendingSync
+    setSsoPendingSync(null)
+
+    void fetch('/api/data/1campus-classroom-sync', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dsns, teacherID: teacherId })
+    }).catch((err) => {
+      console.warn('[SSO] 班級同步失敗（不影響登入）:', err)
+    })
+  }, [auth.status, ssoPendingSync])
 
   useEffect(() => {
     void fetchAuth()
@@ -1188,55 +1270,62 @@ function App() {
                             目前沒有通知。
                           </p>
                         ) : (
-                          notifications.map((notif) => (
-                            <div
-                              key={notif.id}
-                              className={`px-4 py-3 ${notif.is_read ? 'bg-white' : 'bg-sky-50/40'}`}
-                            >
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <p className={`text-xs font-semibold ${notif.is_read ? 'text-slate-700' : 'text-sky-900'}`}>
-                                    {NOTIFICATION_LABELS[notif.event] ?? notif.event}
-                                  </p>
-                                  {typeof notif.data?.assignmentTitle === 'string' && (
-                                    <p className="mt-0.5 truncate text-[11px] text-slate-500">
-                                      {notif.data.assignmentTitle}
+                          <>
+                            {notifications.slice(0, 20).map((notif) => (
+                              <div
+                                key={notif.id}
+                                className={`px-4 py-3 ${notif.is_read ? 'bg-slate-50' : 'border-l-2 border-sky-400 bg-sky-50'}`}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className={`text-xs font-semibold ${notif.is_read ? 'text-slate-500' : 'text-sky-900'}`}>
+                                      {NOTIFICATION_LABELS[notif.event] ?? notif.event}
                                     </p>
+                                    {typeof notif.data?.assignmentTitle === 'string' && (
+                                      <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                                        {notif.data.assignmentTitle}
+                                      </p>
+                                    )}
+                                    <p className="mt-0.5 text-[11px] text-slate-400">
+                                      {new Date(notif.created_at).toLocaleString('zh-TW', {
+                                        month: 'short',
+                                        day: 'numeric',
+                                        hour: '2-digit',
+                                        minute: '2-digit'
+                                      })}
+                                    </p>
+                                  </div>
+                                  {!notif.is_read && (
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        try {
+                                          await fetch('/api/data/teacher-notifications', {
+                                            method: 'POST',
+                                            credentials: 'include',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ id: notif.id })
+                                          })
+                                          void loadNotifications()
+                                        } catch {
+                                          // ignore
+                                        }
+                                      }}
+                                      className="mt-0.5 shrink-0"
+                                      aria-label="標記已讀"
+                                    >
+                                      <X className="h-3.5 w-3.5 text-slate-400 hover:text-slate-600" />
+                                    </button>
                                   )}
-                                  <p className="mt-0.5 text-[11px] text-slate-400">
-                                    {new Date(notif.created_at).toLocaleString('zh-TW', {
-                                      month: 'short',
-                                      day: 'numeric',
-                                      hour: '2-digit',
-                                      minute: '2-digit'
-                                    })}
-                                  </p>
                                 </div>
-                                {!notif.is_read && (
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      try {
-                                        await fetch('/api/data/teacher-notifications', {
-                                          method: 'POST',
-                                          credentials: 'include',
-                                          headers: { 'Content-Type': 'application/json' },
-                                          body: JSON.stringify({ id: notif.id })
-                                        })
-                                        void loadNotifications()
-                                      } catch {
-                                        // ignore
-                                      }
-                                    }}
-                                    className="mt-0.5 shrink-0"
-                                    aria-label="標記已讀"
-                                  >
-                                    <X className="h-3.5 w-3.5 text-slate-400 hover:text-slate-600" />
-                                  </button>
-                                )}
                               </div>
-                            </div>
-                          ))
+                            ))}
+                            {notifications.length > 20 && (
+                              <p className="px-4 py-2 text-center text-[11px] text-slate-400">
+                                僅顯示最新 20 則，共 {notifications.length} 則
+                              </p>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>

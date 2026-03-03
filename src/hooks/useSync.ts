@@ -112,6 +112,8 @@ const toNumber = (value: unknown): number | undefined => {
   return undefined
 }
 
+const FOCUS_SYNC_COOLDOWN_MS = 60_000 // 任何 sync 完成後的冷卻期（60 秒）
+
 export function useSync(options: UseSyncOptions = {}) {
   const { autoSync = true } = options
 
@@ -1058,6 +1060,7 @@ export function useSync(options: UseSyncOptions = {}) {
 
       const remainingCount = await updatePendingCount()
 
+      lastFocusSyncRef.current = Date.now() // 重設 focus 冷卻，避免 sync 剛完成就再觸發
       setStatus((prev) => ({
         ...prev,
         isSyncing: false,
@@ -1128,7 +1131,7 @@ export function useSync(options: UseSyncOptions = {}) {
     const triggerIfVisible = () => {
       if (document.visibilityState !== 'visible') return
       const now = Date.now()
-      if (now - lastFocusSyncRef.current < 500) return
+      if (now - lastFocusSyncRef.current < FOCUS_SYNC_COOLDOWN_MS) return
       lastFocusSyncRef.current = now
       void performSync()
     }
