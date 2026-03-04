@@ -210,6 +210,7 @@ type GeminiRouteKey =
 export interface PhaseAQuestionResult {
   questionId: string
   consistencyStatus: 'stable' | 'diff' | 'unstable'
+  consistencyReason?: string
   readAnswer1: { status: string; studentAnswer: string }
   readAnswer2: { status: string; studentAnswer: string }
   answerCropImageUrl?: string

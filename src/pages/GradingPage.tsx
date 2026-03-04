@@ -299,7 +299,7 @@ function ConsistencyQuestionCard({
 }) {
   const [manualInput, setManualInput] = useState('')
   const [zoomedImg, setZoomedImg] = useState(false)
-  const { questionId, consistencyStatus, readAnswer1, readAnswer2, answerCropImageUrl } = questionResult
+  const { questionId, consistencyStatus, consistencyReason, readAnswer1, readAnswer2, answerCropImageUrl } = questionResult
   const isUnstable = consistencyStatus === 'unstable'
   const isConfirmed = decision?.confirmed
 
@@ -343,6 +343,13 @@ function ConsistencyQuestionCard({
           {badgeLabel}
         </span>
       </div>
+
+      {consistencyReason && (
+        <div className="flex items-start gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+          <span className="shrink-0">💡</span>
+          <span>不一致原因：{consistencyReason}</span>
+        </div>
+      )}
 
       {answerCropImageUrl && (
         <div className="relative group/crop">
