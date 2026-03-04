@@ -101,6 +101,11 @@ type AuthState =
           ownerId: string
           email?: string | null
         }
+        campus1Binding?: {
+          account: string
+          dsns: string
+          displayName?: string
+        }
       }
     }
 type InkOrderSummary = {
@@ -1351,6 +1356,14 @@ function App() {
                     <div className="border-b border-slate-100 px-4 py-3">
                       <p className="truncate text-sm font-semibold text-slate-900">{userDisplayName}</p>
                       <p className="truncate text-xs text-slate-500">{auth.user.email}</p>
+                      {auth.user.campus1Binding && (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-green-700">
+                          <span className="inline-flex items-center rounded bg-green-100 px-1.5 py-0.5 font-medium">1campus</span>
+                          <span className="truncate text-slate-500">
+                            {auth.user.campus1Binding.displayName || auth.user.campus1Binding.account}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     {!isStudent && (
                       <div className="space-y-2 px-4 py-3 text-xs text-slate-600">

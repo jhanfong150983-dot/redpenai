@@ -196,12 +196,48 @@ type GeminiRequestPart = string | GeminiInlineDataPart
 type GeminiPart = { text: string } | GeminiInlineDataPart
 type GeminiRouteKey =
   | 'grading.evaluate'
+  | 'grading.phase_a'
+  | 'grading.phase_b'
   | 'grading.locate'
   | 'answer_key.extract'
   | 'answer_key.reanalyze'
   | 'report.teacher_summary'
   | 'report.domain_diagnosis'
   | 'unknown'
+
+// ─── Phase A/B 公開類型 ────────────────────────────────────────────────────────
+
+export interface PhaseAQuestionResult {
+  questionId: string
+  consistencyStatus: 'stable' | 'diff' | 'unstable'
+  readAnswer1: { status: string; studentAnswer: string }
+  readAnswer2: { status: string; studentAnswer: string }
+  answerCropImageUrl?: string
+}
+
+export interface PhaseAContext {
+  answerKey?: AnswerKey
+  questionIds?: string[]
+  classifyResult?: unknown
+  readAnswerResult?: unknown
+  pipelineRunId?: string
+  stagedLogLevel?: string
+}
+
+export interface PhaseAResult {
+  phaseAComplete: true
+  questionResults: PhaseAQuestionResult[]
+  stableCount: number
+  diffCount: number
+  unstableCount: number
+  _phaseContext?: PhaseAContext
+}
+
+export interface FinalAnswer {
+  questionId: string
+  finalStudentAnswer: string
+  finalAnswerSource: 'ai_read1' | 'ai_read2' | 'manual'
+}
 
 // 🆕 AnswerKey 緩存引用（用於跨請求共享）
 let cachedAnswerKeyHash: string | null = null
@@ -3140,4 +3176,104 @@ ${basePrompt}
   console.log(`✅ 重新分析完成，共 ${result.questions.length} 題（要求 ${markedQuestions.length} 題）`)
 
   return result.questions
+}
+
+// ─── Phase A：一致性預處理 ────────────────────────────────────────────────────
+/**
+ * 執行批改 Phase A（Classify + Crop + ReadAnswer×2 + Consistency）
+ * 回傳 PhaseAResult，包含每題的一致性狀態與兩次讀取結果。
+ * 老師確認後再呼叫 gradePhaseB。
+ */
+export async function gradePhaseA(
+  submissionImageBlob: Blob,
+  answerKey: AnswerKey
+): Promise<PhaseAResult> {
+  const inkSessionId = getInkSessionId()
+
+  const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'phase-a')
+  const imageBase64 = await blobToBase64(compressed)
+  const mimeType = compressed.type || submissionImageBlob.type || 'image/jpeg'
+
+  const response = await fetch(geminiProxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      model: currentModelName,
+      contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
+      ...(inkSessionId ? { inkSessionId } : {}),
+      routeKey: 'grading.phase_a',
+      answerKey: JSON.stringify(answerKey)
+    })
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({})) as Record<string, unknown>
+    throw new Error((err?.error as string) || `Phase A failed: ${response.status}`)
+  }
+
+  const data = await response.json()
+
+  if (data?.ink?.balanceAfter !== undefined) {
+    dispatchInkBalance(data.ink.balanceAfter)
+  }
+
+  const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) throw new Error('Phase A: empty response text')
+
+  const parsed = JSON.parse(text) as PhaseAResult
+  if (!parsed?.phaseAComplete) throw new Error('Phase A: unexpected response format (phaseAComplete missing)')
+
+  return parsed
+}
+
+// ─── Phase B：正式批改（Accessor + Explain）─────────────────────────────────
+/**
+ * 執行批改 Phase B（Accessor + Explain）
+ * 需要老師透過 ConsistencyReviewPanel 確認所有 diff/unstable 題目後再呼叫。
+ * @param submissionImageBlob 原始作業圖片（Blob）
+ * @param phaseAResult gradePhaseA 回傳的結果（含 _phaseContext）
+ * @param finalAnswers 老師確認後的最終答案列表
+ */
+export async function gradePhaseB(
+  submissionImageBlob: Blob,
+  phaseAResult: PhaseAResult,
+  finalAnswers: FinalAnswer[]
+): Promise<GradingResult> {
+  const inkSessionId = getInkSessionId()
+
+  const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'phase-b')
+  const imageBase64 = await blobToBase64(compressed)
+  const mimeType = compressed.type || submissionImageBlob.type || 'image/jpeg'
+
+  const response = await fetch(geminiProxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      model: currentModelName,
+      contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
+      ...(inkSessionId ? { inkSessionId } : {}),
+      routeKey: 'grading.phase_b',
+      phaseAResult,
+      finalAnswers
+    })
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({})) as Record<string, unknown>
+    throw new Error((err?.error as string) || `Phase B failed: ${response.status}`)
+  }
+
+  const data = await response.json()
+
+  if (data?.ink?.balanceAfter !== undefined) {
+    dispatchInkBalance(data.ink.balanceAfter)
+  }
+
+  const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) throw new Error('Phase B: empty response text')
+
+  const parsed = JSON.parse(text.replace(/```json|```/g, '').trim()) as GradingResult
+  return parsed
 }

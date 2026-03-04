@@ -163,6 +163,14 @@ export interface GradingDetail {
     score: number
     maxScore: number
   }>
+
+  // 一致性預處理（Phase A）新增欄位
+  consistencyStatus?: 'stable' | 'diff' | 'unstable'
+  readAnswer1?: { status: string; studentAnswer: string }
+  readAnswer2?: { status: string; studentAnswer: string }
+  finalAnswerSource?: 'ai_read1' | 'ai_read2' | 'manual'
+  answerCropImageUrl?: string
+  mistakeTypeCodes?: string[]
 }
 
 /**

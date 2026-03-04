@@ -18,14 +18,19 @@ import {
   CheckCircle2,
   Eye,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  ZoomIn
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import {
-  gradeMultipleSubmissions,
   gradeSubmission,
-  isGeminiAvailable
+  gradePhaseA,
+  gradePhaseB,
+  isGeminiAvailable,
+  type PhaseAResult,
+  type PhaseAQuestionResult,
+  type FinalAnswer
 } from '@/lib/gemini'
 import { buildApiUrl } from '@/lib/api-base'
 import { startInkSession, closeInkSession, getInkSessionId } from '@/lib/ink-session'
@@ -260,6 +265,366 @@ function rebuildBlobFromBase64(base64: string): Blob {
   }
 }
 
+// ─── Phase A/B 一致性審查類型 ─────────────────────────────────────────────────
+
+type GradingPhase = 'idle' | 'phase_a_running' | 'awaiting_review' | 'phase_b_running'
+
+interface ConsistencyDecision {
+  questionId: string
+  source: 'ai_read1' | 'ai_read2' | 'manual'
+  finalAnswer: string
+  confirmed: boolean
+}
+
+interface BatchPhaseAEntry {
+  submissionId: string
+  studentId: string
+  phaseAResult: PhaseAResult
+  decisions: Map<string, ConsistencyDecision>
+  imageBlob: Blob
+}
+
+// ─── ConsistencyQuestionCard ──────────────────────────────────────────────────
+
+function ConsistencyQuestionCard({
+  questionResult,
+  decision,
+  onDecision,
+  disabled,
+}: {
+  questionResult: PhaseAQuestionResult
+  decision?: ConsistencyDecision
+  onDecision: (questionId: string, update: Partial<ConsistencyDecision>) => void
+  disabled: boolean
+}) {
+  const [manualInput, setManualInput] = useState('')
+  const [zoomedImg, setZoomedImg] = useState(false)
+  const { questionId, consistencyStatus, readAnswer1, readAnswer2, answerCropImageUrl } = questionResult
+  const isUnstable = consistencyStatus === 'unstable'
+  const isConfirmed = decision?.confirmed
+
+  const borderClass = isConfirmed
+    ? 'border-green-200 bg-green-50'
+    : isUnstable
+    ? 'border-red-200 bg-red-50'
+    : 'border-orange-200 bg-orange-50'
+
+  const badgeClass = isConfirmed
+    ? 'bg-green-100 text-green-700'
+    : isUnstable
+    ? 'bg-red-100 text-red-700'
+    : 'bg-orange-100 text-orange-700'
+
+  const badgeLabel = isConfirmed ? '已確認' : isUnstable ? '無法判讀' : '讀取不一致'
+
+  const formatAnswer = (r: { status: string; studentAnswer: string }) => {
+    if (r.status === 'read') return `「${r.studentAnswer || '（空白）'}」`
+    return `（${r.status}）`
+  }
+
+  return (
+    <div className={`rounded-lg border p-3 space-y-2 text-xs ${borderClass}`}>
+      <div className="flex items-center justify-between">
+        <span className="font-semibold text-gray-800">題目 {questionId}</span>
+        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${badgeClass}`}>
+          {badgeLabel}
+        </span>
+      </div>
+
+      {answerCropImageUrl && (
+        <div className="relative group/crop">
+          <img
+            src={answerCropImageUrl}
+            alt={`題目 ${questionId} 答案區`}
+            className="w-full rounded border border-gray-200 max-h-24 object-contain bg-white cursor-zoom-in"
+            onClick={() => setZoomedImg(true)}
+          />
+          <button
+            type="button"
+            onClick={() => setZoomedImg(true)}
+            className="absolute top-1 right-1 bg-white/90 rounded-full p-0.5 shadow opacity-0 group-hover/crop:opacity-100 transition-opacity"
+            title="放大檢視"
+          >
+            <ZoomIn className="w-3 h-3 text-gray-600" />
+          </button>
+        </div>
+      )}
+      {zoomedImg && answerCropImageUrl && (
+        <div
+          className="fixed inset-0 z-[300] bg-black/75 flex items-center justify-center p-4"
+          onClick={() => setZoomedImg(false)}
+        >
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <img
+              src={answerCropImageUrl}
+              alt={`題目 ${questionId} 答案區（放大）`}
+              className="max-w-[90vw] max-h-[80vh] object-contain rounded shadow-2xl bg-white"
+            />
+            <button
+              type="button"
+              onClick={() => setZoomedImg(false)}
+              className="absolute top-2 right-2 bg-black/50 rounded-full p-1 text-white hover:bg-black/70"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <p className="text-center text-white/70 text-xs mt-2">點擊任意處關閉</p>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        <label className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
+          <input
+            type="radio"
+            name={`q-${questionId}`}
+            disabled={disabled}
+            checked={decision?.source === 'ai_read1'}
+            onChange={() =>
+              onDecision(questionId, {
+                source: 'ai_read1',
+                finalAnswer: readAnswer1.studentAnswer,
+                confirmed: true,
+              })
+            }
+            className="accent-purple-600"
+          />
+          <span>讀取 1：{formatAnswer(readAnswer1)}</span>
+        </label>
+
+        <label className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
+          <input
+            type="radio"
+            name={`q-${questionId}`}
+            disabled={disabled}
+            checked={decision?.source === 'ai_read2'}
+            onChange={() =>
+              onDecision(questionId, {
+                source: 'ai_read2',
+                finalAnswer: readAnswer2.studentAnswer,
+                confirmed: true,
+              })
+            }
+            className="accent-purple-600"
+          />
+          <span>讀取 2：{formatAnswer(readAnswer2)}</span>
+        </label>
+
+        <label className={`flex items-start gap-2 cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
+          <input
+            type="radio"
+            name={`q-${questionId}`}
+            disabled={disabled}
+            checked={decision?.source === 'manual'}
+            onChange={() =>
+              onDecision(questionId, {
+                source: 'manual',
+                finalAnswer: manualInput,
+                confirmed: manualInput.trim().length > 0,
+              })
+            }
+            className="accent-purple-600 mt-0.5"
+          />
+          <span className="shrink-0">人工輸入：</span>
+          <input
+            type="text"
+            value={manualInput}
+            disabled={disabled}
+            placeholder="輸入答案..."
+            className="flex-1 border border-gray-300 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400 disabled:opacity-50"
+            onChange={(e) => {
+              setManualInput(e.target.value)
+              if (decision?.source === 'manual') {
+                onDecision(questionId, {
+                  source: 'manual',
+                  finalAnswer: e.target.value,
+                  confirmed: e.target.value.trim().length > 0,
+                })
+              }
+            }}
+            onClick={() => {
+              if (decision?.source !== 'manual') {
+                onDecision(questionId, {
+                  source: 'manual',
+                  finalAnswer: manualInput,
+                  confirmed: manualInput.trim().length > 0,
+                })
+              }
+            }}
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+// ─── BatchConsistencyReviewSection ──────────────────────────────────────────
+
+function BatchConsistencyReviewSection({
+  entries,
+  allStudents,
+  onDecision,
+  onStartPhaseB,
+  isPhaseBRunning = false,
+}: {
+  entries: BatchPhaseAEntry[]
+  allStudents: Student[]
+  onDecision: (studentId: string, questionId: string, update: Partial<ConsistencyDecision>) => void
+  onStartPhaseB: () => void
+  isPhaseBRunning?: boolean
+}) {
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set(
+    // Auto-expand students who have review questions
+    entries
+      .filter(e => e.phaseAResult.questionResults.some(q => q.consistencyStatus !== 'stable'))
+      .map(e => e.studentId)
+  ))
+
+  const toggleExpand = (studentId: string) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(studentId)) next.delete(studentId)
+      else next.add(studentId)
+      return next
+    })
+  }
+
+  const allStableEntries = entries.filter(e =>
+    e.phaseAResult.questionResults.every(q => q.consistencyStatus === 'stable')
+  )
+  const needsReviewEntries = entries.filter(e =>
+    e.phaseAResult.questionResults.some(q => q.consistencyStatus !== 'stable')
+  )
+  // Sort: unstable first, then diff
+  const sortedNeedsReview = [...needsReviewEntries].sort((a, b) => {
+    const aHasUnstable = a.phaseAResult.questionResults.some(q => q.consistencyStatus === 'unstable')
+    const bHasUnstable = b.phaseAResult.questionResults.some(q => q.consistencyStatus === 'unstable')
+    if (aHasUnstable && !bHasUnstable) return -1
+    if (!aHasUnstable && bHasUnstable) return 1
+    return 0
+  })
+
+  // A student is confirmed when all their non-stable questions are decided
+  const confirmedStudentCount = entries.filter(e => {
+    const reviewQs = e.phaseAResult.questionResults.filter(q => q.consistencyStatus !== 'stable')
+    return reviewQs.every(q => e.decisions.get(q.questionId)?.confirmed)
+  }).length
+  const allConfirmed = confirmedStudentCount >= entries.length
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-orange-500" />
+            一致性審查
+          </h2>
+          <p className="text-xs text-gray-500 mt-0.5">確認所有學生的答案後，才能開始正式批改</p>
+        </div>
+        <span className={`text-sm font-semibold px-3 py-1.5 rounded-full ${
+          allConfirmed ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
+        }`}>
+          已確認 {confirmedStudentCount}/{entries.length} 位學生
+        </span>
+      </div>
+
+      {/* All-stable students */}
+      {allStableEntries.length > 0 && (
+        <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-2.5 text-sm text-green-700 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-green-500" />
+          <span>
+            <strong>{allStableEntries.length} 位</strong>同學答案完全一致，已自動確認
+          </span>
+        </div>
+      )}
+
+      {/* Students needing review */}
+      {sortedNeedsReview.length > 0 && (
+        <div className="space-y-2">
+          {sortedNeedsReview.map(entry => {
+            const student = allStudents.find(s => s.id === entry.studentId)
+            const reviewQs = entry.phaseAResult.questionResults.filter(q => q.consistencyStatus !== 'stable')
+            const confirmedCount = reviewQs.filter(q => entry.decisions.get(q.questionId)?.confirmed).length
+            const hasUnstable = reviewQs.some(q => q.consistencyStatus === 'unstable')
+            const isExpanded = expandedIds.has(entry.studentId)
+            const isFullyConfirmed = confirmedCount >= reviewQs.length
+
+            return (
+              <div
+                key={entry.studentId}
+                className={`rounded-lg border ${
+                  isFullyConfirmed
+                    ? 'border-green-200 bg-green-50'
+                    : hasUnstable
+                    ? 'border-red-200 bg-red-50'
+                    : 'border-orange-200 bg-orange-50'
+                }`}
+              >
+                {/* Student header row */}
+                <button
+                  onClick={() => toggleExpand(entry.studentId)}
+                  disabled={isPhaseBRunning}
+                  className="w-full flex items-center justify-between px-4 py-2.5 text-left disabled:cursor-not-allowed"
+                >
+                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    <span className={`inline-flex min-w-[24px] items-center justify-center rounded-md border px-1.5 py-0.5 text-xs font-semibold ${
+                      hasUnstable ? 'border-red-200 bg-red-100 text-red-700' : 'border-orange-200 bg-orange-100 text-orange-700'
+                    }`}>
+                      {student?.seatNumber ?? '?'}
+                    </span>
+                    {student?.name ?? entry.studentId}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                      isFullyConfirmed
+                        ? 'bg-green-200 text-green-800'
+                        : 'bg-white/60 text-gray-600'
+                    }`}>
+                      {isFullyConfirmed ? '已確認' : `${confirmedCount}/${reviewQs.length} 題`}
+                    </span>
+                    <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                  </div>
+                </button>
+
+                {/* Question cards */}
+                {isExpanded && (
+                  <div className="px-4 pb-3 space-y-2">
+                    {reviewQs.map(q => (
+                      <ConsistencyQuestionCard
+                        key={q.questionId}
+                        questionResult={q}
+                        decision={entry.decisions.get(q.questionId)}
+                        onDecision={(qId, update) => onDecision(entry.studentId, qId, update)}
+                        disabled={isPhaseBRunning}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Start Phase B button */}
+      <button
+        onClick={onStartPhaseB}
+        disabled={!allConfirmed || isPhaseBRunning}
+        className="w-full py-3 rounded-xl bg-purple-600 text-white font-bold text-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+      >
+        <Sparkles className="w-4 h-4" />
+        {isPhaseBRunning
+          ? `正式批改中...（${entries.length} 位學生）`
+          : allConfirmed
+          ? `開始正式批改（${entries.length} 位學生）`
+          : `尚有 ${entries.length - confirmedStudentCount} 位學生未確認`}
+      </button>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function GradingPage({
   assignmentId,
   onBack,
@@ -304,7 +669,9 @@ export default function GradingPage({
     lensLeft: 0,
     lensTop: 0,
     width: 0,
-    height: 0
+    height: 0,
+    clientX: 0,
+    clientY: 0
   })
 
   // 🆕 停止批改相關
@@ -332,6 +699,10 @@ export default function GradingPage({
   const [completedReviewCount, setCompletedReviewCount] = useState(0)
   const [gradingMessage, setGradingMessage] = useState<string>('AI 批改中...')
   const [nowTs, setNowTs] = useState(() => Date.now())
+
+  // Phase A/B 批次一致性審查
+  const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
+  const [batchPhaseAEntries, setBatchPhaseAEntries] = useState<BatchPhaseAEntry[]>([])
 
   // 題目詳情（可編輯）
   const [editableDetails, setEditableDetails] = useState<any[]>([])
@@ -405,6 +776,102 @@ export default function GradingPage({
     }
   }, [needsReviewStudents, selectedSubmission, submissions])
 
+  // ─── Batch Phase B: 正式批改（全班）────────────────────────────────────────
+  const executeBatchPhaseB = useCallback(async () => {
+    if (batchPhaseAEntries.length === 0) return
+
+    setGradingPhase('phase_b_running')
+    setGradingMessage('Step 2/2：正在批改...')
+    setIsGrading(true)
+    setGradingStartTime(Date.now())
+    setGradingProgress({ current: 0, total: batchPhaseAEntries.length })
+    setCompletedReviewCount(0)
+
+    let successCount = 0
+    let failCount = 0
+
+    for (let i = 0; i < batchPhaseAEntries.length; i++) {
+      if (stopRequestedRef.current) break
+
+      const entry = batchPhaseAEntries[i]
+      const student = students.find((s) => s.id === entry.studentId)
+      if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
+
+      const finalAnswers: FinalAnswer[] = entry.phaseAResult.questionResults.map((qr) => {
+        const decision = entry.decisions.get(qr.questionId)
+        return {
+          questionId: qr.questionId,
+          finalStudentAnswer: decision?.finalAnswer ?? qr.readAnswer1.studentAnswer,
+          finalAnswerSource: decision?.source ?? 'ai_read1',
+        }
+      })
+
+      try {
+        const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers)
+        const totalScore = typeof gradingResult.totalScore === 'number' ? gradingResult.totalScore : 0
+
+        await db.submissions.update(entry.submissionId, {
+          status: 'graded',
+          score: totalScore,
+          gradingResult,
+        })
+
+        setSubmissions((prev) => {
+          const next = new Map(prev)
+          const sub = Array.from(prev.values()).find((s) => s.id === entry.submissionId)
+          if (sub) next.set(sub.studentId, { ...sub, status: 'graded', score: totalScore, gradingResult })
+          return next
+        })
+
+        if (gradingResult.needsReview) setCompletedReviewCount((prev) => prev + 1)
+        successCount++
+      } catch (err) {
+        console.error(`Phase B failed for ${entry.submissionId}:`, err)
+        failCount++
+      }
+
+      setGradingProgress({ current: i + 1, total: batchPhaseAEntries.length })
+    }
+
+    requestSync()
+    setBatchPhaseAEntries([])
+    setGradingPhase('idle')
+    setIsGrading(false)
+    setCurrentGradingStudent('')
+    setGradeResultNotice({
+      stopped: stopRequestedRef.current,
+      successCount,
+      failCount,
+      totalCount: batchPhaseAEntries.length,
+    })
+    setStopRequested(false)
+    stopRequestedRef.current = false
+    setGradingProgress({ current: 0, total: 0 })
+  }, [batchPhaseAEntries, students])
+
+  // ─── Batch Decision: 老師對單題的決策 ────────────────────────────────────
+  const handleBatchDecision = useCallback(
+    (studentId: string, questionId: string, update: Partial<ConsistencyDecision>) => {
+      setBatchPhaseAEntries((prev) =>
+        prev.map((entry) => {
+          if (entry.studentId !== studentId) return entry
+          const next = new Map(entry.decisions)
+          const existing = next.get(questionId)
+          next.set(questionId, {
+            questionId,
+            source: 'ai_read1',
+            finalAnswer: '',
+            confirmed: false,
+            ...existing,
+            ...update,
+          })
+          return { ...entry, decisions: next }
+        })
+      )
+    },
+    []
+  )
+
   const handleInkTopUp = useCallback(() => {
     if (onRequireInkTopUp) {
       onRequireInkTopUp()
@@ -435,7 +902,9 @@ export default function GradingPage({
       lensLeft,
       lensTop,
       width: rect.width,
-      height: rect.height
+      height: rect.height,
+      clientX: event.clientX,
+      clientY: event.clientY
     })
     setPreviewLensActive(true)
   }, [PREVIEW_LENS_SIZE])
@@ -1336,73 +1805,69 @@ export default function GradingPage({
         return
       }
 
-      console.log(`✅ 準備批改 ${toGrade.length} 份作業`)
+      console.log(`✅ 準備 Phase A，共 ${toGrade.length} 份作業`)
       setGradingProgress({ current: 0, total: toGrade.length })
+      setGradingMessage('Step 1/2：正在讀取學生答案...')
+      setGradingPhase('phase_a_running')
 
-      // 顯示將要批改的數量
-      if (toGrade.length < candidates.length) {
-        const skipCount = candidates.length - toGrade.length
-        console.warn(`將跳過 ${skipCount} 份沒有影像的作業`)
+      if (!assignment?.answerKey) {
+        alert('缺少答案卷，無法批改')
+        setIsGrading(false)
+        return
       }
 
-      console.log(`📤 開始調用 gradeMultipleSubmissions，作業數量: ${toGrade.length}`)
-      const results = await gradeMultipleSubmissions(
-        toGrade,
-        null,
-        (current, total) => {
-          setGradingProgress({ current, total })
-        },
-        assignment?.answerKey,
-        {
-          domain: assignment?.domain,
-          // 🆕 每批改完一份作業就即時更新 UI
-          onSubmissionComplete: (updatedSubmission, result) => {
-            console.log(`🔄 即時更新 UI: ${updatedSubmission.id}, 得分: ${updatedSubmission.score}`)
-            setSubmissions((prev) => {
-              const next = new Map(prev)
-              next.set(updatedSubmission.studentId, updatedSubmission)
-              return next
-            })
-            const student = students.find((s) => s.id === updatedSubmission.studentId)
-            if (student) {
-              setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
+      // ── Batch Phase A ─────────────────────────────────────────────────────
+      const entries: BatchPhaseAEntry[] = []
+
+      for (let i = 0; i < toGrade.length; i++) {
+        if (stopRequestedRef.current) break
+
+        const sub = toGrade[i]
+        const student = students.find((s) => s.id === sub.studentId)
+        if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
+        setGradingProgress({ current: i + 1, total: toGrade.length })
+
+        try {
+          const phaseAResult = await gradePhaseA(sub.imageBlob!, assignment.answerKey)
+
+          // Auto-confirm stable questions
+          const decisions = new Map<string, ConsistencyDecision>()
+          for (const qr of phaseAResult.questionResults) {
+            if (qr.consistencyStatus === 'stable') {
+              decisions.set(qr.questionId, {
+                questionId: qr.questionId,
+                source: 'ai_read1',
+                finalAnswer: qr.readAnswer1.studentAnswer,
+                confirmed: true,
+              })
             }
-            // 🆕 統計需複核數量
-            if (result.needsReview) {
-              setCompletedReviewCount(prev => prev + 1)
-            }
-          },
-          // 🆕 停止檢查回調
-          shouldStop: () => stopRequestedRef.current
+          }
+
+          entries.push({
+            submissionId: sub.id,
+            studentId: sub.studentId,
+            phaseAResult,
+            decisions,
+            imageBlob: sub.imageBlob!,
+          })
+        } catch (err) {
+          console.error(`Phase A failed for ${sub.id}:`, err)
+          // Skip this student; they won't appear in review
         }
-      )
+      }
 
-      console.log(`📥 gradeMultipleSubmissions 返回:`, results)
-      const successCount =
-        results && typeof results === 'object' && 'successCount' in results
-          ? (results as any).successCount
-          : toGrade.length
-      const stopped = results && typeof results === 'object' && 'stopped' in results
-        ? (results as any).stopped
-        : false
-
-      console.log(`✅ 最終 successCount: ${successCount}, stopped: ${stopped}`)
-
-      // loadData() 不再需要，因為已即時更新
-      requestSync()
-
-      setGradeResultNotice({
-        stopped,
-        successCount,
-        failCount:
-          results && typeof results === 'object' && 'failCount' in results
-            ? Number((results as any).failCount ?? 0)
-            : 0,
-        totalCount: toGrade.length
-      })
+      if (stopRequestedRef.current) {
+        setGradingPhase('idle')
+        setBatchPhaseAEntries([])
+        setGradeResultNotice({ stopped: true, successCount: 0, failCount: 0, totalCount: toGrade.length })
+      } else {
+        setBatchPhaseAEntries(entries)
+        setGradingPhase('awaiting_review')
+      }
     } catch (err) {
       console.error('批改失敗', err)
       setError(err instanceof Error ? err.message : '批改失敗')
+      setGradingPhase('idle')
     } finally {
       setIsGrading(false)
       setIsDownloading(false)
@@ -2097,6 +2562,17 @@ export default function GradingPage({
           </div>
         )}
 
+        {/* Batch Phase A 一致性審查 */}
+        {gradingPhase === 'awaiting_review' && batchPhaseAEntries.length > 0 && (
+          <BatchConsistencyReviewSection
+            entries={batchPhaseAEntries}
+            allStudents={students}
+            onDecision={handleBatchDecision}
+            onStartPhaseB={() => { void executeBatchPhaseB() }}
+            isPhaseBRunning={false}
+          />
+        )}
+
         {/* Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
           {sortedStudents.map((student) => {
@@ -2389,8 +2865,17 @@ export default function GradingPage({
                         />
                       )}
                     </div>
-                    {previewLensActive && previewLensState.width > 0 && previewLensState.height > 0 && (
-                      <div className="pointer-events-none absolute right-4 top-10 z-20 rounded-xl border border-blue-200 bg-white/95 p-2 shadow-2xl">
+                    {previewLensActive && previewLensState.width > 0 && previewLensState.height > 0 && (() => {
+                      const panelW = PREVIEW_ZOOM_PANEL_SIZE + 20
+                      const panelH = PREVIEW_ZOOM_PANEL_SIZE + 32
+                      const offset = 24
+                      const rawLeft = previewLensState.clientX + offset
+                      const panelLeft = rawLeft + panelW > window.innerWidth
+                        ? previewLensState.clientX - offset - panelW
+                        : rawLeft
+                      const panelTop = Math.max(8, Math.min(window.innerHeight - panelH - 8, previewLensState.clientY - panelH / 2))
+                      return (
+                      <div className="pointer-events-none fixed z-[60] rounded-xl border border-blue-200 bg-white/95 p-2 shadow-2xl" style={{ left: panelLeft, top: panelTop }}>
                         <div className="mb-1 text-[10px] font-semibold tracking-wide text-blue-700">
                           細節放大
                         </div>
@@ -2408,7 +2893,7 @@ export default function GradingPage({
                           }}
                         />
                       </div>
-                    )}
+                    ) })()}
                   </div>
                 ) : (
                   <div className="flex items-center justify-center h-full">
@@ -2797,8 +3282,8 @@ export default function GradingPage({
                   )}
               </div>
 
-              <div className="p-4 border-t border-gray-100 bg-gray-50">
-                  <button
+              <div className="p-4 border-t border-gray-100 bg-gray-50 space-y-2">
+                <button
                     onClick={() => handleRegradeFlagged(selectedSubmission.submission)}
                     disabled={
                       isBusy ||

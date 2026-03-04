@@ -51,6 +51,7 @@ export default function ScanImportFlow({
   const [isRefreshingStudentUploads, setIsRefreshingStudentUploads] = useState(false)
   const [isSubmitConfirmOpen, setIsSubmitConfirmOpen] = useState(false)
   const [confirmPreviewStudentId, setConfirmPreviewStudentId] = useState<string | null>(null)
+  const [confirmPreviewPageIndex, setConfirmPreviewPageIndex] = useState(0)
   const [confirmPreviewUrl, setConfirmPreviewUrl] = useState<string | null>(null)
   const [isRotatingPreview, setIsRotatingPreview] = useState(false)
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
@@ -69,18 +70,30 @@ export default function ScanImportFlow({
     }
 
     const blobs = capturedData.get(confirmPreviewStudentId)
-    const firstBlob = blobs?.[0]
-    if (!firstBlob) {
+    const previewBlob = blobs?.[confirmPreviewPageIndex]
+    if (!previewBlob) {
       setConfirmPreviewUrl(null)
       return
     }
 
-    const url = URL.createObjectURL(firstBlob)
+    const url = URL.createObjectURL(previewBlob)
     setConfirmPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev)
       return url
     })
-  }, [capturedData, confirmPreviewStudentId, isSubmitConfirmOpen])
+  }, [capturedData, confirmPreviewPageIndex, confirmPreviewStudentId, isSubmitConfirmOpen])
+
+  useEffect(() => {
+    if (!isSubmitConfirmOpen || !confirmPreviewStudentId) return
+    const pageCount = capturedData.get(confirmPreviewStudentId)?.length || 0
+    if (pageCount === 0) {
+      setConfirmPreviewPageIndex(0)
+      return
+    }
+    if (confirmPreviewPageIndex >= pageCount) {
+      setConfirmPreviewPageIndex(pageCount - 1)
+    }
+  }, [capturedData, confirmPreviewPageIndex, confirmPreviewStudentId, isSubmitConfirmOpen])
 
   const fetchCorrectionStatus = async () => {
     try {
@@ -227,6 +240,7 @@ export default function ScanImportFlow({
 
     const firstStudentId = capturedData.keys().next().value as string | undefined
     setConfirmPreviewStudentId(firstStudentId || null)
+    setConfirmPreviewPageIndex(0)
     setIsSubmitConfirmOpen(true)
   }
 
@@ -326,6 +340,7 @@ export default function ScanImportFlow({
       // 清空已拍攝數據
       setCapturedData(new Map())
       setConfirmPreviewStudentId(null)
+      setConfirmPreviewPageIndex(0)
       onUploadComplete?.()
     }
   }
@@ -492,6 +507,11 @@ export default function ScanImportFlow({
     .sort((a, b) => a.seatNumber - b.seatNumber)
 
   const previewStudent = capturedStudents.find((student) => student.id === confirmPreviewStudentId) || null
+  const previewPages = confirmPreviewStudentId ? capturedData.get(confirmPreviewStudentId) || [] : []
+  const previewPageCount = previewPages.length
+  const previewPageNumber = previewPageCount > 0 ? confirmPreviewPageIndex + 1 : 0
+  const canGoPrevPage = previewPageCount > 1 && confirmPreviewPageIndex > 0
+  const canGoNextPage = previewPageCount > 1 && confirmPreviewPageIndex < previewPageCount - 1
 
   return (
     <>
@@ -544,7 +564,10 @@ export default function ScanImportFlow({
                       <button
                         key={student.id}
                         type="button"
-                        onClick={() => setConfirmPreviewStudentId(student.id)}
+                        onClick={() => {
+                          setConfirmPreviewStudentId(student.id)
+                          setConfirmPreviewPageIndex(0)
+                        }}
                         className={`w-full rounded-lg border px-3 py-2 text-left transition ${
                           active
                             ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
@@ -566,15 +589,39 @@ export default function ScanImportFlow({
                       ? `預覽：${previewStudent.seatNumber} 號 ${previewStudent.name}`
                       : '請選擇學生'}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => void handleRotatePreview()}
-                    disabled={!confirmPreviewStudentId || isRotatingPreview}
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <RotateCw className={`h-3.5 w-3.5 ${isRotatingPreview ? 'animate-spin' : ''}`} />
-                    向右旋轉 90°
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <div className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setConfirmPreviewPageIndex((prev) => Math.max(0, prev - 1))}
+                        disabled={!canGoPrevPage}
+                        className="rounded px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        上一張
+                      </button>
+                      <span className="px-1 text-xs text-slate-600">
+                        {previewPageCount > 0 ? `${previewPageNumber} / ${previewPageCount}` : '0 / 0'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmPreviewPageIndex((prev) => Math.min(previewPageCount - 1, prev + 1))}
+                        disabled={!canGoNextPage}
+                        className="rounded px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        下一張
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => void handleRotatePreview()}
+                      disabled={!confirmPreviewStudentId || isRotatingPreview}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <RotateCw className={`h-3.5 w-3.5 ${isRotatingPreview ? 'animate-spin' : ''}`} />
+                      向右旋轉 90°
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex flex-1 items-center justify-center bg-slate-100 p-4">
