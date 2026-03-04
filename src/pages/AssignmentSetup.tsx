@@ -2056,7 +2056,7 @@ export default function AssignmentSetup({
     }
 
     if (field === 'maxScore') {
-      const num = Math.max(0, parseInt(value || '0', 10) || 0)
+      const num = Math.max(0, parseFloat(value || '0') || 0)
       item.maxScore = num
       if (item.type === 3 && item.rubric) {
         item.rubric = normalizeRubric(item.rubric, num)
@@ -2267,7 +2267,7 @@ export default function AssignmentSetup({
     const dimension = { ...dimensions[dimIdx] }
 
     if (field === 'maxScore') {
-      dimension.maxScore = Math.max(0, parseInt(value || '0', 10) || 0)
+      dimension.maxScore = Math.max(0, parseFloat(value || '0') || 0)
     } else {
       dimension[field] = value
     }
@@ -2324,7 +2324,7 @@ export default function AssignmentSetup({
     if (field === 'criteria') {
       level.criteria = value
     } else {
-      const num = Math.max(0, parseInt(value || '0', 10) || 0)
+      const num = Math.max(0, parseFloat(value || '0') || 0)
       level[field] = num
     }
 
@@ -3001,6 +3001,7 @@ export default function AssignmentSetup({
                               <NumericInput
                                 className="w-16 px-1 py-1 border border-gray-300 rounded text-right"
                                 value={q.maxScore}
+                                allowDecimal
                                 onChange={(v) =>
                                   updateQuestionField(
                                     'create',
@@ -3195,6 +3196,7 @@ export default function AssignmentSetup({
                                           <NumericInput
                                             className="w-16 px-2 py-1 border border-gray-300 rounded text-right"
                                             value={dim.maxScore}
+                                            allowDecimal
                                             onChange={(v) =>
                                               updateRubricDimension('create', idx, dimIdx, 'maxScore', String(v))
                                             }
@@ -3239,6 +3241,7 @@ export default function AssignmentSetup({
                                           <NumericInput
                                             className="px-1 py-1 border border-gray-300 rounded text-right"
                                             value={level.min}
+                                            allowDecimal
                                             onChange={(v) =>
                                               updateRubricLevel(
                                                 'create',
@@ -3252,6 +3255,7 @@ export default function AssignmentSetup({
                                           <NumericInput
                                             className="px-1 py-1 border border-gray-300 rounded text-right"
                                             value={level.max}
+                                            allowDecimal
                                             onChange={(v) =>
                                               updateRubricLevel(
                                                 'create',
@@ -3522,6 +3526,7 @@ export default function AssignmentSetup({
                           <NumericInput
                             className="w-16 px-1 py-1 border border-gray-300 rounded text-right"
                             value={q.maxScore}
+                            allowDecimal
                             onChange={(v) =>
                               updateQuestionField(
                                 'edit',
@@ -3712,6 +3717,7 @@ export default function AssignmentSetup({
                                       <NumericInput
                                         className="w-16 px-2 py-1 border border-gray-300 rounded text-right"
                                         value={dim.maxScore}
+                                        allowDecimal
                                         onChange={(v) =>
                                           updateRubricDimension('edit', idx, dimIdx, 'maxScore', String(v))
                                         }
@@ -3756,6 +3762,7 @@ export default function AssignmentSetup({
                                       <NumericInput
                                         className="px-1 py-1 border border-gray-300 rounded text-right"
                                         value={level.min}
+                                        allowDecimal
                                         onChange={(v) =>
                                           updateRubricLevel(
                                             'edit',
@@ -3769,6 +3776,7 @@ export default function AssignmentSetup({
                                       <NumericInput
                                         className="px-1 py-1 border border-gray-300 rounded text-right"
                                         value={level.max}
+                                        allowDecimal
                                         onChange={(v) =>
                                           updateRubricLevel(
                                             'edit',

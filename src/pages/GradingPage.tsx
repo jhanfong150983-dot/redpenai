@@ -3095,7 +3095,7 @@ export default function GradingPage({
                                 <input
                                   type="text"
                                   inputMode="numeric"
-                                  pattern="[0-9]*"
+                                  pattern="[0-9]*\.?[0-9]*"
                                   className="w-14 px-1 py-0.5 rounded border border-white/60 bg-white/70 text-gray-800 text-[10px] text-center disabled:opacity-60 disabled:cursor-not-allowed"
                                   value={d.score ?? ''}
                                   disabled={isBusy}
@@ -3105,11 +3105,11 @@ export default function GradingPage({
                                   }}
                                   onChange={(e) => {
                                     const v = e.target.value
-                                    // 只允許數字
-                                    if (v === '' || /^\d+$/.test(v)) {
+                                    // 允許數字和小數點
+                                    if (v === '' || /^\d*\.?\d*$/.test(v)) {
                                       setEditableDetails((prev) => {
                                         const next = [...prev]
-                                        next[i] = { ...next[i], score: v === '' ? '' : Number(v) }
+                                        next[i] = { ...next[i], score: v === '' ? '' : (v.endsWith('.') ? v : Number(v)) }
                                         return next
                                       })
                                     }
