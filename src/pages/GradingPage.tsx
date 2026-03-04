@@ -285,11 +285,13 @@ interface BatchPhaseAEntry {
 // ─── ConsistencyQuestionCard ──────────────────────────────────────────────────
 
 function ConsistencyQuestionCard({
+  studentId,
   questionResult,
   decision,
   onDecision,
   disabled,
 }: {
+  studentId: string
   questionResult: PhaseAQuestionResult
   decision?: ConsistencyDecision
   onDecision: (questionId: string, update: Partial<ConsistencyDecision>) => void
@@ -298,6 +300,7 @@ function ConsistencyQuestionCard({
   const [manualInput, setManualInput] = useState('')
   const [zoomedImg, setZoomedImg] = useState(false)
   const { questionId, consistencyStatus, consistencyReason, readAnswer1, readAnswer2, answerCropImageUrl } = questionResult
+  const radioName = `q-${studentId}-${questionId}`
   const isUnstable = consistencyStatus === 'unstable'
   const isConfirmed = decision?.confirmed
 
@@ -394,7 +397,7 @@ function ConsistencyQuestionCard({
         <label className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
           <input
             type="radio"
-            name={`q-${questionId}`}
+            name={radioName}
             disabled={disabled}
             checked={decision?.source === 'ai_read1'}
             onChange={() =>
@@ -412,7 +415,7 @@ function ConsistencyQuestionCard({
         <label className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
           <input
             type="radio"
-            name={`q-${questionId}`}
+            name={radioName}
             disabled={disabled}
             checked={decision?.source === 'ai_read2'}
             onChange={() =>
@@ -430,7 +433,7 @@ function ConsistencyQuestionCard({
         <div className={`flex items-start gap-2 ${disabled ? 'opacity-60' : ''}`}>
           <input
             type="radio"
-            name={`q-${questionId}`}
+            name={radioName}
             disabled={disabled}
             checked={decision?.source === 'manual'}
             onChange={switchToManual}
@@ -603,6 +606,7 @@ function BatchConsistencyReviewSection({
                     {reviewQs.map(q => (
                       <ConsistencyQuestionCard
                         key={q.questionId}
+                        studentId={entry.studentId}
                         questionResult={q}
                         decision={entry.decisions.get(q.questionId)}
                         onDecision={(qId, update) => onDecision(entry.studentId, qId, update)}
@@ -2415,7 +2419,7 @@ export default function GradingPage({
                     {(status === 'graded' || status === 'synced' || status === 'scanned') &&
                       submission && (
                         <>
-                          <label
+                          <div
                             className="absolute top-2 left-2 z-10 flex items-center justify-center rounded-md border border-slate-200 bg-white/95 p-1.5 shadow-md"
                             onClick={(e) => e.stopPropagation()}
                             title="勾選加入批次批改"
@@ -2428,7 +2432,7 @@ export default function GradingPage({
                               onClick={(e) => e.stopPropagation()}
                               disabled={isBusy || !inkSessionReady || !hasSubmissionImage(submission)}
                             />
-                          </label>
+                          </div>
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
