@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { db } from '@/lib/db'
 import { useOnlineStatus } from './useOnlineStatus'
 import { SYNC_EVENT_NAME, notifySyncComplete } from '@/lib/sync-events'
-import { clearDeleteQueue, readDeleteQueue } from '@/lib/sync-delete-queue'
+import { clearDeleteQueue, readDeleteQueue, queueDeleteMany } from '@/lib/sync-delete-queue'
 import type { Assignment, Classroom, Student, Submission } from '@/lib/db'
 import { blobToBase64 as blobToDataUrl, compressImage } from '@/lib/imageCompression'
 import { downloadImageFromSupabase } from '@/lib/supabase-download'
@@ -1020,6 +1020,7 @@ export function useSync(options: UseSyncOptions = {}) {
     )
     if (orphanFolders.length > 0) {
       const orphanIds = orphanFolders.map(f => f.id)
+      await queueDeleteMany('folders', orphanIds)
       await db.folders.bulkDelete(orphanIds)
       debugLog(`🧹 清理了 ${orphanIds.length} 個孤兒 assignment 資料夾:`, orphanIds)
     }
