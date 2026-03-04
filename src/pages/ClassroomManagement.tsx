@@ -92,6 +92,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
 
   // 編輯學生名單
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false)
+  const [isStudentReadonly, setIsStudentReadonly] = useState(false)
   const [studentModalError, setStudentModalError] = useState<string | null>(null)
   const [studentModalClassroom, setStudentModalClassroom] = useState<Classroom | null>(null)
   const [studentRows, setStudentRows] = useState<StudentRow[]>([])
@@ -730,9 +731,10 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     }
   }
 
-  const openStudentEditor = async (target: ClassroomWithStats) => {
+  const openStudentEditor = async (target: ClassroomWithStats, readonly = false) => {
     setStudentModalError(null)
     setStudentModalClassroom(target.classroom)
+    setIsStudentReadonly(readonly)
     const list = await db.students
       .where('classroomId')
       .equals(target.classroom.id)
@@ -1024,18 +1026,22 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                 <p className="truncate text-sm font-semibold text-gray-900">
                   {item.classroom.name}
                 </p>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setEditingId(item.classroom.id)
-                    setEditingName(item.classroom.name)
-                  }}
-                  className="p-1 text-gray-400 hover:text-green-600"
-                  title="更改名稱"
-                >
-                  <Edit2 className="h-3 w-3" />
-                </button>
+                {item.classroom.folder === '1Campus' ? (
+                  <span className="shrink-0 inline-flex items-center rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-700">1campus</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setEditingId(item.classroom.id)
+                      setEditingName(item.classroom.name)
+                    }}
+                    className="p-1 text-gray-400 hover:text-green-600"
+                    title="更改名稱"
+                  >
+                    <Edit2 className="h-3 w-3" />
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -1048,25 +1054,27 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
             type="button"
             onClick={(e) => {
               e.stopPropagation()
-              void openStudentEditor(item)
+              void openStudentEditor(item, item.classroom.folder === '1Campus')
             }}
             className="rounded-full border border-gray-200 bg-white p-1.5 text-gray-600 hover:bg-green-50 hover:text-green-700"
-            title="編輯學生名單"
+            title={item.classroom.folder === '1Campus' ? '查看學生名單' : '編輯學生名單'}
           >
             <Users className="h-4 w-4" />
           </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              void handleDeleteClassroom(item)
-            }}
-            className="rounded-full border border-gray-200 bg-white p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-60"
-            title="刪除班級"
-            disabled={isSaving}
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          {item.classroom.folder !== '1Campus' && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                void handleDeleteClassroom(item)
+              }}
+              className="rounded-full border border-gray-200 bg-white p-1.5 text-red-600 hover:bg-red-50 disabled:opacity-60"
+              title="刪除班級"
+              disabled={isSaving}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -1450,10 +1458,12 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
                 <h2 className="text-base font-semibold text-gray-900">
-                  編輯學生名單 · {studentModalClassroom.name}
+                  {isStudentReadonly ? '學生名單' : '編輯學生名單'} · {studentModalClassroom.name}
                 </h2>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  可調整座號、姓名與 email（可留空），新增學生後會依座號排序。
+                  {isStudentReadonly
+                    ? '此班級由 1campus 同步，名單為唯讀。'
+                    : '可調整座號、姓名與 email（可留空），新增學生後會依座號排序。'}
                 </p>
               </div>
               <button
@@ -1477,89 +1487,120 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                 </div>
               )}
 
-              <div className="grid grid-cols-[90px_1fr_1.2fr] gap-2 text-xs text-gray-500">
+              <div className="grid grid-cols-[60px_1fr_1.4fr] gap-2 text-xs text-gray-500 border-b border-gray-100 pb-1">
                 <span>座號</span>
                 <span>學生姓名</span>
-                <span>學生 email（可選）</span>
+                <span>Email</span>
               </div>
 
-              <div className="space-y-2 max-h-[45vh] overflow-auto">
-                {studentRows.map((row) => (
-                  <div key={row.tempId} className="grid grid-cols-[90px_1fr_1.2fr] gap-2">
-                    <NumericInput
-                      min={1}
-                      value={row.seatNumber}
-                      onChange={(v) =>
-                        handleStudentRowChange(row.tempId, 'seatNumber', v)
-                      }
-                      className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      disabled={isStudentSaving}
-                    />
-                    <input
-                      type="text"
-                      value={row.name}
-                      onChange={(e) =>
-                        handleStudentRowChange(row.tempId, 'name', e.target.value)
-                      }
-                      className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      disabled={isStudentSaving}
-                    />
-                    <input
-                      type="email"
-                      value={row.email}
-                      onChange={(e) =>
-                        handleStudentRowChange(row.tempId, 'email', e.target.value)
-                      }
-                      placeholder="student@example.com"
-                      className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                      disabled={isStudentSaving}
-                    />
-                  </div>
-                ))}
-              </div>
+              {isStudentReadonly ? (
+                <div className="space-y-1 max-h-[50vh] overflow-auto">
+                  {studentRows.length === 0 ? (
+                    <p className="py-4 text-center text-sm text-gray-400">無學生資料</p>
+                  ) : (
+                    studentRows.map((row) => (
+                      <div key={row.tempId} className="grid grid-cols-[60px_1fr_1.4fr] gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-gray-50">
+                        <span className="text-gray-500">{row.seatNumber}</span>
+                        <span className="truncate font-medium text-gray-900">{row.name}</span>
+                        <span className="truncate text-gray-400">{row.email || '—'}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[45vh] overflow-auto">
+                  {studentRows.map((row) => (
+                    <div key={row.tempId} className="grid grid-cols-[90px_1fr_1.2fr] gap-2">
+                      <NumericInput
+                        min={1}
+                        value={row.seatNumber}
+                        onChange={(v) =>
+                          handleStudentRowChange(row.tempId, 'seatNumber', v)
+                        }
+                        className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        disabled={isStudentSaving}
+                      />
+                      <input
+                        type="text"
+                        value={row.name}
+                        onChange={(e) =>
+                          handleStudentRowChange(row.tempId, 'name', e.target.value)
+                        }
+                        className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        disabled={isStudentSaving}
+                      />
+                      <input
+                        type="email"
+                        value={row.email}
+                        onChange={(e) =>
+                          handleStudentRowChange(row.tempId, 'email', e.target.value)
+                        }
+                        placeholder="student@example.com"
+                        className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                        disabled={isStudentSaving}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
 
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={handleAddStudentRow}
-                  className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
-                  disabled={isStudentSaving}
-                >
-                  <Plus className="w-4 h-4" />
-                  新增學生
-                </button>
-
-                <div className="flex gap-2">
+              {isStudentReadonly ? (
+                <div className="flex justify-end">
                   <button
                     type="button"
                     onClick={() => {
-                      if (!isStudentSaving) {
-                        setIsStudentModalOpen(false)
-                        setStudentModalError(null)
-                      }
+                      setIsStudentModalOpen(false)
+                      setStudentModalError(null)
                     }}
                     className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-                    disabled={isStudentSaving}
                   >
-                    取消
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveStudents}
-                    disabled={isStudentSaving || studentRows.length === 0}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  >
-                    {isStudentSaving ? (
-                      <>
-                        <Loader className="w-4 h-4 animate-spin" />
-                        儲存中...
-                      </>
-                    ) : (
-                      '儲存變更'
-                    )}
+                    關閉
                   </button>
                 </div>
-              </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={handleAddStudentRow}
+                    className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+                    disabled={isStudentSaving}
+                  >
+                    <Plus className="w-4 h-4" />
+                    新增學生
+                  </button>
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!isStudentSaving) {
+                          setIsStudentModalOpen(false)
+                          setStudentModalError(null)
+                        }
+                      }}
+                      className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
+                      disabled={isStudentSaving}
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveStudents}
+                      disabled={isStudentSaving || studentRows.length === 0}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    >
+                      {isStudentSaving ? (
+                        <>
+                          <Loader className="w-4 h-4 animate-spin" />
+                          儲存中...
+                        </>
+                      ) : (
+                        '儲存變更'
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

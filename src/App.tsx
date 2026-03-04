@@ -34,6 +34,7 @@ import { SyncIndicator } from '@/components'
 import { checkWebPSupport } from '@/lib/webpSupport'
 import { INK_BALANCE_EVENT, type InkBalanceDetail } from '@/lib/ink-events'
 import { buildApiUrl } from '@/lib/api-base'
+import { requestSync } from '@/lib/sync-events'
 import '@/lib/debug-sync'
 import { debugLog } from '@/lib/logger'
 import { LEGAL_MODAL_EVENT, type LegalModalDetail } from '@/lib/legal-events'
@@ -393,6 +394,8 @@ function App() {
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dsns, teacherID: teacherId })
+    }).then(() => {
+      requestSync(true)
     }).catch((err) => {
       console.warn('[SSO] 班級同步失敗（不影響登入）:', err)
     })
