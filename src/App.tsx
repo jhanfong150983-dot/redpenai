@@ -181,6 +181,13 @@ const normalizeLoginEntry = (value: unknown): LoginEntryMode | null => {
 
 const OVERVIEW_VISIBLE_STEP = 3
 
+// 模組頂層即時偵測：若 URL 帶有 1Campus SSO 參數，加上旗標阻擋
+// fetchAuth 變更 auth state，避免在跳轉前閃過 LandingPage
+const _initParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+const _initCode = _initParams?.get('code')?.trim() || ''
+const _initDsns = _initParams?.get('dsns')?.trim() || ''
+const _isSsoEntry = !!(_initCode && _initDsns && /^[a-zA-Z0-9.\-]+$/.test(_initDsns) && !_initDsns.includes('..'))
+
 function App() {
   const [auth, setAuth] = useState<AuthState>({ status: 'loading' })
   const [loginEntry, setLoginEntry] = useState<LoginEntryMode | null>(null)
@@ -224,7 +231,7 @@ function App() {
   } | null>(null)
   const notifRef = useRef<HTMLDivElement | null>(null)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
-  const ssoRedirectingRef = useRef(false)
+  const ssoRedirectingRef = useRef(_isSsoEntry)
   const inkBalance =
     auth.status === 'authenticated' ? auth.user.inkBalance ?? 0 : null
 
