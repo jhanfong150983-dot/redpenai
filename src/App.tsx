@@ -102,6 +102,14 @@ type AuthState =
           ownerId: string
           email?: string | null
         }
+        students?: Array<{
+          id: string
+          classroomId: string
+          seatNumber: number
+          name: string
+          ownerId: string
+          email?: string | null
+        }>
         campus1Binding?: {
           account: string
           dsns: string
