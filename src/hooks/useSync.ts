@@ -996,24 +996,66 @@ export function useSync(options: UseSyncOptions = {}) {
     const afterDelete = await db.folders.toArray()
     debugLog('📊 bulkDelete 之後的 folders:', afterDelete)
 
+    // 讀取本地待刪除佇列，防止雲端舊資料覆蓋使用者已刪除的記錄
+    const pendingDeletes = await readDeleteQueue()
+    const pendingDeleteByTable = new Map<string, Set<string>>()
+    for (const entry of pendingDeletes) {
+      if (!pendingDeleteByTable.has(entry.tableName)) {
+        pendingDeleteByTable.set(entry.tableName, new Set())
+      }
+      pendingDeleteByTable.get(entry.tableName)!.add(entry.recordId)
+    }
+    const pendingClassroomDeletes = pendingDeleteByTable.get('classrooms') ?? new Set()
+    const pendingStudentDeletes = pendingDeleteByTable.get('students') ?? new Set()
+    const pendingAssignmentDeletes = pendingDeleteByTable.get('assignments') ?? new Set()
+    const pendingSubmissionDeletes = pendingDeleteByTable.get('submissions') ?? new Set()
+    const pendingFolderDeletes = pendingDeleteByTable.get('folders') ?? new Set()
+
+    if (pendingDeletes.length > 0) {
+      debugLog(`🛡️ 本地有 ${pendingDeletes.length} 筆待刪除記錄，bulkPut 將跳過這些 ID`)
+    }
+
+    // 過濾掉本地待刪除的記錄，避免雲端舊資料復活
+    const safeClassrooms = normalizedClassrooms.filter(c => !pendingClassroomDeletes.has(c.id))
+    const safeStudents = normalizedStudents.filter(s => !pendingStudentDeletes.has(s.id))
+    const safeAssignments = normalizedAssignments.filter(a => !pendingAssignmentDeletes.has(a.id))
+    const safeSubmissions = mergedSubmissions.filter(s => !pendingSubmissionDeletes.has(s.id))
+    const safeFolders = normalizedFolders.filter(f => !pendingFolderDeletes.has(f.id))
+
+    if (safeClassrooms.length < normalizedClassrooms.length) {
+      debugLog(`🛡️ 跳過 ${normalizedClassrooms.length - safeClassrooms.length} 個待刪除的 classrooms`)
+    }
+    if (safeStudents.length < normalizedStudents.length) {
+      debugLog(`🛡️ 跳過 ${normalizedStudents.length - safeStudents.length} 個待刪除的 students`)
+    }
+    if (safeAssignments.length < normalizedAssignments.length) {
+      debugLog(`🛡️ 跳過 ${normalizedAssignments.length - safeAssignments.length} 個待刪除的 assignments`)
+    }
+    if (safeSubmissions.length < mergedSubmissions.length) {
+      debugLog(`🛡️ 跳過 ${mergedSubmissions.length - safeSubmissions.length} 個待刪除的 submissions`)
+    }
+    if (safeFolders.length < normalizedFolders.length) {
+      debugLog(`🛡️ 跳過 ${normalizedFolders.length - safeFolders.length} 個待刪除的 folders`)
+    }
+
     // 先檢查 folders 狀態
     const beforePut = await db.folders.toArray()
     debugLog('📊 bulkPut 之前的 folders:', beforePut)
 
-    await db.classrooms.bulkPut(normalizedClassrooms)
+    await db.classrooms.bulkPut(safeClassrooms)
 
     // 檢查寫入後的 classrooms
     const afterPutClassrooms = await db.classrooms.toArray()
     debugLog('📊 bulkPut classrooms 之後的資料:', afterPutClassrooms)
 
-    await db.students.bulkPut(normalizedStudents)
-    await db.assignments.bulkPut(normalizedAssignments)
+    await db.students.bulkPut(safeStudents)
+    await db.assignments.bulkPut(safeAssignments)
     try {
-      await db.submissions.bulkPut(mergedSubmissions)
+      await db.submissions.bulkPut(safeSubmissions)
     } catch (err) {
       if (isQuotaError(err)) {
         console.warn('⚠️ IndexedDB 儲存空間不足，略過圖片快取後重試寫入 submissions')
-        const stripped = mergedSubmissions.map(
+        const stripped = safeSubmissions.map(
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
           ({ imageBlob, imageBase64, thumbnailBlob, thumbnailBase64, gradingResult, ...rest }) => rest as Submission
         )
@@ -1036,11 +1078,11 @@ export function useSync(options: UseSyncOptions = {}) {
     debugLog('📊 bulkPut 之後的 folders:', afterPut)
 
     // 只有當雲端有 folders 資料時才更新（避免覆蓋本地資料）
-    if (folders.length > 0) {
-      await db.folders.bulkPut(normalizedFolders)
-      debugLog(`✅ 同步了 ${normalizedFolders.length} 個資料夾`)
+    if (safeFolders.length > 0) {
+      await db.folders.bulkPut(safeFolders)
+      debugLog(`✅ 同步了 ${safeFolders.length} 個資料夾`)
     } else {
-      debugLog('⚠️ 雲端沒有 folders 資料，保留本地資料夾')
+      debugLog('⚠️ 雲端沒有 folders 資料（或全部待刪除），保留本地資料夾')
 
       // 驗證本地資料夾是否真的保留
       const localFolders = await db.folders.toArray()
