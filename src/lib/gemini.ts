@@ -1069,6 +1069,15 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 題型判斷與擷取規則：
 
+▸ 如果是「填圖題」（在空白地圖上填寫國名、地名、河流名稱等）：
+  - 整張地圖視為 1 題（questionId = "1"）
+  - 判斷為 Type 2（簡答題）
+  - answer：列出所有正確的對應，例如 "A=泰國, B=越南, C=緬甸, ..."
+  - referenceAnswer：逐一描述地圖上每個標記位置與對應的正確名稱。
+    例如："地圖左上方標記A的位置為泰國，中間偏右標記B的位置為越南，..."
+  - acceptableAnswers：列出所有正確國名/地名（不含位置），例如 ["泰國","越南","緬甸","柬埔寨","寮國"]
+  - maxScore：依題目配分（例如每個正確答案2分，共5個=10分）
+
 ▸ 如果是「繪圖/標記題」（在地圖上標註位置、畫符號、標記座標等）：
   - 判斷為 Type 3
   - 使用 rubricsDimensions 分成兩個維度：
@@ -2998,46 +3007,6 @@ async function gradeSubmissionWithPreparedImage(
 /**
  * 從答案卷圖片中抽取 AnswerKey（給 AssignmentSetup 使用）
  */
-/**
- * 從答案卷圖片上定位每題的 referenceBbox
- * 為 Reference-guided Classify 提供位置提示
- */
-async function enrichAnswerKeyWithReferenceBboxes(
-  answerKey: AnswerKey,
-  imageBase64: string,
-  mimeType: string
-): Promise<AnswerKey> {
-  const questionIds = answerKey.questions.map((q) => q.id).filter(Boolean)
-  if (questionIds.length === 0) return answerKey
-
-  try {
-    console.log(`📍 [ReferenceBbox] 從答案卷定位 ${questionIds.length} 題的位置...`)
-    const locatePrompt = buildLocatePrompt(questionIds)
-    const locateText = await generateGeminiText(
-      currentModelName,
-      [locatePrompt, { inlineData: { mimeType, data: imageBase64 } }],
-      { routeKey: 'grading.locate' }
-    )
-    const locateRows = parseLocateRows(locateText, questionIds)
-    const byQuestionId = new Map(locateRows.map((row) => [row.questionId, row]))
-
-    let enrichedCount = 0
-    for (const question of answerKey.questions) {
-      const row = byQuestionId.get(question.id)
-      const bbox = row?.answerBbox ?? row?.questionBbox
-      if (bbox) {
-        question.referenceBbox = bbox
-        enrichedCount++
-      }
-    }
-    console.log(`📍 [ReferenceBbox] 成功定位 ${enrichedCount}/${questionIds.length} 題`)
-  } catch (error) {
-    console.warn('⚠️ [ReferenceBbox] 定位失敗，略過不影響提取:', error)
-  }
-
-  return answerKey
-}
-
 export async function extractAnswerKeyFromImage(
   answerSheetImage: Blob,
   opts?: ExtractAnswerKeyOptions
@@ -3069,9 +3038,7 @@ export async function extractAnswerKeyFromImage(
     .trim()
 
   const answerKey = JSON.parse(text) as AnswerKey
-
-  // 從答案卷圖片定位每題的 referenceBbox
-  return enrichAnswerKeyWithReferenceBboxes(answerKey, imageBase64, mimeType)
+  return answerKey
 }
 
 /**
@@ -3132,11 +3099,7 @@ ${prompt}
 
   const result = JSON.parse(text) as AnswerKey
   console.log(`✅ 成功提取 ${result.questions.length} 題，總分 ${result.totalScore}`)
-
-  // 從第一張圖片定位每題的 referenceBbox（多圖時用第一張作為參考）
-  const firstImageBase64 = await blobToBase64(answerSheetImages[0])
-  const firstMimeType = answerSheetImages[0].type || 'image/jpeg'
-  return enrichAnswerKeyWithReferenceBboxes(result, firstImageBase64, firstMimeType)
+  return result
 }
 
 /**
