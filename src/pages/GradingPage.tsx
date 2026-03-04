@@ -22,7 +22,6 @@ import {
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import {
-  gradeSubmission,
   gradePhaseA,
   gradePhaseB,
   isGeminiAvailable,
