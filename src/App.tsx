@@ -364,7 +364,7 @@ function App() {
       })
     }
 
-    if (ssoSync && ssoDsns && ssoTeacherId) {
+    if (ssoSync && ssoDsns) {
       setSsoPendingSync({ dsns: ssoDsns, teacherId: ssoTeacherId })
     }
 
@@ -393,7 +393,7 @@ function App() {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dsns, teacherID: teacherId })
+      body: JSON.stringify({ dsns })
     }).then(() => {
       requestSync(true)
     }).catch((err) => {
