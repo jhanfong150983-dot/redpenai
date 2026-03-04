@@ -328,6 +328,11 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     return rows
   }
 
+  // 即時解析學生數量，用於鎖定送出按鈕
+  const parsedStudentCount = useMemo(() => {
+    return parseImportedStudents(importText).length
+  }, [importText])
+
   const handleCreateClassroom = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
 
@@ -336,11 +341,6 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
 
     if (!trimmedName) {
       setError('請輸入班級名稱')
-      return
-    }
-
-    if (imported.length === 0) {
-      setError('請填寫匯入學生名單（必填）')
       return
     }
 
@@ -1424,7 +1424,12 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                   disabled={isCreating}
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  建立班級時必須提供名單，系統會依座號建立學生資料。
+                  {parsedStudentCount > 0
+                    ? <span className="text-green-600 font-medium">✅ 已識別 {parsedStudentCount} 位學生</span>
+                    : importText.trim()
+                      ? <span className="text-amber-600">⚠️ 無法識別學生資料，請確認格式（座號,姓名）</span>
+                      : '建立班級時必須提供名單，系統會依座號建立學生資料。'
+                  }
                 </p>
               </div>
 
@@ -1444,7 +1449,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                 <button
                   data-tutorial="classroom-submit"
                   type="submit"
-                  disabled={isCreating || !newName.trim()}
+                  disabled={isCreating || !newName.trim() || parsedStudentCount === 0}
                   className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   {isCreating ? (
