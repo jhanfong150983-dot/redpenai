@@ -8,7 +8,7 @@ import {
 import { blobToBase64 as blobToDataUrl, compressImageFile } from './imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from './blob-storage'
 import { dispatchInkBalance } from './ink-events'
-import { getInkSessionId, startInkSession } from './ink-session'
+import { getInkSessionId, startInkSession, ensureInkSessionFresh } from './ink-session'
 
 const geminiProxyUrl = import.meta.env.VITE_GEMINI_PROXY_URL || '/api/proxy'
 
@@ -3188,7 +3188,7 @@ export async function gradePhaseA(
   submissionImageBlob: Blob,
   answerKey: AnswerKey
 ): Promise<PhaseAResult> {
-  const inkSessionId = getInkSessionId()
+  const { sessionId: inkSessionId } = await ensureInkSessionFresh()
 
   const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'phase-a')
   const imageBase64 = await blobToBase64(compressed)
@@ -3240,7 +3240,7 @@ export async function gradePhaseB(
   phaseAResult: PhaseAResult,
   finalAnswers: FinalAnswer[]
 ): Promise<GradingResult> {
-  const inkSessionId = getInkSessionId()
+  const { sessionId: inkSessionId } = await ensureInkSessionFresh()
 
   const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'phase-b')
   const imageBase64 = await blobToBase64(compressed)
