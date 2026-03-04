@@ -3065,7 +3065,7 @@ export default function GradingPage({
                       </div>
                     )}
                     <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2 text-sm uppercase tracking-wide">
-                      <FileQuestion className="w-4 h-4 text-blue-500" /> 題目詳情（可調整）
+                      <FileQuestion className="w-4 h-4 text-blue-500" /> 題目詳情
                     </h3>
                     <div className="space-y-3">
                       {editableDetails.map((d: any, i: number) => {
@@ -3151,72 +3151,13 @@ export default function GradingPage({
                             </div>
                             <div className="flex items-center gap-2 text-gray-700">
                               <span className="flex-1">學生答案：{d.studentAnswer || '—'}</span>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (!selectedSubmission) return
-                                  toggleAnswerExtractionFlag(
-                                    selectedSubmission.submission.id,
-                                    questionId
-                                  )
-                                }}
-                                className={`p-1 rounded-full ${
-                                  isFlagged
-                                    ? 'text-red-600 bg-red-50 hover:bg-red-100'
-                                    : 'text-gray-400 hover:bg-gray-100'
-                                }`}
-                                title={isFlagged ? '取消不一致' : '標記不一致'}
-                              >
-                                <AlertTriangle className="w-4 h-4" />
-                              </button>
                             </div>
 
                             <div className="text-xs text-gray-700 flex items-start gap-2">
-                              <span className="mt-0.5">理由：</span>
-                              {editingReasonIndex === i ? (
-                                <textarea
-                                  className="flex-1 px-2 py-1 border border-gray-300 rounded min-h-[48px] disabled:opacity-60 disabled:cursor-not-allowed"
-                                  value={d.reason ?? ''}
-                                  autoFocus
-                                  disabled={isBusy}
-                                  onChange={(e) => {
-                                    const v = e.target.value
-                                    setEditableDetails((prev) => {
-                                      const next = [...prev]
-                                      next[i] = { ...next[i], reason: v, comment: v }
-                                      return next
-                                    })
-                                  }}
-                                  onBlur={(e) => {
-                                    const v = e.target.value
-                                    setEditingReasonIndex(null)
-                                    void handleDetailReasonChange(i, v)
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault()
-                                      const v = (e.target as HTMLTextAreaElement).value
-                                      setEditingReasonIndex(null)
-                                      void handleDetailReasonChange(i, v)
-                                    }
-                                  }}
-                                />
-                              ) : (
-                                <div className="flex-1 flex items-start gap-2">
-                                  <span className="text-gray-600 whitespace-pre-line">
-                                    {d.reason || '—'}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditingReasonIndex(i)}
-                                    className="text-gray-400 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    title="編輯理由"
-                                    disabled={isBusy}
-                                  >
-                                    <Pencil className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              )}
+                              <span className="mt-0.5 shrink-0">理由：</span>
+                              <span className="text-gray-600 whitespace-pre-line flex-1">
+                                {d.reason || '—'}
+                              </span>
                             </div>
                           </div>
                         )
@@ -3225,7 +3166,7 @@ export default function GradingPage({
                   </div>
                 ) : (
                   <div className="bg-yellow-50 border border-yellow-100 rounded-lg p-3 text-xs text-yellow-800">
-                    暫無題目詳情可調整
+                    暫無題目詳情
                   </div>
                 )}
 
@@ -3235,26 +3176,6 @@ export default function GradingPage({
                       這是舊版批改紀錄，建議重新批改更新 AI 結果
                     </div>
                   )}
-              </div>
-
-              <div className="p-4 border-t border-gray-100 bg-gray-50 space-y-2">
-                <button
-                    onClick={() => handleRegradeFlagged(selectedSubmission.submission)}
-                    disabled={
-                      isBusy ||
-                      isCheckingCorrectionState ||
-                      !inkSessionReady ||
-                      (answerExtractionFlags.get(selectedSubmission.submission.id)?.size ?? 0) === 0
-                    }
-                    className="w-full flex items-center justify-center gap-2 py-3 bg-white border border-gray-300 shadow-sm rounded-lg hover:bg-blue-600 hover:text-white hover:border-blue-600 font-medium text-gray-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                  <RotateCcw className={`w-4 h-4 ${isGrading || isCheckingCorrectionState ? 'animate-spin' : ''}`} />
-                  {isGrading
-                    ? 'AI 正在再次批改...'
-                    : isCheckingCorrectionState
-                      ? '檢查訂正狀態中...'
-                      : '再次批改'}
-                </button>
               </div>
             </div>
           </div>
