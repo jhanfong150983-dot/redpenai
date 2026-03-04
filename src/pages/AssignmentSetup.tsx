@@ -714,7 +714,8 @@ export default function AssignmentSetup({
         idPath: q.idPath,
         uiKey: q.uiKey ?? generateId(),
         orderMode,
-        unorderedGroupId: orderMode === 'unordered' ? unorderedGroupId : undefined
+        unorderedGroupId: orderMode === 'unordered' ? unorderedGroupId : undefined,
+        referenceBbox: q.referenceBbox
       }
 
       // Add type-specific fields
