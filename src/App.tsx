@@ -302,6 +302,22 @@ function App() {
       })
     } catch (error) {
       console.error('登出失敗', error)
+    }
+    try {
+      await Promise.all([
+        db.classrooms.clear(),
+        db.students.clear(),
+        db.assignments.clear(),
+        db.submissions.clear(),
+        db.folders.clear(),
+        db.answerExtractionCorrections.clear(),
+        db.teacherSummaryCache.clear(),
+        db.domainDiagnosisCache.clear(),
+        db.syncQueue.clear()
+      ])
+      console.log('✅ 登出：本地資料庫已清空')
+    } catch (err) {
+      console.error('❌ 登出時清空本地資料庫失敗', err)
     } finally {
       setIsUserMenuOpen(false)
       setAuth({ status: 'unauthenticated' })
