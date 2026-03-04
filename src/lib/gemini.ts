@@ -2998,6 +2998,46 @@ async function gradeSubmissionWithPreparedImage(
 /**
  * 從答案卷圖片中抽取 AnswerKey（給 AssignmentSetup 使用）
  */
+/**
+ * 從答案卷圖片上定位每題的 referenceBbox
+ * 為 Reference-guided Classify 提供位置提示
+ */
+async function enrichAnswerKeyWithReferenceBboxes(
+  answerKey: AnswerKey,
+  imageBase64: string,
+  mimeType: string
+): Promise<AnswerKey> {
+  const questionIds = answerKey.questions.map((q) => q.id).filter(Boolean)
+  if (questionIds.length === 0) return answerKey
+
+  try {
+    console.log(`📍 [ReferenceBbox] 從答案卷定位 ${questionIds.length} 題的位置...`)
+    const locatePrompt = buildLocatePrompt(questionIds)
+    const locateText = await generateGeminiText(
+      currentModelName,
+      [locatePrompt, { inlineData: { mimeType, data: imageBase64 } }],
+      { routeKey: 'grading.locate' }
+    )
+    const locateRows = parseLocateRows(locateText, questionIds)
+    const byQuestionId = new Map(locateRows.map((row) => [row.questionId, row]))
+
+    let enrichedCount = 0
+    for (const question of answerKey.questions) {
+      const row = byQuestionId.get(question.id)
+      const bbox = row?.answerBbox ?? row?.questionBbox
+      if (bbox) {
+        question.referenceBbox = bbox
+        enrichedCount++
+      }
+    }
+    console.log(`📍 [ReferenceBbox] 成功定位 ${enrichedCount}/${questionIds.length} 題`)
+  } catch (error) {
+    console.warn('⚠️ [ReferenceBbox] 定位失敗，略過不影響提取:', error)
+  }
+
+  return answerKey
+}
+
 export async function extractAnswerKeyFromImage(
   answerSheetImage: Blob,
   opts?: ExtractAnswerKeyOptions
@@ -3028,7 +3068,10 @@ export async function extractAnswerKeyFromImage(
     .replace(/```json|```/g, '')
     .trim()
 
-  return JSON.parse(text) as AnswerKey
+  const answerKey = JSON.parse(text) as AnswerKey
+
+  // 從答案卷圖片定位每題的 referenceBbox
+  return enrichAnswerKeyWithReferenceBboxes(answerKey, imageBase64, mimeType)
 }
 
 /**
@@ -3090,7 +3133,10 @@ ${prompt}
   const result = JSON.parse(text) as AnswerKey
   console.log(`✅ 成功提取 ${result.questions.length} 題，總分 ${result.totalScore}`)
 
-  return result
+  // 從第一張圖片定位每題的 referenceBbox（多圖時用第一張作為參考）
+  const firstImageBase64 = await blobToBase64(answerSheetImages[0])
+  const firstMimeType = answerSheetImages[0].type || 'image/jpeg'
+  return enrichAnswerKeyWithReferenceBboxes(result, firstImageBase64, firstMimeType)
 }
 
 /**

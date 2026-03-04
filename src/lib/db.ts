@@ -66,6 +66,11 @@ export interface AnswerKeyQuestion {
 
   maxScore: number
 
+  // 答案卷上此題的參考位置（歸一化 [0,1] bbox）
+  // 用於 Reference-guided Classify：提示 AI 學生答案大約在哪個位置
+  // 對地圖填圖等無題號的空間配置型作業特別重要
+  referenceBbox?: { x: number; y: number; w: number; h: number }
+
   // AI 偏離 Prior Weight 提醒
   needsReanalysis?: boolean // 教師修改題型後標記為true，需要重新分析
   aiDivergedFromPrior?: boolean // AI判斷與教師prior weight不同時為true
