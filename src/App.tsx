@@ -971,6 +971,18 @@ function App() {
     void loadHomeOverview()
   }, [auth.status, currentPage, loadHomeOverview])
 
+  // 每次同步完成後，如果在首頁就重新載入概覽數據
+  useEffect(() => {
+    if (auth.status !== 'authenticated') return
+    if (currentPage !== 'home') return
+
+    const handleSyncComplete = () => {
+      void loadHomeOverview()
+    }
+    window.addEventListener(SYNC_COMPLETE_EVENT_NAME, handleSyncComplete)
+    return () => window.removeEventListener(SYNC_COMPLETE_EVENT_NAME, handleSyncComplete)
+  }, [auth.status, currentPage, loadHomeOverview])
+
   useEffect(() => {
     if (currentPage !== 'home') return
     setVisibleOverviewCount(OVERVIEW_VISIBLE_STEP)
