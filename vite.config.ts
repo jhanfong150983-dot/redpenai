@@ -150,36 +150,15 @@ export default defineConfig({
               networkTimeoutSeconds: 5
             }
           },
-          // Supabase API - Network First
+          // Supabase API - Network Only（不快取 API 回應，避免佔用 Cache 配額）
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/v1\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'supabase-api-cache',
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 60 * 60
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              },
-              networkTimeoutSeconds: 10
-            }
+            handler: 'NetworkOnly'
           },
-          // Supabase Storage - Cache First
+          // Supabase Storage - Network Only（學生繳交照片已存於 IndexedDB，不需 SW 二次快取）
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/storage\/v1\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'supabase-storage-cache',
-              expiration: {
-                maxEntries: 200,
-                maxAgeSeconds: 7 * 24 * 60 * 60
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
+            handler: 'NetworkOnly'
           },
           // Google Fonts CSS
           {
@@ -208,15 +187,15 @@ export default defineConfig({
               }
             }
           },
-          // Images
+          // Static images (app icons, logos only) - 限制筆數避免佔用配額
           {
             urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'images-cache',
               expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 30 * 24 * 60 * 60
+                maxEntries: 20,
+                maxAgeSeconds: 7 * 24 * 60 * 60
               }
             }
           },
