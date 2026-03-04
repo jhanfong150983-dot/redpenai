@@ -318,8 +318,21 @@ function ConsistencyQuestionCard({
   const badgeLabel = isConfirmed ? '已確認' : isUnstable ? '無法判讀' : '讀取不一致'
 
   const formatAnswer = (r: { status: string; studentAnswer: string }) => {
-    if (r.status === 'read') return `「${r.studentAnswer || '（空白）'}」`
+    if (r.status === 'read') return `「${r.studentAnswer || '空白'}」`
+    if (r.status === 'blank') return '（空白）'
+    if (r.status === 'unreadable') return '（無法截取）'
     return `（${r.status}）`
+  }
+
+  // 切換到人工輸入時，以讀取1為預填基底（方便修改）
+  const switchToManual = () => {
+    const prefill = manualInput || readAnswer1.studentAnswer || ''
+    setManualInput(prefill)
+    onDecision(questionId, {
+      source: 'manual',
+      finalAnswer: prefill,
+      confirmed: prefill.trim().length > 0,
+    })
   }
 
   return (
@@ -409,49 +422,42 @@ function ConsistencyQuestionCard({
           <span>讀取 2：{formatAnswer(readAnswer2)}</span>
         </label>
 
-        <label className={`flex items-start gap-2 cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
+        <div className={`flex items-start gap-2 ${disabled ? 'opacity-60' : ''}`}>
           <input
             type="radio"
             name={`q-${questionId}`}
             disabled={disabled}
             checked={decision?.source === 'manual'}
-            onChange={() =>
-              onDecision(questionId, {
-                source: 'manual',
-                finalAnswer: manualInput,
-                confirmed: manualInput.trim().length > 0,
-              })
-            }
-            className="accent-purple-600 mt-0.5"
+            onChange={switchToManual}
+            className="accent-purple-600 mt-1 shrink-0"
           />
-          <span className="shrink-0">人工輸入：</span>
-          <input
-            type="text"
-            value={manualInput}
-            disabled={disabled}
-            placeholder="輸入答案..."
-            className="flex-1 border border-gray-300 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400 disabled:opacity-50"
-            onChange={(e) => {
-              setManualInput(e.target.value)
-              if (decision?.source === 'manual') {
-                onDecision(questionId, {
-                  source: 'manual',
-                  finalAnswer: e.target.value,
-                  confirmed: e.target.value.trim().length > 0,
-                })
-              }
-            }}
-            onClick={() => {
-              if (decision?.source !== 'manual') {
-                onDecision(questionId, {
-                  source: 'manual',
-                  finalAnswer: manualInput,
-                  confirmed: manualInput.trim().length > 0,
-                })
-              }
-            }}
-          />
-        </label>
+          <div className="flex-1 space-y-1">
+            <span
+              className="cursor-pointer select-none"
+              onClick={!disabled ? switchToManual : undefined}
+            >
+              人工輸入：
+            </span>
+            {decision?.source === 'manual' && (
+              <textarea
+                rows={2}
+                value={manualInput}
+                disabled={disabled}
+                placeholder="輸入答案（可修改預填內容）..."
+                className="w-full border border-purple-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400 disabled:opacity-50 resize-y"
+                autoFocus
+                onChange={(e) => {
+                  setManualInput(e.target.value)
+                  onDecision(questionId, {
+                    source: 'manual',
+                    finalAnswer: e.target.value,
+                    confirmed: e.target.value.trim().length > 0,
+                  })
+                }}
+              />
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )

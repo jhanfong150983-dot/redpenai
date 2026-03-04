@@ -218,7 +218,6 @@ function App() {
   const [isNotifOpen, setIsNotifOpen] = useState(false)
   const [ssoPendingSync, setSsoPendingSync] = useState<{
     dsns: string
-    teacherId: string
   } | null>(null)
   const notifRef = useRef<HTMLDivElement | null>(null)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
@@ -344,7 +343,6 @@ function App() {
     const ssoProvider = params.get('sso_provider')?.trim() || ''
     const ssoSync = params.get('sso_sync') === '1'
     const ssoDsns = params.get('sso_dsns')?.trim() || ''
-    const ssoTeacherId = params.get('sso_teacher_id')?.trim() || ''
 
     const hasSsoParams = !!(ssoError || ssoProvider || ssoSync)
     if (!hasSsoParams) return
@@ -365,7 +363,7 @@ function App() {
     }
 
     if (ssoSync && ssoDsns) {
-      setSsoPendingSync({ dsns: ssoDsns, teacherId: ssoTeacherId })
+      setSsoPendingSync({ dsns: ssoDsns })
     }
 
     // 清除 URL 中的 SSO 參數
@@ -386,16 +384,21 @@ function App() {
     if (auth.status !== 'authenticated') return
     if (!ssoPendingSync) return
 
-    const { dsns, teacherId } = ssoPendingSync
+    const { dsns } = ssoPendingSync
     setSsoPendingSync(null)
 
+    console.log('[SSO] 觸發班級同步 dsns=', dsns)
     void fetch('/api/data/1campus-classroom-sync', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dsns })
-    }).then(() => {
-      requestSync(true)
+    }).then((res) => {
+      console.log('[SSO] 班級同步 HTTP', res.status)
+      return res.json().then((data) => {
+        console.log('[SSO] 班級同步結果:', data)
+        requestSync(true)
+      }).catch(() => requestSync(true))
     }).catch((err) => {
       console.warn('[SSO] 班級同步失敗（不影響登入）:', err)
     })
