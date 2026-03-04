@@ -199,6 +199,7 @@ function App() {
   const [hasPaidOrder, setHasPaidOrder] = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [homeOverviewLoading, setHomeOverviewLoading] = useState(false)
+  const [homeDataReady, setHomeDataReady] = useState(false)
   const [homeOverviewSummary, setHomeOverviewSummary] = useState<HomeOverviewSummary>({
     totalAssignments: 0,
     assignmentsWithoutUploads: 0,
@@ -494,6 +495,7 @@ function App() {
     if (auth.status !== 'authenticated') {
       setHasPaidOrder(false)
       setPendingInk({ count: 0, totalDrops: 0, amountTwd: 0 })
+      setHomeDataReady(false)
       return
     }
 
@@ -886,6 +888,7 @@ function App() {
       console.error('載入作業總覽失敗', error)
     } finally {
       setHomeOverviewLoading(false)
+      setHomeDataReady(true)
     }
   }, [])
 
@@ -991,12 +994,12 @@ function App() {
     return <LandingPage />
   }
 
-  if (isInitialSyncing) {
+  if (isInitialSyncing || (!homeDataReady && currentPage === 'home')) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
           <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-gray-600 text-sm">正在載入資料...</p>
+          <p className="text-gray-600 text-sm">{isInitialSyncing ? '正在載入資料...' : '正在準備首頁...'}</p>
         </div>
       </div>
     )
