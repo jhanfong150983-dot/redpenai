@@ -1020,7 +1020,7 @@ export function useSync(options: UseSyncOptions = {}) {
     const safeStudents = normalizedStudents.filter(s => !pendingStudentDeletes.has(s.id))
     const safeAssignments = normalizedAssignments.filter(a => !pendingAssignmentDeletes.has(a.id))
     const safeSubmissions = mergedSubmissions.filter(s => !pendingSubmissionDeletes.has(s.id))
-    const safeFolders = normalizedFolders.filter(f => !pendingFolderDeletes.has(f.id))
+    const safeFolders = normalizedFolders.filter((f: { id: string }) => !pendingFolderDeletes.has(f.id))
 
     if (safeClassrooms.length < normalizedClassrooms.length) {
       debugLog(`🛡️ 跳過 ${normalizedClassrooms.length - safeClassrooms.length} 個待刪除的 classrooms`)
