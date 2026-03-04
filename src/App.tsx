@@ -1357,10 +1357,10 @@ function App() {
                       <p className="truncate text-sm font-semibold text-slate-900">{userDisplayName}</p>
                       <p className="truncate text-xs text-slate-500">{auth.user.email}</p>
                       {auth.user.campus1Binding && (
-                        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-green-700">
-                          <span className="inline-flex items-center rounded bg-green-100 px-1.5 py-0.5 font-medium">1campus</span>
-                          <span className="truncate text-slate-500">
-                            {auth.user.campus1Binding.displayName || auth.user.campus1Binding.account}
+                        <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+                          <span className="shrink-0 inline-flex items-center rounded bg-green-100 px-1.5 py-0.5 font-medium text-green-700">1campus</span>
+                          <span className="truncate text-slate-400">
+                            {auth.user.campus1Binding.displayName || auth.user.campus1Binding.dsns || '已綁定'}
                           </span>
                         </div>
                       )}
