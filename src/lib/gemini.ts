@@ -3246,6 +3246,16 @@ export async function gradePhaseB(
   const imageBase64 = await blobToBase64(compressed)
   const mimeType = compressed.type || submissionImageBlob.type || 'image/jpeg'
 
+  // Strip answerCropImageUrl from questionResults before sending —
+  // Phase B server doesn't need them and base64 images make the payload too large for the API.
+  const phaseAForServer = {
+    ...phaseAResult,
+    questionResults: phaseAResult.questionResults.map(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      ({ answerCropImageUrl: _removed, ...qr }) => qr
+    ),
+  }
+
   const response = await fetch(geminiProxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -3255,7 +3265,7 @@ export async function gradePhaseB(
       contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
       ...(inkSessionId ? { inkSessionId } : {}),
       routeKey: 'grading.phase_b',
-      phaseAResult,
+      phaseAResult: phaseAForServer,
       finalAnswers
     })
   })
