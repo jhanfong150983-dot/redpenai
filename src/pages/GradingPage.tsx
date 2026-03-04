@@ -9,9 +9,7 @@ import {
   FileQuestion,
   Download,
   RefreshCw,
-  RotateCcw,
   X,
-  Pencil,
   AlertTriangle,
   Trash2,
   Square,
@@ -719,13 +717,7 @@ export default function GradingPage({
 
   // 題目詳情（可編輯）
   const [editableDetails, setEditableDetails] = useState<any[]>([])
-  const [editingReasonIndex, setEditingReasonIndex] = useState<number | null>(null)
-  const [answerExtractionFlags, setAnswerExtractionFlags] = useState<
-    Map<string, Set<string>>
-  >(new Map())
-  const [regradeAttempts, setRegradeAttempts] = useState<Map<string, Map<string, number>>>(
-    new Map()
-  )
+
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
   const isBusy = isGrading || isDownloading
   const selectedSubmissionCount = selectedSubmissionIds.size
@@ -1353,10 +1345,6 @@ export default function GradingPage({
     return () => window.clearInterval(timer)
   }, [isBusy])
 
-  useEffect(() => {
-    if (isBusy) setEditingReasonIndex(null)
-  }, [isBusy])
-
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true)
     try {
@@ -1369,240 +1357,6 @@ export default function GradingPage({
   const handleCloseModal = () => {
     setSelectedSubmission(null)
     setEditableDetails([])
-  }
-
-  const applyForcedUnrecognizable = useCallback(
-    async (submissionId: string, questionId: string) => {
-      const submission = await db.submissions.get(submissionId)
-      if (!submission?.gradingResult?.details) return
-
-      const updatedDetails = submission.gradingResult.details.map((detail: any, index: number) => {
-        const detailId = detail?.questionId ?? `#${index + 1}`
-        if (detailId === questionId) {
-          if (detail?.studentAnswer === 'AI無法辨識') return detail
-          return { ...detail, studentAnswer: 'AI無法辨識' }
-        }
-        return detail
-      })
-
-      await db.submissions.update(submissionId, {
-        gradingResult: { ...submission.gradingResult, details: updatedDetails }
-      })
-      requestSync()
-
-      const updated = await db.submissions.get(submissionId)
-      if (updated) {
-        setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
-        if (selectedSubmission?.submission.id === submissionId) {
-          const student = students.find((s) => s.id === updated.studentId)
-          if (student) setSelectedSubmission({ submission: updated, student })
-        }
-      }
-
-      setEditableDetails((prev) =>
-        prev.map((detail) =>
-          detail.questionId === questionId
-            ? { ...detail, studentAnswer: 'AI無法辨識' }
-            : detail
-        )
-      )
-    },
-    [selectedSubmission, students]
-  )
-
-  const toggleAnswerExtractionFlag = (submissionId: string, questionId: string) => {
-    const isCurrentlyFlagged =
-      answerExtractionFlags.get(submissionId)?.has(questionId) ?? false
-    const attempts = regradeAttempts.get(submissionId)?.get(questionId) ?? 0
-    if (!isCurrentlyFlagged && attempts > 0) {
-      void applyForcedUnrecognizable(submissionId, questionId)
-    }
-
-    setAnswerExtractionFlags((prev) => {
-      const next = new Map(prev)
-      const existing = new Set(next.get(submissionId) ?? [])
-      if (existing.has(questionId)) {
-        existing.delete(questionId)
-      } else {
-        existing.add(questionId)
-      }
-      if (existing.size === 0) {
-        next.delete(submissionId)
-      } else {
-        next.set(submissionId, existing)
-      }
-      return next
-    })
-  }
-  const handleRegradeFlagged = async (submission: Submission) => {
-    if (inkSessionError) {
-      alert(inkSessionError)
-      return
-    }
-    if (!inkSessionReady) {
-      alert('批改會話尚未準備完成，請稍候')
-      return
-    }
-    if (!isGeminiAvailable) {
-      alert('Gemini 服務未設定')
-      return
-    }
-
-    const canProceed = await ensureNoCorrectionConflict([submission])
-    if (!canProceed) {
-      return
-    }
-
-    const flaggedIds = Array.from(
-      answerExtractionFlags.get(submission.id) ?? []
-    ).filter((id) => id)
-    if (flaggedIds.length === 0) return
-
-    if (!submission.imageBlob) {
-      // 優先從 Base64 重建 Blob
-      if (submission.imageBase64) {
-        try {
-          console.log('🔧 從 Base64 重建 Blob 用於重新批改')
-          submission.imageBlob = rebuildBlobFromBase64(submission.imageBase64)
-          console.log(`✅ 從 Base64 重建 Blob 成功: size=${submission.imageBlob.size}, type=${submission.imageBlob.type}`)
-        } catch (error) {
-          console.error('❌ 從 Base64 重建 Blob 失敗:', error)
-          alert('無法重建圖片，請重新上傳作業')
-          return
-        }
-      } else {
-        // 沒有 Base64，嘗試從 Supabase 下載
-        try {
-          const blob = await downloadImageFromSupabase(submission.id)
-          const base64 = await blobToBase64(blob)
-          submission.imageBlob = blob
-          submission.imageBase64 = base64
-          await updateSubmissionWithImages(submission.id, {}, blob, base64)
-        } catch {
-          alert('下載影像失敗，無法重評')
-          return
-        }
-      }
-    }
-
-    setIsGrading(true)
-    setGradingMessage(getRandomGradingMessage())
-    setCompletedReviewCount(0)
-    setGradingStartTime(Date.now())
-    try {
-      const existingDetails = submission.gradingResult?.details ?? []
-      const forcedUnrecognizableQuestionIds = flaggedIds.filter((questionId) =>
-        existingDetails.some(
-          (detail: any, index: number) =>
-            (detail?.questionId ?? `#${index + 1}`) === questionId &&
-            detail?.studentAnswer === 'AI無法辨識'
-        )
-      )
-      const result = await gradeSubmission(submission.imageBlob!, null, assignment?.answerKey, {
-        strict: true,
-        domain: assignment?.domain,
-        regrade: {
-          questionIds: flaggedIds,
-          previousDetails: existingDetails,
-          forceUnrecognizableQuestionIds: forcedUnrecognizableQuestionIds
-        }
-      })
-
-      const updatedDetails = Array.isArray(result.details) ? result.details : []
-      const updatedById = new Map(
-        updatedDetails
-          .filter((detail: any) => detail?.questionId)
-          .map((detail: any) => [detail.questionId, detail])
-      )
-      const existingIdSet = new Set(
-        existingDetails
-          .filter((detail: any) => detail?.questionId)
-          .map((detail: any) => detail.questionId)
-      )
-
-      const mergedDetails = existingDetails.map((detail: any) => {
-        const questionId = detail?.questionId
-        if (questionId && updatedById.has(questionId)) {
-          return { ...detail, ...updatedById.get(questionId) }
-        }
-        return detail
-      })
-
-      updatedDetails.forEach((detail: any) => {
-        if (detail?.questionId && !existingIdSet.has(detail.questionId)) {
-          mergedDetails.push(detail)
-        }
-      })
-
-      const newTotal = mergedDetails.reduce((sum: number, detail: any) => {
-        const value = Number(detail?.score)
-        return Number.isFinite(value) ? sum + value : sum
-      }, 0)
-
-      const newGradingResult: any = submission.gradingResult
-        ? { ...submission.gradingResult }
-        : { mistakes: [], weaknesses: [], suggestions: [] }
-
-      newGradingResult.details = mergedDetails
-      newGradingResult.totalScore = newTotal
-      newGradingResult.mistakes = Array.isArray(result.mistakes)
-        ? result.mistakes
-        : newGradingResult.mistakes ?? []
-      newGradingResult.weaknesses = Array.isArray(result.weaknesses)
-        ? result.weaknesses
-        : newGradingResult.weaknesses ?? []
-      newGradingResult.suggestions = Array.isArray(result.suggestions)
-        ? result.suggestions
-        : newGradingResult.suggestions ?? []
-      newGradingResult.feedback = result.feedback ?? newGradingResult.feedback
-      newGradingResult.needsReview = false
-      newGradingResult.reviewReasons = []
-
-      await updateSubmissionWithImages(
-        submission.id,
-        {
-          status: 'graded',
-          score: newTotal,
-          feedback: '',
-          gradingResult: newGradingResult,
-          gradedAt: Date.now()
-        },
-        submission.imageBlob,
-        submission.imageBase64
-      )
-      requestSync()
-
-      const updatedSub = await db.submissions.get(submission.id)
-      if (updatedSub) {
-        setSubmissions((prev) => new Map(prev).set(updatedSub.studentId, updatedSub))
-
-        if (selectedSubmission?.submission.id === submission.id) {
-          const student = students.find((s) => s.id === submission.studentId)
-          if (student) setSelectedSubmission({ submission: updatedSub, student })
-        }
-      }
-
-      setAnswerExtractionFlags((prev) => {
-        const next = new Map(prev)
-        next.delete(submission.id)
-        return next
-      })
-
-      setRegradeAttempts((prev) => {
-        const next = new Map(prev)
-        const existing = new Map(next.get(submission.id) ?? [])
-        flaggedIds.forEach((questionId) => {
-          existing.set(questionId, (existing.get(questionId) ?? 0) + 1)
-        })
-        next.set(submission.id, existing)
-        return next
-      })
-    } catch (err) {
-      console.error(err)
-      alert('重評失敗')
-    } finally {
-      setIsGrading(false)
-    }
   }
 
   const handleDeleteSubmission = async (submission: Submission, student: Student) => {
@@ -1969,68 +1723,6 @@ export default function GradingPage({
     }
   }
 
-  // 理由即時更新
-  const handleDetailReasonChange = async (index: number, reasonValue: string) => {
-    if (isBusy) return
-    if (!selectedSubmission) return
-
-    const updatedDetails = editableDetails.map((d: any, i: number) =>
-      i === index ? { ...d, reason: reasonValue, comment: reasonValue } : d
-    )
-    setEditableDetails(updatedDetails)
-
-    const id = selectedSubmission.submission.id
-    const submission = await db.submissions.get(id)
-    if (!submission) return
-
-    const cleanedDetails = updatedDetails.map((d: any) => {
-      const score = Number.isFinite(Number(d.score)) ? Number(d.score) : 0
-      const maxScore = Number.isFinite(Number(d.maxScore)) ? Number(d.maxScore) : 0
-      const isCorrect =
-        typeof d.isCorrect === 'boolean'
-          ? d.isCorrect
-          : maxScore > 0
-            ? score >= maxScore
-            : false
-
-      return {
-        ...d,
-        score,
-        maxScore,
-        isCorrect,
-        reason: d.reason ?? d.comment ?? '',
-        comment: d.comment ?? d.reason ?? ''
-      }
-    })
-
-    const newTotal = cleanedDetails.reduce(
-      (sum: number, d: any) => sum + (Number.isFinite(d.score) ? Number(d.score) : 0),
-      0
-    )
-
-    const newGradingResult: any = submission.gradingResult
-      ? { ...submission.gradingResult }
-      : { mistakes: [], weaknesses: [], suggestions: [] }
-
-    newGradingResult.details = cleanedDetails
-    newGradingResult.totalScore = newTotal
-    newGradingResult.needsReview = false
-    newGradingResult.reviewReasons = []
-
-    await db.submissions.update(id, {
-      score: newTotal,
-      gradingResult: newGradingResult
-    })
-    requestSync()
-
-    const updated = await db.submissions.get(id)
-    if (updated) {
-      setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
-      const student = students.find((s) => s.id === updated.studentId)
-      if (student) setSelectedSubmission({ submission: updated, student })
-    }
-  }
-
   const getSubmissionMaxScore = (result?: Submission['gradingResult']) => {
     const answerKeyTotal = assignment?.answerKey?.totalScore
     if (typeof answerKeyTotal === 'number' && answerKeyTotal > 0) return answerKeyTotal
@@ -2101,13 +1793,9 @@ export default function GradingPage({
       if (details.some((detail: any) => detail?.studentAnswer === 'AI無法辨識')) {
         derived.add('有題目無法辨識')
       }
-      if (answerExtractionFlags.get(submission.id)?.size) {
-        derived.add('答案可能不一致')
-      }
-
       return Array.from(derived)
     },
-    [answerExtractionFlags]
+    []
   )
 
   const formatQuestionId = (questionId?: string | null) => {
@@ -3078,11 +2766,6 @@ export default function GradingPage({
                         const showConfidence =
                           typeof confidenceValue === 'number' && confidenceValue < 100
                         const questionId = d.questionId || `#${i + 1}`
-                        const isFlagged = selectedSubmission
-                          ? answerExtractionFlags
-                              .get(selectedSubmission.submission.id)
-                              ?.has(questionId)
-                          : false
 
                         return (
                           <div
