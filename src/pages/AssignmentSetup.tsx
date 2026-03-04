@@ -2651,8 +2651,8 @@ export default function AssignmentSetup({
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" 
         data-tutorial="create-assignment-modal"
         >
-          <div ref={createAssignmentModalScrollRef} className="bg-white rounded-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto shadow-2xl">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+          <div ref={createAssignmentModalScrollRef} className="bg-white rounded-2xl w-full max-w-xl max-h-[90dvh] flex flex-col overflow-hidden shadow-2xl">
+            <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-200">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">新增作業</h2>
                 <p className="text-xs text-gray-500">
@@ -2671,7 +2671,8 @@ export default function AssignmentSetup({
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="px-4 py-4 space-y-6">
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-xl">
                   {error}
@@ -3290,7 +3291,9 @@ export default function AssignmentSetup({
                 )}
               </div>
 
-              <div className="flex flex-col items-end gap-2 pt-2">
+              </div>
+
+              <div className="flex-shrink-0 flex flex-col items-end gap-2 px-4 py-3 border-t border-gray-100">
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
