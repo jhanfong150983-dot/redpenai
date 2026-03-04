@@ -702,7 +702,7 @@ export function useSync(options: UseSyncOptions = {}) {
     debugLog(`📦 pullMetadata: 從雲端拉取 ${submissions.length} 筆 submissions`)
     debugLog(`📦 pullMetadata: 本地現有 ${existingSubmissions.length} 筆 submissions`)
 
-    // 保留本地圖片數據（Blob 和 Base64）
+    // 保留本地圖片數據（Blob 和 Base64）與 gradingResult（伺服器同步不再回傳）
     const imageDataMap = new Map(
       existingSubmissions.map((sub) => [
         sub.id,
@@ -713,7 +713,8 @@ export function useSync(options: UseSyncOptions = {}) {
           thumbUrl: sub.thumbUrl,
           thumbnailBlob: sub.thumbnailBlob,
           thumbnailBase64: sub.thumbnailBase64,
-          thumbnailUrl: sub.thumbnailUrl
+          thumbnailUrl: sub.thumbnailUrl,
+          gradingResult: sub.gradingResult
         }
       ])
     )
@@ -785,7 +786,8 @@ export function useSync(options: UseSyncOptions = {}) {
           createdAt,
           score: sub.score,
           feedback: sub.feedback,
-          gradingResult: sub.gradingResult,
+          // 伺服器同步不再回傳 gradingResult，優先保留本地已有的批改結果
+          gradingResult: localImageData?.gradingResult ?? sub.gradingResult,
           gradedAt,
           correctionCount: sub.correctionCount,
           source:
@@ -978,7 +980,7 @@ export function useSync(options: UseSyncOptions = {}) {
         console.warn('⚠️ IndexedDB 儲存空間不足，略過圖片快取後重試寫入 submissions')
         const stripped = mergedSubmissions.map(
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          ({ imageBlob, imageBase64, thumbnailBlob, thumbnailBase64, ...rest }) => rest as Submission
+          ({ imageBlob, imageBase64, thumbnailBlob, thumbnailBase64, gradingResult, ...rest }) => rest as Submission
         )
         try {
           await db.submissions.bulkPut(stripped)
