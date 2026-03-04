@@ -298,26 +298,15 @@ function App() {
     }
     try {
       await db.delete()
-      await db.open()
       console.log('✅ 登出：本地資料庫已清空')
     } catch (err) {
       console.error('❌ 登出時清空本地資料庫失敗', err)
-    } finally {
-      setIsUserMenuOpen(false)
-      setAuth({ status: 'unauthenticated' })
-      setLoginEntry(null)
-      setCurrentPage('home')
-      setSelectedAssignmentId('')
-      setGradingSelectedClassroomId('')
-      setGradingSelectedFolder('')
-      setImportSelectedClassroomId('')
-      setImportSelectedFolder('')
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem(LOGIN_ENTRY_STORAGE_KEY)
-        window.localStorage.removeItem(CURRENT_USER_ID_KEY)
-        window.localStorage.removeItem(INITIAL_SYNCED_KEY)
-      }
     }
+    window.localStorage.removeItem(LOGIN_ENTRY_STORAGE_KEY)
+    window.localStorage.removeItem(CURRENT_USER_ID_KEY)
+    window.localStorage.removeItem(INITIAL_SYNCED_KEY)
+    // reload 確保 Dexie singleton 重新初始化，避免 DB 連線狀態殘留
+    window.location.href = '/'
   }, [])
 
   useEffect(() => {
