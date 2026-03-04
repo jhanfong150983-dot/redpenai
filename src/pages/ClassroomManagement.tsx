@@ -719,6 +719,19 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
         await db.submissions.where('assignmentId').anyOf(assignmentIds).delete()
       }
       await db.assignments.where('classroomId').equals(classroomId).delete()
+
+      // 刪除該班級底下的 assignment 資料夾
+      const assignmentFolders = await db.folders
+        .where('[type+classroomId]')
+        .equals(['assignment', classroomId])
+        .toArray()
+      if (assignmentFolders.length > 0) {
+        const folderIds = assignmentFolders.map(f => f.id)
+        await queueDeleteMany('folders', folderIds)
+        await db.folders.bulkDelete(folderIds)
+        console.log(`🗑️ 連帶刪除 ${folderIds.length} 個 assignment 資料夾`)
+      }
+
       await db.classrooms.delete(classroomId)
 
       await loadData()

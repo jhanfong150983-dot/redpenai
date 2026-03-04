@@ -1011,6 +1011,18 @@ export function useSync(options: UseSyncOptions = {}) {
       const localFolders = await db.folders.toArray()
       debugLog('🔍 pullMetadata 後本地 folders:', localFolders)
     }
+
+    // 清理孤兒 assignment folders（所屬班級已被刪除）
+    const allLocalFolders = await db.folders.toArray()
+    const allClassroomIds = new Set((await db.classrooms.toArray()).map(c => c.id))
+    const orphanFolders = allLocalFolders.filter(
+      f => f.type === 'assignment' && f.classroomId && !allClassroomIds.has(f.classroomId)
+    )
+    if (orphanFolders.length > 0) {
+      const orphanIds = orphanFolders.map(f => f.id)
+      await db.folders.bulkDelete(orphanIds)
+      debugLog(`🧹 清理了 ${orphanIds.length} 個孤兒 assignment 資料夾:`, orphanIds)
+    }
   }, [buildSyncUrl])
   // 頁面初次載入時更新 pendingCount
   useEffect(() => {
