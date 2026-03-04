@@ -276,6 +276,7 @@ export default function ScanImportFlow({
         await queueDeleteMany('submissions', existingIds)
 
         for (const oldSub of existingSubmissions) {
+          await db.answerExtractionCorrections.where('submissionId').equals(oldSub.id).delete()
           await db.submissions.delete(oldSub.id)
         }
 
@@ -404,6 +405,7 @@ export default function ScanImportFlow({
     setIsSaving(true)
     try {
       await queueDeleteMany('submissions', [submissionId])
+      await db.answerExtractionCorrections.where('submissionId').equals(submissionId).delete()
       await db.submissions.delete(submissionId)
 
       setCapturedData((prev) => {

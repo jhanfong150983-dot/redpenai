@@ -414,6 +414,7 @@ export default function ScannerPage({
           const existingIds = existingSubmissions.map((sub) => sub.id)
           await queueDeleteMany('submissions', existingIds)
           for (const oldSub of existingSubmissions) {
+            await db.answerExtractionCorrections.where('submissionId').equals(oldSub.id).delete()
             await db.submissions.delete(oldSub.id)
           }
         }

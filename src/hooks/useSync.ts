@@ -937,13 +937,48 @@ export function useSync(options: UseSyncOptions = {}) {
       }))
 
     if (deletedClassroomIds.length > 0) {
+      // 防禦性級聯：清理被刪班級的所有子實體
+      const orphanStudents = await db.students.where('classroomId').anyOf(deletedClassroomIds).toArray()
+      if (orphanStudents.length > 0) {
+        const sIds = orphanStudents.map(s => s.id)
+        await db.answerExtractionCorrections.where('studentId').anyOf(sIds).delete()
+        await db.students.bulkDelete(sIds)
+      }
+      const orphanAssignments = await db.assignments.where('classroomId').anyOf(deletedClassroomIds).toArray()
+      if (orphanAssignments.length > 0) {
+        const aIds = orphanAssignments.map(a => a.id)
+        const orphanSubs = await db.submissions.where('assignmentId').anyOf(aIds).toArray()
+        if (orphanSubs.length > 0) {
+          await db.answerExtractionCorrections.where('submissionId').anyOf(orphanSubs.map(s => s.id)).delete()
+          await db.submissions.bulkDelete(orphanSubs.map(s => s.id))
+        }
+        await db.answerExtractionCorrections.where('assignmentId').anyOf(aIds).delete()
+        await db.teacherSummaryCache.where('assignmentId').anyOf(aIds).delete()
+        await db.assignments.bulkDelete(aIds)
+      }
+      const orphanFolders = await db.folders.where('classroomId').anyOf(deletedClassroomIds).toArray()
+      if (orphanFolders.length > 0) {
+        await db.folders.bulkDelete(orphanFolders.map(f => f.id))
+      }
       await db.classrooms.bulkDelete(deletedClassroomIds)
     }
     if (deletedStudentIds.length > 0) {
+      // 級聯清理學生的 submissions
+      const studentOrphanSubs = await db.submissions.where('studentId').anyOf(deletedStudentIds).toArray()
+      if (studentOrphanSubs.length > 0) {
+        await db.answerExtractionCorrections.where('submissionId').anyOf(studentOrphanSubs.map(s => s.id)).delete()
+        await db.submissions.bulkDelete(studentOrphanSubs.map(s => s.id))
+      }
       await db.students.bulkDelete(deletedStudentIds)
       await db.answerExtractionCorrections.where('studentId').anyOf(deletedStudentIds).delete()
     }
     if (deletedAssignmentIds.length > 0) {
+      // 級聯清理作業的 submissions
+      const assignmentOrphanSubs = await db.submissions.where('assignmentId').anyOf(deletedAssignmentIds).toArray()
+      if (assignmentOrphanSubs.length > 0) {
+        await db.answerExtractionCorrections.where('submissionId').anyOf(assignmentOrphanSubs.map(s => s.id)).delete()
+        await db.submissions.bulkDelete(assignmentOrphanSubs.map(s => s.id))
+      }
       await db.assignments.bulkDelete(deletedAssignmentIds)
       await db.answerExtractionCorrections.where('assignmentId').anyOf(deletedAssignmentIds).delete()
       await db.teacherSummaryCache.where('assignmentId').anyOf(deletedAssignmentIds).delete()

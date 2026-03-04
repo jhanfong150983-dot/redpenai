@@ -896,6 +896,18 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
 
       await db.students.bulkPut(records)
       if (removedStudentIds.length > 0) {
+        // 清除被移除學生的 submissions 和 corrections
+        const orphanSubs = await db.submissions
+          .where('studentId')
+          .anyOf(removedStudentIds)
+          .toArray()
+        if (orphanSubs.length > 0) {
+          const orphanSubIds = orphanSubs.map(s => s.id)
+          await queueDeleteMany('submissions', orphanSubIds)
+          await db.answerExtractionCorrections.where('submissionId').anyOf(orphanSubIds).delete()
+          await db.submissions.bulkDelete(orphanSubIds)
+        }
+        await db.answerExtractionCorrections.where('studentId').anyOf(removedStudentIds).delete()
         await db.students.bulkDelete(removedStudentIds)
         await queueDeleteMany('students', removedStudentIds)
       }

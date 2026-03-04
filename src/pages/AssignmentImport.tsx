@@ -613,6 +613,7 @@ export default function AssignmentImport({
             feedback: oldSub.feedback,
             hasGradingResult: !!oldSub.gradingResult
           })
+          await db.answerExtractionCorrections.where('submissionId').equals(oldSub.id).delete()
           await db.submissions.delete(oldSub.id)
         }
 
