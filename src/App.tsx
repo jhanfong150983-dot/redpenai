@@ -249,13 +249,13 @@ function App() {
         }
       })
       if (!response.ok) {
-        setAuth({ status: 'unauthenticated' })
+        setAuth(prev => prev.status === 'unauthenticated' ? prev : { status: 'unauthenticated' })
         return
       }
 
       const data = await response.json()
       if (!data?.user?.id) {
-        setAuth({ status: 'unauthenticated' })
+        setAuth(prev => prev.status === 'unauthenticated' ? prev : { status: 'unauthenticated' })
         return
       }
 
@@ -293,7 +293,7 @@ function App() {
       })
     } catch (error) {
       console.error('驗證登入狀態失敗', error)
-      setAuth({ status: 'unauthenticated', error: '無法連線到伺服器' })
+      setAuth(prev => prev.status === 'unauthenticated' ? prev : { status: 'unauthenticated', error: '無法連線到伺服器' })
     }
   }, [])
 
