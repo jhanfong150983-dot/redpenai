@@ -157,13 +157,43 @@ export function useSync(options: UseSyncOptions = {}) {
     try {
       await db.submissions.update(submissionId, payload)
     } catch (error) {
+      if (isQuotaError(error)) {
+        console.warn('⚠️ IndexedDB 儲存空間不足，略過圖片快取')
+        return
+      }
       if (!avoidBlobStorage && blob && isIndexedDbBlobError(error)) {
         delete payload.imageBlob
-        await db.submissions.update(submissionId, payload)
+        try {
+          await db.submissions.update(submissionId, payload)
+        } catch (err2) {
+          if (isQuotaError(err2)) {
+            console.warn('⚠️ IndexedDB 儲存空間不足，略過 Base64 快取')
+            return
+          }
+          throw err2
+        }
       } else {
         throw error
       }
     }
+  }
+
+  const isQuotaError = (error: unknown): boolean => {
+    if (error instanceof Error) {
+      return error.name === 'QuotaExceededError' || error.message.toLowerCase().includes('quota')
+    }
+    return false
+  }
+
+  const isAbortError = (error: unknown): boolean => {
+    if (error instanceof Error) {
+      return (
+        error.name === 'AbortError' ||
+        error.message.toLowerCase().includes('interrupted') ||
+        error.message.toLowerCase().includes('abort')
+      )
+    }
+    return false
   }
 
   const isRlsError = (value: unknown) => {
@@ -941,7 +971,28 @@ export function useSync(options: UseSyncOptions = {}) {
 
     await db.students.bulkPut(normalizedStudents)
     await db.assignments.bulkPut(normalizedAssignments)
-    await db.submissions.bulkPut(mergedSubmissions)
+    try {
+      await db.submissions.bulkPut(mergedSubmissions)
+    } catch (err) {
+      if (isQuotaError(err)) {
+        console.warn('⚠️ IndexedDB 儲存空間不足，略過圖片快取後重試寫入 submissions')
+        const stripped = mergedSubmissions.map(
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          ({ imageBlob, imageBase64, thumbnailBlob, thumbnailBase64, ...rest }) => rest as Submission
+        )
+        try {
+          await db.submissions.bulkPut(stripped)
+        } catch (err2) {
+          if (isQuotaError(err2)) {
+            console.warn('⚠️ IndexedDB 儲存空間持續不足，跳過 submissions 本地更新')
+          } else {
+            throw err2
+          }
+        }
+      } else {
+        throw err
+      }
+    }
 
     // 再檢查 folders 狀態
     const afterPut = await db.folders.toArray()
@@ -1098,7 +1149,19 @@ export function useSync(options: UseSyncOptions = {}) {
       if (isRlsError(error)) {
         markSyncBlocked(error instanceof Error ? error.message : String(error))
         setStatus((prev) => ({ ...prev, isSyncing: false, error: null }))
-        notifySyncComplete() // 錯誤時也要通知，避免 waitForSync() 等到 timeout
+        notifySyncComplete()
+        return
+      }
+      if (isAbortError(error)) {
+        console.log('🔄 [同步] 請求被中斷（用戶操作或離開頁面），靜默處理')
+        setStatus((prev) => ({ ...prev, isSyncing: false, error: null }))
+        notifySyncComplete()
+        return
+      }
+      if (isQuotaError(error)) {
+        console.warn('⚠️ [同步] IndexedDB 儲存空間不足，同步仍視為完成')
+        setStatus((prev) => ({ ...prev, isSyncing: false, error: null }))
+        notifySyncComplete()
         return
       }
       console.error('同步過程發生錯誤:', error)
@@ -1107,7 +1170,7 @@ export function useSync(options: UseSyncOptions = {}) {
         isSyncing: false,
         error: error instanceof Error ? error.message : '同步失敗'
       }))
-      notifySyncComplete() // 錯誤時也要通知，避免 waitForSync() 等到 timeout
+      notifySyncComplete()
     } finally {
       isSyncingRef.current = false
       if (syncQueuedRef.current) {
