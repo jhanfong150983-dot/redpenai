@@ -176,6 +176,7 @@ export interface GradingDetail {
   finalAnswerSource?: 'ai_read1' | 'ai_read2' | 'manual'
   answerCropImageUrl?: string
   mistakeTypeCodes?: string[]
+  studentGuidance?: string
 }
 
 /**

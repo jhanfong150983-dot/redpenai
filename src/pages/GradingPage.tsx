@@ -3229,78 +3229,7 @@ export default function GradingPage({
                   </div>
                 )}
 
-                {/* 錯誤摘要 */}
-                {selectedSubmission.submission.gradingResult?.mistakes &&
-                selectedSubmission.submission.gradingResult!.mistakes.length > 0 ? (
-                  <div>
-                    <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2 text-sm uppercase tracking-wide">
-                      <XCircle className="w-4 h-4 text-red-500" /> 錯誤摘要
-                    </h3>
-                    <div className="space-y-3">
-                      {selectedSubmission.submission.gradingResult!.mistakes.map((m, i) => (
-                        <div
-                          key={i}
-                          className="bg-red-50/50 rounded-lg p-3 border border-red-100 text-sm"
-                        >
-                          <div className="flex justify-between font-semibold text-gray-800 mb-1">
-                            <span>第 {m.id} 題</span>
-                          </div>
-                          <div className="text-gray-600 text-xs mb-1.5">{m.question}</div>
-                          <div className="text-red-700 font-medium bg-white px-2 py-1 rounded border border-red-100 inline-block text-xs">
-                            原因：{m.reason}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-green-50 p-4 rounded-xl border border-green-100 text-center">
-                    <p className="text-green-700 font-bold">目前沒有錯誤摘要</p>
-                  </div>
-                )}
-
-                {/* 弱項 */}
-                {selectedSubmission.submission.gradingResult?.weaknesses &&
-                  selectedSubmission.submission.gradingResult!.weaknesses.length > 0 && (
-                    <div>
-                      <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2 text-sm uppercase tracking-wide">
-                        <Sparkles className="w-4 h-4 text-orange-500" /> 弱項
-                      </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {selectedSubmission.submission.gradingResult!.weaknesses.map((w, i) => (
-                          <span
-                            key={i}
-                            className="px-3 py-1.5 bg-orange-50 text-orange-700 border border-orange-100 rounded-md text-sm font-medium"
-                          >
-                            {w}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                {/* 建議 */}
-                {selectedSubmission.submission.gradingResult?.suggestions &&
-                  selectedSubmission.submission.gradingResult!.suggestions.length > 0 && (
-                    <div>
-                      <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2 text-sm uppercase tracking-wide">
-                        <RotateCcw className="w-4 h-4 text-blue-500" /> 補救建議
-                      </h3>
-                      <ul className="space-y-2">
-                        {selectedSubmission.submission.gradingResult!.suggestions.map((s, i) => (
-                          <li
-                            key={i}
-                            className="flex gap-3 text-sm text-gray-600 bg-blue-50/50 p-3 rounded-lg"
-                          >
-                            <span className="text-blue-500 font-bold mt-0.5">·</span>
-                            <span className="leading-relaxed">{s}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                {!selectedSubmission.submission.gradingResult?.mistakes &&
+                {!selectedSubmission.submission.gradingResult?.details &&
                   selectedSubmission.submission.feedback && (
                     <div className="text-gray-400 text-sm text-center italic py-4">
                       這是舊版批改紀錄，建議重新批改更新 AI 結果
