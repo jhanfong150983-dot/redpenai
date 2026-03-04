@@ -225,10 +225,13 @@ function App() {
   } | null>(null)
   const notifRef = useRef<HTMLDivElement | null>(null)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
+  const ssoRedirectingRef = useRef(false)
   const inkBalance =
     auth.status === 'authenticated' ? auth.user.inkBalance ?? 0 : null
 
   const fetchAuth = useCallback(async () => {
+    // SSO 重導中（1Campus code+dsns or 等待跳轉），跳過驗證避免無意義 401
+    if (ssoRedirectingRef.current) return
     try {
       const response = await fetch('/api/auth/me', {
         credentials: 'include',
@@ -357,6 +360,7 @@ function App() {
 
     // 1Campus 入口：有 code + dsns，且 dsns 格式合法 → 導向後端 SSO handler
     if (code && dsns && /^[a-zA-Z0-9.\-]+$/.test(dsns) && !dsns.includes('..')) {
+      ssoRedirectingRef.current = true
       const redirectUrl = buildApiUrl(
         `/api/auth/1campus?code=${encodeURIComponent(code)}&dsns=${encodeURIComponent(dsns)}`
       )
