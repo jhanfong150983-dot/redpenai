@@ -8,7 +8,7 @@ import {
 import { blobToBase64 as blobToDataUrl, compressImageFile } from './imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from './blob-storage'
 import { dispatchInkBalance } from './ink-events'
-import { getInkSessionId, startInkSession, ensureInkSessionFresh } from './ink-session'
+import { getInkSessionId, startInkSession, setInkSessionId, ensureInkSessionFresh } from './ink-session'
 
 const geminiProxyUrl = import.meta.env.VITE_GEMINI_PROXY_URL || '/api/proxy'
 
@@ -3194,18 +3194,32 @@ export async function gradePhaseA(
   const imageBase64 = await blobToBase64(compressed)
   const mimeType = compressed.type || submissionImageBlob.type || 'image/jpeg'
 
-  const response = await fetch(geminiProxyUrl, {
+  const buildPhaseABody = (sid: string | null) => JSON.stringify({
+    model: currentModelName,
+    contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
+    ...(sid ? { inkSessionId: sid } : {}),
+    routeKey: 'grading.phase_a',
+    answerKey: JSON.stringify(answerKey)
+  })
+
+  let response = await fetch(geminiProxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({
-      model: currentModelName,
-      contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
-      ...(inkSessionId ? { inkSessionId } : {}),
-      routeKey: 'grading.phase_a',
-      answerKey: JSON.stringify(answerKey)
-    })
+    body: buildPhaseABody(inkSessionId)
   })
+
+  if (response.status === 409) {
+    console.warn('[gradePhaseA] Ink session not found (409), creating new session and retrying...')
+    setInkSessionId(null)
+    const { sessionId: newSessionId } = await startInkSession()
+    response = await fetch(geminiProxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: buildPhaseABody(newSessionId)
+    })
+  }
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({})) as Record<string, unknown>
@@ -3256,19 +3270,33 @@ export async function gradePhaseB(
     ),
   }
 
-  const response = await fetch(geminiProxyUrl, {
+  const buildPhaseBBody = (sid: string | null) => JSON.stringify({
+    model: currentModelName,
+    contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
+    ...(sid ? { inkSessionId: sid } : {}),
+    routeKey: 'grading.phase_b',
+    phaseAResult: phaseAForServer,
+    finalAnswers
+  })
+
+  let response = await fetch(geminiProxyUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({
-      model: currentModelName,
-      contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
-      ...(inkSessionId ? { inkSessionId } : {}),
-      routeKey: 'grading.phase_b',
-      phaseAResult: phaseAForServer,
-      finalAnswers
-    })
+    body: buildPhaseBBody(inkSessionId)
   })
+
+  if (response.status === 409) {
+    console.warn('[gradePhaseB] Ink session not found (409), creating new session and retrying...')
+    setInkSessionId(null)
+    const { sessionId: newSessionId } = await startInkSession()
+    response = await fetch(geminiProxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: buildPhaseBBody(newSessionId)
+    })
+  }
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({})) as Record<string, unknown>
