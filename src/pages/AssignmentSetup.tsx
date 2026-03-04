@@ -2959,18 +2959,23 @@ export default function AssignmentSetup({
                             className="space-y-2 text-xs bg-white rounded-lg px-3 py-2 border border-gray-200"
                           >
                             <div className="grid grid-cols-[auto,1fr,auto,auto] gap-2 items-center">
-                              <input
-                                className="w-14 px-1 py-1 border border-gray-300 rounded"
-                                value={q.id}
-                                onChange={(e) =>
-                                  updateQuestionField(
-                                    'create',
-                                    idx,
-                                    'id',
-                                    e.target.value
-                                  )
-                                }
-                              />
+                              <div className="flex items-center gap-0.5">
+                                <input
+                                  className="w-14 px-1 py-1 border border-gray-300 rounded"
+                                  value={q.id}
+                                  onChange={(e) =>
+                                    updateQuestionField(
+                                      'create',
+                                      idx,
+                                      'id',
+                                      e.target.value
+                                    )
+                                  }
+                                />
+                                {q.referenceBbox && (
+                                  <span title={`位置參考 (${q.referenceBbox.x.toFixed(2)}, ${q.referenceBbox.y.toFixed(2)})`} className="text-blue-500 text-[10px]">📍</span>
+                                )}
+                              </div>
                               <div className="flex items-center gap-1">
                                 <select
                                   className="flex-1 px-2 py-1 border border-gray-300 rounded bg-white"
@@ -3494,13 +3499,18 @@ export default function AssignmentSetup({
                         className="space-y-2 text-xs bg-white rounded-lg px-3 py-2 border border-gray-200"
                       >
                         <div className="grid grid-cols-[auto,1fr,auto,auto] gap-2 items-center">
-                          <input
-                            className="w-14 px-1 py-1 border border-gray-300 rounded"
-                            value={q.id}
-                            onChange={(e) =>
-                              updateQuestionField('edit', idx, 'id', e.target.value)
-                            }
-                          />
+                          <div className="flex items-center gap-0.5">
+                            <input
+                              className="w-14 px-1 py-1 border border-gray-300 rounded"
+                              value={q.id}
+                              onChange={(e) =>
+                                updateQuestionField('edit', idx, 'id', e.target.value)
+                              }
+                            />
+                            {q.referenceBbox && (
+                              <span title={`位置參考 (${q.referenceBbox.x.toFixed(2)}, ${q.referenceBbox.y.toFixed(2)})`} className="text-blue-500 text-[10px]">📍</span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-1">
                             <select
                               className="flex-1 px-2 py-1 border border-gray-300 rounded bg-white"
