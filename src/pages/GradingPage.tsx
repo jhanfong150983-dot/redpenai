@@ -855,6 +855,19 @@ export default function GradingPage({
     setGradingProgress({ current: 0, total: 0 })
   }, [batchPhaseAEntries, students])
 
+  // ─── 自動跳過審查：若所有學生的所有題目都 stable，直接進 Phase B ──────────
+  useEffect(() => {
+    if (gradingPhase !== 'awaiting_review') return
+    if (batchPhaseAEntries.length === 0) return
+    const allStable = batchPhaseAEntries.every(e =>
+      e.phaseAResult.questionResults.every(q => q.consistencyStatus === 'stable')
+    )
+    if (allStable) {
+      console.log('✅ 所有題目一致性穩定，自動跳過審查直接進入正式批改')
+      void executeBatchPhaseB()
+    }
+  }, [gradingPhase, batchPhaseAEntries, executeBatchPhaseB])
+
   // ─── Batch Decision: 老師對單題的決策 ────────────────────────────────────
   const handleBatchDecision = useCallback(
     (studentId: string, questionId: string, update: Partial<ConsistencyDecision>) => {
