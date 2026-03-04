@@ -34,7 +34,7 @@ import { SyncIndicator } from '@/components'
 import { checkWebPSupport } from '@/lib/webpSupport'
 import { INK_BALANCE_EVENT, type InkBalanceDetail } from '@/lib/ink-events'
 import { buildApiUrl } from '@/lib/api-base'
-import { requestSync } from '@/lib/sync-events'
+import { requestSync, SYNC_COMPLETE_EVENT_NAME } from '@/lib/sync-events'
 import '@/lib/debug-sync'
 import { debugLog } from '@/lib/logger'
 import { LEGAL_MODAL_EVENT, type LegalModalDetail } from '@/lib/legal-events'
@@ -170,6 +170,7 @@ type LoginEntryMode = 'teacher' | 'student'
 
 const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
 const CURRENT_USER_ID_KEY = 'redpen-current-user-id'
+const INITIAL_SYNCED_KEY = 'redpen-initial-synced'
 
 const normalizeLoginEntry = (value: unknown): LoginEntryMode | null => {
   if (typeof value !== 'string') return null
@@ -210,6 +211,7 @@ function App() {
     OVERVIEW_VISIBLE_STEP
   )
   const [isCameraCaptureMode, setIsCameraCaptureMode] = useState(false)
+  const [isInitialSyncing, setIsInitialSyncing] = useState(false)
   const [pendingInk, setPendingInk] = useState<PendingInkSummary>({
     count: 0,
     totalDrops: 0,
@@ -331,6 +333,7 @@ function App() {
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(LOGIN_ENTRY_STORAGE_KEY)
         window.localStorage.removeItem(CURRENT_USER_ID_KEY)
+        window.localStorage.removeItem(INITIAL_SYNCED_KEY)
       }
     }
   }, [])
@@ -456,6 +459,20 @@ function App() {
     window.addEventListener('focus', handleFocus)
     return () => window.removeEventListener('focus', handleFocus)
   }, [fetchAuth])
+
+  // 初次同步 loading：登入後若無同步紀錄，顯示 loading 直到第一次同步完成
+  useEffect(() => {
+    if (auth.status !== 'authenticated') return
+    if (window.localStorage.getItem(INITIAL_SYNCED_KEY)) return
+
+    setIsInitialSyncing(true)
+    const handler = () => {
+      setIsInitialSyncing(false)
+      window.localStorage.setItem(INITIAL_SYNCED_KEY, '1')
+    }
+    window.addEventListener(SYNC_COMPLETE_EVENT_NAME, handler, { once: true })
+    return () => window.removeEventListener(SYNC_COMPLETE_EVENT_NAME, handler)
+  }, [auth.status])
 
   // 應用啟動時檢測 WebP 支持（用於平板Chrome兼容性）
   useEffect(() => {
@@ -991,6 +1008,17 @@ function App() {
 
   if (auth.status === 'unauthenticated') {
     return <LandingPage />
+  }
+
+  if (isInitialSyncing) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-gray-600 text-sm">正在載入資料...</p>
+        </div>
+      </div>
+    )
   }
 
   if (viewMode === 'student-unlinked') {
