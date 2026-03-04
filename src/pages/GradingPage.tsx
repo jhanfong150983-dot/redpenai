@@ -1831,7 +1831,6 @@ export default function GradingPage({
         const sub = toGrade[i]
         const student = students.find((s) => s.id === sub.studentId)
         if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
-        setGradingProgress({ current: i + 1, total: toGrade.length })
 
         try {
           const phaseAResult = await gradePhaseA(sub.imageBlob!, assignment.answerKey)
@@ -1860,6 +1859,7 @@ export default function GradingPage({
           console.error(`Phase A failed for ${sub.id}:`, err)
           // Skip this student; they won't appear in review
         }
+        setGradingProgress({ current: i + 1, total: toGrade.length })
       }
 
       if (stopRequestedRef.current) {
@@ -2537,6 +2537,17 @@ export default function GradingPage({
           </div>
         )}
 
+        {/* Batch Phase A 一致性審查（重新批改時，顯示於標籤篩選上方） */}
+        {gradingPhase === 'awaiting_review' && batchPhaseAEntries.length > 0 && (
+          <BatchConsistencyReviewSection
+            entries={batchPhaseAEntries}
+            allStudents={students}
+            onDecision={handleBatchDecision}
+            onStartPhaseB={() => { void executeBatchPhaseB() }}
+            isPhaseBRunning={false}
+          />
+        )}
+
         {/* 標籤篩選 */}
         {tagCounts.length > 0 && (
           <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 flex flex-wrap items-center gap-2">
@@ -2566,17 +2577,6 @@ export default function GradingPage({
               </button>
             )}
           </div>
-        )}
-
-        {/* Batch Phase A 一致性審查 */}
-        {gradingPhase === 'awaiting_review' && batchPhaseAEntries.length > 0 && (
-          <BatchConsistencyReviewSection
-            entries={batchPhaseAEntries}
-            allStudents={students}
-            onDecision={handleBatchDecision}
-            onStartPhaseB={() => { void executeBatchPhaseB() }}
-            isPhaseBRunning={false}
-          />
         )}
 
         {/* Grid */}
