@@ -302,6 +302,16 @@ function App() {
     } catch (err) {
       console.error('❌ 登出時清空本地資料庫失敗', err)
     }
+    // 清空所有 Service Worker 快取，釋放儲存配額（避免 QuotaExceededError）
+    if ('caches' in window) {
+      try {
+        const cacheNames = await caches.keys()
+        await Promise.all(cacheNames.map((name) => caches.delete(name)))
+        console.log('✅ 登出：Service Worker 快取已清空')
+      } catch (err) {
+        console.error('❌ 清空 SW 快取失敗', err)
+      }
+    }
     window.localStorage.removeItem(LOGIN_ENTRY_STORAGE_KEY)
     window.localStorage.removeItem(CURRENT_USER_ID_KEY)
     window.localStorage.removeItem(INITIAL_SYNCED_KEY)
