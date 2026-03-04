@@ -198,8 +198,7 @@ function App() {
   const [urlPageHandled, setUrlPageHandled] = useState(false)
   const [hasPaidOrder, setHasPaidOrder] = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
-  const [homeOverviewLoading, setHomeOverviewLoading] = useState(false)
-  const [homeDataReady, setHomeDataReady] = useState(false)
+  const [homeOverviewLoading, setHomeOverviewLoading] = useState(true)
   const [homeOverviewSummary, setHomeOverviewSummary] = useState<HomeOverviewSummary>({
     totalAssignments: 0,
     assignmentsWithoutUploads: 0,
@@ -499,7 +498,6 @@ function App() {
     if (auth.status !== 'authenticated') {
       setHasPaidOrder(false)
       setPendingInk({ count: 0, totalDrops: 0, amountTwd: 0 })
-      setHomeDataReady(false)
       return
     }
 
@@ -892,7 +890,6 @@ function App() {
       console.error('載入作業總覽失敗', error)
     } finally {
       setHomeOverviewLoading(false)
-      setHomeDataReady(true)
     }
   }, [])
 
@@ -998,12 +995,12 @@ function App() {
     return <LandingPage />
   }
 
-  if (isInitialSyncing || (!homeDataReady && currentPage === 'home')) {
+  if (isInitialSyncing) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
           <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-gray-600 text-sm">{isInitialSyncing ? '正在載入資料...' : '正在準備首頁...'}</p>
+          <p className="text-gray-600 text-sm">正在載入資料...</p>
         </div>
       </div>
     )
@@ -1761,33 +1758,49 @@ function App() {
                     <div className="mt-4 grid gap-0 sm:grid-cols-2 xl:grid-cols-4">
                       <div className="px-2 py-3 xl:border-r xl:border-slate-200">
                         <p className="text-[11px] text-slate-400">總作業數</p>
-                        <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
-                          {homeOverviewSummary.totalAssignments}
-                        </p>
+                        {homeOverviewLoading ? (
+                          <div className="mt-2 h-9 w-16 animate-pulse rounded bg-slate-100" />
+                        ) : (
+                          <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
+                            {homeOverviewSummary.totalAssignments}
+                          </p>
+                        )}
                       </div>
                       <div className="px-2 py-3 xl:border-r xl:border-slate-200">
                         <p className="text-[11px] text-slate-400">待匯入作業</p>
-                        <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
-                          {homeOverviewSummary.assignmentsWithoutUploads}
-                        </p>
+                        {homeOverviewLoading ? (
+                          <div className="mt-2 h-9 w-16 animate-pulse rounded bg-slate-100" />
+                        ) : (
+                          <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
+                            {homeOverviewSummary.assignmentsWithoutUploads}
+                          </p>
+                        )}
                       </div>
                       <div className="px-2 py-3 xl:border-r xl:border-slate-200">
                         <p className="text-[11px] text-slate-400">待批改份數</p>
-                        <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
-                          {homeOverviewSummary.pendingGradingSubmissions}
-                        </p>
+                        {homeOverviewLoading ? (
+                          <div className="mt-2 h-9 w-16 animate-pulse rounded bg-slate-100" />
+                        ) : (
+                          <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
+                            {homeOverviewSummary.pendingGradingSubmissions}
+                          </p>
+                        )}
                       </div>
                       <div className="px-2 py-3">
                         <p className="text-[11px] text-slate-400">批改完成率</p>
-                        <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
-                          {homeOverviewSummary.uploadedSubmissions > 0
-                            ? `${Math.round(
-                                (homeOverviewSummary.gradedSubmissions /
-                                  homeOverviewSummary.uploadedSubmissions) *
-                                  100
-                              )}%`
-                            : '0%'}
-                        </p>
+                        {homeOverviewLoading ? (
+                          <div className="mt-2 h-9 w-16 animate-pulse rounded bg-slate-100" />
+                        ) : (
+                          <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
+                            {homeOverviewSummary.uploadedSubmissions > 0
+                              ? `${Math.round(
+                                  (homeOverviewSummary.gradedSubmissions /
+                                    homeOverviewSummary.uploadedSubmissions) *
+                                    100
+                                )}%`
+                              : '0%'}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </section>
