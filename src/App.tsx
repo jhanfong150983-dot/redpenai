@@ -169,6 +169,7 @@ type HomeNavSection = {
 type LoginEntryMode = 'teacher' | 'student'
 
 const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
+const CURRENT_USER_ID_KEY = 'redpen-current-user-id'
 
 const normalizeLoginEntry = (value: unknown): LoginEntryMode | null => {
   if (typeof value !== 'string') return null
@@ -246,6 +247,29 @@ function App() {
         return
       }
 
+      // 偵測使用者切換：若登入的是不同帳號，先清空本地資料庫避免資料混用
+      const storedUserId = window.localStorage.getItem(CURRENT_USER_ID_KEY)
+      if (storedUserId && storedUserId !== data.user.id) {
+        console.log('🔄 偵測到使用者切換，清空本地資料庫...')
+        try {
+          await Promise.all([
+            db.classrooms.clear(),
+            db.students.clear(),
+            db.assignments.clear(),
+            db.submissions.clear(),
+            db.folders.clear(),
+            db.answerExtractionCorrections.clear(),
+            db.teacherSummaryCache.clear(),
+            db.domainDiagnosisCache.clear(),
+            db.syncQueue.clear()
+          ])
+          console.log('✅ 本地資料庫已清空')
+        } catch (err) {
+          console.error('❌ 清空本地資料庫失敗', err)
+        }
+      }
+      window.localStorage.setItem(CURRENT_USER_ID_KEY, data.user.id)
+
       // 除錯：顯示資料來源
       if (data._debug) {
         console.log('📊 Auth 資料來源:', {
@@ -290,6 +314,7 @@ function App() {
       setImportSelectedFolder('')
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(LOGIN_ENTRY_STORAGE_KEY)
+        window.localStorage.removeItem(CURRENT_USER_ID_KEY)
       }
     }
   }, [])
