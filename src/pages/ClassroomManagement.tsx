@@ -469,6 +469,9 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     const target = items.find((item) => item.classroom.id === targetClassroomId)
     if (!dragged || !target) return
 
+    // 禁止 1Campus 班級參與拖放排序
+    if (dragged.classroom.folder === '1Campus' || target.classroom.folder === '1Campus') return
+
     try {
       if (dragged.classroom.folder !== target.classroom.folder) {
         await db.classrooms.update(draggedClassroomId, {
@@ -510,6 +513,9 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     e.preventDefault()
     if (!draggedFolderName || draggedFolderName === targetFolder) return
 
+    // 禁止 1Campus 資料夾參與拖放排序
+    if (draggedFolderName === '1Campus' || targetFolder === '1Campus') return
+
     setFolderOrder((prev) => {
       const base = [...new Set([...prev, ...orderedFolders])]
       return reorderList(base, draggedFolderName, targetFolder)
@@ -524,8 +530,14 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
 
     if (!draggedClassroomId) return
 
+    // 禁止拖入 1Campus 資料夾
+    if (targetFolder === '1Campus') return
+
     const classroom = items.find(item => item.classroom.id === draggedClassroomId)?.classroom
     if (!classroom) return
+
+    // 禁止拖出 1Campus 班級
+    if (classroom.folder === '1Campus') return
 
     // 更新資料夾
     const newFolder = targetFolder === '__uncategorized__' ? undefined : targetFolder
@@ -1016,7 +1028,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     <div
       key={item.classroom.id}
       data-tutorial-card={tutorialCard}
-      draggable={editingId !== item.classroom.id}
+      draggable={editingId !== item.classroom.id && item.classroom.folder !== '1Campus'}
       onDragStart={() => handleDragStart(item.classroom.id)}
       onDragOver={(e) => handleClassroomCardDragOver(e, item.classroom.id)}
       onDragLeave={() => {
@@ -1031,7 +1043,9 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
           ? 'border-green-400 ring-1 ring-green-300'
           : 'border-slate-200'
       } ${
-        draggedClassroomId === item.classroom.id ? 'cursor-grabbing opacity-50' : 'cursor-grab'
+        item.classroom.folder === '1Campus'
+          ? 'cursor-default'
+          : draggedClassroomId === item.classroom.id ? 'cursor-grabbing opacity-50' : 'cursor-grab'
       }`}
     >
       <div className="flex items-center justify-between gap-3">
@@ -1227,7 +1241,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                       <div
                         key={folder}
                         data-tutorial-folder={index === 0 ? 'first-folder' : undefined}
-                        draggable={editingFolderId !== folder}
+                        draggable={editingFolderId !== folder && folder !== '1Campus'}
                         onDragStart={() => handleFolderDragStart(folder)}
                         onDragEnd={handleDragEnd}
                         onDragOver={(e) => {
