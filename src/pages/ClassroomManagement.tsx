@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { db, generateId } from '@/lib/db'
-import { requestSync } from '@/lib/sync-events'
+import { requestSync, SYNC_COMPLETE_EVENT_NAME } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { checkFolderNameUnique } from '@/lib/utils'
 import { useTutorial } from '@/hooks/useTutorial'
@@ -155,6 +155,16 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
 
   useEffect(() => {
     void loadData()
+  }, [loadData])
+
+  // 同步引擎完成 pull 後自動重新載入（例如 1Campus 班級同步後）
+  useEffect(() => {
+    const handleSyncComplete = () => {
+      console.log('[ClassroomManagement] sync complete, reloading data')
+      void loadData()
+    }
+    window.addEventListener(SYNC_COMPLETE_EVENT_NAME, handleSyncComplete)
+    return () => window.removeEventListener(SYNC_COMPLETE_EVENT_NAME, handleSyncComplete)
   }, [loadData])
 
   useEffect(() => {
