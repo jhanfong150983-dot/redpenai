@@ -333,6 +333,13 @@ function App() {
     window.localStorage.removeItem(LOGIN_ENTRY_STORAGE_KEY)
     window.localStorage.removeItem(CURRENT_USER_ID_KEY)
     window.localStorage.removeItem(INITIAL_SYNCED_KEY)
+    // 清除 1Campus 自動同步的 session flag，讓重新登入時能再次觸發
+    try {
+      const keys = Object.keys(window.sessionStorage)
+      keys.forEach((k) => {
+        if (k.startsWith('campus1_auto_sync_')) window.sessionStorage.removeItem(k)
+      })
+    } catch { /* ignore */ }
     // reload 確保 Dexie singleton 重新初始化，避免 DB 連線狀態殘留
     window.location.href = '/'
   }, [])
