@@ -395,7 +395,7 @@ function App() {
       const errorMessages: Record<string, string> = {
         invalid_params: '登入參數無效，請重新從 1Campus 進入',
         identity_failed: '無法驗證您的 1Campus 身份，請重新嘗試',
-        unsupported_role: '目前僅支援教師帳號登入',
+        unsupported_role: '目前僅支援教師或學生帳號登入',
         session_failed: '登入失敗，請重新嘗試',
         create_user_failed: '建立帳號失敗，請聯絡管理員',
         oauth_error: 'OAuth 授權失敗，請重新嘗試'
@@ -424,28 +424,58 @@ function App() {
   }, [])
 
   // 登入後觸發 1Campus 班級同步（背景執行，失敗不影響 UI）
+  // 來源 1：SSO 登入後帶 sso_sync=1 → ssoPendingSync
+  // 來源 2：Google 登入但已有 campus1Binding → 自動觸發
   useEffect(() => {
     if (auth.status !== 'authenticated') return
-    if (!ssoPendingSync) return
 
-    const { dsns } = ssoPendingSync
-    setSsoPendingSync(null)
+    // 優先處理 SSO 顯式同步請求
+    if (ssoPendingSync) {
+      const { dsns } = ssoPendingSync
+      setSsoPendingSync(null)
 
-    console.log('[SSO] 觸發班級同步 dsns=', dsns)
-    void fetch('/api/data/1campus-classroom-sync', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dsns })
-    }).then((res) => {
-      console.log('[SSO] 班級同步 HTTP', res.status)
-      return res.json().then((data) => {
-        console.log('[SSO] 班級同步結果:', data)
-        requestSync(true)
-      }).catch(() => requestSync(true))
-    }).catch((err) => {
-      console.warn('[SSO] 班級同步失敗（不影響登入）:', err)
-    })
+      console.log('[SSO] 觸發班級同步 dsns=', dsns)
+      void fetch('/api/data/1campus-classroom-sync', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dsns })
+      }).then((res) => {
+        console.log('[SSO] 班級同步 HTTP', res.status)
+        return res.json().then((data) => {
+          console.log('[SSO] 班級同步結果:', data)
+          requestSync(true)
+        }).catch(() => requestSync(true))
+      }).catch((err) => {
+        console.warn('[SSO] 班級同步失敗（不影響登入）:', err)
+      })
+      return
+    }
+
+    // Google 登入但已有 1Campus 綁定 → 自動同步
+    const binding = auth.user.campus1Binding
+    if (binding?.dsns) {
+      // 避免重複同步：同一 session 只觸發一次
+      const syncKey = `campus1_auto_sync_${auth.user.id}`
+      if (window.sessionStorage.getItem(syncKey)) return
+      window.sessionStorage.setItem(syncKey, '1')
+
+      console.log('[AUTO-SYNC] Google 登入偵測到 1Campus 綁定，自動同步 dsns=', binding.dsns)
+      void fetch('/api/data/1campus-classroom-sync', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dsns: binding.dsns })
+      }).then((res) => {
+        console.log('[AUTO-SYNC] 班級同步 HTTP', res.status)
+        return res.json().then((data) => {
+          console.log('[AUTO-SYNC] 班級同步結果:', data)
+          requestSync(true)
+        }).catch(() => requestSync(true))
+      }).catch((err) => {
+        console.warn('[AUTO-SYNC] 班級同步失敗（不影響使用）:', err)
+      })
+    }
   }, [auth.status, ssoPendingSync])
 
   useEffect(() => {
