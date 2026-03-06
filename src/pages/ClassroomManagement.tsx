@@ -644,6 +644,8 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
 
   const handleDeleteFolder = async (folderName: string) => {
     if (isSaving) return
+    // 禁止刪除 1Campus 資料夾
+    if (folderName === '1Campus') return
 
     const count = items.filter((item) => item.classroom.folder === folderName).length
     const message = count > 0
@@ -1327,6 +1329,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                                 </span>
                               </button>
                             )}
+                            {folder !== '1Campus' && (
                             <div className="flex items-center gap-1">
                               {editingFolderId !== folder && (
                                 <button
@@ -1356,6 +1359,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                                 <X className="h-4 w-4" />
                               </button>
                             </div>
+                            )}
                           </div>
                         </div>
                         {isExpanded && (
