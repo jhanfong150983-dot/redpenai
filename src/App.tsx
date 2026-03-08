@@ -290,13 +290,17 @@ function App() {
         })
       }
 
-      setAuth({
-        status: 'authenticated',
-        user: {
-          ...data.user,
-          role: (data.user.role || 'user').toLowerCase(),
-          permissionTier: (data.user.permissionTier || 'basic').toLowerCase(),
-          inkBalance: typeof data.user.inkBalance === 'number' ? data.user.inkBalance : 0
+      setAuth((prev) => {
+        const existingBalance = prev.status === 'authenticated' ? prev.user.inkBalance ?? 0 : 0
+        const resolvedBalance = typeof data.user.inkBalance === 'number' ? data.user.inkBalance : existingBalance
+        return {
+          status: 'authenticated',
+          user: {
+            ...data.user,
+            role: (data.user.role || 'user').toLowerCase(),
+            permissionTier: (data.user.permissionTier || 'basic').toLowerCase(),
+            inkBalance: resolvedBalance
+          }
         }
       })
     } catch (error) {
