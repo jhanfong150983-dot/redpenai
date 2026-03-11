@@ -237,7 +237,7 @@ export interface PhaseAResult {
 export interface FinalAnswer {
   questionId: string
   finalStudentAnswer: string
-  finalAnswerSource: 'ai_read1' | 'ai_read2' | 'manual'
+  finalAnswerSource: 'ai_read1' | 'ai_read2' | 'manual' | 'unrecognizable'
 }
 
 // 🆕 AnswerKey 緩存引用（用於跨請求共享）
