@@ -601,12 +601,13 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   )
   const canSubmitCorrection = useMemo(() => {
     if (!correctionAssignmentId || isSubmitting) return false
+    if (currentCorrectionAssignment?.status === 'correction_in_progress') return false
     if (actionableItems.length === 0) return false
     return actionableItems.every((item) => {
       const qId = item.questionId || ''
       return Boolean(questionActions[qId])
     })
-  }, [correctionAssignmentId, isSubmitting, actionableItems, questionActions])
+  }, [correctionAssignmentId, isSubmitting, currentCorrectionAssignment?.status, actionableItems, questionActions])
   const cameraRequiredPages = useMemo(
     () => Math.max(1, currentCameraAssignment?.totalPages || 1),
     [currentCameraAssignment]
@@ -1584,7 +1585,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 </button>
                 {!canSubmitCorrection && !isSubmitting && (
                   <p className="text-xs text-slate-500">
-                    每一題都需要選擇「拍照重做」或「申訴此題」後才能送出。
+                    {currentCorrectionAssignment?.status === 'correction_in_progress'
+                      ? 'AI 批改中，請稍候…'
+                      : '每一題都需要選擇「拍照重做」或「申訴此題」後才能送出。'}
                   </p>
                 )}
               </>
