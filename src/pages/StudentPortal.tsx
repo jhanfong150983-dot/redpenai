@@ -24,7 +24,7 @@ type PreviewModalState = { assignmentId: string; index: number } | null
 type Bbox = { x: number; y: number; w: number; h: number }
 type OpenCorrectionItem = NonNullable<StudentAssignmentItem['openCorrections']>[number]
 
-const CORRECTION_POLL_INTERVAL_MS = 10000
+const CORRECTION_POLL_INTERVAL_MS = 30000
 
 type StudentClassroomOption = {
   key: string
