@@ -39,6 +39,8 @@ type StudentClassroomOption = {
 
 type StudentAssignmentItem = {
   id: string
+  classroomName?: string
+  classroomKey?: string
   title: string
   totalPages: number
   status: string
@@ -866,20 +868,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     onCaptureModeChange?.(true)
   }
 
-  const handleClassroomChange = (classroomKey: string) => {
-    setSelectedClassroomKey(classroomKey)
-    setCorrectionAssignmentId('')
-    setSelectedFiles([])
-    setUploadDrafts({})
-    setPreviewedDraftSignatures({})
-    setCapturedBlobs([])
-    setPreviewModal(null)
-    setMessage(null)
-    setError(null)
-    setCameraAssignmentId('')
-    setCameraMode(null)
-    void loadOverview(classroomKey)
-  }
 
   const handleCameraCaptureComplete = (imageBlob: Blob) => {
     setCapturedBlobs((prev) => {
@@ -963,7 +951,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         credentials: 'include',
         body: JSON.stringify({
           assignmentId: assignment.id,
-          classroomKey: selectedClassroomKey || undefined,
+          classroomKey: assignment.classroomKey || undefined,
           mode,
           imageBase64: imageDataUrl,
           contentType: compressed.type || 'image/webp',
@@ -1108,22 +1096,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           </div>
         )}
 
-        {Array.isArray(overview?.classrooms) && overview.classrooms.length > 0 && (
-          <div className="mb-4">
-            <label className="mb-1 block text-sm font-medium text-slate-700">選擇班級</label>
-            <select
-              value={selectedClassroomKey}
-              onChange={(event) => handleClassroomChange(event.target.value)}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
-            >
-              {overview.classrooms.map((classroom) => (
-                <option key={classroom.key} value={classroom.key}>
-                  {classroom.classroomName} · {classroom.seatNumber} 號 {classroom.studentName}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
 
         {overview && !overview.preferences.studentPortalEnabled && (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -1199,6 +1171,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-lg font-semibold text-slate-900">{item.title}</p>
+                            {item.classroomName && (
+                              <p className="text-xs text-slate-400">{item.classroomName}</p>
+                            )}
                             <p className="mt-1 text-sm text-slate-600">
                               需上傳 {item.totalPages} 頁
                               <span className="mx-1.5 text-slate-300">|</span>
@@ -1380,7 +1355,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 <option value="">請選擇作業</option>
                 {correctionAssignments.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.title}
+                    {item.classroomName ? `[${item.classroomName}] ` : ''}{item.title}
                   </option>
                 ))}
               </select>
