@@ -882,6 +882,7 @@ export default function GradingPage({
           status: 'graded',
           score: totalScore,
           gradingResult,
+          gradedAt: Date.now(),
         })
 
         setSubmissions((prev) => {
