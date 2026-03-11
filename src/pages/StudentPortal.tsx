@@ -945,11 +945,24 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     const timeoutId = setTimeout(() => controller.abort(), 90_000)
 
     try {
+      // For correction: keep merged image small (display only) + build per-question array
+      const mergeTarget = mode === 'correction' ? 500_000 : 2_000_000
       const merged = await mergeImagesVertically(files)
-      const compressed = await compressToTargetBytes(merged, 2_000_000, {
-        maxWidth: 2000
-      })
+      const compressed = await compressToTargetBytes(merged, mergeTarget, { maxWidth: 2000 })
       const imageDataUrl = await blobToBase64(compressed)
+
+      // Per-question correction images: files[i] → correctionItems[i]
+      let correctionImages: Array<{ questionId: string; imageBase64: string; contentType: string }> = []
+      if (mode === 'correction' && correctionItems.length > 0) {
+        correctionImages = await Promise.all(
+          files.map(async (file, i) => {
+            const questionId = correctionItems[i]?.questionId || `q${i + 1}`
+            const compressedItem = await compressToTargetBytes(file, 300_000, { maxWidth: 1200 })
+            const imageBase64 = await blobToBase64(compressedItem)
+            return { questionId, imageBase64, contentType: compressedItem.type || 'image/webp' }
+          })
+        )
+      }
 
       const response = await fetch('/api/data/student-submission', {
         method: 'POST',
@@ -962,7 +975,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           mode,
           imageBase64: imageDataUrl,
           contentType: compressed.type || 'image/webp',
-          pageCount: files.length
+          pageCount: files.length,
+          ...(correctionImages.length > 0 ? { correctionImages } : {})
         })
       })
       clearTimeout(timeoutId)
