@@ -230,7 +230,21 @@ export default function CorrectionManagement({
       if (!response.ok) {
         throw new Error(data?.error || '停止訂正失敗')
       }
-      setMessage('已停止本次作業訂正。')
+
+      const blocked: Array<{ studentId: string; name: string; seatNumber: number }> = data.blockedStudents || []
+      const recalledCount: number = data.recalledCount ?? 0
+
+      if (blocked.length > 0) {
+        const names = blocked.map((s) => `${s.seatNumber} 號 ${s.name}`).join('、')
+        const blockedMsg = `⚠️ 以下學生正在 AI 檢查中，禁止收回訂正：${names}`
+        setMessage(
+          recalledCount > 0
+            ? `已收回 ${recalledCount} 位學生訂正。${blockedMsg}`
+            : blockedMsg
+        )
+      } else {
+        setMessage('已停止本次作業訂正。')
+      }
 
       await loadDashboard()
     } catch (err) {
