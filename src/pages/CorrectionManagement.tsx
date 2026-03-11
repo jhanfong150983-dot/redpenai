@@ -60,7 +60,7 @@ function formatStatusLabel(status: string) {
   const map: Record<string, string> = {
     not_uploaded: '尚未上傳',
     uploaded: '已上傳待批改',
-    graded: '已批改',
+    graded: '無需訂正',
     correction_required: '待訂正',
     correction_in_progress: '訂正中',
     correction_pending_review: '申訴待審閱',
