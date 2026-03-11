@@ -1101,11 +1101,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           </button>
         </div>
 
-        {overview?.student && (
-          <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            目前身分：{overview.student.seatNumber} 號 · {overview.student.name}
-          </div>
-        )}
 
 
         {overview && !overview.preferences.studentPortalEnabled && (
