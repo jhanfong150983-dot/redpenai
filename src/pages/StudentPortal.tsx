@@ -410,6 +410,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submittingMode, setSubmittingMode] = useState<'upload' | 'correction' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const initialTabSetRef = useRef(false)
   const [isRotatingPreview, setIsRotatingPreview] = useState(false)
   const [correctionIndex, setCorrectionIndex] = useState(0)
   const [correctionCropCache, setCorrectionCropCache] = useState<Record<string, string | null>>({})
@@ -465,6 +466,13 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           }
           return firstCorrection?.id || ''
         })
+        // 初次載入：若有待訂正作業，自動切換至訂正 tab
+        if (!silent && !initialTabSetRef.current) {
+          initialTabSetRef.current = true
+          if (firstCorrection) {
+            setTab('correction')
+          }
+        }
         return payload
       } catch (err) {
         if (!silent) {
