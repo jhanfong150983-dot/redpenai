@@ -28,7 +28,7 @@ interface SeatSelectionPageProps {
 }
 
 function isStudentSource(source?: string) {
-  return source === 'student_upload' || source === 'student_correction'
+  return source === 'student_upload'
 }
 
 function isTeacherSource(source?: string) {
@@ -389,4 +389,3 @@ export default function SeatSelectionPage({
     </div>
   )
 }
-

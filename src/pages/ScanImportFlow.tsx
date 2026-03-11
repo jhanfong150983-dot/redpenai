@@ -120,6 +120,8 @@ export default function ScanImportFlow({
     const latestSourceByStudent = new Map<string, { source: string; ts: number; submissionId: string }>()
     submissionsData.forEach((sub) => {
       if (!sub.studentId) return
+      // 訂正流程與批改流程隔離：座號頁不使用 student_correction 作為可批改來源
+      if (sub.source === 'student_correction') return
       const ts =
         (typeof sub.updatedAt === 'number' && Number.isFinite(sub.updatedAt) ? sub.updatedAt : 0) ||
         (typeof sub.gradedAt === 'number' && Number.isFinite(sub.gradedAt) ? sub.gradedAt : 0) ||
@@ -697,4 +699,3 @@ async function mergeImagesVertically(blobs: Blob[]): Promise<Blob> {
 
   return merged
 }
-
