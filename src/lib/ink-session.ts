@@ -146,8 +146,8 @@ export async function closeInkSession(sessionId?: string | null) {
     }
     if (response.ok) {
       inkSummary = data?.ink ?? null
-      const updatedBalance = Number(data?.ink?.balanceAfter)
-      if (Number.isFinite(updatedBalance)) {
+      const updatedBalance = data?.ink?.balanceAfter
+      if (typeof updatedBalance === 'number' && Number.isFinite(updatedBalance)) {
         // 確保事件被派發
         console.log('[ink-session] 派發墨水餘額更新:', updatedBalance)
         dispatchInkBalance(updatedBalance)

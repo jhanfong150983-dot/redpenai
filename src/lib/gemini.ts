@@ -427,8 +427,8 @@ async function executeGeminiRequest(
   }
 
   // 更新墨水餘額
-  const updatedBalance = Number(data?.ink?.balanceAfter)
-  if (Number.isFinite(updatedBalance)) {
+  const updatedBalance = data?.ink?.balanceAfter
+  if (typeof updatedBalance === 'number' && Number.isFinite(updatedBalance)) {
     dispatchInkBalance(updatedBalance)
   }
 
@@ -3238,7 +3238,7 @@ export async function gradePhaseA(
 
   const data = await response.json()
 
-  if (data?.ink?.balanceAfter !== undefined) {
+  if (typeof data?.ink?.balanceAfter === 'number' && Number.isFinite(data.ink.balanceAfter)) {
     dispatchInkBalance(data.ink.balanceAfter)
   }
 
@@ -3315,7 +3315,7 @@ export async function gradePhaseB(
 
   const data = await response.json()
 
-  if (data?.ink?.balanceAfter !== undefined) {
+  if (typeof data?.ink?.balanceAfter === 'number' && Number.isFinite(data.ink.balanceAfter)) {
     dispatchInkBalance(data.ink.balanceAfter)
   }
 
