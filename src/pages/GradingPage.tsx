@@ -55,6 +55,55 @@ function getRandomGradingMessage(): string {
   return GRADING_MESSAGES[Math.floor(Math.random() * GRADING_MESSAGES.length)]
 }
 
+/**
+ * 限制並行數的批次執行器
+ * @param items 待處理項目
+ * @param concurrency 最大同時進行數
+ * @param staggerMs 每個任務錯開啟動的延遲（ms）
+ * @param fn 每個項目的處理函式，回傳 { ok, result?, error? }
+ * @param onDone 每個項目完成時的 callback（可更新 UI 進度）
+ */
+async function runWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  staggerMs: number,
+  fn: (item: T, index: number) => Promise<R | null>,
+  onDone: (index: number, result: R | null, error: unknown) => Promise<void> | void
+): Promise<void> {
+  const queue = items.map((item, i) => ({ item, i }))
+  let running = 0
+  let nextIndex = 0
+
+  await new Promise<void>((resolve) => {
+    function startNext() {
+      if (nextIndex >= queue.length && running === 0) {
+        resolve()
+        return
+      }
+      while (running < concurrency && nextIndex < queue.length) {
+        const { item, i } = queue[nextIndex++]
+        // 只對初始批次（前 concurrency 個）錯開啟動，避免 API burst
+        const delay = i < concurrency ? i * staggerMs : 0
+        running++
+        const launch = async () => {
+          if (delay > 0) await new Promise((r) => setTimeout(r, delay))
+          try {
+            const result = await fn(item, i)
+            await onDone(i, result, null)
+          } catch (err) {
+            await onDone(i, null, err)
+          } finally {
+            running--
+            startNext()
+          }
+        }
+        void launch()
+      }
+    }
+    startNext()
+  })
+}
+
 function getSubmissionSourceVisual(submission?: Submission) {
   const source = submission?.source
   if (source === 'student_upload' || source === 'student_correction') {
@@ -797,26 +846,37 @@ export default function GradingPage({
 
     let successCount = 0
     let failCount = 0
+    let completedB = 0
 
-    for (let i = 0; i < batchPhaseAEntries.length; i++) {
-      if (stopRequestedRef.current) break
-
-      const entry = batchPhaseAEntries[i]
-      const student = students.find((s) => s.id === entry.studentId)
-      if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
-
-      const finalAnswers: FinalAnswer[] = entry.phaseAResult.questionResults.map((qr) => {
-        const decision = entry.decisions.get(qr.questionId)
-        return {
-          questionId: qr.questionId,
-          finalStudentAnswer: decision?.finalAnswer ?? qr.readAnswer1.studentAnswer,
-          finalAnswerSource: decision?.source ?? 'ai_read1',
-        }
-      })
-
-      try {
+    await runWithConcurrency(
+      batchPhaseAEntries,
+      7,
+      300,
+      async (entry) => {
+        if (stopRequestedRef.current) return null
+        const finalAnswers: FinalAnswer[] = entry.phaseAResult.questionResults.map((qr) => {
+          const decision = entry.decisions.get(qr.questionId)
+          return {
+            questionId: qr.questionId,
+            finalStudentAnswer: decision?.finalAnswer ?? qr.readAnswer1.studentAnswer,
+            finalAnswerSource: decision?.source ?? 'ai_read1',
+          }
+        })
         const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers)
+        return { entry, gradingResult }
+      },
+      async (_i, result, err) => {
+        completedB++
+        setGradingProgress({ current: completedB, total: batchPhaseAEntries.length })
+        if (err || !result) {
+          console.error(`Phase B failed for ${batchPhaseAEntries[_i]?.submissionId}:`, err)
+          failCount++
+          return
+        }
+        const { entry, gradingResult } = result
         const totalScore = typeof gradingResult.totalScore === 'number' ? gradingResult.totalScore : 0
+        const student = students.find((s) => s.id === entry.studentId)
+        if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
 
         await db.submissions.update(entry.submissionId, {
           status: 'graded',
@@ -833,13 +893,8 @@ export default function GradingPage({
 
         if (gradingResult.needsReview) setCompletedReviewCount((prev) => prev + 1)
         successCount++
-      } catch (err) {
-        console.error(`Phase B failed for ${entry.submissionId}:`, err)
-        failCount++
       }
-
-      setGradingProgress({ current: i + 1, total: batchPhaseAEntries.length })
-    }
+    )
 
     requestSync()
     setBatchPhaseAEntries([])
@@ -1599,20 +1654,29 @@ export default function GradingPage({
         return
       }
 
-      // ── Batch Phase A ─────────────────────────────────────────────────────
+      // ── Batch Phase A（並行 N=5，錯開 300ms）─────────────────────────────
       const entries: BatchPhaseAEntry[] = []
+      let completedA = 0
 
-      for (let i = 0; i < toGrade.length; i++) {
-        if (stopRequestedRef.current) break
-
-        const sub = toGrade[i]
-        const student = students.find((s) => s.id === sub.studentId)
-        if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
-
-        try {
-          const phaseAResult = await gradePhaseA(sub.imageBlob!, assignment.answerKey)
-
-          // Auto-confirm stable questions
+      await runWithConcurrency(
+        toGrade,
+        5,
+        300,
+        async (sub) => {
+          if (stopRequestedRef.current) return null
+          const phaseAResult = await gradePhaseA(sub.imageBlob!, assignment.answerKey!)
+          return { sub, phaseAResult }
+        },
+        (i, result, err) => {
+          completedA++
+          setGradingProgress({ current: completedA, total: toGrade.length })
+          if (stopRequestedRef.current || !result) {
+            if (err) console.error(`Phase A failed for ${toGrade[i].id}:`, err)
+            return
+          }
+          const { sub, phaseAResult } = result
+          const student = students.find((s) => s.id === sub.studentId)
+          if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
           const decisions = new Map<string, ConsistencyDecision>()
           for (const qr of phaseAResult.questionResults) {
             if (qr.consistencyStatus === 'stable') {
@@ -1624,7 +1688,6 @@ export default function GradingPage({
               })
             }
           }
-
           entries.push({
             submissionId: sub.id,
             studentId: sub.studentId,
@@ -1632,12 +1695,8 @@ export default function GradingPage({
             decisions,
             imageBlob: sub.imageBlob!,
           })
-        } catch (err) {
-          console.error(`Phase A failed for ${sub.id}:`, err)
-          // Skip this student; they won't appear in review
         }
-        setGradingProgress({ current: i + 1, total: toGrade.length })
-      }
+      )
 
       if (stopRequestedRef.current) {
         setGradingPhase('idle')
