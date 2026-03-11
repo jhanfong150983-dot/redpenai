@@ -1247,8 +1247,11 @@ export default function GradingPage({
           }
         }
 
-        // 訂正提交不放入主 Map（避免蓋掉原始批改結果）
-        if (sub.source === 'student_correction') continue
+        // 訂正提交優先級低於原始作業：若已有非訂正 submission 則跳過，否則暫時放入
+        if (sub.source === 'student_correction') {
+          if (!map.has(sub.studentId)) map.set(sub.studentId, sub)
+          continue
+        }
         map.set(sub.studentId, sub)
       }
 
