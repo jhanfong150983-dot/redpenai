@@ -65,8 +65,8 @@ export default function CameraCapturePage({
 
       // 壓縮圖片（格式自動檢測：桌面用WebP，平板用JPEG）
       const compressed = await compressImage(imageSrc, {
-        maxWidth: 1024,
-        quality: 0.8
+        maxWidth: 2000,
+        quality: 0.85
         // format 參數移除，使用 compressImage 內部的自動檢測
       })
 
@@ -116,8 +116,8 @@ export default function CameraCapturePage({
 
         // 壓縮圖片（格式自動檢測：桌面用WebP，平板用JPEG）
         const compressed = await compressImage(base64, {
-          maxWidth: 1024,
-          quality: 0.8
+          maxWidth: 2000,
+          quality: 0.85
           // format 參數移除，使用 compressImage 內部的自動檢測
         })
 
