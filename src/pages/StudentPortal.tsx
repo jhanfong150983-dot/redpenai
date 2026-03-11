@@ -67,6 +67,8 @@ type StudentAssignmentItem = {
   }>
   showScore?: boolean
   score?: number
+  gradingPending?: boolean
+  gradingQueuePosition?: number
 }
 
 type StudentOverviewResponse = {
@@ -938,6 +940,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     setError(null)
     setMessage(null)
 
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 90_000)
+
     try {
       const merged = await mergeImagesVertically(files)
       const compressed = await compressToTargetBytes(merged, 2_000_000, {
@@ -949,6 +954,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: controller.signal,
         body: JSON.stringify({
           assignmentId: assignment.id,
           classroomKey: assignment.classroomKey || undefined,
@@ -958,6 +964,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           pageCount: files.length
         })
       })
+      clearTimeout(timeoutId)
 
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -971,22 +978,27 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           data?.correctionResult && typeof data.correctionResult === 'object'
             ? data.correctionResult
             : null
-        const resultStatus = String(correctionResult?.status || '')
-        const attemptCount = Number(correctionResult?.correctionAttemptCount) || 0
-        const attemptLimit = Number(correctionResult?.correctionAttemptLimit) || 0
-        const wrongCount = Number(correctionResult?.wrongQuestionCount) || 0
-        const remaining = Math.max(0, attemptLimit - attemptCount)
-
-        if (resultStatus === 'correction_passed') {
-          setMessage('訂正完成，全部答對。')
-        } else if (resultStatus === 'correction_failed') {
-          setMessage(
-            `仍有 ${wrongCount} 題需訂正，且已達上限，請老師解鎖後再嘗試。`
-          )
-        } else if (resultStatus === 'correction_required' || resultStatus === 'correction_in_progress') {
-          setMessage(`仍有 ${wrongCount} 題需訂正，剩餘 ${remaining} 次機會。`)
+        if (correctionResult?.gradingPending) {
+          const pos = Number(correctionResult.queuePosition) || 1
+          setMessage(`訂正已送出！AI 批改中，排隊第 ${pos} 位，批改完成後會自動更新。`)
         } else {
-          setMessage('訂正作業已送出，AI 批改完成。')
+          const resultStatus = String(correctionResult?.status || '')
+          const attemptCount = Number(correctionResult?.correctionAttemptCount) || 0
+          const attemptLimit = Number(correctionResult?.correctionAttemptLimit) || 0
+          const wrongCount = Number(correctionResult?.wrongQuestionCount) || 0
+          const remaining = Math.max(0, attemptLimit - attemptCount)
+
+          if (resultStatus === 'correction_passed') {
+            setMessage('訂正完成，全部答對。')
+          } else if (resultStatus === 'correction_failed') {
+            setMessage(
+              `仍有 ${wrongCount} 題需訂正，且已達上限，請老師解鎖後再嘗試。`
+            )
+          } else if (resultStatus === 'correction_required' || resultStatus === 'correction_in_progress') {
+            setMessage(`仍有 ${wrongCount} 題需訂正，剩餘 ${remaining} 次機會。`)
+          } else {
+            setMessage('訂正作業已送出，AI 批改完成。')
+          }
         }
       }
       if (mode === 'upload') {
@@ -1007,7 +1019,12 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       setCapturedBlobs([])
       await loadOverview(selectedClassroomKey)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '上傳失敗')
+      clearTimeout(timeoutId)
+      if (err instanceof Error && err.name === 'AbortError') {
+        setError('送出超時，請重試')
+      } else {
+        setError(err instanceof Error ? err.message : '上傳失敗')
+      }
     } finally {
       setIsSubmitting(false)
       setSubmittingMode(null)
@@ -1367,7 +1384,21 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               </div>
             )}
 
-            {currentCorrectionAssignment && (
+            {currentCorrectionAssignment?.gradingPending && (
+              <div className="flex items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 p-4">
+                <Loader2 className="h-5 w-5 shrink-0 animate-spin text-sky-600" />
+                <div>
+                  <p className="text-sm font-semibold text-sky-800">AI 批改中</p>
+                  <p className="text-xs text-sky-600">
+                    {currentCorrectionAssignment.gradingQueuePosition != null
+                      ? `排隊第 ${currentCorrectionAssignment.gradingQueuePosition} 位，批改完成後會自動更新`
+                      : '批改完成後會自動更新'}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {currentCorrectionAssignment && !currentCorrectionAssignment.gradingPending && (
               <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-slate-900">待訂正題目</p>
@@ -1517,11 +1548,11 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               <Loader2 className="h-5 w-5 animate-spin text-sky-700" />
             </div>
             <p className="text-base font-semibold text-slate-900">
-              {submittingMode === 'correction' ? 'AI 批改中' : '作業送出中'}
+              {submittingMode === 'correction' ? '訂正上傳中' : '作業送出中'}
             </p>
             <p className="mt-1 text-sm text-slate-600">
               {submittingMode === 'correction'
-                ? '請勿離開此頁，系統正在檢查本次訂正結果。'
+                ? '正在上傳照片，上傳完成後 AI 將自動排隊批改。'
                 : '請勿離開此頁，系統正在送出本次作業。'}
             </p>
           </div>
