@@ -1613,38 +1613,40 @@ export default function GradingPage({
           }
         }
 
-        // 再下載沒有 Base64 也沒有 Blob 的作業
-        for (const sub of needPrepare) {
-          // 🆕 檢查停止請求
-          if (stopRequestedRef.current) {
-            console.log('🛑 用戶在下載階段請求停止')
-            break
-          }
-
-          currentTask++
-          setDownloadProgress({ current: currentTask, total: totalTasks })
-
-          const student = students.find(s => s.id === sub.studentId)
-          setCurrentGradingStudent(student ? `${student.seatNumber}號 ${student.name}` : '')
-
-          try {
-            if (sub.status === 'synced' || sub.status === 'graded') {
-              console.log(`📥 從雲端下載: ${sub.id}`)
-              const blob = await downloadImageFromSupabase(sub.id)
-              const base64 = await blobToBase64(blob)
-              await updateSubmissionWithImages(sub.id, {}, blob, base64)
-              sub.imageBlob = blob
-              sub.imageBase64 = base64
-              console.log(`✅ 下載成功: size=${blob.size}`)
-            } else {
+        // 再下載沒有 Base64 也沒有 Blob 的作業（並行，最多 5 份同時下載）
+        let downloadedCount = 0
+        await runWithConcurrency(
+          needPrepare,
+          5,
+          0,
+          async (sub) => {
+            if (stopRequestedRef.current) return null
+            if (sub.status !== 'synced' && sub.status !== 'graded') {
               throw new Error('無圖片數據（無 Blob、Base64 或雲端 URL）')
             }
-          } catch (err) {
-            console.error('準備圖片失敗', err)
-            const studentInfo = student ? `${student.seatNumber}號 ${student.name}` : `ID: ${sub.studentId}`
-            prepareErrors.push(studentInfo)
+            console.log(`📥 從雲端下載: ${sub.id}`)
+            const blob = await downloadImageFromSupabase(sub.id)
+            const base64 = await blobToBase64(blob)
+            await updateSubmissionWithImages(sub.id, {}, blob, base64)
+            sub.imageBlob = blob
+            sub.imageBase64 = base64
+            console.log(`✅ 下載成功: size=${blob.size}`)
+            return blob
+          },
+          (_index, _result, error) => {
+            downloadedCount++
+            setDownloadProgress({ current: needRebuild.length + downloadedCount, total: totalTasks })
+            const sub = needPrepare[_index]
+            const student = students.find(s => s.id === sub.studentId)
+            if (error) {
+              console.error('準備圖片失敗', error)
+              const studentInfo = student ? `${student.seatNumber}號 ${student.name}` : `ID: ${sub.studentId}`
+              prepareErrors.push(studentInfo)
+            } else {
+              setCurrentGradingStudent(student ? `${student.seatNumber}號 ${student.name}` : '')
+            }
           }
-        }
+        )
 
         setIsDownloading(false)
 
