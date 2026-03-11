@@ -445,6 +445,7 @@ function App() {
     if (ssoPendingSync) {
       const { dsns } = ssoPendingSync
       setSsoPendingSync(null)
+      window.sessionStorage.setItem(`campus1_auto_sync_${auth.user.id}`, '1')
 
       console.log('[SSO] 觸發班級同步 dsns=', dsns)
       void fetch('/api/data/1campus-classroom-sync', {
