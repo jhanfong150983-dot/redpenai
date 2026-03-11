@@ -423,6 +423,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [submittingMode, setSubmittingMode] = useState<'upload' | 'correction' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const initialTabSetRef = useRef(false)
+  // Track previous assignment statuses for polling change detection
+  const prevAssignmentStatusRef = useRef<Record<string, string>>({})
   const [isRotatingPreview, setIsRotatingPreview] = useState(false)
   // Per-question action state: questionId → { type: 'photo'|'dispute', file?: File, note?: string }
   const [questionActions, setQuestionActions] = useState<Record<string, { type: 'photo' | 'dispute'; file?: File; note?: string }>>({})
@@ -527,45 +529,94 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     let disposed = false
     let timeoutId: ReturnType<typeof setTimeout> | null = null
 
+    const CORRECTION_ACTIVE = ['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed']
+
     const tick = async () => {
       const payload = await loadOverview(selectedClassroomKey, { silent: true })
       if (disposed) return
       if (!payload) {
-        timeoutId = setTimeout(() => {
-          void tick()
-        }, CORRECTION_POLL_INTERVAL_MS)
+        timeoutId = setTimeout(() => void tick(), CORRECTION_POLL_INTERVAL_MS)
         return
       }
-      const hasOpenCorrection = Boolean(
-        payload.assignments?.some((item) =>
-          ['correction_required', 'correction_in_progress'].includes(item.status)
-        )
+
+      const prev = prevAssignmentStatusRef.current
+      const messages: string[] = []
+
+      for (const item of payload.assignments || []) {
+        const oldStatus = prev[item.id]
+        const newStatus = item.status
+        if (!oldStatus || oldStatus === newStatus) continue
+
+        // AI 批改完成後的各種結果
+        if (oldStatus === 'correction_in_progress') {
+          if (newStatus === 'correction_required') {
+            messages.push(`《${item.title}》AI 批改完成，仍有題目需要訂正。`)
+          } else if (newStatus === 'correction_passed') {
+            messages.push(`《${item.title}》訂正完成！全部答對了。`)
+          } else if (newStatus === 'correction_failed') {
+            messages.push(`《${item.title}》訂正次數已用完，請找老師協助。`)
+          } else if (newStatus === 'correction_pending_review') {
+            messages.push(`《${item.title}》AI 批改完成，申訴題目等待老師審閱。`)
+          }
+        }
+
+        // 老師駁回申訴
+        if (oldStatus === 'correction_pending_review' && newStatus === 'correction_required') {
+          messages.push(`《${item.title}》老師已駁回申訴，請重新訂正。`)
+        }
+        if (oldStatus === 'correction_pending_review' && newStatus === 'correction_passed') {
+          messages.push(`《${item.title}》申訴通過，訂正完成！`)
+        }
+
+        // 老師收回訂正
+        if (CORRECTION_ACTIVE.includes(oldStatus) && !CORRECTION_ACTIVE.includes(newStatus)) {
+          const hasUnsaved = Object.keys(questionActions).length > 0
+          if (hasUnsaved) {
+            messages.push(`《${item.title}》老師已收回訂正，你尚未送出的進度已遺失。`)
+          } else {
+            messages.push(`《${item.title}》老師已收回訂正作業。`)
+          }
+        }
+      }
+
+      // Update previous status snapshot
+      const next: Record<string, string> = {}
+      for (const item of payload.assignments || []) {
+        next[item.id] = item.status
+      }
+      prevAssignmentStatusRef.current = next
+
+      if (messages.length > 0) {
+        setMessage(messages.join(' '))
+      }
+
+      const hasActiveCorrection = Boolean(
+        payload.assignments?.some((item) => CORRECTION_ACTIVE.includes(item.status))
       )
 
-      if (!hasOpenCorrection) {
+      if (!hasActiveCorrection) {
         setTab('overview')
         setCorrectionAssignmentId('')
         setSelectedFiles([])
         setCapturedBlobs([])
+        setQuestionActions({})
         setError(null)
-        setMessage('目前已無待訂正作業，已返回作業總覽。')
+        if (messages.length === 0) {
+          setMessage('目前已無待訂正作業，已返回作業總覽。')
+        }
         return
       }
 
-      timeoutId = setTimeout(() => {
-        void tick()
-      }, CORRECTION_POLL_INTERVAL_MS)
+      timeoutId = setTimeout(() => void tick(), CORRECTION_POLL_INTERVAL_MS)
     }
 
     void tick()
 
     return () => {
       disposed = true
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
+      if (timeoutId) clearTimeout(timeoutId)
     }
-  }, [tab, cameraMode, isSubmitting, loadOverview, selectedClassroomKey])
+  }, [tab, cameraMode, isSubmitting, loadOverview, selectedClassroomKey, questionActions])
 
   const uploadAssignments = useMemo(
     () =>
