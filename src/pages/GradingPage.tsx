@@ -1258,6 +1258,42 @@ export default function GradingPage({
       // ✅ 先放行 UI：提早結束 loading 狀態，讓畫面能快速顯示
       setIsLoading(false)
 
+      // 補抓：graded 但本地缺少 gradingResult 的 submission（重新登入後 IndexedDB 為空）
+      const missingIds = submissionsData
+        .filter((s) => s.status === 'graded' && !s.gradingResult)
+        .map((s) => s.id)
+      if (missingIds.length > 0) {
+        try {
+          const resp = await fetch(
+            buildApiUrl(`/api/data/grading-results?assignmentId=${encodeURIComponent(assignmentId)}`),
+            { credentials: 'include' }
+          )
+          if (resp.ok) {
+            const json = await resp.json()
+            const gradingResults: Record<string, unknown> = json?.gradingResults ?? {}
+            for (const id of missingIds) {
+              const gr = gradingResults[id]
+              if (gr) {
+                await db.submissions.update(id, { gradingResult: gr as any })
+              }
+            }
+            // 更新 React state
+            setSubmissions((prev) => {
+              const next = new Map(prev)
+              for (const [studentId, sub] of next) {
+                if (sub.id && gradingResults[sub.id]) {
+                  next.set(studentId, { ...sub, gradingResult: gradingResults[sub.id] as any })
+                }
+              }
+              return next
+            })
+            console.log(`✅ 補抓 gradingResult 完成：${missingIds.length} 筆`)
+          }
+        } catch (err) {
+          console.warn('⚠️ 補抓 gradingResult 失敗:', err)
+        }
+      }
+
     } catch (err) {
       console.error('載入失敗', err)
       setError(err instanceof Error ? err.message : '載入失敗')
