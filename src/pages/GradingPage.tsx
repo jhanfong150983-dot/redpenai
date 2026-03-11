@@ -1247,6 +1247,8 @@ export default function GradingPage({
           }
         }
 
+        // 訂正提交不放入主 Map（避免蓋掉原始批改結果）
+        if (sub.source === 'student_correction') continue
         map.set(sub.studentId, sub)
       }
 
