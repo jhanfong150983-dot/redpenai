@@ -69,6 +69,7 @@ type StudentAssignmentItem = {
   score?: number
   gradingPending?: boolean
   gradingQueuePosition?: number
+  gradingFailed?: boolean
 }
 
 type StudentOverviewResponse = {
@@ -1381,6 +1382,15 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
             {correctionAssignments.length === 0 && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
                 目前沒有待訂正作業。
+              </div>
+            )}
+
+            {currentCorrectionAssignment?.gradingFailed && (
+              <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
+                <div>
+                  <p className="text-sm font-semibold text-red-800">AI 批改失敗</p>
+                  <p className="text-xs text-red-600">請重新拍照送出訂正。</p>
+                </div>
               </div>
             )}
 
