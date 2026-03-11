@@ -462,9 +462,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
             prev === payload.activeClassroomKey ? prev : payload.activeClassroomKey || ''
           )
         }
+        const CORRECTION_STATUSES = ['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed']
         const firstCorrection = (payload.assignments || []).find(
-          (item: StudentAssignmentItem) =>
-            ['correction_required', 'correction_in_progress'].includes(item.status)
+          (item: StudentAssignmentItem) => CORRECTION_STATUSES.includes(item.status)
         )
         setCorrectionAssignmentId((prev) => {
           if (
@@ -472,7 +472,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
             (payload.assignments || []).some(
               (item) =>
                 item.id === prev &&
-                ['correction_required', 'correction_in_progress'].includes(item.status)
+                CORRECTION_STATUSES.includes(item.status)
             )
           ) {
             return prev
