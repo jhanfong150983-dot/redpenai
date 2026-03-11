@@ -147,6 +147,7 @@ type AssignmentWorkflowStatus =
 type HomeOverviewItem = {
   id: string
   title: string
+  classroomId: string
   classroomName: string
   totalStudents: number
   uploadedCount: number
@@ -901,6 +902,7 @@ function App() {
           return {
             id: assignment.id,
             title: assignment.title || '未命名作業',
+            classroomId: assignment.classroomId,
             classroomName:
               classroomMap.get(assignment.classroomId)?.name ?? '未知班級',
             totalStudents,
@@ -1249,8 +1251,19 @@ function App() {
     setCurrentPage('teacher-preferences')
   }
   const openClassroomManagement = () => setCurrentPage('classroom-management')
-  const openAssignmentFromOverview = () => {
-    openGrading()
+  const openAssignmentFromOverview = (item: HomeOverviewItem) => {
+    if (!ensureInkNonNegative()) return
+    if (item.workflowStatus === 'pending-grading') {
+      setSelectedAssignmentId(item.id)
+      setCurrentPage('grading')
+    } else if (item.workflowStatus === 'correction-followup') {
+      setSelectedAssignmentId(item.id)
+      setCurrentPage('correction-select')
+    } else {
+      // missing-answer-key / missing-submission：至少預選班級
+      setGradingSelectedClassroomId(item.classroomId)
+      setCurrentPage('grading-list')
+    }
   }
 
   const homeNavSections: HomeNavSection[] = [
@@ -1945,7 +1958,7 @@ function App() {
                                     </div>
                                     <button
                                       type="button"
-                                      onClick={() => openAssignmentFromOverview()}
+                                      onClick={() => openAssignmentFromOverview(item)}
                                       className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
                                     >
                                       {actionLabel}
