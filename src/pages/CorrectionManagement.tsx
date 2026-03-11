@@ -7,7 +7,11 @@ import {
   Square,
   Unlock,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  Flag,
+  ThumbsUp,
+  ThumbsDown,
+  X
 } from 'lucide-react'
 
 interface CorrectionManagementProps {
@@ -24,10 +28,25 @@ type DashboardStudent = {
   correctionAttemptCount: number
   correctionAttemptLimit: number
   openQuestionCount: number
+  disputedQuestionCount: number
   latestMistakeCount: number
   lastStatusReason?: string
   lastGradedSubmissionId?: string | null
 }
+
+type DisputeItem = {
+  questionId: string
+  questionText?: string
+  hintText?: string
+  disputeNote?: string
+  cropImageUrl?: string
+}
+
+type DisputePanelState = {
+  studentId: string
+  studentName: string
+  items: DisputeItem[]
+} | null
 
 type CorrectionDashboardResponse = {
   assignmentId: string
@@ -44,6 +63,7 @@ function formatStatusLabel(status: string) {
     graded: '已批改',
     correction_required: '待訂正',
     correction_in_progress: '訂正中',
+    correction_pending_review: '申訴待審閱',
     correction_passed: '訂正完成',
     correction_failed: '自主訂正失敗'
   }
@@ -54,6 +74,7 @@ function getStatusBadgeClass(status: string) {
   const map: Record<string, string> = {
     correction_required: 'border-violet-200 bg-violet-50 text-violet-700',
     correction_in_progress: 'border-indigo-200 bg-indigo-50 text-indigo-700',
+    correction_pending_review: 'border-amber-200 bg-amber-50 text-amber-700',
     correction_failed: 'border-rose-200 bg-rose-50 text-rose-700',
     correction_passed: 'border-emerald-200 bg-emerald-50 text-emerald-700',
     graded: 'border-slate-200 bg-slate-100 text-slate-700'
@@ -90,6 +111,11 @@ export default function CorrectionManagement({
   const [unlockingStudentId, setUnlockingStudentId] = useState<string | null>(null)
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([])
   const selectAllRef = useRef<HTMLInputElement | null>(null)
+  const [disputePanel, setDisputePanel] = useState<DisputePanelState>(null)
+  const [disputeLoadingStudentId, setDisputeLoadingStudentId] = useState<string | null>(null)
+  // per-questionId: { action: 'accept'|'reject'|null, rejectionNote: string }
+  const [disputeResolutions, setDisputeResolutions] = useState<Record<string, { action: 'accept' | 'reject' | null; rejectionNote: string }>>({})
+  const [isResolvingDispute, setIsResolvingDispute] = useState(false)
 
   const loadDashboard = useCallback(async () => {
     setError(null)
@@ -297,6 +323,78 @@ export default function CorrectionManagement({
     )
   }
 
+  const handleOpenDisputePanel = async (student: DashboardStudent) => {
+    if (disputeLoadingStudentId) return
+    setDisputeLoadingStudentId(student.studentId)
+    setError(null)
+    try {
+      const query = new URLSearchParams({ assignmentId, studentId: student.studentId })
+      const response = await fetch(`/api/data/correction-disputes?${query.toString()}`, {
+        method: 'GET',
+        credentials: 'include'
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.error || '載入申訴題目失敗')
+      const items: DisputeItem[] = (data.corrections || [])
+        .filter((c: { status?: string }) => c.status === 'disputed')
+        .map((c: { questionId?: string; questionText?: string; hintText?: string; disputeNote?: string; cropImageUrl?: string }) => ({
+          questionId: c.questionId || '',
+          questionText: c.questionText,
+          hintText: c.hintText,
+          disputeNote: c.disputeNote,
+          cropImageUrl: c.cropImageUrl
+        }))
+      const initialResolutions: Record<string, { action: 'accept' | 'reject' | null; rejectionNote: string }> = {}
+      items.forEach((item) => { initialResolutions[item.questionId] = { action: null, rejectionNote: '' } })
+      setDisputeResolutions(initialResolutions)
+      setDisputePanel({ studentId: student.studentId, studentName: student.name, items })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '載入申訴題目失敗')
+    } finally {
+      setDisputeLoadingStudentId(null)
+    }
+  }
+
+  const handleSubmitDisputeResolutions = async () => {
+    if (!disputePanel || isResolvingDispute) return
+    const resolutions = disputePanel.items
+      .map((item) => {
+        const r = disputeResolutions[item.questionId]
+        if (!r?.action) return null
+        return { questionId: item.questionId, action: r.action, rejectionNote: r.rejectionNote || undefined }
+      })
+      .filter(Boolean)
+    if (resolutions.length === 0) {
+      setError('請對每一題選擇同意或駁回')
+      return
+    }
+    if (resolutions.length < disputePanel.items.length) {
+      setError('仍有題目尚未裁決，請全部處理後再送出')
+      return
+    }
+    setIsResolvingDispute(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/data/dispute-resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ assignmentId, studentId: disputePanel.studentId, resolutions })
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.error || '申訴裁決失敗')
+      const accepted = resolutions.filter((r) => r && r.action === 'accept').length
+      const rejected = resolutions.filter((r) => r && r.action === 'reject').length
+      setMessage(`已裁決 ${disputePanel.studentName} 的申訴：同意 ${accepted} 題、駁回 ${rejected} 題。`)
+      setDisputePanel(null)
+      await loadDashboard()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '申訴裁決失敗')
+    } finally {
+      setIsResolvingDispute(false)
+    }
+  }
+
   const stats = useMemo(() => {
     const total = students.length
     const correctionActiveCount = students.filter((item) =>
@@ -304,12 +402,14 @@ export default function CorrectionManagement({
     ).length
     const correctionDoneCount = students.filter((item) => item.status === 'correction_passed').length
     const correctionFailedCount = students.filter((item) => item.status === 'correction_failed').length
+    const pendingReviewCount = students.filter((item) => item.status === 'correction_pending_review').length
 
     return {
       total,
       correctionActiveCount,
       correctionDoneCount,
       correctionFailedCount,
+      pendingReviewCount,
       dispatchReadyCount: dashboard?.dispatchReadyCount || 0
     }
   }, [students, dashboard?.dispatchReadyCount])
@@ -383,7 +483,7 @@ export default function CorrectionManagement({
           </div>
         </div>
 
-        <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
             <p className="text-xs text-slate-500">班級學生</p>
             <p className="mt-1 text-2xl font-bold text-slate-900">{stats.total}</p>
@@ -399,6 +499,10 @@ export default function CorrectionManagement({
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
             <p className="text-xs text-emerald-700">訂正完成</p>
             <p className="mt-1 text-2xl font-bold text-emerald-700">{stats.correctionDoneCount}</p>
+          </div>
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-xs text-amber-700">申訴待審閱</p>
+            <p className="mt-1 text-2xl font-bold text-amber-700">{stats.pendingReviewCount}</p>
           </div>
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3">
             <p className="text-xs text-rose-700">次數已滿</p>
@@ -511,7 +615,18 @@ export default function CorrectionManagement({
                   <div className="text-xs text-slate-600">
                     {student.lastStatusReason || '—'}
                   </div>
-                  <div className="text-right">
+                  <div className="flex items-center justify-end gap-1.5">
+                    {student.status === 'correction_pending_review' && (student.disputedQuestionCount ?? 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenDisputePanel(student)}
+                        disabled={Boolean(disputeLoadingStudentId)}
+                        className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {disputeLoadingStudentId === student.studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Flag className="h-3.5 w-3.5" />}
+                        審閱申訴 ({student.disputedQuestionCount})
+                      </button>
+                    )}
                     {canUnlock ? (
                       <button
                         type="button"
@@ -522,9 +637,7 @@ export default function CorrectionManagement({
                         {isUnlocking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlock className="h-3.5 w-3.5" />}
                         解鎖+3
                       </button>
-                    ) : (
-                      <span className="text-xs text-slate-400">—</span>
-                    )}
+                    ) : (!student.disputedQuestionCount && <span className="text-xs text-slate-400">—</span>)}
                   </div>
                 </div>
               )
@@ -536,6 +649,111 @@ export default function CorrectionManagement({
           派發規則：此作業中「有錯題」的學生會在派發後進入訂正；教師停止後，學生端會暫停訂正入口。
         </div>
       </div>
+
+      {/* Dispute resolution panel */}
+      {disputePanel && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-10">
+          <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">申訴審閱：{disputePanel.studentName}</p>
+                <p className="text-xs text-slate-500">請逐題選擇同意或駁回，送出後不可撤銷。</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDisputePanel(null)}
+                disabled={isResolvingDispute}
+                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4 p-4">
+              {disputePanel.items.map((item) => {
+                const r = disputeResolutions[item.questionId] || { action: null, rejectionNote: '' }
+                return (
+                  <div key={item.questionId} className="rounded-lg border border-slate-200 p-3">
+                    <p className="mb-1 text-sm font-semibold text-slate-900">
+                      {item.questionId}{item.questionText ? ` · ${item.questionText}` : ''}
+                    </p>
+
+                    {item.cropImageUrl && (
+                      <div className="mb-2 overflow-hidden rounded border border-slate-200 bg-slate-50">
+                        <img src={item.cropImageUrl} alt="原始作答" className="max-h-36 w-full object-contain" />
+                      </div>
+                    )}
+
+                    {item.hintText && (
+                      <div className="mb-2 rounded border border-amber-100 bg-amber-50 px-2 py-1">
+                        <p className="text-xs text-amber-700">原錯題指引：{item.hintText}</p>
+                      </div>
+                    )}
+
+                    {item.disputeNote && (
+                      <div className="mb-2 rounded border border-violet-100 bg-violet-50 px-2 py-1">
+                        <p className="text-xs font-semibold text-violet-700">學生說明</p>
+                        <p className="mt-0.5 text-xs text-violet-800">{item.disputeNote}</p>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDisputeResolutions((prev) => ({ ...prev, [item.questionId]: { ...r, action: 'accept' } }))}
+                        className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-semibold transition ${r.action === 'accept' ? 'border-emerald-400 bg-emerald-100 text-emerald-700' : 'border-slate-300 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50'}`}
+                      >
+                        <ThumbsUp className="h-3.5 w-3.5" />
+                        同意申訴（此題算過）
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDisputeResolutions((prev) => ({ ...prev, [item.questionId]: { ...r, action: 'reject' } }))}
+                        className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-semibold transition ${r.action === 'reject' ? 'border-rose-400 bg-rose-100 text-rose-700' : 'border-slate-300 text-slate-600 hover:border-rose-300 hover:bg-rose-50'}`}
+                      >
+                        <ThumbsDown className="h-3.5 w-3.5" />
+                        駁回（仍需訂正）
+                      </button>
+                    </div>
+
+                    {r.action === 'reject' && (
+                      <div className="mt-2">
+                        <input
+                          type="text"
+                          placeholder="駁回原因（選填，學生會看到）"
+                          value={r.rejectionNote}
+                          onChange={(e) => setDisputeResolutions((prev) => ({ ...prev, [item.questionId]: { ...r, rejectionNote: e.target.value } }))}
+                          className="w-full rounded border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-rose-300"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setDisputePanel(null)}
+                disabled={isResolvingDispute}
+                className="rounded-md border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleSubmitDisputeResolutions()}
+                disabled={isResolvingDispute || disputePanel.items.some((item) => !disputeResolutions[item.questionId]?.action)}
+                className="inline-flex items-center gap-2 rounded-md bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:bg-slate-300"
+              >
+                {isResolvingDispute && <Loader2 className="h-4 w-4 animate-spin" />}
+                送出裁決
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

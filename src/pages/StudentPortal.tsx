@@ -10,7 +10,9 @@ import {
   Eye,
   ChevronLeft,
   ChevronRight,
-  X
+  X,
+  Flag,
+  Clock,
 } from 'lucide-react'
 import { blobToBase64, compressToTargetBytes } from '@/lib/imageCompression'
 import { safeToBlobWithFallback } from '@/lib/canvasToBlob'
@@ -64,6 +66,10 @@ type StudentAssignmentItem = {
     cropImageUrl?: string
     questionBbox?: Bbox | null
     answerBbox?: Bbox | null
+    status?: string
+    disputeNote?: string
+    disputeRejectedAt?: string
+    disputeRejectionNote?: string
   }>
   showScore?: boolean
   score?: number
@@ -412,17 +418,19 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [cameraMode, setCameraMode] = useState<StudentCameraMode>(null)
   const [cameraAssignmentId, setCameraAssignmentId] = useState('')
   const [capturedBlobs, setCapturedBlobs] = useState<Blob[]>([])
+  const [correctionCameraQuestionId, setCorrectionCameraQuestionId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submittingMode, setSubmittingMode] = useState<'upload' | 'correction' | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const initialTabSetRef = useRef(false)
   const [isRotatingPreview, setIsRotatingPreview] = useState(false)
-  const [correctionIndex, setCorrectionIndex] = useState(0)
+  // Per-question action state: questionId → { type: 'photo'|'dispute', file?: File, note?: string }
+  const [questionActions, setQuestionActions] = useState<Record<string, { type: 'photo' | 'dispute'; file?: File; note?: string }>>({})
+  const [disputeNoteInput, setDisputeNoteInput] = useState<Record<string, string>>({})
+  const [showDisputeNoteFor, setShowDisputeNoteFor] = useState<string | null>(null)
   const [correctionCropCache, setCorrectionCropCache] = useState<Record<string, string | null>>({})
   const correctionCropCacheRef = useRef<Record<string, string | null>>({})
   const [isPreparingCorrectionCrops, setIsPreparingCorrectionCrops] = useState(false)
-  const [resolvedCorrectionImageUrl, setResolvedCorrectionImageUrl] = useState<string | null>(null)
-  const [isResolvingCorrectionImage, setIsResolvingCorrectionImage] = useState(false)
 
   const loadOverview = useCallback(
     async (classroomKey = '', options: { silent?: boolean } = {}) => {
@@ -577,53 +585,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     () => currentCorrectionAssignment?.openCorrections || [],
     [currentCorrectionAssignment]
   )
-  const safeCorrectionIndex = useMemo(() => {
-    if (!correctionItems.length) return 0
-    return Math.max(0, Math.min(correctionIndex, correctionItems.length - 1))
-  }, [correctionItems.length, correctionIndex])
-  const currentCorrectionItem = useMemo(
-    () => correctionItems[safeCorrectionIndex] || null,
-    [correctionItems, safeCorrectionIndex]
-  )
-  const currentCorrectionImageUrl = useMemo(
-    () => getCorrectionImageUrl(currentCorrectionItem),
-    [currentCorrectionItem]
-  )
-  const currentCorrectionBbox = useMemo(
-    () =>
-      parseBbox(currentCorrectionItem?.answerBbox) ||
-      parseBbox(currentCorrectionItem?.questionBbox),
-    [currentCorrectionItem]
-  )
-  const currentCorrectionCropKey = useMemo(
-    () =>
-      currentCorrectionItem
-        ? buildCorrectionCropCacheKey(correctionAssignmentId, currentCorrectionItem, safeCorrectionIndex)
-        : '',
-    [correctionAssignmentId, currentCorrectionItem, safeCorrectionIndex]
-  )
-  const currentCorrectionHasServerCrop = useMemo(
-    () =>
-      Boolean(
-        currentCorrectionItem &&
-          typeof currentCorrectionItem.cropImageUrl === 'string' &&
-          currentCorrectionItem.cropImageUrl.trim()
-      ),
-    [currentCorrectionItem]
-  )
-  const currentNeedsClientCrop = Boolean(
-    currentCorrectionImageUrl && currentCorrectionBbox && !currentCorrectionHasServerCrop
-  )
-  const currentCachedCorrectionCrop = currentCorrectionCropKey
-    ? correctionCropCache[currentCorrectionCropKey]
-    : undefined
-  const isCurrentCorrectionCropLoading =
-    currentNeedsClientCrop && currentCachedCorrectionCrop === undefined
-  const currentCorrectionDisplayUrl = currentNeedsClientCrop
-    ? typeof currentCachedCorrectionCrop === 'string' && currentCachedCorrectionCrop
-      ? currentCachedCorrectionCrop
-      : null
-    : currentCorrectionImageUrl
   const currentCameraAssignment = useMemo(
     () =>
       cameraMode === 'upload'
@@ -633,17 +594,19 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           : null,
     [cameraMode, uploadAssignments, cameraAssignmentId, currentCorrectionAssignment]
   )
-  const requiredCorrectionPages = useMemo(
-    () => Math.max(1, currentCorrectionAssignment?.totalPages || 1),
-    [currentCorrectionAssignment]
+  // All actionable (open) questions must have either photo or dispute before submit
+  const actionableItems = useMemo(
+    () => (correctionItems || []).filter((item) => !item.status || item.status === 'open'),
+    [correctionItems]
   )
-  const canSubmitCorrection = useMemo(
-    () =>
-      Boolean(correctionAssignmentId) &&
-      selectedFiles.length === requiredCorrectionPages &&
-      !isSubmitting,
-    [correctionAssignmentId, selectedFiles.length, requiredCorrectionPages, isSubmitting]
-  )
+  const canSubmitCorrection = useMemo(() => {
+    if (!correctionAssignmentId || isSubmitting) return false
+    if (actionableItems.length === 0) return false
+    return actionableItems.every((item) => {
+      const qId = item.questionId || ''
+      return Boolean(questionActions[qId])
+    })
+  }, [correctionAssignmentId, isSubmitting, actionableItems, questionActions])
   const cameraRequiredPages = useMemo(
     () => Math.max(1, currentCameraAssignment?.totalPages || 1),
     [currentCameraAssignment]
@@ -707,45 +670,15 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   }, [previewUrls])
 
   useEffect(() => {
-    setCorrectionIndex(0)
+    setQuestionActions({})
+    setDisputeNoteInput({})
+    setShowDisputeNoteFor(null)
   }, [correctionAssignmentId, correctionItems.length])
 
   useEffect(() => {
     correctionCropCacheRef.current = correctionCropCache
   }, [correctionCropCache])
 
-  useEffect(() => {
-    let canceled = false
-    const targetUrl = currentCorrectionDisplayUrl || null
-
-    if (!targetUrl) {
-      setResolvedCorrectionImageUrl(null)
-      setIsResolvingCorrectionImage(false)
-      return () => {
-        canceled = true
-      }
-    }
-
-    setIsResolvingCorrectionImage(true)
-    setResolvedCorrectionImageUrl(null)
-
-    const img = new Image()
-    img.onload = () => {
-      if (canceled) return
-      setResolvedCorrectionImageUrl(targetUrl)
-      setIsResolvingCorrectionImage(false)
-    }
-    img.onerror = () => {
-      if (canceled) return
-      setResolvedCorrectionImageUrl(null)
-      setIsResolvingCorrectionImage(false)
-    }
-    img.src = targetUrl
-
-    return () => {
-      canceled = true
-    }
-  }, [currentCorrectionDisplayUrl, currentCorrectionCropKey])
 
   useEffect(() => {
     let canceled = false
@@ -846,7 +779,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
 
   const openCamera = (
     mode: Exclude<StudentCameraMode, null>,
-    assignmentId?: string
+    assignmentId?: string,
+    questionId?: string
   ) => {
     if (isSubmitting) return
     const targetAssignment =
@@ -859,20 +793,38 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     }
     setError(null)
     setMessage(null)
-    if (mode === 'correction') {
-      setSelectedFiles([])
-      setCapturedBlobs([])
+    setCapturedBlobs([])
+    if (mode === 'correction' && questionId) {
+      setCorrectionCameraQuestionId(questionId)
     } else {
-      const existingDraft = uploadDrafts[targetAssignment.id] || []
-      setCapturedBlobs(existingDraft.map((file) => file as Blob))
+      setCorrectionCameraQuestionId(null)
+      if (mode !== 'correction') {
+        const existingDraft = uploadDrafts[targetAssignment.id] || []
+        setCapturedBlobs(existingDraft.map((file) => file as Blob))
+      }
     }
     setCameraAssignmentId(targetAssignment.id)
     setCameraMode(mode)
     onCaptureModeChange?.(true)
   }
 
-
   const handleCameraCaptureComplete = (imageBlob: Blob) => {
+    // Per-question correction photo: store directly into questionActions
+    if (cameraMode === 'correction' && correctionCameraQuestionId) {
+      const file = new File([imageBlob], `correction-${correctionCameraQuestionId}.jpg`, {
+        type: imageBlob.type || 'image/jpeg'
+      })
+      setQuestionActions((prev) => ({
+        ...prev,
+        [correctionCameraQuestionId]: { type: 'photo', file }
+      }))
+      setCorrectionCameraQuestionId(null)
+      setCameraMode(null)
+      setCameraAssignmentId('')
+      onCaptureModeChange?.(false)
+      return
+    }
+
     setCapturedBlobs((prev) => {
       const next =
         prev.length >= cameraRequiredPages
@@ -918,16 +870,28 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       setError('請先選擇作業')
       return
     }
-    if (!files.length) {
-      setError('請先選擇作業照片')
-      return
-    }
-    const requiredPages = Math.max(1, assignment.totalPages || 1)
-    if (files.length !== requiredPages) {
-      setError(`此作業需上傳 ${requiredPages} 頁，目前為 ${files.length} 頁`)
-      return
-    }
-    if (mode === 'upload') {
+
+    if (mode === 'correction') {
+      // Correction: validate all actionable questions have an action
+      if (actionableItems.length === 0) {
+        setError('目前沒有待訂正題目')
+        return
+      }
+      const missing = actionableItems.filter((item) => !questionActions[item.questionId || ''])
+      if (missing.length > 0) {
+        setError(`還有 ${missing.length} 題未處理，請逐題拍照或申訴`)
+        return
+      }
+    } else {
+      if (!files.length) {
+        setError('請先選擇作業照片')
+        return
+      }
+      const requiredPages = Math.max(1, assignment.totalPages || 1)
+      if (files.length !== requiredPages) {
+        setError(`此作業需上傳 ${requiredPages} 頁，目前為 ${files.length} 頁`)
+        return
+      }
       const draftSignature = buildDraftSignature(files)
       const previewedSignature = previewedDraftSignatures[assignment.id]
       if (!previewedSignature || previewedSignature !== draftSignature) {
@@ -945,24 +909,35 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     const timeoutId = setTimeout(() => controller.abort(), 90_000)
 
     try {
-      // For correction: keep merged image small (display only) + build per-question array
-      const mergeTarget = mode === 'correction' ? 500_000 : 2_000_000
-      const merged = await mergeImagesVertically(files)
-      const compressed = await compressToTargetBytes(merged, mergeTarget, { maxWidth: 2000 })
-      const imageDataUrl = await blobToBase64(compressed)
-
-      // Per-question correction images: files[i] → correctionItems[i]
+      // Build per-question correction payloads from questionActions
       let correctionImages: Array<{ questionId: string; imageBase64: string; contentType: string }> = []
-      if (mode === 'correction' && correctionItems.length > 0) {
+      let disputedQuestions: Array<{ questionId: string; note: string }> = []
+      let mergedFiles: File[] = files
+
+      if (mode === 'correction') {
+        const photoEntries = Object.entries(questionActions).filter(([, a]) => a.type === 'photo' && a.file)
+        const disputeEntries = Object.entries(questionActions).filter(([, a]) => a.type === 'dispute')
+
         correctionImages = await Promise.all(
-          files.map(async (file, i) => {
-            const questionId = correctionItems[i]?.questionId || `q${i + 1}`
-            const compressedItem = await compressToTargetBytes(file, 300_000, { maxWidth: 1200 })
+          photoEntries.map(async ([questionId, action]) => {
+            const compressedItem = await compressToTargetBytes(action.file!, 300_000, { maxWidth: 1200 })
             const imageBase64 = await blobToBase64(compressedItem)
             return { questionId, imageBase64, contentType: compressedItem.type || 'image/webp' }
           })
         )
+        disputedQuestions = disputeEntries.map(([questionId, action]) => ({
+          questionId,
+          note: action.note || ''
+        }))
+        // Merged image for display: use all photo files (or a blank placeholder if all disputed)
+        mergedFiles = photoEntries.map(([, a]) => a.file!).filter(Boolean)
+        if (mergedFiles.length === 0) mergedFiles = [new File([], 'placeholder')]
       }
+
+      const mergeTarget = mode === 'correction' ? 500_000 : 2_000_000
+      const merged = await mergeImagesVertically(mergedFiles)
+      const compressed = await compressToTargetBytes(merged, mergeTarget, { maxWidth: 2000 })
+      const imageDataUrl = await blobToBase64(compressed)
 
       const response = await fetch('/api/data/student-submission', {
         method: 'POST',
@@ -975,8 +950,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           mode,
           imageBase64: imageDataUrl,
           contentType: compressed.type || 'image/webp',
-          pageCount: files.length,
-          ...(correctionImages.length > 0 ? { correctionImages } : {})
+          pageCount: mode === 'correction' ? 1 : files.length,
+          ...(correctionImages.length > 0 ? { correctionImages } : {}),
+          ...(disputedQuestions.length > 0 ? { disputedQuestions } : {})
         })
       })
       clearTimeout(timeoutId)
@@ -1030,6 +1006,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         setPreviewModal(null)
       } else {
         setSelectedFiles([])
+        setQuestionActions({})
+        setDisputeNoteInput({})
+        setShowDisputeNoteFor(null)
       }
       setCapturedBlobs([])
       await loadOverview(selectedClassroomKey)
@@ -1423,14 +1402,14 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
             )}
 
             {currentCorrectionAssignment && !currentCorrectionAssignment.gradingPending && (
-              <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-slate-900">待訂正題目</p>
+                  <p className="text-sm font-semibold text-slate-900">訂正題目</p>
                   <div className="flex items-center gap-2">
                     {isPreparingCorrectionCrops && (
-                      <span className="inline-flex items-center gap-1 rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] text-sky-700">
+                      <span className="inline-flex items-center gap-1 text-[11px] text-slate-400">
                         <Loader2 className="h-3 w-3 animate-spin" />
-                        背景預載截圖中
+                        載入截圖中
                       </span>
                     )}
                     <span className="text-xs text-slate-500">
@@ -1440,126 +1419,180 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                   </div>
                 </div>
 
-                {correctionItems.length > 0 ? (
-                  <div className="rounded-lg border border-slate-200 bg-white p-3">
-                    <div className="mb-2 flex items-center justify-between">
-                      <button
-                        type="button"
-                        onClick={() => setCorrectionIndex((prev) => Math.max(0, prev - 1))}
-                        disabled={safeCorrectionIndex <= 0 || isSubmitting}
-                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                      >
-                        <ChevronLeft className="h-3.5 w-3.5" />
-                        上一題
-                      </button>
-                      <p className="text-xs font-semibold text-slate-600">
-                        第 {safeCorrectionIndex + 1} / {correctionItems.length} 題
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setCorrectionIndex((prev) =>
-                            Math.min(correctionItems.length - 1, prev + 1)
-                          )
-                        }
-                        disabled={safeCorrectionIndex >= correctionItems.length - 1 || isSubmitting}
-                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                      >
-                        下一題
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                {correctionItems.length > 0 ? correctionItems.map((item, idx) => {
+                  const qId = item.questionId || `q${idx}`
+                  const action = questionActions[qId]
+                  const isDisputed = item.status === 'disputed'
+                  const isRejected = Boolean(item.disputeRejectedAt)
 
-                    <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {currentCorrectionItem?.questionId || `題目 ${safeCorrectionIndex + 1}`}
-                        {currentCorrectionItem?.questionText
-                          ? ` · ${currentCorrectionItem.questionText}`
-                          : ''}
-                      </p>
-                    </div>
-
-                    <div className="mb-2 overflow-hidden rounded-lg border border-slate-200 bg-slate-100">
-                      {isCurrentCorrectionCropLoading || isResolvingCorrectionImage ? (
-                        <div className="flex h-56 items-center justify-center text-slate-500">
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          產生錯題截圖中…
+                  // Readonly: already disputed and awaiting teacher
+                  if (isDisputed && !isRejected) {
+                    return (
+                      <div key={qId} className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                        <div className="mb-1 flex items-center gap-2">
+                          <Clock className="h-4 w-4 shrink-0 text-amber-600" />
+                          <p className="text-sm font-semibold text-amber-800">
+                            {qId}{item.questionText ? ` · ${item.questionText}` : ''} — 申訴審閱中
+                          </p>
                         </div>
-                      ) : resolvedCorrectionImageUrl ? (
-                        <img
-                          src={resolvedCorrectionImageUrl}
-                          alt="錯題截圖"
-                          className="h-56 w-full object-contain"
-                        />
-                      ) : currentCorrectionImageUrl ? (
-                        <div>
-                          <img
-                            src={currentCorrectionImageUrl}
-                            alt="原始作答影像"
-                            className="h-56 w-full object-contain"
-                          />
-                          <div className="border-t border-slate-200 bg-white px-2 py-1 text-center text-[11px] text-slate-500">
-                            顯示原圖（無可用題目框選或截圖生成失敗）
+                        {item.disputeNote && (
+                          <p className="mt-1 text-xs text-amber-700">你的說明：{item.disputeNote}</p>
+                        )}
+                        <p className="mt-1 text-xs text-amber-600">等待老師裁決，暫時無法操作。</p>
+                      </div>
+                    )
+                  }
+
+                  // Previously disputed but teacher rejected — must redo, no re-dispute
+                  const rejectedOnly = isRejected && item.status === 'open'
+
+                  return (
+                    <div key={qId} className={`rounded-lg border p-3 ${action ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                      {/* Question header */}
+                      <p className="mb-2 text-sm font-semibold text-slate-900">
+                        {qId}{item.questionText ? ` · ${item.questionText}` : ''}
+                        {action?.type === 'photo' && <span className="ml-2 text-xs font-normal text-emerald-600">✓ 已拍照</span>}
+                        {action?.type === 'dispute' && <span className="ml-2 text-xs font-normal text-amber-600">✓ 已申訴</span>}
+                      </p>
+
+                      {/* Teacher rejection note */}
+                      {rejectedOnly && item.disputeRejectionNote && (
+                        <div className="mb-2 rounded border border-rose-200 bg-rose-50 px-2 py-1.5">
+                          <p className="text-xs font-semibold text-rose-700">老師駁回申訴</p>
+                          <p className="mt-0.5 text-xs text-rose-600">{item.disputeRejectionNote}</p>
+                          <p className="mt-1 text-xs text-rose-500">此題無法再申訴，請重新拍照訂正。</p>
+                        </div>
+                      )}
+
+                      {/* Hint */}
+                      {item.hintText && (
+                        <div className="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+                          <p className="text-xs font-semibold text-amber-700">錯題指引</p>
+                          <p className="mt-0.5 text-xs text-amber-800">{item.hintText}</p>
+                        </div>
+                      )}
+
+                      {/* Original wrong-answer crop thumbnail */}
+                      {(() => {
+                        const cropKey = buildCorrectionCropCacheKey(correctionAssignmentId, item, idx)
+                        const cropUrl = correctionCropCache[cropKey]
+                        const serverCrop = item.cropImageUrl
+                        const displayUrl = serverCrop || (typeof cropUrl === 'string' ? cropUrl : null)
+                        if (!displayUrl) return null
+                        return (
+                          <div className="mb-2 overflow-hidden rounded border border-slate-200 bg-slate-50">
+                            <img src={displayUrl} alt="原始錯誤作答" className="max-h-40 w-full object-contain" />
+                            <p className="px-2 py-0.5 text-center text-[10px] text-slate-400">原始錯誤作答</p>
                           </div>
+                        )
+                      })()}
+
+                      {/* Photo preview if already taken */}
+                      {action?.type === 'photo' && action.file && (
+                        <div className="mb-2 overflow-hidden rounded border border-emerald-200 bg-emerald-50">
+                          <img
+                            src={URL.createObjectURL(action.file)}
+                            alt="已拍照片"
+                            className="max-h-40 w-full object-contain"
+                          />
+                          <p className="px-2 py-0.5 text-center text-[10px] text-emerald-600">已拍訂正照片</p>
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      {!action ? (
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={isSubmitting}
+                            onClick={() => openCamera('correction', correctionAssignmentId, qId)}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Camera className="h-3.5 w-3.5" />
+                            拍照重做
+                          </button>
+                          {!rejectedOnly && (
+                            <button
+                              type="button"
+                              disabled={isSubmitting}
+                              onClick={() => setShowDisputeNoteFor(qId)}
+                              className="inline-flex items-center gap-1.5 rounded-md border border-violet-300 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <Flag className="h-3.5 w-3.5" />
+                              申訴此題
+                            </button>
+                          )}
                         </div>
                       ) : (
-                        <div className="flex h-56 items-center justify-center px-3 text-center text-sm text-slate-500">
-                          目前沒有可用的錯題截圖，請依題號與錯題指引進行訂正。
+                        <button
+                          type="button"
+                          disabled={isSubmitting}
+                          onClick={() => setQuestionActions((prev) => { const n = {...prev}; delete n[qId]; return n })}
+                          className="text-xs text-slate-400 underline hover:text-slate-600"
+                        >
+                          取消，重新選擇
+                        </button>
+                      )}
+
+                      {/* Dispute note input */}
+                      {showDisputeNoteFor === qId && !action && (
+                        <div className="mt-2 space-y-2 rounded border border-violet-200 bg-violet-50 p-2">
+                          <p className="text-xs font-semibold text-violet-800">請說明你認為此題沒有錯的原因（可選填）</p>
+                          <textarea
+                            rows={2}
+                            value={disputeNoteInput[qId] || ''}
+                            onChange={(e) => setDisputeNoteInput((prev) => ({ ...prev, [qId]: e.target.value }))}
+                            placeholder="例如：我的答案與參考答案意思相同…"
+                            className="w-full rounded border border-violet-300 bg-white px-2 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-violet-400"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQuestionActions((prev) => ({ ...prev, [qId]: { type: 'dispute', note: disputeNoteInput[qId] || '' } }))
+                                setShowDisputeNoteFor(null)
+                              }}
+                              className="rounded-md bg-violet-600 px-3 py-1 text-xs font-semibold text-white hover:bg-violet-700"
+                            >
+                              確認申訴
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowDisputeNoteFor(null)}
+                              className="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                            >
+                              取消
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
-
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                      <p className="text-xs font-semibold text-amber-800">錯題指引（不提供答案）</p>
-                      <p className="mt-1 text-sm text-amber-900">
-                        {currentCorrectionItem?.hintText ||
-                          '請重新閱讀題意，逐步檢查計算與單位是否一致。'}
-                      </p>
-                    </div>
-                  </div>
-                ) : (
+                  )
+                }) : (
                   <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-600">
-                    目前沒有可顯示的錯題內容。
+                    目前沒有可顯示的訂正題目。
                   </div>
                 )}
               </div>
             )}
 
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                訂正後拍照上傳（需 {requiredCorrectionPages} 頁）
-              </label>
-              <div className="mb-2">
+            {currentCorrectionAssignment && !currentCorrectionAssignment.gradingPending && actionableItems.length > 0 && (
+              <>
                 <button
                   type="button"
-                  onClick={() => openCamera('correction', correctionAssignmentId)}
-                  disabled={!correctionAssignmentId || isSubmitting}
-                  className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                  disabled={!canSubmitCorrection}
+                  onClick={() => void submitStudentWork('correction')}
+                  className="inline-flex items-center gap-2 rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300"
                 >
-                  <Upload className="h-3.5 w-3.5" />
-                  拍照或上傳照片
+                  {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  送出訂正
                 </button>
-              </div>
-              {selectedFiles.length > 0 && (
-                <p className="mt-1 text-xs text-slate-500">
-                  已選擇 {selectedFiles.length} / {requiredCorrectionPages} 張照片
-                </p>
-              )}
-            </div>
-
-            <button
-              type="button"
-              disabled={!canSubmitCorrection}
-              onClick={() => void submitStudentWork('correction')}
-              className="inline-flex items-center gap-2 rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300"
-            >
-              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              檢查並送出訂正
-            </button>
-            {!canSubmitCorrection && correctionAssignmentId && !isSubmitting && (
-              <p className="text-xs text-slate-500">
-                需先上傳 {requiredCorrectionPages} 頁照片後，才能送出訂正。
-              </p>
+                {!canSubmitCorrection && !isSubmitting && (
+                  <p className="text-xs text-slate-500">
+                    每一題都需要選擇「拍照重做」或「申訴此題」後才能送出。
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
