@@ -27,6 +27,9 @@ type Bbox = { x: number; y: number; w: number; h: number }
 type OpenCorrectionItem = NonNullable<StudentAssignmentItem['openCorrections']>[number]
 
 const CORRECTION_POLL_INTERVAL_MS = 30000
+const STUDENT_SUBMIT_TIMEOUT_MS = 180_000
+const CORRECTION_IMAGE_TARGET_BYTES = 120_000
+const CORRECTION_MERGE_TARGET_BYTES = 300_000
 
 type StudentClassroomOption = {
   key: string
@@ -958,7 +961,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     setMessage(null)
 
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 90_000)
+    const timeoutId = setTimeout(() => controller.abort(), STUDENT_SUBMIT_TIMEOUT_MS)
 
     try {
       // Build per-question correction payloads from questionActions
@@ -972,7 +975,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
 
         correctionImages = await Promise.all(
           photoEntries.map(async ([questionId, action]) => {
-            const compressedItem = await compressToTargetBytes(action.file!, 200_000, { maxWidth: 1200 })
+            const compressedItem = await compressToTargetBytes(action.file!, CORRECTION_IMAGE_TARGET_BYTES, { maxWidth: 1200 })
             const imageBase64 = await blobToBase64(compressedItem)
             return { questionId, imageBase64, contentType: compressedItem.type || 'image/webp' }
           })
@@ -986,7 +989,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         if (mergedFiles.length === 0) mergedFiles = [new File([], 'placeholder')]
       }
 
-      const mergeTarget = mode === 'correction' ? 500_000 : 2_000_000
+      const mergeTarget = mode === 'correction' ? CORRECTION_MERGE_TARGET_BYTES : 2_000_000
       const merged = await mergeImagesVertically(mergedFiles)
       const compressed = await compressToTargetBytes(merged, mergeTarget, { maxWidth: 2000 })
       const imageDataUrl = await blobToBase64(compressed)
