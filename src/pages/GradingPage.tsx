@@ -334,7 +334,7 @@ interface BatchPhaseAEntry {
 // ─── ConsistencyQuestionCard ──────────────────────────────────────────────────
 
 function ConsistencyQuestionCard({
-  studentId,
+  studentId: _studentId,
   questionResult,
   decision,
   onDecision,
@@ -349,7 +349,6 @@ function ConsistencyQuestionCard({
   const [manualInput, setManualInput] = useState('')
   const [zoomedImg, setZoomedImg] = useState(false)
   const { questionId, consistencyStatus, consistencyReason, readAnswer1, readAnswer2, answerCropImageUrl } = questionResult
-  const radioName = `q-${studentId}-${questionId}`
   const isUnstable = consistencyStatus === 'unstable'
   const isConfirmed = decision?.confirmed
 
