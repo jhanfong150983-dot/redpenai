@@ -6,15 +6,23 @@ import {
   Bell,
   Eye,
   RotateCcw,
+  RefreshCw,
   Volume2,
   CheckCircle2,
   AlertCircle
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
+import { requestSync } from '@/lib/sync-events'
 
 interface TeacherPreferencesProps {
   onBack?: () => void
   embedded?: boolean
+  campus1Binding?: {
+    account: string
+    dsns: string
+    displayName?: string
+    roleType?: string
+  }
 }
 
 interface NotificationEvents {
@@ -167,12 +175,18 @@ const DEFAULT_PREFS: Preferences = {
 
 export default function TeacherPreferences({
   onBack,
-  embedded = false
+  embedded = false,
+  campus1Binding
 }: TeacherPreferencesProps) {
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
+  const [isCampus1Syncing, setIsCampus1Syncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [campus1SyncMessage, setCampus1SyncMessage] = useState<{
+    type: 'success' | 'error'
+    text: string
+  } | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
   const loadPreferences = useCallback(async () => {
@@ -248,6 +262,45 @@ export default function TeacherPreferences({
       setError(err instanceof Error ? err.message : '儲存失敗，請稍後再試')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleCampus1Sync = async () => {
+    if (isCampus1Syncing) return
+    const dsns = String(campus1Binding?.dsns || '').trim()
+    if (!dsns) {
+      setCampus1SyncMessage({ type: 'error', text: '找不到 1Campus dsns，請重新綁定後再試' })
+      return
+    }
+
+    setCampus1SyncMessage(null)
+    setIsCampus1Syncing(true)
+    try {
+      const res = await fetch('/api/data/1campus-classroom-sync', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dsns })
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data?.error || '1Campus 同步失敗')
+      }
+
+      const synced = Number(data?.synced ?? 0)
+      const total = Number(data?.total ?? 0)
+      setCampus1SyncMessage({
+        type: 'success',
+        text: `1Campus 同步完成：${synced}/${total} 班`
+      })
+      requestSync(true)
+    } catch (err) {
+      setCampus1SyncMessage({
+        type: 'error',
+        text: err instanceof Error ? err.message : '1Campus 同步失敗'
+      })
+    } finally {
+      setIsCampus1Syncing(false)
     }
   }
 
@@ -473,6 +526,40 @@ export default function TeacherPreferences({
                 </div>
               )}
             </SectionCard>
+
+            {campus1Binding?.dsns && (
+              <SectionCard title="1Campus 同步" icon={RefreshCw}>
+                <SettingRow
+                  label="立即同步班級與學生"
+                  description={`來源：${campus1Binding.dsns}`}
+                >
+                  <button
+                    type="button"
+                    onClick={handleCampus1Sync}
+                    disabled={isCampus1Syncing}
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isCampus1Syncing ? (
+                      <Loader className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    {isCampus1Syncing ? '同步中…' : '立即同步 1Campus'}
+                  </button>
+                </SettingRow>
+                {campus1SyncMessage && (
+                  <div
+                    className={`rounded-lg border px-3 py-2 text-sm ${
+                      campus1SyncMessage.type === 'success'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'border-red-200 bg-red-50 text-red-700'
+                    }`}
+                  >
+                    {campus1SyncMessage.text}
+                  </div>
+                )}
+              </SectionCard>
+            )}
 
             {/* 儲存按鈕 */}
             <div className="flex items-center justify-end gap-3 pb-8">

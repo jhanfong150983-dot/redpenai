@@ -1863,7 +1863,11 @@ function App() {
                   </div>
                 )
               ) : currentPage === 'teacher-preferences' ? (
-                <TeacherPreferences embedded onBack={() => setCurrentPage('home')} />
+                <TeacherPreferences
+                  embedded
+                  onBack={() => setCurrentPage('home')}
+                  campus1Binding={auth.user.campus1Binding}
+                />
               ) : currentPage === 'assignment-scan' && selectedAssignmentId ? (
                 <AssignmentScanImport
                   embedded
