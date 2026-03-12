@@ -317,7 +317,7 @@ type GradingPhase = 'idle' | 'phase_a_running' | 'awaiting_review' | 'phase_b_ru
 
 interface ConsistencyDecision {
   questionId: string
-  source: 'ai_read1' | 'ai_read2' | 'manual' | 'unrecognizable'
+  source: 'ai_read1' | 'ai_read2' | 'manual' | 'unrecognizable' | 'blank'
   finalAnswer: string
   confirmed: boolean
 }
@@ -476,6 +476,24 @@ function ConsistencyQuestionCard({
             className="accent-purple-600"
           />
           <span>讀取 2：{formatAnswer(readAnswer2)}</span>
+        </label>
+
+        <label className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
+          <input
+            type="radio"
+            name={radioName}
+            disabled={disabled}
+            checked={decision?.source === 'blank'}
+            onChange={() =>
+              onDecision(questionId, {
+                source: 'blank',
+                finalAnswer: '',
+                confirmed: true,
+              })
+            }
+            className="accent-gray-500"
+          />
+          <span className="text-gray-600 font-medium">空白（未作答，得 0 分）</span>
         </label>
 
         <div className={`flex items-start gap-2 ${disabled ? 'opacity-60' : ''}`}>
@@ -877,8 +895,8 @@ export default function GradingPage({
           const src = decision?.source ?? 'ai_read1'
           return {
             questionId: qr.questionId,
-            finalStudentAnswer: src === 'unrecognizable' ? '無法辨識' : (decision?.finalAnswer ?? qr.readAnswer1.studentAnswer),
-            finalAnswerSource: src,
+            finalStudentAnswer: src === 'unrecognizable' ? '無法辨識' : src === 'blank' ? '' : (decision?.finalAnswer ?? qr.readAnswer1.studentAnswer),
+            finalAnswerSource: src === 'blank' ? 'manual' : src,
           }
         })
         const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers)
