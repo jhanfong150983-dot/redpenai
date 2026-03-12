@@ -441,115 +441,74 @@ function ConsistencyQuestionCard({
         </div>
       )}
 
-      <div className="space-y-1.5">
-        <label className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
-          <input
-            type="radio"
-            name={radioName}
-            disabled={disabled}
-            checked={decision?.source === 'ai_read1'}
-            onChange={() =>
-              onDecision(questionId, {
-                source: 'ai_read1',
-                finalAnswer: readAnswer1.studentAnswer,
-                confirmed: true,
-              })
+      <div className="space-y-2">
+        {/* 2×2 快速選項 */}
+        <div className={`grid grid-cols-2 gap-1.5 ${disabled ? 'opacity-60' : ''}`}>
+          {([
+            { src: 'ai_read1' as const, label: '讀取 1', answer: readAnswer1.studentAnswer, color: 'purple' },
+            { src: 'ai_read2' as const, label: '讀取 2', answer: readAnswer2.studentAnswer, color: 'purple' },
+            { src: 'blank' as const, label: '空白', answer: '', color: 'gray' },
+            { src: 'unrecognizable' as const, label: '無法辨識', answer: '無法辨識', color: 'red' },
+          ] as const).map(({ src, label, answer, color }) => {
+            const isSelected = decision?.source === src
+            const colorMap = {
+              purple: isSelected ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-700 border-purple-200 hover:border-purple-400',
+              gray: isSelected ? 'bg-gray-500 text-white border-gray-500' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400',
+              red: isSelected ? 'bg-red-500 text-white border-red-500' : 'bg-white text-red-600 border-red-200 hover:border-red-400',
             }
-            className="accent-purple-600"
-          />
-          <span>讀取 1：{formatAnswer(readAnswer1)}</span>
-        </label>
-
-        <label className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
-          <input
-            type="radio"
-            name={radioName}
-            disabled={disabled}
-            checked={decision?.source === 'ai_read2'}
-            onChange={() =>
-              onDecision(questionId, {
-                source: 'ai_read2',
-                finalAnswer: readAnswer2.studentAnswer,
-                confirmed: true,
-              })
-            }
-            className="accent-purple-600"
-          />
-          <span>讀取 2：{formatAnswer(readAnswer2)}</span>
-        </label>
-
-        <label className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
-          <input
-            type="radio"
-            name={radioName}
-            disabled={disabled}
-            checked={decision?.source === 'blank'}
-            onChange={() =>
-              onDecision(questionId, {
-                source: 'blank',
-                finalAnswer: '',
-                confirmed: true,
-              })
-            }
-            className="accent-gray-500"
-          />
-          <span className="text-gray-600 font-medium">空白（未作答，得 0 分）</span>
-        </label>
-
-        <div className={`flex items-start gap-2 ${disabled ? 'opacity-60' : ''}`}>
-          <input
-            type="radio"
-            name={radioName}
-            disabled={disabled}
-            checked={decision?.source === 'manual'}
-            onChange={switchToManual}
-            className="accent-purple-600 mt-1 shrink-0"
-          />
-          <div className="flex-1 space-y-1">
-            <span
-              className="cursor-pointer select-none"
-              onClick={!disabled ? switchToManual : undefined}
-            >
-              人工輸入：
-            </span>
-            {decision?.source === 'manual' && (
-              <textarea
-                rows={2}
-                value={manualInput}
+            return (
+              <button
+                key={src}
+                type="button"
                 disabled={disabled}
-                placeholder="輸入答案（可修改預填內容）..."
-                className="w-full border border-purple-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400 disabled:opacity-50 resize-y"
-                autoFocus
-                onChange={(e) => {
-                  setManualInput(e.target.value)
-                  onDecision(questionId, {
-                    source: 'manual',
-                    finalAnswer: e.target.value,
-                    confirmed: e.target.value.trim().length > 0,
-                  })
-                }}
-              />
-            )}
-          </div>
+                onClick={() => onDecision(questionId, { source: src, finalAnswer: answer, confirmed: true })}
+                className={`flex flex-col items-start px-2 py-1.5 rounded border text-xs transition-colors disabled:cursor-not-allowed ${colorMap[color]}`}
+              >
+                <span className="font-medium">{label}</span>
+                {src !== 'blank' && src !== 'unrecognizable' && (
+                  <span className="truncate w-full opacity-80">{formatAnswer(src === 'ai_read1' ? readAnswer1 : readAnswer2)}</span>
+                )}
+              </button>
+            )
+          })}
         </div>
 
-        <label className={`flex items-center gap-2 cursor-pointer ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}>
-          <input
-            type="radio"
-            name={radioName}
+        {/* 人工輸入（展開式） */}
+        <div className={`${disabled ? 'opacity-60' : ''}`}>
+          <button
+            type="button"
             disabled={disabled}
-            checked={decision?.source === 'unrecognizable'}
-            onChange={() =>
-              onDecision(questionId, {
-                source: 'unrecognizable',
-                finalAnswer: '無法辨識',
-                confirmed: true,
-              })
-            }
-            className="accent-red-600"
-          />
-          <span className="text-red-700 font-medium">無法辨識（字跡不清，視為錯誤）</span>
-        </label>
+            onClick={!disabled ? switchToManual : undefined}
+            className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded border text-xs transition-colors disabled:cursor-not-allowed ${
+              decision?.source === 'manual'
+                ? 'bg-purple-600 text-white border-purple-600'
+                : 'bg-white text-purple-700 border-purple-200 hover:border-purple-400'
+            }`}
+          >
+            <span className="font-medium">人工輸入</span>
+            {decision?.source === 'manual' && manualInput && (
+              <span className="truncate opacity-80">{manualInput}</span>
+            )}
+          </button>
+          {decision?.source === 'manual' && (
+            <textarea
+              rows={2}
+              value={manualInput}
+              disabled={disabled}
+              placeholder="輸入答案..."
+              className="mt-1 w-full border border-purple-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400 disabled:opacity-50 resize-y"
+              autoFocus
+              onChange={(e) => {
+                setManualInput(e.target.value)
+                onDecision(questionId, {
+                  source: 'manual',
+                  finalAnswer: e.target.value,
+                  confirmed: e.target.value.trim().length > 0,
+                })
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   )
