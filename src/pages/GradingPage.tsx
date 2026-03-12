@@ -1446,6 +1446,14 @@ export default function GradingPage({
     }
   }, [selectedSubmission])
 
+  // 每 30 秒自動 sync，讓老師即時看到學生上傳的藍色座號卡
+  useEffect(() => {
+    const interval = setInterval(() => {
+      requestSync()
+    }, 30_000)
+    return () => clearInterval(interval)
+  }, [])
+
   // 批改訊息每 10 秒輪播
   useEffect(() => {
     if (!isGrading && !isDownloading) return
