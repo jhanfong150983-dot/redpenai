@@ -190,6 +190,7 @@ const normalizeLoginEntry = (value: unknown): LoginEntryMode | null => {
 }
 
 const OVERVIEW_VISIBLE_STEP = 3
+const INITIAL_SYNC_TIMEOUT_MS = 8000
 
 // 模組頂層即時偵測：若 URL 帶有 1Campus SSO 參數，加上旗標阻擋
 // fetchAuth 變更 auth state，避免在跳轉前閃過 LandingPage
@@ -508,16 +509,44 @@ function App() {
   // 初次同步 loading：登入後若無同步紀錄，顯示 loading 直到第一次同步完成
   useEffect(() => {
     if (auth.status !== 'authenticated') return
-    if (window.localStorage.getItem(INITIAL_SYNCED_KEY)) return
+    const isStudentEntry = loginEntry === 'student'
+    const hasStudentRole = (auth.user.role || '').toLowerCase() === 'student'
+    const hasStudentLink = Boolean(auth.user.student?.id)
+
+    // 學生流程不依賴本地同步，避免等待 SYNC_COMPLETE 造成卡住
+    if (isStudentEntry || hasStudentRole || hasStudentLink) {
+      setIsInitialSyncing(false)
+      window.localStorage.setItem(INITIAL_SYNCED_KEY, '1')
+      return
+    }
+
+    if (window.localStorage.getItem(INITIAL_SYNCED_KEY)) {
+      setIsInitialSyncing(false)
+      return
+    }
 
     setIsInitialSyncing(true)
+    let isSettled = false
     const handler = () => {
+      if (isSettled) return
+      isSettled = true
       setIsInitialSyncing(false)
       window.localStorage.setItem(INITIAL_SYNCED_KEY, '1')
     }
+    const timeoutId = window.setTimeout(() => {
+      if (isSettled) return
+      isSettled = true
+      setIsInitialSyncing(false)
+      window.localStorage.setItem(INITIAL_SYNCED_KEY, '1')
+    }, INITIAL_SYNC_TIMEOUT_MS)
+
     window.addEventListener(SYNC_COMPLETE_EVENT_NAME, handler, { once: true })
-    return () => window.removeEventListener(SYNC_COMPLETE_EVENT_NAME, handler)
-  }, [auth.status])
+    return () => {
+      isSettled = true
+      window.clearTimeout(timeoutId)
+      window.removeEventListener(SYNC_COMPLETE_EVENT_NAME, handler)
+    }
+  }, [auth, loginEntry])
 
   // 應用啟動時檢測 WebP 支持（用於平板Chrome兼容性）
   useEffect(() => {
