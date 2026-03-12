@@ -441,54 +441,78 @@ function ConsistencyQuestionCard({
         </div>
       )}
 
-      <div className="space-y-2">
-        {/* 2×2 快速選項 */}
-        <div className={`grid grid-cols-2 gap-1.5 ${disabled ? 'opacity-60' : ''}`}>
-          {([
-            { src: 'ai_read1' as const, label: '讀取 1', answer: readAnswer1.studentAnswer, color: 'purple' },
-            { src: 'ai_read2' as const, label: '讀取 2', answer: readAnswer2.studentAnswer, color: 'purple' },
-            { src: 'blank' as const, label: '空白', answer: '', color: 'gray' },
-            { src: 'unrecognizable' as const, label: '無法辨識', answer: '無法辨識', color: 'red' },
-          ] as const).map(({ src, label, answer, color }) => {
-            const isSelected = decision?.source === src
-            const colorMap = {
-              purple: isSelected ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-purple-700 border-purple-200 hover:border-purple-400',
-              gray: isSelected ? 'bg-gray-500 text-white border-gray-500' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400',
-              red: isSelected ? 'bg-red-500 text-white border-red-500' : 'bg-white text-red-600 border-red-200 hover:border-red-400',
-            }
-            return (
-              <button
-                key={src}
-                type="button"
-                disabled={disabled}
-                onClick={() => onDecision(questionId, { source: src, finalAnswer: answer, confirmed: true })}
-                className={`flex flex-col items-start px-2 py-1.5 rounded border text-xs transition-colors disabled:cursor-not-allowed ${colorMap[color]}`}
-              >
-                <span className="font-medium">{label}</span>
-                {src !== 'blank' && src !== 'unrecognizable' && (
-                  <span className="truncate w-full opacity-80">{formatAnswer(src === 'ai_read1' ? readAnswer1 : readAnswer2)}</span>
-                )}
-              </button>
-            )
-          })}
-        </div>
+      <div className={`grid grid-cols-2 gap-2 ${disabled ? 'opacity-60' : ''}`}>
+        {/* 讀取 1 */}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onDecision(questionId, { source: 'ai_read1', finalAnswer: readAnswer1.studentAnswer, confirmed: true })}
+          className={`flex flex-col gap-0.5 rounded-lg border-2 px-3 py-2.5 text-left text-xs transition-all disabled:cursor-not-allowed ${
+            decision?.source === 'ai_read1'
+              ? 'border-purple-500 bg-purple-50 shadow-sm'
+              : 'border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50/40'
+          }`}
+        >
+          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read1' ? 'text-purple-700' : 'text-gray-500'}`}>讀取 1</span>
+          <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read1' ? 'text-purple-900' : 'text-gray-800'}`}>{formatAnswer(readAnswer1)}</span>
+        </button>
 
-        {/* 人工輸入（展開式） */}
-        <div className={`${disabled ? 'opacity-60' : ''}`}>
+        {/* 讀取 2 */}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onDecision(questionId, { source: 'ai_read2', finalAnswer: readAnswer2.studentAnswer, confirmed: true })}
+          className={`flex flex-col gap-0.5 rounded-lg border-2 px-3 py-2.5 text-left text-xs transition-all disabled:cursor-not-allowed ${
+            decision?.source === 'ai_read2'
+              ? 'border-purple-500 bg-purple-50 shadow-sm'
+              : 'border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50/40'
+          }`}
+        >
+          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read2' ? 'text-purple-700' : 'text-gray-500'}`}>讀取 2</span>
+          <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read2' ? 'text-purple-900' : 'text-gray-800'}`}>{formatAnswer(readAnswer2)}</span>
+        </button>
+
+        {/* 空白 */}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onDecision(questionId, { source: 'blank', finalAnswer: '', confirmed: true })}
+          className={`flex items-center justify-center rounded-lg border-2 px-3 py-2.5 text-xs font-semibold transition-all disabled:cursor-not-allowed ${
+            decision?.source === 'blank'
+              ? 'border-gray-400 bg-gray-100 text-gray-700 shadow-sm'
+              : 'border-gray-200 bg-white text-gray-500 hover:border-gray-400 hover:bg-gray-50'
+          }`}
+        >
+          空白（未作答）
+        </button>
+
+        {/* 無法辨識 */}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onDecision(questionId, { source: 'unrecognizable', finalAnswer: '無法辨識', confirmed: true })}
+          className={`flex items-center justify-center rounded-lg border-2 px-3 py-2.5 text-xs font-semibold transition-all disabled:cursor-not-allowed ${
+            decision?.source === 'unrecognizable'
+              ? 'border-red-400 bg-red-50 text-red-700 shadow-sm'
+              : 'border-gray-200 bg-white text-red-500 hover:border-red-300 hover:bg-red-50/40'
+          }`}
+        >
+          無法辨識
+        </button>
+
+        {/* 人工輸入（跨兩欄） */}
+        <div className="col-span-2">
           <button
             type="button"
             disabled={disabled}
             onClick={!disabled ? switchToManual : undefined}
-            className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded border text-xs transition-colors disabled:cursor-not-allowed ${
+            className={`w-full rounded-lg border-2 px-3 py-2.5 text-left text-xs font-semibold transition-all disabled:cursor-not-allowed ${
               decision?.source === 'manual'
-                ? 'bg-purple-600 text-white border-purple-600'
-                : 'bg-white text-purple-700 border-purple-200 hover:border-purple-400'
+                ? 'border-blue-400 bg-blue-50 text-blue-800 shadow-sm'
+                : 'border-gray-200 bg-white text-blue-600 hover:border-blue-300 hover:bg-blue-50/40'
             }`}
           >
-            <span className="font-medium">人工輸入</span>
-            {decision?.source === 'manual' && manualInput && (
-              <span className="truncate opacity-80">{manualInput}</span>
-            )}
+            {decision?.source === 'manual' && manualInput ? `人工輸入：${manualInput}` : '人工輸入…'}
           </button>
           {decision?.source === 'manual' && (
             <textarea
@@ -496,7 +520,7 @@ function ConsistencyQuestionCard({
               value={manualInput}
               disabled={disabled}
               placeholder="輸入答案..."
-              className="mt-1 w-full border border-purple-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400 disabled:opacity-50 resize-y"
+              className="mt-1.5 w-full rounded-lg border border-blue-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50 resize-y"
               autoFocus
               onChange={(e) => {
                 setManualInput(e.target.value)
