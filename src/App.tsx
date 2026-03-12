@@ -465,9 +465,9 @@ function App() {
       return
     }
 
-    // Google 登入但已有 1Campus 綁定 → 自動同步
+    // Google 登入但已有 1Campus 綁定 → 自動同步（僅老師帳號）
     const binding = auth.user.campus1Binding
-    if (binding?.dsns) {
+    if (binding?.dsns && binding.roleType === 'teacher') {
       // 避免重複同步：同一 session 只觸發一次
       const syncKey = `campus1_auto_sync_${auth.user.id}`
       if (window.sessionStorage.getItem(syncKey)) return
