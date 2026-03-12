@@ -84,6 +84,7 @@ export interface AnswerKeyQuestion {
 export interface AnswerKey {
   questions: AnswerKeyQuestion[]
   totalScore: number
+  strictness?: 'strict' | 'standard' | 'lenient'
 }
 
 /**

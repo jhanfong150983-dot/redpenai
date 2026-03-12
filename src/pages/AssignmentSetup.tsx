@@ -2878,6 +2878,31 @@ export default function AssignmentSetup({
                   </button>
                 </div>
 
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500 shrink-0">批改嚴格度</span>
+                  <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+                    {(['strict', 'standard', 'lenient'] as const).map((level) => {
+                      const labels = { strict: '嚴格', standard: '標準', lenient: '寬鬆' }
+                      const current = answerKey?.strictness ?? 'standard'
+                      return (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => setAnswerKey(prev => prev ? { ...prev, strictness: level } : prev)}
+                          className={`px-3 py-1 transition-colors ${current === level ? 'bg-green-600 text-white font-medium' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                          {labels[level]}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    {(answerKey?.strictness ?? 'standard') === 'strict' && '字詞順序格式須完全一致'}
+                    {(answerKey?.strictness ?? 'standard') === 'standard' && '允許同義、格式小差異'}
+                    {(answerKey?.strictness ?? 'standard') === 'lenient' && '只要核心意思正確即可'}
+                  </span>
+                </div>
+
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
                     上傳答案卷（可用 PDF 或圖片，支援多檔案選取）
@@ -3403,6 +3428,34 @@ export default function AssignmentSetup({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">批改嚴格度</label>
+                <div className="flex items-center gap-2">
+                  <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+                    {(['strict', 'standard', 'lenient'] as const).map((level) => {
+                      const labels = { strict: '嚴格', standard: '標準', lenient: '寬鬆' }
+                      const current = editingAnswerKey?.strictness ?? 'standard'
+                      return (
+                        <button
+                          key={level}
+                          type="button"
+                          disabled={isSavingAnswerKey}
+                          onClick={() => setEditingAnswerKey(prev => prev ? { ...prev, strictness: level } : prev)}
+                          className={`px-3 py-1.5 transition-colors ${current === level ? 'bg-green-600 text-white font-medium' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                          {labels[level]}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    {(editingAnswerKey?.strictness ?? 'standard') === 'strict' && '字詞順序格式須完全一致'}
+                    {(editingAnswerKey?.strictness ?? 'standard') === 'standard' && '允許同義、格式小差異'}
+                    {(editingAnswerKey?.strictness ?? 'standard') === 'lenient' && '只要核心意思正確即可'}
+                  </span>
+                </div>
               </div>
 
               <div className="space-y-2">
