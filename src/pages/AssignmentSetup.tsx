@@ -2649,15 +2649,23 @@ export default function AssignmentSetup({
       </div>
 
       {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" 
-        data-tutorial="create-assignment-modal"
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-3 sm:p-4"
+          data-tutorial="create-assignment-modal"
         >
-          <div ref={createAssignmentModalScrollRef} className="bg-white rounded-2xl w-full max-w-xl max-h-[90dvh] flex flex-col overflow-hidden shadow-2xl">
-            <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-200">
+          <div
+            ref={createAssignmentModalScrollRef}
+            className="flex max-h-[92dvh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/5"
+          >
+            <div className="flex-shrink-0 border-b border-slate-200 bg-gradient-to-r from-emerald-50 via-white to-cyan-50 px-4 py-4 sm:px-6">
+              <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">新增作業</h2>
-                <p className="text-xs text-gray-500">
-                  指派班級並建立作業，可同步設定標準答案。
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                  Assignment Builder
+                </p>
+                <h2 className="mt-1 text-xl font-semibold text-slate-900">新增作業</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  指派班級並建立作業，再用 AI 解析與編修標準答案。
                 </p>
               </div>
               <button
@@ -2666,21 +2674,88 @@ export default function AssignmentSetup({
                   setIsCreateModalOpen(false)
                   resetForm()
                 }}
-                className="p-2 rounded-full hover:bg-gray-100 text-gray-500"
+                className="rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-100"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+            </div>
 
-            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
-              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
-              {error && (
-                <div className="p-3 bg-red-50 border border-red-200 text-sm text-red-700 rounded-xl">
-                  {error}
-                </div>
-              )}
+            <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+              <div className="flex-1 overflow-y-auto bg-slate-50 px-4 py-4 sm:px-6 sm:py-5">
+                {error && (
+                  <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                    {error}
+                  </div>
+                )}
 
-              <div className="space-y-4">
+                <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)]">
+                  <aside className="space-y-3 xl:sticky xl:top-0 xl:self-start">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <h3 className="text-sm font-semibold text-slate-800">建立進度</h3>
+                      <p className="mt-1 text-xs text-slate-500">
+                        完成全部必填欄位後即可建立作業。
+                      </p>
+                      <div className="mt-3 space-y-2 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600">作業標題</span>
+                          <span className={`rounded-full px-2 py-0.5 font-medium ${assignmentTitle.trim() ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                            {assignmentTitle.trim() ? '完成' : '待填'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600">指派班級</span>
+                          <span className={`rounded-full px-2 py-0.5 font-medium ${selectedClassroomId ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                            {selectedClassroomId ? '完成' : '待填'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600">作業領域</span>
+                          <span className={`rounded-full px-2 py-0.5 font-medium ${assignmentDomain ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                            {assignmentDomain ? '完成' : '待填'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600">頁數設定</span>
+                          <span
+                            className={`rounded-full px-2 py-0.5 font-medium ${
+                              Number.isFinite(Number(totalPages)) && Number(totalPages) >= 1 && Number(totalPages) <= 100
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {Number.isFinite(Number(totalPages)) && Number(totalPages) >= 1 && Number(totalPages) <= 100 ? '完成' : '待填'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600">標準答案</span>
+                          <span className={`rounded-full px-2 py-0.5 font-medium ${answerKey ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                            {answerKey ? '完成' : '待填'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                      <p className="text-xs font-semibold text-emerald-800">目前設定</p>
+                      <p className="mt-1 text-sm font-medium text-emerald-900">
+                        {classrooms.find((classroom) => classroom.id === selectedClassroomId)?.name || '尚未指定班級'}
+                      </p>
+                      <p className="mt-2 text-xs text-emerald-700">已上傳答案卷 {answerKeyFile.length} 份</p>
+                    </div>
+                  </aside>
+
+                  <div className="min-w-0 space-y-4">
+                    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-base font-semibold text-slate-900">基本設定</h3>
+                          <p className="text-xs text-slate-500">先填作業資訊，再設定題型優先權。</p>
+                        </div>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                          Step 1
+                        </span>
+                      </div>
+                      <div className="space-y-4">
                 <div>
                   <label
                     htmlFor="assignmentTitle"
@@ -2864,23 +2939,31 @@ export default function AssignmentSetup({
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-gray-200 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-gray-800">
-                    標準答案
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => addQuestionRow('create')}
-                    className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  >
-                    手動新增一題
-                  </button>
+              <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-800">
+                      標準答案
+                    </h3>
+                    <p className="text-xs text-slate-500">上傳答案卷後可 AI 解析，並手動微調。</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-white px-2 py-1 text-[11px] font-medium text-slate-600 border border-slate-200">
+                      Step 2
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => addQuestionRow('create')}
+                      className="text-xs px-2 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
+                    >
+                      手動新增一題
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500 shrink-0">批改嚴格度</span>
-                  <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+                  <span className="text-xs text-slate-500 shrink-0">批改嚴格度</span>
+                  <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs bg-white">
                     {(['strict', 'standard', 'lenient'] as const).map((level) => {
                       const labels = { strict: '嚴格', standard: '標準', lenient: '寬鬆' }
                       const current = answerKey?.strictness ?? 'standard'
@@ -2889,14 +2972,14 @@ export default function AssignmentSetup({
                           key={level}
                           type="button"
                           onClick={() => setAnswerKey(prev => prev ? { ...prev, strictness: level } : prev)}
-                          className={`px-3 py-1 transition-colors ${current === level ? 'bg-green-600 text-white font-medium' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                          className={`px-3 py-1 transition-colors ${current === level ? 'bg-emerald-600 text-white font-medium' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
                         >
                           {labels[level]}
                         </button>
                       )
                     })}
                   </div>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-slate-400">
                     {(answerKey?.strictness ?? 'standard') === 'strict' && '字詞順序格式須完全一致'}
                     {(answerKey?.strictness ?? 'standard') === 'standard' && '允許同義、格式小差異'}
                     {(answerKey?.strictness ?? 'standard') === 'lenient' && '只要核心意思正確即可'}
@@ -2904,7 +2987,7 @@ export default function AssignmentSetup({
                 </div>
 
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-slate-700">
                     上傳答案卷（可用 PDF 或圖片，支援多檔案選取）
                   </label>
                   <input
@@ -2915,7 +2998,7 @@ export default function AssignmentSetup({
                     multiple
                     onChange={handleAnswerKeyFileChange}
                     disabled={isSubmitting || isExtractingAnswerKey}
-                    className="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                    className="block w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
                   />
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                     <p className="text-xs font-semibold text-slate-700">提醒</p>
@@ -2932,7 +3015,7 @@ export default function AssignmentSetup({
                       disabled={
                         answerKeyFile.length === 0 || isSubmitting || isExtractingAnswerKey
                       }
-                      className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
                     >
                       {isExtractingAnswerKey && (
                         <Loader className="w-4 h-4 animate-spin" />
@@ -2946,7 +3029,7 @@ export default function AssignmentSetup({
                         type="button"
                         onClick={() => handleReanalyzeMarkedQuestions('create')}
                         disabled={isReanalyzing}
-                        className="mt-2 inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm hover:bg-amber-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                        className="mt-2 inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm hover:bg-amber-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
                       >
                         <RefreshCw className={`w-4 h-4 ${isReanalyzing ? 'animate-spin' : ''}`} />
                         {isReanalyzing
@@ -3325,18 +3408,28 @@ export default function AssignmentSetup({
                 </div>
                 )}
               </div>
+            </section>
+          </div>
+        </div>
+      </div>
 
-              </div>
-
-              <div className="flex-shrink-0 flex flex-col items-end gap-2 px-4 py-3 border-t border-gray-100">
-                <div className="flex items-center gap-3">
+              <div className="flex-shrink-0 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  {getMissingFields.length > 0 ? (
+                    <p className="text-xs text-slate-500">
+                      缺少：{getMissingFields.join('、')}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-emerald-600">所有必填欄位已完成，可建立作業。</p>
+                  )}
+                  <div className="flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => {
                       setIsCreateModalOpen(false)
                       resetForm()
                     }}
-                    className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    className="rounded-lg border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-50"
                   >
                     取消
                   </button>
@@ -3344,16 +3437,12 @@ export default function AssignmentSetup({
                     type="submit"
                     data-tutorial="assignment-submit"
                     disabled={isSubmitting || getMissingFields.length > 0}
-                    className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {isSubmitting ? '建立中…' : '建立作業'}
                   </button>
                 </div>
-                {getMissingFields.length > 0 && (
-                  <p className="text-xs text-gray-500">
-                    缺少：{getMissingFields.join('、')}
-                  </p>
-                )}
+                </div>
               </div>
             </form>
           </div>
@@ -4137,5 +4226,3 @@ export default function AssignmentSetup({
     </div>
   )
 }
-
-
