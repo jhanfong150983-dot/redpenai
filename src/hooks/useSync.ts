@@ -1159,9 +1159,9 @@ export function useSync(options: UseSyncOptions = {}) {
 
       // Pull runs in parallel with push+scan-upload so the teacher sees new
       // student submissions immediately, without waiting for pending uploads.
+      let failCount = 0
       const pushWork = (async () => {
         let successCount = 0
-        let failCount = 0
 
         for (const submission of pendingSubmissions) {
           try {

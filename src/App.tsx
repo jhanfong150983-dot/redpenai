@@ -114,6 +114,7 @@ type AuthState =
           account: string
           dsns: string
           displayName?: string
+          roleType?: string
         }
       }
     }
