@@ -972,7 +972,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
 
         correctionImages = await Promise.all(
           photoEntries.map(async ([questionId, action]) => {
-            const compressedItem = await compressToTargetBytes(action.file!, 300_000, { maxWidth: 1200 })
+            const compressedItem = await compressToTargetBytes(action.file!, 200_000, { maxWidth: 1200 })
             const imageBase64 = await blobToBase64(compressedItem)
             return { questionId, imageBase64, contentType: compressedItem.type || 'image/webp' }
           })
