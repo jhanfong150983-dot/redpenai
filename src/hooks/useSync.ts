@@ -1157,55 +1157,35 @@ export function useSync(options: UseSyncOptions = {}) {
 
       debugLog(`找到 ${pendingSubmissions.length} 條待同步紀錄`)
 
-      let successCount = 0
-      let failCount = 0
+      // Pull runs in parallel with push+scan-upload so the teacher sees new
+      // student submissions immediately, without waiting for pending uploads.
+      const pushWork = (async () => {
+        let successCount = 0
+        let failCount = 0
 
-      for (const submission of pendingSubmissions) {
-        try {
-          const result = await syncSubmission(submission)
-          if (result) {
-            successCount++
+        for (const submission of pendingSubmissions) {
+          try {
+            const result = await syncSubmission(submission)
+            if (result) {
+              successCount++
+            }
+          } catch (error) {
+            failCount++
+            console.error('同步失敗:', error)
           }
-        } catch (error) {
-          failCount++
-          console.error('同步失敗:', error)
         }
-      }
 
-      if (pendingSubmissions.length > 0) {
-        infoLog(`同步完成：成功 ${successCount} 筆，失敗 ${failCount} 筆`)
-      }
+        if (pendingSubmissions.length > 0) {
+          infoLog(`同步完成：成功 ${successCount} 筆，失敗 ${failCount} 筆`)
+        }
 
-      // 檢查 push 前的 folders
-      if (syncBlockedReasonRef.current) {
-        setStatus((prev) => ({
-          ...prev,
-          isSyncing: false,
-          error: null
-        }))
-        if (!syncQueuedRef.current) notifySyncComplete()
-        return
-      }
+        if (syncBlockedReasonRef.current) return
 
-      const beforePush = await db.folders.toArray()
-      debugLog('🔵 pushMetadata 前的 folders:', beforePush)
+        debugLog('🔵 pushMetadata 前的 folders:', await db.folders.toArray())
+        await pushMetadata()
+      })()
 
-      await pushMetadata()
-      if (syncBlockedReasonRef.current) {
-        setStatus((prev) => ({
-          ...prev,
-          isSyncing: false,
-          error: null
-        }))
-        if (!syncQueuedRef.current) notifySyncComplete()
-        return
-      }
-
-      // 檢查 push 後、pull 前的 folders
-      const afterPushBeforePull = await db.folders.toArray()
-      debugLog('🔵 pushMetadata 後、pullMetadata 前的 folders:', afterPushBeforePull)
-
-      await pullMetadata()
+      await Promise.all([pullMetadata(), pushWork])
       if (syncBlockedReasonRef.current) {
         setStatus((prev) => ({
           ...prev,
