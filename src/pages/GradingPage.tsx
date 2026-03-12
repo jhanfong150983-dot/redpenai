@@ -229,6 +229,7 @@ interface GradingPageProps {
   assignmentId: string
   onBack?: () => void
   onRequireInkTopUp?: () => void
+  onGradingPhaseChange?: (phase: GradingPhase) => void
   embedded?: boolean
 }
 
@@ -711,6 +712,7 @@ export default function GradingPage({
   assignmentId,
   onBack,
   onRequireInkTopUp,
+  onGradingPhaseChange,
   embedded = false
 }: GradingPageProps) {
   const PREVIEW_LENS_SIZE = 140
@@ -785,6 +787,10 @@ export default function GradingPage({
   // Phase A/B 批次一致性審查
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
   const [batchPhaseAEntries, setBatchPhaseAEntries] = useState<BatchPhaseAEntry[]>([])
+
+  useEffect(() => {
+    onGradingPhaseChange?.(gradingPhase)
+  }, [gradingPhase, onGradingPhaseChange])
 
   // 題目詳情（可編輯）
   const [editableDetails, setEditableDetails] = useState<any[]>([])
