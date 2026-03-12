@@ -98,8 +98,22 @@ export default function AssignmentSetup({
 
   // Prior Weight：整份作業大部分題目屬性（優先級順序）
   const [priorWeightTypes, setPriorWeightTypes] = useState<QuestionCategoryType[]>([])
+  const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false)
+  const [createStrictness, setCreateStrictness] = useState<'strict' | 'standard' | 'lenient'>(
+    'standard'
+  )
 
   const domainOptions = ['國語', '數學', '社會', '自然', '英語', '其他']
+  const createStrictnessLabels: Record<'strict' | 'standard' | 'lenient', string> = {
+    strict: '嚴格',
+    standard: '標準',
+    lenient: '寬鬆'
+  }
+  const createStrictnessHints: Record<'strict' | 'standard' | 'lenient', string> = {
+    strict: '字詞順序格式須完全一致',
+    standard: '允許同義、格式小差異',
+    lenient: '只要核心意思正確即可'
+  }
 
   const rubricLabels: Rubric['levels'][number]['label'][] = [
     '優秀',
@@ -270,6 +284,13 @@ export default function AssignmentSetup({
       tutorial.isActive && !!stepId && createAssignmentModalStepIds.has(stepId)
 
     setIsCreateModalOpen(shouldOpen)
+  }, [tutorial.isActive, tutorial.currentStep, tutorial.flow])
+
+  useEffect(() => {
+    const stepId = tutorial.flow?.steps?.[tutorial.currentStep]?.id
+    if (tutorial.isActive && stepId === 'assignment-prior-weight') {
+      setIsAdvancedSettingsOpen(true)
+    }
   }, [tutorial.isActive, tutorial.currentStep, tutorial.flow])
 
 
@@ -467,6 +488,8 @@ export default function AssignmentSetup({
     setTotalPages(1)
     setAssignmentDomain('')
     setPriorWeightTypes([])
+    setIsAdvancedSettingsOpen(false)
+    setCreateStrictness('standard')
     setAnswerKey(null)
     setAnswerKeyFile([])
     setAnswerSheetImage(null)
@@ -494,6 +517,11 @@ export default function AssignmentSetup({
     }
     if (!answerKey) {
       missing.push('標準答案')
+    } else {
+      const duplicateIds = collectDuplicateQuestionIds(answerKey)
+      if (duplicateIds.length > 0) {
+        missing.push(`題號重複（${formatDuplicateQuestionIds(duplicateIds)}）`)
+      }
     }
 
     return missing
@@ -553,6 +581,25 @@ export default function AssignmentSetup({
   const sanitizeQuestionId = (value: string | undefined, fallback: string) => {
     const base = (value ?? '').trim() || fallback
     return base.replace(/^[qQ](?=\d)/, '')
+  }
+
+  const collectDuplicateQuestionIds = (key: AnswerKey | null | undefined): string[] => {
+    if (!key || !Array.isArray(key.questions)) return []
+    const counts = new Map<string, number>()
+    key.questions.forEach((question, index) => {
+      const normalized = sanitizeQuestionId(question?.id, `${index + 1}`).trim()
+      if (!normalized) return
+      counts.set(normalized, (counts.get(normalized) ?? 0) + 1)
+    })
+    return Array.from(counts.entries())
+      .filter(([, count]) => count > 1)
+      .map(([id]) => id)
+  }
+
+  const formatDuplicateQuestionIds = (ids: string[]) => {
+    if (ids.length === 0) return ''
+    const preview = ids.slice(0, 4).join('、')
+    return ids.length > 4 ? `${preview}…` : preview
   }
 
   const splitQuestionIdPath = (question: AnswerKeyQuestion): string[] => {
@@ -937,6 +984,11 @@ export default function AssignmentSetup({
     if (!answerKey) {
       return
     }
+    const duplicateIds = collectDuplicateQuestionIds(answerKey)
+    if (duplicateIds.length > 0) {
+      setError(`題號不可重複：${formatDuplicateQuestionIds(duplicateIds)}。請先調整後再建立作業。`)
+      return
+    }
     // Prior Weight 現在是選填，不再強制要求
 
     setIsSubmitting(true)
@@ -949,7 +1001,7 @@ export default function AssignmentSetup({
         domain: assignmentDomain,
         folder: undefined,  // 新作業預設為全部
         priorWeightTypes,
-        answerKey: answerKey || undefined
+        answerKey: answerKey ? { ...answerKey, strictness: createStrictness } : undefined
       }
       await db.assignments.add(assignment)
       setAssignments((prev) => [assignment, ...prev])
@@ -1945,6 +1997,11 @@ export default function AssignmentSetup({
       setEditAnswerKeyError('請選擇作業領域')
       return
     }
+    const duplicateIds = collectDuplicateQuestionIds(editingAnswerKey)
+    if (duplicateIds.length > 0) {
+      setEditAnswerKeyError(`題號不可重複：${formatDuplicateQuestionIds(duplicateIds)}。請先調整後再儲存。`)
+      return
+    }
     // Prior Weight 現在是選填，不再強制要求
     try {
       setIsSavingAnswerKey(true)
@@ -2003,8 +2060,18 @@ export default function AssignmentSetup({
     const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
 
     const base = current ?? { questions: [], totalScore: 0 }
+    const existingIds = new Set(
+      base.questions
+        .map((question, index) => sanitizeQuestionId(question.id, `${index + 1}`).trim())
+        .filter(Boolean)
+    )
+    let nextNumericId = Math.max(1, base.questions.length + 1)
+    while (existingIds.has(String(nextNumericId))) {
+      nextNumericId += 1
+    }
+
     const newQuestion: AnswerKeyQuestion = {
-      id: `${base.questions.length + 1}`,
+      id: String(nextNumericId),
       type: 2, // Default to Type 2 (multi-answer acceptable)
       orderMode: 'strict',
       referenceAnswer: '',
@@ -2740,6 +2807,9 @@ export default function AssignmentSetup({
                       <p className="mt-1 text-sm font-medium text-emerald-900">
                         {classrooms.find((classroom) => classroom.id === selectedClassroomId)?.name || '尚未指定班級'}
                       </p>
+                      <p className="mt-2 text-xs text-emerald-700">
+                        進階：{priorWeightTypes.length > 0 ? `題型已自訂 ${priorWeightTypes.length} 項` : '題型 AI 自動'}｜{createStrictnessLabels[createStrictness]}
+                      </p>
                       <p className="mt-2 text-xs text-emerald-700">已上傳答案卷 {answerKeyFile.length} 份</p>
                     </div>
                   </aside>
@@ -2749,7 +2819,7 @@ export default function AssignmentSetup({
                       <div className="mb-4 flex items-center justify-between">
                         <div>
                           <h3 className="text-base font-semibold text-slate-900">基本設定</h3>
-                          <p className="text-xs text-slate-500">先填作業資訊，再設定題型優先權。</p>
+                          <p className="text-xs text-slate-500">先填作業資訊，再上傳標準答案。</p>
                         </div>
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
                           Step 1
@@ -2822,96 +2892,6 @@ export default function AssignmentSetup({
                   </select>
                 </div>
 
-                <div data-tutorial="assignment-prior-weight">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    整份作業大部分題目屬性是？（可複選，必填）
-                    <span className="text-red-500 ml-1">*</span>
-                  </label>
-                  <p className="text-xs text-gray-500 mb-3">
-                    請選擇這份作業主要的題型分類。可複選，先選的優先級較高。AI會根據您的選擇進行判斷，但遇到明顯證據時可能偏離並提醒您。
-                  </p>
-
-                  {/* 優先級順序顯示 */}
-                  {priorWeightTypes.length > 0 && (
-                    <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <div className="text-xs font-semibold text-blue-700 mb-2">
-                        已選擇的優先級順序（先選優先級較高）：
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {priorWeightTypes.map((type, index) => {
-                          const config = [
-                            { type: 1, label: 'Type 1 - 唯一答案' },
-                            { type: 2, label: 'Type 2 - 多答案可接受' },
-                            { type: 3, label: 'Type 3 - 依表現給分' }
-                          ].find(c => c.type === type)!
-
-                          // 優先級顏色：#1深藍、#2中藍、#3淺藍
-                          const colors = [
-                            { bg: 'bg-blue-600', text: 'text-white', border: 'border-blue-700' },
-                            { bg: 'bg-blue-400', text: 'text-white', border: 'border-blue-500' },
-                            { bg: 'bg-blue-200', text: 'text-blue-800', border: 'border-blue-300' }
-                          ][index] || { bg: 'bg-blue-200', text: 'text-blue-800', border: 'border-blue-300' }
-
-                          return (
-                            <div key={type} className={`flex items-center gap-2 px-3 py-1.5 ${colors.bg} ${colors.text} border-2 ${colors.border} rounded-lg`}>
-                              <span className="text-xs font-bold">#{index + 1}</span>
-                              <span className="text-sm font-semibold">{config.label}</span>
-                              <button
-                                type="button"
-                                onClick={() => removePriorWeight(type)}
-                                className="ml-1 hover:opacity-75"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Type 選擇按鈕 */}
-                  <div className="grid grid-cols-1 gap-3">
-                    {[
-                      { type: 1 as const, label: 'Type 1 - 唯一答案（精確匹配）', description: '題目有唯一絕對正確的答案', examples: '是非題、選擇題、填空題（單一答案）', bgActive: 'bg-blue-500', textActive: 'text-white', borderActive: 'border-blue-600' },
-                      { type: 2 as const, label: 'Type 2 - 多答案可接受（模糊匹配）', description: '核心答案唯一但允許不同表述方式', examples: '簡答題、短句題、名詞解釋', bgActive: 'bg-amber-500', textActive: 'text-white', borderActive: 'border-amber-600' },
-                      { type: 3 as const, label: 'Type 3 - 依表現給分（評價標準）', description: '開放式題目，需要評分規準', examples: '申論題、作文、計算題（需看過程）', bgActive: 'bg-purple-500', textActive: 'text-white', borderActive: 'border-purple-600' }
-                    ].map((config) => {
-                      const isSelected = priorWeightTypes.includes(config.type)
-                      const priority = isSelected ? priorWeightTypes.indexOf(config.type) + 1 : null
-
-                      return (
-                        <button
-                          key={config.type}
-                          type="button"
-                          onClick={() => togglePriorWeight(config.type)}
-                          className={`relative px-4 py-3 rounded-lg text-left transition-all ${
-                            isSelected
-                              ? `${config.bgActive} ${config.textActive} border-2 ${config.borderActive} shadow-md`
-                              : `bg-gray-50 text-gray-700 border border-gray-300 hover:bg-gray-100`
-                          }`}
-                          disabled={isSubmitting}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <div className="font-semibold text-sm mb-1">{config.label}</div>
-                              <div className="text-xs opacity-90">{config.description}</div>
-                              <div className="text-xs mt-1 opacity-75">
-                                範例：{config.examples}
-                              </div>
-                            </div>
-                            {isSelected && (
-                              <div className={`flex items-center justify-center w-8 h-8 rounded-full bg-white ${config.type === 1 ? 'text-blue-600' : config.type === 2 ? 'text-amber-600' : 'text-purple-600'} font-bold text-sm`}>
-                                {priority}
-                              </div>
-                            )}
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-
                 <div>
                   <label
                     htmlFor="totalPages"
@@ -2939,6 +2919,142 @@ export default function AssignmentSetup({
                 </div>
               </div>
 
+              <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+                <button
+                  type="button"
+                  onClick={() => setIsAdvancedSettingsOpen((prev) => !prev)}
+                  className="flex w-full items-start justify-between gap-3 text-left"
+                >
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">進階設定（選填）</h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      可自訂題型偏好與批改嚴格度；未設定時使用 AI 預設。
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                      {priorWeightTypes.length > 0 ? '題型已自訂' : '題型 AI 自動'}｜{createStrictnessLabels[createStrictness]}
+                    </span>
+                    {isAdvancedSettingsOpen ? (
+                      <ChevronDown className="h-4 w-4 text-slate-500" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-slate-500" />
+                    )}
+                  </div>
+                </button>
+
+                {isAdvancedSettingsOpen && (
+                  <div className="mt-4 space-y-4 border-t border-slate-200 pt-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs text-slate-500 shrink-0">批改嚴格度</span>
+                      <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs bg-white">
+                        {(['strict', 'standard', 'lenient'] as const).map((level) => (
+                          <button
+                            key={level}
+                            type="button"
+                            onClick={() => setCreateStrictness(level)}
+                            className={`px-3 py-1 transition-colors ${
+                              createStrictness === level
+                                ? 'bg-emerald-600 text-white font-medium'
+                                : 'bg-white text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            {createStrictnessLabels[level]}
+                          </button>
+                        ))}
+                      </div>
+                      <span className="text-xs text-slate-400">{createStrictnessHints[createStrictness]}</span>
+                    </div>
+
+                    <div data-tutorial="assignment-prior-weight">
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        整份作業大部分題目屬性（可複選）
+                      </label>
+                      <p className="text-xs text-slate-500 mb-3">
+                        AI 會自動判斷。你也可手動指定優先權，讓 AI 在模糊情況優先參考。
+                      </p>
+
+                      {priorWeightTypes.length > 0 && (
+                        <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                          <div className="text-xs font-semibold text-blue-700 mb-2">
+                            已選擇的優先級順序（先選優先級較高）：
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {priorWeightTypes.map((type, index) => {
+                              const config = [
+                                { type: 1, label: 'Type 1 - 唯一答案' },
+                                { type: 2, label: 'Type 2 - 多答案可接受' },
+                                { type: 3, label: 'Type 3 - 依表現給分' }
+                              ].find((c) => c.type === type)!
+
+                              const colors = [
+                                { bg: 'bg-blue-600', text: 'text-white', border: 'border-blue-700' },
+                                { bg: 'bg-blue-400', text: 'text-white', border: 'border-blue-500' },
+                                { bg: 'bg-blue-200', text: 'text-blue-800', border: 'border-blue-300' }
+                              ][index] || { bg: 'bg-blue-200', text: 'text-blue-800', border: 'border-blue-300' }
+
+                              return (
+                                <div key={type} className={`flex items-center gap-2 px-3 py-1.5 ${colors.bg} ${colors.text} border-2 ${colors.border} rounded-lg`}>
+                                  <span className="text-xs font-bold">#{index + 1}</span>
+                                  <span className="text-sm font-semibold">{config.label}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => removePriorWeight(type)}
+                                    className="ml-1 hover:opacity-75"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 gap-3">
+                        {[
+                          { type: 1 as const, label: 'Type 1 - 唯一答案（精確匹配）', description: '題目有唯一絕對正確的答案', examples: '是非題、選擇題、填空題（單一答案）', bgActive: 'bg-blue-500', textActive: 'text-white', borderActive: 'border-blue-600' },
+                          { type: 2 as const, label: 'Type 2 - 多答案可接受（模糊匹配）', description: '核心答案唯一但允許不同表述方式', examples: '簡答題、短句題、名詞解釋', bgActive: 'bg-amber-500', textActive: 'text-white', borderActive: 'border-amber-600' },
+                          { type: 3 as const, label: 'Type 3 - 依表現給分（評價標準）', description: '開放式題目，需要評分規準', examples: '申論題、作文、計算題（需看過程）', bgActive: 'bg-purple-500', textActive: 'text-white', borderActive: 'border-purple-600' }
+                        ].map((config) => {
+                          const isSelected = priorWeightTypes.includes(config.type)
+                          const priority = isSelected ? priorWeightTypes.indexOf(config.type) + 1 : null
+
+                          return (
+                            <button
+                              key={config.type}
+                              type="button"
+                              onClick={() => togglePriorWeight(config.type)}
+                              className={`relative px-4 py-3 rounded-lg text-left transition-all ${
+                                isSelected
+                                  ? `${config.bgActive} ${config.textActive} border-2 ${config.borderActive} shadow-md`
+                                  : `bg-gray-50 text-gray-700 border border-gray-300 hover:bg-gray-100`
+                              }`}
+                              disabled={isSubmitting}
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex-1">
+                                  <div className="font-semibold text-sm mb-1">{config.label}</div>
+                                  <div className="text-xs opacity-90">{config.description}</div>
+                                  <div className="text-xs mt-1 opacity-75">
+                                    範例：{config.examples}
+                                  </div>
+                                </div>
+                                {isSelected && (
+                                  <div className={`flex items-center justify-center w-8 h-8 rounded-full bg-white ${config.type === 1 ? 'text-blue-600' : config.type === 2 ? 'text-amber-600' : 'text-purple-600'} font-bold text-sm`}>
+                                    {priority}
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </section>
+
               <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex items-center justify-between gap-2">
                   <div>
@@ -2959,31 +3075,6 @@ export default function AssignmentSetup({
                       手動新增一題
                     </button>
                   </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500 shrink-0">批改嚴格度</span>
-                  <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs bg-white">
-                    {(['strict', 'standard', 'lenient'] as const).map((level) => {
-                      const labels = { strict: '嚴格', standard: '標準', lenient: '寬鬆' }
-                      const current = answerKey?.strictness ?? 'standard'
-                      return (
-                        <button
-                          key={level}
-                          type="button"
-                          onClick={() => setAnswerKey(prev => prev ? { ...prev, strictness: level } : prev)}
-                          className={`px-3 py-1 transition-colors ${current === level ? 'bg-emerald-600 text-white font-medium' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-                        >
-                          {labels[level]}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <span className="text-xs text-slate-400">
-                    {(answerKey?.strictness ?? 'standard') === 'strict' && '字詞順序格式須完全一致'}
-                    {(answerKey?.strictness ?? 'standard') === 'standard' && '允許同義、格式小差異'}
-                    {(answerKey?.strictness ?? 'standard') === 'lenient' && '只要核心意思正確即可'}
-                  </span>
                 </div>
 
                 <div className="space-y-2">
