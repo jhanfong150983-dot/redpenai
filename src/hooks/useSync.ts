@@ -113,6 +113,22 @@ const toNumber = (value: unknown): number | undefined => {
 }
 
 const FOCUS_SYNC_COOLDOWN_MS = 60_000 // 任何 sync 完成後的冷卻期（60 秒）
+const LAST_SYNC_TIME_STORAGE_KEY = 'redpen-last-sync-at'
+const SUBMISSION_PUSH_GUARD_MS = 3_000
+
+function readPersistedLastSyncTime(): number | null {
+  if (typeof window === 'undefined') return null
+  const raw = window.localStorage.getItem(LAST_SYNC_TIME_STORAGE_KEY)
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) return null
+  return parsed
+}
+
+function persistLastSyncTime(value: number) {
+  if (typeof window === 'undefined') return
+  if (!Number.isFinite(value) || value <= 0) return
+  window.localStorage.setItem(LAST_SYNC_TIME_STORAGE_KEY, String(Math.floor(value)))
+}
 
 export function useSync(options: UseSyncOptions = {}) {
   const { autoSync = true } = options
@@ -120,7 +136,7 @@ export function useSync(options: UseSyncOptions = {}) {
   const isOnline = useOnlineStatus()
   const [status, setStatus] = useState<SyncStatus>({
     isSyncing: false,
-    lastSyncTime: null,
+    lastSyncTime: readPersistedLastSyncTime(),
     pendingCount: 0,
     error: null
   })
@@ -470,6 +486,11 @@ export function useSync(options: UseSyncOptions = {}) {
         readDeleteQueue()
       ])
 
+    const lastSuccessfulSyncAt = status.lastSyncTime ?? readPersistedLastSyncTime()
+    const submissionPushWindowStart = lastSuccessfulSyncAt
+      ? lastSuccessfulSyncAt - SUBMISSION_PUSH_GUARD_MS
+      : 0
+
     console.log('🔄 [同步] 讀取刪除佇列:', {
       count: deleteQueue.length,
       items: deleteQueue.map(q => ({ tableName: q.tableName, recordId: q.recordId }))
@@ -560,6 +581,15 @@ export function useSync(options: UseSyncOptions = {}) {
 
     const submissionPayload = submissions
       .filter((sub) => sub.status !== 'scanned')
+      .filter((sub) => {
+        if (!lastSuccessfulSyncAt) return true
+        const rank = Math.max(
+          toNumber(sub.updatedAt) ?? 0,
+          toNumber(sub.gradedAt) ?? 0,
+          toNumber(sub.createdAt) ?? 0
+        )
+        return rank >= submissionPushWindowStart
+      })
       .map(({ imageBlob, ...rest }) => ({
         id: rest.id,
         assignmentId: rest.assignmentId,
@@ -600,6 +630,7 @@ export function useSync(options: UseSyncOptions = {}) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
+      cache: 'no-store',
       signal: pushController.signal,
       body: JSON.stringify({
         classrooms: classroomPayload,
@@ -631,7 +662,7 @@ export function useSync(options: UseSyncOptions = {}) {
     if (deleteQueueIds.length > 0) {
       await clearDeleteQueue(deleteQueueIds)
     }
-  }, [buildSyncUrl])
+  }, [buildSyncUrl, status.lastSyncTime])
 
   /**
    * 從雲端拉回資料
@@ -643,6 +674,7 @@ export function useSync(options: UseSyncOptions = {}) {
     const response = await fetch(buildSyncUrl(), {
       method: 'GET',
       credentials: 'include',
+      cache: 'no-store',
       signal: pullController.signal
     }).finally(() => clearTimeout(pullAbortTimer))
 
@@ -1197,12 +1229,14 @@ export function useSync(options: UseSyncOptions = {}) {
       }
 
       const remainingCount = await updatePendingCount()
+      const completedAt = Date.now()
+      persistLastSyncTime(completedAt)
 
       lastFocusSyncRef.current = Date.now() // 重設 focus 冷卻，避免 sync 剛完成就再觸發
       setStatus((prev) => ({
         ...prev,
         isSyncing: false,
-        lastSyncTime: Date.now(),
+        lastSyncTime: completedAt,
         pendingCount: remainingCount,
         error: syncBlockedReasonRef.current
           ? null

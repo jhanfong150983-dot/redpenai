@@ -98,9 +98,11 @@ export default function ScanImportFlow({
   const fetchCorrectionStatus = async () => {
     try {
       const query = new URLSearchParams({ assignmentId })
+      query.set('_ts', String(Date.now()))
       const response = await fetch(`/api/data/correction-dashboard?${query.toString()}`, {
         method: 'GET',
-        credentials: 'include'
+        credentials: 'include',
+        cache: 'no-store'
       })
       if (!response.ok) return
       const data = await response.json().catch(() => ({}))

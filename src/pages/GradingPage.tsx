@@ -1090,9 +1090,11 @@ export default function GradingPage({
 
   const fetchCorrectionStatusByStudentId = useCallback(async (): Promise<Map<string, string>> => {
     const query = new URLSearchParams({ assignmentId })
+    query.set('_ts', String(Date.now()))
     const response = await fetch(`/api/data/correction-dashboard?${query.toString()}`, {
       method: 'GET',
-      credentials: 'include'
+      credentials: 'include',
+      cache: 'no-store'
     })
     const data = (await response.json().catch(() => ({}))) as CorrectionDashboardLite & {
       error?: string
@@ -3003,6 +3005,5 @@ export default function GradingPage({
     </div>
   )
 }
-
 
 

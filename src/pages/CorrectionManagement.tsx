@@ -13,6 +13,7 @@ import {
   ThumbsDown,
   X
 } from 'lucide-react'
+import { requestSync, waitForSync } from '@/lib/sync-events'
 
 interface CorrectionManagementProps {
   embedded?: boolean
@@ -117,13 +118,17 @@ export default function CorrectionManagement({
   const [disputeResolutions, setDisputeResolutions] = useState<Record<string, { action: 'accept' | 'reject' | null; rejectionNote: string }>>({})
   const [isResolvingDispute, setIsResolvingDispute] = useState(false)
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (force = false) => {
     setError(null)
     try {
       const query = new URLSearchParams({ assignmentId })
+      if (force) {
+        query.set('_ts', String(Date.now()))
+      }
       const response = await fetch(`/api/data/correction-dashboard?${query.toString()}`, {
         method: 'GET',
-        credentials: 'include'
+        credentials: 'include',
+        cache: 'no-store'
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
@@ -147,7 +152,13 @@ export default function CorrectionManagement({
   const handleRefresh = async () => {
     setIsLoading(true)
     try {
-      await loadDashboard()
+      requestSync(true)
+      try {
+        await waitForSync(15_000)
+      } catch (error) {
+        console.warn('等待同步逾時，改為直接抓取最新看板', error)
+      }
+      await loadDashboard(true)
     } finally {
       setIsLoading(false)
     }
