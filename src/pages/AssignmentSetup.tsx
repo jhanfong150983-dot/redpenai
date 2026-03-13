@@ -578,8 +578,14 @@ export default function AssignmentSetup({
     return normalizeRubric(undefined, maxScore)
   }
 
-  const sanitizeQuestionId = (value: string | undefined, fallback: string) => {
-    const base = (value ?? '').trim() || fallback
+  const sanitizeQuestionId = (value: unknown, fallback: string) => {
+    const normalized =
+      typeof value === 'string'
+        ? value
+        : value === null || value === undefined
+          ? ''
+          : String(value)
+    const base = normalized.trim() || fallback
     return base.replace(/^[qQ](?=\d)/, '')
   }
 
