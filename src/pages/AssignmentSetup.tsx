@@ -578,7 +578,7 @@ export default function AssignmentSetup({
     return normalizeRubric(undefined, maxScore)
   }
 
-  const sanitizeQuestionId = (value: unknown, fallback: string) => {
+  function sanitizeQuestionId(value: unknown, fallback: string) {
     const normalized =
       typeof value === 'string'
         ? value
@@ -589,7 +589,7 @@ export default function AssignmentSetup({
     return base.replace(/^[qQ](?=\d)/, '')
   }
 
-  const collectDuplicateQuestionIds = (key: AnswerKey | null | undefined): string[] => {
+  function collectDuplicateQuestionIds(key: AnswerKey | null | undefined): string[] {
     if (!key || !Array.isArray(key.questions)) return []
     const counts = new Map<string, number>()
     key.questions.forEach((question, index) => {
@@ -602,7 +602,7 @@ export default function AssignmentSetup({
       .map(([id]) => id)
   }
 
-  const formatDuplicateQuestionIds = (ids: string[]) => {
+  function formatDuplicateQuestionIds(ids: string[]) {
     if (ids.length === 0) return ''
     const preview = ids.slice(0, 4).join('、')
     return ids.length > 4 ? `${preview}…` : preview
