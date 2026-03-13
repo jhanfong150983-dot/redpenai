@@ -611,6 +611,8 @@ export default function AssignmentSetup({
   const splitQuestionIdPath = (question: AnswerKeyQuestion): string[] => {
     if (Array.isArray(question.idPath) && question.idPath.length > 0) {
       return question.idPath
+        .map((segment) => String(segment ?? '').trim())
+        .filter(Boolean)
     }
     return (question.id ?? '')
       .split('-')
@@ -739,53 +741,103 @@ export default function AssignmentSetup({
     }
   }
 
-  const normalizeAnswerKey = (ak: AnswerKey): AnswerKey => {
-    const questions = (ak.questions ?? []).map((q, idx) => {
+  const normalizeAnswerKey = (ak: AnswerKey | Record<string, unknown> | null | undefined): AnswerKey => {
+    const rawQuestions: any[] = Array.isArray((ak as any)?.questions) ? (ak as any).questions : []
+    const questions = rawQuestions.map((q: any, idx) => {
       const maxScore =
-        typeof q.maxScore === 'number' && Number.isFinite(q.maxScore)
+        typeof q?.maxScore === 'number' && Number.isFinite(q.maxScore)
           ? q.maxScore
           : 0
-      const orderMode = q.orderMode === 'unordered' ? 'unordered' : 'strict'
+      const orderMode = q?.orderMode === 'unordered' ? 'unordered' : 'strict'
       const unorderedGroupId =
-        typeof q.unorderedGroupId === 'string' && q.unorderedGroupId.trim()
+        typeof q?.unorderedGroupId === 'string' && q.unorderedGroupId.trim()
           ? q.unorderedGroupId.trim()
           : undefined
 
       // Convert old QuestionType to QuestionCategoryType if needed
-      const questionType = typeof q.type === 'number'
+      const questionType = typeof q?.type === 'number'
         ? q.type
-        : q.type === 'truefalse' || q.type === 'choice'
+        : q?.type === 'truefalse' || q?.type === 'choice'
           ? 1
-          : q.type === 'fill' || q.type === 'short' || q.type === 'short_sentence'
+          : q?.type === 'fill' || q?.type === 'short' || q?.type === 'short_sentence'
             ? 2
             : 3
+      const idPath = Array.isArray(q?.idPath)
+        ? q.idPath
+            .map((segment: unknown) => String(segment ?? '').trim())
+            .filter(Boolean)
+        : undefined
 
       const baseQuestion: AnswerKeyQuestion = {
-        id: sanitizeQuestionId(q.id, `${idx + 1}`),
+        id: sanitizeQuestionId(q?.id, `${idx + 1}`),
         type: questionType as QuestionCategoryType,
         maxScore,
-        idPath: q.idPath,
-        uiKey: q.uiKey ?? generateId(),
+        idPath,
+        uiKey: typeof q?.uiKey === 'string' && q.uiKey ? q.uiKey : generateId(),
         orderMode,
         unorderedGroupId: orderMode === 'unordered' ? unorderedGroupId : undefined,
-        referenceBbox: q.referenceBbox
+        referenceBbox: q?.referenceBbox
       }
 
       // Add type-specific fields
       if (questionType === 1) {
-        baseQuestion.answer = q.answer ?? ''
-        if (q.answerFormat === 'matching') {
+        baseQuestion.answer =
+          typeof q?.answer === 'string'
+            ? q.answer
+            : q?.answer === null || q?.answer === undefined
+              ? ''
+              : String(q.answer)
+        if (q?.answerFormat === 'matching') {
           baseQuestion.answerFormat = 'matching'
         }
       } else if (questionType === 2) {
-        baseQuestion.referenceAnswer = q.referenceAnswer ?? ''
-        baseQuestion.acceptableAnswers = q.acceptableAnswers ?? []
+        baseQuestion.referenceAnswer =
+          typeof q?.referenceAnswer === 'string'
+            ? q.referenceAnswer
+            : q?.referenceAnswer === null || q?.referenceAnswer === undefined
+              ? ''
+              : String(q.referenceAnswer)
+        const acceptableAnswers = Array.isArray(q?.acceptableAnswers)
+          ? q.acceptableAnswers
+              .map((ans: unknown) => String(ans ?? '').trim())
+              .filter(Boolean)
+          : typeof q?.acceptableAnswers === 'string' && q.acceptableAnswers.trim()
+            ? [q.acceptableAnswers.trim()]
+            : []
+        baseQuestion.acceptableAnswers = acceptableAnswers
       } else if (questionType === 3) {
-        baseQuestion.referenceAnswer = q.referenceAnswer ?? ''
-        if (q.rubricsDimensions) {
-          baseQuestion.rubricsDimensions = q.rubricsDimensions
+        baseQuestion.referenceAnswer =
+          typeof q?.referenceAnswer === 'string'
+            ? q.referenceAnswer
+            : q?.referenceAnswer === null || q?.referenceAnswer === undefined
+              ? ''
+              : String(q.referenceAnswer)
+        if (Array.isArray(q?.rubricsDimensions)) {
+          const normalizedDimensions: { name: string; maxScore: number; criteria: string }[] = q.rubricsDimensions
+            .map((dimension: any) => ({
+              name:
+                typeof dimension?.name === 'string'
+                  ? dimension.name.trim()
+                  : String(dimension?.name ?? '').trim(),
+              maxScore:
+                typeof dimension?.maxScore === 'number' && Number.isFinite(dimension.maxScore)
+                  ? dimension.maxScore
+                  : 0,
+              criteria:
+                typeof dimension?.criteria === 'string'
+                  ? dimension.criteria
+                  : String(dimension?.criteria ?? '')
+            }))
+            .filter((dimension: { name: string; maxScore: number; criteria: string }) =>
+              dimension.name || dimension.criteria || dimension.maxScore > 0
+            )
+          if (normalizedDimensions.length > 0) {
+            baseQuestion.rubricsDimensions = normalizedDimensions
+          } else {
+            baseQuestion.rubric = normalizeRubric(q?.rubric, maxScore)
+          }
         } else {
-          baseQuestion.rubric = normalizeRubric(q.rubric, maxScore)
+          baseQuestion.rubric = normalizeRubric(q?.rubric, maxScore)
         }
       }
 
