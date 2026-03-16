@@ -1171,12 +1171,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           </div>
         )}
 
-        {error && (
-          <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-            {error}
-          </div>
-        )}
-
         {message && (
           <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
             {message}
@@ -1650,6 +1644,25 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           </div>
         )}
       </section>
+
+      {error && (
+        <div className="fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+          <div className="w-full max-w-md rounded-xl border border-rose-200 bg-white shadow-xl">
+            <div className="flex items-start gap-3 px-4 py-3">
+              <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-rose-500" />
+              <p className="flex-1 text-sm text-rose-700">{error}</p>
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="關閉錯誤訊息"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isSubmitting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
