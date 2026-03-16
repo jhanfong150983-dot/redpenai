@@ -225,6 +225,45 @@ function toUserFriendlyReviewReason(rawReason: string) {
   return raw
 }
 
+function getBatchFailureMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message.trim()
+  }
+  if (typeof error === 'string') {
+    return error.trim()
+  }
+  if (error && typeof error === 'object') {
+    const record = error as Record<string, unknown>
+    if (typeof record.message === 'string') {
+      return record.message.trim()
+    }
+    if (typeof record.error === 'string') {
+      return record.error.trim()
+    }
+  }
+  return ''
+}
+
+function toUserFriendlyBatchFailureReason(rawMessage: string): string {
+  const message = rawMessage.trim()
+  if (!message) return '未知錯誤'
+
+  const phaseBStatusMatch = message.match(/^Phase B failed:\s*(\d{3})$/i)
+  if (phaseBStatusMatch) {
+    return `AI 批改失敗（HTTP ${phaseBStatusMatch[1]}）`
+  }
+
+  if (/Failed to fetch/i.test(message)) {
+    return '網路連線失敗，請稍後重試'
+  }
+
+  if (message.length > 180) {
+    return `${message.slice(0, 180)}...`
+  }
+
+  return message
+}
+
 interface GradingPageProps {
   assignmentId: string
   onBack?: () => void
@@ -256,6 +295,14 @@ type CorrectionGuardModalState = {
   title: string
   description: string
   blockedStudents?: CorrectionBlockedStudent[]
+}
+
+type GradeResultNotice = {
+  stopped: boolean
+  successCount: number
+  failCount: number
+  totalCount: number
+  failReasons: string[]
 }
 
 /**
@@ -769,12 +816,7 @@ export default function GradingPage({
   const [correctionGuardModal, setCorrectionGuardModal] = useState<CorrectionGuardModalState | null>(
     null
   )
-  const [gradeResultNotice, setGradeResultNotice] = useState<{
-    stopped: boolean
-    successCount: number
-    failCount: number
-    totalCount: number
-  } | null>(null)
+  const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
 
   // 🆕 進度詳情
   const [currentGradingStudent, setCurrentGradingStudent] = useState<string>('')
@@ -871,6 +913,7 @@ export default function GradingPage({
     let successCount = 0
     let failCount = 0
     let completedB = 0
+    const failReasons: string[] = []
 
     await runWithConcurrency(
       batchPhaseAEntries,
@@ -896,6 +939,18 @@ export default function GradingPage({
         if (err || !result) {
           console.error(`Phase B failed for ${batchPhaseAEntries[_i]?.submissionId}:`, err)
           failCount++
+          const failedEntry = batchPhaseAEntries[_i]
+          const failedStudent = failedEntry ? students.find((s) => s.id === failedEntry.studentId) : undefined
+          const studentLabel = failedStudent
+            ? `${failedStudent.seatNumber}號 ${failedStudent.name}`
+            : failedEntry
+              ? `作業 ${failedEntry.submissionId.slice(0, 8)}`
+              : `第 ${_i + 1} 份作業`
+          const rawMessage = !err && stopRequestedRef.current
+            ? '已略過（手動停止）'
+            : getBatchFailureMessage(err)
+          const reason = toUserFriendlyBatchFailureReason(rawMessage || '未知錯誤')
+          failReasons.push(`${studentLabel}：${reason}`)
           return
         }
         const { entry, gradingResult } = result
@@ -932,6 +987,7 @@ export default function GradingPage({
       successCount,
       failCount,
       totalCount: batchPhaseAEntries.length,
+      failReasons,
     })
     setStopRequested(false)
     stopRequestedRef.current = false
@@ -1697,7 +1753,8 @@ export default function GradingPage({
             stopped: true,
             successCount: 0,
             failCount: 0,
-            totalCount: candidates.length
+            totalCount: candidates.length,
+            failReasons: []
           })
           return
         }
@@ -1777,7 +1834,13 @@ export default function GradingPage({
       if (stopRequestedRef.current) {
         setGradingPhase('idle')
         setBatchPhaseAEntries([])
-        setGradeResultNotice({ stopped: true, successCount: 0, failCount: 0, totalCount: toGrade.length })
+        setGradeResultNotice({
+          stopped: true,
+          successCount: 0,
+          failCount: 0,
+          totalCount: toGrade.length,
+          failReasons: []
+        })
       } else {
         setBatchPhaseAEntries(entries)
         setGradingPhase('awaiting_review')
@@ -2209,7 +2272,7 @@ export default function GradingPage({
 
       {gradeResultNotice && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-sm w-full mx-4">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-xl w-full mx-4">
             <h3 className="text-lg font-bold text-gray-900 mb-4">
               {gradeResultNotice.stopped ? '已停止批改' : '批改完成'}
             </h3>
@@ -2226,6 +2289,18 @@ export default function GradingPage({
                 <span className="text-gray-600">總作業數</span>
                 <span className="font-semibold text-gray-900">{gradeResultNotice.totalCount} 份</span>
               </div>
+              {gradeResultNotice.failReasons.length > 0 && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+                  <p className="text-sm font-medium text-rose-700 mb-2">失敗原因</p>
+                  <ul className="space-y-1 max-h-44 overflow-y-auto pr-1">
+                    {gradeResultNotice.failReasons.map((reason, index) => (
+                      <li key={`${index}-${reason}`} className="text-sm text-rose-700 break-words leading-relaxed">
+                        {index + 1}. {reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {gradeResultNotice.stopped && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
                   你已手動停止批改，系統僅保留已完成的批改結果。
@@ -3005,5 +3080,3 @@ export default function GradingPage({
     </div>
   )
 }
-
-
