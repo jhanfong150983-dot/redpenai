@@ -29,7 +29,10 @@ type OpenCorrectionItem = NonNullable<StudentAssignmentItem['openCorrections']>[
 const CORRECTION_POLL_INTERVAL_MS = 30000
 const STUDENT_SUBMIT_TIMEOUT_MS = 180_000
 const CORRECTION_IMAGE_TARGET_BYTES = 120_000
-const CORRECTION_MERGE_TARGET_BYTES = 300_000
+const CORRECTION_IMAGE_MIN_TARGET_BYTES = 45_000
+const CORRECTION_MERGE_TARGET_BYTES = 120_000
+const CORRECTION_REQUEST_SOFT_LIMIT_BYTES = 3_600_000
+const CORRECTION_REQUEST_RESERVE_BYTES = 700_000
 
 type StudentClassroomOption = {
   key: string
@@ -136,6 +139,28 @@ async function mergeImagesVertically(files: File[]): Promise<Blob> {
   return safeToBlobWithFallback(canvas, {
     format: 'image/webp',
     quality: 0.86
+  })
+}
+
+async function createCorrectionPlaceholderFile(): Promise<File> {
+  const canvas = document.createElement('canvas')
+  canvas.width = 48
+  canvas.height = 48
+  const context = canvas.getContext('2d')
+  if (context) {
+    context.fillStyle = '#ffffff'
+    context.fillRect(0, 0, canvas.width, canvas.height)
+    context.strokeStyle = '#e2e8f0'
+    context.lineWidth = 2
+    context.strokeRect(1, 1, canvas.width - 2, canvas.height - 2)
+  }
+  const blob = await safeToBlobWithFallback(canvas, {
+    format: 'image/webp',
+    quality: 0.82
+  })
+  return new File([blob], 'correction-placeholder.webp', {
+    type: blob.type || 'image/webp',
+    lastModified: Date.now()
   })
 }
 
@@ -968,52 +993,112 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       let correctionImages: Array<{ questionId: string; imageBase64: string; contentType: string }> = []
       let disputedQuestions: Array<{ questionId: string; note: string }> = []
       let mergedFiles: File[] = files
+      const payloadEncoder = new TextEncoder()
 
       if (mode === 'correction') {
         const photoEntries = Object.entries(questionActions).filter(([, a]) => a.type === 'photo' && a.file)
         const disputeEntries = Object.entries(questionActions).filter(([, a]) => a.type === 'dispute')
-
-        correctionImages = await Promise.all(
-          photoEntries.map(async ([questionId, action]) => {
-            const compressedItem = await compressToTargetBytes(action.file!, CORRECTION_IMAGE_TARGET_BYTES, { maxWidth: 1200 })
-            const imageBase64 = await blobToBase64(compressedItem)
-            return { questionId, imageBase64, contentType: compressedItem.type || 'image/webp' }
-          })
-        )
         disputedQuestions = disputeEntries.map(([questionId, action]) => ({
           questionId,
           note: action.note || ''
         }))
-        // Merged image for display: use all photo files (or a blank placeholder if all disputed)
-        mergedFiles = photoEntries.map(([, a]) => a.file!).filter(Boolean)
-        if (mergedFiles.length === 0) mergedFiles = [new File([], 'placeholder')]
+
+        const dynamicTarget = Math.max(
+          CORRECTION_IMAGE_MIN_TARGET_BYTES,
+          Math.min(
+            CORRECTION_IMAGE_TARGET_BYTES,
+            Math.floor(
+              (CORRECTION_REQUEST_SOFT_LIMIT_BYTES - CORRECTION_REQUEST_RESERVE_BYTES) /
+                Math.max(1, photoEntries.length)
+            )
+          )
+        )
+        const compressionTargets = Array.from(
+          new Set([
+            dynamicTarget,
+            Math.max(CORRECTION_IMAGE_MIN_TARGET_BYTES, Math.floor(dynamicTarget * 0.75)),
+            Math.max(CORRECTION_IMAGE_MIN_TARGET_BYTES, Math.floor(dynamicTarget * 0.6))
+          ])
+        )
+
+        for (let pass = 0; pass < compressionTargets.length; pass += 1) {
+          const currentTarget = compressionTargets[pass]
+          const compressedImages = await Promise.all(
+            photoEntries.map(async ([questionId, action]) => {
+              const compressedItem = await compressToTargetBytes(action.file!, currentTarget, {
+                maxWidth: 1080,
+                qualities: [0.78, 0.68, 0.58, 0.48, 0.4]
+              })
+              const imageBase64 = await blobToBase64(compressedItem)
+              return { questionId, imageBase64, contentType: compressedItem.type || 'image/webp' }
+            })
+          )
+
+          const estimatedCorrectionBytes = compressedImages.reduce(
+            (sum, item) => sum + item.imageBase64.length + item.questionId.length + 64,
+            0
+          )
+          correctionImages = compressedImages
+
+          if (
+            estimatedCorrectionBytes <=
+              CORRECTION_REQUEST_SOFT_LIMIT_BYTES - CORRECTION_REQUEST_RESERVE_BYTES ||
+            pass === compressionTargets.length - 1
+          ) {
+            break
+          }
+        }
+
+        // Correction submission payload can get large when many wrong questions are fixed at once.
+        // Use the first correction photo as the submission preview, avoid merging all images again.
+        if (photoEntries.length > 0) {
+          const firstPhoto = photoEntries[0]?.[1]?.file
+          mergedFiles = firstPhoto ? [firstPhoto] : [await createCorrectionPlaceholderFile()]
+        } else {
+          mergedFiles = [await createCorrectionPlaceholderFile()]
+        }
       }
 
       const mergeTarget = mode === 'correction' ? CORRECTION_MERGE_TARGET_BYTES : 2_000_000
+      const mergeMaxWidth = mode === 'correction' ? 1200 : 2000
       const merged = await mergeImagesVertically(mergedFiles)
-      const compressed = await compressToTargetBytes(merged, mergeTarget, { maxWidth: 2000 })
+      const compressed = await compressToTargetBytes(merged, mergeTarget, { maxWidth: mergeMaxWidth })
       const imageDataUrl = await blobToBase64(compressed)
+
+      const requestPayload = {
+        assignmentId: assignment.id,
+        classroomKey: assignment.classroomKey || undefined,
+        mode,
+        imageBase64: imageDataUrl,
+        contentType: compressed.type || 'image/webp',
+        pageCount: mode === 'correction' ? 1 : files.length,
+        ...(correctionImages.length > 0 ? { correctionImages } : {}),
+        ...(disputedQuestions.length > 0 ? { disputedQuestions } : {})
+      }
+
+      if (mode === 'correction') {
+        const estimatedPayloadBytes = payloadEncoder.encode(
+          JSON.stringify(requestPayload)
+        ).length
+        if (estimatedPayloadBytes > CORRECTION_REQUEST_SOFT_LIMIT_BYTES) {
+          throw new Error('訂正照片總量過大，請重新拍攝（每題只拍答案區域）後再送出。')
+        }
+      }
 
       const response = await fetch('/api/data/student-submission', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         signal: controller.signal,
-        body: JSON.stringify({
-          assignmentId: assignment.id,
-          classroomKey: assignment.classroomKey || undefined,
-          mode,
-          imageBase64: imageDataUrl,
-          contentType: compressed.type || 'image/webp',
-          pageCount: mode === 'correction' ? 1 : files.length,
-          ...(correctionImages.length > 0 ? { correctionImages } : {}),
-          ...(disputedQuestions.length > 0 ? { disputedQuestions } : {})
-        })
+        body: JSON.stringify(requestPayload)
       })
       clearTimeout(timeoutId)
 
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
+        if (response.status === 413) {
+          throw new Error('照片總量過大（超過上傳上限），請改拍單題答案區域後再送出。')
+        }
         throw new Error(data?.error || '上傳失敗')
       }
 
