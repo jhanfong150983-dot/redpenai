@@ -1526,8 +1526,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                       {(() => {
                         const cropKey = buildCorrectionCropCacheKey(correctionAssignmentId, item, idx)
                         const cropUrl = correctionCropCache[cropKey]
-                        const serverCrop = item.cropImageUrl
-                        const displayUrl = serverCrop || (typeof cropUrl === 'string' ? cropUrl : null)
+                        const resolvedServerCrop = getCorrectionImageUrl(item)
+                        const displayUrl =
+                          resolvedServerCrop || (typeof cropUrl === 'string' ? cropUrl : null)
                         if (!displayUrl) return null
                         return (
                           <div className="mb-2 overflow-hidden rounded border border-slate-200 bg-slate-50">
