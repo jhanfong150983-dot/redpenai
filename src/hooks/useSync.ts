@@ -486,7 +486,7 @@ export function useSync(options: UseSyncOptions = {}) {
         readDeleteQueue()
       ])
 
-    const lastSuccessfulSyncAt = status.lastSyncTime ?? readPersistedLastSyncTime()
+    const lastSuccessfulSyncAt = readPersistedLastSyncTime()
     const submissionPushWindowStart = lastSuccessfulSyncAt
       ? lastSuccessfulSyncAt - SUBMISSION_PUSH_GUARD_MS
       : 0
@@ -662,7 +662,7 @@ export function useSync(options: UseSyncOptions = {}) {
     if (deleteQueueIds.length > 0) {
       await clearDeleteQueue(deleteQueueIds)
     }
-  }, [buildSyncUrl, status.lastSyncTime])
+  }, [buildSyncUrl])
 
   /**
    * 從雲端拉回資料

@@ -518,6 +518,11 @@ function App() {
     return () => window.removeEventListener('focus', handleFocus)
   }, [fetchAuth])
 
+  const initialSyncAuthRole =
+    auth.status === 'authenticated' ? (auth.user.role || '').toLowerCase() : ''
+  const initialSyncStudentId =
+    auth.status === 'authenticated' ? auth.user.student?.id || '' : ''
+
   // 初次同步 loading：登入後若無同步紀錄，顯示 loading 直到第一次同步完成
   useEffect(() => {
     if (auth.status !== 'authenticated') {
@@ -526,8 +531,8 @@ function App() {
       return
     }
     const isStudentEntry = loginEntry === 'student'
-    const hasStudentRole = (auth.user.role || '').toLowerCase() === 'student'
-    const hasStudentLink = Boolean(auth.user.student?.id)
+    const hasStudentRole = initialSyncAuthRole === 'student'
+    const hasStudentLink = Boolean(initialSyncStudentId)
 
     // 學生流程不依賴本地同步，避免等待 SYNC_COMPLETE 造成卡住
     if (isStudentEntry || hasStudentRole || hasStudentLink) {
@@ -592,7 +597,13 @@ function App() {
       window.clearTimeout(timeoutId)
       window.removeEventListener(SYNC_COMPLETE_EVENT_NAME, handler)
     }
-  }, [auth, loginEntry, initialSyncRetryNonce])
+  }, [
+    auth.status,
+    loginEntry,
+    initialSyncAuthRole,
+    initialSyncStudentId,
+    initialSyncRetryNonce
+  ])
 
   // 應用啟動時檢測 WebP 支持（用於平板Chrome兼容性）
   useEffect(() => {
