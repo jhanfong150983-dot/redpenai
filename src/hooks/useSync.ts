@@ -1149,7 +1149,11 @@ export function useSync(options: UseSyncOptions = {}) {
       console.log('📡 [同步] 跳過同步：離線狀態')
       debugLog('離線狀態，跳過同步')
       void updatePendingCount()
-      notifySyncComplete() // 通知等待者同步已結束（即使跳過）
+      notifySyncComplete({
+        success: false,
+        skipped: true,
+        error: 'offline'
+      }) // 通知等待者同步已結束（即使跳過）
       return
     }
 
@@ -1165,7 +1169,11 @@ export function useSync(options: UseSyncOptions = {}) {
       console.log('🚫 [同步] 跳過同步：RLS 權限限制 -', syncBlockedReasonRef.current)
       console.warn('⚠️ 已偵測到 RLS 權限限制，暫停同步:', syncBlockedReasonRef.current)
       setStatus((prev) => ({ ...prev, isSyncing: false, error: null }))
-      notifySyncComplete() // 通知等待者同步已結束（即使被阻擋）
+      notifySyncComplete({
+        success: false,
+        blocked: true,
+        error: syncBlockedReasonRef.current
+      }) // 通知等待者同步已結束（即使被阻擋）
       return
     }
 
@@ -1224,7 +1232,13 @@ export function useSync(options: UseSyncOptions = {}) {
           isSyncing: false,
           error: null
         }))
-        if (!syncQueuedRef.current) notifySyncComplete()
+        if (!syncQueuedRef.current) {
+          notifySyncComplete({
+            success: false,
+            blocked: true,
+            error: syncBlockedReasonRef.current
+          })
+        }
         return
       }
 
@@ -1249,34 +1263,49 @@ export function useSync(options: UseSyncOptions = {}) {
       // 若 syncQueuedRef 為 true，表示有另一個 requestSync(true) 在等待，
       // 需讓排隊的 sync 完成後再通知，確保 waitForSync() 拿到最新資料。
       if (!syncQueuedRef.current) {
-        notifySyncComplete()
+        notifySyncComplete({ success: true, error: null })
       }
     } catch (error) {
       if (isRlsError(error)) {
         markSyncBlocked(error instanceof Error ? error.message : String(error))
         setStatus((prev) => ({ ...prev, isSyncing: false, error: null }))
-        notifySyncComplete()
+        notifySyncComplete({
+          success: false,
+          blocked: true,
+          error: error instanceof Error ? error.message : String(error)
+        })
         return
       }
       if (isAbortError(error)) {
         console.log('🔄 [同步] 請求被中斷（用戶操作或離開頁面），靜默處理')
         setStatus((prev) => ({ ...prev, isSyncing: false, error: null }))
-        notifySyncComplete()
+        notifySyncComplete({
+          success: false,
+          skipped: true,
+          error: error instanceof Error ? error.message : String(error)
+        })
         return
       }
       if (isQuotaError(error)) {
         console.warn('⚠️ [同步] IndexedDB 儲存空間不足，同步仍視為完成')
         setStatus((prev) => ({ ...prev, isSyncing: false, error: null }))
-        notifySyncComplete()
+        notifySyncComplete({
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        })
         return
       }
       console.error('同步過程發生錯誤:', error)
+      const message = error instanceof Error ? error.message : '同步失敗'
       setStatus((prev) => ({
         ...prev,
         isSyncing: false,
-        error: error instanceof Error ? error.message : '同步失敗'
+        error: message
       }))
-      notifySyncComplete()
+      notifySyncComplete({
+        success: false,
+        error: message
+      })
     } finally {
       isSyncingRef.current = false
       if (syncQueuedRef.current) {

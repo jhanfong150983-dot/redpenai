@@ -34,7 +34,11 @@ import { SyncIndicator } from '@/components'
 import { checkWebPSupport } from '@/lib/webpSupport'
 import { INK_BALANCE_EVENT, type InkBalanceDetail } from '@/lib/ink-events'
 import { buildApiUrl } from '@/lib/api-base'
-import { requestSync, SYNC_COMPLETE_EVENT_NAME } from '@/lib/sync-events'
+import {
+  requestSync,
+  SYNC_COMPLETE_EVENT_NAME,
+  type SyncCompleteDetail
+} from '@/lib/sync-events'
 import '@/lib/debug-sync'
 import { debugLog } from '@/lib/logger'
 import { LEGAL_MODAL_EVENT, type LegalModalDetail } from '@/lib/legal-events'
@@ -231,6 +235,8 @@ function App() {
   )
   const [isCameraCaptureMode, setIsCameraCaptureMode] = useState(false)
   const [isInitialSyncing, setIsInitialSyncing] = useState(false)
+  const [initialSyncError, setInitialSyncError] = useState<string | null>(null)
+  const [initialSyncRetryNonce, setInitialSyncRetryNonce] = useState(0)
   const [pendingInk, setPendingInk] = useState<PendingInkSummary>({
     count: 0,
     totalDrops: 0,
@@ -350,6 +356,12 @@ function App() {
     } catch { /* ignore */ }
     // reload 確保 Dexie singleton 重新初始化，避免 DB 連線狀態殘留
     window.location.href = '/'
+  }, [])
+
+  const retryInitialSync = useCallback(() => {
+    setInitialSyncError(null)
+    setInitialSyncRetryNonce((prev) => prev + 1)
+    requestSync(true)
   }, [])
 
   useEffect(() => {
@@ -508,7 +520,11 @@ function App() {
 
   // 初次同步 loading：登入後若無同步紀錄，顯示 loading 直到第一次同步完成
   useEffect(() => {
-    if (auth.status !== 'authenticated') return
+    if (auth.status !== 'authenticated') {
+      setIsInitialSyncing(false)
+      setInitialSyncError(null)
+      return
+    }
     const isStudentEntry = loginEntry === 'student'
     const hasStudentRole = (auth.user.role || '').toLowerCase() === 'student'
     const hasStudentLink = Boolean(auth.user.student?.id)
@@ -516,37 +532,67 @@ function App() {
     // 學生流程不依賴本地同步，避免等待 SYNC_COMPLETE 造成卡住
     if (isStudentEntry || hasStudentRole || hasStudentLink) {
       setIsInitialSyncing(false)
+      setInitialSyncError(null)
       window.localStorage.setItem(INITIAL_SYNCED_KEY, '1')
       return
     }
 
     if (window.localStorage.getItem(INITIAL_SYNCED_KEY)) {
       setIsInitialSyncing(false)
+      setInitialSyncError(null)
       return
     }
 
     setIsInitialSyncing(true)
-    let isSettled = false
-    const handler = () => {
-      if (isSettled) return
-      isSettled = true
+    setInitialSyncError(null)
+    let isActive = true
+
+    const settleSuccess = () => {
+      if (!isActive) return
       setIsInitialSyncing(false)
+      setInitialSyncError(null)
       window.localStorage.setItem(INITIAL_SYNCED_KEY, '1')
     }
+
+    const handler = (event: Event) => {
+      if (!isActive) return
+      const detail = (event as CustomEvent<SyncCompleteDetail>).detail
+      if (detail?.success) {
+        settleSuccess()
+        return
+      }
+
+      if (detail?.blocked) {
+        setInitialSyncError('首次同步被阻擋（401/403），請按「重新抓取資料」。若仍失敗請重新登入。')
+        return
+      }
+
+      if (detail?.error) {
+        setInitialSyncError(`首次同步失敗：${detail.error}`)
+        return
+      }
+
+      if (detail?.skipped) {
+        setInitialSyncError('目前離線或同步被略過，請連線後按「重新抓取資料」。')
+      }
+    }
+
     const timeoutId = window.setTimeout(() => {
-      if (isSettled) return
-      isSettled = true
-      setIsInitialSyncing(false)
-      window.localStorage.setItem(INITIAL_SYNCED_KEY, '1')
+      if (!isActive) return
+      setInitialSyncError((prev) =>
+        prev || '首次同步超時，請按「重新抓取資料」。'
+      )
     }, INITIAL_SYNC_TIMEOUT_MS)
 
-    window.addEventListener(SYNC_COMPLETE_EVENT_NAME, handler, { once: true })
+    window.addEventListener(SYNC_COMPLETE_EVENT_NAME, handler)
+    requestSync(true)
+
     return () => {
-      isSettled = true
+      isActive = false
       window.clearTimeout(timeoutId)
       window.removeEventListener(SYNC_COMPLETE_EVENT_NAME, handler)
     }
-  }, [auth, loginEntry])
+  }, [auth, loginEntry, initialSyncRetryNonce])
 
   // 應用啟動時檢測 WebP 支持（用於平板Chrome兼容性）
   useEffect(() => {
@@ -1100,9 +1146,36 @@ function App() {
   if (isInitialSyncing) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-gray-600 text-sm">正在載入資料...</p>
+        <div className="text-center px-4">
+          <div className="mb-4">
+            <SyncIndicator key={`initial-sync-${initialSyncRetryNonce}`} autoSync={true} />
+          </div>
+          {!initialSyncError ? (
+            <>
+              <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+              <p className="text-gray-600 text-sm">正在載入資料...</p>
+            </>
+          ) : (
+            <>
+              <p className="text-red-600 text-sm font-medium mb-3">{initialSyncError}</p>
+              <div className="flex items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={retryInitialSync}
+                  className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+                >
+                  重新抓取資料
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  重新登入
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     )

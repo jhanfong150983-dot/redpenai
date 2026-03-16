@@ -3,6 +3,13 @@ export const SYNC_COMPLETE_EVENT_NAME = 'rp-sync-complete'
 const SYNC_REQUEST_THROTTLE_MS = 3000
 let lastSyncRequestAt = 0
 
+export interface SyncCompleteDetail {
+  success: boolean
+  blocked?: boolean
+  skipped?: boolean
+  error?: string | null
+}
+
 export function requestSync(force = false) {
   if (typeof window === 'undefined') return
   const now = Date.now()
@@ -11,9 +18,11 @@ export function requestSync(force = false) {
   window.dispatchEvent(new CustomEvent(SYNC_EVENT_NAME))
 }
 
-export function notifySyncComplete() {
+export function notifySyncComplete(detail: SyncCompleteDetail = { success: true }) {
   if (typeof window === 'undefined') return
-  window.dispatchEvent(new CustomEvent(SYNC_COMPLETE_EVENT_NAME))
+  window.dispatchEvent(
+    new CustomEvent<SyncCompleteDetail>(SYNC_COMPLETE_EVENT_NAME, { detail })
+  )
 }
 
 export function waitForSync(timeoutMs = 30000): Promise<void> {
