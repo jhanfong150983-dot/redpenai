@@ -443,6 +443,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [uploadDrafts, setUploadDrafts] = useState<Record<string, File[]>>({})
   const [previewedDraftSignatures, setPreviewedDraftSignatures] = useState<Record<string, string>>({})
   const [previewModal, setPreviewModal] = useState<PreviewModalState>(null)
+  const [previewChecks, setPreviewChecks] = useState({ orientation: false, clarity: false })
   const [cameraMode, setCameraMode] = useState<StudentCameraMode>(null)
   const [cameraAssignmentId, setCameraAssignmentId] = useState('')
   const [capturedBlobs, setCapturedBlobs] = useState<Blob[]>([])
@@ -1430,10 +1431,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                           <button
                             type="button"
                             onClick={() => {
-                              setPreviewedDraftSignatures((prev) => ({
-                                ...prev,
-                                [item.id]: buildDraftSignature(draftFiles)
-                              }))
+                              setPreviewChecks({ orientation: false, clarity: false })
                               setPreviewModal({ assignmentId: item.id, index: 0 })
                             }}
                             disabled={draftFiles.length === 0}
@@ -1782,7 +1780,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               <div>
                 <p className="text-sm font-semibold text-slate-900">作業預覽</p>
                 <p className="mt-0.5 text-xs text-amber-700">
-                  請確認照片方向為正向（題目文字正立）再送出。
+                  請確認照片正確後，勾選下方確認項目才能送出。
                 </p>
               </div>
               <span className="text-xs text-slate-500">
@@ -1828,25 +1826,70 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 </button>
               )}
             </div>
-            <div className="flex items-center justify-center gap-2 border-t border-slate-200 bg-white px-4 py-3">
-              <button
-                type="button"
-                onClick={() => void rotatePreviewImage('counterclockwise')}
-                disabled={isRotatingPreview}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                向左旋轉 90°
-              </button>
-              <button
-                type="button"
-                onClick={() => void rotatePreviewImage('clockwise')}
-                disabled={isRotatingPreview}
-                className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-              >
-                <RotateCw className="h-3.5 w-3.5" />
-                向右旋轉 90°
-              </button>
+            <div className="border-t border-slate-200 bg-white px-4 py-4 space-y-4">
+              {/* 旋轉按鈕 */}
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void rotatePreviewImage('counterclockwise')}
+                  disabled={isRotatingPreview}
+                  className="inline-flex items-center gap-2 rounded-lg border-2 border-slate-300 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <RotateCcw className="h-5 w-5" />
+                  向左旋轉
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void rotatePreviewImage('clockwise')}
+                  disabled={isRotatingPreview}
+                  className="inline-flex items-center gap-2 rounded-lg border-2 border-slate-300 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <RotateCw className="h-5 w-5" />
+                  向右旋轉
+                </button>
+              </div>
+              {/* 確認 checklist */}
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
+                <p className="text-xs font-semibold text-amber-800">送出前請確認：</p>
+                <label className="flex cursor-pointer items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={previewChecks.orientation}
+                    onChange={(e) => setPreviewChecks((p) => ({ ...p, orientation: e.target.checked }))}
+                    className="h-4 w-4 rounded border-amber-400 accent-amber-500"
+                  />
+                  <span className="text-sm text-amber-900">照片方向正確（文字正立，沒有顛倒或橫置）</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={previewChecks.clarity}
+                    onChange={(e) => setPreviewChecks((p) => ({ ...p, clarity: e.target.checked }))}
+                    className="h-4 w-4 rounded border-amber-400 accent-amber-500"
+                  />
+                  <span className="text-sm text-amber-900">內容清晰完整（文字可辨識，頁面沒有缺角）</span>
+                </label>
+              </div>
+              {/* 確認完成按鈕 */}
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  disabled={!previewChecks.orientation || !previewChecks.clarity}
+                  onClick={() => {
+                    if (!previewModal) return
+                    setPreviewedDraftSignatures((prev) => ({
+                      ...prev,
+                      [previewModal.assignmentId]: buildDraftSignature(
+                        uploadDrafts[previewModal.assignmentId] || []
+                      )
+                    }))
+                    setPreviewModal(null)
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                >
+                  確認完成，準備送出
+                </button>
+              </div>
             </div>
           </div>
         </div>
