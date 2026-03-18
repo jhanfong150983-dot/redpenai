@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import Webcam from 'react-webcam'
-import { Camera, Upload, ArrowLeft, Loader, AlertCircle, CheckCircle } from 'lucide-react'
+import { Camera, Upload, ArrowLeft, Loader, AlertCircle, CheckCircle, CameraOff, RefreshCw } from 'lucide-react'
 import { compressImage } from '@/lib/imageCompression'
 
 interface CameraCapturePageProps {
@@ -12,6 +12,8 @@ interface CameraCapturePageProps {
   onCaptureComplete: (imageBlob: Blob) => void
   onBack: () => void
 }
+
+type CameraErrorType = 'denied' | 'notfound' | 'other' | null
 
 export default function CameraCapturePage({
   seatNumber,
@@ -27,6 +29,9 @@ export default function CameraCapturePage({
   const [captureSuccess, setCaptureSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isLandscape, setIsLandscape] = useState(false)
+  const [cameraError, setCameraError] = useState<CameraErrorType>(null)
+  const [webcamKey, setWebcamKey] = useState(0)
+  const [retryCount, setRetryCount] = useState(0)
 
   // 調試：檢查 props
   useEffect(() => {
@@ -52,6 +57,24 @@ export default function CameraCapturePage({
     }
   }, [])
 
+  const handleCameraError = useCallback((err: string | DOMException) => {
+    const name = err instanceof DOMException ? err.name : String(err)
+    console.warn('📸 Camera error:', name)
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+      setCameraError('denied')
+    } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+      setCameraError('notfound')
+    } else {
+      setCameraError('other')
+    }
+  }, [])
+
+  const handleRetry = useCallback(() => {
+    setCameraError(null)
+    setRetryCount((c) => c + 1)
+    setWebcamKey((k) => k + 1)
+  }, [])
+
   const handleCapture = useCallback(async () => {
     if (!webcamRef.current) return
 
@@ -67,7 +90,6 @@ export default function CameraCapturePage({
       const compressed = await compressImage(imageSrc, {
         maxWidth: 2000,
         quality: 0.85
-        // format 參數移除，使用 compressImage 內部的自動檢測
       })
 
       // 成功動畫
@@ -92,7 +114,6 @@ export default function CameraCapturePage({
       setIsProcessing(true)
       setError(null)
       try {
-        // 讀取檔案為 base64（添加 timeout 保護）
         const reader = new FileReader()
         const base64 = await new Promise<string>((resolve, reject) => {
           let timeoutId: number | null = null
@@ -106,7 +127,6 @@ export default function CameraCapturePage({
             reject(new Error('檔案讀取失敗'))
           }
 
-          // 添加 timeout（10秒）
           timeoutId = window.setTimeout(() => {
             reject(new Error('檔案讀取超時 - 檔案可能過大'))
           }, 10000)
@@ -114,14 +134,11 @@ export default function CameraCapturePage({
           reader.readAsDataURL(file)
         })
 
-        // 壓縮圖片（格式自動檢測：桌面用WebP，平板用JPEG）
         const compressed = await compressImage(base64, {
           maxWidth: 2000,
           quality: 0.85
-          // format 參數移除，使用 compressImage 內部的自動檢測
         })
 
-        // 成功動畫
         setCaptureSuccess(true)
         setTimeout(() => {
           setCaptureSuccess(false)
@@ -156,8 +173,9 @@ export default function CameraCapturePage({
         className="hidden"
       />
 
-      {/* 攝像頭畫面 - 滿版顯示 */}
+      {/* 攝像頭畫面 */}
       <Webcam
+        key={webcamKey}
         ref={webcamRef}
         audio={false}
         screenshotFormat="image/jpeg"
@@ -166,8 +184,67 @@ export default function CameraCapturePage({
           width: 1920,
           height: 1080
         }}
+        onUserMediaError={handleCameraError}
         className="absolute inset-0 w-full h-full object-cover"
       />
+
+      {/* 相機授權失敗畫面 */}
+      {cameraError && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-slate-900 px-6 text-center">
+          <CameraOff className="mb-4 h-16 w-16 text-slate-400" />
+
+          <h2 className="text-xl font-bold text-white">
+            {cameraError === 'notfound' ? '找不到相機' : '相機未授權'}
+          </h2>
+
+          <p className="mt-2 text-sm text-slate-300">
+            {cameraError === 'notfound'
+              ? '這台裝置可能沒有相機，或相機正被其他程式使用中。'
+              : '請允許瀏覽器使用相機，才能拍照上傳作業。'}
+          </p>
+
+          {/* 重試後仍失敗的額外提示 */}
+          {cameraError === 'denied' && retryCount > 0 && (
+            <p className="mt-2 flex items-center gap-1 text-sm text-red-400">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              仍然無法啟動相機，請確認已在設定中允許。
+            </p>
+          )}
+
+          {/* 操作說明（僅授權被拒時顯示） */}
+          {cameraError === 'denied' && (
+            <div className="mt-5 w-full max-w-sm rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-left">
+              <p className="mb-1.5 text-xs font-semibold text-amber-300">
+                如果一直沒有出現授權請求：
+              </p>
+              <p className="text-xs leading-relaxed text-amber-200">
+                請點網址列旁的 🔒 圖示，找到相機設定，改為「允許」後再按重新嘗試。
+              </p>
+            </div>
+          )}
+
+          {/* 按鈕 */}
+          <div className="mt-8 flex flex-col items-center gap-3">
+            {cameraError !== 'notfound' && (
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-8 py-3 text-sm font-semibold text-white hover:bg-sky-500 active:scale-95"
+              >
+                <RefreshCw className="h-4 w-4" />
+                重新嘗試
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onBack}
+              className="text-sm text-slate-400 hover:text-slate-200"
+            >
+              返回
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 成功提示動畫 */}
       {captureSuccess && (
@@ -200,39 +277,43 @@ export default function CameraCapturePage({
         </div>
       )}
 
-      {/* 頂部資訊欄 */}
-      <div className="absolute top-0 left-0 right-0 p-4 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]">
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onBack}
-            className="flex items-center gap-2 text-white hover:text-white/80 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            <span className="font-medium">返回選擇</span>
-          </button>
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"></div>
-            <span className="text-sm font-medium">拍攝中</span>
+      {/* 頂部資訊欄（授權失敗時隱藏） */}
+      {!cameraError && (
+        <div className="absolute top-0 left-0 right-0 p-4 text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex items-center gap-2 text-white hover:text-white/80 transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+              <span className="font-medium">返回選擇</span>
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"></div>
+              <span className="text-sm font-medium">拍攝中</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* 座號 / 名稱資訊 */}
-      <div
-        className={`absolute left-4 ${
-          isLandscape ? 'bottom-4' : 'bottom-24'
-        } text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]`}
-      >
-        <div className="text-[11px] text-white/80">座號 {seatNumber}</div>
-        <div className="text-sm font-semibold">{name}</div>
-        <div className="text-[11px] text-white/80">
-          已完成 {currentPageCount} / {pagesPerStudent} 張
+      {/* 座號 / 名稱資訊（授權失敗時隱藏） */}
+      {!cameraError && (
+        <div
+          className={`absolute left-4 ${
+            isLandscape ? 'bottom-4' : 'bottom-24'
+          } text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.6)]`}
+        >
+          <div className="text-[11px] text-white/80">座號 {seatNumber}</div>
+          <div className="text-sm font-semibold">{name}</div>
+          <div className="text-[11px] text-white/80">
+            已完成 {currentPageCount} / {pagesPerStudent} 張
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* 錯誤提示 */}
-      {error && (
+      {/* 拍照錯誤提示（授權失敗時隱藏） */}
+      {!cameraError && error && (
         <div className="absolute left-1/2 top-16 -translate-x-1/2 text-xs text-red-200 drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)] z-20">
           <span className="inline-flex items-center gap-1">
             <AlertCircle className="w-3.5 h-3.5" />
@@ -241,33 +322,35 @@ export default function CameraCapturePage({
         </div>
       )}
 
-      {/* 操作按鈕：直式在下方、橫式在右側 */}
-      <div
-        className={`absolute ${
-          isLandscape
-            ? 'right-4 top-1/2 -translate-y-1/2 flex-col'
-            : 'left-0 right-0 bottom-5 flex-row justify-center'
-        } flex items-center gap-3`}
-      >
-        <button
-          onClick={triggerFileUpload}
-          disabled={isProcessing}
-          className={actionBase}
-          aria-label="上傳作業"
-          title="上傳"
+      {/* 操作按鈕（授權失敗時隱藏） */}
+      {!cameraError && (
+        <div
+          className={`absolute ${
+            isLandscape
+              ? 'right-4 top-1/2 -translate-y-1/2 flex-col'
+              : 'left-0 right-0 bottom-5 flex-row justify-center'
+          } flex items-center gap-3`}
         >
-          <Upload className="w-5 h-5" />
-        </button>
-        <button
-          onClick={handleCapture}
-          disabled={isProcessing}
-          className={`${actionBase} w-16 h-16 ${isProcessing ? 'scale-95' : 'hover:scale-105'}`}
-          aria-label="拍照"
-          title="拍照"
-        >
-          <Camera className="w-6 h-6" />
-        </button>
-      </div>
+          <button
+            onClick={triggerFileUpload}
+            disabled={isProcessing}
+            className={actionBase}
+            aria-label="上傳作業"
+            title="上傳"
+          >
+            <Upload className="w-5 h-5" />
+          </button>
+          <button
+            onClick={handleCapture}
+            disabled={isProcessing}
+            className={`${actionBase} w-16 h-16 ${isProcessing ? 'scale-95' : 'hover:scale-105'}`}
+            aria-label="拍照"
+            title="拍照"
+          >
+            <Camera className="w-6 h-6" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
