@@ -541,8 +541,19 @@ export function useSync(options: UseSyncOptions = {}) {
       deletedPayload
     })
 
+    // 各資料表的刪除 ID 集合，push 時排除，避免「建了又刪」的項目被 server 重新建立
+    const deletedClassroomIds = new Set(
+      [...deleteMap.values()].filter((e) => e.tableName === 'classrooms').map((e) => e.recordId)
+    )
+    const deletedStudentIds = new Set(
+      [...deleteMap.values()].filter((e) => e.tableName === 'students').map((e) => e.recordId)
+    )
+    const deletedAssignmentIds = new Set(
+      [...deleteMap.values()].filter((e) => e.tableName === 'assignments').map((e) => e.recordId)
+    )
+
     const classroomPayload = classrooms
-      .filter((c) => c?.id)
+      .filter((c) => c?.id && !deletedClassroomIds.has(c.id))
       .map((c) => ({
         id: c.id,
         name: c.name,
@@ -553,7 +564,7 @@ export function useSync(options: UseSyncOptions = {}) {
     debugLog('📤 pushMetadata - 準備發送的 classrooms:', classroomPayload)
 
     const studentPayload = students
-      .filter((s) => s?.id && s?.classroomId)
+      .filter((s) => s?.id && s?.classroomId && !deletedStudentIds.has(s.id))
       .map((s) => ({
         id: s.id,
         classroomId: s.classroomId,
@@ -564,7 +575,7 @@ export function useSync(options: UseSyncOptions = {}) {
       }))
 
     const assignmentPayload = assignments
-      .filter((a) => a?.id && a?.classroomId)
+      .filter((a) => a?.id && a?.classroomId && !deletedAssignmentIds.has(a.id))
       .map((a) => ({
         id: a.id,
         classroomId: a.classroomId,
@@ -735,6 +746,7 @@ export function useSync(options: UseSyncOptions = {}) {
     debugLog(`📦 pullMetadata: 本地現有 ${existingSubmissions.length} 筆 submissions`)
 
     // 保留本地圖片數據（Blob 和 Base64）與 gradingResult（伺服器同步不再回傳）
+    // 也保留 status 和 gradedAt，避免 pull 在 push 完成前蓋掉本地已批改的狀態
     const imageDataMap = new Map(
       existingSubmissions.map((sub) => [
         sub.id,
@@ -746,7 +758,9 @@ export function useSync(options: UseSyncOptions = {}) {
           thumbnailBlob: sub.thumbnailBlob,
           thumbnailBase64: sub.thumbnailBase64,
           thumbnailUrl: sub.thumbnailUrl,
-          gradingResult: sub.gradingResult
+          gradingResult: sub.gradingResult,
+          status: sub.status,
+          gradedAt: sub.gradedAt
         }
       ])
     )
@@ -783,13 +797,23 @@ export function useSync(options: UseSyncOptions = {}) {
           typeof sub.createdAt === 'number' && Number.isFinite(sub.createdAt)
             ? sub.createdAt
             : Date.now()
-        const gradedAt =
+        const serverGradedAt =
           typeof sub.gradedAt === 'number' && Number.isFinite(sub.gradedAt)
             ? sub.gradedAt
             : undefined
 
         // 從本地恢復圖片數據
         const localImageData = imageDataMap.get(sub.id)
+
+        // Pull 與 Push 並行時，Pull 可能先從 Supabase 拿回舊的 status='synced'，
+        // 在 Push 尚未寫入前就蓋掉本地的 status='graded' 和 gradedAt。
+        // 修正：若本地是 'graded' 而 server 尚未確認，保留本地的 status 與 gradedAt。
+        const serverStatus = (sub.status || 'synced') as string
+        const localStatus = localImageData?.status
+        const finalStatus = (localStatus === 'graded' && serverStatus !== 'graded')
+          ? 'graded'
+          : serverStatus
+        const gradedAt = serverGradedAt ?? (localStatus === 'graded' ? localImageData?.gradedAt : undefined)
         const imageUrl =
           (sub as Submission & { imageUrl?: string }).imageUrl ??
           (sub as { image_url?: string }).image_url ??
@@ -814,7 +838,7 @@ export function useSync(options: UseSyncOptions = {}) {
           id: sub.id,
           assignmentId: assignmentId!,
           studentId: studentId!,
-          status: sub.status || 'synced',
+          status: finalStatus,
           createdAt,
           score: sub.score,
           feedback: sub.feedback,

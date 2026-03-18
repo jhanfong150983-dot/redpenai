@@ -30,7 +30,7 @@ import AdminPanel from '@/pages/AdminPanel'
 import InkTopUp from '@/pages/InkTopUp'
 import AiReport from '@/pages/AiReport'
 import LandingPage from '@/pages/LandingPage'
-import { SyncIndicator } from '@/components'
+import { SyncIndicator, GlobalSyncBar } from '@/components'
 import { checkWebPSupport } from '@/lib/webpSupport'
 import { INK_BALANCE_EVENT, type InkBalanceDetail } from '@/lib/ink-events'
 import { buildApiUrl } from '@/lib/api-base'
@@ -1489,6 +1489,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#f7f7f5]">
+      <GlobalSyncBar />
       <div className="mx-auto flex h-screen w-full max-w-[1280px] flex-col">
         {!isCameraCaptureMode && (
           <header className="sticky top-0 z-20 border-b border-slate-200 bg-[#f7f7f5]/95 px-4 py-2 backdrop-blur md:px-6">

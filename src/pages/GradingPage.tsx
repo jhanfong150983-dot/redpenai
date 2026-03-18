@@ -395,6 +395,11 @@ function ConsistencyQuestionCard({
 }) {
   const [manualInput, setManualInput] = useState('')
   const [zoomedImg, setZoomedImg] = useState(false)
+  const [zoomScale, setZoomScale] = useState(1)
+  const [zoomOffset, setZoomOffset] = useState({ x: 0, y: 0 })
+  const zoomDragRef = useRef<{ active: boolean; startX: number; startY: number; originX: number; originY: number }>({
+    active: false, startX: 0, startY: 0, originX: 0, originY: 0
+  })
   const { questionId, consistencyStatus, consistencyReason, readAnswer1, readAnswer2, answerCropImageUrl } = questionResult
   const isUnstable = consistencyStatus === 'unstable'
   const isConfirmed = decision?.confirmed
@@ -467,24 +472,85 @@ function ConsistencyQuestionCard({
       )}
       {zoomedImg && answerCropImageUrl && (
         <div
-          className="fixed inset-0 z-[300] bg-black/75 flex items-center justify-center p-4"
-          onClick={() => setZoomedImg(false)}
+          className="fixed inset-0 z-[300] bg-black/80 flex flex-col items-center justify-center"
+          onClick={() => { setZoomedImg(false); setZoomScale(1); setZoomOffset({ x: 0, y: 0 }) }}
         >
-          <div className="relative" onClick={(e) => e.stopPropagation()}>
+          {/* 縮放控制列 */}
+          <div
+            className="relative z-10 flex items-center gap-2 mb-3 bg-black/60 rounded-full px-3 py-1.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setZoomScale(s => Math.max(0.5, +(s - 0.5).toFixed(1)))}
+              className="w-7 h-7 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center text-base font-bold leading-none"
+              title="縮小"
+            >−</button>
+            <span className="text-white text-xs w-10 text-center tabular-nums">{Math.round(zoomScale * 100)}%</span>
+            <button
+              type="button"
+              onClick={() => setZoomScale(s => Math.min(8, +(s + 0.5).toFixed(1)))}
+              className="w-7 h-7 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center text-base font-bold leading-none"
+              title="放大"
+            >+</button>
+            <div className="w-px h-4 bg-white/30 mx-1" />
+            <button
+              type="button"
+              onClick={() => { setZoomScale(1); setZoomOffset({ x: 0, y: 0 }) }}
+              className="text-white/70 hover:text-white text-[10px] px-2"
+              title="重設"
+            >重設</button>
+            <button
+              type="button"
+              onClick={() => { setZoomedImg(false); setZoomScale(1); setZoomOffset({ x: 0, y: 0 }) }}
+              className="ml-1 w-6 h-6 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center"
+              title="關閉"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* 圖片容器（可拖曳） */}
+          <div
+            className="overflow-hidden"
+            style={{ width: '90vw', height: '75vh', cursor: zoomScale > 1 ? 'grab' : 'default' }}
+            onClick={(e) => e.stopPropagation()}
+            onWheel={(e) => {
+              e.preventDefault()
+              const delta = e.deltaY < 0 ? 0.25 : -0.25
+              setZoomScale(s => Math.min(8, Math.max(0.5, +(s + delta).toFixed(2))))
+            }}
+            onMouseDown={(e) => {
+              if (zoomScale <= 1) return
+              zoomDragRef.current = { active: true, startX: e.clientX, startY: e.clientY, originX: zoomOffset.x, originY: zoomOffset.y }
+            }}
+            onMouseMove={(e) => {
+              if (!zoomDragRef.current.active) return
+              setZoomOffset({
+                x: zoomDragRef.current.originX + (e.clientX - zoomDragRef.current.startX),
+                y: zoomDragRef.current.originY + (e.clientY - zoomDragRef.current.startY),
+              })
+            }}
+            onMouseUp={() => { zoomDragRef.current.active = false }}
+            onMouseLeave={() => { zoomDragRef.current.active = false }}
+          >
             <img
               src={answerCropImageUrl}
               alt={`題目 ${questionId} 答案區（放大）`}
-              className="max-w-[90vw] max-h-[80vh] object-contain rounded shadow-2xl bg-white"
+              draggable={false}
+              onDoubleClick={() => { setZoomScale(1); setZoomOffset({ x: 0, y: 0 }) }}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                transformOrigin: 'center center',
+                transform: `scale(${zoomScale}) translate(${zoomOffset.x / zoomScale}px, ${zoomOffset.y / zoomScale}px)`,
+                transition: zoomDragRef.current.active ? 'none' : 'transform 0.15s ease',
+                userSelect: 'none',
+              }}
             />
-            <button
-              type="button"
-              onClick={() => setZoomedImg(false)}
-              className="absolute top-2 right-2 bg-black/50 rounded-full p-1 text-white hover:bg-black/70"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <p className="text-center text-white/70 text-xs mt-2">點擊任意處關閉</p>
           </div>
+          <p className="text-white/50 text-[10px] mt-2">滾輪縮放・拖曳平移・雙擊重設・點擊背景關閉</p>
         </div>
       )}
 
@@ -835,6 +901,7 @@ export default function GradingPage({
 
   // 題目詳情（可編輯）
   const [editableDetails, setEditableDetails] = useState<any[]>([])
+  const [isSavingScore, setIsSavingScore] = useState(false)
 
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
   const isBusy = isGrading || isDownloading
@@ -1869,7 +1936,7 @@ export default function GradingPage({
 
   // 單題得分即時更新（自動重算總分並儲存）
   const handleDetailScoreChange = async (index: number, scoreValue: number) => {
-    if (isBusy) return
+    if (isBusy || isSavingScore) return
     if (!selectedSubmission) return
 
     const updatedDetails = editableDetails.map((d: any, i: number) =>
@@ -1910,17 +1977,22 @@ export default function GradingPage({
     newGradingResult.needsReview = false
     newGradingResult.reviewReasons = []
 
-    await db.submissions.update(id, {
-      score: newTotal,
-      gradingResult: newGradingResult
-    })
-    requestSync()
+    setIsSavingScore(true)
+    try {
+      await db.submissions.update(id, {
+        score: newTotal,
+        gradingResult: newGradingResult
+      })
+      requestSync()
 
-    const updated = await db.submissions.get(id)
-    if (updated) {
-      setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
-      const student = students.find((s) => s.id === updated.studentId)
-      if (student) setSelectedSubmission({ submission: updated, student })
+      const updated = await db.submissions.get(id)
+      if (updated) {
+        setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
+        const student = students.find((s) => s.id === updated.studentId)
+        if (student) setSelectedSubmission({ submission: updated, student })
+      }
+    } finally {
+      setIsSavingScore(false)
     }
   }
 
@@ -2359,6 +2431,7 @@ export default function GradingPage({
               disabled={
                 isGrading ||
                 isDownloading ||
+                isRefreshing ||
                 isCheckingCorrectionState ||
                 !isGeminiAvailable ||
                 !inkSessionReady
@@ -2374,6 +2447,15 @@ export default function GradingPage({
             </button>
           </div>
         </div>
+
+        {isRefreshing && !isBusy && (
+          <div className="sticky top-4 z-40 mb-4">
+            <div className="bg-sky-50 border border-sky-200 rounded-xl px-4 py-2.5 flex items-center gap-3">
+              <RefreshCw className="w-4 h-4 text-sky-500 animate-spin shrink-0" />
+              <p className="text-sm text-sky-700 font-medium">正在同步最新資料，請稍候...</p>
+            </div>
+          </div>
+        )}
 
         {isBusy && (
           <div className="sticky top-4 z-40 mb-4">
@@ -3014,7 +3096,7 @@ export default function GradingPage({
                                   pattern="[0-9]*\.?[0-9]*"
                                   className="w-14 px-1 py-0.5 rounded border border-white/60 bg-white/70 text-gray-800 text-[10px] text-center disabled:opacity-60 disabled:cursor-not-allowed"
                                   value={d.score ?? ''}
-                                  disabled={isBusy}
+                                  disabled={isBusy || isSavingScore}
                                   onFocus={(e) => {
                                     // 點擊時自動選取全部文字，方便清除
                                     e.target.select()

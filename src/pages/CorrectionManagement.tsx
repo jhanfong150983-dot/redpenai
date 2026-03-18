@@ -214,6 +214,8 @@ export default function CorrectionManagement({
 
       setSelectedStudentIds([])
       await loadDashboard()
+      // 派發成功後立即強制同步，讓訂正狀態即時反映到其他裝置
+      requestSync(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '派發訂正失敗')
     } finally {
@@ -258,6 +260,8 @@ export default function CorrectionManagement({
       }
 
       await loadDashboard()
+      // 停止派發後立即強制同步，讓狀態即時反映到其他裝置
+      requestSync(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '停止訂正失敗')
     } finally {

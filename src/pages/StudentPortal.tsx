@@ -463,8 +463,16 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const correctionCropCacheRef = useRef<Record<string, string | null>>({})
   const [isPreparingCorrectionCrops, setIsPreparingCorrectionCrops] = useState(false)
 
+  // AbortController：新的 loadOverview 呼叫會取消上一個仍在飛的請求
+  const loadOverviewAbortRef = useRef<AbortController | null>(null)
+
   const loadOverview = useCallback(
     async (classroomKey = '', options: { silent?: boolean } = {}) => {
+      // 取消上一個仍在飛的請求
+      loadOverviewAbortRef.current?.abort()
+      const controller = new AbortController()
+      loadOverviewAbortRef.current = controller
+
       const { silent = false } = options
       if (!silent) {
         setIsLoading(true)
@@ -480,7 +488,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           : '/api/data/student-overview'
         const response = await fetch(endpoint, {
           method: 'GET',
-          credentials: 'include'
+          credentials: 'include',
+          signal: controller.signal
         })
         const data = await response.json().catch(() => ({}))
         if (!response.ok) {
@@ -519,12 +528,15 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         }
         return payload
       } catch (err) {
+        // AbortError = 被較新的請求取消，靜默忽略
+        if (err instanceof Error && err.name === 'AbortError') return null
         if (!silent) {
           setError(err instanceof Error ? err.message : '載入失敗')
         }
         return null
       } finally {
-        if (!silent) {
+        // 若此請求已被中止，不要清除 isLoading（新請求已接管）
+        if (!silent && !controller.signal.aborted) {
           setIsLoading(false)
         }
       }
@@ -1097,6 +1109,20 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
 
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
+        if (response.status === 409) {
+          const code = data?.code
+          // 伺服器已接收過這份作業（例如：網路斷線後重送）→ 視為成功，刷新狀態
+          if (code === 'UPLOAD_LOCKED') {
+            setMessage('你的作業已成功上傳，等待老師批改。（先前可能已送出，請確認狀態）')
+            await loadOverview(selectedClassroomKey)
+            return
+          }
+          if (code === 'GRADING_IN_PROGRESS') {
+            setMessage('訂正批改中，請稍候，完成後頁面會自動更新。（先前可能已送出）')
+            await loadOverview(selectedClassroomKey)
+            return
+          }
+        }
         if (response.status === 413) {
           throw new Error('照片總量過大（超過上傳上限），請改拍單題答案區域後再送出。')
         }
@@ -1236,8 +1262,10 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           <button
             type="button"
             onClick={() => void loadOverview(selectedClassroomKey)}
-            className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+            disabled={isLoading || isSubmitting}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
+            {isLoading && <Loader2 className="h-3 w-3 animate-spin" />}
             重新整理
           </button>
         </div>
