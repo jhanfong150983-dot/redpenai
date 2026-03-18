@@ -1193,20 +1193,34 @@ function App() {
   }
 
   if (viewMode === 'student-unlinked') {
+    const userEmail = auth.status === 'authenticated' ? (auth.user.email ?? '') : ''
+    const isCampus1SsoStudent = userEmail.startsWith('campus1.') && userEmail.includes('@')
+    const campus1Dsns = isCampus1SsoStudent ? userEmail.slice(userEmail.indexOf('@') + 1) : ''
+    const campus1BackUrl = campus1Dsns ? `https://${campus1Dsns}` : ''
+
+    const handleUnlinkedBack = async () => {
+      await handleLogout()
+      if (campus1BackUrl) {
+        window.location.href = campus1BackUrl
+      }
+    }
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4">
         <div className="mx-auto mt-16 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
           <h1 className="text-xl font-semibold text-slate-900">尚未有班級</h1>
           <p className="mt-3 text-sm text-slate-600">
-            你尚未被老師加入班級，請向老師確認。
+            {isCampus1SsoStudent
+              ? '你尚未被老師加入班級，請向老師確認後，再從 1Campus 重新登入。'
+              : '你尚未被老師加入班級，請向老師確認。'}
           </p>
           <div className="mt-6 flex justify-center">
             <button
               type="button"
-              onClick={handleLogout}
+              onClick={handleUnlinkedBack}
               className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
             >
-              返回登入
+              {isCampus1SsoStudent ? '返回 1Campus' : '返回登入'}
             </button>
           </div>
         </div>
