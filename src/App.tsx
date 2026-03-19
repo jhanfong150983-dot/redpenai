@@ -159,6 +159,7 @@ type HomeOverviewItem = {
   gradedCount: number
   pendingGradingCount: number
   correctionCount: number
+  pendingCorrectionSeatNumbers: number[]
   hasAnswerKey: boolean
   workflowStatus: AssignmentWorkflowStatus
   workflowPriority: number
@@ -936,9 +937,11 @@ function App() {
         classrooms.map((classroom) => [classroom.id, classroom])
       )
       const studentCountByClassroom = new Map<string, number>()
+      const studentSeatById = new Map<string, number>()
       students.forEach((student) => {
         const current = studentCountByClassroom.get(student.classroomId) ?? 0
         studentCountByClassroom.set(student.classroomId, current + 1)
+        if (student.seatNumber) studentSeatById.set(student.id, student.seatNumber)
       })
 
       const submissionsByAssignment = new Map<string, Submission[]>()
@@ -964,6 +967,11 @@ function App() {
           const correctionCount = relatedSubmissions.filter(
             (submission) => (submission.correctionCount ?? 0) > 0
           ).length
+          const pendingCorrectionSeatNumbers = relatedSubmissions
+            .filter((submission) => (submission.correctionCount ?? 0) > 0)
+            .map((submission) => studentSeatById.get(submission.studentId) ?? 0)
+            .filter((seat) => seat > 0)
+            .sort((a, b) => a - b)
           const totalStudents =
             studentCountByClassroom.get(assignment.classroomId) ?? 0
           const denominator = Math.max(uploadedCount, totalStudents)
@@ -999,6 +1007,7 @@ function App() {
             gradedCount,
             pendingGradingCount,
             correctionCount,
+            pendingCorrectionSeatNumbers,
             hasAnswerKey,
             workflowStatus,
             workflowPriority,
@@ -2135,6 +2144,17 @@ function App() {
                                       />
                                     </div>
                                   </div>
+                                  {item.workflowStatus === 'correction-followup' &&
+                                    item.pendingCorrectionSeatNumbers.length > 0 && (
+                                      <div className="mt-2 text-[11px] text-slate-500">
+                                        <span className="font-medium text-violet-700">
+                                          尚未完成訂正（{item.pendingCorrectionSeatNumbers.length} 人）
+                                        </span>
+                                        <span className="ml-1">
+                                          座號：{item.pendingCorrectionSeatNumbers.join('・')}
+                                        </span>
+                                      </div>
+                                    )}
                                 </div>
                               )
                             })}
