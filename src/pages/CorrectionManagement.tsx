@@ -57,11 +57,13 @@ type CorrectionDashboardResponse = {
   students: DashboardStudent[]
 }
 
-function formatStatusLabel(status: string) {
+function formatStatusLabel(status: string, latestMistakeCount?: number) {
+  if (status === 'graded') {
+    return (latestMistakeCount ?? 0) > 0 ? '已批改（有錯題）' : '無需訂正'
+  }
   const map: Record<string, string> = {
     not_uploaded: '尚未上傳',
     uploaded: '已上傳待批改',
-    graded: '無需訂正',
     correction_required: '待訂正',
     correction_in_progress: '訂正中',
     correction_pending_review: '申訴待審閱',
@@ -71,7 +73,10 @@ function formatStatusLabel(status: string) {
   return map[status] || status
 }
 
-function getStatusBadgeClass(status: string) {
+function getStatusBadgeClass(status: string, latestMistakeCount?: number) {
+  if (status === 'graded' && (latestMistakeCount ?? 0) > 0) {
+    return 'border-orange-200 bg-orange-50 text-orange-700'
+  }
   const map: Record<string, string> = {
     correction_required: 'border-violet-200 bg-violet-50 text-violet-700',
     correction_in_progress: 'border-indigo-200 bg-indigo-50 text-indigo-700',
@@ -632,9 +637,9 @@ export default function CorrectionManagement({
                   </div>
                   <div>
                     <span
-                      className={`inline-flex rounded border px-2 py-0.5 text-xs font-semibold ${getStatusBadgeClass(student.status)}`}
+                      className={`inline-flex rounded border px-2 py-0.5 text-xs font-semibold ${getStatusBadgeClass(student.status, student.latestMistakeCount)}`}
                     >
-                      {formatStatusLabel(student.status)}
+                      {formatStatusLabel(student.status, student.latestMistakeCount)}
                     </span>
                   </div>
                   <div className="text-slate-700">

@@ -13,6 +13,8 @@ import {
   X,
   Flag,
   Clock,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import { blobToBase64, compressToTargetBytes } from '@/lib/imageCompression'
 import { safeToBlobWithFallback } from '@/lib/canvasToBlob'
@@ -364,6 +366,75 @@ async function buildCorrectionCropDataUrl(imageUrl: string, rawBbox: Bbox): Prom
   })
 }
 
+function ZoomImageModal({ url, onClose }: { url: string; onClose: () => void }) {
+  const [scale, setScale] = useState(1)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const dragging = useRef(false)
+  const lastPos = useRef({ x: 0, y: 0 })
+  const MIN_SCALE = 0.5
+  const MAX_SCALE = 8
+
+  const clampScale = (s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s))
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault()
+    setScale((s) => clampScale(s * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))
+  }
+  const handleMouseDown = (e: React.MouseEvent) => {
+    dragging.current = true
+    lastPos.current = { x: e.clientX, y: e.clientY }
+  }
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!dragging.current) return
+    setOffset((o) => ({ x: o.x + e.clientX - lastPos.current.x, y: o.y + e.clientY - lastPos.current.y }))
+    lastPos.current = { x: e.clientX, y: e.clientY }
+  }
+  const handleMouseUp = () => { dragging.current = false }
+  const reset = () => { setScale(1); setOffset({ x: 0, y: 0 }) }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      onClick={onClose}
+      onWheel={handleWheel}
+    >
+      <div className="absolute top-3 right-3 flex gap-2">
+        <button onClick={(e) => { e.stopPropagation(); setScale((s) => clampScale(s * 1.3)) }}
+          className="rounded-full bg-white/20 p-2 text-white hover:bg-white/30"><ZoomIn className="h-4 w-4" /></button>
+        <button onClick={(e) => { e.stopPropagation(); setScale((s) => clampScale(s / 1.3)) }}
+          className="rounded-full bg-white/20 p-2 text-white hover:bg-white/30"><ZoomOut className="h-4 w-4" /></button>
+        <button onClick={(e) => { e.stopPropagation(); reset() }}
+          className="rounded-full bg-white/20 px-3 py-2 text-xs text-white hover:bg-white/30">重置</button>
+        <button onClick={onClose}
+          className="rounded-full bg-white/20 p-2 text-white hover:bg-white/30"><X className="h-4 w-4" /></button>
+      </div>
+      <img
+        src={url}
+        alt="放大檢視"
+        draggable={false}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onDoubleClick={reset}
+        style={{
+          transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+          transformOrigin: 'center',
+          cursor: dragging.current ? 'grabbing' : 'grab',
+          maxWidth: '90vw',
+          maxHeight: '90vh',
+          objectFit: 'contain',
+          userSelect: 'none',
+        }}
+      />
+      <p className="absolute bottom-3 left-0 right-0 text-center text-xs text-white/50">
+        滾輪縮放・拖曳平移・雙擊重置
+      </p>
+    </div>
+  )
+}
+
 function formatStatusLabel(status: string) {
   const map: Record<string, string> = {
     not_uploaded: '尚未上傳',
@@ -462,6 +533,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [correctionCropCache, setCorrectionCropCache] = useState<Record<string, string | null>>({})
   const correctionCropCacheRef = useRef<Record<string, string | null>>({})
   const [isPreparingCorrectionCrops, setIsPreparingCorrectionCrops] = useState(false)
+  const [zoomImageUrl, setZoomImageUrl] = useState<string | null>(null)
 
   // AbortController：新的 loadOverview 呼叫會取消上一個仍在飛的請求
   const loadOverviewAbortRef = useRef<AbortController | null>(null)
@@ -1637,8 +1709,13 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         if (!displayUrl) return null
                         return (
                           <div className="mb-2 overflow-hidden rounded border border-slate-200 bg-slate-50">
-                            <img src={displayUrl} alt="原始錯誤作答" className="max-h-40 w-full object-contain" />
-                            <p className="px-2 py-0.5 text-center text-[10px] text-slate-400">原始錯誤作答</p>
+                            <img
+                              src={displayUrl}
+                              alt="原始錯誤作答"
+                              className="max-h-40 w-full cursor-zoom-in object-contain"
+                              onClick={() => setZoomImageUrl(displayUrl)}
+                            />
+                            <p className="px-2 py-0.5 text-center text-[10px] text-slate-400">原始錯誤作答・點擊放大</p>
                           </div>
                         )
                       })()}
@@ -1921,6 +1998,10 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
             </div>
           </div>
         </div>
+      )}
+
+      {zoomImageUrl && (
+        <ZoomImageModal url={zoomImageUrl} onClose={() => setZoomImageUrl(null)} />
       )}
     </div>
   )
