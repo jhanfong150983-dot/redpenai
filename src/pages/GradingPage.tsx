@@ -1049,6 +1049,7 @@ export default function GradingPage({
     setGradingPhase('idle')
     setIsGrading(false)
     setCurrentGradingStudent('')
+    setSelectedSubmissionIds(new Set())
     setGradeResultNotice({
       stopped: stopRequestedRef.current,
       successCount,
@@ -1924,6 +1925,7 @@ export default function GradingPage({
       setStopRequested(false)
       stopRequestedRef.current = false
       setCurrentGradingStudent('')
+      setSelectedSubmissionIds(new Set())
     }
   }
 
