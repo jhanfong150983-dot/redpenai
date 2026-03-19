@@ -1872,7 +1872,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
 
       {previewModal && previewFiles.length > 0 && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-4">
-          <div className="relative w-full max-w-5xl overflow-hidden rounded-xl bg-white shadow-2xl">
+          <div className="relative w-full max-w-5xl overflow-y-auto rounded-xl bg-white shadow-2xl" style={{ maxHeight: 'calc(100vh - 2rem)' }}>
             <button
               type="button"
               onClick={() => setPreviewModal(null)}
@@ -1892,7 +1892,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 第 {previewModal.index + 1} / {previewFiles.length} 頁
               </span>
             </div>
-            <div className="relative flex min-h-[520px] items-center justify-center bg-slate-50">
+            <div className="relative flex min-h-[160px] items-center justify-center bg-slate-50">
               {previewModal.index > 0 && (
                 <button
                   type="button"
@@ -1912,7 +1912,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               <img
                 src={previewUrls[previewModal.index]}
                 alt={`作業預覽第 ${previewModal.index + 1} 頁`}
-                className="max-h-[70vh] w-auto max-w-full object-contain"
+                className="max-h-[45vh] w-auto max-w-full object-contain"
               />
               {previewModal.index < previewFiles.length - 1 && (
                 <button
