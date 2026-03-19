@@ -39,8 +39,10 @@ export async function checkWebPSupport(): Promise<boolean> {
     const result = await new Promise<boolean>((resolve) => {
       canvas.toBlob(
         (blob) => {
-          // 如果返回 null 或大小為 0，表示不支持
-          const supported = blob !== null && blob.size > 0
+          // 必須同時確認 blob type 是 webp：
+          // iOS Safari 不支援 WebP 編碼，會靜默回傳 PNG（blob.type='image/png'），
+          // 只檢查 blob.size > 0 會誤判為支援，導致壓縮用 PNG 格式（quality 無效，體積極大）
+          const supported = blob !== null && blob.size > 0 && blob.type === 'image/webp'
           resolve(supported)
         },
         'image/webp',
