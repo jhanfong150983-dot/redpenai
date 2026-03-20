@@ -120,6 +120,7 @@ type AuthState =
           displayName?: string
           roleType?: string
         }
+        studentLookupStatus?: 'ok' | 'user_not_found' | 'system_error'
       }
     }
 type InkOrderSummary = {
@@ -426,7 +427,8 @@ function App() {
         unsupported_role: '目前僅支援教師或學生帳號登入',
         session_failed: '登入失敗，請重新嘗試',
         create_user_failed: '建立帳號失敗，請聯絡管理員',
-        oauth_error: 'OAuth 授權失敗，請重新嘗試'
+        oauth_error: 'OAuth 授權失敗，請重新嘗試',
+        system_busy: '系統暫時忙碌中，請稍後再試'
       }
       setAuth({
         status: 'unauthenticated',
@@ -1206,6 +1208,8 @@ function App() {
     const isCampus1SsoStudent = userEmail.startsWith('campus1.') && userEmail.includes('@')
     const campus1Dsns = isCampus1SsoStudent ? userEmail.slice(userEmail.indexOf('@') + 1) : ''
     const campus1BackUrl = campus1Dsns ? `https://${campus1Dsns}` : ''
+    const lookupStatus = auth.status === 'authenticated' ? auth.user.studentLookupStatus : undefined
+    const isSystemError = lookupStatus === 'system_error'
 
     const handleUnlinkedBack = async () => {
       await handleLogout()
@@ -1217,20 +1221,34 @@ function App() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 p-4">
         <div className="mx-auto mt-16 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
-          <h1 className="text-xl font-semibold text-slate-900">尚未有班級</h1>
+          <h1 className="text-xl font-semibold text-slate-900">
+            {isSystemError ? '系統暫時忙碌' : '尚未有班級'}
+          </h1>
           <p className="mt-3 text-sm text-slate-600">
-            {isCampus1SsoStudent
-              ? '你尚未被老師加入班級，請向老師確認後，再從 1Campus 重新登入。'
-              : '你尚未被老師加入班級，請向老師確認。'}
+            {isSystemError
+              ? '系統正忙碌中，請稍後再試。'
+              : isCampus1SsoStudent
+                ? '你尚未被老師加入班級，請向老師確認後，再從 1Campus 重新登入。'
+                : '你尚未被老師加入班級，請向老師確認。'}
           </p>
-          <div className="mt-6 flex justify-center">
-            <button
-              type="button"
-              onClick={handleUnlinkedBack}
-              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
-            >
-              {isCampus1SsoStudent ? '返回 1Campus' : '返回登入'}
-            </button>
+          <div className="mt-6 flex justify-center gap-3">
+            {isSystemError ? (
+              <button
+                type="button"
+                onClick={() => void fetchAuth()}
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+              >
+                重試
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleUnlinkedBack}
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+              >
+                {isCampus1SsoStudent ? '返回 1Campus' : '返回登入'}
+              </button>
+            )}
           </div>
         </div>
       </div>
