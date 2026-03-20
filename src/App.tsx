@@ -148,6 +148,7 @@ type AssignmentWorkflowStatus =
   | 'missing-answer-key'
   | 'missing-submission'
   | 'pending-grading'
+  | 'pending-dispatch'
   | 'correction-followup'
   | 'completed'
 
@@ -990,23 +991,6 @@ function App() {
             denominator > 0
               ? Math.round((gradedCount / denominator) * 100)
               : 0
-          const hasAnswerKey = Boolean(assignment.answerKey)
-          let workflowStatus: AssignmentWorkflowStatus = 'completed'
-          let workflowPriority = 9
-          if (!hasAnswerKey) {
-            workflowStatus = 'missing-answer-key'
-            workflowPriority = 1
-          } else if (uploadedCount === 0) {
-            workflowStatus = 'missing-submission'
-            workflowPriority = 2
-          } else if (pendingGradingCount > 0) {
-            workflowStatus = 'pending-grading'
-            workflowPriority = 3
-          } else if (correctionCount > 0) {
-            workflowStatus = 'correction-followup'
-            workflowPriority = 4
-          }
-
           const classroomStudents = studentsByClassroom.get(assignment.classroomId) ?? []
           const submissionByStudentId = new Map(
             relatedSubmissions.map((s) => [s.studentId, s])
@@ -1033,6 +1017,26 @@ function App() {
           incompleteSeatNumbers.sort((a, b) => a - b)
           ungradedSeatNumbers.sort((a, b) => a - b)
           notSubmittedSeatNumbers.sort((a, b) => a - b)
+
+          const hasAnswerKey = Boolean(assignment.answerKey)
+          let workflowStatus: AssignmentWorkflowStatus = 'completed'
+          let workflowPriority = 9
+          if (!hasAnswerKey) {
+            workflowStatus = 'missing-answer-key'
+            workflowPriority = 1
+          } else if (uploadedCount === 0) {
+            workflowStatus = 'missing-submission'
+            workflowPriority = 2
+          } else if (pendingGradingCount > 0) {
+            workflowStatus = 'pending-grading'
+            workflowPriority = 3
+          } else if (correctionCount === 0 && incompleteSeatNumbers.length > 0) {
+            workflowStatus = 'pending-dispatch'
+            workflowPriority = 4
+          } else if (correctionCount > 0) {
+            workflowStatus = 'correction-followup'
+            workflowPriority = 5
+          }
 
           return {
             id: assignment.id,
@@ -1473,7 +1477,7 @@ function App() {
     if (item.workflowStatus === 'pending-grading') {
       setSelectedAssignmentId(item.id)
       setCurrentPage('grading')
-    } else if (item.workflowStatus === 'correction-followup') {
+    } else if (item.workflowStatus === 'pending-dispatch' || item.workflowStatus === 'correction-followup') {
       setSelectedAssignmentId(item.id)
       setCurrentPage('correction-select')
     } else {
@@ -2156,6 +2160,10 @@ function App() {
                                 actionLabel = '繼續批改'
                                 statusLabel = '待批改'
                                 statusClassName = 'text-amber-700'
+                              } else if (item.workflowStatus === 'pending-dispatch') {
+                                actionLabel = '去派發訂正'
+                                statusLabel = '待派發訂正'
+                                statusClassName = 'text-orange-600'
                               } else if (item.workflowStatus === 'correction-followup') {
                                 actionLabel = '檢視批改'
                                 statusLabel = '待追蹤訂正'
