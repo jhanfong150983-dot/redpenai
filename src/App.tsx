@@ -48,6 +48,7 @@ import TeacherPreferences from '@/pages/TeacherPreferences'
 import {
   db,
   type Classroom,
+  type Student,
   type Submission
 } from '@/lib/db'
 
@@ -165,6 +166,10 @@ type HomeOverviewItem = {
   workflowStatus: AssignmentWorkflowStatus
   workflowPriority: number
   progressPercent: number
+  completedSeatNumbers: number[]
+  incompleteSeatNumbers: number[]
+  ungradedSeatNumbers: number[]
+  notSubmittedSeatNumbers: number[]
 }
 
 type HomeNavItem = {
@@ -940,10 +945,14 @@ function App() {
       )
       const studentCountByClassroom = new Map<string, number>()
       const studentSeatById = new Map<string, number>()
+      const studentsByClassroom = new Map<string, Student[]>()
       students.forEach((student) => {
         const current = studentCountByClassroom.get(student.classroomId) ?? 0
         studentCountByClassroom.set(student.classroomId, current + 1)
         if (student.seatNumber) studentSeatById.set(student.id, student.seatNumber)
+        const list = studentsByClassroom.get(student.classroomId) ?? []
+        list.push(student)
+        studentsByClassroom.set(student.classroomId, list)
       })
 
       const submissionsByAssignment = new Map<string, Submission[]>()
@@ -998,6 +1007,33 @@ function App() {
             workflowPriority = 4
           }
 
+          const classroomStudents = studentsByClassroom.get(assignment.classroomId) ?? []
+          const submissionByStudentId = new Map(
+            relatedSubmissions.map((s) => [s.studentId, s])
+          )
+          const completedSeatNumbers: number[] = []
+          const incompleteSeatNumbers: number[] = []
+          const ungradedSeatNumbers: number[] = []
+          const notSubmittedSeatNumbers: number[] = []
+          for (const student of classroomStudents) {
+            const seat = student.seatNumber
+            if (!seat) continue
+            const sub = submissionByStudentId.get(student.id)
+            if (!sub || sub.status === 'missing') {
+              notSubmittedSeatNumbers.push(seat)
+            } else if (sub.status === 'scanned' || sub.status === 'synced') {
+              ungradedSeatNumbers.push(seat)
+            } else if (sub.status === 'graded') {
+              const hasMistakes = (sub.gradingResult?.mistakes?.length ?? 0) > 0
+              if (hasMistakes) incompleteSeatNumbers.push(seat)
+              else completedSeatNumbers.push(seat)
+            }
+          }
+          completedSeatNumbers.sort((a, b) => a - b)
+          incompleteSeatNumbers.sort((a, b) => a - b)
+          ungradedSeatNumbers.sort((a, b) => a - b)
+          notSubmittedSeatNumbers.sort((a, b) => a - b)
+
           return {
             id: assignment.id,
             title: assignment.title || '未命名作業',
@@ -1013,7 +1049,11 @@ function App() {
             hasAnswerKey,
             workflowStatus,
             workflowPriority,
-            progressPercent
+            progressPercent,
+            completedSeatNumbers,
+            incompleteSeatNumbers,
+            ungradedSeatNumbers,
+            notSubmittedSeatNumbers
           }
         })
         .sort((a, b) => a.workflowPriority - b.workflowPriority)
@@ -2162,17 +2202,33 @@ function App() {
                                       />
                                     </div>
                                   </div>
-                                  {item.workflowStatus === 'correction-followup' &&
-                                    item.pendingCorrectionSeatNumbers.length > 0 && (
-                                      <div className="mt-2 text-[11px] text-slate-500">
-                                        <span className="font-medium text-violet-700">
-                                          尚未完成訂正（{item.pendingCorrectionSeatNumbers.length} 人）
-                                        </span>
-                                        <span className="ml-1">
-                                          座號：{item.pendingCorrectionSeatNumbers.join('・')}
-                                        </span>
-                                      </div>
-                                    )}
+                                  {item.gradedCount >= 1 && (
+                                    <div className="mt-2 space-y-0.5 text-[11px] text-slate-500">
+                                      {item.completedSeatNumbers.length > 0 && (
+                                        <div>
+                                          <span className="font-medium text-emerald-700">已完成：{item.completedSeatNumbers.length}</span>
+                                        </div>
+                                      )}
+                                      {item.incompleteSeatNumbers.length > 0 && (
+                                        <div>
+                                          <span className="font-medium text-amber-700">未完成：</span>
+                                          {item.incompleteSeatNumbers.join('、')}
+                                        </div>
+                                      )}
+                                      {item.ungradedSeatNumbers.length > 0 && (
+                                        <div>
+                                          <span className="font-medium text-sky-700">未批改：</span>
+                                          {item.ungradedSeatNumbers.join('、')}
+                                        </div>
+                                      )}
+                                      {item.notSubmittedSeatNumbers.length > 0 && (
+                                        <div>
+                                          <span className="font-medium text-slate-500">未繳交：</span>
+                                          {item.notSubmittedSeatNumbers.join('、')}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               )
                             })}
