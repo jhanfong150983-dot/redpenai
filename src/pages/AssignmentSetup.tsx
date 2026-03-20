@@ -483,7 +483,6 @@ export default function AssignmentSetup({
     setAssignmentTitle('')
     setTotalPages(1)
     setAssignmentDomain('')
-    setPriorWeightTypes([])
     setIsAdvancedSettingsOpen(false)
     setCreateStrictness('standard')
     setAnswerKey(null)
