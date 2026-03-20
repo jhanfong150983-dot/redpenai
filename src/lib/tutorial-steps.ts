@@ -214,16 +214,6 @@ const assignmentFlow: TutorialFlow = {
       highlightElement: true
     },
 
-    // 3-4) Prior Weight
-    {
-      id: 'assignment-prior-weight',
-      title: '主要題型（Prior Weight）',
-      content: '選擇這份作業大部分題型。先選的優先級較高，AI 會參考這個順序判斷題型。',
-      targetSelector: '[data-tutorial="assignment-prior-weight"]',
-      position: 'bottom',
-      highlightElement: true
-    },
-
     // 3-5) 每生頁數
     {
       id: 'assignment-total-pages',

@@ -71,14 +71,10 @@ export interface AnswerKeyQuestion {
   // 對地圖填圖等無題號的空間配置型作業特別重要
   referenceBbox?: { x: number; y: number; w: number; h: number }
 
-  // AI 偏離 Prior Weight 提醒
   needsReanalysis?: boolean // 教師修改題型後標記為true，需要重新分析
-  aiDivergedFromPrior?: boolean // AI判斷與教師prior weight不同時為true
-  aiOriginalDetection?: QuestionCategoryType // AI最初判斷的類型（用於顯示ICON）
 
   // @deprecated 已廢棄的欄位（保留向後兼容）
   detectedType?: QuestionCategoryType // 已合併到 type
-  detectionReason?: string // 已改用 aiOriginalDetection
 }
 
 export interface AnswerKey {
@@ -121,16 +117,8 @@ export interface Assignment {
   domain?: string // 國語、數學、社會、自然、英語、其他
   folder?: string // 資料夾分類（例如：段考、小考、作業）
 
-  // Prior Weight：整份作業大部分題目屬性
-  // 陣列順序表示優先級（index 0 = 最高優先級）
-  // 例如：[2, 1, 3] 表示優先 Type 2，其次 Type 1，最後 Type 3
-  priorWeightTypes?: QuestionCategoryType[]
-
   answerKey?: AnswerKey
   updatedAt?: number
-
-  // @deprecated 已廢棄，請使用 priorWeightTypes 替代
-  allowedQuestionTypes?: QuestionType[]
 }
 
 export type SubmissionStatus = 'missing' | 'scanned' | 'synced' | 'graded'
@@ -597,49 +585,6 @@ export function getCurrentTimestamp(): number {
 }
 
 /**
- * 數據遷移：將舊的 QuestionType 轉換為 QuestionCategoryType
- */
-export function migrateLegacyQuestionType(oldType: QuestionType): QuestionCategoryType {
-  const mapping: Record<QuestionType, QuestionCategoryType> = {
-    'truefalse': 1,
-    'choice': 1,
-    'fill': 2,
-    'short': 2,
-    'short_sentence': 2,
-    'calc': 3,
-    'qa': 3,
-    'long': 3,
-    'essay': 3
-  }
-  return mapping[oldType]
-}
-
-/**
- * 數據遷移：將舊作業的 allowedQuestionTypes 轉換為 priorWeightTypes
- */
-export function migrateAssignmentPriorWeights(assignment: Assignment): Assignment {
-  // 如果已經有 priorWeightTypes，不需要遷移
-  if (assignment.priorWeightTypes && assignment.priorWeightTypes.length > 0) {
-    return assignment
-  }
-
-  // 如果沒有 allowedQuestionTypes，返回原樣
-  if (!assignment.allowedQuestionTypes || assignment.allowedQuestionTypes.length === 0) {
-    return assignment
-  }
-
-  // 將 allowedQuestionTypes 映射為 priorWeightTypes 並去重排序
-  const priorWeightTypes = Array.from(
-    new Set(assignment.allowedQuestionTypes.map(migrateLegacyQuestionType))
-  ).sort() as QuestionCategoryType[]
-
-  return {
-    ...assignment,
-    priorWeightTypes
-  }
-}
-
-/**
  * 數據遷移：將舊題目的 type 從 QuestionType 轉換為 QuestionCategoryType
  */
 export function migrateAnswerKeyQuestion(question: any): AnswerKeyQuestion {
@@ -653,14 +598,6 @@ export function migrateAnswerKeyQuestion(question: any): AnswerKeyQuestion {
     return {
       ...question,
       type: question.detectedType
-    } as AnswerKeyQuestion
-  }
-
-  // 如果有舊的 QuestionType（字串），轉換為 QuestionCategoryType
-  if (question.type && typeof question.type === 'string') {
-    return {
-      ...question,
-      type: migrateLegacyQuestionType(question.type as QuestionType)
     } as AnswerKeyQuestion
   }
 

@@ -583,7 +583,6 @@ export function useSync(options: UseSyncOptions = {}) {
         totalPages: a.totalPages,
         domain: a.domain,
         folder: a.folder === undefined ? null : a.folder,
-        priorWeightTypes: a.priorWeightTypes,
         answerKey: a.answerKey,
         updatedAt: a.updatedAt
       }))
@@ -939,7 +938,7 @@ export function useSync(options: UseSyncOptions = {}) {
     // 保留本地的 assignment folder 資料（因為後端可能還不支援 folder 欄位）
     const existingAssignments = await db.assignments.toArray()
     const localAssignmentFolderMap = new Map(
-      existingAssignments.map((a) => [a.id, { folder: a.folder, priorWeightTypes: a.priorWeightTypes }])
+      existingAssignments.map((a) => [a.id, { folder: a.folder }])
     )
     const existingFolders = await db.folders.toArray()
     const localFolderClassroomMap = new Map(
@@ -952,12 +951,10 @@ export function useSync(options: UseSyncOptions = {}) {
       )
       .map((a: Assignment) => {
         const cloudFolder = (a as Assignment & { folder?: string }).folder
-        const cloudPriorWeightTypes = (a as Assignment & { priorWeightTypes?: any }).priorWeightTypes
         const localData = localAssignmentFolderMap.get(a.id)
 
         // 如果雲端有資料，使用雲端的；否則保留本地的
         const finalFolder = cloudFolder !== undefined ? cloudFolder : localData?.folder
-        const finalPriorWeightTypes = cloudPriorWeightTypes !== undefined ? cloudPriorWeightTypes : localData?.priorWeightTypes
 
         return {
           id: a.id,
@@ -966,7 +963,6 @@ export function useSync(options: UseSyncOptions = {}) {
           totalPages: a.totalPages,
           domain: a.domain ?? undefined,
           folder: finalFolder,
-          priorWeightTypes: finalPriorWeightTypes,
           answerKey: a.answerKey ?? undefined,
           updatedAt: toMillis(
             (a as Assignment & { updatedAt?: unknown }).updatedAt ??

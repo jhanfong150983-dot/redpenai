@@ -549,10 +549,6 @@ let currentModelName = 'gemini-3-flash-preview'
 
 export interface ExtractAnswerKeyOptions {
   domain?: string
-  priorWeightTypes?: import('./db').QuestionCategoryType[] // Prior Weight：優先級順序
-
-  // @deprecated 已廢棄，請使用 priorWeightTypes 替代
-  allowedQuestionTypes?: import('./db').QuestionType[]
 }
 
 export interface GradeSubmissionOptions {
@@ -875,11 +871,7 @@ function buildGlobalRules(): string {
         {"label": "尚可", "min": 5, "max": 6, "criteria": "部分正確"},
         {"label": "待努力", "min": 1, "max": 4, "criteria": "多處錯誤"}
       ]
-    },
-
-    // AI偏離提醒
-    "aiDivergedFromPrior": false,
-    "aiOriginalDetection": 1
+    }
   }],
   "totalScore": 50
 }
@@ -1041,6 +1033,13 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
        • 題目只給範圍（如：第一象限）→ criteria：「必須在第一象限內」
     3. 標註完整性：{"name": "標註完整性", "criteria": "必要標註是否完整"}
 
+▸ 如果是「應用題」（有情境敘述、需列式計算並寫答句）：
+  - 判斷為 Type 3
+  - 使用 rubricsDimensions，必須包含以下維度（依題目配分拆分）：
+    1. 列式計算：{"name": "列式計算", "criteria": "算式正確、過程清楚"}
+    2. 答句：{"name": "答句", "criteria": "必須以「答：」或「A:」開頭，寫出完整答句（含數字與單位）"}
+  - 識別特徵：題目包含情境（人名、物品、數量關係描述）且有空白答句區（如「答：＿＿＿」）
+
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
   - 保留原始格式，不修正、不美化
@@ -1138,71 +1137,13 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 }
 
 /**
- * 建立 Prior Weight 提示
- */
-function buildPriorWeightHint(
-  priorWeightTypes?: import('./db').QuestionCategoryType[]
-): string {
-  if (!priorWeightTypes || priorWeightTypes.length === 0) {
-    return ''
-  }
-
-  const typeLabels = priorWeightTypes
-    .map((t, i) => {
-      const priority = i === 0 ? '最優先' : i === 1 ? '次優先' : '最後'
-      const typeName =
-        t === 1 ? 'Type 1（唯一答案）' : t === 2 ? 'Type 2（多答案可接受）' : 'Type 3（依表現給分）'
-      return `${priority}：${typeName}`
-    })
-    .join('、')
-
-  return `
-
-【Prior Weight - 教師指定題型偏好】
-教師指定此作業的題型優先級：${typeLabels}
-
-【遵循 Prior Weight】
-- 在證據模糊時，優先選擇權重較高的 Type
-- 例如：無法確定是 Type 1 還是 Type 2，且最優先為 Type 1 → 判斷為 Type 1
-
-【偏離 Prior Weight】（Strong Evidence）
-只有在「有強烈證據」時才可偏離 Prior Weight，需同時滿足：
-
-1. **視覺特徵完全不符**
-   - Prior Weight 偏好 Type 1，但圖片完全無手寫筆跡
-   - Prior Weight 偏好 Type 2，但圖片有明顯手寫筆跡
-   - Prior Weight 偏好 Type 3，但圖片有方框結構
-
-2. **多重證據一致指向另一個 Type**（至少 3 項）
-   - 有方框結構
-   - 有空白處
-   - 無手寫筆跡
-   - 印刷品質高（非手寫）
-   - 題目編號清晰（1、2、3...）
-
-3. **極端情況**
-   - 完全空白但 Prior Weight 偏好 Type 1（已填寫）
-   - 內容豐富但 Prior Weight 偏好 Type 2（空白）
-
-⚠️ 如果只有 1-2 項證據，優先遵循 Prior Weight
-⚠️ 偏離時在 reasoning 中說明原因，並設定：
-- "aiDivergedFromPrior": true
-- "aiOriginalDetection": <你的判斷類型>
-`.trim()
-}
-
-/**
  * 建立答案提取 Prompt（重構版 - 決策樹架構）
  */
-function buildAnswerKeyPrompt(
-  domain?: string,
-  priorWeightTypes?: import('./db').QuestionCategoryType[]
-): string {
+function buildAnswerKeyPrompt(domain?: string): string {
   const globalRules = buildGlobalRules()
   const domainRules = buildDomainRulesWithDecisionTree(domain || '其他')
-  const priorWeightHint = buildPriorWeightHint(priorWeightTypes)
 
-  return [globalRules, domainRules, priorWeightHint].filter(Boolean).join('\n')
+  return [globalRules, domainRules].filter(Boolean).join('\n')
 }
 
 /**
@@ -3018,16 +2959,7 @@ export async function extractAnswerKeyFromImage(
   const imageBase64 = await blobToBase64(answerSheetImage)
   const mimeType = answerSheetImage.type || 'image/jpeg'
 
-  let priorWeightTypes = opts?.priorWeightTypes
-  if (!priorWeightTypes && opts?.allowedQuestionTypes && opts.allowedQuestionTypes.length > 0) {
-    const { migrateLegacyQuestionType } = await import('./db')
-    priorWeightTypes = Array.from(new Set(opts.allowedQuestionTypes.map(migrateLegacyQuestionType))).sort() as import(
-      './db'
-    ).QuestionCategoryType[]
-    console.log('📦 已自動遷移 allowedQuestionTypes 為 priorWeightTypes:', priorWeightTypes)
-  }
-
-  const prompt = buildAnswerKeyPrompt(opts?.domain, priorWeightTypes)
+  const prompt = buildAnswerKeyPrompt(opts?.domain)
 
   const text = (await generateGeminiText(currentModelName, [
     prompt,
@@ -3055,16 +2987,7 @@ export async function extractAnswerKeyFromImages(
 
   console.log(`🧾 開始從 ${answerSheetImages.length} 張答案卷圖片抽取 AnswerKey...`)
 
-  let priorWeightTypes = opts?.priorWeightTypes
-  if (!priorWeightTypes && opts?.allowedQuestionTypes && opts.allowedQuestionTypes.length > 0) {
-    const { migrateLegacyQuestionType } = await import('./db')
-    priorWeightTypes = Array.from(new Set(opts.allowedQuestionTypes.map(migrateLegacyQuestionType))).sort() as import(
-      './db'
-    ).QuestionCategoryType[]
-    console.log('📦 已自動遷移 allowedQuestionTypes 為 priorWeightTypes:', priorWeightTypes)
-  }
-
-  const prompt = buildAnswerKeyPrompt(opts?.domain, priorWeightTypes)
+  const prompt = buildAnswerKeyPrompt(opts?.domain)
 
   // 多圖片提示增強
   const multiImagePrompt = `
@@ -3110,8 +3033,7 @@ ${prompt}
 export async function reanalyzeQuestions(
   answerSheetImage: Blob,
   markedQuestions: import('./db').AnswerKeyQuestion[],
-  domain?: string,
-  priorWeightTypes?: import('./db').QuestionCategoryType[]
+  domain?: string
 ): Promise<import('./db').AnswerKeyQuestion[]> {
   if (!isGeminiAvailable) throw new Error('Gemini 服務未設定')
 
@@ -3125,7 +3047,7 @@ export async function reanalyzeQuestions(
   const mimeType = answerSheetImage.type || 'image/jpeg'
 
   const questionIds = markedQuestions.map((q) => q.id).join(', ')
-  const basePrompt = buildAnswerKeyPrompt(domain, priorWeightTypes)
+  const basePrompt = buildAnswerKeyPrompt(domain)
 
   const reanalyzePrompt = `
 ${basePrompt}
