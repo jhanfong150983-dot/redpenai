@@ -130,6 +130,7 @@ export default function AssignmentSetup({
   const [isLoading, setIsLoading] = useState(true)
   const [isAssignmentsLoading, setIsAssignmentsLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showAnswerKeyConfirm, setShowAnswerKeyConfirm] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isInkNegative = typeof inkBalance === 'number' && inkBalance < 0
   const canCreateAssignment = !isInkNegative
@@ -1066,14 +1067,19 @@ export default function AssignmentSetup({
     }
 
 
+    setShowAnswerKeyConfirm(true)
+  }
+
+  const doCreateAssignment = async () => {
+    setShowAnswerKeyConfirm(false)
     setIsSubmitting(true)
     try {
       const assignment: Assignment = {
         id: generateId(),
-        classroomId: selectedClassroomId,
+        classroomId: selectedClassroomId!,
         title: assignmentTitle.trim(),
         totalPages,
-        domain: assignmentDomain,
+        domain: assignmentDomain!,
         folder: undefined,  // 新作業預設為全部
         answerKey: answerKey ? { ...answerKey, strictness: createStrictness } : undefined
       }
@@ -4303,6 +4309,47 @@ export default function AssignmentSetup({
               >
                 <Plus className="w-4 h-4" />
                 建立資料夾
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 建立作業：標準答案確認對話框 */}
+      {showAnswerKeyConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={() => setShowAnswerKeyConfirm(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h2 className="text-base font-semibold text-gray-900">建立作業前確認</h2>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-sm text-gray-700">
+                是否已檢查所有標準答案？
+              </p>
+              <p className="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                標準答案錯誤會導致 AI 批改錯誤，請確認後再建立。
+              </p>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowAnswerKeyConfirm(false)}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void doCreateAssignment()}
+                className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-sm"
+              >
+                確認建立
               </button>
             </div>
           </div>
