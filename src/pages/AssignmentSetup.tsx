@@ -2154,7 +2154,7 @@ export default function AssignmentSetup({
   const updateQuestionField = (
     target: 'create' | 'edit',
     index: number,
-    field: 'id' | 'answer' | 'referenceAnswer' | 'type' | 'maxScore',
+    field: 'id' | 'answer' | 'referenceAnswer' | 'type' | 'maxScore' | 'questionCategory',
     value: string
   ) => {
     const current = target === 'create' ? answerKey : editingAnswerKey
