@@ -973,6 +973,25 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     onCaptureModeChange?.(true)
   }
 
+  const rotateCorrectionPhoto = useCallback(
+    async (qId: string, direction: 'clockwise' | 'counterclockwise') => {
+      setQuestionActions((prev) => {
+        const action = prev[qId]
+        if (action?.type !== 'photo' || !action.file) return prev
+        // kick off async rotation and update state when done
+        void rotateImageFile(action.file, direction).then((rotatedFile) => {
+          setQuestionActions((p) => {
+            const a = p[qId]
+            if (a?.type !== 'photo') return p
+            return { ...p, [qId]: { type: 'photo', file: rotatedFile } }
+          })
+        })
+        return prev // return unchanged; update arrives via the promise
+      })
+    },
+    []
+  )
+
   const handleCameraCaptureComplete = (imageBlob: Blob) => {
     // Per-question correction photo: store directly into questionActions
     if (cameraMode === 'correction' && correctionCameraQuestionId) {
@@ -1728,7 +1747,27 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                             alt="已拍照片"
                             className="max-h-40 w-full object-contain"
                           />
-                          <p className="px-2 py-0.5 text-center text-[10px] text-emerald-600">已拍訂正照片</p>
+                          <div className="flex items-center justify-between px-2 py-0.5">
+                            <p className="text-[10px] text-emerald-600">已拍訂正照片</p>
+                            <div className="flex gap-1">
+                              <button
+                                type="button"
+                                title="向左旋轉"
+                                onClick={() => void rotateCorrectionPhoto(qId, 'counterclockwise')}
+                                className="rounded p-0.5 text-emerald-600 hover:bg-emerald-100"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                title="向右旋轉"
+                                onClick={() => void rotateCorrectionPhoto(qId, 'clockwise')}
+                                className="rounded p-0.5 text-emerald-600 hover:bg-emerald-100"
+                              >
+                                <RotateCw className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       )}
 
