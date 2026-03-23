@@ -521,6 +521,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [correctionCameraQuestionId, setCorrectionCameraQuestionId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submittingMode, setSubmittingMode] = useState<'upload' | 'correction' | null>(null)
+  const [showCorrectionSubmitConfirm, setShowCorrectionSubmitConfirm] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const initialTabSetRef = useRef(false)
   // Track previous assignment statuses for polling change detection
@@ -1853,7 +1854,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 <button
                   type="button"
                   disabled={!canSubmitCorrection}
-                  onClick={() => void submitStudentWork('correction')}
+                  onClick={() => setShowCorrectionSubmitConfirm(true)}
                   className="inline-flex items-center gap-2 rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:bg-slate-300"
                 >
                   {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -2041,6 +2042,51 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
 
       {zoomImageUrl && (
         <ZoomImageModal url={zoomImageUrl} onClose={() => setZoomImageUrl(null)} />
+      )}
+
+      {/* 送出訂正確認對話框 */}
+      {showCorrectionSubmitConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={() => setShowCorrectionSubmitConfirm(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h2 className="text-base font-semibold text-gray-900">送出前請確認</h2>
+            </div>
+            <div className="px-5 py-4 space-y-2">
+              <ul className="text-sm text-gray-700 space-y-2 list-disc pl-4">
+                <li>每張照片的<strong>方向是否正確</strong>（若顛倒請用 ↺↻ 旋轉後再送出）</li>
+                <li>每張照片是否<strong>清楚包含完整的答案區域</strong></li>
+              </ul>
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                照片方向錯誤或未完整拍到答案，AI 將無法正確批改。
+              </p>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCorrectionSubmitConfirm(false)}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm"
+              >
+                返回檢查
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCorrectionSubmitConfirm(false)
+                  void submitStudentWork('correction')
+                }}
+                className="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 text-sm"
+              >
+                確認送出
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
