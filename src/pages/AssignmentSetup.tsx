@@ -23,6 +23,7 @@ import {
   type Assignment,
   type Classroom,
   type QuestionCategoryType,
+  type QuestionCategory,
   type AnswerKeyQuestion,
   type Rubric
 } from '@/lib/db'
@@ -556,6 +557,39 @@ export default function AssignmentSetup({
 
   const buildDefaultRubric = (maxScore: number): Rubric => {
     return normalizeRubric(undefined, maxScore)
+  }
+
+  const CATEGORY_TO_TYPE: Record<QuestionCategory, QuestionCategoryType> = {
+    single_choice: 1,
+    true_false: 1,
+    fill_blank: 1,
+    fill_variants: 2,
+    word_problem: 3,
+    short_answer: 3,
+    map_fill: 2,
+    map_draw: 3,
+  }
+
+  const CATEGORY_LABELS: Record<QuestionCategory, string> = {
+    single_choice: '選擇題',
+    true_false: '是非題',
+    fill_blank: '填充題',
+    fill_variants: '填充題（多元）',
+    word_problem: '應用題',
+    short_answer: '簡答題',
+    map_fill: '填圖題',
+    map_draw: '繪圖題',
+  }
+
+  function defaultCategoryFromType(type: QuestionCategoryType): QuestionCategory {
+    if (type === 1) return 'fill_blank'
+    if (type === 2) return 'fill_variants'
+    return 'short_answer'
+  }
+
+  function getEffectiveCategory(q: AnswerKeyQuestion): QuestionCategory {
+    if (q.questionCategory) return q.questionCategory
+    return defaultCategoryFromType(typeof q.type === 'number' ? q.type : 2)
   }
 
   function sanitizeQuestionId(value: unknown, fallback: string) {
@@ -2152,12 +2186,13 @@ export default function AssignmentSetup({
       if (item.type === 3 && item.rubric) {
         item.rubric = normalizeRubric(item.rubric, num)
       }
-    } else if (field === 'type') {
-      const nextType = parseInt(value, 10) as QuestionCategoryType
-      const oldType = item.type
+    } else if (field === 'questionCategory') {
+      const nextCategory = value as QuestionCategory
+      const nextType = CATEGORY_TO_TYPE[nextCategory] ?? item.type
+      const oldCategory = getEffectiveCategory(item)
 
-      // When teacher manually changes type, clear content and mark for re-analysis
-      if (oldType !== nextType) {
+      if (oldCategory !== nextCategory) {
+        item.questionCategory = nextCategory
         item.type = nextType
         item.needsReanalysis = true
 
@@ -2169,16 +2204,49 @@ export default function AssignmentSetup({
         item.rubric = undefined
         item.rubricsDimensions = undefined
 
-        // Set default values for new type
+        // Set default values based on category
         if (nextType === 1) {
-          // Type 1: standard answer
           item.answer = ''
         } else if (nextType === 2) {
-          // Type 2: reference answer + acceptable answers
           item.referenceAnswer = ''
           item.acceptableAnswers = []
         } else if (nextType === 3) {
-          // Type 3: reference answer + rubric (default to 4-level)
+          item.referenceAnswer = ''
+          if (item.maxScore <= 0) item.maxScore = 10
+          // word_problem defaults to rubricsDimensions; others default to 4-level rubric
+          if (nextCategory === 'word_problem') {
+            item.rubricsDimensions = [
+              { name: '列式計算', maxScore: Math.ceil((item.maxScore || 10) * 0.6), criteria: '算式正確、步驟清晰' },
+              { name: '答句', maxScore: Math.floor((item.maxScore || 10) * 0.4), criteria: '以「答：」開頭，含數字與單位（或完整文字答案）' },
+            ]
+          } else {
+            item.rubric = buildDefaultRubric(item.maxScore)
+          }
+        }
+      }
+    } else if (field === 'type') {
+      // Legacy path: keep for backward compat but also set questionCategory
+      const nextType = parseInt(value, 10) as QuestionCategoryType
+      const oldType = item.type
+
+      if (oldType !== nextType) {
+        item.type = nextType
+        item.questionCategory = defaultCategoryFromType(nextType)
+        item.needsReanalysis = true
+
+        item.answer = undefined
+        item.answerFormat = undefined
+        item.referenceAnswer = undefined
+        item.acceptableAnswers = undefined
+        item.rubric = undefined
+        item.rubricsDimensions = undefined
+
+        if (nextType === 1) {
+          item.answer = ''
+        } else if (nextType === 2) {
+          item.referenceAnswer = ''
+          item.acceptableAnswers = []
+        } else if (nextType === 3) {
           item.referenceAnswer = ''
           if (item.maxScore <= 0) item.maxScore = 10
           item.rubric = buildDefaultRubric(item.maxScore)
@@ -3088,7 +3156,8 @@ export default function AssignmentSetup({
                     </div>
                     <div className="space-y-3 max-h-56 overflow-auto pr-1">
                       {answerKey.questions.map((q, idx) => {
-                        const questionType = typeof q.type === 'number' ? q.type : 2
+                        const effectiveCategory = getEffectiveCategory(q)
+                        const questionType = CATEGORY_TO_TYPE[effectiveCategory] ?? 2
                         const rubric = q.rubric ?? buildDefaultRubric(q.maxScore || 0)
 
                         return (
@@ -3117,19 +3186,19 @@ export default function AssignmentSetup({
                               <div className="flex items-center gap-1">
                                 <select
                                   className="flex-1 px-2 py-1 border border-gray-300 rounded bg-white"
-                                  value={questionType}
+                                  value={effectiveCategory}
                                   onChange={(e) =>
                                     updateQuestionField(
                                       'create',
                                       idx,
-                                      'type',
+                                      'questionCategory',
                                       e.target.value
                                     )
                                   }
                                 >
-                                  <option value={1}>Type 1 - 唯一答案</option>
-                                  <option value={2}>Type 2 - 多答案可接受</option>
-                                  <option value={3}>Type 3 - 依表現給分</option>
+                                  {(Object.entries(CATEGORY_LABELS) as [QuestionCategory, string][]).map(([cat, label]) => (
+                                    <option key={cat} value={cat}>{label}</option>
+                                  ))}
                                 </select>
                               </div>
                               <NumericInput
@@ -3653,7 +3722,8 @@ export default function AssignmentSetup({
                 </div>
                 <div className="space-y-3 max-h-56 overflow-auto pr-1">
                   {editingAnswerKey.questions.map((q, idx) => {
-                    const questionType = typeof q.type === 'number' ? q.type : 2
+                    const effectiveCategory = getEffectiveCategory(q)
+                    const questionType = CATEGORY_TO_TYPE[effectiveCategory] ?? 2
                     const rubric = q.rubric ?? buildDefaultRubric(q.maxScore || 0)
 
                     return (
@@ -3677,14 +3747,14 @@ export default function AssignmentSetup({
                           <div className="flex items-center gap-1">
                             <select
                               className="flex-1 px-2 py-1 border border-gray-300 rounded bg-white"
-                              value={questionType}
+                              value={effectiveCategory}
                               onChange={(e) =>
-                                updateQuestionField('edit', idx, 'type', e.target.value)
+                                updateQuestionField('edit', idx, 'questionCategory', e.target.value)
                               }
                             >
-                              <option value={1}>Type 1 - 唯一答案</option>
-                              <option value={2}>Type 2 - 多答案可接受</option>
-                              <option value={3}>Type 3 - 依表現給分</option>
+                              {(Object.entries(CATEGORY_LABELS) as [QuestionCategory, string][]).map(([cat, label]) => (
+                                <option key={cat} value={cat}>{label}</option>
+                              ))}
                             </select>
                           </div>
                           <NumericInput

@@ -966,13 +966,17 @@ function App() {
       const overviewItems = assignments
         .map<HomeOverviewItem>((assignment) => {
           const relatedSubmissions = submissionsByAssignment.get(assignment.id) ?? []
-          const uploadedCount = relatedSubmissions.filter(
+          // 匯入/已批改/待批改只計算原始作頁，不含訂正作頁
+          const originalSubmissions = relatedSubmissions.filter(
+            (submission) => submission.source !== 'student_correction'
+          )
+          const uploadedCount = originalSubmissions.filter(
             (submission) => submission.status !== 'missing'
           ).length
-          const gradedCount = relatedSubmissions.filter(
+          const gradedCount = originalSubmissions.filter(
             (submission) => submission.status === 'graded'
           ).length
-          const pendingGradingCount = relatedSubmissions.filter(
+          const pendingGradingCount = originalSubmissions.filter(
             (submission) =>
               submission.status === 'scanned' || submission.status === 'synced'
           ).length
@@ -1008,7 +1012,11 @@ function App() {
             } else if (sub.status === 'scanned' || sub.status === 'synced') {
               ungradedSeatNumbers.push(seat)
             } else if (sub.status === 'graded') {
-              const hasMistakes = (sub.gradingResult?.mistakes?.length ?? 0) > 0
+              const mistakesCount = sub.gradingResult?.mistakes?.length ?? 0
+              // 訂正批改若 score=0 且 mistakes=[] 代表照片無效（空白/拍錯），仍視為未完成
+              const isFailedCorrection =
+                sub.source === 'student_correction' && mistakesCount === 0 && (sub.score ?? 0) === 0
+              const hasMistakes = mistakesCount > 0 || isFailedCorrection
               if (hasMistakes) incompleteSeatNumbers.push(seat)
               else completedSeatNumbers.push(seat)
             }

@@ -30,6 +30,27 @@ export interface Rubric {
 
 export type QuestionCategoryType = 1 | 2 | 3
 
+/**
+ * 題型分類（老師視角）
+ * 取代抽象的 type: 1|2|3，直接以題型名稱描述批改規則。
+ * Internal type 1/2/3 從此欄位自動 derive（向後兼容）。
+ */
+export type QuestionCategory =
+  | 'single_choice'  // 選擇題：選一個代號（A/B/C/D 或 甲/乙/丙/丁）
+  | 'true_false'     // 是非題：二元判斷（○/✗）
+  | 'fill_blank'     // 填充題：唯一正解，單位嚴格比對
+  | 'fill_variants'  // 填充題（多元）：多種說法皆可（造詞、近義詞）
+  | 'word_problem'   // 應用題：數學情境題，需列式+答句，單位嚴格
+  | 'short_answer'   // 簡答題：非數學文字說明，按關鍵概念給分
+  | 'map_fill'       // 填圖題：地圖多位置填文字，位置-名稱配對
+  | 'map_draw'       // 繪圖題：地圖畫符號，符號類型+位置精準度
+  // 預留未來擴充：
+  // | 'multi_choice'   // 多選題
+  // | 'matching'       // 連連看
+  // | 'ordering'       // 排序題
+  // | 'diagram_label'  // 標示圖題
+  // | 'calculation'    // 計算題（無情境純算式）
+
 export interface RubricDimension {
   name: string
   maxScore: number
@@ -44,7 +65,12 @@ export interface AnswerKeyQuestion {
   // 當 orderMode=unordered 時，同組題目的群組識別（例如 "1"）
   unorderedGroupId?: string
 
-  // 題型分類：1=唯一答案(精確), 2=多答案可接受(模糊), 3=依表現給分(評價)
+  // 題型分類（老師視角）：直接描述題型，批改規則從此推導
+  // 若存在則優先使用；不存在時 fallback 到 type (1|2|3)
+  questionCategory?: QuestionCategory
+
+  // 題型分類（內部）：1=唯一答案(精確), 2=多答案可接受(模糊), 3=依表現給分(評價)
+  // 當 questionCategory 存在時，此欄位為 derived field（自動計算）
   type: QuestionCategoryType
 
   // Type 1 專用：標準答案（精確匹配）

@@ -848,21 +848,21 @@ function buildGlobalRules(): string {
     "id": "1",           // 題號
     "orderMode": "strict" | "unordered", // strict=固定位置, unordered=同組可互換
     "unorderedGroupId": "1", // orderMode=unordered 時必填（同組共用）
-    "type": 1 | 2 | 3,   // 題型分類（必填）
-    "maxScore": 5,       // 滿分
+    "questionCategory": "fill_blank",  // 題型（必填，見下方分類標準）
+    "maxScore": 5,                      // 滿分
 
-    // Type 1 專用：標準答案
+    // single_choice / true_false / fill_blank 專用：標準答案
     "answer": "正確答案",
 
-    // Type 2 專用：可接受的答案變體
+    // fill_variants / map_fill 專用：可接受的答案變體
     "referenceAnswer": "範例答案",
     "acceptableAnswers": ["同義詞1", "同義詞2"],
 
-    // Type 3 專用：評分規準
+    // word_problem / short_answer / map_draw 專用：評分規準
     "referenceAnswer": "評分要點",
     "rubricsDimensions": [
-      {"name": "計算過程", "maxScore": 3, "criteria": "步驟清晰"},
-      {"name": "最終答案", "maxScore": 2, "criteria": "答案正確"}
+      {"name": "列式計算", "maxScore": 3, "criteria": "算式正確、步驟清晰"},
+      {"name": "答句", "maxScore": 2, "criteria": "以「答：」或「A：」開頭，含數字與單位（或完整文字答案）"}
     ],
     "rubric": {
       "levels": [
@@ -924,28 +924,50 @@ function buildGlobalRules(): string {
 設定原則：
 1. 必須視為 1 題（不可拆成 4 題）
 2. 題型選擇：
-   - 如果答案固定（如：「正確的是 A、C」）→ Type 1，answer: "A、C" 或 "AC"
-   - 如果答案有多種表述（如：「A,C」「A C」「AC」都可以）→ Type 2，acceptableAnswers: ["A、C", "A,C", "AC", "A C"]
+   - 如果答案固定（如：「正確的是 A、C」）→ questionCategory: "single_choice"，answer: "A、C" 或 "AC"
+   - 如果答案有多種表述（如：「A,C」「A C」「AC」都可以）→ questionCategory: "fill_variants"，acceptableAnswers: ["A、C", "A,C", "AC", "A C"]
 3. 題號：使用題目標示的題號（如：「三、」就用 "3"）
 
 範例：
 - 題目：「三、下列哪些選項正確？（可複選）□A 太陽從東邊升起 □B 地球是平的 □C 水會往低處流 □D 天空是綠色的」
-- 設定：1 題，id: "3", type: 1 或 2, answer: "A、C" 或 acceptableAnswers: ["A、C", "AC", "A,C"]
+- 設定：1 題，id: "3", questionCategory: "single_choice", answer: "A、C" 或 acceptableAnswers: ["A、C", "AC", "A,C"]
 
 【題型分類標準】
-Type 1（唯一答案）：精確匹配，答案唯一且不可替換
-- 例：是非題(O/X)、選擇題(A/B/C)、計算結果(2+3=5)
+判斷流程（依序套用，第一個符合的就是答案）：
 
-Type 2（多答案可接受）：核心答案固定但允許不同表述
-- 例：詞義解釋「光合作用」vs「植物製造養分」
-- 異音字造詞（須記錄讀音於 referenceAnswer）
-- 相似字造詞（須記錄部首於 referenceAnswer）
+1. 有空格標記（___/□/()）且只有一個標準正解？
+   → questionCategory: "fill_blank"（填充題）
+   - answer 填入完整正解（含單位，如 "15 公分"）
+   - 單位是答案的一部分，批改時會嚴格比對
 
-Type 3（依表現給分）：開放式或計算題，需評分規準
-- 計算題：用 rubricsDimensions，維度通常包括「計算過程」和「最終答案」
-- 申論題：有明確答案要點時用 rubricsDimensions
-- 多階段作答題：用 rubricsDimensions 分階段評分（不可拆成多題）
-- 純評價題：用 rubric 4級評價（優秀/良好/尚可/待努力）
+2. 有空格標記，但可接受多種不同表達（同義詞、造詞、近義詞）？
+   → questionCategory: "fill_variants"（填充題多元）
+   - referenceAnswer 填入範例；acceptableAnswers 列出所有可接受答案
+
+3. 數學題 + 有故事情境 + 需要列式計算 + 寫答句？
+   → questionCategory: "word_problem"（應用題）
+   - rubricsDimensions: [列式計算, 答句]
+   - 答句維度的 criteria 必須說明：「以『答：』或『A：』開頭，含數字與單位（或完整文字答案如甲班、教師節）」
+
+4. A/B/C/D 或 甲/乙/丙/丁，選一個？
+   → questionCategory: "single_choice"（選擇題）
+   - answer 填選項代號（如 "A" 或 "甲"）
+
+5. 只有兩個選項：○/✗、對/錯、是/否？
+   → questionCategory: "true_false"（是非題）
+   - answer 統一填 "○" 或 "✗"
+
+6. 地圖/圖表的多個指定位置，需填寫地名/國名等文字標籤？
+   → questionCategory: "map_fill"（填圖題）
+   - acceptableAnswers 列出所有正確名稱；referenceAnswer 描述位置對應關係
+
+7. 地圖/圖表，需要畫出符號或標記？
+   → questionCategory: "map_draw"（繪圖題）
+   - rubricsDimensions: [符號正確性, 位置精準度]
+
+8. 非數學題，要求文字說明、解釋或列舉，不需計算？
+   → questionCategory: "short_answer"（簡答題）
+   - referenceAnswer 填評分要點；用 rubricsDimensions 或 rubric 4級評量
 
 【反幻覺警告】（適用於所有操作）
 ❌ 禁止猜測：看不清楚時設 confidence < 0.5
@@ -974,31 +996,31 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 題型判斷與擷取規則：
 
 ▸ 如果是「國字注音題」（雙方框結構：國字｜注音）：
-  - 判斷為 Type 1
+  - questionCategory: "fill_blank"
   - 每一個雙方框為一題(國字｜注音)，要獨立判斷考國字或注音(二擇一)，不要過度推論下一題。
   - answer 必須只會是國字與注音其中一個，可以用顏色判斷（範例：「弄(綠底黑字=題目)｜ㄋㄨㄥˋ(白底紅字=答案)」）
   - 如果有連續雙方框結構，強制拆分單獨各為一題，(範例：烘(白底紅字=答案)｜ㄏㄨㄥ(綠底黑字=題目) 烘(白底紅字=答案)｜ㄏㄨㄥ(綠底黑字=題目)，第一題 answer: "烘"，第二題 answer: "烘")
 
 ▸ 如果是「相近字造詞題」（如：辨/辯、嗇/普）：
-  - 判斷為 Type 2
+  - questionCategory: "fill_variants"
   - referenceAnswer 必須包含部首說明
   - acceptableAnswers 列出標準答案中的所有範例詞
   - 範例：「(言部)辯：辯護、爭辯」「(辛部)辨：辨別、分辨」
 
 ▸ 如果是「同音字造詞題」（如：ㄋㄨㄥˋ：弄/農）：
-  - 判斷為 Type 2
+  - questionCategory: "fill_variants"
   - referenceAnswer 必須包含讀音說明（如：「ㄋㄨㄥˋ讀音的詞語」）
   - acceptableAnswers 列出標準答案中的所有範例詞
 
 ▸ 如果是「異音字造詞題」（如：行（ㄏㄤˊ/ㄒㄧㄥˊ））：
-  - 判斷為 Type 2
+  - questionCategory: "fill_variants"
   - referenceAnswer 必須包含讀音說明
   - acceptableAnswers 列出標準答案中的所有範例詞
 
 ▸ 如果是「引導式多段問答題」（如：步驟一/步驟二）：
   - 識別特徵：「步驟一/二」「第一步/第二步」「先…再…」
   - 必須視為 1 題（不可拆成多題）
-  - 判斷為 Type 3
+  - questionCategory: "short_answer"
   - 使用 rubricsDimensions 分階段：
     • 第一階段（引導）：criteria「完成選擇即可，無對錯」
     • 第二階段（主要作答）：criteria 寫具體評分標準
@@ -1025,7 +1047,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 題型判斷與擷取規則：
 
 ▸ 如果是「繪圖題」（在座標平面畫點/線、畫幾何圖形、標註角度等）：
-  - 判斷為 Type 3
+  - questionCategory: "short_answer"（數學繪圖，非地圖符號）
   - 使用 rubricsDimensions 分維度：
     1. 圖形正確性：{"name": "圖形正確性", "criteria": "圖形/線條是否正確"}
     2. 位置精準度：{"name": "位置精準度", "criteria": "<精準座標>"}
@@ -1034,10 +1056,10 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
     3. 標註完整性：{"name": "標註完整性", "criteria": "必要標註是否完整"}
 
 ▸ 如果是「應用題」（有情境敘述、需列式計算並寫答句）：
-  - 判斷為 Type 3
+  - questionCategory: "word_problem"
   - 使用 rubricsDimensions，必須包含以下維度（依題目配分拆分）：
     1. 列式計算：{"name": "列式計算", "criteria": "算式正確、過程清楚"}
-    2. 答句：{"name": "答句", "criteria": "必須以「答：」或「A:」開頭，寫出完整答句（含數字與單位）"}
+    2. 答句：{"name": "答句", "criteria": "必須以「答：」或「A：」開頭，寫出完整答句（含數字與單位，或完整文字答案如甲班、教師節）"}
   - 識別特徵：題目包含情境（人名、物品、數量關係描述）且有空白答句區（如「答：＿＿＿」）
 
 ▸ 其他題型：
@@ -1071,7 +1093,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 ▸ 如果是「填圖題」（在空白地圖上填寫國名、地名、河流名稱等）：
   - 整張地圖視為 1 題（questionId = "1"）
-  - 判斷為 Type 2（簡答題）
+  - questionCategory: "map_fill"
   - answer：列出所有正確的對應，例如 "A=泰國, B=越南, C=緬甸, ..."
   - referenceAnswer：逐一描述地圖上每個標記位置與對應的正確名稱。
     例如："地圖左上方標記A的位置為泰國，中間偏右標記B的位置為越南，..."
@@ -1079,7 +1101,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - maxScore：依題目配分（例如每個正確答案2分，共5個=10分）
 
 ▸ 如果是「繪圖/標記題」（在地圖上標註位置、畫符號、標記座標等）：
-  - 判斷為 Type 3
+  - questionCategory: "map_draw"
   - 使用 rubricsDimensions 分成兩個維度：
     1. 符號正確性：{"name": "符號正確性", "criteria": "符號是否正確"}
     2. 位置精準度：{"name": "位置精準度", "criteria": "<精準座標要求>"}
@@ -1106,7 +1128,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 題型判斷與擷取規則：
 
 ▸ 如果是「繪圖/標註題」（繪製實驗裝置圖、標註器官/部位、畫食物鏈/食物網等）：
-  - 判斷為 Type 3
+  - questionCategory: "short_answer"（自然繪圖，非地圖符號）
   - 使用 rubricsDimensions 分維度：
     • 圖形正確性
     • 標註正確性
@@ -2018,16 +2040,18 @@ ${isPartialImage
 - 判斷 isCorrect 時：若包含正確關鍵字，即使字跡不完美或有輕微錯別字，仍可視情況判定為正確
 - ⚠️ 重要：寬容只影響 isCorrect/score/reason；不得影響 studentAnswer（studentAnswer 永遠原樣抄寫）
 
-【分層評分規則】
-- Type 1（精確）：使用 answer 字段嚴格對比。完全相符 → 滿分；不符 → 0分
-- 連連看（Type 1）：若 answerFormat="matching" 或 answer 形如「左項=右項」：
+【分層評分規則（依 questionCategory）】
+- single_choice / true_false / fill_blank（精確）：使用 answer 字段嚴格對比。完全相符 → 滿分；不符 → 0分
+  - fill_blank 單位規則：若 answer 含單位（如「15 公分」），學生答案的單位必須完全相同。公尺 ≠ 公分，errorType='unit'。不接受「等效單位」替換。
+- 連連看（answerFormat="matching"）：若 answerFormat="matching" 或 answer 形如「左項=右項」：
   - studentAnswer 必須輸出相同格式：左項=右項1,右項2; 左項2=右項3
   - 左項目固定，不可交換左右
   - 同一左項目多個右項目用逗號/頓號分隔
   - 右側順序不影響判斷
-- Type 2（模糊）：使用 acceptableAnswers 進行語義匹配。完全/語義相符 → 滿分；部分 → 部分分
+- fill_variants / map_fill（多元）：使用 acceptableAnswers 進行語義匹配。完全/語義相符 → 滿分；部分 → 部分分
   - 字音造詞題：若 referenceAnswer 含讀音說明（如「ㄋㄨㄥˋ讀音」），學生答案必須符合該讀音；讀音錯誤直接 0 分
-- Type 3（評價）：使用 rubricsDimensions 多維度評分，逐維度累計總分；若無維度則用 rubric 4級標準
+- word_problem / short_answer / map_draw（評價）：使用 rubricsDimensions 多維度評分，逐維度累計總分；若無維度則用 rubric 4級標準
+  - word_problem 單位規則：「答句」維度中，若正解含單位，學生答句的單位必須正確。公尺 ≠ 公分，errorType='unit'。
   - ⚠️ 多維度評分時，每個維度的評分標準不同：
     - 「引導/選擇」維度（如：步驟一選擇面向）：看「是否完成」而非「是否正確」，只要學生有做選擇就給分
     - 「主要作答」維度（如：步驟二具體內容）：依據 criteria 判斷內容品質並給分
