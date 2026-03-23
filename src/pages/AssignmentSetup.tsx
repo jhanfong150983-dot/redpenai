@@ -589,7 +589,14 @@ export default function AssignmentSetup({
 
   function getEffectiveCategory(q: AnswerKeyQuestion): QuestionCategory {
     if (q.questionCategory) return q.questionCategory
-    return defaultCategoryFromType(typeof q.type === 'number' ? q.type : 2)
+    const t = typeof q.type === 'number' ? q.type : 2
+    // Heuristic for legacy type=3: if rubricsDimensions mention 列式/答句 → word_problem
+    if (t === 3 && Array.isArray(q.rubricsDimensions)) {
+      const names = q.rubricsDimensions.map((d) => d.name ?? '')
+      const isWordProblem = names.some((n) => /列式|算式|答句/.test(n))
+      if (isWordProblem) return 'word_problem'
+    }
+    return defaultCategoryFromType(t)
   }
 
   function sanitizeQuestionId(value: unknown, fallback: string) {
