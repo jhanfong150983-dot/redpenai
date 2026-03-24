@@ -1072,10 +1072,40 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
     • 第一階段（引導）：criteria「完成選擇即可，無對錯」
     • 第二階段（主要作答）：criteria 寫具體評分標準
 
-▸ 如果是「方格框題目」（如：□□□□）：
-  - 一行連續方格 = 1 題
+▸ 如果是「方格框題目」（如：□□□□ 填字格）：
+  - questionCategory: "fill_blank"
+  - 一行連續方格 = 1 題；answer 填入完整詞語（含所有方格的字）
   - 題號：有引導文字就用，無則按順序編號
   - 注意：方格可能是直排（由右往左、由上往下）
+
+▸ 如果是「選擇題」（選出正確的字/詞/成語/字義，單選）：
+  - questionCategory: "single_choice"
+  - answer 填選項代號（如 "A"、"甲"、"①"）
+  - 識別特徵：題目列出 A/B/C/D 或 甲/乙/丙/丁 或 ①②③ 選項，只能選一個
+
+▸ 如果是「是非題」（判斷對錯，○/✗ 或 對/錯）：
+  - questionCategory: "true_false"
+  - answer 統一填 "○"（正確）或 "✗"（錯誤）
+
+▸ 如果是「勾選題」（可勾選多個字/詞/選項）：
+  - questionCategory: "multi_check"
+  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"
+  - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個
+
+▸ 如果是「造句題」（根據詞語或句型造句）：
+  - questionCategory: "short_answer"
+  - referenceAnswer 填造句範例
+  - rubricsDimensions: [{"name": "句意通順", "criteria": "造句語意合理、通順"}, {"name": "詞語使用", "criteria": "正確使用指定詞語或句型"}]
+
+▸ 如果是「閱讀測驗簡答題」（根據文章回答問題）：
+  - questionCategory: "short_answer"
+  - referenceAnswer 填評分要點（關鍵字/概念）
+  - rubricsDimensions 依題目要求設定維度；或使用 rubric 4 級評量
+
+▸ 如果是「改錯題」（找出並改正錯別字）：
+  - questionCategory: "fill_blank"
+  - answer 填正確的字（不含錯字）
+  - 每一個改正位置為一題
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
