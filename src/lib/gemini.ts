@@ -851,14 +851,21 @@ function buildGlobalRules(): string {
     "questionCategory": "fill_blank",  // 題型（必填，見下方分類標準）
     "maxScore": 5,                      // 滿分
 
-    // single_choice / true_false / fill_blank 專用：標準答案
+    // single_choice / true_false / fill_blank / multi_check 專用：標準答案
+    // single_choice: 選項代號，如 "A"、"甲"、"①"
+    // true_false: "○" 或 "✗"
+    // fill_blank: 完整正解含單位，如 "15 公分"
+    // multi_check: 正確勾選集合（逗號分隔），如 "①,③"
     "answer": "正確答案",
 
     // fill_variants / map_fill 專用：可接受的答案變體
     "referenceAnswer": "範例答案",
     "acceptableAnswers": ["同義詞1", "同義詞2"],
 
-    // word_problem / short_answer / map_draw 專用：評分規準
+    // word_problem / calculation / short_answer / map_draw / diagram_draw 專用：評分規準
+    // word_problem: [列式計算, 答句（含單位）]
+    // calculation: [算式過程, 最終答案（純數值，不需單位）]
+    // diagram_draw: [作圖正確性, 完整性]
     "referenceAnswer": "評分要點",
     "rubricsDimensions": [
       {"name": "列式計算", "maxScore": 3, "criteria": "算式正確、步驟清晰"},
@@ -913,24 +920,28 @@ function buildGlobalRules(): string {
 2. 第二步：提取這些紅色的內容作為答案（不管內容是什麼形式）
 3. 第三步：如果沒有明顯紅色，才參考題目要求
 
-【複選題/題組勾選題識別】
-⚠️ 勾選題可能是單選或複選，需正確識別為 1 題，不可拆分！
+【勾選題/複選題識別（multi_check）】
+⚠️ 學生可勾選多個選項時，必須識別為 multi_check，不可拆分！
 
 識別特徵：
-- 題目有多個選項（□A □B □C □D）
-- 題目說明「可複選」「選出所有正確的」「可勾選多個」
-- 或題目沒有明確說明，但選項之間是並列關係（不是互斥的）
+- 題目有多個勾選框（□① □② □③ 或 □A □B □C）
+- 題目說明「請勾選」「可複選」「選出所有正確的」「打✓」
+- 或題目沒有明確說明，但學生可以選多個
 
 設定原則：
-1. 必須視為 1 題（不可拆成 4 題）
-2. 題型選擇：
-   - 如果答案固定（如：「正確的是 A、C」）→ questionCategory: "single_choice"，answer: "A、C" 或 "AC"
-   - 如果答案有多種表述（如：「A,C」「A C」「AC」都可以）→ questionCategory: "fill_variants"，acceptableAnswers: ["A、C", "A,C", "AC", "A C"]
-3. 題號：使用題目標示的題號（如：「三、」就用 "3"）
+1. 必須視為 1 題（不可拆成多題）
+2. questionCategory: "multi_check"
+3. answer 填正確選項集合，用逗號分隔（與選項標籤格式一致）：
+   - 有 ①②③ 標籤 → answer: "①,③"
+   - 有 A B C 標籤 → answer: "A,C"
+   - 有 1 2 3 數字標籤 → answer: "1,3"
+4. 部分給分：批改時按「正確勾到的數量 − 多勾錯的數量」比例給分
 
 範例：
-- 題目：「三、下列哪些選項正確？（可複選）□A 太陽從東邊升起 □B 地球是平的 □C 水會往低處流 □D 天空是綠色的」
-- 設定：1 題，id: "3", questionCategory: "single_choice", answer: "A、C" 或 acceptableAnswers: ["A、C", "AC", "A,C"]
+- 題目：「請勾選台灣的地形特色：□①高山多 □②平原廣 □③四面環海 □④沙漠廣大」（正解①③）
+- 設定：id: "3", questionCategory: "multi_check", answer: "①,③", maxScore: 2
+
+⚠️ 注意：「圈圈看」「打✓看」「比比看」等題型，若只能選一個答案，仍為 single_choice（非 multi_check）。
 
 【題型分類標準】
 判斷流程（依序套用，第一個符合的就是答案）：
@@ -944,30 +955,54 @@ function buildGlobalRules(): string {
    → questionCategory: "fill_variants"（填充題多元）
    - referenceAnswer 填入範例；acceptableAnswers 列出所有可接受答案
 
-3. 數學題 + 有故事情境 + 需要列式計算 + 寫答句？
+3. 數學題 + 有故事情境/附圖情境 + 需要列式計算 + 寫含單位的答句？
    → questionCategory: "word_problem"（應用題）
    - rubricsDimensions: [列式計算, 答句]
    - 答句維度的 criteria 必須說明：「以『答：』或『A：』開頭，含數字與單位（或完整文字答案如甲班、教師節）」
+   - 關鍵：答案需要單位或文字說明（非純數值）
 
-4. A/B/C/D 或 甲/乙/丙/丁，選一個？
+4. 數學題 + 無故事情境 + 只需列算式 + 答案為純數值（不需單位/答句）？
+   → questionCategory: "calculation"（計算題）
+   - 例：算算看、直式算算看、純算式計算
+   - referenceAnswer 填數值正解（如 "360"）
+   - rubricsDimensions: [算式過程, 最終答案]
+   - 算式過程 criteria: 列出正確算式（橫式或直式）
+   - 最終答案 criteria: 數值正確（不需單位）
+   - ⚠️ 與 word_problem 差異：無情境、無答句、答案不含單位
+
+5. 有多個勾選框，學生可勾選多個？
+   → questionCategory: "multi_check"（勾選題）
+   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"
+
+6. A/B/C/D 或 甲/乙/丙/丁 或 ①/②，選一個？
    → questionCategory: "single_choice"（選擇題）
-   - answer 填選項代號（如 "A" 或 "甲"）
+   - answer 填選項代號（如 "A"、"甲"、"①"）
+   - 包含「圈圈看」「比比看」「打✓選一個」等格式
 
-5. 只有兩個選項：○/✗、對/錯、是/否？
+7. 只有兩個選項：○/✗、對/錯、是/否？
    → questionCategory: "true_false"（是非題）
    - answer 統一填 "○" 或 "✗"
 
-6. 地圖/圖表的多個指定位置，需填寫地名/國名等文字標籤？
+8. 地圖/圖表的多個指定位置，需填寫地名/國名等文字標籤？
    → questionCategory: "map_fill"（填圖題）
    - acceptableAnswers 列出所有正確名稱；referenceAnswer 描述位置對應關係
 
-7. 地圖/圖表，需要畫出符號或標記？
+9. 需要在圖上畫圖形/符號/連線？（地圖符號、格紙幾何、連線圖）
    → questionCategory: "map_draw"（繪圖題）
-   - rubricsDimensions: [符號正確性, 位置精準度]
+   - rubricsDimensions: [圖形/符號正確性, 位置精準度]
+   - 地圖符號例：颱風符號畫在指定座標
+   - 格紙幾何例：在方格紙上畫邊長3公分的正方形
+   - 連線圖例：依編號順序連接座標點
 
-8. 非數學題，要求文字說明、解釋或列舉，不需計算？
-   → questionCategory: "short_answer"（簡答題）
-   - referenceAnswer 填評分要點；用 rubricsDimensions 或 rubric 4級評量
+10. 需要在預印圖形上塗色/填色？
+    → questionCategory: "diagram_draw"（塗色題）
+    - 例：塗色表示分數（塗 1⅔ 個圓）、塗色表示數量
+    - referenceAnswer 描述應塗色的範圍/比例
+    - rubricsDimensions: [作圖正確性, 完整性]
+
+11. 非數學題，要求文字說明、解釋或列舉，不需計算？
+    → questionCategory: "short_answer"（簡答題）
+    - referenceAnswer 填評分要點；用 rubricsDimensions 或 rubric 4級評量
 
 【反幻覺警告】（適用於所有操作）
 ❌ 禁止猜測：看不清楚時設 confidence < 0.5

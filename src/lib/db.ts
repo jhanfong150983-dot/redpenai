@@ -36,20 +36,22 @@ export type QuestionCategoryType = 1 | 2 | 3
  * Internal type 1/2/3 從此欄位自動 derive（向後兼容）。
  */
 export type QuestionCategory =
-  | 'single_choice'  // 選擇題：選一個代號（A/B/C/D 或 甲/乙/丙/丁）
+  | 'single_choice'  // 選擇題：選一個代號（A/B/C/D 或 甲/乙/丙/丁 或 ①②③）
   | 'true_false'     // 是非題：二元判斷（○/✗）
   | 'fill_blank'     // 填充題：唯一正解，單位嚴格比對
   | 'fill_variants'  // 填充題（多元）：多種說法皆可（造詞、近義詞）
-  | 'word_problem'   // 應用題：數學情境題，需列式+答句，單位嚴格
+  | 'multi_check'    // 勾選題：可勾選多個選項，部分給分
+  | 'calculation'    // 計算題：純算式，列式過程+數值答案，不查單位
+  | 'word_problem'   // 應用題：數學情境題，需列式+答句含單位/文字
   | 'short_answer'   // 簡答題：非數學文字說明，按關鍵概念給分
   | 'map_fill'       // 填圖題：地圖多位置填文字，位置-名稱配對
-  | 'map_draw'       // 繪圖題：地圖畫符號，符號類型+位置精準度
+  | 'map_draw'       // 繪圖題：地圖符號/格紙幾何/連線圖，符號類型+位置精準度
+  | 'diagram_draw'   // 塗色題：在預印圖形上塗色/填色，判斷比例/範圍正確
   // 預留未來擴充：
   // | 'multi_choice'   // 多選題
   // | 'matching'       // 連連看
   // | 'ordering'       // 排序題
   // | 'diagram_label'  // 標示圖題
-  // | 'calculation'    // 計算題（無情境純算式）
 
 export interface RubricDimension {
   name: string

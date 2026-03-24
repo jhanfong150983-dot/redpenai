@@ -565,10 +565,13 @@ export default function AssignmentSetup({
     true_false: 1,
     fill_blank: 1,
     fill_variants: 2,
+    multi_check: 2,
+    calculation: 3,
     word_problem: 3,
     short_answer: 3,
     map_fill: 2,
     map_draw: 3,
+    diagram_draw: 3,
   }
 
   const CATEGORY_LABELS: Record<QuestionCategory, string> = {
@@ -576,10 +579,13 @@ export default function AssignmentSetup({
     true_false: '是非題',
     fill_blank: '填充題',
     fill_variants: '填充題（多元）',
+    multi_check: '勾選題',
+    calculation: '計算題',
     word_problem: '應用題',
     short_answer: '簡答題',
     map_fill: '填圖題',
     map_draw: '繪圖題',
+    diagram_draw: '塗色題',
   }
 
   function defaultCategoryFromType(type: QuestionCategoryType): QuestionCategory {
@@ -2226,11 +2232,21 @@ export default function AssignmentSetup({
         } else if (nextType === 3) {
           item.referenceAnswer = ''
           if (item.maxScore <= 0) item.maxScore = 10
-          // word_problem defaults to rubricsDimensions; others default to 4-level rubric
+          // type=3 categories each get appropriate default rubricsDimensions
           if (nextCategory === 'word_problem') {
             item.rubricsDimensions = [
               { name: '列式計算', maxScore: Math.ceil((item.maxScore || 10) * 0.6), criteria: '算式正確、步驟清晰' },
               { name: '答句', maxScore: Math.floor((item.maxScore || 10) * 0.4), criteria: '以「答：」開頭，含數字與單位（或完整文字答案）' },
+            ]
+          } else if (nextCategory === 'calculation') {
+            item.rubricsDimensions = [
+              { name: '算式過程', maxScore: Math.ceil((item.maxScore || 3) * 0.4), criteria: '列出正確算式（橫式或直式），步驟清晰' },
+              { name: '最終答案', maxScore: Math.floor((item.maxScore || 3) * 0.6), criteria: '數值正確（不需單位）' },
+            ]
+          } else if (nextCategory === 'diagram_draw') {
+            item.rubricsDimensions = [
+              { name: '作圖正確性', maxScore: Math.ceil((item.maxScore || 3) * 0.7), criteria: '塗色/繪圖範圍符合題目要求' },
+              { name: '完整性', maxScore: Math.floor((item.maxScore || 3) * 0.3), criteria: '塗色連續完整，無明顯空缺' },
             ]
           } else {
             item.rubric = buildDefaultRubric(item.maxScore)
