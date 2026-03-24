@@ -47,7 +47,6 @@ export type QuestionCategory =
   | 'map_fill'       // 填圖題：地圖多位置填文字，位置-名稱配對
   | 'map_draw'       // 繪圖題：地圖符號/格紙幾何/連線圖，符號類型+位置精準度
   | 'diagram_draw'   // 塗色題：在預印圖形上塗色/填色，判斷比例/範圍正確
-  | 'vocab_fill'     // 國字注音題：整大題為一題，多個字↔注音配對，部分給分
   // 預留未來擴充：
   // | 'multi_choice'   // 多選題
   // | 'matching'       // 連連看

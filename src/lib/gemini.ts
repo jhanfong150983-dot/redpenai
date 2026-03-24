@@ -866,10 +866,9 @@ function buildGlobalTaskAndFormat(): string {
     "referenceAnswer": "範例答案",
     "acceptableAnswers": ["同義詞1", "同義詞2"],
 
-    // vocab_fill 專用：國字注音題（整大題一題）
-    // referenceAnswer: 所有配對，格式 "彰(ㄓㄤ), 築(ㄓㄨˋ), 倚(ㄧˇ)"
-    // acceptableAnswers: 所有國字和注音分開列出 ["彰","ㄓㄤ","築","ㄓㄨˋ","倚","ㄧˇ"]
-    // maxScore: 空格總數（每格 1 分）
+    // 國字注音題（fill_blank 特殊格式）：
+    // answer: "國字/注音"，如 "彰/ㄓㄤ"（斜線分隔，學生寫任一個都算對）
+    // 🚫 注音必須讀自圖片，禁止用語言知識推測
 
     // word_problem / calculation / short_answer / map_draw / diagram_draw 專用：評分規準
     // word_problem: [列式計算, 答句（含單位）]
@@ -1001,14 +1000,7 @@ function buildGlobalClassificationFallback(): string {
    → questionCategory: "true_false"（是非題）
    - answer 統一填 "○" 或 "✗"
 
-8. 題目標題含「寫國字或注音」「寫出注音」「寫出國字」，每個空格旁有對應字或注音提示？
-   → questionCategory: "vocab_fill"（國字注音題）
-   - 整大題 = 1 題
-   - referenceAnswer：所有國字-注音配對，格式 "彰(ㄓㄤ), 築(ㄓㄨˋ), ..."
-   - acceptableAnswers：所有國字和注音分開列出 ["彰", "ㄓㄤ", "築", "ㄓㄨˋ", ...]
-   - maxScore：空格總數
-
-8b. 地圖/圖表的多個指定位置，需填寫地名/國名等文字標籤？
+8. 地圖/圖表的多個指定位置，需填寫地名/國名等文字標籤？
    → questionCategory: "map_fill"（填圖題）
    - acceptableAnswers 列出所有正確名稱；referenceAnswer 描述位置對應關係
 
@@ -1056,16 +1048,20 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 題型判斷與擷取規則：
 
-▸ 如果是「國字注音題」（每個空格要寫國字或注音，整大題視為一題）：
-  - questionCategory: "vocab_fill"
-  - 整個「寫國字或注音」大題 = 1 題，不要拆成多個子題
-  - referenceAnswer：列出所有國字-注音配對，格式為「國字(注音)」以逗號分隔
-    範例："彰(ㄓㄤ), 築(ㄓㄨˋ), 倚(ㄧˇ), 邀(ㄧㄠ), 遛(ㄌㄧㄡˋ), 繫(ㄒㄧˋ)"
-  - acceptableAnswers：把所有國字和注音分開列出（學生只需寫其中一個）
-    範例：["彰", "ㄓㄤ", "築", "ㄓㄨˋ", "倚", "ㄧˇ"]
-  - maxScore：空格總數（每個空格 1 分）
-  - 注意：注音必須包含完整聲母+韻母+聲調（如 ㄓㄤ 而非只寫 ㄓ）
-  - 識別特徵：題目說「寫國字或注音」「寫出注音」「寫出國字」，且空格旁邊有對應的字或注音提示
+▸ 如果是「國字注音題」（每個空格要寫國字或注音）：
+  - questionCategory: "fill_blank"
+  - 每一個空格為獨立的一題，不要合併
+  - answer 格式：「國字/注音」（斜線分隔兩種正解），如 "彰/ㄓㄤ"
+    → 左側填國字，右側填完整注音（聲母+韻母+聲調）
+  - maxScore：每格 1 分
+
+  🚫 嚴格禁止注音幻覺：
+  - 注音必須直接讀取圖片中彩色框（答案框）裡的注音符號
+  - ❌ 禁止：看到「彰」就自己寫「ㄓㄤ」（即使你知道正確讀音）
+  - ❌ 禁止：用語言知識推測或補充注音
+  - ✅ 應做：只讀圖片中實際出現的注音符號
+  - 若彩色框中的注音不清楚無法辨識 → 注音位置填「?」，如 "彰/?"
+  - 寧可標記「?」，也不要猜測
 
 ▸ 如果是「相近字造詞題」（如：辨/辯、嗇/普）：
   - questionCategory: "fill_variants"
