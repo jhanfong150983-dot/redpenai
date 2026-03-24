@@ -782,14 +782,17 @@ export default function AssignmentSetup({
           ? q.unorderedGroupId.trim()
           : undefined
 
-      // Convert old QuestionType to QuestionCategoryType if needed
-      const questionType = typeof q?.type === 'number'
-        ? q.type
-        : q?.type === 'truefalse' || q?.type === 'choice'
-          ? 1
-          : q?.type === 'fill' || q?.type === 'short' || q?.type === 'short_sentence'
-            ? 2
-            : 3
+      // Resolve type: prefer questionCategory (from AI extraction), fallback to legacy numeric type
+      const questionType: QuestionCategoryType =
+        q?.questionCategory && CATEGORY_TO_TYPE[q.questionCategory as QuestionCategory] !== undefined
+          ? CATEGORY_TO_TYPE[q.questionCategory as QuestionCategory]
+          : typeof q?.type === 'number'
+            ? q.type
+            : q?.type === 'truefalse' || q?.type === 'choice'
+              ? 1
+              : q?.type === 'fill' || q?.type === 'short' || q?.type === 'short_sentence'
+                ? 2
+                : 3
       const idPath = Array.isArray(q?.idPath)
         ? q.idPath
             .map((segment: unknown) => String(segment ?? '').trim())
@@ -799,6 +802,7 @@ export default function AssignmentSetup({
       const baseQuestion: AnswerKeyQuestion = {
         id: sanitizeQuestionId(q?.id, `${idx + 1}`),
         type: questionType as QuestionCategoryType,
+        questionCategory: q?.questionCategory as QuestionCategory | undefined,
         maxScore,
         idPath,
         uiKey: typeof q?.uiKey === 'string' && q.uiKey ? q.uiKey : generateId(),
