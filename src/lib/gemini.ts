@@ -549,6 +549,8 @@ let currentModelName = 'gemini-3-flash-preview'
 
 export interface ExtractAnswerKeyOptions {
   domain?: string
+  /** 'answer_key'（預設）：從已填寫的解答圖擷取答案；'infer_blank'：從空白作業推論正確答案 */
+  inferMode?: 'answer_key' | 'infer_blank'
 }
 
 export interface GradeSubmissionOptions {
@@ -1237,6 +1239,50 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 `.trim()
 
   return domainMap[domain] || defaultDomain
+}
+
+/**
+ * 建立「從空白作業推論答案」的 Prompt
+ * 不需要解答圖，AI 直接根據題目內容與語言/學科知識推論正確答案
+ */
+function buildInferFromBlankPrompt(domain?: string): string {
+  const domainLabel = domain || '小學'
+  const domainRules = buildDomainRulesWithDecisionTree(domain || '其他')
+  const classificationFallback = buildGlobalClassificationFallback()
+
+  return `
+你是一位台灣${domainLabel}老師，請看這份**空白習作**圖片，推論每題的正確標準答案，建立 AnswerKey。
+
+【重要說明】
+- 這是**尚未填寫的空白作業**，不是解答圖
+- 請根據題目文字、課文語境與你的學科知識，推論正確答案
+- 不要憑猜測，有把握的才填；不確定的在 answer/referenceAnswer 後加「（待確認）」
+
+【國字注音題特別說明】
+- 看到空白框（□）旁邊有國字 → 請填入該字的正確注音（完整聲母+韻母+聲調，如 ㄓㄤ）
+- 看到空白框（□）旁邊有注音 → 請填入對應的正確國字
+- 每一個空白框是獨立的一題，不要把多個框合併
+
+${domainRules}
+
+${classificationFallback}
+
+【輸出格式（JSON）】
+{
+  "questions": [
+    {
+      "id": "1-1",
+      "questionCategory": "fill_blank",
+      "type": 1,
+      "answer": "彰",
+      "maxScore": 1
+    }
+  ],
+  "totalScore": 數字
+}
+
+輸出純 JSON，不要 markdown 代碼塊。
+`.trim()
 }
 
 /**
@@ -3062,11 +3108,14 @@ export async function extractAnswerKeyFromImage(
 ): Promise<AnswerKey> {
   if (!isGeminiAvailable) throw new Error('Gemini 服務未設定')
 
-  console.log('🧾 開始從答案卷圖片抽取 AnswerKey...')
+  const isInferMode = opts?.inferMode === 'infer_blank'
+  console.log(`🧾 開始從圖片${isInferMode ? '推論（空白作業模式）' : '抽取（解答圖模式）'} AnswerKey...`)
   const imageBase64 = await blobToBase64(answerSheetImage)
   const mimeType = answerSheetImage.type || 'image/jpeg'
 
-  const prompt = buildAnswerKeyPrompt(opts?.domain)
+  const prompt = isInferMode
+    ? buildInferFromBlankPrompt(opts?.domain)
+    : buildAnswerKeyPrompt(opts?.domain)
   console.log('📋 [AnswerKey prompt]', prompt)
 
   const text = (await generateGeminiText(currentModelName, [
@@ -3094,22 +3143,19 @@ export async function extractAnswerKeyFromImages(
   if (!isGeminiAvailable) throw new Error('Gemini 服務未設定')
   if (answerSheetImages.length === 0) throw new Error('至少需要提供一張圖片')
 
-  console.log(`🧾 開始從 ${answerSheetImages.length} 張答案卷圖片抽取 AnswerKey...`)
+  const isInferMode = opts?.inferMode === 'infer_blank'
+  console.log(`🧾 開始從 ${answerSheetImages.length} 張圖片${isInferMode ? '推論（空白作業模式）' : '抽取（解答圖模式）'} AnswerKey...`)
 
-  const prompt = buildAnswerKeyPrompt(opts?.domain)
+  const prompt = isInferMode
+    ? buildInferFromBlankPrompt(opts?.domain)
+    : buildAnswerKeyPrompt(opts?.domain)
   console.log('📋 [AnswerKey prompt]', prompt)
 
   // 多圖片提示增強
-  const multiImagePrompt = `
-${prompt}
-
-【多張圖片處理】
-- 你會收到 ${answerSheetImages.length} 張答案卷圖片
-- 這些圖片可能是同一份作業的不同頁面
-- 請從所有圖片中提取題目，並合併成一個完整的 AnswerKey
-- 題號必須連續且不重複（如果多張圖片有重複題號，請保留最完整的版本）
-- totalScore 是所有圖片中所有題目的 maxScore 總和
-`.trim()
+  const multiImageNote = isInferMode
+    ? `【多張圖片處理】\n- 你會收到 ${answerSheetImages.length} 張空白作業圖片\n- 請從所有圖片中推論所有題目的正確答案，合併成完整 AnswerKey\n- 題號必須連續且不重複`
+    : `【多張圖片處理】\n- 你會收到 ${answerSheetImages.length} 張答案卷圖片\n- 這些圖片可能是同一份作業的不同頁面\n- 請從所有圖片中提取題目，並合併成一個完整的 AnswerKey\n- 題號必須連續且不重複（如果多張圖片有重複題號，請保留最完整的版本）\n- totalScore 是所有圖片中所有題目的 maxScore 總和`
+  const multiImagePrompt = `${prompt}\n\n${multiImageNote}`.trim()
 
   // 準備多圖片請求
   const requestParts: GeminiRequestPart[] = [multiImagePrompt]
