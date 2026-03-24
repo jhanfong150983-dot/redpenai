@@ -1159,6 +1159,11 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
     2. 答句：{"name": "答句", "criteria": "必須以「答：」或「A：」開頭，寫出完整答句（含數字與單位，或完整文字答案如甲班、教師節）"}
   - 識別特徵：題目包含情境（人名、物品、數量關係描述）且有空白答句區（如「答：＿＿＿」）
 
+▸ 如果是「勾選題」（可勾選多個選項）：
+  - questionCategory: "multi_check"
+  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"
+  - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
+
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
   - 保留原始格式，不修正、不美化
@@ -1177,7 +1182,12 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 題型判斷與擷取規則：
 
-▸ 所有題型：
+▸ 如果是「勾選題」（可勾選多個選項）：
+  - questionCategory: "multi_check"
+  - answer 填正確勾選集合（逗號分隔），如 "A,C" 或 "①,③"
+  - 識別特徵：題目說「請勾出」「check all」「tick all that apply」，且可選多個
+
+▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取字母、單詞、句子
   - 嚴格保留原始拼寫格式
 `.trim(),
@@ -1214,6 +1224,11 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
   ⚠️ 符號對 ≠ 答案對，必須同時檢查符號和位置
 
+▸ 如果是「勾選題」（可勾選多個選項）：
+  - questionCategory: "multi_check"
+  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"
+  - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
+
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
   - 保留原始格式，不修正、不美化
@@ -1233,6 +1248,11 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
     • 圖形正確性
     • 標註正確性
     • 完整性
+
+▸ 如果是「勾選題」（可勾選多個選項）：
+  - questionCategory: "multi_check"
+  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"
+  - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
