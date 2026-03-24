@@ -823,20 +823,30 @@ export default function AssignmentSetup({
           baseQuestion.answerFormat = 'matching'
         }
       } else if (questionType === 2) {
-        baseQuestion.referenceAnswer =
-          typeof q?.referenceAnswer === 'string'
-            ? q.referenceAnswer
-            : q?.referenceAnswer === null || q?.referenceAnswer === undefined
-              ? ''
-              : String(q.referenceAnswer)
-        const acceptableAnswers = Array.isArray(q?.acceptableAnswers)
-          ? q.acceptableAnswers
-              .map((ans: unknown) => String(ans ?? '').trim())
-              .filter(Boolean)
-          : typeof q?.acceptableAnswers === 'string' && q.acceptableAnswers.trim()
-            ? [q.acceptableAnswers.trim()]
-            : []
-        baseQuestion.acceptableAnswers = acceptableAnswers
+        // multi_check uses 'answer' field (comma-separated tokens e.g. "①,③")
+        if (q?.questionCategory === 'multi_check') {
+          baseQuestion.answer =
+            typeof q?.answer === 'string'
+              ? q.answer
+              : q?.answer === null || q?.answer === undefined
+                ? ''
+                : String(q.answer)
+        } else {
+          baseQuestion.referenceAnswer =
+            typeof q?.referenceAnswer === 'string'
+              ? q.referenceAnswer
+              : q?.referenceAnswer === null || q?.referenceAnswer === undefined
+                ? ''
+                : String(q.referenceAnswer)
+          const acceptableAnswers = Array.isArray(q?.acceptableAnswers)
+            ? q.acceptableAnswers
+                .map((ans: unknown) => String(ans ?? '').trim())
+                .filter(Boolean)
+            : typeof q?.acceptableAnswers === 'string' && q.acceptableAnswers.trim()
+              ? [q.acceptableAnswers.trim()]
+              : []
+          baseQuestion.acceptableAnswers = acceptableAnswers
+        }
       } else if (questionType === 3) {
         baseQuestion.referenceAnswer =
           typeof q?.referenceAnswer === 'string'
