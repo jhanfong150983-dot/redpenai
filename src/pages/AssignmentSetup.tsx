@@ -100,6 +100,10 @@ export default function AssignmentSetup({
   const [createStrictness, setCreateStrictness] = useState<'strict' | 'standard' | 'lenient'>(
     'standard'
   )
+  type CreateScoreMode = 'ai_auto' | 'fixed_per_question' | 'fixed_total' | 'fixed_both'
+  const [createScoreMode, setCreateScoreMode] = useState<CreateScoreMode>('ai_auto')
+  const [createFixedPerScore, setCreateFixedPerScore] = useState<number>(5)
+  const [createFixedTotal, setCreateFixedTotal] = useState<number>(100)
 
   const domainOptions = ['國語', '數學', '社會', '自然', '英語', '其他']
   const createStrictnessLabels: Record<'strict' | 'standard' | 'lenient', string> = {
@@ -111,6 +115,12 @@ export default function AssignmentSetup({
     strict: '字詞順序格式須完全一致',
     standard: '允許同義、格式小差異',
     lenient: '只要核心意思正確即可'
+  }
+  const createScoreModeLabels: Record<CreateScoreMode, string> = {
+    ai_auto: 'AI 自動（100分）',
+    fixed_per_question: '每題固定分',
+    fixed_total: '固定總分',
+    fixed_both: '固定每題＋總分'
   }
 
   const rubricLabels: Rubric['levels'][number]['label'][] = [
@@ -488,6 +498,9 @@ export default function AssignmentSetup({
     setAssignmentDomain('')
     setIsAdvancedSettingsOpen(false)
     setCreateStrictness('standard')
+    setCreateScoreMode('ai_auto')
+    setCreateFixedPerScore(5)
+    setCreateFixedTotal(100)
     setAnswerKey(null)
     setAnswerKeyFile([])
     setAnswerSheetImage(null)
@@ -770,6 +783,44 @@ export default function AssignmentSetup({
     }
   }
 
+  const applyCreateScoreMode = (key: AnswerKey): { answerKey: AnswerKey; scoreNotice: string | null } => {
+    const questions = [...(key.questions ?? [])]
+    if (questions.length === 0) return { answerKey: key, scoreNotice: null }
+
+    if (createScoreMode === 'fixed_per_question' && createFixedPerScore > 0) {
+      const fixedQs = questions.map((q) => ({ ...q, maxScore: createFixedPerScore }))
+      const computed = Number((createFixedPerScore * questions.length).toFixed(1))
+      return {
+        answerKey: { ...key, questions: fixedQs, totalScore: computed },
+        scoreNotice: `已設定每題 ${createFixedPerScore} 分，共 ${questions.length} 題，總分 ${computed} 分。`
+      }
+    }
+    if (createScoreMode === 'fixed_total' && createFixedTotal > 0) {
+      const { answerKey, adjusted } = rebalanceAnswerKeyToTargetTotal(key, createFixedTotal)
+      return {
+        answerKey,
+        scoreNotice: adjusted
+          ? `已自動校準配分，確保總分為 ${createFixedTotal} 分（必要時保留到小數點後 1 位）。`
+          : null
+      }
+    }
+    if (createScoreMode === 'fixed_both' && createFixedPerScore > 0) {
+      const fixedQs = questions.map((q) => ({ ...q, maxScore: createFixedPerScore }))
+      return {
+        answerKey: { ...key, questions: fixedQs, totalScore: createFixedTotal },
+        scoreNotice: `已設定每題 ${createFixedPerScore} 分，總分覆寫為 ${createFixedTotal} 分。`
+      }
+    }
+    // ai_auto (default): rebalance to 100
+    const { answerKey, adjusted } = rebalanceAnswerKeyToTargetTotal(key, 100)
+    return {
+      answerKey,
+      scoreNotice: adjusted
+        ? '已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。'
+        : null
+    }
+  }
+
   const normalizeAnswerKey = (ak: AnswerKey | Record<string, unknown> | null | undefined): AnswerKey => {
     const rawQuestions: any[] = Array.isArray((ak as any)?.questions) ? (ak as any).questions : []
     const questions = rawQuestions.map((q: any, idx) => {
@@ -1018,16 +1069,14 @@ export default function AssignmentSetup({
       console.log('✅ AI 提取完成', { questionCount: extracted.questions.length, totalScore: extracted.totalScore })
 
       const { merged, notice } = mergeAnswerKeys(currentKey, extracted)
-      const rebalanced = rebalanceAnswerKeyToTargetTotal(merged, 100)
-      onSet(rebalanced.answerKey)
+      const { answerKey: scoredKey, scoreNotice } = applyCreateScoreMode(merged)
+      onSet(scoredKey)
 
       const notices: string[] = []
       if (notice) notices.push(notice)
-      if (rebalanced.adjusted) {
-        notices.push('已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。')
-      }
+      if (scoreNotice) notices.push(scoreNotice)
       setNotice(notices.length > 0 ? notices.join(' ') : null)
-      if (hasVocabFillQuestions(rebalanced.answerKey)) {
+      if (hasVocabFillQuestions(scoredKey)) {
         setShowVocabFillWarning(true)
       }
     } catch (err) {
@@ -1345,16 +1394,14 @@ export default function AssignmentSetup({
       }
 
       if (mergedAnswerKey) {
-        const rebalanced = rebalanceAnswerKeyToTargetTotal(mergedAnswerKey, 100)
-        setAnswerKey(rebalanced.answerKey)
+        const { answerKey: scoredKey, scoreNotice } = applyCreateScoreMode(mergedAnswerKey)
+        setAnswerKey(scoredKey)
 
         const notices: string[] = []
         if (duplicateNotice) notices.push(duplicateNotice)
-        if (rebalanced.adjusted) {
-          notices.push('已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。')
-        }
+        if (scoreNotice) notices.push(scoreNotice)
         setAnswerKeyNotice(notices.length > 0 ? notices.join(' ') : null)
-        if (hasVocabFillQuestions(rebalanced.answerKey)) {
+        if (hasVocabFillQuestions(scoredKey)) {
           setShowVocabFillWarning(true)
         }
       } else if (duplicateNotice) {
@@ -1460,12 +1507,12 @@ export default function AssignmentSetup({
         return q
       })
 
-      const rebalanced = rebalanceAnswerKeyToTargetTotal(
-        { questions: updatedQuestions, totalScore: 0 },
-        100
-      )
-      setAnswerKeyFn(rebalanced.answerKey)
-      setNoticeFn(`已重新分析 ${reanalyzedQuestions.length} 題`)
+      const baseKey = { questions: updatedQuestions, totalScore: 0 }
+      const { answerKey: scoredKey, scoreNotice } = target === 'create'
+        ? applyCreateScoreMode(baseKey)
+        : { answerKey: rebalanceAnswerKeyToTargetTotal(baseKey, 100).answerKey, scoreNotice: null }
+      setAnswerKeyFn(scoredKey)
+      setNoticeFn([`已重新分析 ${reanalyzedQuestions.length} 題`, scoreNotice].filter(Boolean).join(' '))
     } catch (err) {
       console.error('重新分析失敗', err)
       setErrorFn(
@@ -2967,8 +3014,16 @@ export default function AssignmentSetup({
                         {classrooms.find((classroom) => classroom.id === selectedClassroomId)?.name || '尚未指定班級'}
                       </p>
                       <p className="mt-2 text-xs text-emerald-700">
-                        進階：批改嚴格度 {createStrictnessLabels[createStrictness]}
+                        批改嚴格度：{createStrictnessLabels[createStrictness]}
                       </p>
+                      {createScoreMode !== 'ai_auto' && (
+                        <p className="mt-1 text-xs text-emerald-700">
+                          計分模式：{createScoreModeLabels[createScoreMode]}
+                          {createScoreMode === 'fixed_per_question' && `（每題 ${createFixedPerScore} 分）`}
+                          {createScoreMode === 'fixed_total' && `（總分 ${createFixedTotal} 分）`}
+                          {createScoreMode === 'fixed_both' && `（每題 ${createFixedPerScore} 分／總分 ${createFixedTotal} 分）`}
+                        </p>
+                      )}
                       <p className="mt-2 text-xs text-emerald-700">已上傳答案卷 {answerKeyFile.length} 份</p>
                     </div>
                   </aside>
@@ -3087,13 +3142,21 @@ export default function AssignmentSetup({
                   <div>
                     <h3 className="text-sm font-semibold text-slate-900">進階設定（選填）</h3>
                     <p className="mt-1 text-xs text-slate-500">
-                      可自訂批改嚴格度；未設定時使用 AI 預設。
+                      可自訂批改嚴格度與預設分數；未設定時使用 AI 預設。
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
                       批改嚴格度：{createStrictnessLabels[createStrictness]}
                     </span>
+                    {createScoreMode !== 'ai_auto' && (
+                      <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-700">
+                        {createScoreModeLabels[createScoreMode]}
+                        {createScoreMode === 'fixed_per_question' && `（每題 ${createFixedPerScore} 分）`}
+                        {createScoreMode === 'fixed_total' && `（總分 ${createFixedTotal} 分）`}
+                        {createScoreMode === 'fixed_both' && `（每題 ${createFixedPerScore}／總分 ${createFixedTotal}）`}
+                      </span>
+                    )}
                     {isAdvancedSettingsOpen ? (
                       <ChevronDown className="h-4 w-4 text-slate-500" />
                     ) : (
@@ -3123,6 +3186,69 @@ export default function AssignmentSetup({
                         ))}
                       </div>
                       <span className="text-xs text-slate-400">{createStrictnessHints[createStrictness]}</span>
+                    </div>
+
+                    {/* Scoring mode */}
+                    <div className="flex flex-wrap items-start gap-x-2 gap-y-2">
+                      <span className="text-xs text-slate-500 shrink-0 pt-1">預設分數</span>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap rounded-lg border border-slate-200 overflow-hidden text-xs bg-white">
+                          {(['ai_auto', 'fixed_per_question', 'fixed_total', 'fixed_both'] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setCreateScoreMode(mode)}
+                              className={`px-3 py-1 transition-colors ${
+                                createScoreMode === mode
+                                  ? 'bg-emerald-600 text-white font-medium'
+                                  : 'bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {createScoreModeLabels[mode]}
+                            </button>
+                          ))}
+                        </div>
+                        {createScoreMode === 'ai_auto' && (
+                          <span className="text-xs text-slate-400">AI 依題型比例配分，加總為 100 分</span>
+                        )}
+                        {(createScoreMode === 'fixed_per_question' || createScoreMode === 'fixed_both') && (
+                          <label className="flex items-center gap-2 text-xs text-slate-600">
+                            每題
+                            <input
+                              type="number"
+                              min={0.5}
+                              step={0.5}
+                              value={createFixedPerScore}
+                              onChange={(e) => setCreateFixedPerScore(Number(e.target.value))}
+                              className="w-16 rounded border border-slate-300 px-2 py-0.5 text-xs text-center"
+                            />
+                            分，總分依題數加總
+                            {createScoreMode === 'fixed_per_question' && answerKey && (
+                              <span className="text-slate-400">（預計 {(createFixedPerScore * (answerKey.questions?.length ?? 0)).toFixed(1)} 分）</span>
+                            )}
+                          </label>
+                        )}
+                        {(createScoreMode === 'fixed_total' || createScoreMode === 'fixed_both') && (
+                          <label className="flex items-center gap-2 text-xs text-slate-600">
+                            {createScoreMode === 'fixed_both' ? '另設' : ''}總分
+                            <input
+                              type="number"
+                              min={1}
+                              step={1}
+                              value={createFixedTotal}
+                              onChange={(e) => setCreateFixedTotal(Number(e.target.value))}
+                              className="w-16 rounded border border-slate-300 px-2 py-0.5 text-xs text-center"
+                            />
+                            分
+                            {createScoreMode === 'fixed_total' && (
+                              <span className="text-slate-400">（每題由 AI 按比例分配）</span>
+                            )}
+                            {createScoreMode === 'fixed_both' && (
+                              <span className="text-slate-400">（加總不一定等於此總分）</span>
+                            )}
+                          </label>
+                        )}
+                      </div>
                     </div>
 
                   </div>
