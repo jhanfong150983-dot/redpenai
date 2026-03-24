@@ -1129,6 +1129,10 @@ export default function AssignmentSetup({
   }
 
   const handleExtractAnswerKey = async () => {
+    if (!assignmentDomain) {
+      setAnswerKeyError('請先選擇領域，才能擷取標準答案')
+      return
+    }
     if (answerKeyFile.length === 0) {
       setAnswerKeyError('請選擇檔案，支援 PDF 或圖片')
       return
@@ -1341,6 +1345,10 @@ export default function AssignmentSetup({
   }
 
   const handleExtractAnswerKeyForEdit = async () => {
+    if (!editingDomain) {
+      setEditAnswerKeyError('請先選擇領域，才能擷取標準答案')
+      return
+    }
     if (!editAnswerKeyFile) {
       setEditAnswerKeyError('請選擇檔案，支援 PDF 或圖片')
       return
@@ -3000,10 +3008,10 @@ export default function AssignmentSetup({
                     data-tutorial="assignment-domain"
                     value={assignmentDomain}
                     onChange={(e) => setAssignmentDomain(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white"
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white ${!assignmentDomain ? 'border-red-400' : 'border-gray-300'}`}
                     disabled={isSubmitting}
                   >
-                    <option value="">請選擇</option>
+                    <option value="">請選擇（必填）</option>
                     {domainOptions.map((d) => (
                       <option key={d} value={d}>
                         {d}

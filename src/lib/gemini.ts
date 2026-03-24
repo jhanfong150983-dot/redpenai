@@ -943,7 +943,10 @@ function buildGlobalRules(): string {
 
 ⚠️ 注意：「圈圈看」「打✓看」「比比看」等題型，若只能選一個答案，仍為 single_choice（非 multi_check）。
 
-【題型分類標準】
+【題型分類標準（後備規則）】
+⚠️ 若上方領域專屬規則已能匹配題目，直接套用，不需再查以下標準。
+以下規則僅在領域規則未覆蓋時使用。
+
 判斷流程（依序套用，第一個符合的就是答案）：
 
 1. 有空格標記（___/□/()）且只有一個標準正解？
@@ -1021,7 +1024,8 @@ function buildGlobalRules(): string {
 function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   const domainMap: Record<string, string> = {
     國語: `
-【國語領域】
+【國語領域專屬規則】（優先級：高於全域後備規則）
+⚠️ 以下規則適用於國語作業。若題目符合以下任一類型，直接套用，不需再查全域分類標準。
 
 領域通用規則：
 - 直排文字閱讀：從右上角開始，往左、往下依序排列
@@ -1070,7 +1074,8 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - 保留原始格式，不修正、不美化
 `.trim(),
     數學: `
-【數學領域】
+【數學領域專屬規則】（優先級：高於全域後備規則）
+⚠️ 以下規則適用於數學作業。若題目符合以下任一類型，直接套用，不需再查全域分類標準。
 
 領域通用規則：
 - 數值+單位必須完整（如：5 公分，不是 5）
@@ -1102,7 +1107,8 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - 保留原始格式，不修正、不美化
 `.trim(),
     英語: `
-【英語領域】
+【英語領域專屬規則】（優先級：高於全域後備規則）
+⚠️ 以下規則適用於英語作業。若題目符合以下任一類型，直接套用，不需再查全域分類標準。
 
 領域通用規則：
 - 拼字/大小寫需精確
@@ -1119,7 +1125,8 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - 嚴格保留原始拼寫格式
 `.trim(),
     社會: `
-【社會領域】
+【社會領域專屬規則】（優先級：高於全域後備規則）
+⚠️ 以下規則適用於社會作業。若題目符合以下任一類型，直接套用，不需再查全域分類標準。
 
 領域通用規則：
 - 專注同音異字（如：九州≠九洲）
@@ -1155,7 +1162,8 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - 保留原始格式，不修正、不美化
 `.trim(),
     自然: `
-【自然領域】
+【自然領域專屬規則】（優先級：高於全域後備規則）
+⚠️ 以下規則適用於自然作業。若題目符合以下任一類型，直接套用，不需再查全域分類標準。
 
 領域通用規則：
 - 名詞/數值/單位必須完整
@@ -1200,7 +1208,8 @@ function buildAnswerKeyPrompt(domain?: string): string {
   const globalRules = buildGlobalRules()
   const domainRules = buildDomainRulesWithDecisionTree(domain || '其他')
 
-  return [globalRules, domainRules].filter(Boolean).join('\n')
+  // 領域規則優先於全域規則：先套領域決策樹，無匹配再查全域後備規則
+  return [domainRules, globalRules].filter(Boolean).join('\n')
 }
 
 /**
