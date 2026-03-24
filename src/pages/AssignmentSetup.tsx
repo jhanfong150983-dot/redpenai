@@ -3337,52 +3337,63 @@ export default function AssignmentSetup({
                             {/* Type 2: Reference Answer + Acceptable Answers */}
                             {questionType === 2 && (
                               <div className="space-y-2">
-                                <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
-                                  <span className="text-[11px] text-gray-500">參考答案</span>
-                                  <textarea
-                                    rows={2}
-                                    className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                                    value={q.referenceAnswer ?? ''}
-                                    onChange={(e) =>
-                                      updateQuestionField(
-                                        'create',
-                                        idx,
-                                        'referenceAnswer',
-                                        e.target.value
-                                      )
-                                    }
-                                  />
-                                </div>
-                                <div>
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-[11px] text-gray-500">可接受答案變體</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => addAcceptableAnswer('create', idx)}
-                                      className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                    >
-                                      + 新增
-                                    </button>
+                                {effectiveCategory === 'multi_check' ? (
+                                  <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
+                                    <span className="text-[11px] text-gray-500">正確選項</span>
+                                    <input
+                                      className="w-full px-2 py-1 border border-gray-300 rounded"
+                                      value={q.answer ?? ''}
+                                      onChange={(e) =>
+                                        updateQuestionField('create', idx, 'answer', e.target.value)
+                                      }
+                                      placeholder="例如：①,③"
+                                    />
                                   </div>
-                                  {(q.acceptableAnswers ?? []).map((ans, ansIdx) => (
-                                    <div key={ansIdx} className="flex items-center gap-2 mb-1">
-                                      <input
-                                        className="flex-1 px-2 py-1 border border-gray-300 rounded"
-                                        value={ans}
+                                ) : (
+                                  <>
+                                    <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
+                                      <span className="text-[11px] text-gray-500">參考答案</span>
+                                      <textarea
+                                        rows={2}
+                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                        value={q.referenceAnswer ?? ''}
                                         onChange={(e) =>
-                                          updateAcceptableAnswer('create', idx, ansIdx, e.target.value)
+                                          updateQuestionField('create', idx, 'referenceAnswer', e.target.value)
                                         }
                                       />
-                                      <button
-                                        type="button"
-                                        onClick={() => removeAcceptableAnswer('create', idx, ansIdx)}
-                                        className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50"
-                                      >
-                                        <X className="w-3 h-3" />
-                                      </button>
                                     </div>
-                                  ))}
-                                </div>
+                                    <div>
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="text-[11px] text-gray-500">可接受答案變體</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => addAcceptableAnswer('create', idx)}
+                                          className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
+                                        >
+                                          + 新增
+                                        </button>
+                                      </div>
+                                      {(q.acceptableAnswers ?? []).map((ans, ansIdx) => (
+                                        <div key={ansIdx} className="flex items-center gap-2 mb-1">
+                                          <input
+                                            className="flex-1 px-2 py-1 border border-gray-300 rounded"
+                                            value={ans}
+                                            onChange={(e) =>
+                                              updateAcceptableAnswer('create', idx, ansIdx, e.target.value)
+                                            }
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => removeAcceptableAnswer('create', idx, ansIdx)}
+                                            className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50"
+                                          >
+                                            <X className="w-3 h-3" />
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             )}
 
@@ -3889,52 +3900,63 @@ export default function AssignmentSetup({
                         {/* Type 2: Reference Answer + Acceptable Answers */}
                         {questionType === 2 && (
                           <div className="space-y-2">
-                            <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
-                              <span className="text-[11px] text-gray-500">參考答案</span>
-                              <textarea
-                                rows={2}
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                                value={q.referenceAnswer ?? ''}
-                                onChange={(e) =>
-                                  updateQuestionField(
-                                    'edit',
-                                    idx,
-                                    'referenceAnswer',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </div>
-                            <div>
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-[11px] text-gray-500">可接受答案變體</span>
-                                <button
-                                  type="button"
-                                  onClick={() => addAcceptableAnswer('edit', idx)}
-                                  className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                >
-                                  + 新增
-                                </button>
+                            {effectiveCategory === 'multi_check' ? (
+                              <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
+                                <span className="text-[11px] text-gray-500">正確選項</span>
+                                <input
+                                  className="w-full px-2 py-1 border border-gray-300 rounded"
+                                  value={q.answer ?? ''}
+                                  onChange={(e) =>
+                                    updateQuestionField('edit', idx, 'answer', e.target.value)
+                                  }
+                                  placeholder="例如：①,③"
+                                />
                               </div>
-                              {(q.acceptableAnswers ?? []).map((ans, ansIdx) => (
-                                <div key={ansIdx} className="flex items-center gap-2 mb-1">
-                                  <input
-                                    className="flex-1 px-2 py-1 border border-gray-300 rounded"
-                                    value={ans}
+                            ) : (
+                              <>
+                                <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
+                                  <span className="text-[11px] text-gray-500">參考答案</span>
+                                  <textarea
+                                    rows={2}
+                                    className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                    value={q.referenceAnswer ?? ''}
                                     onChange={(e) =>
-                                      updateAcceptableAnswer('edit', idx, ansIdx, e.target.value)
+                                      updateQuestionField('edit', idx, 'referenceAnswer', e.target.value)
                                     }
                                   />
-                                  <button
-                                    type="button"
-                                    onClick={() => removeAcceptableAnswer('edit', idx, ansIdx)}
-                                    className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50"
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </button>
                                 </div>
-                              ))}
-                            </div>
+                                <div>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="text-[11px] text-gray-500">可接受答案變體</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => addAcceptableAnswer('edit', idx)}
+                                      className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
+                                    >
+                                      + 新增
+                                    </button>
+                                  </div>
+                                  {(q.acceptableAnswers ?? []).map((ans, ansIdx) => (
+                                    <div key={ansIdx} className="flex items-center gap-2 mb-1">
+                                      <input
+                                        className="flex-1 px-2 py-1 border border-gray-300 rounded"
+                                        value={ans}
+                                        onChange={(e) =>
+                                          updateAcceptableAnswer('edit', idx, ansIdx, e.target.value)
+                                        }
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => removeAcceptableAnswer('edit', idx, ansIdx)}
+                                        className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50"
+                                      >
+                                        <X className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            )}
                           </div>
                         )}
 
