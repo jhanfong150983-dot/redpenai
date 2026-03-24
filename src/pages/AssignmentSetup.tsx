@@ -131,6 +131,7 @@ export default function AssignmentSetup({
   const [isAssignmentsLoading, setIsAssignmentsLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showAnswerKeyConfirm, setShowAnswerKeyConfirm] = useState(false)
+  const [showVocabFillWarning, setShowVocabFillWarning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isInkNegative = typeof inkBalance === 'number' && inkBalance < 0
   const canCreateAssignment = !isInkNegative
@@ -919,6 +920,16 @@ export default function AssignmentSetup({
     return { merged: { questions: sortedQuestions, totalScore }, notice }
   }
 
+  // Detect if an answer key contains 國字注音 questions (single CJK char or phonetic-only answers)
+  const hasVocabFillQuestions = (ak: AnswerKey): boolean => {
+    const phoneticRe = /^[\u3105-\u312F\u02CA\u02C7\u02CB\u02D9]+$/  // bopomofo + tone marks
+    const singleCjkRe = /^[\u4E00-\u9FFF]$/  // single Chinese character
+    return ak.questions.some((q) => {
+      const ans = q.answer ?? q.referenceAnswer ?? ''
+      return singleCjkRe.test(ans.trim()) || phoneticRe.test(ans.trim())
+    })
+  }
+
   const extractAndSetAnswerKey = async (
     file: File,
     currentKey: AnswerKey | null,
@@ -1017,6 +1028,9 @@ export default function AssignmentSetup({
         notices.push('已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。')
       }
       setNotice(notices.join(' '))
+      if (hasVocabFillQuestions(rebalanced.answerKey)) {
+        setShowVocabFillWarning(true)
+      }
     } catch (err) {
       console.error('❌ AI 讀取標準答案失敗', err)
       const errorMsg = err instanceof Error ? err.message : String(err)
@@ -1342,6 +1356,9 @@ export default function AssignmentSetup({
           notices.push('已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。')
         }
         setAnswerKeyNotice(notices.join(' '))
+        if (hasVocabFillQuestions(rebalanced.answerKey)) {
+          setShowVocabFillWarning(true)
+        }
       } else if (duplicateNotice) {
         setAnswerKeyNotice(`${REVIEW_REMINDER} ${duplicateNotice}`)
       } else {
@@ -4373,6 +4390,51 @@ export default function AssignmentSetup({
               >
                 <Plus className="w-4 h-4" />
                 建立資料夾
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 國字注音擷取警告視窗 */}
+      {showVocabFillWarning && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => setShowVocabFillWarning(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-amber-200 bg-amber-50 rounded-t-2xl flex items-center gap-2">
+              <span className="text-amber-600 text-xl">⚠️</span>
+              <h2 className="text-base font-semibold text-amber-800">注意：國字注音題擷取不穩定</h2>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <p className="text-sm text-gray-700">
+                系統偵測到本次擷取包含<strong>國字注音題</strong>（答案為單一國字或注音符號）。
+              </p>
+              <p className="text-sm text-gray-700">
+                AI 在辨識試卷中的國字／注音答案框時，<strong>準確度尚不穩定</strong>，可能發生：
+              </p>
+              <ul className="text-sm text-gray-600 list-disc list-inside space-y-1">
+                <li>抓到題幹文字，而非答案框內容</li>
+                <li>注音或國字辨識錯誤</li>
+                <li>題數多或少於實際空格數</li>
+              </ul>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <p className="text-sm text-amber-800 font-medium">
+                  請逐題確認國字注音題的答案是否正確，必要時手動修改後再建立作業。
+                </p>
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowVocabFillWarning(false)}
+                className="px-5 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 text-sm font-medium"
+              >
+                我知道了，立即檢查
               </button>
             </div>
           </div>
