@@ -126,7 +126,6 @@ export default function AssignmentSetup({
   const [isExtractingAnswerKey, setIsExtractingAnswerKey] = useState(false)
   const [answerKeyError, setAnswerKeyError] = useState<string | null>(null)
   const [answerKeyNotice, setAnswerKeyNotice] = useState<string | null>(null)
-  const [answerKeyExtractMode, setAnswerKeyExtractMode] = useState<'answer_key' | 'infer_blank'>('answer_key')
 
   const [isLoading, setIsLoading] = useState(true)
   const [isAssignmentsLoading, setIsAssignmentsLoading] = useState(false)
@@ -180,7 +179,6 @@ export default function AssignmentSetup({
   const [editAnswerKeyNotice, setEditAnswerKeyNotice] = useState<string | null>(
     null
   )
-  const [editAnswerKeyExtractMode, setEditAnswerKeyExtractMode] = useState<'answer_key' | 'infer_blank'>('answer_key')
   const [inkSessionReady, setInkSessionReady] = useState(false)
   const [inkSessionError, setInkSessionError] = useState<string | null>(null)
   const [isClosingSession, setIsClosingSession] = useState(false)
@@ -929,8 +927,7 @@ export default function AssignmentSetup({
     setErr: (msg: string | null) => void,
     setNotice: (msg: string | null) => void,
     domain?: string,
-    onImageBlobReady?: (blob: Blob) => void,
-    inferMode?: 'answer_key' | 'infer_blank'
+    onImageBlobReady?: (blob: Blob) => void
   ) => {
     console.log('📋 開始提取標準答案...', { fileName: file.name, domain })
     
@@ -1006,19 +1003,20 @@ export default function AssignmentSetup({
       }
 
       console.log('🧠 呼叫 Gemini API 提取標準答案...')
-      const extracted = await extractAnswerKeyFromImage(imageBlob, { domain, inferMode })
+      const extracted = await extractAnswerKeyFromImage(imageBlob, { domain })
       console.log('✅ AI 提取完成', { questionCount: extracted.questions.length, totalScore: extracted.totalScore })
-      
+
       const { merged, notice } = mergeAnswerKeys(currentKey, extracted)
       const rebalanced = rebalanceAnswerKeyToTargetTotal(merged, 100)
       onSet(rebalanced.answerKey)
 
-      const notices: string[] = []
+      const REVIEW_REMINDER = '⚠️ 請務必逐題確認擷取的答案是否正確，以免 AI 批改有誤。'
+      const notices: string[] = [REVIEW_REMINDER]
       if (notice) notices.push(notice)
       if (rebalanced.adjusted) {
         notices.push('已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。')
       }
-      setNotice(notices.length > 0 ? notices.join(' ') : null)
+      setNotice(notices.join(' '))
     } catch (err) {
       console.error('❌ AI 讀取標準答案失敗', err)
       const errorMsg = err instanceof Error ? err.message : String(err)
@@ -1320,8 +1318,7 @@ export default function AssignmentSetup({
         })
 
         const extracted = await extractAnswerKeyFromImages(batch, {
-          domain: assignmentDomain,
-          inferMode: answerKeyExtractMode
+          domain: assignmentDomain
         })
         const normalizedExtracted = normalizeAnswerKey(extracted)
 
@@ -1334,20 +1331,21 @@ export default function AssignmentSetup({
         }
       }
 
+      const REVIEW_REMINDER = '⚠️ 請務必逐題確認擷取的答案是否正確，以免 AI 批改有誤。'
       if (mergedAnswerKey) {
         const rebalanced = rebalanceAnswerKeyToTargetTotal(mergedAnswerKey, 100)
         setAnswerKey(rebalanced.answerKey)
 
-        const notices: string[] = []
+        const notices: string[] = [REVIEW_REMINDER]
         if (duplicateNotice) notices.push(duplicateNotice)
         if (rebalanced.adjusted) {
           notices.push('已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。')
         }
-        if (notices.length > 0) {
-          setAnswerKeyNotice(notices.join(' '))
-        }
+        setAnswerKeyNotice(notices.join(' '))
       } else if (duplicateNotice) {
-        setAnswerKeyNotice(duplicateNotice)
+        setAnswerKeyNotice(`${REVIEW_REMINDER} ${duplicateNotice}`)
+      } else {
+        setAnswerKeyNotice(REVIEW_REMINDER)
       }
       extractionSucceeded = true
     } catch (err) {
@@ -1379,8 +1377,7 @@ export default function AssignmentSetup({
       setEditAnswerKeyError,
       setEditAnswerKeyNotice,
       editingDomain,
-      (blob) => setEditAnswerSheetImage(blob),
-      editAnswerKeyExtractMode
+      (blob) => setEditAnswerSheetImage(blob)
     )
   }
 
@@ -3141,40 +3138,7 @@ export default function AssignmentSetup({
 
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-slate-700">
-                    AI 擷取模式
-                  </label>
-                  <div className="flex gap-3">
-                    <label className={`flex-1 flex items-start gap-2 rounded-lg border p-3 cursor-pointer transition-colors ${answerKeyExtractMode === 'answer_key' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
-                      <input
-                        type="radio"
-                        name="answerKeyExtractMode"
-                        value="answer_key"
-                        checked={answerKeyExtractMode === 'answer_key'}
-                        onChange={() => setAnswerKeyExtractMode('answer_key')}
-                        className="mt-0.5 accent-emerald-600"
-                      />
-                      <div>
-                        <p className="text-sm font-medium text-slate-800">上傳解答圖</p>
-                        <p className="text-xs text-slate-500 mt-0.5">AI 讀取已填寫的解答卷，辨識彩色框中的答案</p>
-                      </div>
-                    </label>
-                    <label className={`flex-1 flex items-start gap-2 rounded-lg border p-3 cursor-pointer transition-colors ${answerKeyExtractMode === 'infer_blank' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
-                      <input
-                        type="radio"
-                        name="answerKeyExtractMode"
-                        value="infer_blank"
-                        checked={answerKeyExtractMode === 'infer_blank'}
-                        onChange={() => setAnswerKeyExtractMode('infer_blank')}
-                        className="mt-0.5 accent-blue-600"
-                      />
-                      <div>
-                        <p className="text-sm font-medium text-slate-800">上傳空白作業</p>
-                        <p className="text-xs text-slate-500 mt-0.5">AI 根據題目內容與學科知識自動推論正確答案</p>
-                      </div>
-                    </label>
-                  </div>
-                  <label className="block text-sm font-medium text-slate-700 mt-2">
-                    {answerKeyExtractMode === 'infer_blank' ? '上傳空白作業（可用 PDF 或圖片，支援多檔案選取）' : '上傳解答卷（可用 PDF 或圖片，支援多檔案選取）'}
+                    上傳答案卷（可用 PDF 或圖片，支援多檔案選取）
                   </label>
                   <input
                     key={answerKeyInputKey}
@@ -3189,17 +3153,8 @@ export default function AssignmentSetup({
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                     <p className="text-xs font-semibold text-slate-700">提醒</p>
                     <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-slate-600">
-                      {answerKeyExtractMode === 'answer_key' ? (
-                        <>
-                          <li>建議使用紅筆、藍筆等彩色筆填寫，AI 較容易辨識標準答案。</li>
-                          <li>系統會自動壓縮與分批解析；檔案較多時建議一次 1-3 檔，品質較穩定。</li>
-                        </>
-                      ) : (
-                        <>
-                          <li>上傳未填寫的空白作業，AI 根據題目與學科知識推論答案。</li>
-                          <li>適合國字注音、填充等客觀題；開放性題目建議事後手動確認。</li>
-                        </>
-                      )}
+                      <li>建議使用紅筆、藍筆等彩色筆填寫，AI 較容易辨識標準答案。</li>
+                      <li>系統會自動壓縮與分批解析；檔案較多時建議一次 1-3 檔，品質較穩定。</li>
                     </ul>
                   </div>
                   <div className="flex items-center gap-2">
@@ -3237,7 +3192,9 @@ export default function AssignmentSetup({
                     <p className="text-sm text-red-600 mt-1 whitespace-pre-line">{answerKeyError}</p>
                   )}
                   {answerKeyNotice && (
-                    <p className="text-xs text-amber-600 mt-1">{answerKeyNotice}</p>
+                    <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                      <p className="text-xs text-amber-800 font-medium whitespace-pre-line">{answerKeyNotice}</p>
+                    </div>
                   )}
                 </div>
 
@@ -3736,40 +3693,7 @@ export default function AssignmentSetup({
 
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  AI 擷取模式
-                </label>
-                <div className="flex gap-3">
-                  <label className={`flex-1 flex items-start gap-2 rounded-lg border p-3 cursor-pointer transition-colors ${editAnswerKeyExtractMode === 'answer_key' ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
-                    <input
-                      type="radio"
-                      name="editAnswerKeyExtractMode"
-                      value="answer_key"
-                      checked={editAnswerKeyExtractMode === 'answer_key'}
-                      onChange={() => setEditAnswerKeyExtractMode('answer_key')}
-                      className="mt-0.5 accent-emerald-600"
-                    />
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">上傳解答圖</p>
-                      <p className="text-xs text-slate-500 mt-0.5">AI 讀取已填寫的解答卷，辨識彩色框中的答案</p>
-                    </div>
-                  </label>
-                  <label className={`flex-1 flex items-start gap-2 rounded-lg border p-3 cursor-pointer transition-colors ${editAnswerKeyExtractMode === 'infer_blank' ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}>
-                    <input
-                      type="radio"
-                      name="editAnswerKeyExtractMode"
-                      value="infer_blank"
-                      checked={editAnswerKeyExtractMode === 'infer_blank'}
-                      onChange={() => setEditAnswerKeyExtractMode('infer_blank')}
-                      className="mt-0.5 accent-blue-600"
-                    />
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">上傳空白作業</p>
-                      <p className="text-xs text-slate-500 mt-0.5">AI 根據題目內容與學科知識自動推論正確答案</p>
-                    </div>
-                  </label>
-                </div>
-                <label className="block text-sm font-medium text-gray-700 mt-2">
-                  {editAnswerKeyExtractMode === 'infer_blank' ? '上傳空白作業（可選 PDF 或圖片）' : '重新上傳解答卷（可選 PDF 或圖片）'}
+                  重新上傳答案卷（可選 PDF 或圖片）
                 </label>
                 <input
                   type="file"
@@ -3785,18 +3709,14 @@ export default function AssignmentSetup({
                 <p className="text-xs text-gray-500 mt-1">
                   系統會自動壓縮後交給 AI。可多次上傳，題目會合併；重複題號會自動加上後綴。
                 </p>
-                {editAnswerKeyExtractMode === 'answer_key' && (
-                  <>
-                    <p className="text-xs text-amber-600 mt-1">
-                      💡 若要使用「重新分析」功能，請先上傳答案卷並點擊「AI 解析」
-                    </p>
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mt-2">
-                      <p className="text-xs text-blue-800">
-                        💡 <strong>提示：</strong>建議使用<strong className="text-blue-900">紅筆、藍筆或其他彩色筆</strong>填寫答案，AI 會優先識別與印刷黑色不同的彩色筆跡作為標準答案，辨識率更高！
-                      </p>
-                    </div>
-                  </>
-                )}
+                <p className="text-xs text-amber-600 mt-1">
+                  💡 若要使用「重新分析」功能，請先上傳答案卷並點擊「AI 解析」
+                </p>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mt-2">
+                  <p className="text-xs text-blue-800">
+                    💡 <strong>提示：</strong>建議使用<strong className="text-blue-900">紅筆、藍筆或其他彩色筆</strong>填寫答案，AI 會優先識別與印刷黑色不同的彩色筆跡作為標準答案，辨識率更高！
+                  </p>
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -3840,9 +3760,9 @@ export default function AssignmentSetup({
                   </p>
                 )}
                 {editAnswerKeyNotice && (
-                  <p className="text-xs text-amber-600 mt-1">
-                    {editAnswerKeyNotice}
-                  </p>
+                  <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                    <p className="text-xs text-amber-800 font-medium whitespace-pre-line">{editAnswerKeyNotice}</p>
+                  </div>
                 )}
               </div>
 
