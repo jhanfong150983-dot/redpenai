@@ -3067,6 +3067,7 @@ export async function extractAnswerKeyFromImage(
   const mimeType = answerSheetImage.type || 'image/jpeg'
 
   const prompt = buildAnswerKeyPrompt(opts?.domain)
+  console.log('📋 [AnswerKey prompt]', prompt)
 
   const text = (await generateGeminiText(currentModelName, [
     prompt,
@@ -3077,6 +3078,7 @@ export async function extractAnswerKeyFromImage(
     .replace(/```json|```/g, '')
     .trim()
 
+  console.log('📥 [AnswerKey raw response]', text)
   const answerKey = JSON.parse(text) as AnswerKey
   return answerKey
 }
@@ -3095,6 +3097,7 @@ export async function extractAnswerKeyFromImages(
   console.log(`🧾 開始從 ${answerSheetImages.length} 張答案卷圖片抽取 AnswerKey...`)
 
   const prompt = buildAnswerKeyPrompt(opts?.domain)
+  console.log('📋 [AnswerKey prompt]', prompt)
 
   // 多圖片提示增強
   const multiImagePrompt = `
@@ -3128,6 +3131,7 @@ ${prompt}
     .replace(/```json|```/g, '')
     .trim()
 
+  console.log('📥 [AnswerKey raw response]', text)
   const result = JSON.parse(text) as AnswerKey
   console.log(`✅ 成功提取 ${result.questions.length} 題，總分 ${result.totalScore}`)
   return result
