@@ -866,6 +866,11 @@ function buildGlobalTaskAndFormat(): string {
     "referenceAnswer": "範例答案",
     "acceptableAnswers": ["同義詞1", "同義詞2"],
 
+    // vocab_fill 專用：國字注音題（整大題一題）
+    // referenceAnswer: 所有配對，格式 "彰(ㄓㄤ), 築(ㄓㄨˋ), 倚(ㄧˇ)"
+    // acceptableAnswers: 所有國字和注音分開列出 ["彰","ㄓㄤ","築","ㄓㄨˋ","倚","ㄧˇ"]
+    // maxScore: 空格總數（每格 1 分）
+
     // word_problem / calculation / short_answer / map_draw / diagram_draw 專用：評分規準
     // word_problem: [列式計算, 答句（含單位）]
     // calculation: [算式過程, 最終答案（純數值，不需單位）]
@@ -996,7 +1001,14 @@ function buildGlobalClassificationFallback(): string {
    → questionCategory: "true_false"（是非題）
    - answer 統一填 "○" 或 "✗"
 
-8. 地圖/圖表的多個指定位置，需填寫地名/國名等文字標籤？
+8. 題目標題含「寫國字或注音」「寫出注音」「寫出國字」，每個空格旁有對應字或注音提示？
+   → questionCategory: "vocab_fill"（國字注音題）
+   - 整大題 = 1 題
+   - referenceAnswer：所有國字-注音配對，格式 "彰(ㄓㄤ), 築(ㄓㄨˋ), ..."
+   - acceptableAnswers：所有國字和注音分開列出 ["彰", "ㄓㄤ", "築", "ㄓㄨˋ", ...]
+   - maxScore：空格總數
+
+8b. 地圖/圖表的多個指定位置，需填寫地名/國名等文字標籤？
    → questionCategory: "map_fill"（填圖題）
    - acceptableAnswers 列出所有正確名稱；referenceAnswer 描述位置對應關係
 
@@ -1044,11 +1056,16 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 題型判斷與擷取規則：
 
-▸ 如果是「國字注音題」（雙方框結構：國字｜注音）：
-  - questionCategory: "fill_blank"
-  - 每一個雙方框為一題(國字｜注音)，要獨立判斷考國字或注音(二擇一)，不要過度推論下一題。
-  - answer 必須只會是國字與注音其中一個，可以用顏色判斷（範例：「弄(綠底黑字=題目)｜ㄋㄨㄥˋ(白底紅字=答案)」）
-  - 如果有連續雙方框結構，強制拆分單獨各為一題，(範例：烘(白底紅字=答案)｜ㄏㄨㄥ(綠底黑字=題目) 烘(白底紅字=答案)｜ㄏㄨㄥ(綠底黑字=題目)，第一題 answer: "烘"，第二題 answer: "烘")
+▸ 如果是「國字注音題」（每個空格要寫國字或注音，整大題視為一題）：
+  - questionCategory: "vocab_fill"
+  - 整個「寫國字或注音」大題 = 1 題，不要拆成多個子題
+  - referenceAnswer：列出所有國字-注音配對，格式為「國字(注音)」以逗號分隔
+    範例："彰(ㄓㄤ), 築(ㄓㄨˋ), 倚(ㄧˇ), 邀(ㄧㄠ), 遛(ㄌㄧㄡˋ), 繫(ㄒㄧˋ)"
+  - acceptableAnswers：把所有國字和注音分開列出（學生只需寫其中一個）
+    範例：["彰", "ㄓㄤ", "築", "ㄓㄨˋ", "倚", "ㄧˇ"]
+  - maxScore：空格總數（每個空格 1 分）
+  - 注意：注音必須包含完整聲母+韻母+聲調（如 ㄓㄤ 而非只寫 ㄓ）
+  - 識別特徵：題目說「寫國字或注音」「寫出注音」「寫出國字」，且空格旁邊有對應的字或注音提示
 
 ▸ 如果是「相近字造詞題」（如：辨/辯、嗇/普）：
   - questionCategory: "fill_variants"

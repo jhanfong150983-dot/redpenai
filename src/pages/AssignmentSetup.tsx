@@ -572,6 +572,7 @@ export default function AssignmentSetup({
     map_fill: 2,
     map_draw: 3,
     diagram_draw: 3,
+    vocab_fill: 2,
   }
 
   const CATEGORY_LABELS: Record<QuestionCategory, string> = {
@@ -586,6 +587,7 @@ export default function AssignmentSetup({
     map_fill: '填圖題',
     map_draw: '繪圖題',
     diagram_draw: '塗色題',
+    vocab_fill: '國字注音題',
   }
 
   function defaultCategoryFromType(type: QuestionCategoryType): QuestionCategory {
