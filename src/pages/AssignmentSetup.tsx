@@ -1021,13 +1021,12 @@ export default function AssignmentSetup({
       const rebalanced = rebalanceAnswerKeyToTargetTotal(merged, 100)
       onSet(rebalanced.answerKey)
 
-      const REVIEW_REMINDER = '⚠️ 請務必逐題確認擷取的答案是否正確，以免 AI 批改有誤。'
-      const notices: string[] = [REVIEW_REMINDER]
+      const notices: string[] = []
       if (notice) notices.push(notice)
       if (rebalanced.adjusted) {
         notices.push('已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。')
       }
-      setNotice(notices.join(' '))
+      setNotice(notices.length > 0 ? notices.join(' ') : null)
       if (hasVocabFillQuestions(rebalanced.answerKey)) {
         setShowVocabFillWarning(true)
       }
@@ -1345,24 +1344,23 @@ export default function AssignmentSetup({
         }
       }
 
-      const REVIEW_REMINDER = '⚠️ 請務必逐題確認擷取的答案是否正確，以免 AI 批改有誤。'
       if (mergedAnswerKey) {
         const rebalanced = rebalanceAnswerKeyToTargetTotal(mergedAnswerKey, 100)
         setAnswerKey(rebalanced.answerKey)
 
-        const notices: string[] = [REVIEW_REMINDER]
+        const notices: string[] = []
         if (duplicateNotice) notices.push(duplicateNotice)
         if (rebalanced.adjusted) {
           notices.push('已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。')
         }
-        setAnswerKeyNotice(notices.join(' '))
+        setAnswerKeyNotice(notices.length > 0 ? notices.join(' ') : null)
         if (hasVocabFillQuestions(rebalanced.answerKey)) {
           setShowVocabFillWarning(true)
         }
       } else if (duplicateNotice) {
-        setAnswerKeyNotice(`${REVIEW_REMINDER} ${duplicateNotice}`)
+        setAnswerKeyNotice(duplicateNotice)
       } else {
-        setAnswerKeyNotice(REVIEW_REMINDER)
+        setAnswerKeyNotice(null)
       }
       extractionSucceeded = true
     } catch (err) {
