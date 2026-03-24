@@ -839,7 +839,9 @@ async function getRecentAnswerExtractionCorrections(
 /**
  * 建立全域規則（適用於所有領域）
  */
-function buildGlobalRules(): string {
+// Part 1：task 指令 + JSON schema + 通用原則 + 顏色辨識 + multi_check 識別
+// 永遠排在 prompt 最前面
+function buildGlobalTaskAndFormat(): string {
   return `
 從標準答案圖片提取可機器批改的答案表。回傳純 JSON（無 Markdown）：
 
@@ -942,7 +944,13 @@ function buildGlobalRules(): string {
 - 設定：id: "3", questionCategory: "multi_check", answer: "①,③", maxScore: 2
 
 ⚠️ 注意：「圈圈看」「打✓看」「比比看」等題型，若只能選一個答案，仍為 single_choice（非 multi_check）。
+`.trim()
+}
 
+// Part 2：全域題型分類（後備規則）
+// 排在領域專屬規則之後，作為 fallback
+function buildGlobalClassificationFallback(): string {
+  return `
 【題型分類標準（後備規則）】
 ⚠️ 若上方領域專屬規則已能匹配題目，直接套用，不需再查以下標準。
 以下規則僅在領域規則未覆蓋時使用。
@@ -1205,11 +1213,12 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
  * 建立答案提取 Prompt（重構版 - 決策樹架構）
  */
 function buildAnswerKeyPrompt(domain?: string): string {
-  const globalRules = buildGlobalRules()
+  const taskAndFormat = buildGlobalTaskAndFormat()
   const domainRules = buildDomainRulesWithDecisionTree(domain || '其他')
+  const classificationFallback = buildGlobalClassificationFallback()
 
-  // 領域規則優先於全域規則：先套領域決策樹，無匹配再查全域後備規則
-  return [domainRules, globalRules].filter(Boolean).join('\n')
+  // 正確順序：task 說明 → 領域規則（高優先）→ 全域後備分類
+  return [taskAndFormat, domainRules, classificationFallback].filter(Boolean).join('\n\n')
 }
 
 /**
