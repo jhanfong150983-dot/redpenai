@@ -409,15 +409,17 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                   <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left w-16">座號</th>
                   <th className="sticky left-16 z-10 bg-gray-50 px-3 py-2 text-left w-32">姓名</th>
 
-                  {/* Ghost "add column" — always sits right next to 姓名 */}
+                  {/* Ghost "add column" — always sits right next to 姓名, looks like a real dashed column */}
                   <th
-                    className="px-2 py-2 w-20 cursor-pointer opacity-40 hover:opacity-70 transition-opacity group"
+                    className="px-3 py-2 w-24 min-w-[96px] text-center cursor-pointer select-none
+                      border-x-2 border-dashed border-amber-300 bg-amber-50/30
+                      opacity-50 hover:opacity-90 hover:bg-amber-50/60 transition-opacity"
                     onClick={handleAddColumn}
                     title="新增自訂欄位"
                   >
-                    <div className="flex flex-col items-center justify-center gap-1 h-full rounded border-2 border-dashed border-amber-400 bg-amber-50/40 py-3 px-1">
+                    <div className="flex flex-col items-center justify-center gap-1 py-1">
                       <Plus className="w-4 h-4 text-amber-500" />
-                      <span className="text-[10px] text-amber-600 leading-tight text-center">新增欄位</span>
+                      <span className="text-[11px] font-medium text-amber-600 leading-tight">新增欄位</span>
                     </div>
                   </th>
 
@@ -501,14 +503,14 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       </td>
                       <td className="sticky left-16 z-10 bg-inherit px-3 py-2 text-gray-800">{r.student.name}</td>
 
-                      {/* Ghost cell under add-column header */}
+                      {/* Ghost cell — dashed column body */}
                       <td
-                        className="w-20 px-2 py-2 opacity-30 hover:opacity-60 cursor-pointer transition-opacity"
+                        className="w-24 min-w-[96px] px-3 py-2
+                          border-x-2 border-dashed border-amber-300 bg-amber-50/20
+                          opacity-40 hover:opacity-70 cursor-pointer transition-opacity"
                         onClick={handleAddColumn}
                         title="新增自訂欄位"
-                      >
-                        <div className="h-full rounded border border-dashed border-amber-400 bg-amber-50/40" />
-                      </td>
+                      />
 
                       {/* Custom column scores */}
                       {customColumns.map((col, idx) => (
