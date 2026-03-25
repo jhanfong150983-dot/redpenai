@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Download, Info } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, Download, Info, Plus, X } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { db } from '@/lib/db'
 import type { Assignment, Classroom, Folder as AssignmentFolder, Student, Submission } from '@/lib/db'
@@ -14,6 +14,17 @@ interface SimpleStats {
   median: number | null
 }
 
+interface CustomColumn {
+  id: string
+  name: string
+  weight: number
+  scores: Record<string, number | null>
+}
+
+function storageKey(classroomId: string) {
+  return `gradebook_custom_cols_${classroomId}`
+}
+
 export default function Gradebook({ embedded = false }: GradebookProps) {
   const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [selectedClassroomId, setSelectedClassroomId] = useState('')
@@ -25,6 +36,17 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const [weights, setWeights] = useState<Record<string, number>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Custom columns
+  const [customColumns, setCustomColumns] = useState<CustomColumn[]>([])
+  const customColsLoadedRef = useRef(false)
+
+  // Add-column modal
+  const [addColOpen, setAddColOpen] = useState(false)
+  const [newColName, setNewColName] = useState('')
+  const [newColWeight, setNewColWeight] = useState(1)
+  const newColNameRef = useRef<HTMLInputElement>(null)
+
   const hasClassrooms = classrooms.length > 0
 
   useEffect(() => {
@@ -108,6 +130,28 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     }
   }, [selectedClassroomId])
 
+  // Load custom columns from localStorage when classroom changes
+  useEffect(() => {
+    if (!selectedClassroomId) {
+      setCustomColumns([])
+      customColsLoadedRef.current = false
+      return
+    }
+    try {
+      const stored = localStorage.getItem(storageKey(selectedClassroomId))
+      setCustomColumns(stored ? (JSON.parse(stored) as CustomColumn[]) : [])
+    } catch {
+      setCustomColumns([])
+    }
+    customColsLoadedRef.current = true
+  }, [selectedClassroomId])
+
+  // Save custom columns to localStorage on every change
+  useEffect(() => {
+    if (!selectedClassroomId || !customColsLoadedRef.current) return
+    localStorage.setItem(storageKey(selectedClassroomId), JSON.stringify(customColumns))
+  }, [selectedClassroomId, customColumns])
+
   const emptyFolders = useMemo(
     () => assignmentFolders.map((folder) => folder.name),
     [assignmentFolders]
@@ -140,8 +184,10 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   }, [submissions])
 
   const totalWeight = useMemo(
-    () => filteredAssignments.reduce((sum, a) => sum + (weights[a.id] ?? 0), 0),
-    [filteredAssignments, weights]
+    () =>
+      filteredAssignments.reduce((sum, a) => sum + (weights[a.id] ?? 0), 0) +
+      customColumns.reduce((sum, c) => sum + c.weight, 0),
+    [filteredAssignments, weights, customColumns]
   )
 
   const rows = useMemo(() => {
@@ -150,17 +196,24 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
         const sub = submissionMap.get(`${a.id}-${s.id}`)
         return sub?.score ?? null
       })
+      const customScores = customColumns.map((col) => col.scores[s.id] ?? null)
+
       const weightedTotal =
         totalWeight > 0
           ? filteredAssignments.reduce((sum, a, idx) => {
               const score = scores[idx]
               const w = weights[a.id] ?? 0
               return sum + (score != null ? score * w : 0)
+            }, 0) +
+            customColumns.reduce((sum, col, idx) => {
+              const score = customScores[idx]
+              return sum + (score != null ? score * col.weight : 0)
             }, 0)
           : null
-      return { student: s, scores, weightedTotal }
+
+      return { student: s, scores, customScores, weightedTotal }
     })
-  }, [students, filteredAssignments, submissionMap, weights, totalWeight])
+  }, [students, filteredAssignments, submissionMap, weights, totalWeight, customColumns])
 
   const calcStats = (values: Array<number | null>): SimpleStats => {
     const valid = values.filter((v): v is number => v != null)
@@ -194,6 +247,13 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     return map
   }, [filteredAssignments, rows])
 
+  const customColumnStats = useMemo(() => {
+    return customColumns.map((col, idx) => {
+      const values = rows.map((r) => r.customScores[idx])
+      return calcStats(values)
+    })
+  }, [customColumns, rows])
+
   const totalStats = useMemo(() => {
     const totals = rows.map((r) => r.weightedTotal).filter((v): v is number => v != null)
     return {
@@ -209,13 +269,52 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     setWeights((prev) => ({ ...prev, [id]: Math.max(0, value) }))
   }
 
+  // Custom column handlers
+  const handleOpenAddCol = () => {
+    setNewColName('')
+    setNewColWeight(1)
+    setAddColOpen(true)
+    setTimeout(() => newColNameRef.current?.focus(), 50)
+  }
+
+  const handleConfirmAddCol = () => {
+    const name = newColName.trim()
+    if (!name) return
+    const id = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    setCustomColumns((prev) => [...prev, { id, name, weight: Math.max(0, newColWeight), scores: {} }])
+    setAddColOpen(false)
+  }
+
+  const handleDeleteColumn = (id: string) => {
+    setCustomColumns((prev) => prev.filter((c) => c.id !== id))
+  }
+
+  const handleCustomWeightChange = (id: string, value: number) => {
+    setCustomColumns((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, weight: Math.max(0, value) } : c))
+    )
+  }
+
+  const handleCustomScoreChange = (colId: string, studentId: string, raw: string) => {
+    const trimmed = raw.trim()
+    const value = trimmed === '' ? null : Number(trimmed)
+    const score = trimmed === '' ? null : Number.isFinite(value) ? value : null
+    setCustomColumns((prev) =>
+      prev.map((c) =>
+        c.id === colId ? { ...c, scores: { ...c.scores, [studentId]: score } } : c
+      )
+    )
+  }
+
   const handleExportCsv = () => {
-    const headers = ['座號', '姓名', ...filteredAssignments.map((a) => a.title), '總分']
+    const customHeaders = customColumns.map((c) => c.name)
+    const headers = ['座號', '姓名', ...filteredAssignments.map((a) => a.title), ...customHeaders, '總分']
     const lines = rows.map((r) => {
       const cols = [
         r.student.seatNumber ?? '',
         r.student.name,
         ...r.scores.map((s) => (s == null ? '' : s.toString())),
+        ...r.customScores.map((s) => (s == null ? '' : s.toString())),
         r.weightedTotal == null ? '' : r.weightedTotal.toFixed(1)
       ]
       return cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')
@@ -293,14 +392,24 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                 })}
               </select>
             </div>
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-            >
-              <Download className="w-4 h-4" />
-              匯出 CSV
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleOpenAddCol}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                <Plus className="w-4 h-4" />
+                新增欄位
+              </button>
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                <Download className="w-4 h-4" />
+                匯出 CSV
+              </button>
+            </div>
           </div>
         </div>
 
@@ -315,8 +424,8 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-gray-700">
-                  <th className="px-3 py-2 text-left w-16">座號</th>
-                  <th className="px-3 py-2 text-left w-32">姓名</th>
+                  <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left w-16">座號</th>
+                  <th className="sticky left-16 z-10 bg-gray-50 px-3 py-2 text-left w-32">姓名</th>
                   {filteredAssignments.map((a) => (
                     <th key={a.id} className="px-3 py-2 text-center min-w-[140px]">
                       <div className="font-semibold text-gray-900">{a.title}</div>
@@ -333,6 +442,35 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       <div className="mt-1 text-[11px] text-gray-500">
                         平均 {formatNumber(assignmentStats[a.id]?.average)} ／ 中位數{' '}
                         {formatNumber(assignmentStats[a.id]?.median)}
+                      </div>
+                    </th>
+                  ))}
+                  {customColumns.map((col, idx) => (
+                    <th key={col.id} className="px-3 py-2 text-center min-w-[140px] bg-amber-50">
+                      <div className="flex items-center justify-center gap-1">
+                        <span className="font-semibold text-amber-900">{col.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteColumn(col.id)}
+                          className="rounded p-0.5 text-amber-400 hover:bg-amber-100 hover:text-amber-700"
+                          aria-label={`刪除欄位 ${col.name}`}
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                      <div className="mt-1 flex items-center justify-center gap-1 text-xs text-amber-700">
+                        權重
+                        <NumericInput
+                          allowDecimal={true}
+                          min={0}
+                          value={col.weight}
+                          onChange={(v) => handleCustomWeightChange(col.id, typeof v === 'number' ? v : Number(v) || 0)}
+                          className="w-16 rounded border border-amber-300 bg-white px-2 py-1 text-xs text-amber-800"
+                        />
+                      </div>
+                      <div className="mt-1 text-[11px] text-amber-600">
+                        平均 {formatNumber(customColumnStats[idx]?.average)} ／ 中位數{' '}
+                        {formatNumber(customColumnStats[idx]?.median)}
                       </div>
                     </th>
                   ))}
@@ -353,13 +491,24 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       key={r.student.id}
                       className={`hover:bg-gray-50 ${isLow ? 'bg-rose-50/80' : ''}`}
                     >
-                      <td className="px-3 py-2 font-medium text-gray-900">
+                      <td className="sticky left-0 z-10 bg-inherit px-3 py-2 font-medium text-gray-900">
                         {r.student.seatNumber ?? '—'}
                       </td>
-                      <td className="px-3 py-2 text-gray-800">{r.student.name}</td>
+                      <td className="sticky left-16 z-10 bg-inherit px-3 py-2 text-gray-800">{r.student.name}</td>
                       {r.scores.map((score, idx) => (
                         <td key={filteredAssignments[idx].id} className="px-3 py-2 text-center text-gray-900">
                           {score == null ? '—' : score}
+                        </td>
+                      ))}
+                      {customColumns.map((col, idx) => (
+                        <td key={col.id} className="px-3 py-2 text-center bg-amber-50/60">
+                          <input
+                            type="number"
+                            value={r.customScores[idx] ?? ''}
+                            onChange={(e) => handleCustomScoreChange(col.id, r.student.id, e.target.value)}
+                            placeholder="—"
+                            className="w-20 rounded border border-amber-200 bg-white px-2 py-1 text-center text-sm text-gray-900 placeholder-gray-300 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-300"
+                          />
                         </td>
                       ))}
                       <td className="px-3 py-2 text-center font-semibold">
@@ -379,7 +528,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                 })}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={filteredAssignments.length + 3} className="px-3 py-6 text-center text-gray-500">
+                    <td colSpan={filteredAssignments.length + customColumns.length + 3} className="px-3 py-6 text-center text-gray-500">
                       尚無學生或作業資料。
                     </td>
                   </tr>
@@ -393,7 +542,59 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
           </div>
         </div>
       </div>
+
+      {/* Add column modal */}
+      {addColOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={(e) => { if (e.target === e.currentTarget) setAddColOpen(false) }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+            <h2 className="mb-4 text-base font-semibold text-gray-900">新增自訂欄位</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">欄位名稱</label>
+                <input
+                  ref={newColNameRef}
+                  type="text"
+                  value={newColName}
+                  onChange={(e) => setNewColName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmAddCol() }}
+                  placeholder="例：期中考、出席率"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">權重</label>
+                <NumericInput
+                  allowDecimal={true}
+                  min={0}
+                  value={newColWeight}
+                  onChange={(v) => setNewColWeight(typeof v === 'number' ? v : Number(v) || 1)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAddColOpen(false)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmAddCol}
+                disabled={!newColName.trim()}
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-40"
+              >
+                新增
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
-
