@@ -576,6 +576,8 @@ export default function AssignmentSetup({
 
   const CATEGORY_TO_TYPE: Record<QuestionCategory, QuestionCategoryType> = {
     single_choice: 1,
+    multi_choice: 2,
+    single_check: 1,
     true_false: 1,
     fill_blank: 1,
     fill_variants: 2,
@@ -589,11 +591,13 @@ export default function AssignmentSetup({
   }
 
   const CATEGORY_LABELS: Record<QuestionCategory, string> = {
-    single_choice: '選擇題',
+    single_choice: '單選選擇',
+    multi_choice: '多選選擇',
+    single_check: '單選勾選',
     true_false: '是非題',
     fill_blank: '填充題',
     fill_variants: '填充題（多元）',
-    multi_check: '勾選題',
+    multi_check: '多選勾選',
     calculation: '計算題',
     word_problem: '應用題',
     short_answer: '簡答題',
@@ -875,8 +879,8 @@ export default function AssignmentSetup({
           baseQuestion.answerFormat = 'matching'
         }
       } else if (questionType === 2) {
-        // multi_check uses 'answer' field (comma-separated tokens e.g. "①,③")
-        if (q?.questionCategory === 'multi_check') {
+        // multi_check and multi_choice use 'answer' field (comma-separated tokens e.g. "①,③" or "A,C")
+        if (q?.questionCategory === 'multi_check' || q?.questionCategory === 'multi_choice') {
           baseQuestion.answer =
             typeof q?.answer === 'string'
               ? q.answer
@@ -3476,7 +3480,7 @@ export default function AssignmentSetup({
                             {/* Type 2: Reference Answer + Acceptable Answers */}
                             {questionType === 2 && (
                               <div className="space-y-2">
-                                {effectiveCategory === 'multi_check' ? (
+                                {(effectiveCategory === 'multi_check' || effectiveCategory === 'multi_choice') ? (
                                   <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
                                     <span className="text-[11px] text-gray-500">正確選項</span>
                                     <input
@@ -3485,7 +3489,7 @@ export default function AssignmentSetup({
                                       onChange={(e) =>
                                         updateQuestionField('create', idx, 'answer', e.target.value)
                                       }
-                                      placeholder="例如：①,③"
+                                      placeholder={effectiveCategory === 'multi_choice' ? '例如：A,C' : '例如：①,③'}
                                     />
                                   </div>
                                 ) : (
@@ -4039,7 +4043,7 @@ export default function AssignmentSetup({
                         {/* Type 2: Reference Answer + Acceptable Answers */}
                         {questionType === 2 && (
                           <div className="space-y-2">
-                            {effectiveCategory === 'multi_check' ? (
+                            {(effectiveCategory === 'multi_check' || effectiveCategory === 'multi_choice') ? (
                               <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
                                 <span className="text-[11px] text-gray-500">正確選項</span>
                                 <input
@@ -4048,7 +4052,7 @@ export default function AssignmentSetup({
                                   onChange={(e) =>
                                     updateQuestionField('edit', idx, 'answer', e.target.value)
                                   }
-                                  placeholder="例如：①,③"
+                                  placeholder={effectiveCategory === 'multi_choice' ? '例如：A,C' : '例如：①,③'}
                                 />
                               </div>
                             ) : (

@@ -841,7 +841,7 @@ async function getRecentAnswerExtractionCorrections(
 /**
  * 建立全域規則（適用於所有領域）
  */
-// Part 1：task 指令 + JSON schema + 通用原則 + 顏色辨識 + multi_check 識別
+// Part 1：task 指令 + JSON schema + 通用原則 + 顏色辨識 + 選擇/勾選題識別
 // 永遠排在 prompt 最前面
 function buildGlobalTaskAndFormat(): string {
   return `
@@ -855,11 +855,13 @@ function buildGlobalTaskAndFormat(): string {
     "questionCategory": "fill_blank",  // 題型（必填，見下方分類標準）
     "maxScore": 5,                      // 滿分
 
-    // single_choice / true_false / fill_blank / multi_check 專用：標準答案
-    // single_choice: 選項代號，如 "A"、"甲"、"①"
+    // single_choice / true_false / fill_blank / multi_check / multi_choice / single_check 專用：標準答案
+    // single_choice: 括號()內填一個代號，如 "A"、"甲"、"①"（答案空間為括號）
+    // multi_choice: 括號()內填多個代號（逗號分隔），如 "A,C"、"①,③"（答案空間為括號）
+    // single_check: 方框□內標記一個選項，如 "①"、"第一個"（答案空間為勾選方框）
+    // multi_check: 方框□內標記多個選項（逗號分隔），如 "①,③"、"第一個,第三個"（答案空間為勾選方框）
     // true_false: "○" 或 "✗"
     // fill_blank: 完整正解含單位，如 "15 公分"
-    // multi_check: 正確勾選集合（逗號分隔），如 "①,③"
     "answer": "正確答案",
 
     // fill_variants / map_fill 專用：可接受的答案變體
@@ -928,18 +930,39 @@ function buildGlobalTaskAndFormat(): string {
 2. 第二步：提取這些紅色的內容作為答案（不管內容是什麼形式）
 3. 第三步：如果沒有明顯紅色，才參考題目要求
 
-【勾選題/複選題識別（multi_check）】
-⚠️ 學生可勾選多個選項時，必須識別為 multi_check，不可拆分！
+【選擇題與勾選題識別（4種題型）】
 
-識別特徵：
-- 題目有多個勾選框（□① □② □③ 或 □A □B □C）
-- 題目說明「請勾選」「可複選」「選出所有正確的」「打✓」
-- 或題目沒有明確說明，但學生可以選多個
+⚠️ 關鍵區分：「選擇」= 答案空間是括號 ( )；「勾選」= 答案空間是方框 □
 
-設定原則：
-1. 必須視為 1 題（不可拆成多題）
-2. questionCategory: "multi_check"
-3. answer 填正確選項集合，用逗號分隔（格式依標籤類型決定）：
+【1. single_choice 單選選擇】
+- 答案空間是括號 ( )，學生在括號內填入一個代號
+- 識別特徵：題目有 ( ) 空格，學生寫 A/B/C/D 或 甲/乙/丙/丁 或 ①②③ 其中一個
+- questionCategory: "single_choice"
+- answer: 填一個代號，如 "A"、"甲"、"①"
+- 給分：二元（全對/全錯）
+
+【2. multi_choice 多選選擇】
+- 答案空間是括號 ( )，學生在括號內填入多個代號（逗號分隔）
+- 識別特徵：題目有 ( ) 空格，且說明「可複選」「選出所有正確的」，或顯然需填多個代號
+- questionCategory: "multi_choice"
+- answer: 填多個代號（逗號分隔），如 "A,C"、"①,③"
+- 給分：部分給分（按正確選項比例）
+
+【3. single_check 單選勾選】
+- 答案空間是方框 □，學生在一個方框內標記（✓/○/×）
+- 識別特徵：題目旁有多個 □ 方框，但只能選/標記一個
+- questionCategory: "single_check"
+- answer: 填一個標記（格式依標籤類型決定）：
+   - 有印刷標籤 ①②③ → answer: "①"
+   - 有印刷標籤 A B C → answer: "A"
+   - 無印刷標籤方框 → 用「第X個」，如 "第一個"
+- 給分：二元（全對/全錯）
+
+【4. multi_check 多選勾選】
+- 答案空間是方框 □，學生可在多個方框內標記（可複選）
+- 識別特徵：題目有多個 □ 方框，且「請勾選」「可複選」「選出所有正確的」或可標記多個
+- questionCategory: "multi_check"
+- answer: 填正確選項集合，用逗號分隔（格式依標籤類型決定）：
    - 有印刷標籤 ①②③ → answer: "①,③"
    - 有印刷標籤 A B C → answer: "A,C"
    - 有印刷數字 1 2 3 → answer: "1,3"
@@ -948,7 +971,7 @@ function buildGlobalTaskAndFormat(): string {
      - 橫排版面（方框排成橫列）：從左到右計數，最左邊的框 = 第一個
      - 直列版面（方框排成直行）：從上到下計數，最上面的框 = 第一個
      - 範例：4個橫排無標籤方框，第1與第3被打勾 → answer: "第一個,第三個"
-4. 部分給分：批改時按「正確勾到的數量 − 多勾錯的數量」比例給分
+- 給分：部分給分（按「正確勾到的數量 − 多勾錯的數量」比例）
 
 🚫 嚴格禁止自行解題：
 - ❌ 禁止：用自己的知識判斷「哪個選項是正確的」
@@ -960,8 +983,9 @@ function buildGlobalTaskAndFormat(): string {
 - 題目：「請勾選台灣的地形特色：□①高山多 □②平原廣 □③四面環海 □④沙漠廣大」
   圖片顯示 ①③ 的方框內有標記 → answer: "①,③"
 - 設定：id: "3", questionCategory: "multi_check", answer: "①,③", maxScore: 2
-
-⚠️ 注意：「圈圈看」「打✓看」「比比看」等題型，若只能選一個答案，仍為 single_choice（非 multi_check）。
+- 題目：「下列哪些是正確的？(　　) A.地球 B.月球 C.太陽 D.彗星（可複選）」
+  圖片顯示括號內寫 A,C → answer: "A,C"
+- 設定：id: "4", questionCategory: "multi_choice", answer: "A,C", maxScore: 2
 `.trim()
 }
 
@@ -999,14 +1023,22 @@ function buildGlobalClassificationFallback(): string {
    - 最終答案 criteria: 數值正確（不需單位）
    - ⚠️ 與 word_problem 差異：無情境、無答句、答案不含單位
 
-5. 有多個勾選框，學生可勾選多個？
-   → questionCategory: "multi_check"（勾選題）
-   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
+5. 有括號 ( ) 作為答案空間，且需填入多個選項代號（可複選）？
+   → questionCategory: "multi_choice"（多選選擇）
+   - answer 填正確選項集合（逗號分隔），如 "A,C" 或 "①,③"
 
-6. A/B/C/D 或 甲/乙/丙/丁 或 ①/②，選一個？
-   → questionCategory: "single_choice"（選擇題）
+5b. 有括號 ( ) 作為答案空間，且只填一個選項代號？
+   → questionCategory: "single_choice"（單選選擇）
    - answer 填選項代號（如 "A"、"甲"、"①"）
-   - 包含「圈圈看」「比比看」「打✓選一個」等格式
+   - 包含「圈圈看」「比比看」「打✓選一個」等格式（但答案空間是括號）
+
+6. 有方框 □ 且學生只能標記一個框（單選勾選）？
+   → questionCategory: "single_check"（單選勾選）
+   - answer 填一個標記代號（如 "①"、"A"）；無標籤方框用「第X個」（如「第一個」）
+
+6b. 有多個勾選框，學生可勾選多個？
+   → questionCategory: "multi_check"（多選勾選）
+   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」)
 
 7. 只有兩個選項：○/✗、對/錯、是/否？
    → questionCategory: "true_false"（是非題）
@@ -1109,16 +1141,26 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - 題號：有引導文字就用，無則按順序編號
   - 注意：方格可能是直排（由右往左、由上往下）
 
-▸ 如果是「選擇題」（選出正確的字/詞/成語/字義，單選）：
+▸ 如果是「選擇題」（選出正確的字/詞/成語/字義）：
+  單選（答案空間是括號，只填一個代號）：
   - questionCategory: "single_choice"
   - answer 填選項代號（如 "A"、"甲"、"①"）
-  - 識別特徵：題目列出 A/B/C/D 或 甲/乙/丙/丁 或 ①②③ 選項，只能選一個
+  - 識別特徵：題目列出 A/B/C/D 或 甲/乙/丙/丁 或 ①②③ 選項，括號( )內填一個
+  多選（答案空間是括號，填多個代號）：
+  - questionCategory: "multi_choice"
+  - answer 填多個代號（逗號分隔），如 "A,C"、"①,③"
+  - 識別特徵：題目說「可複選」「選出所有正確的」，括號( )內填多個
 
 ▸ 如果是「是非題」（判斷對錯，○/✗ 或 對/錯）：
   - questionCategory: "true_false"
   - answer 統一填 "○"（正確）或 "✗"（錯誤）
 
-▸ 如果是「勾選題」（可勾選多個字/詞/選項）：
+▸ 如果是「勾選題」（答案空間是方框 □）：
+  單選勾選（只能標記一個框）：
+  - questionCategory: "single_check"
+  - answer 填一個標記代號（如 "①"、"A"）；無標籤方框用「第X個」
+  - 識別特徵：題目旁有 □ 方框但只能選一個
+  多選勾選（可標記多個框）：
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個
@@ -1171,7 +1213,11 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
     2. 答句：{"name": "答句", "criteria": "必須以「答：」或「A：」開頭，寫出完整答句（含數字與單位，或完整文字答案如甲班、教師節）"}
   - 識別特徵：題目包含情境（人名、物品、數量關係描述）且有空白答句區（如「答：＿＿＿」）
 
-▸ 如果是「勾選題」（可勾選多個選項）：
+▸ 如果是「勾選題」（答案空間是方框 □）：
+  單選勾選（只能標記一個框）：
+  - questionCategory: "single_check"
+  - answer 填一個標記代號；無標籤方框用「第X個」
+  多選勾選（可標記多個框）：
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
@@ -1194,10 +1240,22 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 題型判斷與擷取規則：
 
-▸ 如果是「勾選題」（可勾選多個選項）：
+▸ 如果是「選擇題」（答案空間是括號 ( )）：
+  單選（填一個代號）：
+  - questionCategory: "single_choice"
+  - answer 填選項代號（如 "A"、"B"）
+  多選（填多個代號）：
+  - questionCategory: "multi_choice"
+  - answer 填多個代號（逗號分隔），如 "A,C"
+
+▸ 如果是「勾選題」（答案空間是方框 □）：
+  單選勾選（只能標記一個框）：
+  - questionCategory: "single_check"
+  - answer 填一個標記代號；無標籤方框用「第X個」
+  多選勾選（可標記多個框）：
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "A,C" 或 "①,③"；無標籤方框用「第X個」（如「第一個,第三個」）
-  - 識別特徵：題目說「請勾出」「check all」「tick all that apply」，且可選多個
+  - 識別特徵：題目說「check all」「tick all that apply」，且可選多個
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取字母、單詞、句子
@@ -1236,7 +1294,11 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
   ⚠️ 符號對 ≠ 答案對，必須同時檢查符號和位置
 
-▸ 如果是「勾選題」（可勾選多個選項）：
+▸ 如果是「勾選題」（答案空間是方框 □）：
+  單選勾選（只能標記一個框）：
+  - questionCategory: "single_check"
+  - answer 填一個標記代號；無標籤方框用「第X個」
+  多選勾選（可標記多個框）：
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
@@ -1261,7 +1323,11 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
     • 標註正確性
     • 完整性
 
-▸ 如果是「勾選題」（可勾選多個選項）：
+▸ 如果是「勾選題」（答案空間是方框 □）：
+  單選勾選（只能標記一個框）：
+  - questionCategory: "single_check"
+  - answer 填一個標記代號；無標籤方框用「第X個」
+  多選勾選（可標記多個框）：
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
@@ -2219,8 +2285,13 @@ ${isPartialImage
 - ⚠️ 重要：寬容只影響 isCorrect/score/reason；不得影響 studentAnswer（studentAnswer 永遠原樣抄寫）
 
 【分層評分規則（依 questionCategory）】
-- single_choice / true_false / fill_blank（精確）：使用 answer 字段嚴格對比。完全相符 → 滿分；不符 → 0分
+- single_choice / true_false / fill_blank / single_check（精確）：使用 answer 字段嚴格對比。完全相符 → 滿分；不符 → 0分
   - fill_blank 單位規則：若 answer 含單位（如「15 公分」），學生答案的單位必須完全相同。公尺 ≠ 公分，errorType='unit'。不接受「等效單位」替換。
+- multi_choice / multi_check（部分給分）：answer 字段含逗號分隔的正確選項集合（如 "A,C" 或 "①,③"）。
+  - 學生答案也為逗號分隔的選項集合，順序無關。
+  - correct = 學生選中 ∩ 正確集合；wrong = 學生選中 − 正確集合
+  - score = max(0, round((|correct| − |wrong|) / |正確集合| × maxScore))
+  - isCorrect = (score === maxScore)
 - 連連看（answerFormat="matching"）：若 answerFormat="matching" 或 answer 形如「左項=右項」：
   - studentAnswer 必須輸出相同格式：左項=右項1,右項2; 左項2=右項3
   - 左項目固定，不可交換左右

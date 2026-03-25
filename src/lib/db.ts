@@ -36,11 +36,13 @@ export type QuestionCategoryType = 1 | 2 | 3
  * Internal type 1/2/3 從此欄位自動 derive（向後兼容）。
  */
 export type QuestionCategory =
-  | 'single_choice'  // 選擇題：選一個代號（A/B/C/D 或 甲/乙/丙/丁 或 ①②③）
+  | 'single_choice'  // 單選選擇：在括號()內填一個代號（A/甲/①），二元給分
+  | 'multi_choice'   // 多選選擇：在括號()內填多個代號（逗號分隔，如"A,C"），部分給分
+  | 'single_check'   // 單選勾選：在方框□內標記一個選項（✓/○/×），二元給分
+  | 'multi_check'    // 多選勾選：在方框□內標記多個選項，部分給分
   | 'true_false'     // 是非題：二元判斷（○/✗）
   | 'fill_blank'     // 填充題：唯一正解，單位嚴格比對
   | 'fill_variants'  // 填充題（多元）：多種說法皆可（造詞、近義詞）
-  | 'multi_check'    // 勾選題：可勾選多個選項，部分給分
   | 'calculation'    // 計算題：純算式，列式過程+數值答案，不查單位
   | 'word_problem'   // 應用題：數學情境題，需列式+答句含單位/文字
   | 'short_answer'   // 簡答題：非數學文字說明，按關鍵概念給分
@@ -48,7 +50,6 @@ export type QuestionCategory =
   | 'map_draw'       // 繪圖題：地圖符號/格紙幾何/連線圖，符號類型+位置精準度
   | 'diagram_draw'   // 塗色題：在預印圖形上塗色/填色，判斷比例/範圍正確
   // 預留未來擴充：
-  // | 'multi_choice'   // 多選題
   // | 'matching'       // 連連看
   // | 'ordering'       // 排序題
   // | 'diagram_label'  // 標示圖題
