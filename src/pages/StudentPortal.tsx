@@ -766,13 +766,17 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   )
   const canSubmitCorrection = useMemo(() => {
     if (!correctionAssignmentId || isSubmitting) return false
-    if (currentCorrectionAssignment?.status === 'correction_in_progress') return false
+    // If grading already failed, allow re-submission even if status is still correction_in_progress
+    if (
+      currentCorrectionAssignment?.status === 'correction_in_progress' &&
+      !currentCorrectionAssignment?.gradingFailed
+    ) return false
     if (actionableItems.length === 0) return false
     return actionableItems.every((item) => {
       const qId = item.questionId || ''
       return Boolean(questionActions[qId])
     })
-  }, [correctionAssignmentId, isSubmitting, currentCorrectionAssignment?.status, actionableItems, questionActions])
+  }, [correctionAssignmentId, isSubmitting, currentCorrectionAssignment?.status, currentCorrectionAssignment?.gradingFailed, actionableItems, questionActions])
   const cameraRequiredPages = useMemo(
     () => Math.max(1, currentCameraAssignment?.totalPages || 1),
     [currentCameraAssignment]
