@@ -41,12 +41,6 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const [customColumns, setCustomColumns] = useState<CustomColumn[]>([])
   const customColsLoadedRef = useRef(false)
 
-  // Add-column modal
-  const [addColOpen, setAddColOpen] = useState(false)
-  const [newColName, setNewColName] = useState('')
-  const [newColWeight, setNewColWeight] = useState(1)
-  const newColNameRef = useRef<HTMLInputElement>(null)
-
   const hasClassrooms = classrooms.length > 0
 
   useEffect(() => {
@@ -270,23 +264,18 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   }
 
   // Custom column handlers
-  const handleOpenAddCol = () => {
-    setNewColName('')
-    setNewColWeight(1)
-    setAddColOpen(true)
-    setTimeout(() => newColNameRef.current?.focus(), 50)
-  }
-
-  const handleConfirmAddCol = () => {
-    const name = newColName.trim()
-    if (!name) return
+  const handleAddColumn = () => {
     const id = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
-    setCustomColumns((prev) => [...prev, { id, name, weight: Math.max(0, newColWeight), scores: {} }])
-    setAddColOpen(false)
+    const n = customColumns.length + 1
+    setCustomColumns((prev) => [{ id, name: `自訂欄位${n}`, weight: 1, scores: {} }, ...prev])
   }
 
   const handleDeleteColumn = (id: string) => {
     setCustomColumns((prev) => prev.filter((c) => c.id !== id))
+  }
+
+  const handleCustomNameChange = (id: string, name: string) => {
+    setCustomColumns((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)))
   }
 
   const handleCustomWeightChange = (id: string, value: number) => {
@@ -308,13 +297,13 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
   const handleExportCsv = () => {
     const customHeaders = customColumns.map((c) => c.name)
-    const headers = ['座號', '姓名', ...filteredAssignments.map((a) => a.title), ...customHeaders, '總分']
+    const headers = ['座號', '姓名', ...customHeaders, ...filteredAssignments.map((a) => a.title), '總分']
     const lines = rows.map((r) => {
       const cols = [
         r.student.seatNumber ?? '',
         r.student.name,
-        ...r.scores.map((s) => (s == null ? '' : s.toString())),
         ...r.customScores.map((s) => (s == null ? '' : s.toString())),
+        ...r.scores.map((s) => (s == null ? '' : s.toString())),
         r.weightedTotal == null ? '' : r.weightedTotal.toFixed(1)
       ]
       return cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')
@@ -339,6 +328,9 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
       </div>
     )
   }
+
+  // total cols = 座號 + 姓名 + custom + assignments + 總分 + "+" button col
+  const totalCols = 2 + customColumns.length + filteredAssignments.length + 1 + 1
 
   return (
     <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
@@ -392,24 +384,14 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                 })}
               </select>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleOpenAddCol}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-              >
-                <Plus className="w-4 h-4" />
-                新增欄位
-              </button>
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-              >
-                <Download className="w-4 h-4" />
-                匯出 CSV
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+            >
+              <Download className="w-4 h-4" />
+              匯出 CSV
+            </button>
           </div>
         </div>
 
@@ -426,33 +408,22 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                 <tr className="bg-gray-50 text-gray-700">
                   <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left w-16">座號</th>
                   <th className="sticky left-16 z-10 bg-gray-50 px-3 py-2 text-left w-32">姓名</th>
-                  {filteredAssignments.map((a) => (
-                    <th key={a.id} className="px-3 py-2 text-center min-w-[140px]">
-                      <div className="font-semibold text-gray-900">{a.title}</div>
-                      <div className="mt-1 flex items-center justify-center gap-1 text-xs text-gray-500">
-                        權重
-                        <NumericInput
-                          allowDecimal={true}
-                          min={0}
-                          value={weights[a.id] ?? 1}
-                          onChange={(v) => handleWeightChange(a.id, typeof v === 'number' ? v : Number(v) || 0)}
-                          className="w-16 rounded border border-gray-300 px-2 py-1 text-xs text-gray-700"
-                        />
-                      </div>
-                      <div className="mt-1 text-[11px] text-gray-500">
-                        平均 {formatNumber(assignmentStats[a.id]?.average)} ／ 中位數{' '}
-                        {formatNumber(assignmentStats[a.id]?.median)}
-                      </div>
-                    </th>
-                  ))}
+
+                  {/* Custom columns — shown BEFORE assignment columns */}
                   {customColumns.map((col, idx) => (
-                    <th key={col.id} className="px-3 py-2 text-center min-w-[140px] bg-amber-50">
+                    <th key={col.id} className="px-3 py-2 text-center min-w-[160px] bg-amber-50">
                       <div className="flex items-center justify-center gap-1">
-                        <span className="font-semibold text-amber-900">{col.name}</span>
+                        <input
+                          type="text"
+                          value={col.name}
+                          onChange={(e) => handleCustomNameChange(col.id, e.target.value)}
+                          className="w-full bg-transparent text-center text-sm font-semibold text-amber-900 outline-none border-b border-transparent hover:border-amber-300 focus:border-amber-500 transition-colors"
+                          aria-label="欄位名稱"
+                        />
                         <button
                           type="button"
                           onClick={() => handleDeleteColumn(col.id)}
-                          className="rounded p-0.5 text-amber-400 hover:bg-amber-100 hover:text-amber-700"
+                          className="flex-shrink-0 rounded p-0.5 text-amber-400 hover:bg-amber-100 hover:text-amber-700"
                           aria-label={`刪除欄位 ${col.name}`}
                         >
                           <X className="w-3 h-3" />
@@ -474,11 +445,45 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       </div>
                     </th>
                   ))}
+
+                  {/* Assignment columns */}
+                  {filteredAssignments.map((a) => (
+                    <th key={a.id} className="px-3 py-2 text-center min-w-[140px]">
+                      <div className="font-semibold text-gray-900">{a.title}</div>
+                      <div className="mt-1 flex items-center justify-center gap-1 text-xs text-gray-500">
+                        權重
+                        <NumericInput
+                          allowDecimal={true}
+                          min={0}
+                          value={weights[a.id] ?? 1}
+                          onChange={(v) => handleWeightChange(a.id, typeof v === 'number' ? v : Number(v) || 0)}
+                          className="w-16 rounded border border-gray-300 px-2 py-1 text-xs text-gray-700"
+                        />
+                      </div>
+                      <div className="mt-1 text-[11px] text-gray-500">
+                        平均 {formatNumber(assignmentStats[a.id]?.average)} ／ 中位數{' '}
+                        {formatNumber(assignmentStats[a.id]?.median)}
+                      </div>
+                    </th>
+                  ))}
+
                   <th className="px-3 py-2 text-center min-w-[120px]">
                     <div className="font-semibold text-gray-900">總分(權重)</div>
                     <div className="mt-1 text-[11px] text-gray-500">
                       平均 {formatNumber(totalStats.average)} ／ 中位數 {formatNumber(totalStats.median)}
                     </div>
+                  </th>
+
+                  {/* "+" column for adding new custom column */}
+                  <th className="px-2 py-2 w-10">
+                    <button
+                      type="button"
+                      onClick={handleAddColumn}
+                      title="新增自訂欄位"
+                      className="mx-auto flex items-center justify-center w-7 h-7 rounded-full border-2 border-dashed border-slate-300 text-slate-400 hover:border-amber-400 hover:text-amber-500 hover:bg-amber-50 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
                   </th>
                 </tr>
               </thead>
@@ -495,11 +500,8 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                         {r.student.seatNumber ?? '—'}
                       </td>
                       <td className="sticky left-16 z-10 bg-inherit px-3 py-2 text-gray-800">{r.student.name}</td>
-                      {r.scores.map((score, idx) => (
-                        <td key={filteredAssignments[idx].id} className="px-3 py-2 text-center text-gray-900">
-                          {score == null ? '—' : score}
-                        </td>
-                      ))}
+
+                      {/* Custom column scores */}
                       {customColumns.map((col, idx) => (
                         <td key={col.id} className="px-3 py-2 text-center bg-amber-50/60">
                           <input
@@ -511,6 +513,14 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                           />
                         </td>
                       ))}
+
+                      {/* Assignment scores */}
+                      {r.scores.map((score, idx) => (
+                        <td key={filteredAssignments[idx].id} className="px-3 py-2 text-center text-gray-900">
+                          {score == null ? '—' : score}
+                        </td>
+                      ))}
+
                       <td className="px-3 py-2 text-center font-semibold">
                         <span
                           className={`inline-flex items-center justify-center gap-1 ${
@@ -523,12 +533,15 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                           {r.weightedTotal == null ? '—' : r.weightedTotal.toFixed(1)}
                         </span>
                       </td>
+
+                      {/* empty cell under "+" header */}
+                      <td className="px-2 py-2 w-10" />
                     </tr>
                   )
                 })}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={filteredAssignments.length + customColumns.length + 3} className="px-3 py-6 text-center text-gray-500">
+                    <td colSpan={totalCols} className="px-3 py-6 text-center text-gray-500">
                       尚無學生或作業資料。
                     </td>
                   </tr>
@@ -542,59 +555,6 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
           </div>
         </div>
       </div>
-
-      {/* Add column modal */}
-      {addColOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={(e) => { if (e.target === e.currentTarget) setAddColOpen(false) }}
-        >
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-            <h2 className="mb-4 text-base font-semibold text-gray-900">新增自訂欄位</h2>
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">欄位名稱</label>
-                <input
-                  ref={newColNameRef}
-                  type="text"
-                  value={newColName}
-                  onChange={(e) => setNewColName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmAddCol() }}
-                  placeholder="例：期中考、出席率"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-600">權重</label>
-                <NumericInput
-                  allowDecimal={true}
-                  min={0}
-                  value={newColWeight}
-                  onChange={(v) => setNewColWeight(typeof v === 'number' ? v : Number(v) || 1)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-transparent focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setAddColOpen(false)}
-                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmAddCol}
-                disabled={!newColName.trim()}
-                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-40"
-              >
-                新增
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
