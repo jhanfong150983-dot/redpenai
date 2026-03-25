@@ -1400,8 +1400,10 @@ export default function AssignmentSetup({
       if (mergedAnswerKey) {
         const { answerKey: scoredKey, scoreNotice } = applyCreateScoreMode(mergedAnswerKey)
         setAnswerKey(scoredKey)
+        setTotalPages(imageBlobs.length)
 
         const notices: string[] = []
+        if (imageBlobs.length > 1) notices.push(`已自動設定為 ${imageBlobs.length} 頁`)
         if (duplicateNotice) notices.push(duplicateNotice)
         if (scoreNotice) notices.push(scoreNotice)
         setAnswerKeyNotice(notices.length > 0 ? notices.join(' ') : null)
