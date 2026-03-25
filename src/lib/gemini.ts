@@ -1001,7 +1001,7 @@ function buildGlobalClassificationFallback(): string {
 
 5. 有多個勾選框，學生可勾選多個？
    → questionCategory: "multi_check"（勾選題）
-   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"
+   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
 
 6. A/B/C/D 或 甲/乙/丙/丁 或 ①/②，選一個？
    → questionCategory: "single_choice"（選擇題）
@@ -1120,7 +1120,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 ▸ 如果是「勾選題」（可勾選多個字/詞/選項）：
   - questionCategory: "multi_check"
-  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"
+  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個
 
 ▸ 如果是「造句題」（根據詞語或句型造句）：
@@ -1173,7 +1173,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 ▸ 如果是「勾選題」（可勾選多個選項）：
   - questionCategory: "multi_check"
-  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"
+  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
 
 ▸ 其他題型：
@@ -1196,7 +1196,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 ▸ 如果是「勾選題」（可勾選多個選項）：
   - questionCategory: "multi_check"
-  - answer 填正確勾選集合（逗號分隔），如 "A,C" 或 "①,③"
+  - answer 填正確勾選集合（逗號分隔），如 "A,C" 或 "①,③"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「check all」「tick all that apply」，且可選多個
 
 ▸ 其他題型：
@@ -1238,7 +1238,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 ▸ 如果是「勾選題」（可勾選多個選項）：
   - questionCategory: "multi_check"
-  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"
+  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
 
 ▸ 其他題型：
@@ -1263,7 +1263,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 ▸ 如果是「勾選題」（可勾選多個選項）：
   - questionCategory: "multi_check"
-  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"
+  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
 
 ▸ 其他題型：
