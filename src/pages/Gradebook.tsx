@@ -248,7 +248,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   }, [filteredAssignments, rows])
 
   const customColumnStats = useMemo(() => {
-    return customColumns.map((col, idx) => {
+    return customColumns.map((_col, idx) => {
       const values = rows.map((r) => r.customScores[idx])
       return calcStats(values)
     })
