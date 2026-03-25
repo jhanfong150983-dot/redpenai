@@ -329,8 +329,8 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     )
   }
 
-  // total cols = 座號 + 姓名 + custom + assignments + 總分 + "+" button col
-  const totalCols = 2 + customColumns.length + filteredAssignments.length + 1 + 1
+  // total cols = 座號 + 姓名 + ghost-add + custom + assignments + 總分
+  const totalCols = 2 + 1 + customColumns.length + filteredAssignments.length + 1
 
   return (
     <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
@@ -409,6 +409,18 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                   <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left w-16">座號</th>
                   <th className="sticky left-16 z-10 bg-gray-50 px-3 py-2 text-left w-32">姓名</th>
 
+                  {/* Ghost "add column" — always sits right next to 姓名 */}
+                  <th
+                    className="px-2 py-2 w-20 cursor-pointer opacity-40 hover:opacity-70 transition-opacity group"
+                    onClick={handleAddColumn}
+                    title="新增自訂欄位"
+                  >
+                    <div className="flex flex-col items-center justify-center gap-1 h-full rounded border-2 border-dashed border-amber-400 bg-amber-50/40 py-3 px-1">
+                      <Plus className="w-4 h-4 text-amber-500" />
+                      <span className="text-[10px] text-amber-600 leading-tight text-center">新增欄位</span>
+                    </div>
+                  </th>
+
                   {/* Custom columns — shown BEFORE assignment columns */}
                   {customColumns.map((col, idx) => (
                     <th key={col.id} className="px-3 py-2 text-center min-w-[160px] bg-amber-50">
@@ -473,18 +485,6 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       平均 {formatNumber(totalStats.average)} ／ 中位數 {formatNumber(totalStats.median)}
                     </div>
                   </th>
-
-                  {/* "+" column for adding new custom column */}
-                  <th className="px-2 py-2 w-10">
-                    <button
-                      type="button"
-                      onClick={handleAddColumn}
-                      title="新增自訂欄位"
-                      className="mx-auto flex items-center justify-center w-7 h-7 rounded-full border-2 border-dashed border-slate-300 text-slate-400 hover:border-amber-400 hover:text-amber-500 hover:bg-amber-50 transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -500,6 +500,15 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                         {r.student.seatNumber ?? '—'}
                       </td>
                       <td className="sticky left-16 z-10 bg-inherit px-3 py-2 text-gray-800">{r.student.name}</td>
+
+                      {/* Ghost cell under add-column header */}
+                      <td
+                        className="w-20 px-2 py-2 opacity-30 hover:opacity-60 cursor-pointer transition-opacity"
+                        onClick={handleAddColumn}
+                        title="新增自訂欄位"
+                      >
+                        <div className="h-full rounded border border-dashed border-amber-400 bg-amber-50/40" />
+                      </td>
 
                       {/* Custom column scores */}
                       {customColumns.map((col, idx) => (
@@ -534,8 +543,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                         </span>
                       </td>
 
-                      {/* empty cell under "+" header */}
-                      <td className="px-2 py-2 w-10" />
+
                     </tr>
                   )
                 })}
