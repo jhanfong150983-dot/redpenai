@@ -843,6 +843,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     setQuestionActions({})
     setDisputeNoteInput({})
     setShowDisputeNoteFor(null)
+    // Clear stale upload/submission messages when the correction assignment changes
+    setMessage(null)
   }, [correctionAssignmentId, correctionItems.length])
 
   useEffect(() => {
@@ -1669,6 +1671,13 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                     </span>
                   </div>
                 </div>
+
+                {/* Guide banner: shown when there are actionable items but student hasn't started */}
+                {actionableItems.length > 0 && Object.keys(questionActions).length === 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                    ⬇️ 請為下方每一題點選「拍照重做」或「申訴此題」，完成後才能送出訂正。
+                  </div>
+                )}
 
                 {correctionItems.length > 0 ? correctionItems.map((item, idx) => {
                   const qId = item.questionId || `q${idx}`
