@@ -686,7 +686,7 @@ export default function CorrectionManagement({
                         審閱申訴 ({student.disputedQuestionCount})
                       </button>
                     )}
-                    {['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed'].includes(student.status) && (
+                    {(student.status === 'graded' ? student.latestMistakeCount > 0 : ['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed'].includes(student.status)) && (
                       <button
                         type="button"
                         onClick={() => void handleManualPassStudent(student)}
@@ -707,7 +707,7 @@ export default function CorrectionManagement({
                         {isUnlocking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlock className="h-3.5 w-3.5" />}
                         解鎖+3
                       </button>
-                    ) : (!student.disputedQuestionCount && !['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed'].includes(student.status) && <span className="text-xs text-slate-400">—</span>)}
+                    ) : (!student.disputedQuestionCount && student.status !== 'graded' && !['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed'].includes(student.status) && <span className="text-xs text-slate-400">—</span>)}
                   </div>
                 </div>
               )
