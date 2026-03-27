@@ -883,6 +883,8 @@ export default function GradingPage({
     null
   )
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
+  const [manuallyGradedStudentIds, setManuallyGradedStudentIds] = useState<Set<string>>(new Set())
+  const [manualGradingStudentId, setManualGradingStudentId] = useState<string | null>(null)
 
   // 🆕 進度詳情
   const [currentGradingStudent, setCurrentGradingStudent] = useState<string>('')
@@ -1613,6 +1615,27 @@ export default function GradingPage({
   const handleCloseModal = () => {
     setSelectedSubmission(null)
     setEditableDetails([])
+  }
+
+  const handleManualGradeStudent = async (student: Student) => {
+    if (manualGradingStudentId) return
+    if (!window.confirm(`確定將 ${student.seatNumber} 號 ${student.name} 標記為已批改？\n此操作不會執行 AI 批改，僅更新狀態，且無法撤銷。`)) return
+    setManualGradingStudentId(student.id)
+    try {
+      const response = await fetch('/api/data/manual-grade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ assignmentId, studentId: student.id })
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.error || '手動標記失敗')
+      setManuallyGradedStudentIds((prev) => new Set([...prev, student.id]))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '手動標記失敗')
+    } finally {
+      setManualGradingStudentId(null)
+    }
   }
 
   const handleDeleteSubmission = async (submission: Submission, student: Student) => {
@@ -2768,7 +2791,22 @@ export default function GradingPage({
                       ))}
                     </div>
                   )}
-                  {status === 'missing' && <p className="text-xs text-gray-500">尚未繳交</p>}
+                  {status === 'missing' && !manuallyGradedStudentIds.has(student.id) && (
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-xs text-gray-500">尚未繳交</p>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); void handleManualGradeStudent(student) }}
+                        disabled={Boolean(manualGradingStudentId)}
+                        className="text-[10px] font-medium text-emerald-600 hover:text-emerald-700 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {manualGradingStudentId === student.id ? '處理中…' : '手動標記已批改'}
+                      </button>
+                    </div>
+                  )}
+                  {manuallyGradedStudentIds.has(student.id) && (
+                    <p className="text-xs font-medium text-emerald-600 mt-1">已手動標記</p>
+                  )}
                 </div>
               </div>
             )

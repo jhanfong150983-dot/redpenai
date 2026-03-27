@@ -122,6 +122,7 @@ export default function CorrectionManagement({
   // per-questionId: { action: 'accept'|'reject'|null, rejectionNote: string }
   const [disputeResolutions, setDisputeResolutions] = useState<Record<string, { action: 'accept' | 'reject' | null; rejectionNote: string }>>({})
   const [isResolvingDispute, setIsResolvingDispute] = useState(false)
+  const [manualPassingStudentId, setManualPassingStudentId] = useState<string | null>(null)
 
   const loadDashboard = useCallback(async (force = false) => {
     setError(null)
@@ -355,6 +356,30 @@ export default function CorrectionManagement({
     setSelectedStudentIds((prev) =>
       prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId]
     )
+  }
+
+  const handleManualPassStudent = async (student: DashboardStudent) => {
+    if (manualPassingStudentId) return
+    if (!window.confirm(`確定手動通過 ${student.name} 的訂正？\n此操作視為老師當面確認，不會重新 AI 批改，且無法撤銷。`)) return
+    setManualPassingStudentId(student.studentId)
+    setError(null)
+    setMessage(null)
+    try {
+      const response = await fetch('/api/data/correction-manual-pass', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ assignmentId, studentId: student.studentId })
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.error || '手動通過失敗')
+      setMessage(`已手動通過 ${student.name} 的訂正。`)
+      await loadDashboard()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '手動通過失敗')
+    } finally {
+      setManualPassingStudentId(null)
+    }
   }
 
   const handleOpenDisputePanel = async (student: DashboardStudent) => {
@@ -661,6 +686,17 @@ export default function CorrectionManagement({
                         審閱申訴 ({student.disputedQuestionCount})
                       </button>
                     )}
+                    {['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed'].includes(student.status) && (
+                      <button
+                        type="button"
+                        onClick={() => void handleManualPassStudent(student)}
+                        disabled={Boolean(manualPassingStudentId)}
+                        className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {manualPassingStudentId === student.studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                        手動通過
+                      </button>
+                    )}
                     {canUnlock ? (
                       <button
                         type="button"
@@ -671,7 +707,7 @@ export default function CorrectionManagement({
                         {isUnlocking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlock className="h-3.5 w-3.5" />}
                         解鎖+3
                       </button>
-                    ) : (!student.disputedQuestionCount && <span className="text-xs text-slate-400">—</span>)}
+                    ) : (!student.disputedQuestionCount && !['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed'].includes(student.status) && <span className="text-xs text-slate-400">—</span>)}
                   </div>
                 </div>
               )
