@@ -1537,7 +1537,7 @@ function App() {
       setCurrentPage('grading')
     } else if (item.workflowStatus === 'pending-dispatch' || item.workflowStatus === 'correction-followup') {
       setSelectedAssignmentId(item.id)
-      setCurrentPage('correction-select')
+      setCurrentPage('correction')
     } else {
       // missing-answer-key / missing-submission：至少預選班級
       setGradingSelectedClassroomId(item.classroomId)
