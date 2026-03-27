@@ -963,6 +963,33 @@ function App() {
         submissionsByAssignment.set(submission.assignmentId, list)
       })
 
+      // Fetch server-side assignment_student_state for accurate correction status
+      // (local submissions.correctionCount is stale and never reflects correction_passed)
+      const ACTIVE_CORRECTION_STATUSES = new Set([
+        'correction_required', 'correction_in_progress',
+        'correction_pending_review', 'correction_failed'
+      ])
+      let serverStatesByAssignment = new Map<string, Map<string, string>>()
+      try {
+        const assignmentIds = assignments.map((a) => a.id).join(',')
+        const stateRes = await fetch(
+          `/api/data/assignment-state-summary?assignmentIds=${encodeURIComponent(assignmentIds)}`,
+          { credentials: 'include', cache: 'no-store' }
+        )
+        if (stateRes.ok) {
+          const stateData = (await stateRes.json()) as {
+            byAssignment: Record<string, { studentId: string; status: string }[]>
+          }
+          for (const [aId, rows] of Object.entries(stateData.byAssignment)) {
+            const map = new Map<string, string>()
+            for (const row of rows) map.set(row.studentId, row.status)
+            serverStatesByAssignment.set(aId, map)
+          }
+        }
+      } catch {
+        // Non-fatal: fall back to local-only logic
+      }
+
       const overviewItems = assignments
         .map<HomeOverviewItem>((assignment) => {
           const relatedSubmissions = submissionsByAssignment.get(assignment.id) ?? []
@@ -980,14 +1007,6 @@ function App() {
             (submission) =>
               submission.status === 'scanned' || submission.status === 'synced'
           ).length
-          const correctionCount = relatedSubmissions.filter(
-            (submission) => (submission.correctionCount ?? 0) > 0
-          ).length
-          const pendingCorrectionSeatNumbers = relatedSubmissions
-            .filter((submission) => (submission.correctionCount ?? 0) > 0)
-            .map((submission) => studentSeatById.get(submission.studentId) ?? 0)
-            .filter((seat) => seat > 0)
-            .sort((a, b) => a - b)
           const totalStudents =
             studentCountByClassroom.get(assignment.classroomId) ?? 0
           const denominator = Math.max(uploadedCount, totalStudents)
@@ -996,9 +1015,15 @@ function App() {
               ? Math.round((gradedCount / denominator) * 100)
               : 0
           const classroomStudents = studentsByClassroom.get(assignment.classroomId) ?? []
-          const submissionByStudentId = new Map(
-            relatedSubmissions.map((s) => [s.studentId, s])
+          // Sort ascending by updatedAt so the latest submission wins in the Map
+          const sortedSubmissions = [...relatedSubmissions].sort(
+            (a, b) => (a.updatedAt ?? a.createdAt) - (b.updatedAt ?? b.createdAt)
           )
+          const submissionByStudentId = new Map(
+            sortedSubmissions.map((s) => [s.studentId, s])
+          )
+          const serverStates = serverStatesByAssignment.get(assignment.id)
+
           const completedSeatNumbers: number[] = []
           const incompleteSeatNumbers: number[] = []
           const ungradedSeatNumbers: number[] = []
@@ -1006,6 +1031,18 @@ function App() {
           for (const student of classroomStudents) {
             const seat = student.seatNumber
             if (!seat) continue
+            const serverStatus = serverStates?.get(student.id)
+            // correction_passed → fully done regardless of local submission data
+            if (serverStatus === 'correction_passed') {
+              completedSeatNumbers.push(seat)
+              continue
+            }
+            // Active correction states → student is still in correction workflow
+            if (serverStatus && ACTIVE_CORRECTION_STATUSES.has(serverStatus)) {
+              incompleteSeatNumbers.push(seat)
+              continue
+            }
+            // Fall back to local submission for non-correction states
             const sub = submissionByStudentId.get(student.id)
             if (!sub || sub.status === 'missing') {
               notSubmittedSeatNumbers.push(seat)
@@ -1025,6 +1062,19 @@ function App() {
           incompleteSeatNumbers.sort((a, b) => a - b)
           ungradedSeatNumbers.sort((a, b) => a - b)
           notSubmittedSeatNumbers.sort((a, b) => a - b)
+
+          // correctionCount and pendingCorrectionSeatNumbers from server state
+          const correctionStudents = serverStates
+            ? classroomStudents.filter((s) => {
+                const st = serverStates.get(s.id)
+                return st !== undefined && ACTIVE_CORRECTION_STATUSES.has(st)
+              })
+            : []
+          const correctionCount = correctionStudents.length
+          const pendingCorrectionSeatNumbers = correctionStudents
+            .map((s) => studentSeatById.get(s.id) ?? 0)
+            .filter((seat) => seat > 0)
+            .sort((a, b) => a - b)
 
           const hasAnswerKey = Boolean(assignment.answerKey)
           let workflowStatus: AssignmentWorkflowStatus = 'completed'
