@@ -650,7 +650,7 @@ export default function CorrectionManagement({
                     {student.lastStatusReason || '—'}
                   </div>
                   <div className="flex items-center justify-end gap-1.5">
-                    {student.status === 'correction_pending_review' && (student.disputedQuestionCount ?? 0) > 0 && (
+                    {(student.disputedQuestionCount ?? 0) > 0 && (
                       <button
                         type="button"
                         onClick={() => void handleOpenDisputePanel(student)}
