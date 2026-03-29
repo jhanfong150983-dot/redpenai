@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { db } from '@/lib/db'
+import type { Submission } from '@/lib/db'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
 import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
@@ -533,6 +535,7 @@ export default function AiReport({ onBack, embedded }: AiReportProps) {
   const [syncData, setSyncData] = useState<SyncPayload | null>(null)
   const [reportData, setReportData] = useState<ReportPayload | null>(null)
   const [loading, setLoading] = useState(true)
+  const [localSubmissions, setLocalSubmissions] = useState<Submission[]>([])
   const [error, setError] = useState<string | null>(null)
 const [selectedClassroomId, setSelectedClassroomId] = useState('')
   const [selectedAssignmentId, setSelectedAssignmentId] = useState('')
@@ -688,6 +691,21 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     [classAssignments]
   )
 
+  // 從 IndexedDB 讀取批改詳情（sync API 不含 grading_result）
+  useEffect(() => {
+    if (!classAssignmentIds.size) {
+      setLocalSubmissions([])
+      return
+    }
+    const ids = Array.from(classAssignmentIds)
+    db.submissions
+      .where('assignmentId')
+      .anyOf(ids)
+      .toArray()
+      .then(setLocalSubmissions)
+      .catch(() => setLocalSubmissions([]))
+  }, [classAssignmentIds])
+
   const classFilteredSubmissions = useMemo(() => {
     if (!selectedClassroomId) return preparedSubmissions
     if (!classAssignmentIds.size) return []
@@ -802,13 +820,14 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     const studentConceptMap = new Map<string, Map<string, { correct: number; total: number }>>()
     const allConcepts = new Map<string, string>() // code → label
 
-    for (const sub of classFilteredSubmissions) {
-      if (!sub.assignmentId || !filteredIds.has(sub.assignmentId)) continue
+    for (const sub of localSubmissions) {
+      if (!filteredIds.has(sub.assignmentId)) continue
       if (!sub.studentId) continue
       const qMap = assignmentConceptMaps.get(sub.assignmentId)
       if (!qMap || qMap.size === 0) continue
 
-      for (const detail of sub.details) {
+      const details = sub.gradingResult?.details ?? []
+      for (const detail of details) {
         if (!detail.questionId) continue
         const concept = qMap.get(detail.questionId)
         if (!concept) continue
@@ -856,7 +875,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     })
 
     return { students, concepts, debugInfo }
-  }, [classAssignments, selectedDomain, classFilteredSubmissions, classFilteredStudents, assignmentById])
+  }, [classAssignments, selectedDomain, localSubmissions, classFilteredStudents, assignmentById])
 
   const rangeFilteredSubmissions = useMemo(() => {
     if (!rangeBounds.from && !rangeBounds.to) return classFilteredSubmissions
