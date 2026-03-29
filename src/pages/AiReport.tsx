@@ -1503,12 +1503,12 @@ const [selectedClassroomId, setSelectedClassroomId] = useState('')
                     cards={domainDiagnosisCards}
                     emptyState="此期間沒有作業可分析，請調整時段。"
                   />
-                  <ConceptMasteryTable
-                    students={conceptMasteryData.students}
-                    concepts={conceptMasteryData.concepts}
-                  />
                 </>
               )}
+              <ConceptMasteryTable
+                students={conceptMasteryData.students}
+                concepts={conceptMasteryData.concepts}
+              />
             </section>
           )}
 
