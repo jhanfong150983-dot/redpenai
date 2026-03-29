@@ -985,6 +985,19 @@ export default function AssignmentSetup({
     })
   }
 
+  const fetchConceptMapForCurrentClassroom = async (): Promise<{ code: string; label: string }[]> => {
+    const classroom = classrooms.find(c => c.id === selectedClassroomId)
+    if (!classroom?.grade) return []
+    try {
+      const res = await fetch(`/api/data/concept-map?grade=${classroom.grade}`, { credentials: 'include' })
+      if (!res.ok) return []
+      const json = await res.json()
+      return json.items ?? []
+    } catch {
+      return []
+    }
+  }
+
   const extractAndSetAnswerKey = async (
     file: File,
     currentKey: AnswerKey | null,
@@ -1069,7 +1082,8 @@ export default function AssignmentSetup({
       }
 
       console.log('🧠 呼叫 Gemini API 提取標準答案...')
-      const extracted = await extractAnswerKeyFromImage(imageBlob, { domain })
+      const conceptMap = await fetchConceptMapForCurrentClassroom()
+      const extracted = await extractAnswerKeyFromImage(imageBlob, { domain, conceptMap: conceptMap.length > 0 ? conceptMap : undefined })
       console.log('✅ AI 提取完成', { questionCount: extracted.questions.length, totalScore: extracted.totalScore })
 
       const { merged, notice } = mergeAnswerKeys(currentKey, extracted)
@@ -1376,6 +1390,8 @@ export default function AssignmentSetup({
       let mergedAnswerKey = answerKey ? normalizeAnswerKey(answerKey) : null
       let duplicateNotice: string | null = null
 
+      const batchConceptMap = await fetchConceptMapForCurrentClassroom()
+
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i]
         console.log(`🤖 開始解析第 ${i + 1}/${batches.length} 批`, {
@@ -1384,7 +1400,8 @@ export default function AssignmentSetup({
         })
 
         const extracted = await extractAnswerKeyFromImages(batch, {
-          domain: assignmentDomain
+          domain: assignmentDomain,
+          conceptMap: batchConceptMap.length > 0 ? batchConceptMap : undefined
         })
         const normalizedExtracted = normalizeAnswerKey(extracted)
 
