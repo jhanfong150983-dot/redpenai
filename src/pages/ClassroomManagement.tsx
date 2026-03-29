@@ -91,25 +91,13 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
   const [editingName, setEditingName] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
-  const handleUpdateGrade = async (classroomId: string, grade: number | '') => {
-    const gradeValue = grade === '' ? undefined : grade
-    await db.classrooms.update(classroomId, { grade: gradeValue })
-    setItems((prev) =>
-      prev.map((item) =>
-        item.classroom.id === classroomId
-          ? { ...item, classroom: { ...item.classroom, grade: gradeValue } }
-          : item
-      )
-    )
-    requestSync()
-  }
-
-  // 編輯學生名單
+// 編輯學生名單
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false)
   const [isStudentReadonly, setIsStudentReadonly] = useState(false)
   const [studentModalError, setStudentModalError] = useState<string | null>(null)
   const [studentModalClassroom, setStudentModalClassroom] = useState<Classroom | null>(null)
   const [studentRows, setStudentRows] = useState<StudentRow[]>([])
+  const [modalGrade, setModalGrade] = useState<number | ''>('')
   const [isStudentSaving, setIsStudentSaving] = useState(false)
 
   // 新建資料夾
@@ -787,6 +775,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
   const openStudentEditor = async (target: ClassroomWithStats, readonly = false) => {
     setStudentModalError(null)
     setStudentModalClassroom(target.classroom)
+    setModalGrade(target.classroom.grade ?? '')
     setIsStudentReadonly(readonly)
     const list = await db.students
       .where('classroomId')
@@ -962,6 +951,19 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
         }))
       )
 
+      // save grade if changed
+      const gradeValue = modalGrade === '' ? undefined : Number(modalGrade)
+      if (gradeValue !== studentModalClassroom.grade) {
+        await db.classrooms.update(studentModalClassroom.id, { grade: gradeValue })
+        setItems((prev) =>
+          prev.map((item) =>
+            item.classroom.id === studentModalClassroom.id
+              ? { ...item, classroom: { ...item.classroom, grade: gradeValue } }
+              : item
+          )
+        )
+      }
+
       await loadData()
       requestSync()
       setIsStudentModalOpen(false)
@@ -1114,34 +1116,12 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
           </div>
           <p className="mt-0.5 text-xs text-gray-500">
             {item.studentCount} 位學生 · {item.assignmentCount} 份作業
+            {item.classroom.grade ? (
+              <span className="ml-1.5 inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
+                {item.classroom.grade <= 6 ? `國小${item.classroom.grade}年` : item.classroom.grade <= 9 ? `國中${item.classroom.grade - 6}年` : `高中${item.classroom.grade - 9}年`}
+              </span>
+            ) : null}
           </p>
-          <div className="mt-1 flex items-center gap-1">
-            {item.classroom.folder === '1Campus' ? (
-              item.classroom.grade ? (
-                <span className="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-600">
-                  {item.classroom.grade <= 6 ? `國小${item.classroom.grade}年級` : item.classroom.grade <= 9 ? `國中${item.classroom.grade - 6}年級` : `高中${item.classroom.grade - 9}年級`}
-                </span>
-              ) : null
-            ) : (
-              <select
-                value={item.classroom.grade ?? ''}
-                onChange={(e) => void handleUpdateGrade(item.classroom.id, e.target.value === '' ? '' : Number(e.target.value))}
-                onClick={(e) => e.stopPropagation()}
-                className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-xs text-gray-500 focus:border-green-400 focus:outline-none"
-              >
-                <option value="">選擇年級</option>
-                <optgroup label="國小">
-                  {[1,2,3,4,5,6].map(g => <option key={g} value={g}>國小{g}年級</option>)}
-                </optgroup>
-                <optgroup label="國中">
-                  {[7,8,9].map(g => <option key={g} value={g}>國中{g-6}年級</option>)}
-                </optgroup>
-                <optgroup label="高中">
-                  {[10,11,12].map(g => <option key={g} value={g}>高中{g-9}年級</option>)}
-                </optgroup>
-              </select>
-            )}
-          </div>
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -1589,6 +1569,35 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                     ? '此班級由 1campus 同步，名單為唯讀。'
                     : '可調整座號、姓名與 email（可留空），新增學生後會依座號排序。'}
                 </p>
+                {!isStudentReadonly && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="text-xs text-gray-500">年級</span>
+                    <select
+                      value={modalGrade}
+                      onChange={(e) => setModalGrade(e.target.value === '' ? '' : Number(e.target.value))}
+                      className="rounded border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 focus:border-green-400 focus:outline-none"
+                    >
+                      <option value="">未設定</option>
+                      <optgroup label="國小">
+                        {[1,2,3,4,5,6].map(g => <option key={g} value={g}>國小{g}年級</option>)}
+                      </optgroup>
+                      <optgroup label="國中">
+                        {[7,8,9].map(g => <option key={g} value={g}>國中{g-6}年級</option>)}
+                      </optgroup>
+                      <optgroup label="高中">
+                        {[10,11,12].map(g => <option key={g} value={g}>高中{g-9}年級</option>)}
+                      </optgroup>
+                    </select>
+                    <span className="text-xs text-gray-400">（用於 AI 課綱概念分析）</span>
+                  </div>
+                )}
+                {isStudentReadonly && studentModalClassroom.grade && (
+                  <div className="mt-1.5">
+                    <span className="inline-flex items-center rounded bg-blue-50 px-2 py-0.5 text-xs text-blue-600">
+                      {studentModalClassroom.grade <= 6 ? `國小${studentModalClassroom.grade}年級` : studentModalClassroom.grade <= 9 ? `國中${studentModalClassroom.grade - 6}年級` : `高中${studentModalClassroom.grade - 9}年級`}
+                    </span>
+                  </div>
+                )}
               </div>
               <button
                 type="button"
