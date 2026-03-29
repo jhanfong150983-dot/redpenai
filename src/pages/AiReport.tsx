@@ -792,8 +792,10 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     const assignmentConceptMaps = new Map<string, QConceptMap>()
     for (const a of filteredAssignments) {
       const full = assignmentById.get(a.id)
+      const questions = full?.answerKey?.questions ?? []
+      console.log('[ConceptMastery] assignment', a.id, a.title, '→ questions:', questions.length, 'concept_codes:', questions.map(q => q.concept_code))
       const qMap: QConceptMap = new Map()
-      for (const q of full?.answerKey?.questions ?? []) {
+      for (const q of questions) {
         if (!q.concept_code) continue
         if (q.questionCategory && RUBRIC_CATEGORIES.has(q.questionCategory)) continue
         qMap.set(q.id, { code: q.concept_code, label: q.concept_label ?? q.concept_code })
