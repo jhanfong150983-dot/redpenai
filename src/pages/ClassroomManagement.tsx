@@ -82,6 +82,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
   // 新增班級（透過懸浮視窗）
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [newName, setNewName] = useState('')
+  const [newGrade, setNewGrade] = useState<number | ''>('')
   const [importText, setImportText] = useState('')
   const [isCreating, setIsCreating] = useState(false)
 
@@ -361,7 +362,8 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
       const classroom: Classroom = {
         id: generateId(),
         name: trimmedName,
-        folder: undefined  // 新班級預設為全部
+        folder: undefined,  // 新班級預設為全部
+        grade: newGrade !== '' ? newGrade : undefined
       }
       await db.classrooms.add(classroom)
 
@@ -378,6 +380,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
       }
 
       setNewName('')
+      setNewGrade('')
       setImportText('')
       setIsCreateModalOpen(false)
       await loadData()
@@ -1437,6 +1440,29 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
 
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">
+                  年級 <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={newGrade}
+                  onChange={(e) => setNewGrade(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  disabled={isCreating}
+                >
+                  <option value="">請選擇年級</option>
+                  {[1,2,3,4,5,6].map(g => (
+                    <option key={g} value={g}>國小 {g} 年級</option>
+                  ))}
+                  {[7,8,9].map(g => (
+                    <option key={g} value={g}>國中 {g-6} 年級（{g}年級）</option>
+                  ))}
+                  {[10,11,12].map(g => (
+                    <option key={g} value={g}>高中 {g-9} 年級（{g}年級）</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">
                   匯入學生名單 <span className="text-red-500">*</span>
                   <span className="ml-2 text-[11px] font-normal text-gray-500">
                     格式：座號,姓名,email(可選)
@@ -1477,7 +1503,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                 <button
                   data-tutorial="classroom-submit"
                   type="submit"
-                  disabled={isCreating || !newName.trim() || parsedStudentCount === 0}
+                  disabled={isCreating || !newName.trim() || newGrade === '' || parsedStudentCount === 0}
                   className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   {isCreating ? (

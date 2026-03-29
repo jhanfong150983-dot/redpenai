@@ -1047,6 +1047,17 @@ export default function GradingPage({
     )
 
     requestSync()
+
+    // 非同步觸發作業錯誤摘要生成（fire-and-forget）
+    if (successCount > 0) {
+      fetch('/api/data/refresh-assignment-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ assignmentId })
+      }).catch(() => {})
+    }
+
     setBatchPhaseAEntries([])
     setGradingPhase('idle')
     setIsGrading(false)

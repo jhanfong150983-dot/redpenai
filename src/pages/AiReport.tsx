@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import SummaryPanel from './ai-report/components/SummaryPanel'
 import TagLevelsPanel from './ai-report/components/TagLevelsPanel'
+import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
 import CompletionPanel from './ai-report/components/CompletionPanel'
 import StudentListTabs from './ai-report/components/StudentListTabs'
 import TimeRangeFilter from './ai-report/components/TimeRangeFilter'
@@ -588,11 +589,35 @@ export default function AiReport({ onBack, embedded }: AiReportProps) {
     Record<string, boolean>
   >({})
   const [activeTab, setActiveTab] = useState<'class' | 'domain' | 'student'>('class')
+  const [assignmentSummary, setAssignmentSummary] = useState<{
+    status: string; class_summary: string | null; minority_summary: string | null
+    student_summaries: { student_id: string; student_name: string; summary: string }[]
+    sample_count: number
+  } | null>(null)
+  const [assignmentSummaryLoading, setAssignmentSummaryLoading] = useState(false)
 
   const resetRange = () => {
     setRangeStart('')
     setRangeEnd('')
   }
+
+  // Fetch assignment error summary when assignment changes
+  useEffect(() => {
+    if (!selectedAssignmentId) {
+      setAssignmentSummary(null)
+      return
+    }
+    let isActive = true
+    setAssignmentSummaryLoading(true)
+    fetch(`/api/data/assignment-summary?assignmentId=${encodeURIComponent(selectedAssignmentId)}`, {
+      credentials: 'include'
+    })
+      .then(r => r.json())
+      .then(data => { if (isActive) setAssignmentSummary(data?.summary ?? null) })
+      .catch(() => { if (isActive) setAssignmentSummary(null) })
+      .finally(() => { if (isActive) setAssignmentSummaryLoading(false) })
+    return () => { isActive = false }
+  }, [selectedAssignmentId])
 
   useEffect(() => {
     let isActive = true
@@ -1651,6 +1676,16 @@ const assignmentTagInfo = useMemo(() => {
                 </section>
               ) : (
                 <>
+                  <div className="section-title">
+                    <h2>AI 錯誤摘要</h2>
+                    <span>根據批改結果自動生成</span>
+                  </div>
+
+                  <AssignmentSummaryPanel
+                    data={assignmentSummary as Parameters<typeof AssignmentSummaryPanel>[0]['data']}
+                    loading={assignmentSummaryLoading}
+                  />
+
                   <div className="section-title">
                     <h2>錯誤標籤分層級</h2>
                     <span>依批改份數計算標籤比例</span>

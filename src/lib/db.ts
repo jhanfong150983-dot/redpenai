@@ -102,6 +102,10 @@ export interface AnswerKeyQuestion {
 
   needsReanalysis?: boolean // 教師修改題型後標記為true，需要重新分析
 
+  // 108課綱對應概念（由 AnswerKey 抽取時 AI 標記）
+  concept_code?: string   // 例如 "N-4-12"
+  concept_label?: string  // 例如 "積樣與立方公分"
+
   // @deprecated 已廢棄的欄位（保留向後兼容）
   detectedType?: QuestionCategoryType // 已合併到 type
 }
@@ -119,6 +123,7 @@ export interface Classroom {
   id: string
   name: string
   folder?: string // 資料夾分類（例如：112學年度、七年級）
+  grade?: number  // 年級（1–12），用於課綱概念篩選
   updatedAt?: number
 }
 

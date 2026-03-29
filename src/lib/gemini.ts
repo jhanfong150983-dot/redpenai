@@ -551,6 +551,8 @@ export interface ExtractAnswerKeyOptions {
   domain?: string
   /** 'answer_key'（預設）：從已填寫的解答圖擷取答案；'infer_blank'：從空白作業推論正確答案 */
   inferMode?: 'answer_key' | 'infer_blank'
+  /** 108課綱概念清單（依班級年級篩出），用於 AI 標記每題的 concept_code */
+  conceptMap?: { code: string; label: string }[]
 }
 
 export interface GradeSubmissionOptions {
@@ -888,7 +890,11 @@ function buildGlobalTaskAndFormat(): string {
         {"label": "尚可", "min": 5, "max": 6, "criteria": "部分正確"},
         {"label": "待努力", "min": 1, "max": 4, "criteria": "多處錯誤"}
       ]
-    }
+    },
+
+    // 108課綱概念對應（若有提供概念清單時必填）
+    "concept_code": "N-4-12",    // 從提供的清單中選最接近的代碼
+    "concept_label": "積樣與立方公分"  // 對應的概念標題
   }],
   "totalScore": 50
 }
@@ -1403,13 +1409,25 @@ ${classificationFallback}
 /**
  * 建立答案提取 Prompt（重構版 - 決策樹架構）
  */
-function buildAnswerKeyPrompt(domain?: string): string {
+function buildAnswerKeyPrompt(domain?: string, conceptMap?: { code: string; label: string }[]): string {
   const taskAndFormat = buildGlobalTaskAndFormat()
   const domainRules = buildDomainRulesWithDecisionTree(domain || '其他')
   const classificationFallback = buildGlobalClassificationFallback()
 
-  // 正確順序：task 說明 → 領域規則（高優先）→ 全域後備分類
-  return [taskAndFormat, domainRules, classificationFallback].filter(Boolean).join('\n\n')
+  const conceptSection = conceptMap && conceptMap.length > 0 ? `
+【108課綱概念對應（必填 concept_code）】
+請為每一題找出最符合的課綱概念代碼，從以下清單中選一個：
+${conceptMap.map(c => `${c.code}：${c.label}`).join('\n')}
+
+規則：
+- 每題只選一個最核心的概念代碼（若題目橫跨多個概念，選主要考點）
+- 只能選上方清單中的代碼，不可自行創造
+- 若確實無法對應任何概念，填 concept_code: null
+- 輸出時同時填入 concept_code（代碼）與 concept_label（清單中對應的標題）
+`.trim() : ''
+
+  // 正確順序：task 說明 → 領域規則（高優先）→ 全域後備分類 → 概念對應
+  return [taskAndFormat, domainRules, classificationFallback, conceptSection].filter(Boolean).join('\n\n')
 }
 
 /**
@@ -3235,7 +3253,7 @@ export async function extractAnswerKeyFromImage(
 
   const prompt = isInferMode
     ? buildInferFromBlankPrompt(opts?.domain)
-    : buildAnswerKeyPrompt(opts?.domain)
+    : buildAnswerKeyPrompt(opts?.domain, opts?.conceptMap)
   console.log('📋 [AnswerKey prompt]', prompt)
 
   const text = (await generateGeminiText(currentModelName, [
@@ -3268,7 +3286,7 @@ export async function extractAnswerKeyFromImages(
 
   const prompt = isInferMode
     ? buildInferFromBlankPrompt(opts?.domain)
-    : buildAnswerKeyPrompt(opts?.domain)
+    : buildAnswerKeyPrompt(opts?.domain, opts?.conceptMap)
   console.log('📋 [AnswerKey prompt]', prompt)
 
   // 多圖片提示增強
