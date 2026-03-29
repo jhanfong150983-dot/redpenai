@@ -558,6 +558,7 @@ export function useSync(options: UseSyncOptions = {}) {
         id: c.id,
         name: c.name,
         folder: c.folder === undefined ? null : c.folder,
+        grade: c.grade ?? null,
         updatedAt: c.updatedAt
       }))
 
