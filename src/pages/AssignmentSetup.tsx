@@ -864,7 +864,9 @@ export default function AssignmentSetup({
         uiKey: typeof q?.uiKey === 'string' && q.uiKey ? q.uiKey : generateId(),
         orderMode,
         unorderedGroupId: orderMode === 'unordered' ? unorderedGroupId : undefined,
-        referenceBbox: q?.referenceBbox
+        referenceBbox: q?.referenceBbox,
+        concept_code: typeof q?.concept_code === 'string' && q.concept_code ? q.concept_code : undefined,
+        concept_label: typeof q?.concept_label === 'string' && q.concept_label ? q.concept_label : undefined,
       }
 
       // Add type-specific fields
