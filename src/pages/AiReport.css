@@ -24,6 +24,10 @@
       color: var(--text);
     }
 
+    .ai-report.embedded {
+      min-height: unset;
+    }
+
     .report {
       max-width: 1200px;
       margin: 0 auto;

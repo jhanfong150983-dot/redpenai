@@ -562,9 +562,10 @@ function isNeedsAttention(submission: PreparedSubmission) {
 
 type AiReportProps = {
   onBack: () => void
+  embedded?: boolean
 }
 
-export default function AiReport({ onBack }: AiReportProps) {
+export default function AiReport({ onBack, embedded }: AiReportProps) {
   const [syncData, setSyncData] = useState<SyncPayload | null>(null)
   const [reportData, setReportData] = useState<ReportPayload | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1495,7 +1496,7 @@ const assignmentTagInfo = useMemo(() => {
 
   if (loading) {
     return (
-      <div className="ai-report">
+      <div className={`ai-report${embedded ? ' embedded' : ''}`}>
         <main className="report">
           <header className="page-header">
             <div>
@@ -1512,7 +1513,7 @@ const assignmentTagInfo = useMemo(() => {
 
   if (error) {
     return (
-      <div className="ai-report">
+      <div className={`ai-report${embedded ? ' embedded' : ''}`}>
         <main className="report">
           <header className="page-header">
             <div>
@@ -1520,11 +1521,13 @@ const assignmentTagInfo = useMemo(() => {
               <h1>資料讀取失敗</h1>
               <p className="subtitle">{error}</p>
             </div>
-            <div className="header-actions">
-              <button className="btn" type="button" onClick={onBack}>
-                返回首頁
-              </button>
-            </div>
+            {!embedded && (
+              <div className="header-actions">
+                <button className="btn" type="button" onClick={onBack}>
+                  返回首頁
+                </button>
+              </div>
+            )}
           </header>
         </main>
       </div>
@@ -1532,7 +1535,7 @@ const assignmentTagInfo = useMemo(() => {
   }
 
   return (
-    <div className="ai-report">
+    <div className={`ai-report${embedded ? ' embedded' : ''}`}>
       <main className="report">
         <header className="page-header">
           <div>
@@ -1561,9 +1564,11 @@ const assignmentTagInfo = useMemo(() => {
                 </select>
               </label>
             )}
-            <button className="btn" type="button" onClick={onBack}>
-              返回首頁
-            </button>
+            {!embedded && (
+              <button className="btn" type="button" onClick={onBack}>
+                返回首頁
+              </button>
+            )}
             <button className="btn" type="button">
               匯出 PDF
             </button>

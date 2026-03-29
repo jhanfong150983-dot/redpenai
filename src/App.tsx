@@ -1357,28 +1357,6 @@ function App() {
     )
   }
 
-  if (currentPage === 'ai-report') {
-    if (!canAccessTracking) {
-      return (
-        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center space-y-4">
-            <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
-            <p className="text-sm text-gray-600">
-              Pro 權限才可使用 AI 學情報告。
-            </p>
-            <button
-              type="button"
-              onClick={() => setCurrentPage('home')}
-              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
-            >
-              返回首頁
-            </button>
-          </div>
-        </div>
-      )
-    }
-    return (<AiReport onBack={() => setCurrentPage('home')} />)
-  }
 
   // 管理者面板 (整合所有管理功能)
   if (currentPage === 'admin-panel') {
@@ -2080,6 +2058,24 @@ function App() {
                     <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
                     <p className="mt-2 text-sm text-gray-600">
                       Pro 權限才可使用後續追蹤功能。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage('home')}
+                      className="mt-4 inline-flex rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
+                    >
+                      返回首頁
+                    </button>
+                  </div>
+                )
+              ) : currentPage === 'ai-report' ? (
+                canAccessTracking ? (
+                  <AiReport embedded onBack={() => setCurrentPage('home')} />
+                ) : (
+                  <div className="mx-auto w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
+                    <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Pro 權限才可使用 AI 學情報告。
                     </p>
                     <button
                       type="button"

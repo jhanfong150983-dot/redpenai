@@ -6,18 +6,15 @@ import {
   ArrowRight,
   Check,
   X,
-  Shield,
-  CreditCard,
-  RefreshCw,
+  Crown,
+  CheckCircle2,
   Mail,
   Phone,
-  Crown,
-  FileText
+  RefreshCw
 } from 'lucide-react'
 import { SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/legal'
 import { buildApiUrl } from '../lib/api-base'
 
-// 登入連結
 const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
 const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
 const STUDENT_LOGIN_URL = buildApiUrl('/api/auth/google?entry=student')
@@ -31,7 +28,7 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Navbar - 固定頂部 */}
+      {/* Navbar */}
       <nav className="fixed top-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-b border-gray-100 z-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -42,549 +39,432 @@ export default function LandingPage() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => handleLogin('teacher')}
-                className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+                onClick={() => handleLogin('student')}
+                className="px-4 py-2 border border-gray-200 bg-white text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors text-sm"
               >
-                教師登入
+                學生入口
               </button>
               <button
                 type="button"
-                onClick={() => handleLogin('student')}
-                className="px-4 py-2 border border-blue-200 bg-white text-blue-700 font-semibold rounded-lg hover:bg-blue-50 transition-colors"
+                onClick={() => handleLogin('teacher')}
+                className="px-4 py-2 bg-gray-900 text-white font-semibold rounded-lg hover:bg-gray-700 transition-colors text-sm"
               >
-                學生登入
+                教師登入
               </button>
             </div>
           </div>
         </div>
       </nav>
 
-      {/* Hero 區塊 */}
-      <section className="pt-24 pb-16 sm:pt-32 sm:pb-24 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+      {/* Hero + 影片 */}
+      <section className="pt-32 pb-16 sm:pt-40 sm:pb-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* 左：文字 */}
             <div className="animate-fade-in-up">
-              <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 leading-tight">
-                AI 自動批改作業
+              <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 tracking-tight leading-tight">
+                你教書的時間
                 <br />
-                <span className="text-blue-600">讓老師把時間留給教學</span>
+                <span className="text-gray-400">不應該花在對答案上</span>
               </h1>
-              <p className="mt-6 text-lg text-gray-600 leading-relaxed">
-                拍照即可批改紙本作業，自動分析學生錯誤並產出教學建議。
-                <br />
-                專為國小、國中老師打造的智慧批改助手。
+              <p className="mt-8 text-xl text-gray-500 leading-relaxed">
+                RedPen AI 自動批改、追蹤訂正、產出學情報告——你只需要確認和教學。
               </p>
-              <div className="mt-8 flex flex-col sm:flex-row gap-4">
+              <div className="mt-10 flex flex-col sm:flex-row gap-4">
                 <button
                   type="button"
                   onClick={() => handleLogin('teacher')}
-                  className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/25"
+                  className="inline-flex items-center justify-center px-8 py-4 bg-gray-900 text-white font-semibold rounded-xl hover:bg-gray-700 transition-colors text-lg"
                 >
-                  教師入口
-                  <ArrowRight className="w-5 h-5" />
+                  教師登入
                 </button>
                 <button
                   type="button"
                   onClick={() => handleLogin('student')}
-                  className="inline-flex items-center justify-center gap-2 px-6 py-3 border border-blue-200 bg-white text-blue-700 font-semibold rounded-xl hover:bg-blue-50 transition-colors"
+                  className="inline-flex items-center justify-center px-8 py-4 border-2 border-gray-200 bg-white text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors text-lg"
                 >
-                  學生入口
+                  學生登入
                 </button>
-                {/* 查看範例按鈕 - 暫時隱藏
-                <a
-                  href="#example"
-                  className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-white text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors border border-gray-200"
-                >
-                  查看範例
-                </a>
-                */}
               </div>
             </div>
-            <div className="relative animate-fade-in-up animation-delay-200">
-              {/* Hero 主視覺 */}
-              <img 
-                src="/hero-mockup.png" 
-                alt="RedPen AI 批改介面示意圖"
-                className="w-full h-auto rounded-2xl shadow-2xl border border-gray-200"
-              />
-              {/* 裝飾元素 */}
-              <div className="absolute -top-4 -right-4 w-24 h-24 bg-yellow-200 rounded-full opacity-50 blur-2xl" />
-              <div className="absolute -bottom-4 -left-4 w-32 h-32 bg-blue-200 rounded-full opacity-50 blur-2xl" />
+
+            {/* 右：影片 */}
+            <div className="animate-fade-in-up animation-delay-200">
+              <div className="relative aspect-video rounded-2xl overflow-hidden shadow-xl bg-gray-900">
+                <iframe
+                  className="absolute inset-0 w-full h-full"
+                  src="https://www.youtube.com/embed/gbTN5zb67To"
+                  title="RedPen AI 介紹影片"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Social Proof Bar */}
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 mt-16 animate-fade-in-up animation-delay-200">
+          <div className="border-y border-gray-100 py-8">
+            <div className="grid grid-cols-3 gap-8 text-center">
+              <div>
+                <p className="text-4xl font-bold text-gray-900">500+</p>
+                <p className="mt-1 text-sm text-gray-500">位老師正在使用</p>
+              </div>
+              <div>
+                <p className="text-4xl font-bold text-gray-900">10,000+</p>
+                <p className="mt-1 text-sm text-gray-500">份作業已批改</p>
+              </div>
+              <div>
+                <p className="text-4xl font-bold text-gray-900">3 分鐘</p>
+                <p className="mt-1 text-sm text-gray-500">完成一份作業批改</p>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 教師痛點影片區塊 */}
-      <section className="py-16 sm:py-24 bg-white">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12 animate-fade-in-up">
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
-              老師的日常，我們懂
-            </h2>
-            <p className="mt-4 text-lg text-gray-600">
-              每天批改作業到深夜？ RedPen AI 幫你解決繁重的批改工作，讓你有更多時間專注教學。
-            </p>
-          </div>
-          {/* PWA 優化: 使用 YouTube 嵌入式播放器替代本地 26MB 影片 */}
-          <div className="relative aspect-video rounded-2xl overflow-hidden shadow-2xl bg-gray-900 animate-fade-in-up animation-delay-200">
-            <iframe
-              className="absolute inset-0 w-full h-full"
-              src="https://www.youtube.com/embed/gbTN5zb67To"
-              title="RedPen AI 介紹影片"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              loading="lazy"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* 解決方案區塊 */}
-      <section id="example" className="py-16 sm:py-24 bg-gray-50">
+      {/* 一條龍流程 */}
+      <section className="py-16 sm:py-24 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16 animate-fade-in-up">
             <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
-              RedPen AI 如何幫助你
+              一條龍的批改流程
             </h2>
-            <p className="mt-4 text-lg text-gray-600">
-              四大核心功能，讓批改作業變得輕鬆高效
+            <p className="mt-4 text-lg text-gray-500">
+              五個步驟，從紙本作業到教學分析，全程自動
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8">
-            {/* 功能卡片 1 */}
-            <div className="bg-white rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow animate-fade-in-up">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">
-                  <Camera className="w-6 h-6 text-blue-600" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">拍照上傳</h3>
-                  <p className="mt-2 text-gray-600">
-                    手機或平板直接拍照，紙本作業秒變數位檔案。同時支援pdf檔批次上傳，一次處理整班作業與考卷。
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 aspect-[3/2] bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl overflow-hidden">
-                <img src="/screenshot-upload.png" alt="拍照上傳" className="w-full h-full object-cover" />
-              </div>
-            </div>
-
-            {/* 功能卡片 2 */}
-            <div className="bg-white rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow animate-fade-in-up animation-delay-100">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
-                  <Sparkles className="w-6 h-6 text-purple-600" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">AI 自動批改</h3>
-                  <p className="mt-2 text-gray-600">
-                    智慧辨識學生答案，自動比對正確答案並標記錯誤。老師只需確認，大幅節省時間。
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 aspect-[3/2] bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl overflow-hidden">
-                <img src="/screenshot-grading.png" alt="AI 自動批改" className="w-full h-full object-cover" />
-              </div>
-            </div>
-
-            {/* 功能卡片 3 */}
-            <div className="bg-white rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow animate-fade-in-up animation-delay-200">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center flex-shrink-0">
-                  <BarChart3 className="w-6 h-6 text-orange-600" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">訂正管理面板</h3>
-                  <p className="mt-2 text-gray-600">
-                    清楚呈現學生錯誤題目，讓教師輕鬆管理學生訂正情況。也可以產生訂正單，方便學生自主訂正。
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 aspect-[3/2] bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl overflow-hidden">
-                <img src="/screenshot-report.png" alt="錯誤類型分析" className="w-full h-full object-cover" />
-              </div>
-            </div>
-
-            {/* 功能卡片 4 */}
-            <div className="bg-white rounded-2xl p-6 shadow-lg hover:shadow-xl transition-shadow animate-fade-in-up animation-delay-300">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
-                  <ClipboardCheck className="w-6 h-6 text-green-600" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">成績自動計算</h3>
-                  <p className="mt-2 text-gray-600">
-                    自動計算學生分數，並生成成績單。輕鬆匯出 Excel 檔，方便老師記錄與分析學生表現。
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 aspect-[3/2] bg-gradient-to-br from-green-50 to-green-100 rounded-xl overflow-hidden">
-                <img src="/screenshot-summary.png" alt="老師行動摘要" className="w-full h-full object-cover" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 使用流程區塊 */}
-      <section className="py-16 sm:py-24 bg-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16 animate-fade-in-up">
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
-              簡單四步驟，輕鬆完成批改
-            </h2>
-            <p className="mt-4 text-lg text-gray-600">
-              從建立作業到完成分析，只需要幾分鐘
-            </p>
-          </div>
-
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="grid sm:grid-cols-5 gap-4">
             {[
-              { step: 1, title: '建立作業', desc: '輸入題目與答案', icon: FileText, color: 'blue' },
-              { step: 2, title: '拍照上傳', desc: '掃描學生作業', icon: Camera, color: 'purple' },
-              { step: 3, title: 'AI 批改', desc: '自動辨識批改', icon: Sparkles, color: 'orange' },
-              { step: 4, title: '教學分析', desc: '查看報告建議', icon: BarChart3, color: 'green' }
-            ].map((item, index) => {
-              const colorClasses: Record<string, { bg: string; text: string }> = {
-                blue: { bg: 'bg-blue-100', text: 'text-blue-600' },
-                purple: { bg: 'bg-purple-100', text: 'text-purple-600' },
-                orange: { bg: 'bg-orange-100', text: 'text-orange-600' },
-                green: { bg: 'bg-green-100', text: 'text-green-600' }
-              }
-              const colors = colorClasses[item.color]
-              return (
-                <div
-                  key={item.step}
-                  className={`relative text-center animate-fade-in-up`}
-                  style={{ animationDelay: `${index * 100}ms` }}
-                >
-                  <div className={`w-16 h-16 mx-auto rounded-2xl ${colors.bg} flex items-center justify-center mb-4`}>
-                    <item.icon className={`w-8 h-8 ${colors.text}`} />
+              { step: 1, icon: Camera, title: '上傳作業', desc: '拍照或 PDF 批次匯入' },
+              { step: 2, icon: Sparkles, title: 'AI 批改', desc: '自動辨識、標記對錯、計算分數' },
+              { step: 3, icon: RefreshCw, title: 'AI 訂正', desc: '學生用手機補交，AI 自動重批' },
+              { step: 4, icon: ClipboardCheck, title: '成績登記', desc: '自動彙整全班，一鍵匯出 Excel' },
+              { step: 5, icon: BarChart3, title: '學情報告', desc: '分析錯誤類型，提供教學建議' }
+            ].map((item, index) => (
+              <div key={item.step} className="relative animate-fade-in-up" style={{ animationDelay: `${index * 80}ms` }}>
+                <div className="bg-white rounded-2xl p-6 border border-gray-100 h-full">
+                  <div className="flex items-center gap-3 mb-3">
+                    <span className="text-3xl font-bold text-gray-200">{item.step}</span>
+                    <item.icon className="w-5 h-5 text-gray-600" />
                   </div>
-                  <div className="absolute -top-2 right-1/2 translate-x-1/2 sm:right-4 sm:translate-x-0 w-8 h-8 bg-gray-900 text-white rounded-full flex items-center justify-center text-sm font-bold">
-                    {item.step}
-                  </div>
-                  <h3 className="text-lg font-bold text-gray-900">{item.title}</h3>
-                  <p className="mt-1 text-gray-600">{item.desc}</p>
-                  {index < 3 && (
-                    <div className="hidden lg:block absolute top-8 left-full w-full">
-                      <ArrowRight className="w-6 h-6 text-gray-300 mx-auto" />
-                    </div>
-                  )}
+                  <h3 className="text-base font-bold text-gray-900">{item.title}</h3>
+                  <p className="mt-1 text-sm text-gray-500 leading-relaxed">{item.desc}</p>
                 </div>
-              )
-            })}
+                {index < 4 && (
+                  <div className="hidden sm:flex absolute top-1/2 -right-2 z-10 -translate-y-1/2 items-center justify-center">
+                    <ArrowRight className="w-4 h-4 text-gray-300" />
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      {/* 方案與價格區塊 */}
-      <section className="py-16 sm:py-24 bg-gradient-to-br from-gray-50 to-blue-50">
+      {/* 功能深挖：AI 批改 */}
+      <section className="py-16 sm:py-24 bg-white">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            <div className="animate-fade-in-up">
+              <span className="inline-block px-3 py-1 bg-gray-100 text-gray-600 text-sm font-medium rounded-full mb-6">
+                AI 批改
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-tight">
+                拍照，三分鐘
+                <br />
+                批完整班作業
+              </h2>
+              <p className="mt-6 text-lg text-gray-500 leading-relaxed">
+                支援選擇題、填充題、應用題等多種題型。AI 自動比對答案鍵，老師只需最後確認。
+              </p>
+              <ul className="mt-8 space-y-3">
+                {[
+                  '智慧辨識手寫答案，支援多種題型',
+                  '老師可手動覆蓋 AI 判斷結果',
+                  '一致性檢查，確保批改穩定準確'
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-gray-900 flex-shrink-0 mt-0.5" />
+                    <span className="text-gray-600">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="animate-fade-in-up animation-delay-200 rounded-2xl overflow-hidden border border-gray-100 shadow-lg">
+              <img src="/screenshot-grading.png" alt="AI 批改介面" className="w-full h-auto" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 功能深挖：AI 訂正 */}
+      <section className="py-16 sm:py-24 bg-gray-50">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            <div className="order-2 lg:order-1 animate-fade-in-up animation-delay-200 rounded-2xl overflow-hidden border border-gray-100 shadow-lg">
+              <img src="/screenshot-upload.png" alt="學生訂正入口" className="w-full h-auto" />
+            </div>
+            <div className="order-1 lg:order-2 animate-fade-in-up">
+              <span className="inline-block px-3 py-1 bg-gray-100 text-gray-600 text-sm font-medium rounded-full mb-6">
+                AI 訂正
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-tight">
+                學生訂正，
+                <br />
+                不用帶紙本來找老師
+              </h2>
+              <p className="mt-6 text-lg text-gray-500 leading-relaxed">
+                老師一鍵派發訂正單，學生收到連結、用手機拍照補交，AI 重新批改，進度即時回報。
+              </p>
+              <ul className="mt-8 space-y-3">
+                {[
+                  'Google 帳號秒速登入，無需另外註冊',
+                  '手機相機直接拍照上傳，隨時補交',
+                  '訂正結果即時顯示，老師即時掌握進度'
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-gray-900 flex-shrink-0 mt-0.5" />
+                    <span className="text-gray-600">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 功能深挖：學情報告 */}
+      <section className="py-16 sm:py-24 bg-white">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            <div className="animate-fade-in-up">
+              <span className="inline-block px-3 py-1 bg-gray-100 text-gray-600 text-sm font-medium rounded-full mb-6">
+                學情報告
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 leading-tight">
+                哪些概念全班都沒學會，
+                <br />
+                一眼就看出來
+              </h2>
+              <p className="mt-6 text-lg text-gray-500 leading-relaxed">
+                AI 自動分析錯誤類型，找出高頻錯誤題目，幫助老師決定下一堂課的教學重點。
+              </p>
+              <ul className="mt-8 space-y-3">
+                {[
+                  '班級整體錯誤分布一覽',
+                  '個別學生弱點追蹤與比較',
+                  '可匯出完整成績單與分析報告'
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-gray-900 flex-shrink-0 mt-0.5" />
+                    <span className="text-gray-600">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="animate-fade-in-up animation-delay-200 rounded-2xl overflow-hidden border border-gray-100 shadow-lg">
+              <img src="/screenshot-summary.png" alt="學情報告" className="w-full h-auto" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 定價 */}
+      <section className="py-16 sm:py-24 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16 animate-fade-in-up">
             <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
               選擇適合你的方案
             </h2>
-            <p className="mt-4 text-lg text-gray-600">
+            <p className="mt-4 text-lg text-gray-500">
               免費開始使用，隨時升級解鎖更多功能
             </p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
             {/* 免費方案 */}
-            <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-100 animate-fade-in-up">
+            <div className="bg-white rounded-2xl p-8 border border-gray-200 animate-fade-in-up">
               <h3 className="text-2xl font-bold text-gray-900">免費體驗</h3>
-              <p className="mt-2 text-gray-600">適合初次體驗的老師</p>
+              <p className="mt-2 text-gray-500">適合初次體驗的老師</p>
               <div className="mt-6">
                 <span className="text-4xl font-bold text-gray-900">$0</span>
-                <span className="text-gray-500 ml-2">/ 永久免費</span>
+                <span className="text-gray-400 ml-2">/ 永久免費</span>
               </div>
               <ul className="mt-6 space-y-3">
-                <li className="flex items-center gap-3">
-                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
-                  <span className="text-gray-600">班級管理</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
-                  <span className="text-gray-600">作業管理與匯入</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <Check className="w-5 h-5 text-green-500 flex-shrink-0" />
-                  <span className="text-gray-600">AI 批改（依墨水用量）</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <X className="w-5 h-5 text-gray-300 flex-shrink-0" />
-                  <span className="text-gray-400">訂正管理</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <X className="w-5 h-5 text-gray-300 flex-shrink-0" />
-                  <span className="text-gray-400">成績管理</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <X className="w-5 h-5 text-gray-300 flex-shrink-0" />
-                  <span className="text-gray-400">AI 學情報告</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <X className="w-5 h-5 text-gray-300 flex-shrink-0" />
-                  <span className="text-gray-400">最新模組優先體驗</span>
-                </li>
+                {[
+                  { label: '班級管理', included: true },
+                  { label: '作業管理與匯入', included: true },
+                  { label: 'AI 批改（依墨水用量）', included: true },
+                  { label: '訂正管理', included: false },
+                  { label: '成績管理', included: false },
+                  { label: 'AI 學情報告', included: false },
+                  { label: '最新模組優先體驗', included: false }
+                ].map((item) => (
+                  <li key={item.label} className="flex items-center gap-3">
+                    {item.included
+                      ? <Check className="w-5 h-5 text-gray-900 flex-shrink-0" />
+                      : <X className="w-5 h-5 text-gray-300 flex-shrink-0" />
+                    }
+                    <span className={item.included ? 'text-gray-700' : 'text-gray-400'}>{item.label}</span>
+                  </li>
+                ))}
               </ul>
               <a
                 href={LOGIN_URL}
-                className="mt-8 block w-full py-3 text-center bg-gray-100 text-gray-700 font-semibold rounded-xl hover:bg-gray-200 transition-colors"
+                className="mt-8 block w-full py-3 text-center border border-gray-200 bg-white text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors"
               >
                 立即免費試用
               </a>
             </div>
 
             {/* Pro 方案 */}
-            <div className="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl p-8 shadow-xl relative overflow-hidden animate-fade-in-up animation-delay-100">
+            <div className="bg-gray-900 rounded-2xl p-8 relative overflow-hidden animate-fade-in-up animation-delay-100">
               <div className="absolute top-4 right-4 px-3 py-1 bg-yellow-400 text-yellow-900 text-xs font-bold rounded-full flex items-center gap-1">
                 <Crown className="w-3 h-3" />
                 最受老師歡迎
               </div>
               <h3 className="text-2xl font-bold text-white">Pro 方案</h3>
-              <p className="mt-2 text-blue-100">解鎖完整功能</p>
+              <p className="mt-2 text-gray-400">解鎖完整功能</p>
               <div className="mt-6">
                 <span className="text-4xl font-bold text-white">NT$ 100 起</span>
               </div>
-              <p className="text-blue-200 text-sm mt-1">購買墨水即自動升級 Pro</p>
+              <p className="text-gray-400 text-sm mt-1">購買墨水即自動升級 Pro</p>
 
-              {/* 墨水方案清單 */}
-              <div className="mt-4 bg-white/10 rounded-xl p-4 backdrop-blur-sm">
-                <h4 className="text-sm font-semibold text-white mb-3">墨水方案</h4>
+              <div className="mt-4 bg-white/10 rounded-xl p-4">
+                <h4 className="text-sm font-semibold text-gray-300 mb-3">墨水方案</h4>
                 <ul className="space-y-2 text-sm">
-                  <li className="flex justify-between text-blue-50">
+                  <li className="flex justify-between text-gray-300">
                     <span>100 墨水</span>
-                    <span className="font-semibold">NT$ 100</span>
+                    <span className="font-semibold text-white">NT$ 100</span>
                   </li>
-                  <li className="flex justify-between text-blue-50">
+                  <li className="flex justify-between text-gray-300">
                     <span>300 墨水</span>
-                    <span className="font-semibold">NT$ 280</span>
+                    <span className="font-semibold text-white">NT$ 280</span>
                   </li>
-                  <li className="flex justify-between text-blue-50">
+                  <li className="flex justify-between text-gray-300">
                     <span>1000 墨水</span>
-                    <span className="font-semibold">NT$ 800</span>
+                    <span className="font-semibold text-white">NT$ 800</span>
                   </li>
                 </ul>
-                <p className="text-xs text-blue-200 mt-3 border-t border-white/20 pt-3">
+                <p className="text-xs text-gray-500 mt-3 border-t border-white/10 pt-3">
                   墨水用於 AI 批改用量（依頁數/題數扣點），購買後自動升級 Pro 功能
                 </p>
               </div>
 
-              <p className="text-xs text-blue-100 mt-4 text-center">
-                價格皆以新台幣（NT$）計價
-              </p>
-
               <ul className="mt-6 space-y-3">
-                <li className="flex items-center gap-3">
-                  <Check className="w-5 h-5 text-green-300 flex-shrink-0" />
-                  <span className="text-white">班級管理</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <Check className="w-5 h-5 text-green-300 flex-shrink-0" />
-                  <span className="text-white">作業管理與匯入</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <Check className="w-5 h-5 text-green-300 flex-shrink-0" />
-                  <span className="text-white">AI 批改（依墨水用量）</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <Check className="w-5 h-5 text-green-300 flex-shrink-0" />
-                  <span className="text-white">訂正管理</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <Check className="w-5 h-5 text-green-300 flex-shrink-0" />
-                  <span className="text-white">成績管理</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <Check className="w-5 h-5 text-green-300 flex-shrink-0" />
-                  <span className="text-white">AI 學情報告</span>
-                </li>
-                <li className="flex items-center gap-3">
-                  <Check className="w-5 h-5 text-green-300 flex-shrink-0" />
-                  <span className="text-white">最新模組優先體驗</span>
-                </li>
+                {[
+                  '班級管理',
+                  '作業管理與匯入',
+                  'AI 批改（依墨水用量）',
+                  '訂正管理',
+                  '成績管理',
+                  'AI 學情報告',
+                  '最新模組優先體驗'
+                ].map((item) => (
+                  <li key={item} className="flex items-center gap-3">
+                    <Check className="w-5 h-5 text-green-400 flex-shrink-0" />
+                    <span className="text-gray-200">{item}</span>
+                  </li>
+                ))}
               </ul>
+
+              <p className="text-xs text-gray-500 mt-4 text-center">價格皆以新台幣（NT$）計價</p>
               <a
                 href={LOGIN_URL}
-                className="mt-8 block w-full py-3 text-center bg-white text-blue-600 font-semibold rounded-xl hover:bg-blue-50 transition-colors"
+                className="mt-6 block w-full py-3 text-center bg-white text-gray-900 font-semibold rounded-xl hover:bg-gray-100 transition-colors"
               >
                 升級 Pro 方案
               </a>
             </div>
           </div>
-
-          {/* 功能比較表 - 暫時隱藏
-          <div className="mt-16 bg-white rounded-2xl p-6 sm:p-8 shadow-lg max-w-3xl mx-auto animate-fade-in-up">
-            <h3 className="text-xl font-bold text-gray-900 mb-6 text-center">功能比較</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-3 px-4 font-semibold text-gray-900">功能</th>
-                    <th className="text-center py-3 px-4 font-semibold text-gray-900">免費</th>
-                    <th className="text-center py-3 px-4 font-semibold text-blue-600">
-                      <span className="inline-flex items-center gap-1">
-                        <Crown className="w-4 h-4 text-yellow-500" />
-                        Pro
-                      </span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {[
-                    { feature: '班級管理', free: true, pro: true },
-                    { feature: '作業管理與匯入', free: true, pro: true },
-                    { feature: 'AI 批改', free: true, pro: true },
-                    { feature: '訂正管理', free: false, pro: true },
-                    { feature: '成績管理', free: false, pro: true },
-                    { feature: 'AI 學情報告', free: false, pro: true }
-                  ].map((row) => (
-                    <tr key={row.feature}>
-                      <td className="py-3 px-4 text-gray-700">{row.feature}</td>
-                      <td className="py-3 px-4 text-center">
-                        {row.free ? (
-                          <Check className="w-5 h-5 text-green-500 mx-auto" />
-                        ) : (
-                          <X className="w-5 h-5 text-gray-300 mx-auto" />
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        {row.pro ? (
-                          <Check className="w-5 h-5 text-green-500 mx-auto" />
-                        ) : (
-                          <X className="w-5 h-5 text-gray-300 mx-auto" />
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-          */}
         </div>
       </section>
 
-      {/* 中間 CTA 區塊 */}
-      <section className="py-16 sm:py-24 bg-blue-600">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <div className="animate-fade-in-up">
-            <h2 className="text-3xl sm:text-4xl font-bold text-white">
-              準備好提升批改效率了嗎？
-            </h2>
-            <p className="mt-4 text-lg text-blue-100">
-              加入數百位老師的行列，讓 AI 成為你的批改助手
-            </p>
+      {/* Final CTA */}
+      <section className="py-24 sm:py-32 bg-white">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center animate-fade-in-up">
+          <h2 className="text-4xl sm:text-6xl font-bold text-gray-900 tracking-tight">
+            今天就試試看
+          </h2>
+          <p className="mt-6 text-xl text-gray-500">
+            免費開始，不需信用卡
+          </p>
+          <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <a
               href={LOGIN_URL}
-              className="mt-8 inline-flex items-center justify-center gap-2 px-8 py-4 bg-white text-blue-600 font-semibold rounded-xl hover:bg-blue-50 transition-colors shadow-lg"
+              className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-gray-900 text-white font-semibold rounded-xl hover:bg-gray-700 transition-colors text-lg"
             >
-              立即免費試用
+              立即試用
               <ArrowRight className="w-5 h-5" />
             </a>
-          </div>
-        </div>
-      </section>
-
-      {/* 安心與信任說明 */}
-      <section className="py-16 sm:py-24 bg-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12 animate-fade-in-up">
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
-              安心使用，放心教學
-            </h2>
-          </div>
-
-          <div className="grid sm:grid-cols-3 gap-8">
-            <div className="text-center animate-fade-in-up">
-              <div className="w-14 h-14 mx-auto rounded-2xl bg-green-100 flex items-center justify-center mb-4">
-                <CreditCard className="w-7 h-7 text-green-600" />
-              </div>
-              <h3 className="text-lg font-bold text-gray-900">不會自動扣款</h3>
-              <p className="mt-2 text-gray-600">
-                墨水用完前會提醒，不會自動續訂或扣款，完全由你掌控。
-              </p>
-            </div>
-
-            <div className="text-center animate-fade-in-up animation-delay-100">
-              <div className="w-14 h-14 mx-auto rounded-2xl bg-blue-100 flex items-center justify-center mb-4">
-                <Shield className="w-7 h-7 text-blue-600" />
-              </div>
-              <h3 className="text-lg font-bold text-gray-900">教育用途資料保護</h3>
-              <p className="mt-2 text-gray-600">
-                學生資料安全加密儲存，僅供教學用途，絕不外洩或商業使用。
-              </p>
-            </div>
-
-            <div className="text-center animate-fade-in-up animation-delay-200">
-              <div className="w-14 h-14 mx-auto rounded-2xl bg-purple-100 flex items-center justify-center mb-4">
-                <RefreshCw className="w-7 h-7 text-purple-600" />
-              </div>
-              <h3 className="text-lg font-bold text-gray-900">隨時可升級或停用</h3>
-              <p className="mt-2 text-gray-600">
-                沒有綁約限制，想升級就升級，想暫停就暫停，彈性自由。
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={() => handleLogin('student')}
+              className="inline-flex items-center justify-center gap-2 px-8 py-4 border-2 border-gray-200 bg-white text-gray-700 font-semibold rounded-xl hover:bg-gray-50 transition-colors text-lg"
+            >
+              學生訂正入口
+            </button>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="py-12 bg-gray-900">
+      <footer className="py-12 bg-gray-950">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
-            {/* 品牌 */}
             <div className="sm:col-span-2 lg:col-span-1">
               <div className="flex items-center gap-2">
                 <img src="/logo.png" alt="RedPen AI" className="w-8 h-8" />
                 <span className="text-xl font-bold text-white">RedPen AI</span>
               </div>
-              <p className="mt-4 text-gray-400">
-                AI 自動批改作業，讓老師把時間留給教學
+              <p className="mt-4 text-gray-500 text-sm">
+                AI 輔助批改作業，讓老師把時間還給教學
               </p>
             </div>
 
-            {/* 快速連結 */}
             <div>
-              <h4 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+              <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
                 快速連結
               </h4>
               <ul className="mt-4 space-y-2">
                 <li>
-                  <a href="#example" className="text-gray-400 hover:text-white transition-colors">
-                    功能介紹
+                  <a href={LOGIN_URL} className="text-gray-500 hover:text-white transition-colors text-sm">
+                    教師登入
                   </a>
                 </li>
                 <li>
-                  <a href={LOGIN_URL} className="text-gray-400 hover:text-white transition-colors">
-                    登入
-                  </a>
+                  <button
+                    type="button"
+                    onClick={() => handleLogin('student')}
+                    className="text-gray-500 hover:text-white transition-colors text-sm"
+                  >
+                    學生訂正入口
+                  </button>
                 </li>
                 <li>
-                  <a href={LOGIN_URL} className="text-gray-400 hover:text-white transition-colors">
+                  <a href={LOGIN_URL} className="text-gray-500 hover:text-white transition-colors text-sm">
                     免費試用
                   </a>
                 </li>
               </ul>
             </div>
 
-            {/* 聯絡資訊 */}
             <div>
-              <h4 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+              <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
                 聯絡我們
               </h4>
               <ul className="mt-4 space-y-2">
-                <li className="flex items-center gap-2 text-gray-400">
+                <li className="flex items-center gap-2 text-gray-500 text-sm">
                   <Mail className="w-4 h-4" />
                   <a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-white transition-colors">
                     {SUPPORT_EMAIL}
                   </a>
                 </li>
-                <li className="flex items-center gap-2 text-gray-400">
+                <li className="flex items-center gap-2 text-gray-500 text-sm">
                   <Phone className="w-4 h-4" />
                   <a href={`tel:${SUPPORT_PHONE.replace(/-/g, '')}`} className="hover:text-white transition-colors">
                     {SUPPORT_PHONE}
@@ -593,14 +473,13 @@ export default function LandingPage() {
               </ul>
             </div>
 
-            {/* CTA */}
             <div>
-              <h4 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+              <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
                 開始使用
               </h4>
               <a
                 href={LOGIN_URL}
-                className="mt-4 inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+                className="mt-4 inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-white text-gray-900 font-semibold rounded-lg hover:bg-gray-100 transition-colors text-sm"
               >
                 立即免費試用
                 <ArrowRight className="w-4 h-4" />
@@ -609,14 +488,13 @@ export default function LandingPage() {
           </div>
 
           <div className="mt-12 pt-8 border-t border-gray-800 text-center">
-            <p className="text-gray-500">
+            <p className="text-gray-600 text-sm">
               Copyright © 2026 黃政昱. All Rights Reserved.
             </p>
           </div>
         </div>
       </footer>
 
-      {/* CSS 動畫樣式 */}
       <style>{`
         @keyframes fade-in-up {
           from {
@@ -628,19 +506,19 @@ export default function LandingPage() {
             transform: translateY(0);
           }
         }
-        
+
         .animate-fade-in-up {
           animation: fade-in-up 0.6s ease-out forwards;
         }
-        
+
         .animation-delay-100 {
           animation-delay: 100ms;
         }
-        
+
         .animation-delay-200 {
           animation-delay: 200ms;
         }
-        
+
         .animation-delay-300 {
           animation-delay: 300ms;
         }
