@@ -793,7 +793,6 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     for (const a of filteredAssignments) {
       const full = assignmentById.get(a.id)
       const questions = full?.answerKey?.questions ?? []
-      console.log('[ConceptMastery] assignment', a.id, a.title, '→ questions:', questions.length, 'concept_codes:', questions.map(q => q.concept_code))
       const qMap: QConceptMap = new Map()
       for (const q of questions) {
         if (!q.concept_code) continue
@@ -850,7 +849,15 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
       }))
       .sort((a, b) => (a.seatNumber ?? 999) - (b.seatNumber ?? 999))
 
-    return { students, concepts }
+    // Diagnostic info for empty state
+    const debugInfo = filteredAssignments.map((a) => {
+      const full = assignmentById.get(a.id)
+      const questions = full?.answerKey?.questions ?? []
+      const withCode = questions.filter(q => q.concept_code).length
+      return { title: a.title ?? a.id, total: questions.length, withCode }
+    })
+
+    return { students, concepts, debugInfo }
   }, [classAssignments, selectedDomain, classFilteredSubmissions, classFilteredStudents, assignmentById])
 
   const rangeFilteredSubmissions = useMemo(() => {
@@ -1469,6 +1476,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               <ConceptMasteryTable
                 students={conceptMasteryData.students}
                 concepts={conceptMasteryData.concepts}
+                debugInfo={conceptMasteryData.debugInfo}
               />
             </section>
           )}

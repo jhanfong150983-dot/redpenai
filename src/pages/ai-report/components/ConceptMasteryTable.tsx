@@ -10,9 +10,16 @@ type StudentMastery = {
   concepts: Record<string, { correct: number; total: number }>
 }
 
+type AssignmentDebugInfo = {
+  title: string
+  total: number
+  withCode: number
+}
+
 type ConceptMasteryTableProps = {
   students: StudentMastery[]
   concepts: ConceptEntry[]
+  debugInfo?: AssignmentDebugInfo[]
 }
 
 function getMasteryColor(correct: number, total: number): string {
@@ -33,11 +40,43 @@ function getMasteryTextColor(correct: number, total: number): string {
 
 export type { StudentMastery, ConceptEntry }
 
-export default function ConceptMasteryTable({ students, concepts }: ConceptMasteryTableProps) {
+export default function ConceptMasteryTable({ students, concepts, debugInfo }: ConceptMasteryTableProps) {
   if (concepts.length === 0 || students.length === 0) {
     return (
-      <div className="card" style={{ padding: '1.25rem 1.5rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
-        此期間沒有標記 108 課綱概念的題目。請先在答案鍵中設定 concept_code。
+      <div className="card" style={{ padding: '1.25rem 1.5rem', fontSize: '0.875rem' }}>
+        <div style={{ color: 'var(--muted)', marginBottom: debugInfo?.length ? '0.75rem' : 0 }}>
+          此班級的作業尚無 108 課綱概念標記，雙向細目表無法顯示。
+        </div>
+        {debugInfo && debugInfo.length > 0 && (
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+            <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem' }}>診斷：各作業的答案鍵狀態</div>
+            {debugInfo.map((d, i) => (
+              <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.75rem', marginBottom: '0.2rem' }}>
+                <span style={{ color: d.withCode > 0 ? '#166534' : '#991b1b', fontWeight: 600 }}>
+                  {d.withCode > 0 ? '✓' : '✗'}
+                </span>
+                <span style={{ color: '#374151' }}>{d.title}</span>
+                <span style={{ color: '#9ca3af' }}>
+                  {d.total === 0
+                    ? '（答案鍵未設定）'
+                    : d.withCode === 0
+                    ? `（${d.total} 題，全部未標記 concept_code）`
+                    : `（${d.total} 題，${d.withCode} 題有 concept_code）`}
+                </span>
+              </div>
+            ))}
+            {debugInfo.every(d => d.total > 0 && d.withCode === 0) && (
+              <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#92400e', background: '#fef3c7', borderRadius: '0.375rem', padding: '0.5rem 0.75rem' }}>
+                答案鍵有題目但都沒有 concept_code。請在「作業設定」重新抽取答案鍵，並確認班級有設定年級。
+              </div>
+            )}
+            {debugInfo.every(d => d.total === 0) && (
+              <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#92400e', background: '#fef3c7', borderRadius: '0.375rem', padding: '0.5rem 0.75rem' }}>
+                答案鍵尚未設定。請先在「作業設定」中上傳並抽取答案鍵。
+              </div>
+            )}
+          </div>
+        )}
       </div>
     )
   }
