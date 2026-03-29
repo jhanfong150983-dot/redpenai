@@ -807,6 +807,11 @@ const [selectedClassroomId, setSelectedClassroomId] = useState('')
       !selectedDomain || selectedDomain === '全部' || normalizeDomain(a.domain) === selectedDomain
     )
     const filteredIds = new Set(filteredAssignments.map((a) => a.id))
+    console.log('[ConceptMastery] domainAssignmentsInRange:', domainAssignmentsInRange.length, 'filteredAssignments:', filteredAssignments.length)
+    filteredAssignments.forEach((a) => {
+      const full = assignmentById.get(a.id)
+      console.log('[ConceptMastery] assignment', a.id, 'domain:', a.domain, 'answerKey questions:', full?.answerKey?.questions?.length ?? 'N/A', full?.answerKey?.questions?.map(q => q.concept_code))
+    })
 
     // Build per-assignment map: questionId → {code, label}
     // Use assignmentById to access full SyncAssignment (which has answerKey)
