@@ -590,7 +590,11 @@ export default function AiReport({ onBack, embedded }: AiReportProps) {
   >({})
   const [activeTab, setActiveTab] = useState<'class' | 'domain' | 'student'>('class')
   const [assignmentSummary, setAssignmentSummary] = useState<{
-    status: string; class_summary: string | null; minority_summary: string | null
+    status: string
+    class_summary: string | null
+    class_suggestion: string | null
+    minority_summary: string | null
+    minority_suggestion: string | null
     student_summaries: { student_id: string; student_name: string; summary: string }[]
     sample_count: number
   } | null>(null)
