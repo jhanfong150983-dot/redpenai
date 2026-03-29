@@ -904,10 +904,13 @@ export function useSync(options: UseSyncOptions = {}) {
         // 如果雲端有 folder，使用雲端的；否則保留本地的
         const finalFolder = cloudFolder !== undefined ? cloudFolder : localFolder
 
+        const rawGrade = (c as Classroom & { grade?: unknown }).grade
+        const parsedGrade = rawGrade != null ? parseInt(String(rawGrade), 10) : undefined
         return {
           id: c.id,
           name: c.name,
           folder: finalFolder,
+          grade: parsedGrade != null && !isNaN(parsedGrade) ? parsedGrade : undefined,
           updatedAt: toMillis(
             (c as Classroom & { updatedAt?: unknown }).updatedAt ??
               (c as { updated_at?: unknown }).updated_at

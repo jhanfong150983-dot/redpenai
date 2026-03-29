@@ -91,6 +91,19 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
   const [editingName, setEditingName] = useState('')
   const [isSaving, setIsSaving] = useState(false)
 
+  const handleUpdateGrade = async (classroomId: string, grade: number | '') => {
+    const gradeValue = grade === '' ? undefined : grade
+    await db.classrooms.update(classroomId, { grade: gradeValue })
+    setItems((prev) =>
+      prev.map((item) =>
+        item.classroom.id === classroomId
+          ? { ...item, classroom: { ...item.classroom, grade: gradeValue } }
+          : item
+      )
+    )
+    requestSync()
+  }
+
   // 編輯學生名單
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false)
   const [isStudentReadonly, setIsStudentReadonly] = useState(false)
@@ -1102,6 +1115,33 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
           <p className="mt-0.5 text-xs text-gray-500">
             {item.studentCount} 位學生 · {item.assignmentCount} 份作業
           </p>
+          <div className="mt-1 flex items-center gap-1">
+            {item.classroom.folder === '1Campus' ? (
+              item.classroom.grade ? (
+                <span className="inline-flex items-center rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-600">
+                  {item.classroom.grade <= 6 ? `國小${item.classroom.grade}年級` : item.classroom.grade <= 9 ? `國中${item.classroom.grade - 6}年級` : `高中${item.classroom.grade - 9}年級`}
+                </span>
+              ) : null
+            ) : (
+              <select
+                value={item.classroom.grade ?? ''}
+                onChange={(e) => void handleUpdateGrade(item.classroom.id, e.target.value === '' ? '' : Number(e.target.value))}
+                onClick={(e) => e.stopPropagation()}
+                className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-xs text-gray-500 focus:border-green-400 focus:outline-none"
+              >
+                <option value="">選擇年級</option>
+                <optgroup label="國小">
+                  {[1,2,3,4,5,6].map(g => <option key={g} value={g}>國小{g}年級</option>)}
+                </optgroup>
+                <optgroup label="國中">
+                  {[7,8,9].map(g => <option key={g} value={g}>國中{g-6}年級</option>)}
+                </optgroup>
+                <optgroup label="高中">
+                  {[10,11,12].map(g => <option key={g} value={g}>高中{g-9}年級</option>)}
+                </optgroup>
+              </select>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <button
