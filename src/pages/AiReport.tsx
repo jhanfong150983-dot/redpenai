@@ -24,14 +24,7 @@ type SyncAssignment = {
   domain?: string
   createdAt?: string | number
   updatedAt?: number
-  answerKey?: {
-    questions: Array<{
-      id: string
-      questionCategory?: string
-      concept_code?: string
-      concept_label?: string
-    }>
-  }
+  answerKey?: unknown
 }
 
 type SyncStudent = {
@@ -792,7 +785,10 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     const assignmentConceptMaps = new Map<string, QConceptMap>()
     for (const a of filteredAssignments) {
       const full = assignmentById.get(a.id)
-      const questions = full?.answerKey?.questions ?? []
+      const rawKey = full?.answerKey
+      const parsedKey: { questions?: Array<{ id: string; questionCategory?: string; concept_code?: string; concept_label?: string }> } | null =
+        typeof rawKey === 'string' ? (() => { try { return JSON.parse(rawKey) } catch { return null } })() : (rawKey as never) ?? null
+      const questions = parsedKey?.questions ?? []
       const qMap: QConceptMap = new Map()
       for (const q of questions) {
         if (!q.concept_code) continue
@@ -852,8 +848,10 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     // Diagnostic info for empty state
     const debugInfo = filteredAssignments.map((a) => {
       const full = assignmentById.get(a.id)
-      const questions = full?.answerKey?.questions ?? []
-      const withCode = questions.filter(q => q.concept_code).length
+      const raw = full?.answerKey
+      const parsed = typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return null } })() : raw
+      const questions = (parsed as { questions?: unknown[] } | null)?.questions ?? []
+      const withCode = (questions as Array<{ concept_code?: unknown }>).filter(q => q.concept_code).length
       return { title: a.title ?? a.id, total: questions.length, withCode }
     })
 
