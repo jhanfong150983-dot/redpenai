@@ -1,16 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import SummaryPanel from './ai-report/components/SummaryPanel'
-import TagLevelsPanel from './ai-report/components/TagLevelsPanel'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
-import CompletionPanel from './ai-report/components/CompletionPanel'
-import StudentListTabs from './ai-report/components/StudentListTabs'
 import TimeRangeFilter from './ai-report/components/TimeRangeFilter'
 import DomainDiagnosisView from './ai-report/components/DomainDiagnosisView'
 import {
-  buildActionSummary,
-  buildCompletionSummary,
-  buildStudentRiskSummary,
-  buildTagLevels,
   runSanityCheck
 } from './ai-report/compute'
 import {
@@ -21,19 +13,8 @@ import {
   generateDomainDiagnosisWithLLM,
   hashDomainPlanForCache
 } from './ai-report/domain-diagnosis'
-import {
-  buildInstructionPlan,
-  generateTeacherSummaryWithLLM,
-  hashTagsForCache,
-  readTeacherSummaryCache,
-  writeTeacherSummaryCache,
-  type TeacherSummaryResult
-} from './ai-report/teacher-summary'
 import type {
-  AssignmentTagReport,
   DomainDiagnosis,
-  StudentBase,
-  Submission as ReportSubmission,
   TimeRangePreset
 } from './ai-report/types'
 import './AiReport.css'
@@ -158,10 +139,6 @@ type TagDictionaryItem = {
   merged_to_label?: string | null
 }
 
-type SummarySuggestion = {
-  label: string
-  text: string
-}
 
 type ReportPayload = {
   domains: DomainReport[]
@@ -516,20 +493,6 @@ function buildStudentProfiles(
   })
 }
 
-function collectIssueTagCounts(
-  submission: PreparedSubmission,
-  mapTag: (tag: string) => string | null
-) {
-  const issues = extractIssues(submission)
-  const counts = new Map<string, number>()
-  issues.forEach((issue) => {
-    const mapped = mapIssueToTag(issue, mapTag)
-    if (!mapped) return
-    counts.set(mapped, (counts.get(mapped) ?? 0) + 1)
-  })
-  return counts
-}
-
 function getTopThreshold(values: number[], ratio: number) {
   if (!values.length) return null
   const sorted = [...values].sort((a, b) => b - a)
@@ -571,9 +534,7 @@ export default function AiReport({ onBack, embedded }: AiReportProps) {
   const [reportData, setReportData] = useState<ReportPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [teacherSummary, setTeacherSummary] = useState<TeacherSummaryResult | null>(null)
-  const [teacherSummaryLoading, setTeacherSummaryLoading] = useState(false)
-  const [selectedClassroomId, setSelectedClassroomId] = useState('')
+const [selectedClassroomId, setSelectedClassroomId] = useState('')
   const [selectedAssignmentId, setSelectedAssignmentId] = useState('')
   const [selectedDomain, setSelectedDomain] = useState('')
   const [rangeStart, setRangeStart] = useState('')
@@ -899,12 +860,6 @@ export default function AiReport({ onBack, embedded }: AiReportProps) {
     setSelectedAssignmentId(filteredAssignmentMeta[0].assignment.id)
   }, [filteredAssignmentMeta, selectedAssignmentId])
 
-  const selectedAssignment = filteredAssignmentMeta.find(
-    (item) => item.assignment.id === selectedAssignmentId
-  )
-
-  const activeSubmissions = selectedAssignment?.submissions ?? []
-
   const tagDictionaryLookup = useMemo(() => {
     const map = new Map<string, string>()
     reportData?.dictionary?.forEach((item) => {
@@ -965,109 +920,6 @@ export default function AiReport({ onBack, embedded }: AiReportProps) {
     })
     return bestLabel
   }
-
-  const assignmentStudents = useMemo<StudentBase[]>(() => {
-    const scoreMap = new Map<string, { total: number; count: number }>()
-
-    activeSubmissions.forEach((submission) => {
-      if (!submission.studentId) return
-      const scoreValue = submission.scoreValue
-      if (scoreValue === null || scoreValue === undefined) return
-      if (!scoreMap.has(submission.studentId)) {
-        scoreMap.set(submission.studentId, { total: 0, count: 0 })
-      }
-      const entry = scoreMap.get(submission.studentId)
-      if (!entry) return
-      entry.total += scoreValue
-      entry.count += 1
-    })
-
-    return classFilteredStudents.map((student) => {
-      const entry = scoreMap.get(student.id)
-      const avgScore = entry && entry.count > 0 ? entry.total / entry.count : null
-      return {
-        id: student.id,
-        name: student.name ?? '未命名學生',
-        seatNumber: student.seatNumber ?? null,
-        avgScore
-      }
-    })
-  }, [activeSubmissions, classFilteredStudents])
-
-  const assignmentRiskSubmissions = useMemo<ReportSubmission[]>(() => {
-    return activeSubmissions.map((submission) => {
-      const extras = submission as PreparedSubmission & {
-        tagCounts?: Record<string, number>
-        blankCount?: number
-        totalQuestionCount?: number
-      }
-      const counts = collectIssueTagCounts(submission, mapTagToDictionary)
-      const tagCounts =
-        counts.size > 0 ? Object.fromEntries(counts.entries()) : undefined
-      return {
-        id: submission.id,
-        assignmentId: submission.assignmentId,
-        studentId: submission.studentId,
-        score: submission.scoreValue ?? submission.score,
-        gradingResult: submission.gradingResult,
-        parsedGradingResult: submission.grading,
-        tagCounts: tagCounts ?? extras.tagCounts,
-        blankCount: extras.blankCount,
-        totalQuestionCount: extras.totalQuestionCount
-      }
-    })
-  }, [activeSubmissions, mapTagToDictionary])
-
-  const assignmentRiskSummary = useMemo(
-    () => buildStudentRiskSummary(assignmentStudents, assignmentRiskSubmissions),
-    [assignmentStudents, assignmentRiskSubmissions]
-  )
-
-const assignmentTagInfo = useMemo(() => {
-    if (!syncData || !selectedAssignmentId) return null
-    return (
-      syncData.assignmentTags?.find(
-        (item) => item.assignmentId === selectedAssignmentId
-      ) ?? null
-    )
-  }, [syncData, selectedAssignmentId])
-
-  const assignmentReport = useMemo<AssignmentTagReport | null>(() => {
-    if (!selectedAssignmentId) return null
-    return {
-      assignmentId: selectedAssignmentId,
-      sampleCount: assignmentTagInfo?.sampleCount ?? activeSubmissions.length ?? 0,
-      tags: assignmentTagInfo?.tags ?? [],
-      source: assignmentTagInfo?.source,
-      status: assignmentTagInfo?.status,
-      lastGeneratedAt: assignmentTagInfo?.lastGeneratedAt
-    }
-  }, [activeSubmissions.length, assignmentTagInfo, selectedAssignmentId])
-
-  const assignmentActionSummary = useMemo(
-    () => buildActionSummary(assignmentReport, assignmentRiskSummary),
-    [assignmentReport, assignmentRiskSummary]
-  )
-
-  const teacherSummaryPlan = useMemo(
-    () => buildInstructionPlan(assignmentReport),
-    [assignmentReport]
-  )
-
-  const teacherSummaryCacheKey = useMemo(() => {
-    if (!assignmentReport?.assignmentId) return null
-    return `${assignmentReport.assignmentId}:${hashTagsForCache(assignmentReport)}`
-  }, [assignmentReport])
-
-  const assignmentTagLevels = useMemo(
-    () => buildTagLevels(assignmentReport),
-    [assignmentReport]
-  )
-
-  const assignmentCompletionSummary = useMemo(
-    () => buildCompletionSummary(assignmentRiskSubmissions),
-    [assignmentRiskSubmissions]
-  )
 
   const tagAbilityLookup = useMemo(() => {
     const map = new Map<string, string>()
@@ -1255,67 +1107,6 @@ const assignmentTagInfo = useMemo(() => {
     tagAbilityLookup
   ])
 
-  const assignmentSampleCount = assignmentReport?.sampleCount ?? 0
-  const hasInsufficientSamples = assignmentSampleCount === 0
-
-  useEffect(() => {
-    let isActive = true
-
-    const run = async () => {
-      if (!teacherSummaryPlan || !teacherSummaryCacheKey) {
-        if (isActive) setTeacherSummary(null)
-        if (isActive) setTeacherSummaryLoading(false)
-        return
-      }
-
-      if (hasInsufficientSamples || !assignmentReport?.tags?.length) {
-        if (isActive) setTeacherSummary(null)
-        if (isActive) setTeacherSummaryLoading(false)
-        return
-      }
-
-      const cached = await readTeacherSummaryCache(teacherSummaryCacheKey)
-      if (!isActive) return
-      if (cached?.bullets?.length) {
-        setTeacherSummary({
-          bullets: cached.bullets,
-          remedy: cached.remedy,
-          source: 'cache'
-        })
-        setTeacherSummaryLoading(false)
-        return
-      }
-
-      setTeacherSummaryLoading(true)
-      const result = await generateTeacherSummaryWithLLM(
-        teacherSummaryPlan,
-        assignmentActionSummary.lines
-      )
-      if (!isActive) return
-      setTeacherSummary(result)
-      setTeacherSummaryLoading(false)
-      if (result.source === 'llm') {
-        await writeTeacherSummaryCache(
-          teacherSummaryCacheKey,
-          teacherSummaryPlan.assignmentId,
-          result.bullets,
-          result.remedy
-        )
-      }
-    }
-
-    void run()
-    return () => {
-      isActive = false
-    }
-  }, [
-    assignmentActionSummary.lines,
-    assignmentReport?.tags?.length,
-    hasInsufficientSamples,
-    teacherSummaryCacheKey,
-    teacherSummaryPlan
-  ])
-
   useEffect(() => {
     let isActive = true
 
@@ -1356,79 +1147,6 @@ const assignmentTagInfo = useMemo(() => {
       isActive = false
     }
   }, [domainPlansKey])
-
-  const summaryTagLabels = useMemo(() => {
-    return assignmentActionSummary.topTags
-      .map((tag) => tag.label)
-      .filter(Boolean)
-  }, [assignmentActionSummary.topTags])
-
-  const summarySuggestions = useMemo<SummarySuggestion[]>(() => {
-    if (teacherSummaryLoading) return []
-    if (!summaryTagLabels.length) return []
-    const bullets =
-      teacherSummary?.source && teacherSummary.source !== 'fallback'
-        ? teacherSummary.bullets
-        : []
-    const used = new Set<number>()
-    return summaryTagLabels.map((label, index) => {
-      let bullet = ''
-      if (bullets.length) {
-        const matchIndex = bullets.findIndex(
-          (line, lineIndex) =>
-            !used.has(lineIndex) && line.includes(label)
-        )
-        if (matchIndex >= 0) {
-          bullet = bullets[matchIndex]
-          used.add(matchIndex)
-        } else {
-          const fallbackIndex = bullets.findIndex(
-            (_line, lineIndex) => !used.has(lineIndex)
-          )
-          if (fallbackIndex >= 0) {
-            bullet = bullets[fallbackIndex]
-            used.add(fallbackIndex)
-          }
-        }
-      }
-
-      if (!bullet) {
-        const tag = assignmentReport?.tags?.find((item) => item.label === label)
-        const example = tag?.examples?.[0]?.trim()
-        const verb = ['重畫', '標示', '對照', '口頭提問', '小測'][index % 5]
-        bullet = example
-          ? `請先以「${example}」示範「${label}」相關的${verb}步驟，並請學生口頭說明關鍵條件。`
-          : `請先針對「${label}」示範${verb}流程，並以口頭提問確認概念。`
-      } else {
-        const cleaned = bullet.trim().replace(/^[，,、:：\s]+/, '')
-        bullet = cleaned.includes(label) ? cleaned : `針對「${label}」，${cleaned}`
-      }
-
-      return { label, text: bullet }
-    })
-  }, [assignmentReport?.tags, summaryTagLabels, teacherSummary, teacherSummaryLoading])
-
-  const summaryRemedy = useMemo(() => {
-    if (teacherSummaryLoading) return ''
-    if (teacherSummary?.remedy) return teacherSummary.remedy
-    return ''
-  }, [teacherSummary, teacherSummaryLoading])
-
-  const summaryStudents = useMemo(() => {
-    return assignmentRiskSummary.hasRiskData
-      ? assignmentRiskSummary.riskStudentNames
-      : []
-  }, [assignmentRiskSummary])
-
-  const summaryStudentNote = useMemo(() => {
-    if (!assignmentRiskSummary.hasRiskData) {
-      return '尚無學生層級風險資料。'
-    }
-    if (!assignmentRiskSummary.riskStudentNames.length) {
-      return '目前無需特別關注學生。'
-    }
-    return ''
-  }, [assignmentRiskSummary])
 
   const abilityRiskStudents = abilityDisplayProfiles.filter(
     (profile) => profile.status !== 'good'
@@ -1665,51 +1383,10 @@ const assignmentTagInfo = useMemo(() => {
         <div className="grid gap-6">
           {activeTab === 'class' && (
             <section>
-              <SummaryPanel
-                tags={summaryTagLabels}
-                suggestions={summarySuggestions}
-                students={summaryStudents}
-                studentNote={summaryStudentNote}
-                loading={teacherSummaryLoading}
-                remedy={summaryRemedy}
+              <AssignmentSummaryPanel
+                data={assignmentSummary as Parameters<typeof AssignmentSummaryPanel>[0]['data']}
+                loading={assignmentSummaryLoading}
               />
-
-              {hasInsufficientSamples ? (
-                <section className="card">
-                  此作業尚無批改資料。
-                </section>
-              ) : (
-                <>
-                  <div className="section-title">
-                    <h2>AI 錯誤摘要</h2>
-                    <span>根據批改結果自動生成</span>
-                  </div>
-
-                  <AssignmentSummaryPanel
-                    data={assignmentSummary as Parameters<typeof AssignmentSummaryPanel>[0]['data']}
-                    loading={assignmentSummaryLoading}
-                  />
-
-                  <div className="section-title">
-                    <h2>錯誤標籤分層級</h2>
-                    <span>依批改份數計算標籤比例</span>
-                  </div>
-
-                  <TagLevelsPanel
-                    levels={assignmentTagLevels}
-                    sampleCount={assignmentSampleCount}
-                  />
-
-                  <div className="section-title">
-                    <h2>作業完成度</h2>
-                    <span>獨立觀察空白題情況</span>
-                  </div>
-
-                  <CompletionPanel summary={assignmentCompletionSummary} />
-
-                  <StudentListTabs summary={assignmentRiskSummary} />
-                </>
-              )}
             </section>
           )}
 
