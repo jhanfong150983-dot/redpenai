@@ -1,12 +1,12 @@
 :root {
-      --bg: #f5f5f5;
+      --bg: #ffffff;
       --card: #ffffff;
-      --border: #e0e0e0;
+      --border: #e2e8f0;
       --text: #1a1a1a;
-      --muted: #666666;
-      --muted-2: #999999;
+      --muted: #64748b;
+      --muted-2: #94a3b8;
       --primary: #2563eb;
-      --primary-soft: rgba(37, 99, 235, 0.12);
+      --primary-soft: rgba(37, 99, 235, 0.08);
       --success: #10b981;
       --warning: #f59e0b;
       --danger: #ef4444;
@@ -31,7 +31,7 @@
     .report {
       max-width: 1200px;
       margin: 0 auto;
-      padding: 2rem 1.5rem 3rem;
+      padding: 1.5rem 1.5rem 3rem;
     }
 
     .page-header {
@@ -40,6 +40,8 @@
       justify-content: space-between;
       gap: 1rem;
       margin-bottom: 1.5rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--border);
     }
 
     .header-actions {
@@ -106,100 +108,27 @@
 
     .btn {
       border-radius: 0.5rem;
-      padding: 0.5rem 0.9rem;
-      border: 1px solid var(--border);
-      background: var(--card);
-      color: var(--text);
+      padding: 0.45rem 0.9rem;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #374151;
       font-size: 0.875rem;
+      font-weight: 500;
       cursor: pointer;
-      transition: background 0.2s, border-color 0.2s;
+      transition: background 0.15s, border-color 0.15s;
     }
 
     .btn:hover {
-      background: #fafafa;
-      border-color: #d0d0d0;
-    }
-
-    .tab-shell {
-      position: relative;
-      display: grid;
-      gap: 1.5rem;
-    }
-
-    .tab-shell input {
-      position: absolute;
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    .tab-controls {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.25rem;
-      background: #f3f4f6;
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 0.25rem;
-      width: fit-content;
-    }
-
-    .tab-header {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 1rem;
-      justify-content: space-between;
-    }
-
-    .tab-controls label {
-      padding: 0.4rem 0.9rem;
-      border-radius: 999px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      color: var(--muted);
-      cursor: pointer;
-      border: 1px solid transparent;
-      transition: background 0.2s, border-color 0.2s, color 0.2s;
-    }
-
-    .tab-controls label:hover {
-      color: var(--text);
-    }
-
-    .tab-panels {
-      display: grid;
-      gap: 1.5rem;
-    }
-
-    .tab-panel {
-      display: none;
-    }
-
-    #tab-class:checked ~ .tab-controls label[for="tab-class"],
-    #tab-domain:checked ~ .tab-controls label[for="tab-domain"],
-    #tab-student:checked ~ .tab-controls label[for="tab-student"] {
-      background: #ffffff;
-      color: var(--text);
-      border-color: #d0d0d0;
-    }
-
-    #tab-class:checked ~ .tab-panels .panel-class {
-      display: block;
-    }
-
-    #tab-domain:checked ~ .tab-panels .panel-domain {
-      display: block;
-    }
-
-    #tab-student:checked ~ .tab-panels .panel-student {
-      display: block;
+      background: #f8fafc;
+      border-color: #94a3b8;
     }
 
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 0.5rem;
+      border-radius: 0.75rem;
       padding: 1.25rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
 
     .hero {
@@ -1315,15 +1244,6 @@
         align-items: flex-start;
       }
 
-      .tab-header {
-        width: 100%;
-      }
-
-      .tab-controls {
-        width: 100%;
-        justify-content: center;
-      }
-
       .radar-wrap {
         grid-template-columns: 1fr;
       }
@@ -1335,7 +1255,6 @@
 
     @media print {
       .header-actions,
-      .tab-controls,
       .summary-controls,
       .time-range-controls,
       .range-controls,

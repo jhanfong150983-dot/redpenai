@@ -587,6 +587,7 @@ export default function AiReport({ onBack, embedded }: AiReportProps) {
   const [domainDiagnosisLoading, setDomainDiagnosisLoading] = useState<
     Record<string, boolean>
   >({})
+  const [activeTab, setActiveTab] = useState<'class' | 'domain' | 'student'>('class')
 
   const resetRange = () => {
     setRangeStart('')
@@ -1575,32 +1576,45 @@ const assignmentTagInfo = useMemo(() => {
           </div>
         </header>
 
-        <div className="tab-shell">
-          <input type="radio" name="report-tab" id="tab-class" defaultChecked />
-          <input type="radio" name="report-tab" id="tab-domain" />
-          <input type="radio" name="report-tab" id="tab-student" />
-          <div className="tab-header">
-            <div className="tab-controls">
-              <label htmlFor="tab-class">作業診斷性快報</label>
-              <label htmlFor="tab-domain">領域診斷性快報</label>
-              <label htmlFor="tab-student">班級診斷性快報</label>
-            </div>
-            <div className="summary-controls tab-filters">
+        {/* Tab bar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 mb-6">
+          <div className="flex">
+            {([
+              { id: 'class', label: '作業診斷性快報' },
+              { id: 'domain', label: '領域診斷性快報' },
+              { id: 'student', label: '班級診斷性快報' },
+            ] as const).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-3 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'border-gray-900 text-gray-900'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className="summary-controls tab-filters pb-3">
+            <label>
+              領域
+              <select
+                value={selectedDomain}
+                onChange={(event) => setSelectedDomain(event.target.value)}
+                disabled={!domainOptions.length}
+              >
+                {domainOptions.map((domain) => (
+                  <option key={domain} value={domain}>
+                    {domain}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {activeTab === 'class' && (
               <label>
-                領域
-                <select
-                  value={selectedDomain}
-                  onChange={(event) => setSelectedDomain(event.target.value)}
-                  disabled={!domainOptions.length}
-                >
-                  {domainOptions.map((domain) => (
-                    <option key={domain} value={domain}>
-                      {domain}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="tab-filter-assignment">
                 作業
                 <select
                   value={selectedAssignmentId}
@@ -1615,10 +1629,14 @@ const assignmentTagInfo = useMemo(() => {
                   ))}
                 </select>
               </label>
-            </div>
+            )}
           </div>
-          <div className="tab-panels">
-            <section className="tab-panel panel-class">
+        </div>
+
+        {/* Tab panels */}
+        <div className="grid gap-6">
+          {activeTab === 'class' && (
+            <section>
               <SummaryPanel
                 tags={summaryTagLabels}
                 suggestions={summarySuggestions}
@@ -1655,8 +1673,10 @@ const assignmentTagInfo = useMemo(() => {
                 </>
               )}
             </section>
+          )}
 
-            <section className="tab-panel panel-domain">
+          {activeTab === 'domain' && (
+            <section>
               <TimeRangeFilter
                 preset={domainRangePreset}
                 startDate={domainRangeStart}
@@ -1688,8 +1708,10 @@ const assignmentTagInfo = useMemo(() => {
                 </>
               )}
             </section>
+          )}
 
-            <section className="tab-panel panel-student">
+          {activeTab === 'student' && (
+            <section>
               <section className="hero">
                 <div className="card hero-card">
                   <h3>班級診斷性快報</h3>
@@ -1834,7 +1856,7 @@ const assignmentTagInfo = useMemo(() => {
                 )}
               </section>
             </section>
-          </div>
+          )}
         </div>
 
         <div className="footnote">
