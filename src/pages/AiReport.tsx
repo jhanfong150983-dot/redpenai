@@ -803,15 +803,10 @@ const [selectedClassroomId, setSelectedClassroomId] = useState('')
 
   const conceptMasteryData = useMemo(() => {
     const RUBRIC_CATEGORIES = new Set(['word_problem', 'short_answer', 'map_draw', 'diagram_draw'])
-    const filteredAssignments = domainAssignmentsInRange.filter((a) =>
+    const filteredAssignments = classAssignments.filter((a) =>
       !selectedDomain || selectedDomain === '全部' || normalizeDomain(a.domain) === selectedDomain
     )
     const filteredIds = new Set(filteredAssignments.map((a) => a.id))
-    console.log('[ConceptMastery] domainAssignmentsInRange:', domainAssignmentsInRange.length, 'filteredAssignments:', filteredAssignments.length)
-    filteredAssignments.forEach((a) => {
-      const full = assignmentById.get(a.id)
-      console.log('[ConceptMastery] assignment', a.id, 'domain:', a.domain, 'answerKey questions:', full?.answerKey?.questions?.length ?? 'N/A', full?.answerKey?.questions?.map(q => q.concept_code))
-    })
 
     // Build per-assignment map: questionId → {code, label}
     // Use assignmentById to access full SyncAssignment (which has answerKey)
@@ -876,7 +871,7 @@ const [selectedClassroomId, setSelectedClassroomId] = useState('')
       .sort((a, b) => (a.seatNumber ?? 999) - (b.seatNumber ?? 999))
 
     return { students, concepts }
-  }, [domainAssignmentsInRange, selectedDomain, classFilteredSubmissions, classFilteredStudents, assignmentById])
+  }, [classAssignments, selectedDomain, classFilteredSubmissions, classFilteredStudents, assignmentById])
 
   const rangeFilteredSubmissions = useMemo(() => {
     if (!rangeBounds.from && !rangeBounds.to) return classFilteredSubmissions
