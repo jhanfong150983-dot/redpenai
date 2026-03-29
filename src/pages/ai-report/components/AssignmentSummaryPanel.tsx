@@ -107,32 +107,7 @@ export default function AssignmentSummaryPanel({ data, loading }: AssignmentSumm
         {data.class_suggestion && <SuggestionBox suggestion={data.class_suggestion} />}
       </div>
 
-      {/* 2. 次要：需要關注的學生 */}
-      {(data.minority_summary || students.length > 0) && (
-        <div className="card" style={{ padding: '1.25rem 1.5rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
-            <span style={{
-              fontSize: '0.7rem', fontWeight: 600, letterSpacing: '0.05em',
-              background: '#fef3c7', color: '#92400e', borderRadius: '0.25rem', padding: '0.15rem 0.5rem'
-            }}>
-              需要關注的學生
-            </span>
-            {students.length > 0 && (
-              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                {students.length} 人
-              </span>
-            )}
-          </div>
-          {data.minority_summary && (
-            <p style={{ fontSize: '0.875rem', lineHeight: 1.7, margin: 0, color: '#1f2937' }}>
-              {data.minority_summary}
-            </p>
-          )}
-          {data.minority_suggestion && <SuggestionBox suggestion={data.minority_suggestion} />}
-        </div>
-      )}
-
-      {/* 3. 補充：個人錯誤摘要（預設摺疊） */}
+      {/* 2. 補充：個人錯誤摘要（預設摺疊） */}
       {students.length > 0 && (
         <div className="card" style={{ padding: '1.25rem 1.5rem' }}>
           <button
