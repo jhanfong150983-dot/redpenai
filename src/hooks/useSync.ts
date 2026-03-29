@@ -889,10 +889,13 @@ export function useSync(options: UseSyncOptions = {}) {
 
     debugLog('📥 pullMetadata - 從雲端收到的原始 classrooms:', classrooms)
 
-    // 保留本地的 folder 資料（因為後端可能還不支援 folder 欄位）
+    // 保留本地的 folder / grade 資料（雲端可能還沒同步到最新）
     const existingClassrooms = await db.classrooms.toArray()
     const localFolderMap = new Map(
       existingClassrooms.map((c) => [c.id, c.folder])
+    )
+    const localGradeMap = new Map(
+      existingClassrooms.map((c) => [c.id, c.grade])
     )
 
     const normalizedClassrooms: Classroom[] = classrooms
@@ -906,11 +909,14 @@ export function useSync(options: UseSyncOptions = {}) {
 
         const rawGrade = (c as Classroom & { grade?: unknown }).grade
         const parsedGrade = rawGrade != null ? parseInt(String(rawGrade), 10) : undefined
+        const cloudGrade = parsedGrade != null && !isNaN(parsedGrade) ? parsedGrade : undefined
+        // 如果雲端有 grade，使用雲端的；否則保留本地的（避免 push 前 pull 蓋掉本地值）
+        const finalGrade = cloudGrade !== undefined ? cloudGrade : localGradeMap.get(c.id)
         return {
           id: c.id,
           name: c.name,
           folder: finalFolder,
-          grade: parsedGrade != null && !isNaN(parsedGrade) ? parsedGrade : undefined,
+          grade: finalGrade,
           updatedAt: toMillis(
             (c as Classroom & { updatedAt?: unknown }).updatedAt ??
               (c as { updated_at?: unknown }).updated_at
