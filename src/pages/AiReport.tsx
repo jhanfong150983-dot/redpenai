@@ -1227,8 +1227,7 @@ const assignmentTagInfo = useMemo(() => {
   ])
 
   const assignmentSampleCount = assignmentReport?.sampleCount ?? 0
-  const hasInsufficientSamples =
-    assignmentTagInfo?.status === 'insufficient_samples' || assignmentSampleCount < 5
+  const hasInsufficientSamples = assignmentSampleCount === 0
 
   useEffect(() => {
     let isActive = true
@@ -1648,7 +1647,7 @@ const assignmentTagInfo = useMemo(() => {
 
               {hasInsufficientSamples ? (
                 <section className="card">
-                  作業批改份數不足 5 份，暫無法產出標籤。
+                  此作業尚無批改資料。
                 </section>
               ) : (
                 <>
