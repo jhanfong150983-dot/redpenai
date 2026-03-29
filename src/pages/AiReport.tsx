@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
+import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
+import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
 import TimeRangeFilter from './ai-report/components/TimeRangeFilter'
 import DomainDiagnosisView from './ai-report/components/DomainDiagnosisView'
 import {
@@ -26,6 +28,14 @@ type SyncAssignment = {
   domain?: string
   createdAt?: string | number
   updatedAt?: number
+  answerKey?: {
+    questions: Array<{
+      id: string
+      questionCategory?: string
+      concept_code?: string
+      concept_label?: string
+    }>
+  }
 }
 
 type SyncStudent = {
@@ -61,6 +71,7 @@ type SyncPayload = {
 }
 
 type GradingDetail = {
+  questionId?: string
   score?: number
   maxScore?: number
   isCorrect?: boolean
@@ -790,6 +801,78 @@ const [selectedClassroomId, setSelectedClassroomId] = useState('')
     [domainDiagnosisLoading, domainDiagnoses, domainPlans]
   )
 
+  const conceptMasteryData = useMemo(() => {
+    const RUBRIC_CATEGORIES = new Set(['word_problem', 'short_answer', 'map_draw', 'diagram_draw'])
+    const filteredAssignments = domainAssignmentsInRange.filter((a) =>
+      !selectedDomain || selectedDomain === '全部' || normalizeDomain(a.domain) === selectedDomain
+    )
+    const filteredIds = new Set(filteredAssignments.map((a) => a.id))
+
+    // Build per-assignment map: questionId → {code, label}
+    // Use assignmentById to access full SyncAssignment (which has answerKey)
+    type QConceptMap = Map<string, { code: string; label: string }>
+    const assignmentConceptMaps = new Map<string, QConceptMap>()
+    for (const a of filteredAssignments) {
+      const full = assignmentById.get(a.id)
+      const qMap: QConceptMap = new Map()
+      for (const q of full?.answerKey?.questions ?? []) {
+        if (!q.concept_code) continue
+        if (q.questionCategory && RUBRIC_CATEGORIES.has(q.questionCategory)) continue
+        qMap.set(q.id, { code: q.concept_code, label: q.concept_label ?? q.concept_code })
+      }
+      assignmentConceptMaps.set(a.id, qMap)
+    }
+
+    // Accumulate per-student per-concept stats
+    const studentConceptMap = new Map<string, Map<string, { correct: number; total: number }>>()
+    const allConcepts = new Map<string, string>() // code → label
+
+    for (const sub of classFilteredSubmissions) {
+      if (!sub.assignmentId || !filteredIds.has(sub.assignmentId)) continue
+      if (!sub.studentId) continue
+      const qMap = assignmentConceptMaps.get(sub.assignmentId)
+      if (!qMap || qMap.size === 0) continue
+
+      for (const detail of sub.details) {
+        if (!detail.questionId) continue
+        const concept = qMap.get(detail.questionId)
+        if (!concept) continue
+        allConcepts.set(concept.code, concept.label)
+
+        if (!studentConceptMap.has(sub.studentId)) {
+          studentConceptMap.set(sub.studentId, new Map())
+        }
+        const cMap = studentConceptMap.get(sub.studentId)!
+        if (!cMap.has(concept.code)) {
+          cMap.set(concept.code, { correct: 0, total: 0 })
+        }
+        const entry = cMap.get(concept.code)!
+        entry.total++
+        const score = detail.score ?? 0
+        const maxScore = detail.maxScore ?? 1
+        if (detail.isCorrect === true || score >= maxScore) {
+          entry.correct++
+        }
+      }
+    }
+
+    const concepts: ConceptEntry[] = Array.from(allConcepts.entries())
+      .map(([code, label]) => ({ code, label }))
+      .sort((a, b) => a.code.localeCompare(b.code))
+
+    const students: StudentMastery[] = classFilteredStudents
+      .filter((s) => studentConceptMap.has(s.id))
+      .map((s) => ({
+        studentId: s.id,
+        studentName: s.name ?? '學生',
+        seatNumber: s.seatNumber,
+        concepts: Object.fromEntries(Array.from(studentConceptMap.get(s.id)!.entries()))
+      }))
+      .sort((a, b) => (a.seatNumber ?? 999) - (b.seatNumber ?? 999))
+
+    return { students, concepts }
+  }, [domainAssignmentsInRange, selectedDomain, classFilteredSubmissions, classFilteredStudents, assignmentById])
+
   const rangeFilteredSubmissions = useMemo(() => {
     if (!rangeBounds.from && !rangeBounds.to) return classFilteredSubmissions
     return classFilteredSubmissions.filter((submission) => {
@@ -1419,6 +1502,10 @@ const [selectedClassroomId, setSelectedClassroomId] = useState('')
                   <DomainDiagnosisView
                     cards={domainDiagnosisCards}
                     emptyState="此期間沒有作業可分析，請調整時段。"
+                  />
+                  <ConceptMasteryTable
+                    students={conceptMasteryData.students}
+                    concepts={conceptMasteryData.concepts}
                   />
                 </>
               )}
