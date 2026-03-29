@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
 import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
-import TimeRangeFilter from './ai-report/components/TimeRangeFilter'
 import DomainDiagnosisView from './ai-report/components/DomainDiagnosisView'
 import {
   runSanityCheck
@@ -10,14 +9,11 @@ import {
 import {
   buildDomainAggregate,
   buildDomainPlan,
-  buildTimeRange,
-  filterAssignmentsByRange,
   generateDomainDiagnosisWithLLM,
   hashDomainPlanForCache
 } from './ai-report/domain-diagnosis'
 import type {
-  DomainDiagnosis,
-  TimeRangePreset
+  DomainDiagnosis
 } from './ai-report/types'
 import './AiReport.css'
 
@@ -550,11 +546,7 @@ const [selectedClassroomId, setSelectedClassroomId] = useState('')
   const [selectedDomain, setSelectedDomain] = useState('')
   const [rangeStart, setRangeStart] = useState('')
   const [rangeEnd, setRangeEnd] = useState('')
-  const [domainRangePreset, setDomainRangePreset] =
-    useState<TimeRangePreset>('30d')
-  const [domainRangeStart, setDomainRangeStart] = useState('')
-  const [domainRangeEnd, setDomainRangeEnd] = useState('')
-  const [domainDiagnoses, setDomainDiagnoses] = useState<
+const [domainDiagnoses, setDomainDiagnoses] = useState<
     Record<string, DomainDiagnosis | null>
   >({})
   const [domainDiagnosisLoading, setDomainDiagnosisLoading] = useState<
@@ -742,14 +734,7 @@ const [selectedClassroomId, setSelectedClassroomId] = useState('')
     [rangeStart, rangeEnd]
   )
 
-  const domainRange = useMemo(
-    () => buildTimeRange(domainRangePreset, domainRangeStart, domainRangeEnd),
-    [domainRangeEnd, domainRangePreset, domainRangeStart]
-  )
-
-  const domainAssignmentsInRange = useMemo(() => {
-    return filterAssignmentsByRange(classAssignments, domainRange)
-  }, [classAssignments, domainRange])
+  const domainAssignmentsInRange = classAssignments
 
   const domainAggregates = useMemo(() => {
     if (!syncData) return []
@@ -762,16 +747,9 @@ const [selectedClassroomId, setSelectedClassroomId] = useState('')
   const domainPlans = useMemo(() => {
     return domainAggregates.map((aggregate) => {
       const plan = buildDomainPlan(aggregate, reportData?.tagAbilityMap)
-      plan.windowInfo.startDate = domainRange.startLabel
-      plan.windowInfo.endDate = domainRange.endLabel
       return plan
     })
-  }, [
-    domainAggregates,
-    reportData?.tagAbilityMap,
-    domainRange.endLabel,
-    domainRange.startLabel
-  ])
+  }, [domainAggregates, reportData?.tagAbilityMap])
 
   const domainRangeStats = useMemo(() => {
     let assignmentCount = 0
@@ -1475,35 +1453,16 @@ const [selectedClassroomId, setSelectedClassroomId] = useState('')
 
           {activeTab === 'domain' && (
             <section>
-              <TimeRangeFilter
-                preset={domainRangePreset}
-                startDate={domainRangeStart}
-                endDate={domainRangeEnd}
-                onPresetChange={setDomainRangePreset}
-                onStartDateChange={setDomainRangeStart}
-                onEndDateChange={setDomainRangeEnd}
-                assignmentCount={domainRangeStats.assignmentCount}
-                sampleCountTotal={domainRangeStats.sampleCountTotal}
-                startLabel={domainRange.startLabel}
-                endLabel={domainRange.endLabel}
-              />
-
-              {domainRangeStats.assignmentCount === 0 ? (
-                <section className="card empty-state">
-                  此期間沒有作業可分析，請調整時段。
+              {domainRangeStats.assignmentCount < 2 && domainRangeStats.assignmentCount > 0 && (
+                <section className="card domain-note">
+                  樣本較少，趨勢判讀先以參考為主。
                 </section>
-              ) : (
-                <>
-                  {domainRangeStats.assignmentCount < 2 && (
-                    <section className="card domain-note">
-                      樣本較少，趨勢判讀先以參考為主。
-                    </section>
-                  )}
-                  <DomainDiagnosisView
-                    cards={domainDiagnosisCards}
-                    emptyState="此期間沒有作業可分析，請調整時段。"
-                  />
-                </>
+              )}
+              {domainRangeStats.assignmentCount > 0 && (
+                <DomainDiagnosisView
+                  cards={domainDiagnosisCards}
+                  emptyState="此班級尚無作業可分析。"
+                />
               )}
               <ConceptMasteryTable
                 students={conceptMasteryData.students}
