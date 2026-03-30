@@ -585,6 +585,7 @@ export function useSync(options: UseSyncOptions = {}) {
         domain: a.domain,
         folder: a.folder === undefined ? null : a.folder,
         answerKey: a.answerKey,
+        conceptTags: a.conceptTags,
         updatedAt: a.updatedAt
       }))
     
