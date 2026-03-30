@@ -1427,13 +1427,15 @@ function buildTagConceptsPrompt(
   return `【108課綱概念標記任務 / concept_code_only】
 請根據圖片中的題目內容，為下列每一題標記最符合的 108 課綱概念代碼。
 
-題目清單：
+題目清單（共 ${questions.length} 題）：
 ${questionList}
 
 概念代碼清單：
 ${conceptMap.map(c => `${c.code}：${c.label}`).join('\n')}
 
 規則：
+- 【重要】題目清單中的每一題都必須出現在回傳的 tags 陣列中，不可遺漏任何題號
+- tags 陣列長度必須等於題目清單長度（${questions.length} 筆）
 - 每題只選一個最核心的概念代碼（若題目橫跨多個概念，選主要考點）
 - 只能選上方清單中的代碼，不可自行創造
 - 若確實無法對應任何概念，填 "concept_code": null
@@ -3565,6 +3567,23 @@ export async function gradePhaseB(
  * 非同步概念標記：對已抽取的答案鍵題目，發送獨立 API 請求取得 108課綱 concept_code
  * 回傳 Record<questionId, { code, label }>，失敗時回傳空物件
  */
+function parseTagsResponse(text: string): Record<string, { code: string; label: string }> {
+  const parsed = JSON.parse(text.replace(/```json|```/g, '').trim()) as {
+    tags: Array<{ questionId: string; concept_code: string | null; concept_label: string | null }>
+  }
+  const result: Record<string, { code: string; label: string }> = {}
+  for (const tag of parsed.tags ?? []) {
+    if (tag.questionId && tag.concept_code && tag.concept_label) {
+      result[tag.questionId] = { code: tag.concept_code, label: tag.concept_label }
+    }
+  }
+  return result
+}
+
+/**
+ * 非同步概念標記：對已抽取的答案鍵題目，發送獨立 API 請求取得 108課綱 concept_code
+ * 回傳 Record<questionId, { code, label }>，失敗時回傳空物件
+ */
 export async function tagConceptsForAnswerKey(
   answerSheetImages: Blob[],
   questions: Array<{ id: string; questionCategory?: string }>,
@@ -3573,26 +3592,39 @@ export async function tagConceptsForAnswerKey(
   if (!isGeminiAvailable) throw new Error('Gemini 服務未設定')
   if (questions.length === 0 || conceptMap.length === 0) return {}
 
-  const prompt = buildTagConceptsPrompt(questions, conceptMap)
-
-  const requestParts: GeminiRequestPart[] = [prompt]
+  const imageParts: GeminiRequestPart[] = []
   for (const img of answerSheetImages) {
     const imageBase64 = await blobToBase64(img)
-    requestParts.push({ inlineData: { mimeType: img.type || 'image/jpeg', data: imageBase64 } })
+    imageParts.push({ inlineData: { mimeType: img.type || 'image/jpeg', data: imageBase64 } })
   }
 
-  const text = (await generateGeminiText(currentModelName, requestParts, {
-    routeKey: 'answer_key.tag_concepts'
-  }))
-    .replace(/```json|```/g, '')
-    .trim()
+  const callOnce = async (qs: Array<{ id: string; questionCategory?: string }>) => {
+    const prompt = buildTagConceptsPrompt(qs, conceptMap)
+    const text = (await generateGeminiText(currentModelName, [prompt, ...imageParts], {
+      routeKey: 'answer_key.tag_concepts'
+    })).replace(/```json|```/g, '').trim()
+    return parseTagsResponse(text)
+  }
 
-  const parsed = JSON.parse(text) as { tags: Array<{ questionId: string; concept_code: string | null; concept_label: string | null }> }
-  const result: Record<string, { code: string; label: string }> = {}
-  for (const tag of parsed.tags ?? []) {
-    if (tag.questionId && tag.concept_code && tag.concept_label) {
-      result[tag.questionId] = { code: tag.concept_code, label: tag.concept_label }
+  // 第一次呼叫
+  const result = await callOnce(questions)
+
+  // 檢查是否有遺漏題目，最多補一次
+  const missingIds = questions.map(q => q.id).filter(id => !(id in result))
+  if (missingIds.length > 0) {
+    console.warn(`⚠️ [tag_concepts] 遺漏 ${missingIds.length} 題，補標一次：`, missingIds)
+    const missingQuestions = questions.filter(q => missingIds.includes(q.id))
+    try {
+      const retryResult = await callOnce(missingQuestions)
+      Object.assign(result, retryResult)
+      const stillMissing = missingIds.filter(id => !(id in result))
+      if (stillMissing.length > 0) {
+        console.warn(`⚠️ [tag_concepts] 補標後仍遺漏 ${stillMissing.length} 題（無對應概念）：`, stillMissing)
+      }
+    } catch (err) {
+      console.warn('⚠️ [tag_concepts] 補標失敗（非致命）', err)
     }
   }
+
   return result
 }
