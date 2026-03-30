@@ -54,7 +54,7 @@ function shortLabel(label: string): string {
 }
 
 export default function ConceptRadarChart({ students, concepts }: ConceptRadarChartProps) {
-  if (concepts.length < 3 || students.length === 0) return null
+  if (concepts.length === 0 || students.length === 0) return null
 
   // Compute class-wide mastery per concept
   const classMastery: Record<string, { correct: number; total: number }> = {}
@@ -76,6 +76,43 @@ export default function ConceptRadarChart({ students, concepts }: ConceptRadarCh
   })
 
   const n = concepts.length
+
+  // Sorted list for bar chart (used when n < 3, and always for side panel)
+  const sorted = [...concepts.map((c, i) => ({ ...c, ratio: ratios[i] }))]
+    .sort((a, b) => a.ratio - b.ratio)
+
+  // If fewer than 3 concepts, render bar chart only
+  if (n < 3) {
+    return (
+      <div className="card" style={{ padding: '1.25rem 1.5rem', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+          <span style={{
+            fontSize: '0.7rem', fontWeight: 600, letterSpacing: '0.05em',
+            background: '#ede9fe', color: '#6d28d9', borderRadius: '0.25rem', padding: '0.15rem 0.5rem'
+          }}>
+            班級概念精熟度
+          </span>
+          <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+            {n} 個概念 · {students.length} 位學生
+          </span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxWidth: '400px' }}>
+          {sorted.map((item) => {
+            const pct = Math.round(item.ratio * 100)
+            return (
+              <div key={item.code} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#374151', width: '4.5rem', flexShrink: 0 }}>{item.code}</span>
+                <div style={{ flex: 1, background: '#f3f4f6', borderRadius: '3px', height: '10px', overflow: 'hidden' }}>
+                  <div style={{ width: `${pct}%`, height: '100%', background: masteryColor(item.ratio), borderRadius: '3px' }} />
+                </div>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: masteryColor(item.ratio), width: '2.5rem', textAlign: 'right' }}>{pct}%</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="card" style={{ padding: '1.25rem 1.5rem', marginBottom: '1rem' }}>
@@ -208,9 +245,7 @@ export default function ConceptRadarChart({ students, concepts }: ConceptRadarCh
             需加強的概念（由低至高）
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-            {[...ratios.map((r, i) => ({ ...concepts[i], ratio: r }))]
-              .sort((a, b) => a.ratio - b.ratio)
-              .map((item) => {
+            {sorted.map((item) => {
                 const pct = Math.round(item.ratio * 100)
                 const bar = Math.round(item.ratio * 80) // max bar width px
                 return (
