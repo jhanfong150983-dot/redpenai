@@ -883,7 +883,13 @@ export default function GradingPage({
     null
   )
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
-  const [manuallyGradedStudentIds, setManuallyGradedStudentIds] = useState<Set<string>>(new Set())
+  const manualGradedKey = `manual_graded_${assignmentId}`
+  const [manuallyGradedStudentIds, setManuallyGradedStudentIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(manualGradedKey)
+      return stored ? new Set<string>(JSON.parse(stored) as string[]) : new Set<string>()
+    } catch { return new Set<string>() }
+  })
   const [manualGradingStudentId, setManualGradingStudentId] = useState<string | null>(null)
 
   // 🆕 進度詳情
@@ -1641,7 +1647,11 @@ export default function GradingPage({
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data?.error || '手動標記失敗')
-      setManuallyGradedStudentIds((prev) => new Set([...prev, student.id]))
+      setManuallyGradedStudentIds((prev) => {
+        const next = new Set([...prev, student.id])
+        try { localStorage.setItem(manualGradedKey, JSON.stringify([...next])) } catch { /* ignore */ }
+        return next
+      })
       void syncAndReload()
     } catch (err) {
       setError(err instanceof Error ? err.message : '手動標記失敗')
