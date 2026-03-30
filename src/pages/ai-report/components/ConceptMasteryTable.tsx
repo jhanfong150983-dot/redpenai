@@ -124,8 +124,8 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
                 }}>
                   <div style={{ fontWeight: 700, color: '#1f2937' }}>{concept.code}</div>
                   {concept.label !== concept.code && (
-                    <div style={{ fontWeight: 400, color: '#6b7280', fontSize: '0.65rem', maxWidth: '6rem', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {concept.label}
+                    <div style={{ fontWeight: 400, color: '#6b7280', fontSize: '0.65rem', whiteSpace: 'normal', maxWidth: '8rem' }}>
+                      {concept.label.split(/\s*[—–-]\s*/)[0].trim()}
                     </div>
                   )}
                 </th>
