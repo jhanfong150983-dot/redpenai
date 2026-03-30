@@ -893,9 +893,6 @@ function buildGlobalTaskAndFormat(): string {
       ]
     },
 
-    // 108課綱概念對應（若有提供概念清單時必填）
-    "concept_code": "N-4-12",    // 從提供的清單中選最接近的代碼
-    "concept_label": "積樣與立方公分"  // 對應的概念標題
   }],
   "totalScore": 50
 }

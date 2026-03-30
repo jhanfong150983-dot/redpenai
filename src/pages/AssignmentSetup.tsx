@@ -1505,6 +1505,7 @@ export default function AssignmentSetup({
             if (tags && Object.keys(tags).length > 0) {
               console.log('🏷️ [edit] 概念標記完成', tags)
               db.assignments.update(assignmentId, { conceptTags: tags, updatedAt: Date.now() })
+                .then(() => requestSync())
                 .catch(err => console.warn('⚠️ [edit] 儲存概念標記失敗', err))
             }
           })
