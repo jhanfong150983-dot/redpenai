@@ -1424,8 +1424,11 @@ function buildTagConceptsPrompt(
     .map(q => `- id: "${q.id}"  題型: ${q.questionCategory ?? '未知'}`)
     .join('\n')
 
+  // Build concept list: show short label + description for context, but clearly separate them
   const conceptList = conceptMap
-    .map(c => c.description ? `${c.code}：${c.label} — ${c.description}` : `${c.code}：${c.label}`)
+    .map(c => c.description
+      ? `${c.code}  短標題：「${c.label}」  說明：${c.description}`
+      : `${c.code}  短標題：「${c.label}」`)
     .join('\n')
 
   return `【108課綱概念標記任務 / concept_code_only】
@@ -1434,15 +1437,15 @@ function buildTagConceptsPrompt(
 題目清單（共 ${questions.length} 題）：
 ${questionList}
 
-概念代碼清單（代碼：名稱 — 學習內容說明）：
+概念代碼清單（格式：代碼  短標題：「...」  說明：...）：
 ${conceptList}
 
 規則：
 - 【重要】題目清單中的每一題都必須出現在回傳的 tags 陣列中，不可遺漏任何題號
 - tags 陣列長度必須等於題目清單長度（${questions.length} 筆）
 - 每題只選一個最核心的概念代碼（若題目橫跨多個概念，選主要考點）
-- 【嚴格禁止】concept_code 只能選上方「概念代碼清單」中列出的代碼，絕對禁止自行創造或猜測不在清單中的代碼
-- 【嚴格禁止】concept_label 必須逐字複製清單中該代碼對應的標題，絕對禁止自行改寫、翻譯或添加內容
+- 【嚴格禁止】concept_code 只能選上方清單中的代碼，禁止自行創造不在清單中的代碼
+- 【嚴格禁止】concept_label 只能填入該代碼對應的「短標題」（即 「」內的文字），禁止把說明文字混入
 - 若確實無法從清單中找到對應概念，填 "concept_code": null, "concept_label": null
 - 寧可填 null 也不能填清單外的代碼或自訂標題
 
