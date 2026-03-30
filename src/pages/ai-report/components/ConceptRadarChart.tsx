@@ -130,7 +130,7 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
                   <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#374151' }}>
                     {item.code}
                     {item.label && item.label !== item.code && (
-                      <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: '0.4rem' }}>{item.label}</span>
+                      <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: '0.4rem' }}>{item.label.split(/\s*[—–-]\s*/)[0].trim()}</span>
                     )}
                   </span>
                   <span style={{ fontSize: '0.75rem', fontWeight: 600, color: masteryColor(item.ratio) }}>{pct}%</span>
@@ -214,7 +214,7 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
                     <span style={{ fontSize: '0.72rem', color: '#374151' }}>
                       <span style={{ fontWeight: 700 }}>{item.code}</span>
                       {item.label && item.label !== item.code && (
-                        <span style={{ color: '#6b7280', marginLeft: '0.35rem' }}>{item.label}</span>
+                        <span style={{ color: '#6b7280', marginLeft: '0.35rem' }}>{item.label.split(/\s*[—–-]\s*/)[0].trim()}</span>
                       )}
                     </span>
                     <span style={{ fontSize: '0.72rem', fontWeight: 600, color: masteryColor(item.ratio), marginLeft: '0.5rem', flexShrink: 0 }}>
