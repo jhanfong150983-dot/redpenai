@@ -103,41 +103,52 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
           tableLayout: 'auto'
         }}>
           <thead>
+            {/* Row 1: concept codes */}
             <tr>
-              <th style={{
+              <th rowSpan={2} style={{
                 position: 'sticky', left: 0, zIndex: 1,
                 background: '#f9fafb', borderBottom: '2px solid #e5e7eb',
                 borderRight: '1px solid #e5e7eb',
                 padding: '0.5rem 0.75rem',
                 textAlign: 'left', fontWeight: 600, color: '#374151',
-                whiteSpace: 'nowrap', minWidth: '5rem'
+                whiteSpace: 'nowrap', minWidth: '5rem', verticalAlign: 'middle'
               }}>
                 學生
               </th>
               {concepts.map((concept) => (
                 <th key={concept.code} style={{
-                  borderBottom: '2px solid #e5e7eb',
+                  borderBottom: '1px solid #e5e7eb',
                   borderRight: '1px solid #e5e7eb',
                   padding: '0.35rem 0.5rem',
-                  textAlign: 'center', fontWeight: 600, color: '#374151',
-                  whiteSpace: 'nowrap', minWidth: '5rem'
+                  textAlign: 'center', fontWeight: 700, color: '#1f2937',
+                  background: '#f9fafb', whiteSpace: 'nowrap', minWidth: '5rem'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem' }}>
-                    <span style={{ fontWeight: 700, color: '#1f2937' }}>{concept.code}</span>
-                    {concept.label !== concept.code && (
-                      <span
-                        title={concept.label}
-                        style={{ cursor: 'help', color: '#9ca3af', fontSize: '0.65rem', lineHeight: 1 }}
-                      >
-                        ⓘ
-                      </span>
-                    )}
-                  </div>
+                  <span>{concept.code}</span>
                   {concept.label !== concept.code && (
-                    <div style={{ fontWeight: 400, color: '#6b7280', fontSize: '0.65rem', whiteSpace: 'normal', maxWidth: '8rem' }}>
-                      {concept.label.split(/\s*[—–-]\s*/)[0].trim()}
-                    </div>
+                    <span
+                      title={concept.label}
+                      style={{ cursor: 'help', color: '#9ca3af', fontSize: '0.65rem', marginLeft: '0.2rem' }}
+                    >
+                      ⓘ
+                    </span>
                   )}
+                </th>
+              ))}
+            </tr>
+            {/* Row 2: short labels */}
+            <tr>
+              {concepts.map((concept) => (
+                <th key={concept.code} style={{
+                  borderBottom: '2px solid #e5e7eb',
+                  borderRight: '1px solid #e5e7eb',
+                  padding: '0.2rem 0.5rem',
+                  textAlign: 'center', fontWeight: 400, color: '#6b7280',
+                  background: '#f3f4f6', fontSize: '0.65rem',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {concept.label !== concept.code
+                    ? concept.label.split(/\s*[—–-]\s*/)[0].trim()
+                    : ''}
                 </th>
               ))}
             </tr>
