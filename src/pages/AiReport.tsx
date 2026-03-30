@@ -4,6 +4,7 @@ import type { Submission } from '@/lib/db'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
 import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
+import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
 import DomainDiagnosisView from './ai-report/components/DomainDiagnosisView'
 import {
   runSanityCheck
@@ -1500,6 +1501,10 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   emptyState="此班級尚無作業可分析。"
                 />
               )}
+              <ConceptRadarChart
+                students={conceptMasteryData.students}
+                concepts={conceptMasteryData.concepts}
+              />
               <ConceptMasteryTable
                 students={conceptMasteryData.students}
                 concepts={conceptMasteryData.concepts}
