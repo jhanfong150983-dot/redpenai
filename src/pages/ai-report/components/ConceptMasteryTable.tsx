@@ -171,7 +171,7 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
                     }}>
                       {total > 0 ? (
                         <>
-                          {correct}/{total}
+                          {Math.round(correct / total * 100)}%
                           {lowSample && (
                             <span
                               title="題目數少於 5，結果僅供參考"
