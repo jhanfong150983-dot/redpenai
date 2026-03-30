@@ -1501,10 +1501,6 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   emptyState="此班級尚無作業可分析。"
                 />
               )}
-              <ConceptRadarChart
-                students={conceptMasteryData.students}
-                concepts={conceptMasteryData.concepts}
-              />
               <ConceptMasteryTable
                 students={conceptMasteryData.students}
                 concepts={conceptMasteryData.concepts}
@@ -1542,6 +1538,11 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   </div>
                 </div>
               </section>
+
+              <ConceptRadarChart
+                students={conceptMasteryData.students}
+                concepts={conceptMasteryData.concepts}
+              />
 
               <div className="section-title">
                 <h2>統整性資料分析</h2>
