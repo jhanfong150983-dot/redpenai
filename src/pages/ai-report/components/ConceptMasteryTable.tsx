@@ -122,7 +122,17 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
                   textAlign: 'center', fontWeight: 600, color: '#374151',
                   whiteSpace: 'nowrap', minWidth: '5rem'
                 }}>
-                  <div style={{ fontWeight: 700, color: '#1f2937' }}>{concept.code}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem' }}>
+                    <span style={{ fontWeight: 700, color: '#1f2937' }}>{concept.code}</span>
+                    {concept.label !== concept.code && (
+                      <span
+                        title={concept.label}
+                        style={{ cursor: 'help', color: '#9ca3af', fontSize: '0.65rem', lineHeight: 1 }}
+                      >
+                        ⓘ
+                      </span>
+                    )}
+                  </div>
                   {concept.label !== concept.code && (
                     <div style={{ fontWeight: 400, color: '#6b7280', fontSize: '0.65rem', whiteSpace: 'normal', maxWidth: '8rem' }}>
                       {concept.label.split(/\s*[—–-]\s*/)[0].trim()}
