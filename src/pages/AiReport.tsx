@@ -162,31 +162,6 @@ type AssignmentTagSummary = {
   tags?: TagStat[]
 }
 
-type StudentPeriod = {
-  assignmentId: string
-  label: string
-  lastAt: number | null
-  tags: TagStat[]
-}
-
-type StudentProfile = {
-  id: string
-  name: string
-  seatNumber?: number | null
-  submissions: PreparedSubmission[]
-  avgRatio: number | null
-  totalScore: number
-  totalPossible: number
-  tagStats: TagStat[]
-  topTags: TagStat[]
-  attentionCount: number
-  status: 'good' | 'warn' | 'risk'
-  statusLabel: string
-  statusHint: string
-  periods: StudentPeriod[]
-}
-
-
 function toNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim() !== '') {
@@ -204,18 +179,6 @@ function formatDate(value?: number | null) {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}/${month}/${day}`
-}
-
-function formatPercent(value: number, digits = 1) {
-  const percent = Math.max(0, Math.min(100, value * 100))
-  return `${percent.toFixed(digits)}%`
-}
-
-function formatRangeLabel(start: string, end: string) {
-  if (!start && !end) return '全期'
-  const startLabel = start ? start.replace(/-/g, '/') : '不限'
-  const endLabel = end ? end.replace(/-/g, '/') : '不限'
-  return `${startLabel}–${endLabel}`
 }
 
 function normalizeDomain(domain?: string) {
@@ -263,248 +226,6 @@ function computeBlankStats(details: GradingDetail[]) {
   return { blankCount, totalQuestionCount: details.length }
 }
 
-function extractIssues(submission: PreparedSubmission) {
-  if (submission.mistakes.length > 0) {
-    return submission.mistakes
-      .map((item) => [item.reason, item.question].filter(Boolean).join(' '))
-      .filter((text) => text.trim().length > 0)
-  }
-  if (submission.weaknesses.length > 0) {
-    return submission.weaknesses
-  }
-  return []
-}
-
-function tagFromIssue(issue: string) {
-  const text = issue.trim()
-  if (!text) return null
-  if (/未作答|空白/.test(text)) return '未作答'
-  if (/單位/.test(text)) return '單位漏寫'
-  if (/小數點|位值/.test(text)) return '小數點位值'
-  if (/半徑|直徑/.test(text)) return '半徑辨識'
-  if (/弧長/.test(text)) return '弧長公式'
-  if (/周長/.test(text)) return '周長加總'
-  if (/比例尺/.test(text)) return '比例尺換算'
-  if (/票價|敬老票|兒童票|成人票/.test(text)) return '票價條件'
-  if (/審題|題意|條件/.test(text)) return '審題不清'
-  if (/表達|答句|格式|敘述/.test(text)) return '作答表達'
-  if (/計算|運算/.test(text)) return '計算錯誤'
-  if (/公式/.test(text)) return '公式使用'
-  if (/圖形|幾何/.test(text)) return '圖形概念'
-  return text
-}
-
-function mapIssueToTag(
-  issue: string,
-  mapTag?: (tag: string) => string | null
-) {
-  const text = issue.trim()
-  if (!text) return null
-  if (mapTag) {
-    const mapped = mapTag(text)
-    if (mapped) return mapped
-  }
-  const fallback = tagFromIssue(text)
-  if (!fallback) return null
-  if (!mapTag) return fallback
-  return mapTag(fallback) ?? fallback
-}
-
-function normalizeLabel(value: string) {
-  return value.trim().replace(/\s+/g, '').toLowerCase()
-}
-
-function buildLabelTokens(label: string) {
-  const cleaned = label.replace(/[\\s,，。.;；:：!?！？、]/g, '')
-  if (!cleaned) return []
-  if (cleaned.length <= 2) return [cleaned]
-  const tokens = new Set<string>()
-  for (let i = 0; i < cleaned.length - 1; i += 1) {
-    tokens.add(cleaned.slice(i, i + 2))
-  }
-  return Array.from(tokens)
-}
-
-function collectSubmissionTags(
-  submission: PreparedSubmission,
-  mapTag?: (tag: string) => string | null
-) {
-  const issues = extractIssues(submission)
-  const tags = new Set<string>()
-  issues.forEach((issue) => {
-    const mapped = mapIssueToTag(issue, mapTag)
-    if (mapped) tags.add(mapped)
-  })
-  return Array.from(tags)
-}
-
-function buildTriRadarPoints(values: number[]) {
-  const center = { x: 160, y: 160 }
-  const axes = [
-    { x: 160, y: 50 },
-    { x: 260, y: 230 },
-    { x: 60, y: 230 }
-  ]
-  const points = axes.map((axis, index) => {
-    const ratio = Math.max(0, Math.min(1, values[index] ?? 0))
-    const x = center.x + (axis.x - center.x) * ratio
-    const y = center.y + (axis.y - center.y) * ratio
-    return `${x.toFixed(1)},${y.toFixed(1)}`
-  })
-  return points.join(' ')
-}
-
-function buildStudentProfiles(
-  submissions: PreparedSubmission[],
-  students: SyncStudent[],
-  assignmentById: Map<string, SyncAssignment>,
-  mapTag?: (tag: string) => string | null
-) {
-  const studentMap = new Map<string, StudentProfile>()
-  students.forEach((student) => {
-    studentMap.set(student.id, {
-      id: student.id,
-      name: student.name ?? '未命名學生',
-      seatNumber: student.seatNumber ?? null,
-      submissions: [],
-      avgRatio: null,
-      totalScore: 0,
-      totalPossible: 0,
-      tagStats: [],
-      topTags: [],
-      attentionCount: 0,
-      status: 'good',
-      statusLabel: '穩定',
-      statusHint: '作答穩定，未見明顯弱點。',
-      periods: []
-    })
-  })
-
-  submissions.forEach((submission) => {
-    if (!submission.studentId) return
-    if (!studentMap.has(submission.studentId)) {
-      studentMap.set(submission.studentId, {
-        id: submission.studentId,
-        name: '未命名學生',
-        seatNumber: null,
-        submissions: [],
-        avgRatio: null,
-        totalScore: 0,
-        totalPossible: 0,
-        tagStats: [],
-        topTags: [],
-        attentionCount: 0,
-        status: 'good',
-        statusLabel: '穩定',
-        statusHint: '作答穩定，未見明顯弱點。',
-        periods: []
-      })
-    }
-    studentMap.get(submission.studentId)?.submissions.push(submission)
-  })
-
-  studentMap.forEach((profile) => {
-    const tagMap = new Map<string, number>()
-    const periodMap = new Map<
-      string,
-      { label: string; lastAt: number | null; tags: Map<string, number> }
-    >()
-
-    profile.submissions.forEach((submission) => {
-      const scoreValue = submission.scoreValue
-      const totalScoreValue = submission.totalScoreValue
-      if (scoreValue !== null && totalScoreValue !== null) {
-        profile.totalScore += scoreValue
-        profile.totalPossible += totalScoreValue
-      }
-
-      if (isNeedsAttention(submission)) profile.attentionCount += 1
-
-      const rawTags = collectSubmissionTags(submission, mapTag)
-      rawTags.forEach((tag) => {
-        tagMap.set(tag, (tagMap.get(tag) ?? 0) + 1)
-      })
-
-      const assignmentId = submission.assignmentId || 'unknown'
-      if (!periodMap.has(assignmentId)) {
-        const assignment = assignmentById.get(assignmentId)
-        const label = assignment ? getAssignmentTitle(assignment) : '未命名作業'
-        periodMap.set(assignmentId, {
-          label,
-          lastAt: submission.createdAtMs ?? null,
-          tags: new Map()
-        })
-      }
-      const period = periodMap.get(assignmentId)
-      if (period) {
-        if ((submission.createdAtMs ?? 0) > (period.lastAt ?? 0)) {
-          period.lastAt = submission.createdAtMs ?? null
-        }
-        rawTags.forEach((tag) => {
-          period.tags.set(tag, (period.tags.get(tag) ?? 0) + 1)
-        })
-      }
-    })
-
-    profile.avgRatio =
-      profile.totalPossible > 0 ? profile.totalScore / profile.totalPossible : null
-
-    if (profile.submissions.length === 0) {
-      profile.status = 'risk'
-      profile.statusLabel = '資料不足'
-      profile.statusHint = '尚未取得作業資料。'
-    } else if (profile.avgRatio !== null && profile.avgRatio < 0.6) {
-      profile.status = 'risk'
-      profile.statusLabel = '需關注'
-      profile.statusHint = '近期分數偏低，錯誤集中。'
-    } else if (
-      profile.avgRatio !== null &&
-      (profile.avgRatio < 0.75 || profile.attentionCount >= 2)
-    ) {
-      profile.status = 'warn'
-      profile.statusLabel = '留意'
-      profile.statusHint = '錯誤類型偏多，需追蹤。'
-    } else {
-      profile.status = 'good'
-      profile.statusLabel = '穩定'
-      profile.statusHint = '作答穩定，未見明顯弱點。'
-    }
-
-    profile.tagStats = Array.from(tagMap.entries())
-      .map(([label, count]) => ({ label, count }))
-      .sort((a, b) => b.count - a.count)
-
-    profile.topTags = profile.tagStats.slice(0, 3)
-
-    profile.periods = Array.from(periodMap.entries())
-      .map(([assignmentId, period]) => ({
-        assignmentId,
-        label: period.label,
-        lastAt: period.lastAt,
-        tags: Array.from(period.tags.entries())
-          .map(([label, count]) => ({ label, count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 3)
-      }))
-      .sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
-  })
-
-  return Array.from(studentMap.values()).sort((a, b) => {
-    if (a.seatNumber === null && b.seatNumber === null) return 0
-    if (a.seatNumber === null) return 1
-    if (b.seatNumber === null) return -1
-    return (a.seatNumber ?? 0) - (b.seatNumber ?? 0)
-  })
-}
-
-function getTopThreshold(values: number[], ratio: number) {
-  if (!values.length) return null
-  const sorted = [...values].sort((a, b) => b - a)
-  const index = Math.max(0, Math.ceil(sorted.length * ratio) - 1)
-  return sorted[index] ?? null
-}
-
-
 function isAiFailure(grading?: GradingResult | null) {
   if (!grading?.feedback) return false
   return grading.feedback.some((item) =>
@@ -516,16 +237,6 @@ function isGraded(submission: PreparedSubmission) {
   return Boolean(submission.grading) || submission.status === 'graded'
 }
 
-function isNeedsAttention(submission: PreparedSubmission) {
-  if (isAiFailure(submission.grading)) return true
-  const ratio =
-    submission.totalScoreValue && submission.scoreValue
-      ? submission.scoreValue / submission.totalScoreValue
-      : null
-  if (ratio !== null) return ratio < 0.7
-  if (submission.scoreValue !== null) return submission.scoreValue < 60
-  return submission.mistakes.length >= 2
-}
 
 
 type AiReportProps = {
@@ -542,8 +253,6 @@ export default function AiReport({ onBack, embedded }: AiReportProps) {
 const [selectedClassroomId, setSelectedClassroomId] = useState('')
   const [selectedAssignmentId, setSelectedAssignmentId] = useState('')
   const [selectedDomain, setSelectedDomain] = useState('')
-  const [rangeStart, setRangeStart] = useState('')
-  const [rangeEnd, setRangeEnd] = useState('')
 const [domainDiagnoses, setDomainDiagnoses] = useState<
     Record<string, DomainDiagnosis | null>
   >({})
@@ -561,11 +270,6 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     sample_count: number
   } | null>(null)
   const [assignmentSummaryLoading, setAssignmentSummaryLoading] = useState(false)
-
-  const resetRange = () => {
-    setRangeStart('')
-    setRangeEnd('')
-  }
 
   // Fetch assignment error summary when assignment changes
   useEffect(() => {
@@ -733,20 +437,6 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     return map
   }, [classAssignments])
 
-  const rangeBounds = useMemo(() => {
-    const from = rangeStart ? Date.parse(`${rangeStart}T00:00:00`) : null
-    const to = rangeEnd ? Date.parse(`${rangeEnd}T23:59:59`) : null
-    return {
-      from: Number.isFinite(from) ? from : null,
-      to: Number.isFinite(to) ? to : null
-    }
-  }, [rangeStart, rangeEnd])
-
-  const rangeLabel = useMemo(
-    () => formatRangeLabel(rangeStart, rangeEnd),
-    [rangeStart, rangeEnd]
-  )
-
   const domainAssignmentsInRange = classAssignments
 
   const domainAggregates = useMemo(() => {
@@ -888,15 +578,6 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     return { students, concepts, debugInfo }
   }, [classAssignments, selectedDomain, localSubmissions, classFilteredStudents, assignmentById])
 
-  const rangeFilteredSubmissions = useMemo(() => {
-    if (!rangeBounds.from && !rangeBounds.to) return classFilteredSubmissions
-    return classFilteredSubmissions.filter((submission) => {
-      const value = submission.createdAtMs ?? 0
-      if (rangeBounds.from && value < rangeBounds.from) return false
-      if (rangeBounds.to && value > rangeBounds.to) return false
-      return true
-    })
-  }, [classFilteredSubmissions, rangeBounds])
 
   const assignmentMeta = useMemo(() => {
     if (!syncData) return []
@@ -958,253 +639,6 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     setSelectedAssignmentId(filteredAssignmentMeta[0].assignment.id)
   }, [filteredAssignmentMeta, selectedAssignmentId])
 
-  const tagDictionaryLookup = useMemo(() => {
-    const map = new Map<string, string>()
-    reportData?.dictionary?.forEach((item) => {
-      if (item.status && item.status !== 'active') return
-      const canonical =
-        item.merged_to_label || item.label || item.normalized_label
-      if (!canonical) return
-      if (item.normalized_label) {
-        map.set(normalizeLabel(item.normalized_label), canonical)
-      }
-      if (item.label) {
-        map.set(normalizeLabel(item.label), canonical)
-      }
-    })
-    return map
-  }, [reportData])
-
-  const tagDictionaryMatchers = useMemo(() => {
-    const rows = reportData?.dictionary ?? []
-    return rows
-      .filter((item) => !item.status || item.status === 'active')
-      .map((item) => {
-        const label =
-          item.merged_to_label || item.label || item.normalized_label || ''
-        return {
-          label,
-          tokens: buildLabelTokens(label)
-        }
-      })
-      .filter((item) => item.label && item.tokens.length > 0)
-  }, [reportData])
-
-  const mapTagToDictionary = (tag: string) => {
-    const mapped = tagDictionaryLookup.get(normalizeLabel(tag))
-    if (mapped) return mapped
-    if (!tagDictionaryMatchers.length) return tag
-    const haystack = tag.replace(/\s+/g, '')
-    let bestLabel: string | null = null
-    let bestScore = 0
-    let bestTokenCount = 0
-    tagDictionaryMatchers.forEach((matcher) => {
-      let score = matcher.tokens.reduce((count, token) => {
-        return haystack.includes(token) ? count + 1 : count
-      }, 0)
-      if (matcher.label && haystack.includes(matcher.label)) {
-        score += matcher.tokens.length
-      }
-      if (score >= 1) {
-        if (
-          score > bestScore ||
-          (score === bestScore && matcher.tokens.length > bestTokenCount)
-        ) {
-          bestScore = score
-          bestTokenCount = matcher.tokens.length
-          bestLabel = matcher.label
-        }
-      }
-    })
-    return bestLabel
-  }
-
-  const tagAbilityLookup = useMemo(() => {
-    const map = new Map<string, string>()
-    reportData?.tagAbilityMap?.forEach((item) => {
-      if (!item.tag || !item.ability) return
-      map.set(normalizeLabel(item.tag), item.ability)
-    })
-    return map
-  }, [reportData])
-
-  const assignmentTagMap = useMemo(() => {
-    const map = new Map<string, AssignmentTagSummary>()
-    syncData?.assignmentTags?.forEach((item) => {
-      if (!item.assignmentId) return
-      map.set(item.assignmentId, item)
-    })
-    return map
-  }, [syncData])
-
-  const abilityStats = useMemo(() => {
-    const abilityMap = new Map<
-      string,
-      { label: string; totalCount: number; assignments: Set<string>; domains: Set<string> }
-    >()
-
-    assignmentMeta.forEach((item) => {
-      const info = assignmentTagMap.get(item.assignment.id)
-      const sampleCount = info?.sampleCount ?? item.gradedCount
-      if (sampleCount < 5) return
-      const tags = info?.tags ?? []
-      tags.forEach((tag) => {
-        const ability = tagAbilityLookup.get(normalizeLabel(tag.label))
-        if (!ability) return
-        const key = normalizeLabel(ability)
-        if (!abilityMap.has(key)) {
-          abilityMap.set(key, {
-            label: ability,
-            totalCount: 0,
-            assignments: new Set(),
-            domains: new Set()
-          })
-        }
-        const entry = abilityMap.get(key)
-        if (!entry) return
-        entry.totalCount += tag.count
-        entry.assignments.add(item.assignment.id)
-        entry.domains.add(normalizeDomain(item.assignment.domain))
-      })
-    })
-
-    return Array.from(abilityMap.entries())
-      .map(([id, entry]) => ({
-        id,
-        label: entry.label,
-        totalCount: entry.totalCount,
-        assignmentCount: entry.assignments.size,
-        domainCount: entry.domains.size
-      }))
-      .sort((a, b) => b.totalCount - a.totalCount)
-  }, [assignmentMeta, assignmentTagMap, tagAbilityLookup])
-  const abilityTop = abilityStats.slice(0, 3)
-  const abilityMax = Math.max(abilityTop[0]?.totalCount ?? 0, 1)
-  const abilityRatios = abilityTop.map((item) =>
-    abilityMax > 0 ? item.totalCount / abilityMax : 0
-  )
-  const abilityRadarPoints = buildTriRadarPoints(abilityRatios)
-
-  const abilityStudentProfiles = useMemo(() => {
-    if (!syncData) return []
-    const mapTag = (tag: string) => {
-      const canonical = mapTagToDictionary(tag)
-      if (!canonical) return null
-      return tagAbilityLookup.get(normalizeLabel(canonical)) || '其他能力'
-    }
-    return buildStudentProfiles(
-      rangeFilteredSubmissions,
-      classFilteredStudents,
-      assignmentById,
-      mapTag
-    )
-  }, [
-    assignmentById,
-    classFilteredStudents,
-    rangeFilteredSubmissions,
-    syncData,
-    tagAbilityLookup,
-    mapTagToDictionary
-  ])
-
-  const abilityDisplayProfiles = useMemo(() => {
-    if (!abilityStudentProfiles.length) return abilityStudentProfiles
-    const metrics = abilityStudentProfiles.map((profile) => {
-      const abilityMap = new Map<
-        string,
-        { count: number; domains: Set<string> }
-      >()
-
-      profile.submissions.forEach((submission) => {
-        const assignmentId = submission.assignmentId
-        const assignment = assignmentId ? assignmentById.get(assignmentId) : null
-        const domain = normalizeDomain(assignment?.domain)
-        const issues = extractIssues(submission)
-        issues.forEach((issue) => {
-          const canonical = mapIssueToTag(issue, mapTagToDictionary)
-          if (!canonical) return
-          const ability =
-            tagAbilityLookup.get(normalizeLabel(canonical)) || null
-          if (!ability) return
-          const key = normalizeLabel(ability)
-          if (!abilityMap.has(key)) {
-            abilityMap.set(key, { count: 0, domains: new Set() })
-          }
-          const entry = abilityMap.get(key)
-          if (!entry) return
-          entry.count += 1
-          if (domain) entry.domains.add(domain)
-        })
-      })
-
-      const abilityTotal = Array.from(abilityMap.values()).reduce(
-        (sum, item) => sum + item.count,
-        0
-      )
-      const crossDomain = Array.from(abilityMap.values()).some(
-        (item) => item.domains.size >= 2
-      )
-
-      return {
-        id: profile.id,
-        abilityTotal,
-        crossDomain
-      }
-    })
-
-    const metricById = new Map(metrics.map((item) => [item.id, item]))
-    const threshold = getTopThreshold(
-      metrics.map((item) => item.abilityTotal),
-      0.2
-    )
-    const hasThreshold = typeof threshold === 'number' && threshold > 0
-
-    return abilityStudentProfiles.map((profile): StudentProfile => {
-      const metric = metricById.get(profile.id)
-      if (!metric || profile.submissions.length === 0) {
-        return {
-          ...profile,
-          status: 'risk' as const,
-          statusLabel: '資料不足',
-          statusHint: '尚未取得跨領域作業資料。'
-        }
-      }
-
-      const { abilityTotal, crossDomain } = metric
-      const isTop = hasThreshold && abilityTotal >= (threshold ?? 0)
-
-      if (crossDomain) {
-        return {
-          ...profile,
-          status: 'risk' as const,
-          statusLabel: '需關注',
-          statusHint: '同一能力在多領域反覆出現，需追蹤。'
-        }
-      }
-
-      if (isTop) {
-        return {
-          ...profile,
-          status: 'warn' as const,
-          statusLabel: '留意',
-          statusHint: '能力標籤數落在班級前段，建議觀察。'
-        }
-      }
-
-      return {
-        ...profile,
-        status: 'good' as const,
-        statusLabel: '穩定',
-        statusHint: '跨領域表現穩定。'
-      }
-    })
-  }, [
-    abilityStudentProfiles,
-    assignmentById,
-    mapTagToDictionary,
-    tagAbilityLookup
-  ])
-
   useEffect(() => {
     let isActive = true
 
@@ -1246,10 +680,6 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     }
   }, [domainPlansKey])
 
-  const abilityRiskStudents = abilityDisplayProfiles.filter(
-    (profile) => profile.status !== 'good'
-  )
-
   const classHeader = useMemo(() => {
     if (!syncData) return { classroomName: '班級', domainLabel: '學情摘要' }
     const classroomName = selectedClassroomId
@@ -1269,75 +699,12 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     return `${formatDate(dates[0])}–${formatDate(dates[dates.length - 1])}`
   }, [classFilteredSubmissions])
 
-  const abilityRadarLabels = [
-    abilityTop[0]?.label ?? '能力A',
-    abilityTop[1]?.label ?? '能力B',
-    abilityTop[2]?.label ?? '能力C'
-  ]
-  const abilityMaxCount = Math.max(
-    ...abilityStats.map((item) => item.totalCount),
-    1
-  )
-  const abilityTopCards = abilityStats.slice(0, 6)
-
   const totalAiFailures = useMemo(
     () =>
       classFilteredSubmissions.filter((submission) => isAiFailure(submission.grading))
         .length,
     [classFilteredSubmissions]
   )
-
-  const renderStudentCard = (profile: StudentProfile, scope: string) => {
-    const cardId = `${scope}-${profile.id}`
-    const cardClass =
-      profile.status === 'risk'
-        ? 'student-card is-risk'
-        : profile.status === 'warn'
-          ? 'student-card is-warn'
-          : 'student-card'
-    const avgLabel = profile.avgRatio !== null ? formatPercent(profile.avgRatio, 0) : '--'
-    const metaParts = [`座號 ${profile.seatNumber ?? '--'}`]
-    const metaText = metaParts.join(' · ')
-
-    return (
-      <div key={cardId} className={cardClass}>
-        <div className="student-top">
-          <div>
-            <div className="student-name">{profile.name}</div>
-            <div className="student-meta">{metaText}</div>
-          </div>
-          <div className="student-score">
-            {avgLabel}
-            <span>平均</span>
-          </div>
-        </div>
-        <div className="student-tags">
-          {profile.topTags.length === 0 && (
-            <span className="tag-chip good">表現穩定</span>
-          )}
-          {profile.topTags.map((tag) => (
-            <span key={`${cardId}-${tag.label}`} className="tag-chip neutral">
-              {tag.label} · {tag.count}
-            </span>
-          ))}
-        </div>
-        <div className="student-meta">{profile.statusHint}</div>
-        <div className="student-bottom">
-          <span
-            className={`pill ${
-              profile.status === 'risk'
-                ? 'risk'
-                : profile.status === 'warn'
-                  ? 'warn'
-                  : 'good'
-            }`}
-          >
-            {profile.statusLabel}
-          </span>
-        </div>
-      </div>
-    )
-  }
 
   if (loading) {
     return (
@@ -1511,154 +878,11 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
 
           {activeTab === 'student' && (
             <section>
-              <section className="hero">
-                <div className="card hero-card">
-                  <h3>班級診斷性快報</h3>
-                  <div className="hero-list">
-                    <div>跨領域能力標籤：{abilityStats.length} 類</div>
-                    <div>需關注學生：{abilityRiskStudents.length} 人</div>
-                    <div>個人化範圍：{rangeLabel}</div>
-                  </div>
-                </div>
-                <div className="card hero-card">
-                  <h3>統整觀察重點</h3>
-                  <div className="hero-list">
-                    <div>
-                      {abilityTop.length
-                        ? `主要弱點集中在「${abilityTop[0].label}」`
-                        : '目前尚無能力標籤'}
-                    </div>
-                    <div>
-                      常見能力：
-                      {abilityTop.length
-                        ? abilityTop.map((item) => item.label).join('、')
-                        : '尚無資料'}
-                    </div>
-                    <div>作業覆蓋：{assignmentMeta.length} 份</div>
-                  </div>
-                </div>
-              </section>
-
               <ConceptRadarChart
                 students={conceptMasteryData.students}
                 concepts={conceptMasteryData.concepts}
+                debugInfo={conceptMasteryData.debugInfo}
               />
-
-              <div className="section-title">
-                <h2>統整性資料分析</h2>
-                <span>跨領域能力弱點</span>
-              </div>
-
-              <section className="card trend-card">
-                <h3>能力類型分布</h3>
-                <div className="radar-wrap">
-                  <div className="radar-stage">
-                    <svg className="radar" viewBox="0 0 320 320" aria-label="能力類型雷達圖">
-                      <g className="radar-grid">
-                        <polygon points="160,50 260,230 60,230" />
-                        <polygon points="160,94 220,202 100,202" />
-                      </g>
-                      <g>
-                        <line className="radar-axis" x1="160" y1="160" x2="160" y2="50" />
-                        <line className="radar-axis" x1="160" y1="160" x2="260" y2="230" />
-                        <line className="radar-axis" x1="160" y1="160" x2="60" y2="230" />
-                      </g>
-                      <polygon className="radar-area class" points={abilityRadarPoints} />
-                    </svg>
-                    <div className="radar-label top">
-                      {abilityRadarLabels[0]}
-                      <br />
-                      {abilityTop[0]?.totalCount ?? 0} 次
-                    </div>
-                    <div className="radar-label br">
-                      {abilityRadarLabels[1]}
-                      <br />
-                      {abilityTop[1]?.totalCount ?? 0} 次
-                    </div>
-                    <div className="radar-label bl">
-                      {abilityRadarLabels[2]}
-                      <br />
-                      {abilityTop[2]?.totalCount ?? 0} 次
-                    </div>
-                  </div>
-                  <div className="legend">
-                    <span>
-                      <i style={{ background: '#2563eb' }} />
-                      能力分布（相對比例）
-                    </span>
-                  </div>
-                </div>
-                <div className="trend-note">最高類型以 100% 參照呈現。</div>
-              </section>
-
-              <section className="abilities">
-                {abilityTopCards.length === 0 && (
-                  <div className="card">尚無跨領域能力標籤。</div>
-                )}
-                {abilityTopCards.map((item) => {
-                  const ratio =
-                    abilityMaxCount > 0 ? (item.totalCount / abilityMaxCount) * 100 : 0
-                  return (
-                    <div key={item.id} className="card">
-                      <div className="ability__header">
-                        <div>
-                          <h3>{item.label}</h3>
-                          <p>
-                            覆蓋作業 {item.assignmentCount} · 覆蓋領域 {item.domainCount}
-                          </p>
-                        </div>
-                        <span className="pill warn">{item.totalCount} 次</span>
-                      </div>
-                      <div className="progress">
-                        <div className="progress__bar" style={{ width: `${ratio}%` }} />
-                      </div>
-                      <div className="ability__meta">以最高 {abilityMaxCount} 次為 100%</div>
-                    </div>
-                  )
-                })}
-              </section>
-
-              <div className="section-title">
-                <h2>個人化資料分析</h2>
-                <span>
-                  範圍：{rangeLabel} · 共 {abilityDisplayProfiles.length} 人 · 需關注{' '}
-                  {abilityRiskStudents.length} 人
-                </span>
-              </div>
-
-              <section className="card">
-                <div className="range-controls">
-                  <label>
-                    開始日期
-                    <input
-                      type="date"
-                      value={rangeStart}
-                      onChange={(event) => setRangeStart(event.target.value)}
-                    />
-                  </label>
-                  <label>
-                    結束日期
-                    <input
-                      type="date"
-                      value={rangeEnd}
-                      onChange={(event) => setRangeEnd(event.target.value)}
-                    />
-                  </label>
-                  <button className="btn" type="button" onClick={resetRange}>
-                    重設範圍
-                  </button>
-                </div>
-                <p className="subtitle">時間範圍只影響下方個人化追蹤。</p>
-              </section>
-
-              <section className="student-grid">
-                {abilityDisplayProfiles.length === 0 && (
-                  <div className="card">此範圍尚無學生資料。</div>
-                )}
-                {abilityDisplayProfiles.map((profile) =>
-                  renderStudentCard(profile, 'ability')
-                )}
-              </section>
             </section>
           )}
         </div>
