@@ -27,6 +27,7 @@ type SyncAssignment = {
   createdAt?: string | number
   updatedAt?: number
   answerKey?: unknown
+  conceptTags?: Record<string, { code: string; label: string }>
 }
 
 type SyncStudent = {
@@ -798,20 +799,28 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     const filteredIds = new Set(filteredAssignments.map((a) => a.id))
 
     // Build per-assignment map: questionId → {code, label}
-    // Use assignmentById to access full SyncAssignment (which has answerKey)
+    // Read from conceptTags (separate field, safe from answerKey contamination)
     type QConceptMap = Map<string, { code: string; label: string }>
     const assignmentConceptMaps = new Map<string, QConceptMap>()
     for (const a of filteredAssignments) {
       const full = assignmentById.get(a.id)
-      const rawKey = full?.answerKey
-      const parsedKey: { questions?: Array<{ id: string; questionCategory?: string; concept_code?: string; concept_label?: string }> } | null =
-        typeof rawKey === 'string' ? (() => { try { return JSON.parse(rawKey) } catch { return null } })() : (rawKey as never) ?? null
-      const questions = parsedKey?.questions ?? []
+      const conceptTags = full?.conceptTags
       const qMap: QConceptMap = new Map()
-      for (const q of questions) {
-        if (!q.concept_code) continue
-        if (q.questionCategory && RUBRIC_CATEGORIES.has(q.questionCategory)) continue
-        qMap.set(q.id, { code: q.concept_code, label: q.concept_label ?? q.concept_code })
+      if (conceptTags && typeof conceptTags === 'object') {
+        // Also filter out rubric categories by checking answerKey question types
+        const rawKey = full?.answerKey
+        const parsedKey: { questions?: Array<{ id: string; questionCategory?: string }> } | null =
+          typeof rawKey === 'string' ? (() => { try { return JSON.parse(rawKey) } catch { return null } })() : (rawKey as never) ?? null
+        const categoryById = new Map<string, string>()
+        for (const q of parsedKey?.questions ?? []) {
+          if (q.questionCategory) categoryById.set(q.id, q.questionCategory)
+        }
+        for (const [qId, tag] of Object.entries(conceptTags)) {
+          if (!tag?.code) continue
+          const cat = categoryById.get(qId)
+          if (cat && RUBRIC_CATEGORIES.has(cat)) continue
+          qMap.set(qId, { code: tag.code, label: tag.label ?? tag.code })
+        }
       }
       assignmentConceptMaps.set(a.id, qMap)
     }
@@ -870,7 +879,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
       const raw = full?.answerKey
       const parsed = typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return null } })() : raw
       const questions = (parsed as { questions?: unknown[] } | null)?.questions ?? []
-      const withCode = (questions as Array<{ concept_code?: unknown }>).filter(q => q.concept_code).length
+      const conceptTags = full?.conceptTags
+      const withCode = conceptTags ? Object.keys(conceptTags).length : 0
       return { title: a.title ?? a.id, total: questions.length, withCode }
     })
 

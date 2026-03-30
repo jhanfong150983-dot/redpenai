@@ -152,6 +152,7 @@ export interface Assignment {
   folder?: string // 資料夾分類（例如：段考、小考、作業）
 
   answerKey?: AnswerKey
+  conceptTags?: Record<string, { code: string; label: string }> // 108課綱概念標記（questionId → concept）
   updatedAt?: number
 }
 
@@ -512,6 +513,20 @@ class RedPenDatabase extends Dexie {
     })
 
     this.version(7).stores({
+      classrooms: '&id, name, folder',
+      students: '&id, classroomId, seatNumber, name',
+      assignments: '&id, classroomId, title, folder',
+      submissions:
+        '&id, assignmentId, studentId, status, createdAt, [assignmentId+studentId]',
+      syncQueue: '++id, tableName, recordId, createdAt',
+      answerExtractionCorrections:
+        '++id, assignmentId, studentId, submissionId, questionId, createdAt',
+      folders: '&id, name, type, classroomId, [type+classroomId], [type+classroomId+name]',
+      teacherSummaryCache: '&cacheKey, assignmentId, updatedAt',
+      domainDiagnosisCache: '&cacheKey, domain, startDate, endDate, updatedAt'
+    })
+
+    this.version(8).stores({
       classrooms: '&id, name, folder',
       students: '&id, classroomId, seatNumber, name',
       assignments: '&id, classroomId, title, folder',

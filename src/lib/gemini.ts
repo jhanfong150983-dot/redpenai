@@ -201,6 +201,7 @@ type GeminiRouteKey =
   | 'grading.locate'
   | 'answer_key.extract'
   | 'answer_key.reanalyze'
+  | 'answer_key.tag_concepts'
   | 'report.teacher_summary'
   | 'report.domain_diagnosis'
   | 'unknown'
@@ -1409,25 +1410,45 @@ ${classificationFallback}
 /**
  * 建立答案提取 Prompt（重構版 - 決策樹架構）
  */
-function buildAnswerKeyPrompt(domain?: string, conceptMap?: { code: string; label: string }[]): string {
+function buildAnswerKeyPrompt(domain?: string): string {
   const taskAndFormat = buildGlobalTaskAndFormat()
   const domainRules = buildDomainRulesWithDecisionTree(domain || '其他')
   const classificationFallback = buildGlobalClassificationFallback()
 
-  const conceptSection = conceptMap && conceptMap.length > 0 ? `
-【108課綱概念對應（必填 concept_code）】
-請為每一題找出最符合的課綱概念代碼，從以下清單中選一個：
+  // 正確順序：task 說明 → 領域規則（高優先）→ 全域後備分類
+  return [taskAndFormat, domainRules, classificationFallback].filter(Boolean).join('\n\n')
+}
+
+function buildTagConceptsPrompt(
+  questions: Array<{ id: string; questionCategory?: string }>,
+  conceptMap: { code: string; label: string }[]
+): string {
+  const questionList = questions
+    .map(q => `- id: "${q.id}"  題型: ${q.questionCategory ?? '未知'}`)
+    .join('\n')
+
+  return `【108課綱概念標記任務 / concept_code_only】
+請根據圖片中的題目內容，為下列每一題標記最符合的 108 課綱概念代碼。
+
+題目清單：
+${questionList}
+
+概念代碼清單：
 ${conceptMap.map(c => `${c.code}：${c.label}`).join('\n')}
 
 規則：
 - 每題只選一個最核心的概念代碼（若題目橫跨多個概念，選主要考點）
 - 只能選上方清單中的代碼，不可自行創造
-- 若確實無法對應任何概念，填 concept_code: null
-- 輸出時同時填入 concept_code（代碼）與 concept_label（清單中對應的標題）
-`.trim() : ''
+- 若確實無法對應任何概念，填 "concept_code": null
+- 同時填入 concept_code（代碼）與 concept_label（清單中對應的標題）
 
-  // 正確順序：task 說明 → 領域規則（高優先）→ 全域後備分類 → 概念對應
-  return [taskAndFormat, domainRules, classificationFallback, conceptSection].filter(Boolean).join('\n\n')
+回傳純 JSON（無 Markdown），格式：
+{
+  "tags": [
+    { "questionId": "1-1", "concept_code": "N-5-10", "concept_label": "解題：比率應用" },
+    { "questionId": "1-2", "concept_code": null, "concept_label": null }
+  ]
+}`.trim()
 }
 
 /**
@@ -3253,7 +3274,7 @@ export async function extractAnswerKeyFromImage(
 
   const prompt = isInferMode
     ? buildInferFromBlankPrompt(opts?.domain)
-    : buildAnswerKeyPrompt(opts?.domain, opts?.conceptMap)
+    : buildAnswerKeyPrompt(opts?.domain)
   console.log('📋 [AnswerKey prompt]', prompt)
 
   const text = (await generateGeminiText(currentModelName, [
@@ -3286,7 +3307,7 @@ export async function extractAnswerKeyFromImages(
 
   const prompt = isInferMode
     ? buildInferFromBlankPrompt(opts?.domain)
-    : buildAnswerKeyPrompt(opts?.domain, opts?.conceptMap)
+    : buildAnswerKeyPrompt(opts?.domain)
   console.log('📋 [AnswerKey prompt]', prompt)
 
   // 多圖片提示增強
@@ -3541,4 +3562,40 @@ export async function gradePhaseB(
 
   const parsed = JSON.parse(text.replace(/```json|```/g, '').trim()) as GradingResult
   return parsed
+}
+
+/**
+ * 非同步概念標記：對已抽取的答案鍵題目，發送獨立 API 請求取得 108課綱 concept_code
+ * 回傳 Record<questionId, { code, label }>，失敗時回傳空物件
+ */
+export async function tagConceptsForAnswerKey(
+  answerSheetImages: Blob[],
+  questions: Array<{ id: string; questionCategory?: string }>,
+  conceptMap: { code: string; label: string }[]
+): Promise<Record<string, { code: string; label: string }>> {
+  if (!isGeminiAvailable) throw new Error('Gemini 服務未設定')
+  if (questions.length === 0 || conceptMap.length === 0) return {}
+
+  const prompt = buildTagConceptsPrompt(questions, conceptMap)
+
+  const requestParts: GeminiRequestPart[] = [prompt]
+  for (const img of answerSheetImages) {
+    const imageBase64 = await blobToBase64(img)
+    requestParts.push({ inlineData: { mimeType: img.type || 'image/jpeg', data: imageBase64 } })
+  }
+
+  const text = (await generateGeminiText(currentModelName, requestParts, {
+    routeKey: 'answer_key.tag_concepts'
+  }))
+    .replace(/```json|```/g, '')
+    .trim()
+
+  const parsed = JSON.parse(text) as { tags: Array<{ questionId: string; concept_code: string | null; concept_label: string | null }> }
+  const result: Record<string, { code: string; label: string }> = {}
+  for (const tag of parsed.tags ?? []) {
+    if (tag.questionId && tag.concept_code && tag.concept_label) {
+      result[tag.questionId] = { code: tag.concept_code, label: tag.concept_label }
+    }
+  }
+  return result
 }

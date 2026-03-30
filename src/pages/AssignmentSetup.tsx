@@ -29,7 +29,7 @@ import {
 } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
-import { extractAnswerKeyFromImage, extractAnswerKeyFromImages, reanalyzeQuestions } from '@/lib/gemini'
+import { extractAnswerKeyFromImage, extractAnswerKeyFromImages, reanalyzeQuestions, tagConceptsForAnswerKey } from '@/lib/gemini'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { convertPdfToImage, convertPdfToImages, getFileType, fileToBlob, getDefaultImageFormat } from '@/lib/pdfToImage'
 import { compressImageFile } from '@/lib/imageCompression'
@@ -133,6 +133,7 @@ export default function AssignmentSetup({
   const [answerKeyFile, setAnswerKeyFile] = useState<File[]>([])
   const [answerKeyInputKey, setAnswerKeyInputKey] = useState(0)
   const [answerSheetImage, setAnswerSheetImage] = useState<Blob | null>(null)
+  const [pendingConceptTags, setPendingConceptTags] = useState<Record<string, { code: string; label: string }> | null>(null)
   const [isExtractingAnswerKey, setIsExtractingAnswerKey] = useState(false)
   const [answerKeyError, setAnswerKeyError] = useState<string | null>(null)
   const [answerKeyNotice, setAnswerKeyNotice] = useState<string | null>(null)
@@ -504,6 +505,7 @@ export default function AssignmentSetup({
     setAnswerKey(null)
     setAnswerKeyFile([])
     setAnswerSheetImage(null)
+    setPendingConceptTags(null)
     setAnswerKeyError(null)
     setAnswerKeyNotice(null)
   }
@@ -1084,8 +1086,7 @@ export default function AssignmentSetup({
       }
 
       console.log('🧠 呼叫 Gemini API 提取標準答案...')
-      const conceptMap = await fetchConceptMapForCurrentClassroom()
-      const extracted = await extractAnswerKeyFromImage(imageBlob, { domain, conceptMap: conceptMap.length > 0 ? conceptMap : undefined })
+      const extracted = await extractAnswerKeyFromImage(imageBlob, { domain })
       console.log('✅ AI 提取完成', { questionCount: extracted.questions.length, totalScore: extracted.totalScore })
 
       const { merged, notice } = mergeAnswerKeys(currentKey, extracted)
@@ -1184,7 +1185,8 @@ export default function AssignmentSetup({
         totalPages,
         domain: assignmentDomain!,
         folder: undefined,  // 新作業預設為全部
-        answerKey: answerKey ? { ...answerKey, strictness: createStrictness } : undefined
+        answerKey: answerKey ? { ...answerKey, strictness: createStrictness } : undefined,
+        conceptTags: pendingConceptTags ?? undefined
       }
       await db.assignments.add(assignment)
       setAssignments((prev) => [assignment, ...prev])
@@ -1433,6 +1435,21 @@ export default function AssignmentSetup({
         setAnswerKeyNotice(null)
       }
       extractionSucceeded = true
+
+      // 非同步概念標記（不阻塞主流程）
+      if (mergedAnswerKey && batchConceptMap.length > 0) {
+        const questions = mergedAnswerKey.questions.map(q => ({ id: q.id, questionCategory: q.questionCategory }))
+        const blobs = imageBlobs.slice()
+        setPendingConceptTags(null)
+        tagConceptsForAnswerKey(blobs, questions, batchConceptMap)
+          .then(tags => {
+            if (Object.keys(tags).length > 0) {
+              console.log('🏷️ 概念標記完成', tags)
+              setPendingConceptTags(tags)
+            }
+          })
+          .catch(err => console.warn('⚠️ 概念標記失敗（非致命）', err))
+      }
     } catch (err) {
       console.error('❌ 提取 AnswerKey 失敗：', err)
       setAnswerKeyError(err instanceof Error ? err.message : '提取失敗')
@@ -1454,16 +1471,46 @@ export default function AssignmentSetup({
       setEditAnswerKeyError('請選擇檔案，支援 PDF 或圖片')
       return
     }
+
+    let capturedAnswerKey: AnswerKey | null = null
+    let capturedBlob: Blob | null = null
+
     await extractAndSetAnswerKey(
       editAnswerKeyFile,
       editingAnswerKey,
-      (ak) => setEditingAnswerKey(ak),
+      (ak) => { setEditingAnswerKey(ak); capturedAnswerKey = ak },
       setIsExtractingAnswerKeyEdit,
       setEditAnswerKeyError,
       setEditAnswerKeyNotice,
       editingDomain,
-      (blob) => setEditAnswerSheetImage(blob)
+      (blob) => { setEditAnswerSheetImage(blob); capturedBlob = blob }
     )
+
+    // 非同步概念標記（edit 流程：直接更新 DB，不需 pendingConceptTags）
+    const _capturedAnswerKey: AnswerKey | null = capturedAnswerKey
+    const _capturedBlob: Blob | null = capturedBlob
+    if (_capturedAnswerKey && _capturedBlob && editingAnswerAssignment) {
+      const classroom = classrooms.find(c => c.id === (editingClassroomId || editingAnswerAssignment.classroomId))
+      if (classroom?.grade) {
+        const assignmentId = editingAnswerAssignment.id
+        const questions = (_capturedAnswerKey as AnswerKey).questions.map((q) => ({ id: q.id, questionCategory: q.questionCategory }))
+        fetch(`/api/data/concept-map?grade=${classroom.grade}`, { credentials: 'include' })
+          .then(r => r.ok ? r.json() : { items: [] })
+          .then(json => {
+            const conceptMap: { code: string; label: string }[] = json.items ?? []
+            if (conceptMap.length === 0) return
+            return tagConceptsForAnswerKey([_capturedBlob], questions, conceptMap)
+          })
+          .then(tags => {
+            if (tags && Object.keys(tags).length > 0) {
+              console.log('🏷️ [edit] 概念標記完成', tags)
+              db.assignments.update(assignmentId, { conceptTags: tags, updatedAt: Date.now() })
+                .catch(err => console.warn('⚠️ [edit] 儲存概念標記失敗', err))
+            }
+          })
+          .catch(err => console.warn('⚠️ [edit] 概念標記失敗（非致命）', err))
+      }
+    }
   }
 
   const handleReanalyzeMarkedQuestions = async (target: 'create' | 'edit') => {
