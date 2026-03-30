@@ -1418,10 +1418,14 @@ function buildAnswerKeyPrompt(domain?: string): string {
 
 function buildTagConceptsPrompt(
   questions: Array<{ id: string; questionCategory?: string }>,
-  conceptMap: { code: string; label: string }[]
+  conceptMap: { code: string; label: string; description?: string }[]
 ): string {
   const questionList = questions
     .map(q => `- id: "${q.id}"  題型: ${q.questionCategory ?? '未知'}`)
+    .join('\n')
+
+  const conceptList = conceptMap
+    .map(c => c.description ? `${c.code}：${c.label} — ${c.description}` : `${c.code}：${c.label}`)
     .join('\n')
 
   return `【108課綱概念標記任務 / concept_code_only】
@@ -1430,8 +1434,8 @@ function buildTagConceptsPrompt(
 題目清單（共 ${questions.length} 題）：
 ${questionList}
 
-概念代碼清單：
-${conceptMap.map(c => `${c.code}：${c.label}`).join('\n')}
+概念代碼清單（代碼：名稱 — 學習內容說明）：
+${conceptList}
 
 規則：
 - 【重要】題目清單中的每一題都必須出現在回傳的 tags 陣列中，不可遺漏任何題號
@@ -3588,7 +3592,7 @@ function parseTagsResponse(text: string): Record<string, { code: string; label: 
 export async function tagConceptsForAnswerKey(
   answerSheetImages: Blob[],
   questions: Array<{ id: string; questionCategory?: string }>,
-  conceptMap: { code: string; label: string }[]
+  conceptMap: { code: string; label: string; description?: string }[]
 ): Promise<Record<string, { code: string; label: string }>> {
   if (!isGeminiAvailable) throw new Error('Gemini 服務未設定')
   if (questions.length === 0 || conceptMap.length === 0) return {}
