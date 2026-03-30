@@ -1642,6 +1642,7 @@ export default function GradingPage({
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data?.error || '手動標記失敗')
       setManuallyGradedStudentIds((prev) => new Set([...prev, student.id]))
+      void syncAndReload()
     } catch (err) {
       setError(err instanceof Error ? err.message : '手動標記失敗')
     } finally {
@@ -2816,7 +2817,7 @@ export default function GradingPage({
                     </div>
                   )}
                   {manuallyGradedStudentIds.has(student.id) && (
-                    <p className="text-xs font-medium text-emerald-600 mt-1">已手動標記</p>
+                    <p className="text-xs font-medium text-emerald-600 mt-1">已完成批改</p>
                   )}
                 </div>
               </div>
