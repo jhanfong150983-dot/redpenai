@@ -1052,7 +1052,7 @@ function App() {
             } else if (sub.status === 'scanned' || sub.status === 'synced') {
               ungradedSeatNumbers.push(seat)
             } else if (sub.status === 'graded') {
-              const mistakesCount = sub.gradingResult?.mistakes?.length ?? 0
+              const mistakesCount = sub.gradingResult?.mistakes?.length ?? sub.mistakesCount ?? 0
               // 訂正批改若 score=0 且 mistakes=[] 代表照片無效（空白/拍錯），仍視為未完成
               const isFailedCorrection =
                 sub.source === 'student_correction' && mistakesCount === 0 && (sub.score ?? 0) === 0

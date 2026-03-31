@@ -262,6 +262,7 @@ export interface Submission {
   score?: number
   feedback?: string
   gradingResult?: GradingResult
+  mistakesCount?: number  // 雲端同步的錯題數量（避免傳輸完整 gradingResult）
   gradedAt?: number
 
   // 訂正管理：教師手動紀錄訂正次數

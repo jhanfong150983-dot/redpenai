@@ -845,6 +845,8 @@ export function useSync(options: UseSyncOptions = {}) {
           feedback: sub.feedback,
           // 伺服器同步不再回傳 gradingResult，優先保留本地已有的批改結果
           gradingResult: localImageData?.gradingResult ?? sub.gradingResult,
+          // 雲端同步的錯題數量（本地有 gradingResult 時不需要，但保留作為跨裝置 fallback）
+          mistakesCount: (sub as Submission & { mistakesCount?: number }).mistakesCount,
           gradedAt,
           correctionCount: sub.correctionCount,
           source:
