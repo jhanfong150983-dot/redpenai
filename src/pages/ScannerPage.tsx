@@ -18,6 +18,16 @@ interface ScannerPageProps {
   pagesPerStudent: number
 }
 
+function loadImgElement(blob: Blob): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img) }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('圖片載入失敗')) }
+    img.src = url
+  })
+}
+
 async function mergePageBlobs(pageBlobs: Blob[]): Promise<Blob> {
   if (pageBlobs.length === 1) return pageBlobs[0]
 
@@ -29,27 +39,27 @@ async function mergePageBlobs(pageBlobs: Blob[]): Promise<Blob> {
       }
     }
 
-    const bitmaps = await Promise.all(pageBlobs.map((blob) => createImageBitmap(blob)))
-    const width = Math.max(...bitmaps.map((bmp) => bmp.width))
-    const height = bitmaps.reduce((sum, bmp) => sum + bmp.height, 0)
+    // 用 <img> 載入：瀏覽器會自動套用 EXIF 旋轉，取得正確的顯示尺寸
+    const imgs = await Promise.all(pageBlobs.map(loadImgElement))
+    const targetWidth = Math.max(...imgs.map((img) => img.naturalWidth))
+    // 每張圖縮放到同一寬度，各自保持原始長寬比
+    const scaledHeights = imgs.map((img) =>
+      Math.round((targetWidth / img.naturalWidth) * img.naturalHeight)
+    )
+    const totalHeight = scaledHeights.reduce((sum, h) => sum + h, 0)
 
-    console.log(`🖼️ 合併 ${pageBlobs.length} 頁圖片: ${width}x${height}px`)
+    console.log(`🖼️ 合併 ${pageBlobs.length} 頁圖片: ${targetWidth}x${totalHeight}px`)
 
     const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
+    canvas.width = targetWidth
+    canvas.height = totalHeight
     const ctx = canvas.getContext('2d')
-    if (!ctx) {
-      bitmaps.forEach((bmp) => bmp.close())
-      throw new Error('無法建立畫布')
-    }
+    if (!ctx) throw new Error('無法建立畫布')
 
     let offsetY = 0
-    bitmaps.forEach((bmp) => {
-      const offsetX = Math.floor((width - bmp.width) / 2)
-      ctx.drawImage(bmp, offsetX, offsetY)
-      offsetY += bmp.height
-      bmp.close()
+    imgs.forEach((img, i) => {
+      ctx.drawImage(img, 0, offsetY, targetWidth, scaledHeights[i])
+      offsetY += scaledHeights[i]
     })
 
     // 使用安全的 toBlob 包裝器（帶自動 fallback 和 timeout 保護）

@@ -87,35 +87,44 @@ async function rotateImageBlob(blob: Blob, degrees: number): Promise<Blob> {
   return rotated
 }
 
+function loadImgElement(blob: Blob): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img) }
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('圖片載入失敗')) }
+    img.src = url
+  })
+}
+
 async function mergePageBlobs(pageBlobs: Blob[]): Promise<Blob> {
   if (pageBlobs.length === 1) return pageBlobs[0]
 
-  const bitmaps = await Promise.all(pageBlobs.map((blob) => createImageBitmap(blob)))
-  const width = Math.max(...bitmaps.map((bmp) => bmp.width))
-  const height = bitmaps.reduce((sum, bmp) => sum + bmp.height, 0)
+  // 用 <img> 載入：瀏覽器會自動套用 EXIF 旋轉，取得正確的顯示尺寸
+  const imgs = await Promise.all(pageBlobs.map(loadImgElement))
+  const targetWidth = Math.max(...imgs.map((img) => img.naturalWidth))
+  // 每張圖縮放到同一寬度，各自保持原始長寬比
+  const scaledHeights = imgs.map((img) =>
+    Math.round((targetWidth / img.naturalWidth) * img.naturalHeight)
+  )
+  const totalHeight = scaledHeights.reduce((sum, h) => sum + h, 0)
 
   // Canvas 尺寸保護：避免超過瀏覽器上限
   const MAX_CANVAS_SIDE = 16384
-  if (width > MAX_CANVAS_SIDE || height > MAX_CANVAS_SIDE) {
-    bitmaps.forEach((bmp) => bmp.close())
-    throw new Error(`合併後圖片尺寸過大（${width}x${height}），請改為每位學生 1 頁或降低解析度`)
+  if (targetWidth > MAX_CANVAS_SIDE || totalHeight > MAX_CANVAS_SIDE) {
+    throw new Error(`合併後圖片尺寸過大（${targetWidth}x${totalHeight}），請改為每位學生 1 頁或降低解析度`)
   }
 
   const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
+  canvas.width = targetWidth
+  canvas.height = totalHeight
   const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    bitmaps.forEach((bmp) => bmp.close())
-    throw new Error('無法建立畫布')
-  }
+  if (!ctx) throw new Error('無法建立畫布')
 
   let offsetY = 0
-  bitmaps.forEach((bmp) => {
-    const offsetX = Math.floor((width - bmp.width) / 2)
-    ctx.drawImage(bmp, offsetX, offsetY)
-    offsetY += bmp.height
-    bmp.close()
+  imgs.forEach((img, i) => {
+    ctx.drawImage(img, 0, offsetY, targetWidth, scaledHeights[i])
+    offsetY += scaledHeights[i]
   })
 
   // 使用統一的輸出格式（Safari 用 JPEG，其他用 WebP）
