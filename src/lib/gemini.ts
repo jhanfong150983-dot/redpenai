@@ -1065,7 +1065,16 @@ function buildGlobalClassificationFallback(): string {
     - referenceAnswer 描述應塗色的範圍/比例
     - rubricsDimensions: [作圖正確性, 完整性]
 
-11. 非數學題，要求文字說明、解釋或列舉，不需計算？
+11. 題目要求把左欄和右欄的項目用線連起來（連連看）？
+    → questionCategory: "matching"（連連看）
+    - 每個子題對應左欄一個項目，answer 填寫該項目「應連到的右欄文字」
+    - answer 格式：直接寫右欄文字，如 "2公尺/秒"
+    - type: 1（精確比對）
+    - 例：左欄 (1) 每1分鐘0.12公里，右欄選項含「2公尺/秒」
+      → id: "3-1", questionCategory: "matching", answer: "2公尺/秒", maxScore: 2
+    - 注意：各子題各自設定一個 id（3-1, 3-2, 3-3...），answer 只寫對應的右欄文字
+
+12. 非數學題，要求文字說明、解釋或列舉，不需計算？
     → questionCategory: "short_answer"（簡答題）
     - referenceAnswer 填評分要點；用 rubricsDimensions 或 rubric 4級評量
 

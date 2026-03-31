@@ -49,8 +49,8 @@ export type QuestionCategory =
   | 'map_fill'       // 填圖題：地圖多位置填文字，位置-名稱配對
   | 'map_draw'       // 繪圖題：地圖符號/格紙幾何/連線圖，符號類型+位置精準度
   | 'diagram_draw'   // 塗色題：在預印圖形上塗色/填色，判斷比例/範圍正確
+  | 'matching'       // 連連看：左欄項目畫線連到右欄項目，每個子題對應一個配對
   // 預留未來擴充：
-  // | 'matching'       // 連連看
   // | 'ordering'       // 排序題
   // | 'diagram_label'  // 標示圖題
 
