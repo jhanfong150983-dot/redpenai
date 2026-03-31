@@ -97,8 +97,8 @@ function loadImgElement(blob: Blob): Promise<HTMLImageElement> {
   })
 }
 
-async function mergePageBlobs(pageBlobs: Blob[]): Promise<Blob> {
-  if (pageBlobs.length === 1) return pageBlobs[0]
+async function mergePageBlobs(pageBlobs: Blob[]): Promise<{ blob: Blob; pageBreaks: number[] }> {
+  if (pageBlobs.length === 1) return { blob: pageBlobs[0], pageBreaks: [] }
 
   // 用 <img> 載入：瀏覽器會自動套用 EXIF 旋轉，取得正確的顯示尺寸
   const imgs = await Promise.all(pageBlobs.map(loadImgElement))
@@ -113,6 +113,14 @@ async function mergePageBlobs(pageBlobs: Blob[]): Promise<Blob> {
   const MAX_CANVAS_SIDE = 16384
   if (targetWidth > MAX_CANVAS_SIDE || totalHeight > MAX_CANVAS_SIDE) {
     throw new Error(`合併後圖片尺寸過大（${targetWidth}x${totalHeight}），請改為每位學生 1 頁或降低解析度`)
+  }
+
+  // 計算頁面邊界（累積高度比例，不含最後一頁）
+  const pageBreaks: number[] = []
+  let cumulative = 0
+  for (let i = 0; i < scaledHeights.length - 1; i++) {
+    cumulative += scaledHeights[i]
+    pageBreaks.push(parseFloat((cumulative / totalHeight).toFixed(4)))
   }
 
   const canvas = document.createElement('canvas')
@@ -134,7 +142,7 @@ async function mergePageBlobs(pageBlobs: Blob[]): Promise<Blob> {
     quality: 0.85
   })
 
-  return merged
+  return { blob: merged, pageBreaks }
 }
 
 /**
@@ -580,8 +588,11 @@ export default function AssignmentImport({
           )
         }
 
-        let imageBlob =
-          pageBlobs.length === 1 ? pageBlobs[0] : await mergePageBlobs(pageBlobs)
+        const mergeResult = pageBlobs.length === 1
+          ? { blob: pageBlobs[0], pageBreaks: [] as number[] }
+          : await mergePageBlobs(pageBlobs)
+        let imageBlob = mergeResult.blob
+        const pageBreaks = mergeResult.pageBreaks
 
         // 壓縮到目標大小（1.9MB）：先縮尺寸、再降 quality
         // 單頁保留更高解析度（2300）提升放大檢視清晰度
@@ -641,6 +652,7 @@ export default function AssignmentImport({
           // 新增縮圖欄位
           thumbnailBase64,
           ...(avoidBlobStorage ? {} : { thumbnailBlob }),
+          ...(pageBreaks.length > 0 ? { pageBreaks } : {}),
           createdAt: getCurrentTimestamp()
         }
 

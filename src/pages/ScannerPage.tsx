@@ -28,8 +28,8 @@ function loadImgElement(blob: Blob): Promise<HTMLImageElement> {
   })
 }
 
-async function mergePageBlobs(pageBlobs: Blob[]): Promise<Blob> {
-  if (pageBlobs.length === 1) return pageBlobs[0]
+async function mergePageBlobs(pageBlobs: Blob[]): Promise<{ blob: Blob; pageBreaks: number[] }> {
+  if (pageBlobs.length === 1) return { blob: pageBlobs[0], pageBreaks: [] }
 
   try {
     // 驗證所有 Blob 都有效
@@ -48,7 +48,16 @@ async function mergePageBlobs(pageBlobs: Blob[]): Promise<Blob> {
     )
     const totalHeight = scaledHeights.reduce((sum, h) => sum + h, 0)
 
-    console.log(`🖼️ 合併 ${pageBlobs.length} 頁圖片: ${targetWidth}x${totalHeight}px`)
+    // 計算頁面邊界（累積高度比例，不含最後一頁）
+    // 例：3 頁高度 [400, 600, 500] → pageBreaks = [0.267, 0.667]
+    const pageBreaks: number[] = []
+    let cumulative = 0
+    for (let i = 0; i < scaledHeights.length - 1; i++) {
+      cumulative += scaledHeights[i]
+      pageBreaks.push(parseFloat((cumulative / totalHeight).toFixed(4)))
+    }
+
+    console.log(`🖼️ 合併 ${pageBlobs.length} 頁圖片: ${targetWidth}x${totalHeight}px, pageBreaks=${JSON.stringify(pageBreaks)}`)
 
     const canvas = document.createElement('canvas')
     canvas.width = targetWidth
@@ -69,7 +78,7 @@ async function mergePageBlobs(pageBlobs: Blob[]): Promise<Blob> {
     })
 
     console.log(`✅ 合併完成: ${(merged.size / 1024).toFixed(2)} KB, type: ${merged.type}`)
-    return merged
+    return { blob: merged, pageBreaks }
   } catch (error) {
     console.error('❌ 合併圖片失敗:', error)
     throw new Error(`合併圖片失敗: ${error instanceof Error ? error.message : '未知錯誤'}`)
@@ -429,10 +438,11 @@ export default function ScannerPage({
           }
         }
 
-        const mergedBlob =
-          imageData.blobs.length === 1
-            ? imageData.blobs[0]
-            : await mergePageBlobs(imageData.blobs)
+        const mergeResult = imageData.blobs.length === 1
+          ? { blob: imageData.blobs[0], pageBreaks: [] as number[] }
+          : await mergePageBlobs(imageData.blobs)
+        const mergedBlob = mergeResult.blob
+        const pageBreaks = mergeResult.pageBreaks
 
         console.log(`📦 準備保存 Blob:`, {
           studentId,
@@ -469,6 +479,7 @@ export default function ScannerPage({
           status: 'scanned',
           imageBase64: imageBase64,  // Safari 備用
           ...(avoidBlobStorage ? {} : { imageBlob: mergedBlob }),
+          ...(pageBreaks.length > 0 ? { pageBreaks } : {}),
           createdAt: getCurrentTimestamp()
         }
 

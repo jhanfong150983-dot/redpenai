@@ -251,6 +251,10 @@ export interface Submission {
   thumbnailBase64?: string  // Safari 備用：縮圖的 Base64 格式
   thumbnailUrl?: string     // Supabase 雲端縮圖 URL（可選）
 
+  // 多頁合併：各頁面邊界的累積高度比例（不含最後一頁，空陣列=單頁）
+  // 例：2 頁合併，頁1占 40% → pageBreaks = [0.4]
+  pageBreaks?: number[]
+
   createdAt: number
   updatedAt?: number
 
