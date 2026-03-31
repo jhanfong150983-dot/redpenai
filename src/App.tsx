@@ -554,6 +554,9 @@ function App() {
     if (window.localStorage.getItem(INITIAL_SYNCED_KEY)) {
       setIsInitialSyncing(false)
       setInitialSyncError(null)
+      // 每次重新登入都觸發一次非阻擋式同步，確保跨裝置資料是最新的
+      //（不顯示 loading spinner，但背景拉取最新雲端資料）
+      requestSync()
       return
     }
 
