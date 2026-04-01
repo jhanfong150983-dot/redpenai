@@ -1003,14 +1003,16 @@ function buildGlobalClassificationFallback(): string {
 
 判斷流程（依序套用，第一個符合的就是答案）：
 
-1. 有空格標記（___/□/()）且只有一個標準正解？
+1. 有明確填答空格（___／（   ）／(   )／□ 內填值）且只有一個標準正解？
    → questionCategory: "fill_blank"（填充題）
    - answer 填入完整正解（含單位，如 "15 公分"）
    - 單位是答案的一部分，批改時會嚴格比對
+   - 即使題目內容包含計算步驟、分數換算、百分率換算，也優先歸類 fill_blank（不要改判 calculation/word_problem）
 
-2. 有空格標記，但可接受多種不同表達（同義詞、造詞、近義詞）？
+2. 有明確填答空格，但可接受多種不同表達（同義詞、造詞、近義詞）？
    → questionCategory: "fill_variants"（填充題多元）
    - referenceAnswer 填入範例；acceptableAnswers 列出所有可接受答案
+   - 同樣優先於 calculation / word_problem
 
 3. 數學題 + 有故事情境/附圖情境 + 需要列式計算 + 寫含單位的答句？
    → questionCategory: "word_problem"（應用題）
@@ -1210,6 +1212,11 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
 題型判斷與擷取規則：
 
+▸ 【最高優先】如果題目有明確填答空格（＿＿＿、(   )、（   ）、□ 內直接填值）：
+  - 單一標準答案 → questionCategory: "fill_blank"
+  - 多種可接受答案 → questionCategory: "fill_variants"
+  - 即使題目需要先計算（如比率、分數、百分率）再填空，仍屬 fill_blank / fill_variants，不是 calculation。
+
 ▸ 如果是「繪圖題」（在座標平面畫點/線、畫幾何圖形、標註角度等）：
   - questionCategory: "short_answer"（數學繪圖，非地圖符號）
   - 使用 rubricsDimensions 分維度：
@@ -1225,6 +1232,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
     1. 列式計算：{"name": "列式計算", "criteria": "算式正確、過程清楚"}
     2. 答句：{"name": "答句", "criteria": "必須以「答：」或「A：」開頭，寫出完整答句（含數字與單位，或完整文字答案如甲班、教師節）"}
   - 識別特徵：題目包含情境（人名、物品、數量關係描述）且有空白答句區（如「答：＿＿＿」）
+  - 前提：不符合上方「填答空格優先」規則時才可歸類為 word_problem。
 
 ▸ 如果是「勾選題」（答案空間是方框 □）：
   單選勾選（只能標記一個框）：
