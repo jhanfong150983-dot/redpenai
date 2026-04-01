@@ -208,6 +208,13 @@ type GeminiRouteKey =
 
 // ─── Phase A/B 公開類型 ────────────────────────────────────────────────────────
 
+export interface ArbiterResult {
+  arbiterStatus: 'arbitrated_agree' | 'arbitrated_pick_1' | 'arbitrated_pick_2' | 'needs_review'
+  finalAnswer?: string   // AI1 or AI2 value; undefined when needs_review
+  evidence?: string      // display-only, not stored to DB
+  confidence?: 'high' | 'medium' | 'low'
+}
+
 export interface PhaseAQuestionResult {
   questionId: string
   consistencyStatus: 'stable' | 'diff' | 'unstable'
@@ -215,6 +222,7 @@ export interface PhaseAQuestionResult {
   readAnswer1: { status: string; studentAnswer: string }
   readAnswer2: { status: string; studentAnswer: string }
   answerCropImageUrl?: string
+  arbiterResult?: ArbiterResult  // 三AI辯證裁決結果（新架構）
 }
 
 export interface PhaseAContext {
@@ -232,13 +240,14 @@ export interface PhaseAResult {
   stableCount: number
   diffCount: number
   unstableCount: number
+  needsReviewCount?: number  // 新架構：需人工審查的題數
   _phaseContext?: PhaseAContext
 }
 
 export interface FinalAnswer {
   questionId: string
   finalStudentAnswer: string
-  finalAnswerSource: 'ai_read1' | 'ai_read2' | 'manual' | 'unrecognizable'
+  finalAnswerSource: 'ai_read1' | 'ai_read2' | 'ai_arbiter' | 'manual' | 'unrecognizable'
 }
 
 // 🆕 AnswerKey 緩存引用（用於跨請求共享）

@@ -365,7 +365,7 @@ type GradingPhase = 'idle' | 'phase_a_running' | 'awaiting_review' | 'phase_b_ru
 
 interface ConsistencyDecision {
   questionId: string
-  source: 'ai_read1' | 'ai_read2' | 'manual' | 'unrecognizable' | 'blank'
+  source: 'ai_read1' | 'ai_read2' | 'ai_arbiter' | 'manual' | 'unrecognizable' | 'blank'
   finalAnswer: string
   confirmed: boolean
 }
@@ -400,7 +400,7 @@ function ConsistencyQuestionCard({
   const zoomDragRef = useRef<{ active: boolean; startX: number; startY: number; originX: number; originY: number }>({
     active: false, startX: 0, startY: 0, originX: 0, originY: 0
   })
-  const { questionId, consistencyStatus, consistencyReason, readAnswer1, readAnswer2, answerCropImageUrl } = questionResult
+  const { questionId, consistencyStatus, consistencyReason, readAnswer1, readAnswer2, answerCropImageUrl, arbiterResult } = questionResult
   const isUnstable = consistencyStatus === 'unstable'
   const isConfirmed = decision?.confirmed
 
@@ -449,6 +449,14 @@ function ConsistencyQuestionCard({
         <div className="flex items-start gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
           <span className="shrink-0">💡</span>
           <span>不一致原因：{consistencyReason}</span>
+        </div>
+      )}
+
+      {/* AI3 裁判說明（幫助老師判斷，非可選） */}
+      {arbiterResult?.evidence && (
+        <div className="flex items-start gap-1.5 text-[11px] text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1">
+          <span className="shrink-0">⚖️</span>
+          <span><span className="font-semibold">AI 裁判說明：</span>{arbiterResult.evidence}</span>
         </div>
       )}
 
@@ -566,11 +574,11 @@ function ConsistencyQuestionCard({
               : 'border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50/40'
           }`}
         >
-          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read1' ? 'text-purple-700' : 'text-gray-500'}`}>讀取 1</span>
+          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read1' ? 'text-purple-700' : 'text-gray-500'}`}>AI 細節讀取（裁切圖）</span>
           <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read1' ? 'text-purple-900' : 'text-gray-800'}`}>{formatAnswer(readAnswer1)}</span>
         </button>
 
-        {/* 讀取 2 */}
+        {/* AI2 全局讀取 */}
         <button
           type="button"
           disabled={disabled}
@@ -581,7 +589,7 @@ function ConsistencyQuestionCard({
               : 'border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50/40'
           }`}
         >
-          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read2' ? 'text-purple-700' : 'text-gray-500'}`}>讀取 2</span>
+          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read2' ? 'text-purple-700' : 'text-gray-500'}`}>AI 全局讀取（全圖）</span>
           <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read2' ? 'text-purple-900' : 'text-gray-800'}`}>{formatAnswer(readAnswer2)}</span>
         </button>
 
@@ -666,10 +674,17 @@ function BatchConsistencyReviewSection({
   onStartPhaseB: () => void
   isPhaseBRunning?: boolean
 }) {
+  // Helper: determine if a question needs human review
+  // New architecture: use arbiterResult.arbiterStatus; fall back to consistencyStatus for old data
+  const isNeedsReview = (q: PhaseAQuestionResult) => {
+    if (q.arbiterResult) return q.arbiterResult.arbiterStatus === 'needs_review'
+    return q.consistencyStatus !== 'stable'  // legacy fallback
+  }
+
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set(
     // Auto-expand students who have review questions
     entries
-      .filter(e => e.phaseAResult.questionResults.some(q => q.consistencyStatus !== 'stable'))
+      .filter(e => e.phaseAResult.questionResults.some(q => isNeedsReview(q)))
       .map(e => e.studentId)
   ))
 
@@ -683,10 +698,10 @@ function BatchConsistencyReviewSection({
   }
 
   const allStableEntries = entries.filter(e =>
-    e.phaseAResult.questionResults.every(q => q.consistencyStatus === 'stable')
+    e.phaseAResult.questionResults.every(q => !isNeedsReview(q))
   )
   const needsReviewEntries = entries.filter(e =>
-    e.phaseAResult.questionResults.some(q => q.consistencyStatus !== 'stable')
+    e.phaseAResult.questionResults.some(q => isNeedsReview(q))
   )
   // Sort: unstable first, then diff
   const sortedNeedsReview = [...needsReviewEntries].sort((a, b) => {
@@ -697,9 +712,9 @@ function BatchConsistencyReviewSection({
     return 0
   })
 
-  // A student is confirmed when all their non-stable questions are decided
+  // A student is confirmed when all their needs_review questions are decided
   const confirmedStudentCount = entries.filter(e => {
-    const reviewQs = e.phaseAResult.questionResults.filter(q => q.consistencyStatus !== 'stable')
+    const reviewQs = e.phaseAResult.questionResults.filter(q => isNeedsReview(q))
     return reviewQs.every(q => e.decisions.get(q.questionId)?.confirmed)
   }).length
   const allConfirmed = confirmedStudentCount >= entries.length
@@ -737,7 +752,7 @@ function BatchConsistencyReviewSection({
         <div className="space-y-2">
           {sortedNeedsReview.map(entry => {
             const student = allStudents.find(s => s.id === entry.studentId)
-            const reviewQs = entry.phaseAResult.questionResults.filter(q => q.consistencyStatus !== 'stable')
+            const reviewQs = entry.phaseAResult.questionResults.filter(q => isNeedsReview(q))
             const confirmedCount = reviewQs.filter(q => entry.decisions.get(q.questionId)?.confirmed).length
             const hasUnstable = reviewQs.some(q => q.consistencyStatus === 'unstable')
             const isExpanded = expandedIds.has(entry.studentId)
@@ -1086,7 +1101,9 @@ export default function GradingPage({
     if (gradingPhase !== 'awaiting_review') return
     if (batchPhaseAEntries.length === 0) return
     const allStable = batchPhaseAEntries.every(e =>
-      e.phaseAResult.questionResults.every(q => q.consistencyStatus === 'stable')
+      e.phaseAResult.questionResults.every(q =>
+        q.arbiterResult ? q.arbiterResult.arbiterStatus !== 'needs_review' : q.consistencyStatus === 'stable'
+      )
     )
     if (allStable) {
       console.log('✅ 所有題目一致性穩定，自動跳過審查直接進入正式批改')
@@ -1925,7 +1942,21 @@ export default function GradingPage({
           if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
           const decisions = new Map<string, ConsistencyDecision>()
           for (const qr of phaseAResult.questionResults) {
-            if (qr.consistencyStatus === 'stable') {
+            const arbiter = qr.arbiterResult
+            if (arbiter && arbiter.arbiterStatus !== 'needs_review') {
+              // 3-AI arch: auto-confirm arbitrated questions
+              const source =
+                arbiter.arbiterStatus === 'arbitrated_pick_1' ? 'ai_read1'
+                : arbiter.arbiterStatus === 'arbitrated_pick_2' ? 'ai_read2'
+                : 'ai_arbiter'  // arbitrated_agree
+              decisions.set(qr.questionId, {
+                questionId: qr.questionId,
+                source,
+                finalAnswer: arbiter.finalAnswer ?? qr.readAnswer1.studentAnswer,
+                confirmed: true,
+              })
+            } else if (!arbiter && qr.consistencyStatus === 'stable') {
+              // Legacy fallback: no arbiterResult → use consistencyStatus
               decisions.set(qr.questionId, {
                 questionId: qr.questionId,
                 source: 'ai_read1',
