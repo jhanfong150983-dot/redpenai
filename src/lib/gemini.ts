@@ -3345,7 +3345,7 @@ export async function extractAnswerKeyFromImages(
 
   // 多圖片提示增強
   const pageIdRule = answerSheetImages.length > 1
-    ? `\n- 【題目 ID 規則】每張照片的題目 id 必須加上頁碼前綴，格式為 "<頁碼>-<題號>"（例：第1頁第1題→"1-1"，第2頁第1題→"2-1"）。此格式保證不同頁面的題號不會衝突，請勿重新連續編號。`
+    ? `\n- 【題目 ID 規則】每張照片的題目 id 必須加上頁碼前綴：將頁碼作為 idPath 的第一個元素，保留題目本身的完整階層。格式為 "<頁碼>-<大題號>-<小題號>..."（例：第1頁，一、第1小題→"1-1-1"；第2頁，三、第2小題→"2-3-2"）。僅有頂層題目時（無小題）：第1頁第1題→"1-1"。此格式保證不同頁面的題號不會衝突，請勿重新連續編號。`
     : ''
   const multiImageNote = isInferMode
     ? `【多張圖片處理】\n- 你會收到 ${answerSheetImages.length} 張空白作業圖片\n- 請從所有圖片中推論所有題目的正確答案，合併成完整 AnswerKey${pageIdRule}`
