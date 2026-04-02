@@ -523,11 +523,6 @@ export default function AssignmentSetup({
     if (!assignmentDomain) {
       missing.push('作業領域')
     }
-    // 檢查 totalPages 是否為空字串或不在有效範圍內
-    const pages = Number(totalPages)
-    if (!Number.isFinite(pages) || pages < 1 || pages > 100) {
-      missing.push('每生頁數')
-    }
     if (!answerKey) {
       missing.push('標準答案')
     } else {
@@ -1158,11 +1153,6 @@ export default function AssignmentSetup({
     if (!assignmentDomain) {
       return
     }
-    // 檢查 totalPages 是否為空字串或不在有效範圍內
-    const pages = Number(totalPages)
-    if (!Number.isFinite(pages) || pages < 1 || pages > 100) {
-      return
-    }
     if (!answerKey) {
       return
     }
@@ -1398,6 +1388,7 @@ export default function AssignmentSetup({
 
       const batchConceptMap = await fetchConceptMapForCurrentClassroom()
       const totalPages = imageBlobs.length  // 整份答案卷的總頁數（跨所有批次）
+      setTotalPages(totalPages)  // 自動帶入，不需手動填寫
       let runningPageCount = 0
 
       for (let i = 0; i < batches.length; i++) {
@@ -3070,18 +3061,6 @@ export default function AssignmentSetup({
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-600">頁數設定</span>
-                          <span
-                            className={`rounded-full px-2 py-0.5 font-medium ${
-                              Number.isFinite(Number(totalPages)) && Number(totalPages) >= 1 && Number(totalPages) <= 100
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : 'bg-slate-200 text-slate-600'
-                            }`}
-                          >
-                            {Number.isFinite(Number(totalPages)) && Number(totalPages) >= 1 && Number(totalPages) <= 100 ? '完成' : '待填'}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between">
                           <span className="text-slate-600">標準答案</span>
                           <span className={`rounded-full px-2 py-0.5 font-medium ${answerKey ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
                             {answerKey ? '完成' : '待填'}
@@ -3187,31 +3166,6 @@ export default function AssignmentSetup({
                   </select>
                 </div>
 
-                <div>
-                  <label
-                    htmlFor="totalPages"
-                    className="block text-sm font-medium text-gray-700 mb-2"
-                  >
-                    拍照或批次分割頁數
-                  </label>
-                  <div className="relative">
-                    <div data-tutorial="assignment-total-pages">
-                      <NumericInput
-                        id="totalPages"
-                        data-tutorial="assignment-total-pages"
-                        min={1}
-                        max={100}
-                        value={totalPages}
-                        onChange={(v) => setTotalPages(typeof v === 'number' ? v : (v === '' ? ('' as unknown as number) : 1))}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
-                        disabled={isSubmitting}
-                      />
-                    </div>
-                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
-                      頁
-                    </div>
-                  </div>
-                </div>
               </div>
 
               <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
