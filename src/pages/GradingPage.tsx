@@ -2089,6 +2089,40 @@ export default function GradingPage({
     return null
   }
 
+  const getSubmissionCorrectSummary = (result?: Submission['gradingResult']) => {
+    if (!result?.details || !Array.isArray(result.details) || result.details.length === 0) {
+      return null
+    }
+
+    const byQuestion = new Map<string, boolean>()
+    result.details.forEach((detail: any, index: number) => {
+      const questionId =
+        typeof detail?.questionId === 'string' && detail.questionId.trim()
+          ? detail.questionId.trim()
+          : `#${index + 1}`
+      const maxScore = Number(detail?.maxScore)
+      const score = Number(detail?.score)
+      const isCorrect =
+        typeof detail?.isCorrect === 'boolean'
+          ? detail.isCorrect
+          : Number.isFinite(maxScore) && maxScore > 0 && Number.isFinite(score)
+            ? score >= maxScore
+            : false
+
+      byQuestion.set(questionId, isCorrect)
+    })
+
+    const total = byQuestion.size
+    if (total <= 0) return null
+
+    let correct = 0
+    byQuestion.forEach((value) => {
+      if (value) correct += 1
+    })
+
+    return { correct, total, ratio: correct / total }
+  }
+
   const getSubmissionConfidenceAverage = (result?: Submission['gradingResult']) => {
     if (!result?.details || !Array.isArray(result.details)) return null
 
@@ -2668,17 +2702,27 @@ export default function GradingPage({
             const sourceVisual = getSubmissionSourceVisual(submission)
             const tags = submission ? getFeedbackTags(submission) : []
             const gradingResult = submission?.gradingResult
+            const isUnscoredAssignment = assignment?.scoringMode === 'unscored'
             const maxScore = gradingResult ? getSubmissionMaxScore(gradingResult) : null
-            const scoreValue = gradingResult?.totalScore ?? 0
-            const isLowScore =
-              typeof maxScore === 'number' && maxScore > 0
-                ? scoreValue < maxScore * 0.8
-                : scoreValue < 60
-            const hasGradingResult =
-              !!gradingResult && typeof gradingResult.totalScore === 'number'
+            const scoreValueRaw = Number(gradingResult?.totalScore)
+            const scoreValue = Number.isFinite(scoreValueRaw) ? scoreValueRaw : 0
+            const correctSummary = gradingResult ? getSubmissionCorrectSummary(gradingResult) : null
+            const isLowScore = isUnscoredAssignment
+              ? (correctSummary ? correctSummary.ratio < 0.8 : true)
+              : (
+                  typeof maxScore === 'number' && maxScore > 0
+                    ? scoreValue < maxScore * 0.8
+                    : scoreValue < 60
+                )
+            const hasGradingResult = isUnscoredAssignment
+              ? !!correctSummary
+              : !!gradingResult && typeof gradingResult.totalScore === 'number'
             const showResultBadge =
               hasGradingResult && (status === 'graded' || status === 'synced')
             const needsReview = showResultBadge && !!gradingResult?.needsReview
+            const resultBadgeText = isUnscoredAssignment
+              ? (correctSummary ? `${correctSummary.correct}/${correctSummary.total}` : '')
+              : `${scoreValue} 分`
             const minConfidence = needsReview && gradingResult
               ? getSubmissionMinConfidenceInfo(gradingResult)
               : null
@@ -2764,7 +2808,7 @@ export default function GradingPage({
                                 : 'bg-red-500 text-white'
                             }`}
                           >
-                            {gradingResult.totalScore} 分
+                            {resultBadgeText}
                           </div>
                         )}
                       </div>
