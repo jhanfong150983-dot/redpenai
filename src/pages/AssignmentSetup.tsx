@@ -3210,24 +3210,6 @@ export default function AssignmentSetup({
 
                 {isAdvancedSettingsOpen && (
                   <div className="mt-4 space-y-4 border-t border-slate-200 pt-4">
-                    {/* 不計分數 toggle */}
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setCreateScoringMode(prev => prev === 'unscored' ? 'scored' : 'unscored')}
-                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
-                          createScoringMode === 'unscored' ? 'bg-emerald-600' : 'bg-slate-200'
-                        }`}
-                      >
-                        <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
-                          createScoringMode === 'unscored' ? 'translate-x-4' : 'translate-x-0'
-                        }`} />
-                      </button>
-                      <span className="text-xs text-slate-600">不計分數</span>
-                      {createScoringMode === 'unscored' && (
-                        <span className="text-xs text-slate-400">批改結果只顯示 ✓ / ✗ / △，不納入成績統計</span>
-                      )}
-                    </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs text-slate-500 shrink-0">批改嚴格度</span>
                       <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs bg-white">
@@ -3249,18 +3231,29 @@ export default function AssignmentSetup({
                       <span className="text-xs text-slate-400">{createStrictnessHints[createStrictness]}</span>
                     </div>
 
-                    {/* Scoring mode */}
+                    {/* 分數設定：不計分數 與 預設分數 互斥 */}
                     <div className="flex flex-wrap items-start gap-x-2 gap-y-2">
-                      <span className="text-xs text-slate-500 shrink-0 pt-1">預設分數</span>
+                      <span className="text-xs text-slate-500 shrink-0 pt-1">分數</span>
                       <div className="flex flex-col gap-2">
                         <div className="flex flex-wrap rounded-lg border border-slate-200 overflow-hidden text-xs bg-white">
+                          <button
+                            type="button"
+                            onClick={() => setCreateScoringMode('unscored')}
+                            className={`px-3 py-1 transition-colors ${
+                              createScoringMode === 'unscored'
+                                ? 'bg-emerald-600 text-white font-medium'
+                                : 'bg-white text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            不計分數
+                          </button>
                           {(['ai_auto', 'fixed_per_question', 'fixed_total', 'fixed_both'] as const).map((mode) => (
                             <button
                               key={mode}
                               type="button"
-                              onClick={() => setCreateScoreMode(mode)}
+                              onClick={() => { setCreateScoringMode('scored'); setCreateScoreMode(mode) }}
                               className={`px-3 py-1 transition-colors ${
-                                createScoreMode === mode
+                                createScoringMode === 'scored' && createScoreMode === mode
                                   ? 'bg-emerald-600 text-white font-medium'
                                   : 'bg-white text-slate-600 hover:bg-slate-50'
                               }`}
@@ -3269,10 +3262,13 @@ export default function AssignmentSetup({
                             </button>
                           ))}
                         </div>
-                        {createScoreMode === 'ai_auto' && (
+                        {createScoringMode === 'unscored' && (
+                          <span className="text-xs text-slate-400">批改結果只顯示 ✓ / ✗ / △，不納入成績統計</span>
+                        )}
+                        {createScoringMode === 'scored' && createScoreMode === 'ai_auto' && (
                           <span className="text-xs text-slate-400">AI 依題型比例配分，加總為 100 分</span>
                         )}
-                        {(createScoreMode === 'fixed_per_question' || createScoreMode === 'fixed_both') && (
+                        {createScoringMode === 'scored' && (createScoreMode === 'fixed_per_question' || createScoreMode === 'fixed_both') && (
                           <label className="flex items-center gap-2 text-xs text-slate-600">
                             每題
                             <input
@@ -3289,7 +3285,7 @@ export default function AssignmentSetup({
                             )}
                           </label>
                         )}
-                        {(createScoreMode === 'fixed_total' || createScoreMode === 'fixed_both') && (
+                        {createScoringMode === 'scored' && (createScoreMode === 'fixed_total' || createScoreMode === 'fixed_both') && (
                           <label className="flex items-center gap-2 text-xs text-slate-600">
                             {createScoreMode === 'fixed_both' ? '另設' : ''}總分
                             <input
