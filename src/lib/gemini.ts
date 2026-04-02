@@ -1262,6 +1262,10 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
+  - ⚠️【其他選項規則】若選項中有「其他：___」或「其他：（空白填寫）」這類開放式選項：
+    - 此選項不納入 answer 欄位；answer 只填其餘有明確標準答案的選項
+    - 必須在 referenceAnswer 記錄「其他」選項的順序編號（從1開始）
+      格式：「其他選項：#N」或「其他選項：#N；參考：XXX」（有填寫文字時）
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
@@ -1343,6 +1347,10 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
+  - ⚠️【其他選項規則】若選項中有「其他：___」或「其他：（空白填寫）」這類開放式選項：
+    - 此選項不納入 answer 欄位；answer 只填其餘有明確標準答案的選項
+    - 必須在 referenceAnswer 記錄「其他」選項的順序編號（從1開始）
+      格式：「其他選項：#N」或「其他選項：#N；參考：XXX」（有填寫文字時）
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
@@ -1372,6 +1380,10 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
+  - ⚠️【其他選項規則】若選項中有「其他：___」或「其他：（空白填寫）」這類開放式選項：
+    - 此選項不納入 answer 欄位；answer 只填其餘有明確標準答案的選項
+    - 必須在 referenceAnswer 記錄「其他」選項的順序編號（從1開始）
+      格式：「其他選項：#N」或「其他選項：#N；參考：XXX」（有填寫文字時）
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
