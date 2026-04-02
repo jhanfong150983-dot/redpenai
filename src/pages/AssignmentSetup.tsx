@@ -3084,7 +3084,9 @@ export default function AssignmentSetup({
                       <p className="mt-2 text-xs text-emerald-700">
                         批改嚴格度：{createStrictnessLabels[createStrictness]}
                       </p>
-                      {createScoreMode !== 'ai_auto' && (
+                      {createScoringMode === 'unscored' ? (
+                        <p className="mt-1 text-xs text-emerald-700">分數：不計分數</p>
+                      ) : createScoreMode !== 'ai_auto' && (
                         <p className="mt-1 text-xs text-emerald-700">
                           計分模式：{createScoreModeLabels[createScoreMode]}
                           {createScoreMode === 'fixed_per_question' && `（每題 ${createFixedPerScore} 分）`}
@@ -3192,7 +3194,11 @@ export default function AssignmentSetup({
                     <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
                       批改嚴格度：{createStrictnessLabels[createStrictness]}
                     </span>
-                    {createScoreMode !== 'ai_auto' && (
+                    {createScoringMode === 'unscored' ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                        不計分數
+                      </span>
+                    ) : createScoreMode !== 'ai_auto' && (
                       <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-700">
                         {createScoreModeLabels[createScoreMode]}
                         {createScoreMode === 'fixed_per_question' && `（每題 ${createFixedPerScore} 分）`}
@@ -3900,23 +3906,29 @@ export default function AssignmentSetup({
                 </div>
               </div>
 
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  disabled={isSavingAnswerKey}
-                  onClick={() => setEditingScoringMode(prev => prev === 'unscored' ? 'scored' : 'unscored')}
-                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
-                    editingScoringMode === 'unscored' ? 'bg-emerald-600' : 'bg-slate-200'
-                  }`}
-                >
-                  <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
-                    editingScoringMode === 'unscored' ? 'translate-x-4' : 'translate-x-0'
-                  }`} />
-                </button>
-                <span className="text-sm font-medium text-gray-700">不計分數</span>
-                {editingScoringMode === 'unscored' && (
-                  <span className="text-xs text-gray-400">批改結果只顯示 ✓ / ✗ / △，不納入成績統計</span>
-                )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">分數</label>
+                <div className="flex items-center gap-2">
+                  <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+                    {(['scored', 'unscored'] as const).map((mode) => {
+                      const labels = { scored: '計分', unscored: '不計分數' }
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          disabled={isSavingAnswerKey}
+                          onClick={() => setEditingScoringMode(mode)}
+                          className={`px-3 py-1.5 transition-colors ${editingScoringMode === mode ? 'bg-green-600 text-white font-medium' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                        >
+                          {labels[mode]}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    {editingScoringMode === 'unscored' && '批改結果只顯示 ✓ / ✗ / △，不納入成績統計'}
+                  </span>
+                </div>
               </div>
 
               <div className="space-y-2">
