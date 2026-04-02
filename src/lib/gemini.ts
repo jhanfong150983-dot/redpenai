@@ -1094,6 +1094,15 @@ function buildGlobalClassificationFallback(): string {
       → id: "3-1", questionCategory: "matching", answer: "2公尺/秒", maxScore: 2
     - 注意：各子題各自設定一個 id（3-1, 3-2, 3-3...），answer 只寫對應的右欄文字
 
+11b. 有空白框（非方框□），學生需在框內手寫多個代號/符號（如 ㄅ、ㄇ、ㄉ 或 甲、丙），且這些代號對應圖表中的選項代號，順序不重要？
+    → questionCategory: "multi_fill"（多項填入題）
+    - 識別特徵：空白填答框（非勾選框□）；答案為多個代號，用頓號或逗號分隔；沒有打勾動作
+    - 每個空白框為一題（若題目有多個框 → 拆成多個子題，各自設定 id）
+    - answer 填入代號集合（如 "ㄅ、ㄇ、ㄉ"），順序無關
+    - 給分：完全吻合全對；支援部分給分（依答對代號比例）
+    - ⚠️ 與 multi_check 差異：multi_check 必須有方框□且有打勾動作；multi_fill 是空白格自由書寫
+    - ⚠️ 與 fill_blank 差異：fill_blank 只有一個值；multi_fill 有多個值且順序無關
+
 12. 非數學題，要求文字說明、解釋或列舉，不需計算？
     → questionCategory: "short_answer"（簡答題）
     - referenceAnswer 填評分要點；必須使用 rubricsDimensions 多維度評分（至少兩維）
@@ -1333,6 +1342,18 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
     例如："地圖左上方標記A的位置為泰國，中間偏右標記B的位置為越南，..."
   - acceptableAnswers：列出所有正確國名/地名（不含位置），例如 ["泰國","越南","緬甸","柬埔寨","寮國"]
   - maxScore：依題目配分（例如每個正確答案2分，共5個=10分）
+
+▸ 如果是「圖表代號填入題」（在地圖/流程圖/示意圖的空白框中填入代號，非地名，如 ㄅ、ㄆ、ㄇ 或 甲、乙）：
+  ⚠️ 不要歸類為 map_fill（map_fill 只用於填地名/國名）
+  - 每個空白框獨立為一題（拆成子題，如 1-1、1-2、1-3）
+  - questionCategory: "multi_fill"
+  - answer：填入該框應填的代號集合，例如 "ㄅ、ㄇ、ㄉ"（順序無關）
+  - referenceAnswer：描述該框在圖表中的位置/語意，例如 "由大陸指向臺灣的進口箭頭方框"
+  - maxScore：依題目各框配分
+  - 範例：清帝國貿易圖有3個方框→拆成3題
+    → id: "1-1", questionCategory: "multi_fill", answer: "ㄅ、ㄇ、ㄉ", referenceAnswer: "由大陸指向臺灣的進口箭頭方框"
+    → id: "1-2", questionCategory: "multi_fill", answer: "ㄆ、ㄊ", referenceAnswer: "由臺灣指向日本的出口箭頭方框"
+    → id: "1-3", questionCategory: "multi_fill", answer: "ㄆ、ㄈ", referenceAnswer: "由臺灣指向大陸的出口箭頭方框"
 
 ▸ 如果是「繪圖/標記題」（在地圖上標註位置、畫符號、標記座標等）：
   - questionCategory: "map_draw"
