@@ -894,7 +894,7 @@ function buildGlobalTaskAndFormat(): string {
     // calculation: [算式過程, 最終答案（純數值，不需單位）]
     // short_answer: 必須使用 rubricsDimensions（至少兩維）
     // - 一般：作答依據 + 結論表達
-    // - 社會領域可用「核心結論優先」：核心結論 + 作答依據（補充，不作必扣）
+    // - 社會領域可用「核心結論優先」：核心結論 + 作答依據（兩維皆可配分）
     // diagram_draw: [作圖正確性, 完整性]
     "referenceAnswer": "評分要點",
     "rubricsDimensions": [
@@ -1099,8 +1099,8 @@ function buildGlobalClassificationFallback(): string {
     - referenceAnswer 填評分要點；必須使用 rubricsDimensions 多維度評分（至少兩維）
     - 建議維度：作答依據、結論表達（不可使用 rubric 四級評量）
     - 社會領域可採「核心結論優先」：
-      - 維度1：核心結論（主要分數）
-      - 維度2：作答依據（補充說明，不作為必扣）
+      - 維度1：核心結論（可較高權重）
+      - 維度2：作答依據（可較低權重，但仍配分）
 
 【反幻覺警告】（適用於所有操作）
 ❌ 禁止猜測：看不清楚時設 confidence < 0.5
@@ -1218,7 +1218,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "short_answer"
   - referenceAnswer 填評分要點（關鍵字/概念）
   - rubricsDimensions 依題目要求設定維度（至少兩維）
-  - 社會領域可採「核心結論優先」：核心結論為主要分數，作答依據作為補充（不作必扣）
+  - 社會領域可採「核心結論優先」：核心結論可較高權重，作答依據可較低權重（兩維皆配分）
 
 ▸ 如果是「改錯題」（找出並改正錯別字）：
   - questionCategory: "fill_blank"
@@ -1352,10 +1352,10 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 ▸ 如果是「簡答題」（解釋、說明原因、比較異同）：
   - questionCategory: "short_answer"
   - referenceAnswer 填「核心結論」或關鍵重點
-  - rubricsDimensions 必須至少兩維，且採核心結論優先：
+  - rubricsDimensions 必須至少兩維，且可採核心結論優先：
     1. 核心結論（主要分數，語意相符即可）
-    2. 作答依據（補充分，不作為必扣）
-  - 規則：學生只要寫出核心結論且語意正確，就可判定為正確或接近滿分；不可因未補充完整依據而直接判錯
+    2. 作答依據（次要分數，檢查是否有引用題幹或文本）
+  - 規則：核心結論是判定重點；作答依據可作次要加減分
 
 ▸ 如果是「勾選題」（答案空間是方框 □）：
   單選勾選（只能標記一個框）：
@@ -1495,14 +1495,7 @@ function splitScoreIntoTwo(totalScore: number): [number, number] {
   return [first, second]
 }
 
-function isSocialDomain(domain?: string): boolean {
-  return typeof domain === 'string' && domain.trim() === '社會'
-}
-
-function ensureShortAnswerRubricsDimensions(
-  question: AnswerKeyQuestion,
-  domain?: string
-): AnswerKeyQuestion {
+function ensureShortAnswerRubricsDimensions(question: AnswerKeyQuestion): AnswerKeyQuestion {
   if (question.questionCategory !== 'short_answer') return question
 
   const maxScore = Number.isFinite(Number(question.maxScore)) ? Number(question.maxScore) : 0
@@ -1517,41 +1510,10 @@ function ensureShortAnswerRubricsDimensions(
         .filter((dim) => dim.name && dim.criteria)
     : []
 
-  const socialMode = isSocialDomain(domain)
   const [firstScore, secondScore] = splitScoreIntoTwo(maxScore)
 
   let normalizedDimensions = safeDimensions
-  if (socialMode) {
-    const coreDim =
-      safeDimensions.find((dim) =>
-        /核心|結論|答案|主旨|重點|觀點|判斷/.test(`${dim.name}${dim.criteria}`)
-      ) ?? safeDimensions[0]
-    const evidenceDim =
-      safeDimensions.find(
-        (dim) =>
-          dim !== coreDim &&
-          /依據|理由|文本|證據|說明|脈絡|引用/.test(`${dim.name}${dim.criteria}`)
-      ) ?? safeDimensions[1]
-
-    normalizedDimensions = [
-      {
-        name: '核心結論',
-        maxScore,
-        criteria:
-          coreDim?.criteria ||
-          (criteriaHint
-            ? `核心結論與重點相符（參考要點：${criteriaHint}）即可。`
-            : '核心結論與重點相符即可。')
-      },
-      {
-        name: '作答依據（補充）',
-        maxScore: 0,
-        criteria:
-          evidenceDim?.criteria ||
-          '若有引用題幹或文本依據可補充完整性；未提供不扣分。'
-      }
-    ]
-  } else if (safeDimensions.length === 0) {
+  if (safeDimensions.length === 0) {
     normalizedDimensions = [
       {
         name: '作答依據',
@@ -1588,11 +1550,12 @@ function ensureShortAnswerRubricsDimensions(
 }
 
 function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: string): AnswerKey {
+  void domain
   const questions = Array.isArray(answerKey?.questions) ? answerKey.questions : []
   if (questions.length === 0) return answerKey
 
   const normalizedQuestions = questions.map((question) =>
-    ensureShortAnswerRubricsDimensions(question, domain)
+    ensureShortAnswerRubricsDimensions(question)
   )
 
   return {
