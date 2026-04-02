@@ -3664,14 +3664,16 @@ export default function AssignmentSetup({
                                               updateRubricDimension('create', idx, dimIdx, 'name', e.target.value)
                                             }
                                           />
-                                          <NumericInput
-                                            className="w-16 px-2 py-1 border border-gray-300 rounded text-right"
-                                            value={dim.maxScore}
-                                            allowDecimal
-                                            onChange={(v) =>
-                                              updateRubricDimension('create', idx, dimIdx, 'maxScore', String(v))
-                                            }
-                                          />
+                                          {createScoringMode !== 'unscored' && (
+                                            <NumericInput
+                                              className="w-16 px-2 py-1 border border-gray-300 rounded text-right"
+                                              value={dim.maxScore}
+                                              allowDecimal
+                                              onChange={(v) =>
+                                                updateRubricDimension('create', idx, dimIdx, 'maxScore', String(v))
+                                              }
+                                            />
+                                          )}
                                           <button
                                             type="button"
                                             onClick={() => removeRubricDimension('create', idx, dimIdx)}
@@ -3704,39 +3706,43 @@ export default function AssignmentSetup({
                                       {rubric.levels.map((level, levelIndex) => (
                                         <div
                                           key={level.label}
-                                          className="grid grid-cols-[56px_44px_44px_1fr] gap-2 items-center"
+                                          className={`grid gap-2 items-center ${createScoringMode === 'unscored' ? 'grid-cols-[56px_1fr]' : 'grid-cols-[56px_44px_44px_1fr]'}`}
                                         >
                                           <span className="text-[11px] text-gray-600">
                                             {level.label}
                                           </span>
-                                          <NumericInput
-                                            className="px-1 py-1 border border-gray-300 rounded text-right"
-                                            value={level.min}
-                                            allowDecimal
-                                            onChange={(v) =>
-                                              updateRubricLevel(
-                                                'create',
-                                                idx,
-                                                levelIndex,
-                                                'min',
-                                                String(v)
-                                              )
-                                            }
-                                          />
-                                          <NumericInput
-                                            className="px-1 py-1 border border-gray-300 rounded text-right"
-                                            value={level.max}
-                                            allowDecimal
-                                            onChange={(v) =>
-                                              updateRubricLevel(
-                                                'create',
-                                                idx,
-                                                levelIndex,
-                                                'max',
-                                                String(v)
-                                              )
-                                            }
-                                          />
+                                          {createScoringMode !== 'unscored' && (
+                                            <>
+                                              <NumericInput
+                                                className="px-1 py-1 border border-gray-300 rounded text-right"
+                                                value={level.min}
+                                                allowDecimal
+                                                onChange={(v) =>
+                                                  updateRubricLevel(
+                                                    'create',
+                                                    idx,
+                                                    levelIndex,
+                                                    'min',
+                                                    String(v)
+                                                  )
+                                                }
+                                              />
+                                              <NumericInput
+                                                className="px-1 py-1 border border-gray-300 rounded text-right"
+                                                value={level.max}
+                                                allowDecimal
+                                                onChange={(v) =>
+                                                  updateRubricLevel(
+                                                    'create',
+                                                    idx,
+                                                    levelIndex,
+                                                    'max',
+                                                    String(v)
+                                                  )
+                                                }
+                                              />
+                                            </>
+                                          )}
                                           <input
                                             className="px-2 py-1 border border-gray-300 rounded"
                                             value={level.criteria}
@@ -4257,14 +4263,16 @@ export default function AssignmentSetup({
                                           updateRubricDimension('edit', idx, dimIdx, 'name', e.target.value)
                                         }
                                       />
-                                      <NumericInput
-                                        className="w-16 px-2 py-1 border border-gray-300 rounded text-right"
-                                        value={dim.maxScore}
-                                        allowDecimal
-                                        onChange={(v) =>
-                                          updateRubricDimension('edit', idx, dimIdx, 'maxScore', String(v))
-                                        }
-                                      />
+                                      {editingScoringMode !== 'unscored' && (
+                                        <NumericInput
+                                          className="w-16 px-2 py-1 border border-gray-300 rounded text-right"
+                                          value={dim.maxScore}
+                                          allowDecimal
+                                          onChange={(v) =>
+                                            updateRubricDimension('edit', idx, dimIdx, 'maxScore', String(v))
+                                          }
+                                        />
+                                      )}
                                       <button
                                         type="button"
                                         onClick={() => removeRubricDimension('edit', idx, dimIdx)}
@@ -4297,39 +4305,43 @@ export default function AssignmentSetup({
                                   {rubric.levels.map((level, levelIndex) => (
                                     <div
                                       key={level.label}
-                                      className="grid grid-cols-[56px_44px_44px_1fr] gap-2 items-center"
+                                      className={`grid gap-2 items-center ${editingScoringMode === 'unscored' ? 'grid-cols-[56px_1fr]' : 'grid-cols-[56px_44px_44px_1fr]'}`}
                                     >
                                       <span className="text-[11px] text-gray-600">
                                         {level.label}
                                       </span>
-                                      <NumericInput
-                                        className="px-1 py-1 border border-gray-300 rounded text-right"
-                                        value={level.min}
-                                        allowDecimal
-                                        onChange={(v) =>
-                                          updateRubricLevel(
-                                            'edit',
-                                            idx,
-                                            levelIndex,
-                                            'min',
-                                            String(v)
-                                          )
-                                        }
-                                      />
-                                      <NumericInput
-                                        className="px-1 py-1 border border-gray-300 rounded text-right"
-                                        value={level.max}
-                                        allowDecimal
-                                        onChange={(v) =>
-                                          updateRubricLevel(
-                                            'edit',
-                                            idx,
-                                            levelIndex,
-                                            'max',
-                                            String(v)
-                                          )
-                                        }
-                                      />
+                                      {editingScoringMode !== 'unscored' && (
+                                        <>
+                                          <NumericInput
+                                            className="px-1 py-1 border border-gray-300 rounded text-right"
+                                            value={level.min}
+                                            allowDecimal
+                                            onChange={(v) =>
+                                              updateRubricLevel(
+                                                'edit',
+                                                idx,
+                                                levelIndex,
+                                                'min',
+                                                String(v)
+                                              )
+                                            }
+                                          />
+                                          <NumericInput
+                                            className="px-1 py-1 border border-gray-300 rounded text-right"
+                                            value={level.max}
+                                            allowDecimal
+                                            onChange={(v) =>
+                                              updateRubricLevel(
+                                                'edit',
+                                                idx,
+                                                levelIndex,
+                                                'max',
+                                                String(v)
+                                              )
+                                            }
+                                          />
+                                        </>
+                                      )}
                                       <input
                                         className="px-2 py-1 border border-gray-300 rounded"
                                         value={level.criteria}
