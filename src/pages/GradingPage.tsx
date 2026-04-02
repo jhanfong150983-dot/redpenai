@@ -3148,6 +3148,8 @@ export default function GradingPage({
                         const safeScore = Number.isFinite(Number(d.score)) ? Number(d.score) : 0
                         const safeMax = Number.isFinite(Number(d.maxScore)) ? Number(d.maxScore) : 0
                         const isCorrect = safeMax > 0 ? safeScore >= safeMax : false
+                        const isPartial = !isCorrect && safeScore > 0 && safeMax > 0
+                        const isUnscored = assignment?.scoringMode === 'unscored'
                         const confidenceValue = Number.isFinite(Number(d.confidence))
                           ? Math.min(100, Math.max(0, Number(d.confidence)))
                           : null
@@ -3179,45 +3181,53 @@ export default function GradingPage({
                               </div>
                               <div
                                 className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                                  isCorrect ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                  isCorrect
+                                    ? 'bg-green-100 text-green-700'
+                                    : isPartial
+                                      ? 'bg-amber-100 text-amber-700'
+                                      : 'bg-red-100 text-red-700'
                                 }`}
                               >
-                                <span>{isCorrect ? '正確' : '錯誤'}</span>
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  pattern="[0-9]*\.?[0-9]*"
-                                  className="w-14 px-1 py-0.5 rounded border border-white/60 bg-white/70 text-gray-800 text-[10px] text-center disabled:opacity-60 disabled:cursor-not-allowed"
-                                  value={d.score ?? ''}
-                                  disabled={isBusy || isSavingScore}
-                                  onFocus={(e) => {
-                                    // 點擊時自動選取全部文字，方便清除
-                                    e.target.select()
-                                  }}
-                                  onChange={(e) => {
-                                    const v = e.target.value
-                                    // 允許數字和小數點
-                                    if (v === '' || /^\d*\.?\d*$/.test(v)) {
-                                      setEditableDetails((prev) => {
-                                        const next = [...prev]
-                                        next[i] = { ...next[i], score: v === '' ? '' : (v.endsWith('.') ? v : Number(v)) }
-                                        return next
-                                      })
-                                    }
-                                  }}
-                                  onBlur={(e) => {
-                                    const num = Number(e.target.value)
-                                    void handleDetailScoreChange(i, Number.isFinite(num) ? num : 0)
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      e.preventDefault()
-                                      const num = Number((e.target as HTMLInputElement).value)
+                                <span>{isCorrect ? '✓' : isPartial ? '△' : '✗'}</span>
+                                {!isUnscored && (
+                                  <>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    pattern="[0-9]*\.?[0-9]*"
+                                    className="w-14 px-1 py-0.5 rounded border border-white/60 bg-white/70 text-gray-800 text-[10px] text-center disabled:opacity-60 disabled:cursor-not-allowed"
+                                    value={d.score ?? ''}
+                                    disabled={isBusy || isSavingScore}
+                                    onFocus={(e) => {
+                                      // 點擊時自動選取全部文字，方便清除
+                                      e.target.select()
+                                    }}
+                                    onChange={(e) => {
+                                      const v = e.target.value
+                                      // 允許數字和小數點
+                                      if (v === '' || /^\d*\.?\d*$/.test(v)) {
+                                        setEditableDetails((prev) => {
+                                          const next = [...prev]
+                                          next[i] = { ...next[i], score: v === '' ? '' : (v.endsWith('.') ? v : Number(v)) }
+                                          return next
+                                        })
+                                      }
+                                    }}
+                                    onBlur={(e) => {
+                                      const num = Number(e.target.value)
                                       void handleDetailScoreChange(i, Number.isFinite(num) ? num : 0)
-                                    }
-                                  }}
-                                />
-                                <span>/ {d.maxScore}</span>
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault()
+                                        const num = Number((e.target as HTMLInputElement).value)
+                                        void handleDetailScoreChange(i, Number.isFinite(num) ? num : 0)
+                                      }
+                                    }}
+                                  />
+                                  <span>/ {d.maxScore}</span>
+                                  </>
+                                )}
                               </div>
                             </div>
                             <div className="flex items-center gap-2 text-gray-700">

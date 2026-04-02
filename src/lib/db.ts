@@ -151,6 +151,7 @@ export interface Assignment {
   domain?: string // 國語、數學、社會、自然、英語、其他
   folder?: string // 資料夾分類（例如：段考、小考、作業）
 
+  scoringMode?: 'scored' | 'unscored' // 不計分：批改只顯示✓✗△，不納入成績統計
   answerKey?: AnswerKey
   conceptTags?: Record<string, { code: string; label: string }> // 108課綱概念標記（questionId → concept）
   updatedAt?: number

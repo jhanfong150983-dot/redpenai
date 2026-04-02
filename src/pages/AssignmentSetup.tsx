@@ -104,6 +104,7 @@ export default function AssignmentSetup({
   const [createScoreMode, setCreateScoreMode] = useState<CreateScoreMode>('ai_auto')
   const [createFixedPerScore, setCreateFixedPerScore] = useState<number>(5)
   const [createFixedTotal, setCreateFixedTotal] = useState<number>(100)
+  const [createScoringMode, setCreateScoringMode] = useState<'scored' | 'unscored'>('scored')
 
   const domainOptions = ['國語', '數學', '社會', '自然', '英語', '其他']
   const createStrictnessLabels: Record<'strict' | 'standard' | 'lenient', string> = {
@@ -502,6 +503,7 @@ export default function AssignmentSetup({
     setCreateScoreMode('ai_auto')
     setCreateFixedPerScore(5)
     setCreateFixedTotal(100)
+    setCreateScoringMode('scored')
     setAnswerKey(null)
     setAnswerKeyFile([])
     setAnswerSheetImage(null)
@@ -1177,6 +1179,7 @@ export default function AssignmentSetup({
         totalPages,
         domain: assignmentDomain!,
         folder: undefined,  // 新作業預設為全部
+        scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
         answerKey: answerKey ? { ...answerKey, strictness: createStrictness } : undefined,
         conceptTags: pendingConceptTags ?? undefined
       }
@@ -3202,6 +3205,24 @@ export default function AssignmentSetup({
 
                 {isAdvancedSettingsOpen && (
                   <div className="mt-4 space-y-4 border-t border-slate-200 pt-4">
+                    {/* 不計分數 toggle */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setCreateScoringMode(prev => prev === 'unscored' ? 'scored' : 'unscored')}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${
+                          createScoringMode === 'unscored' ? 'bg-emerald-600' : 'bg-slate-200'
+                        }`}
+                      >
+                        <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+                          createScoringMode === 'unscored' ? 'translate-x-4' : 'translate-x-0'
+                        }`} />
+                      </button>
+                      <span className="text-xs text-slate-600">不計分數</span>
+                      {createScoringMode === 'unscored' && (
+                        <span className="text-xs text-slate-400">批改結果只顯示 ✓ / ✗ / △，不納入成績統計</span>
+                      )}
+                    </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-xs text-slate-500 shrink-0">批改嚴格度</span>
                       <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs bg-white">

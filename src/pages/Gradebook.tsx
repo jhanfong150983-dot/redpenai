@@ -160,11 +160,10 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   }, [assignments, emptyFolders])
 
   const filteredAssignments = useMemo(() => {
-    if (!selectedFolder) return assignments
     return assignments.filter((a) => {
-      if (selectedFolder === '__uncategorized__') {
-        return !a.folder
-      }
+      if (a.scoringMode === 'unscored') return false
+      if (!selectedFolder) return true
+      if (selectedFolder === '__uncategorized__') return !a.folder
       return a.folder === selectedFolder
     })
   }, [assignments, selectedFolder])
