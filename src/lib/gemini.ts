@@ -892,7 +892,9 @@ function buildGlobalTaskAndFormat(): string {
     // word_problem / calculation / short_answer / map_draw / diagram_draw 專用：評分規準
     // word_problem: [列式計算, 答句（含單位）]
     // calculation: [算式過程, 最終答案（純數值，不需單位）]
-    // short_answer: 必須使用 rubricsDimensions（至少兩維：作答依據、結論表達）
+    // short_answer: 必須使用 rubricsDimensions（至少兩維）
+    // - 一般：作答依據 + 結論表達
+    // - 社會領域可用「核心結論優先」：核心結論 + 作答依據（補充，不作必扣）
     // diagram_draw: [作圖正確性, 完整性]
     "referenceAnswer": "評分要點",
     "rubricsDimensions": [
@@ -1096,6 +1098,9 @@ function buildGlobalClassificationFallback(): string {
     → questionCategory: "short_answer"（簡答題）
     - referenceAnswer 填評分要點；必須使用 rubricsDimensions 多維度評分（至少兩維）
     - 建議維度：作答依據、結論表達（不可使用 rubric 四級評量）
+    - 社會領域可採「核心結論優先」：
+      - 維度1：核心結論（主要分數）
+      - 維度2：作答依據（補充說明，不作為必扣）
 
 【反幻覺警告】（適用於所有操作）
 ❌ 禁止猜測：看不清楚時設 confidence < 0.5
@@ -1212,7 +1217,8 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 ▸ 如果是「閱讀測驗簡答題」（根據文章回答問題）：
   - questionCategory: "short_answer"
   - referenceAnswer 填評分要點（關鍵字/概念）
-  - rubricsDimensions 依題目要求設定維度（至少兩維：作答依據、結論表達）
+  - rubricsDimensions 依題目要求設定維度（至少兩維）
+  - 社會領域可採「核心結論優先」：核心結論為主要分數，作答依據作為補充（不作必扣）
 
 ▸ 如果是「改錯題」（找出並改正錯別字）：
   - questionCategory: "fill_blank"
@@ -1342,6 +1348,14 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - 題目沒有精準座標，只給範圍描述 → criteria 才使用範圍
 
   ⚠️ 符號對 ≠ 答案對，必須同時檢查符號和位置
+
+▸ 如果是「簡答題」（解釋、說明原因、比較異同）：
+  - questionCategory: "short_answer"
+  - referenceAnswer 填「核心結論」或關鍵重點
+  - rubricsDimensions 必須至少兩維，且採核心結論優先：
+    1. 核心結論（主要分數，語意相符即可）
+    2. 作答依據（補充分，不作為必扣）
+  - 規則：學生只要寫出核心結論且語意正確，就可判定為正確或接近滿分；不可因未補充完整依據而直接判錯
 
 ▸ 如果是「勾選題」（答案空間是方框 □）：
   單選勾選（只能標記一個框）：
@@ -1481,7 +1495,14 @@ function splitScoreIntoTwo(totalScore: number): [number, number] {
   return [first, second]
 }
 
-function ensureShortAnswerRubricsDimensions(question: AnswerKeyQuestion): AnswerKeyQuestion {
+function isSocialDomain(domain?: string): boolean {
+  return typeof domain === 'string' && domain.trim() === '社會'
+}
+
+function ensureShortAnswerRubricsDimensions(
+  question: AnswerKeyQuestion,
+  domain?: string
+): AnswerKeyQuestion {
   if (question.questionCategory !== 'short_answer') return question
 
   const maxScore = Number.isFinite(Number(question.maxScore)) ? Number(question.maxScore) : 0
@@ -1497,9 +1518,34 @@ function ensureShortAnswerRubricsDimensions(question: AnswerKeyQuestion): Answer
     : []
 
   const [firstScore, secondScore] = splitScoreIntoTwo(maxScore)
+  const socialMode = isSocialDomain(domain)
 
   let normalizedDimensions = safeDimensions
-  if (safeDimensions.length === 0) {
+  if (safeDimensions.length === 0 && socialMode) {
+    normalizedDimensions = [
+      {
+        name: '核心結論',
+        maxScore,
+        criteria: criteriaHint
+          ? `核心結論與重點相符（參考要點：${criteriaHint}）即可。`
+          : '核心結論與重點相符即可。'
+      },
+      {
+        name: '作答依據（補充）',
+        maxScore: 0,
+        criteria: '若有引用題幹或文本依據可補充完整性；未提供不扣分。'
+      }
+    ]
+  } else if (safeDimensions.length === 1 && socialMode) {
+    normalizedDimensions = [
+      { ...safeDimensions[0], maxScore },
+      {
+        name: '作答依據（補充）',
+        maxScore: 0,
+        criteria: '若有引用題幹或文本依據可補充完整性；未提供不扣分。'
+      }
+    ]
+  } else if (safeDimensions.length === 0) {
     normalizedDimensions = [
       {
         name: '作答依據',
@@ -1535,12 +1581,12 @@ function ensureShortAnswerRubricsDimensions(question: AnswerKeyQuestion): Answer
   }
 }
 
-function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey): AnswerKey {
+function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: string): AnswerKey {
   const questions = Array.isArray(answerKey?.questions) ? answerKey.questions : []
   if (questions.length === 0) return answerKey
 
   const normalizedQuestions = questions.map((question) =>
-    ensureShortAnswerRubricsDimensions(question)
+    ensureShortAnswerRubricsDimensions(question, domain)
   )
 
   return {
@@ -3429,7 +3475,7 @@ export async function extractAnswerKeyFromImage(
 
   console.log('📥 [AnswerKey raw response]', text)
   const answerKey = JSON.parse(text) as AnswerKey
-  return normalizeAnswerKeyShortAnswerDimensions(answerKey)
+  return normalizeAnswerKeyShortAnswerDimensions(answerKey, opts?.domain)
 }
 
 /**
@@ -3492,7 +3538,7 @@ export async function extractAnswerKeyFromImages(
     .trim()
 
   console.log('📥 [AnswerKey raw response]', text)
-  const result = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(text) as AnswerKey)
+  const result = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(text) as AnswerKey, opts?.domain)
   console.log(`✅ 成功提取 ${result.questions.length} 題，總分 ${result.totalScore}`)
   return result
 }
@@ -3550,7 +3596,8 @@ ${basePrompt}
     .trim()
 
   const result = normalizeAnswerKeyShortAnswerDimensions(
-    JSON.parse(text) as import('./db').AnswerKey
+    JSON.parse(text) as import('./db').AnswerKey,
+    domain
   )
 
   const requestedIds = markedQuestions.map((q) => q.id)
@@ -3592,9 +3639,10 @@ ${basePrompt}
 export async function gradePhaseA(
   submissionImageBlob: Blob,
   answerKey: AnswerKey,
-  pageBreaks?: number[]
+  pageBreaks?: number[],
+  domain?: string
 ): Promise<PhaseAResult> {
-  const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey)
+  const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
 
   const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'phase-a')

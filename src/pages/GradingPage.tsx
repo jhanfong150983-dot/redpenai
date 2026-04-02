@@ -1927,7 +1927,12 @@ export default function GradingPage({
         300,
         async (sub) => {
           if (stopRequestedRef.current) return null
-          const phaseAResult = await gradePhaseA(sub.imageBlob!, assignment.answerKey!, sub.pageBreaks)
+          const phaseAResult = await gradePhaseA(
+            sub.imageBlob!,
+            assignment.answerKey!,
+            sub.pageBreaks,
+            assignment.domain
+          )
           return { sub, phaseAResult }
         },
         (i, result, err) => {
