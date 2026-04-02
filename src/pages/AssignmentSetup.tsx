@@ -828,6 +828,13 @@ export default function AssignmentSetup({
   }
 
   const normalizeAnswerKey = (ak: AnswerKey | Record<string, unknown> | null | undefined): AnswerKey => {
+    const strictnessRaw =
+      typeof (ak as any)?.strictness === 'string' ? String((ak as any).strictness).trim() : ''
+    const strictness: 'strict' | 'standard' | 'lenient' | undefined =
+      strictnessRaw === 'strict' || strictnessRaw === 'standard' || strictnessRaw === 'lenient'
+        ? strictnessRaw
+        : undefined
+
     const rawQuestions: any[] = Array.isArray((ak as any)?.questions) ? (ak as any).questions : []
     const questions = rawQuestions.map((q: any, idx) => {
       const maxScore =
@@ -946,7 +953,7 @@ export default function AssignmentSetup({
       return baseQuestion
     })
     const totalScore = questions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
-    return { questions, totalScore }
+    return { questions, totalScore, ...(strictness ? { strictness } : {}) }
   }
 
   const mergeAnswerKeys = (current: AnswerKey | null, incoming: AnswerKey) => {
@@ -975,8 +982,17 @@ export default function AssignmentSetup({
     const notice = hasDuplicate
       ? '偵測到重複題號，已自動加上後綴（-2、-3）。請確認題號是否對應試卷。'
       : null
+    const mergedStrictness =
+      normalizedIncoming.strictness ?? (base as AnswerKey).strictness ?? undefined
 
-    return { merged: { questions: sortedQuestions, totalScore }, notice }
+    return {
+      merged: {
+        questions: sortedQuestions,
+        totalScore,
+        ...(mergedStrictness ? { strictness: mergedStrictness } : {})
+      },
+      notice
+    }
   }
 
   // Detect if an answer key contains 國字注音 questions (single CJK char or phonetic-only answers)
