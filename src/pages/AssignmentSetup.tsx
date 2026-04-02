@@ -180,6 +180,7 @@ export default function AssignmentSetup({
   )
   const [editingClassroomId, setEditingClassroomId] = useState('')
   const [editingDomain, setEditingDomain] = useState('')
+  const [editingScoringMode, setEditingScoringMode] = useState<'scored' | 'unscored'>('scored')
   const [isSavingAnswerKey, setIsSavingAnswerKey] = useState(false)
   const [isReanalyzing, setIsReanalyzing] = useState(false)
   const [editAnswerKeyFile, setEditAnswerKeyFile] = useState<File | null>(null)
@@ -2087,6 +2088,7 @@ export default function AssignmentSetup({
     setEditingAnswerKey(normalizeAnswerKey(ak))
     setEditingClassroomId(assignment.classroomId)
     setEditingDomain(assignment.domain ?? '')
+    setEditingScoringMode(assignment.scoringMode === 'unscored' ? 'unscored' : 'scored')
     setEditAnswerKeyFile(null)
     setEditAnswerSheetImage(null)  // 清空答案卷圖片
     setEditAnswerKeyError(null)
@@ -2253,6 +2255,7 @@ export default function AssignmentSetup({
         answerKey: editingAnswerKey,
         domain: editingDomain,
         classroomId: editingClassroomId,
+        scoringMode: editingScoringMode === 'unscored' ? 'unscored' : undefined,
         updatedAt: now  // 更新時間戳記，觸發 sync
       })
       
@@ -2269,6 +2272,7 @@ export default function AssignmentSetup({
                 answerKey: editingAnswerKey,
                 domain: editingDomain,
                 classroomId: editingClassroomId,
+                scoringMode: editingScoringMode === 'unscored' ? 'unscored' : undefined,
                 updatedAt: now
               }
             : a
@@ -2279,6 +2283,7 @@ export default function AssignmentSetup({
         classroomId: editingClassroomId,
         domain: editingDomain,
         answerKey: editingAnswerKey,
+        scoringMode: editingScoringMode === 'unscored' ? 'unscored' : undefined,
         updatedAt: now
       })
       console.log(`🔄 [答案解析] 觸發同步...`)
@@ -3897,6 +3902,25 @@ export default function AssignmentSetup({
                     {(editingAnswerKey?.strictness ?? 'standard') === 'lenient' && '只要核心意思正確即可'}
                   </span>
                 </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={isSavingAnswerKey}
+                  onClick={() => setEditingScoringMode(prev => prev === 'unscored' ? 'scored' : 'unscored')}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                    editingScoringMode === 'unscored' ? 'bg-emerald-600' : 'bg-slate-200'
+                  }`}
+                >
+                  <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${
+                    editingScoringMode === 'unscored' ? 'translate-x-4' : 'translate-x-0'
+                  }`} />
+                </button>
+                <span className="text-sm font-medium text-gray-700">不計分數</span>
+                {editingScoringMode === 'unscored' && (
+                  <span className="text-xs text-gray-400">批改結果只顯示 ✓ / ✗ / △，不納入成績統計</span>
+                )}
               </div>
 
               <div className="space-y-2">
