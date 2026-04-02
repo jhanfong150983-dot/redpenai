@@ -3111,26 +3111,35 @@ export default function GradingPage({
                   </div>
                 )}
 
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                        總分
-                      </span>
-                      <span className="text-2xl font-bold text-gray-900">
-                        {selectedSubmission.submission.gradingResult?.totalScore ??
-                          selectedSubmission.submission.score ??
-                          '-'}
-                      </span>
+                {assignment?.scoringMode !== 'unscored' && (
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                          總分
+                        </span>
+                        <span className="text-2xl font-bold text-gray-900">
+                          {selectedSubmission.submission.gradingResult?.totalScore ??
+                            selectedSubmission.submission.score ??
+                            '-'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500">依各題得分自動加總</p>
                     </div>
-                    <p className="text-xs text-gray-500">依各題得分自動加總</p>
+                    {selectedSubmission.submission.status === 'graded' && (
+                      <span className="px-2 py-1 text-xs rounded-full bg-green-50 text-green-700 border border-green-200 font-semibold">
+                        已批改
+                      </span>
+                    )}
                   </div>
-                  {selectedSubmission.submission.status === 'graded' && (
+                )}
+                {assignment?.scoringMode === 'unscored' && selectedSubmission.submission.status === 'graded' && (
+                  <div className="flex items-center justify-end mb-2">
                     <span className="px-2 py-1 text-xs rounded-full bg-green-50 text-green-700 border border-green-200 font-semibold">
                       已批改
                     </span>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 {/* 題目詳情（可調整） */}
                 {editableDetails.length > 0 ? (

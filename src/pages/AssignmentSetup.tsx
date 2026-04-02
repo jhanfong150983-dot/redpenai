@@ -29,9 +29,9 @@ import {
 } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
-import { extractAnswerKeyFromImage, extractAnswerKeyFromImages, reanalyzeQuestions, tagConceptsForAnswerKey } from '@/lib/gemini'
+import { extractAnswerKeyFromImages, reanalyzeQuestions, tagConceptsForAnswerKey } from '@/lib/gemini'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
-import { convertPdfToImage, convertPdfToImages, getFileType, fileToBlob, getDefaultImageFormat } from '@/lib/pdfToImage'
+import { convertPdfToImages, getFileType, fileToBlob, getDefaultImageFormat } from '@/lib/pdfToImage'
 import { compressImageFile } from '@/lib/imageCompression'
 import { checkFolderNameUnique } from '@/lib/utils'
 import { useTutorial } from '@/hooks/useTutorial'
@@ -183,7 +183,7 @@ export default function AssignmentSetup({
   const [editingScoringMode, setEditingScoringMode] = useState<'scored' | 'unscored'>('scored')
   const [isSavingAnswerKey, setIsSavingAnswerKey] = useState(false)
   const [isReanalyzing, setIsReanalyzing] = useState(false)
-  const [editAnswerKeyFile, setEditAnswerKeyFile] = useState<File | null>(null)
+  const [editAnswerKeyFile, setEditAnswerKeyFile] = useState<File[]>([])
   const [editAnswerSheetImage, setEditAnswerSheetImage] = useState<Blob | null>(null)
   const [isExtractingAnswerKeyEdit, setIsExtractingAnswerKeyEdit] =
     useState(false)
@@ -1002,112 +1002,6 @@ export default function AssignmentSetup({
     }
   }
 
-  const extractAndSetAnswerKey = async (
-    file: File,
-    currentKey: AnswerKey | null,
-    onSet: (key: AnswerKey) => void,
-    setBusy: (busy: boolean) => void,
-    setErr: (msg: string | null) => void,
-    setNotice: (msg: string | null) => void,
-    domain?: string,
-    onImageBlobReady?: (blob: Blob) => void
-  ) => {
-    console.log('📋 開始提取標準答案...', { fileName: file.name, domain })
-    
-    const fileType = getFileType(file)
-    if (fileType !== 'image' && fileType !== 'pdf') {
-      setErr('不支援的檔案格式，請改用圖片或 PDF')
-      return
-    }
-    if (!ensureInkSessionReady(setErr)) {
-      return
-    }
-
-    try {
-      setBusy(true)
-      setErr(null)
-
-      let imageBlob: Blob
-      if (fileType === 'image') {
-        console.log('🖼️ 處理圖片檔案', { size: file.size, type: file.type })
-        imageBlob = await fileToBlob(file)
-        
-        // 激進壓縮：確保最終大小 < 1.5MB（Base64編碼後 < 2MB）
-        let compressionAttempts = 0
-        let targetSize = 1.5 * 1024 * 1024  // 1.5MB
-        
-        while (imageBlob.size > targetSize && compressionAttempts < 3) {
-          console.log(`⚠️ 第 ${compressionAttempts + 1} 次壓縮...`, { currentSize: imageBlob.size })
-          
-          const quality = 0.6 - (compressionAttempts * 0.15)  // 0.6, 0.45, 0.3
-          const maxWidth = 1600 - (compressionAttempts * 400)  // 1600, 1200, 800
-          
-          imageBlob = await compressImageFile(imageBlob, {
-            maxWidth,
-            quality,
-            format: 'image/webp'
-          })
-          
-          compressionAttempts++
-          console.log(`✅ 壓縮完成 (第 ${compressionAttempts} 次)`, { compressedSize: imageBlob.size, maxWidth, quality })
-        }
-        
-        if (imageBlob.size > targetSize) {
-          console.warn('⚠️ 圖片仍然過大，但已達壓縮上限', { finalSize: imageBlob.size })
-        }
-      } else {
-        console.log('📄 處理 PDF 檔案', { size: file.size })
-        imageBlob = await convertPdfToImage(file, {
-          scale: 1,  // 進一步降低 scale
-          format: 'image/webp',
-          quality: 0.5  // 進一步降低品質
-        })
-        
-        // PDF 也需要壓縮檢查
-        if (imageBlob.size > 1.5 * 1024 * 1024) {
-          console.log('⚠️ PDF 轉換後仍過大，進行壓縮...', { originalSize: imageBlob.size })
-          imageBlob = await compressImageFile(imageBlob, {
-            maxWidth: 1200,
-            quality: 0.4,
-            format: 'image/webp'
-          })
-          console.log('✅ PDF 壓縮完成', { compressedSize: imageBlob.size })
-        }
-        
-        console.log('✅ PDF 轉換完成', { blobSize: imageBlob.size, blobType: imageBlob.type })
-      }
-
-      // Save image blob for re-analysis if callback provided
-      if (onImageBlobReady) {
-        console.log('💾 保存答案卷圖片 blob 用於重新分析', { blobSize: imageBlob.size })
-        onImageBlobReady(imageBlob)
-      } else {
-        console.warn('⚠️ 沒有提供 onImageBlobReady 回調，重新分析功能將無法使用')
-      }
-
-      console.log('🧠 呼叫 Gemini API 提取標準答案...')
-      const extracted = await extractAnswerKeyFromImage(imageBlob, { domain })
-      console.log('✅ AI 提取完成', { questionCount: extracted.questions.length, totalScore: extracted.totalScore })
-
-      const { merged, notice } = mergeAnswerKeys(currentKey, extracted)
-      const { answerKey: scoredKey, scoreNotice } = applyCreateScoreMode(merged)
-      onSet(scoredKey)
-
-      const notices: string[] = []
-      if (notice) notices.push(notice)
-      if (scoreNotice) notices.push(scoreNotice)
-      setNotice(notices.length > 0 ? notices.join(' ') : null)
-      if (hasVocabFillQuestions(scoredKey)) {
-        setShowVocabFillWarning(true)
-      }
-    } catch (err) {
-      console.error('❌ AI 讀取標準答案失敗', err)
-      const errorMsg = err instanceof Error ? err.message : String(err)
-      setErr(`AI 讀取失敗：${errorMsg}`)
-    } finally {
-      setBusy(false)
-    }
-  }
 
   const handleRequireInkTopUp = async () => {
     const shouldTopUp = window.confirm(createBlockedMessage)
@@ -1472,50 +1366,150 @@ export default function AssignmentSetup({
       setEditAnswerKeyError('請先選擇領域，才能擷取標準答案')
       return
     }
-    if (!editAnswerKeyFile) {
+    if (editAnswerKeyFile.length === 0) {
       setEditAnswerKeyError('請選擇檔案，支援 PDF 或圖片')
       return
     }
+    if (!ensureInkSessionReady(setEditAnswerKeyError)) {
+      return
+    }
 
-    let capturedAnswerKey: AnswerKey | null = null
-    let capturedBlob: Blob | null = null
+    try {
+      setIsExtractingAnswerKeyEdit(true)
+      setEditAnswerKeyError(null)
 
-    await extractAndSetAnswerKey(
-      editAnswerKeyFile,
-      editingAnswerKey,
-      (ak) => { setEditingAnswerKey(ak); capturedAnswerKey = ak },
-      setIsExtractingAnswerKeyEdit,
-      setEditAnswerKeyError,
-      setEditAnswerKeyNotice,
-      editingDomain,
-      (blob) => { setEditAnswerSheetImage(blob); capturedBlob = blob }
-    )
-
-    // 非同步概念標記（edit 流程：直接更新 DB，不需 pendingConceptTags）
-    const _capturedAnswerKey: AnswerKey | null = capturedAnswerKey
-    const _capturedBlob: Blob | null = capturedBlob
-    if (_capturedAnswerKey && _capturedBlob && editingAnswerAssignment) {
-      const classroom = classrooms.find(c => c.id === (editingClassroomId || editingAnswerAssignment.classroomId))
-      if (classroom?.grade) {
-        const assignmentId = editingAnswerAssignment.id
-        const questions = (_capturedAnswerKey as AnswerKey).questions.map((q) => ({ id: q.id, questionCategory: q.questionCategory }))
-        fetch(`/api/data/concept-map?grade=${classroom.grade}`, { credentials: 'include' })
-          .then(r => r.ok ? r.json() : { items: [] })
-          .then(json => {
-            const conceptMap: { code: string; label: string }[] = json.items ?? []
-            if (conceptMap.length === 0) return
-            return tagConceptsForAnswerKey([_capturedBlob], questions, conceptMap)
-          })
-          .then(tags => {
-            if (tags && Object.keys(tags).length > 0) {
-              console.log('🏷️ [edit] 概念標記完成', tags)
-              db.assignments.update(assignmentId, { conceptTags: tags, updatedAt: Date.now() })
-                .then(() => requestSync())
-                .catch(err => console.warn('⚠️ [edit] 儲存概念標記失敗', err))
+      // 所有檔案轉為 Blob 陣列（PDF → 多頁）
+      const imageBlobs: Blob[] = []
+      for (const file of editAnswerKeyFile) {
+        const fileType = getFileType(file)
+        if (fileType === 'pdf') {
+          const pages = await convertPdfToImages(file, { scale: 1, format: 'image/webp', quality: 0.5 })
+          for (let pageBlob of pages) {
+            if (pageBlob.size > 1.5 * 1024 * 1024) {
+              pageBlob = await compressImageFile(pageBlob, { maxWidth: 1200, quality: 0.4, format: 'image/webp' })
             }
-          })
-          .catch(err => console.warn('⚠️ [edit] 概念標記失敗（非致命）', err))
+            imageBlobs.push(pageBlob)
+          }
+        } else if (fileType === 'image') {
+          let imageBlob = await fileToBlob(file)
+          let compressionAttempts = 0
+          const targetSize = 1.5 * 1024 * 1024
+          while (imageBlob.size > targetSize && compressionAttempts < 3) {
+            const quality = 0.6 - compressionAttempts * 0.15
+            const maxWidth = 1600 - compressionAttempts * 400
+            imageBlob = await compressImageFile(imageBlob, { maxWidth, quality, format: 'image/webp' })
+            compressionAttempts++
+          }
+          imageBlobs.push(imageBlob)
+        } else {
+          setEditAnswerKeyError('不支援的檔案格式，請改用圖片或 PDF')
+          return
+        }
       }
+
+      // 保存第一張圖用於重新分析
+      if (imageBlobs.length > 0) {
+        setEditAnswerSheetImage(imageBlobs[0])
+      }
+
+      // 自動分批
+      const base64Overhead = 1.33
+      const maxRequestEstimatedSize = 2 * 1024 * 1024
+      const batches: Blob[][] = []
+      let currentBatch: Blob[] = []
+      let currentEstimatedSize = 0
+
+      for (const blob of imageBlobs) {
+        const blobEstimatedSize = blob.size * base64Overhead
+        if (blobEstimatedSize > maxRequestEstimatedSize) {
+          setEditAnswerKeyError(`有單一頁面過大（預估 ${(blobEstimatedSize / 1024 / 1024).toFixed(1)} MB），超過單次請求上限 2 MB。`)
+          return
+        }
+        if (currentBatch.length > 0 && currentEstimatedSize + blobEstimatedSize > maxRequestEstimatedSize) {
+          batches.push(currentBatch)
+          currentBatch = [blob]
+          currentEstimatedSize = blobEstimatedSize
+        } else {
+          currentBatch.push(blob)
+          currentEstimatedSize += blobEstimatedSize
+        }
+      }
+      if (currentBatch.length > 0) batches.push(currentBatch)
+
+      if (batches.length > 1) {
+        setEditAnswerKeyNotice(`檔案較多，系統已自動分成 ${batches.length} 批解析並合併。`)
+      } else {
+        setEditAnswerKeyNotice(null)
+      }
+
+      // 逐批解析
+      const totalPages = imageBlobs.length
+      let runningPageCount = 0
+      let mergedAnswerKey: AnswerKey | null = editingAnswerKey ? normalizeAnswerKey(editingAnswerKey) : null
+      let duplicateNotice: string | null = null
+
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i]
+        const startPage = runningPageCount + 1
+        const extracted = await extractAnswerKeyFromImages(batch, {
+          domain: editingDomain,
+          startPage,
+          totalPages,
+        })
+        runningPageCount += batch.length
+        const normalizedExtracted = normalizeAnswerKey(extracted)
+
+        if (mergedAnswerKey) {
+          const { merged, notice } = mergeAnswerKeys(mergedAnswerKey, normalizedExtracted)
+          mergedAnswerKey = merged
+          if (notice) duplicateNotice = notice
+        } else {
+          mergedAnswerKey = normalizedExtracted
+        }
+      }
+
+      if (mergedAnswerKey) {
+        const { answerKey: scoredKey, scoreNotice } = applyCreateScoreMode(mergedAnswerKey)
+        setEditingAnswerKey(scoredKey)
+        const notices: string[] = []
+        if (duplicateNotice) notices.push(duplicateNotice)
+        if (scoreNotice) notices.push(scoreNotice)
+        if (notices.length > 0) setEditAnswerKeyNotice(notices.join(' '))
+        if (hasVocabFillQuestions(scoredKey)) {
+          setShowVocabFillWarning(true)
+        }
+
+        // 非同步概念標記（edit 流程：直接更新 DB）
+        if (editingAnswerAssignment) {
+          const classroom = classrooms.find(c => c.id === (editingClassroomId || editingAnswerAssignment.classroomId))
+          if (classroom?.grade) {
+            const assignmentId = editingAnswerAssignment.id
+            const questions = scoredKey.questions.map((q) => ({ id: q.id, questionCategory: q.questionCategory }))
+            fetch(`/api/data/concept-map?grade=${classroom.grade}`, { credentials: 'include' })
+              .then(r => r.ok ? r.json() : { items: [] })
+              .then(json => {
+                const conceptMap: { code: string; label: string }[] = json.items ?? []
+                if (conceptMap.length === 0) return
+                return tagConceptsForAnswerKey([imageBlobs[0]], questions, conceptMap)
+              })
+              .then(tags => {
+                if (tags && Object.keys(tags).length > 0) {
+                  console.log('🏷️ [edit] 概念標記完成', tags)
+                  db.assignments.update(assignmentId, { conceptTags: tags, updatedAt: Date.now() })
+                    .then(() => requestSync())
+                    .catch(err => console.warn('⚠️ [edit] 儲存概念標記失敗', err))
+                }
+              })
+              .catch(err => console.warn('⚠️ [edit] 概念標記失敗（非致命）', err))
+          }
+        }
+      }
+    } catch (err) {
+      console.error('❌ AI 讀取標準答案失敗', err)
+      const errorMsg = err instanceof Error ? err.message : String(err)
+      setEditAnswerKeyError(`AI 讀取失敗：${errorMsg}`)
+    } finally {
+      setIsExtractingAnswerKeyEdit(false)
     }
   }
 
@@ -2089,7 +2083,7 @@ export default function AssignmentSetup({
     setEditingClassroomId(assignment.classroomId)
     setEditingDomain(assignment.domain ?? '')
     setEditingScoringMode(assignment.scoringMode === 'unscored' ? 'unscored' : 'scored')
-    setEditAnswerKeyFile(null)
+    setEditAnswerKeyFile([])
     setEditAnswerSheetImage(null)  // 清空答案卷圖片
     setEditAnswerKeyError(null)
     setEditAnswerKeyNotice(null)
@@ -2102,7 +2096,7 @@ export default function AssignmentSetup({
     setEditingAnswerKey(null)
     setEditingClassroomId('')
     setEditingDomain('')
-    setEditAnswerKeyFile(null)
+    setEditAnswerKeyFile([])
     setEditAnswerSheetImage(null)  // 清空答案卷圖片
     setEditAnswerKeyError(null)
     setEditAnswerKeyNotice(null)
@@ -3942,8 +3936,9 @@ export default function AssignmentSetup({
                 <input
                   type="file"
                   accept="image/*,application/pdf"
+                  multiple
                   onChange={(e) => {
-                    setEditAnswerKeyFile(e.target.files?.[0] || null)
+                    setEditAnswerKeyFile(Array.from(e.target.files || []))
                     setEditAnswerKeyError(null)
                     setEditAnswerKeyNotice(null)
                   }}
@@ -3966,7 +3961,7 @@ export default function AssignmentSetup({
                     type="button"
                     onClick={handleExtractAnswerKeyForEdit}
                     disabled={
-                      !editAnswerKeyFile || isExtractingAnswerKeyEdit
+                      editAnswerKeyFile.length === 0 || isExtractingAnswerKeyEdit
                     }
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
