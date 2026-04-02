@@ -1192,6 +1192,11 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個
+  - ⚠️【其他選項規則】若選項中有「其他：___」或「其他：（空白填寫）」這類開放式選項：
+    - 此選項「可選可不選」，不強制要求，不納入 answer 欄位
+    - 若答案卷顯示「其他」有被勾選並填有文字，將該文字存入 referenceAnswer（格式如："其他參考答案：XXX"）
+    - answer 只包含其餘有明確標準答案的選項（如 "①,③"）
+    - 目的：AI 批改時不因學生未選「其他」而扣分；教師可自行參閱 referenceAnswer 人工判斷
 
 ▸ 如果是「造句題」（根據詞語或句型造句）：
   - questionCategory: "short_answer"
