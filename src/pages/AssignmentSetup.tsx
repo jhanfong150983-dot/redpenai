@@ -3409,9 +3409,11 @@ export default function AssignmentSetup({
                       <span className="text-sm font-semibold text-gray-800">
                         預覽答案
                       </span>
-                      <span className="text-xs text-gray-500">
-                        總分：{answerKey.totalScore}
-                      </span>
+                      {createScoringMode !== 'unscored' && (
+                        <span className="text-xs text-gray-500">
+                          總分：{answerKey.totalScore}
+                        </span>
+                      )}
                     </div>
                     <div className="space-y-3 max-h-56 overflow-auto pr-1">
                       {answerKey.questions.map((q, idx) => {
@@ -3424,7 +3426,7 @@ export default function AssignmentSetup({
                             key={q.uiKey || q.id || idx}
                             className="space-y-2 text-xs bg-white rounded-lg px-3 py-2 border border-gray-200"
                           >
-                            <div className="grid grid-cols-[auto,1fr,auto,auto] gap-2 items-center">
+                            <div className={`grid gap-2 items-center ${createScoringMode === 'unscored' ? 'grid-cols-[auto,1fr,auto]' : 'grid-cols-[auto,1fr,auto,auto]'}`}>
                               <div className="flex items-center gap-0.5">
                                 <input
                                   className="w-14 px-1 py-1 border border-gray-300 rounded"
@@ -3460,19 +3462,21 @@ export default function AssignmentSetup({
                                   ))}
                                 </select>
                               </div>
-                              <NumericInput
-                                className="w-16 px-1 py-1 border border-gray-300 rounded text-right"
-                                value={q.maxScore}
-                                allowDecimal
-                                onChange={(v) =>
-                                  updateQuestionField(
-                                    'create',
-                                    idx,
-                                    'maxScore',
-                                    String(v)
-                                  )
-                                }
-                              />
+                              {createScoringMode !== 'unscored' && (
+                                <NumericInput
+                                  className="w-16 px-1 py-1 border border-gray-300 rounded text-right"
+                                  value={q.maxScore}
+                                  allowDecimal
+                                  onChange={(v) =>
+                                    updateQuestionField(
+                                      'create',
+                                      idx,
+                                      'maxScore',
+                                      String(v)
+                                    )
+                                  }
+                                />
+                              )}
                               <button
                                 type="button"
                                 onClick={() => removeQuestionRow('create', idx)}
@@ -4011,9 +4015,11 @@ export default function AssignmentSetup({
                   <span className="text-sm font-semibold text-gray-800">
                     標準答案
                   </span>
-                  <span className="text-xs text-gray-500">
-                    總分：{editingAnswerKey.totalScore}
-                  </span>
+                  {editingScoringMode !== 'unscored' && (
+                    <span className="text-xs text-gray-500">
+                      總分：{editingAnswerKey.totalScore}
+                    </span>
+                  )}
                 </div>
                 <div className="space-y-3 max-h-56 overflow-auto pr-1">
                   {editingAnswerKey.questions.map((q, idx) => {
@@ -4026,7 +4032,7 @@ export default function AssignmentSetup({
                         key={q.uiKey || q.id || idx}
                         className="space-y-2 text-xs bg-white rounded-lg px-3 py-2 border border-gray-200"
                       >
-                        <div className="grid grid-cols-[auto,1fr,auto,auto] gap-2 items-center">
+                        <div className={`grid gap-2 items-center ${editingScoringMode === 'unscored' ? 'grid-cols-[auto,1fr,auto]' : 'grid-cols-[auto,1fr,auto,auto]'}`}>
                           <div className="flex items-center gap-0.5">
                             <input
                               className="w-14 px-1 py-1 border border-gray-300 rounded"
@@ -4052,19 +4058,21 @@ export default function AssignmentSetup({
                               ))}
                             </select>
                           </div>
-                          <NumericInput
-                            className="w-16 px-1 py-1 border border-gray-300 rounded text-right"
-                            value={q.maxScore}
-                            allowDecimal
-                            onChange={(v) =>
-                              updateQuestionField(
-                                'edit',
-                                idx,
-                                'maxScore',
-                                String(v)
-                              )
-                            }
-                          />
+                          {editingScoringMode !== 'unscored' && (
+                            <NumericInput
+                              className="w-16 px-1 py-1 border border-gray-300 rounded text-right"
+                              value={q.maxScore}
+                              allowDecimal
+                              onChange={(v) =>
+                                updateQuestionField(
+                                  'edit',
+                                  idx,
+                                  'maxScore',
+                                  String(v)
+                                )
+                              }
+                            />
+                          )}
                           <button
                             type="button"
                             onClick={() => removeQuestionRow('edit', idx)}
