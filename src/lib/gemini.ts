@@ -3,6 +3,7 @@ import {
   type Submission,
   type GradingResult,
   type AnswerKey,
+  type AnswerKeyQuestion,
   type AnswerExtractionCorrection
 } from './db'
 import { blobToBase64 as blobToDataUrl, compressImageFile } from './imageCompression'
@@ -259,7 +260,7 @@ let cachedAnswerKeyJson: string | null = null
  */
 export function setAnswerKeyCache(answerKey: AnswerKey | null): void {
   if (answerKey) {
-    cachedAnswerKeyJson = JSON.stringify(answerKey)
+    cachedAnswerKeyJson = JSON.stringify(normalizeAnswerKeyShortAnswerDimensions(answerKey))
     cachedAnswerKeyHash = null // 等待 proxy 返回 hash
   } else {
     cachedAnswerKeyJson = null
@@ -891,12 +892,14 @@ function buildGlobalTaskAndFormat(): string {
     // word_problem / calculation / short_answer / map_draw / diagram_draw 專用：評分規準
     // word_problem: [列式計算, 答句（含單位）]
     // calculation: [算式過程, 最終答案（純數值，不需單位）]
+    // short_answer: 必須使用 rubricsDimensions（至少兩維：作答依據、結論表達）
     // diagram_draw: [作圖正確性, 完整性]
     "referenceAnswer": "評分要點",
     "rubricsDimensions": [
       {"name": "列式計算", "maxScore": 3, "criteria": "算式正確、步驟清晰"},
       {"name": "答句", "maxScore": 2, "criteria": "以「答：」或「A：」開頭，含數字與單位（或完整文字答案）"}
     ],
+    // rubric 只保留相容舊資料；short_answer 不可使用 rubric
     "rubric": {
       "levels": [
         {"label": "優秀", "min": 9, "max": 10, "criteria": "邏輯清晰完整"},
@@ -1091,7 +1094,8 @@ function buildGlobalClassificationFallback(): string {
 
 12. 非數學題，要求文字說明、解釋或列舉，不需計算？
     → questionCategory: "short_answer"（簡答題）
-    - referenceAnswer 填評分要點；用 rubricsDimensions 或 rubric 4級評量
+    - referenceAnswer 填評分要點；必須使用 rubricsDimensions 多維度評分（至少兩維）
+    - 建議維度：作答依據、結論表達（不可使用 rubric 四級評量）
 
 【反幻覺警告】（適用於所有操作）
 ❌ 禁止猜測：看不清楚時設 confidence < 0.5
@@ -1208,7 +1212,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 ▸ 如果是「閱讀測驗簡答題」（根據文章回答問題）：
   - questionCategory: "short_answer"
   - referenceAnswer 填評分要點（關鍵字/概念）
-  - rubricsDimensions 依題目要求設定維度；或使用 rubric 4 級評量
+  - rubricsDimensions 依題目要求設定維度（至少兩維：作答依據、結論表達）
 
 ▸ 如果是「改錯題」（找出並改正錯別字）：
   - questionCategory: "fill_blank"
@@ -1463,6 +1467,86 @@ function buildAnswerKeyPrompt(domain?: string): string {
 
   // 正確順序：task 說明 → 領域規則（高優先）→ 全域後備分類
   return [taskAndFormat, domainRules, classificationFallback].filter(Boolean).join('\n\n')
+}
+
+function roundToTenth(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+function splitScoreIntoTwo(totalScore: number): [number, number] {
+  const safeTotal = Number.isFinite(totalScore) && totalScore > 0 ? totalScore : 0
+  if (safeTotal <= 0) return [0, 0]
+  const first = roundToTenth(safeTotal / 2)
+  const second = roundToTenth(safeTotal - first)
+  return [first, second]
+}
+
+function ensureShortAnswerRubricsDimensions(question: AnswerKeyQuestion): AnswerKeyQuestion {
+  if (question.questionCategory !== 'short_answer') return question
+
+  const maxScore = Number.isFinite(Number(question.maxScore)) ? Number(question.maxScore) : 0
+  const criteriaHint = typeof question.referenceAnswer === 'string' ? question.referenceAnswer.trim() : ''
+  const safeDimensions = Array.isArray(question.rubricsDimensions)
+    ? question.rubricsDimensions
+        .map((dim) => ({
+          name: typeof dim?.name === 'string' ? dim.name.trim() : '',
+          maxScore: Number.isFinite(Number(dim?.maxScore)) ? Number(dim.maxScore) : 0,
+          criteria: typeof dim?.criteria === 'string' ? dim.criteria.trim() : ''
+        }))
+        .filter((dim) => dim.name && dim.criteria)
+    : []
+
+  const [firstScore, secondScore] = splitScoreIntoTwo(maxScore)
+
+  let normalizedDimensions = safeDimensions
+  if (safeDimensions.length === 0) {
+    normalizedDimensions = [
+      {
+        name: '作答依據',
+        maxScore: firstScore,
+        criteria: '有根據題目提供的資料或文本作答，指出關鍵依據。'
+      },
+      {
+        name: '結論表達',
+        maxScore: secondScore,
+        criteria: criteriaHint
+          ? `結論與重點相符（參考要點：${criteriaHint}），表達完整清楚。`
+          : '結論與重點相符，表達完整清楚。'
+      }
+    ]
+  } else if (safeDimensions.length === 1) {
+    normalizedDimensions = [
+      { ...safeDimensions[0], maxScore: firstScore },
+      {
+        name: '結論表達',
+        maxScore: secondScore,
+        criteria: criteriaHint
+          ? `結論與重點相符（參考要點：${criteriaHint}），表達完整清楚。`
+          : '結論與重點相符，表達完整清楚。'
+      }
+    ]
+  }
+
+  return {
+    ...question,
+    type: 3,
+    rubricsDimensions: normalizedDimensions,
+    rubric: undefined
+  }
+}
+
+function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey): AnswerKey {
+  const questions = Array.isArray(answerKey?.questions) ? answerKey.questions : []
+  if (questions.length === 0) return answerKey
+
+  const normalizedQuestions = questions.map((question) =>
+    ensureShortAnswerRubricsDimensions(question)
+  )
+
+  return {
+    ...answerKey,
+    questions: normalizedQuestions
+  }
 }
 
 function buildTagConceptsPrompt(
@@ -2394,7 +2478,8 @@ ${isPartialImage
   - 右側順序不影響判斷
 - fill_variants / map_fill（多元）：使用 acceptableAnswers 進行語義匹配。完全/語義相符 → 滿分；部分 → 部分分
   - 字音造詞題：若 referenceAnswer 含讀音說明（如「ㄋㄨㄥˋ讀音」），學生答案必須符合該讀音；讀音錯誤直接 0 分
-- word_problem / short_answer / map_draw（評價）：使用 rubricsDimensions 多維度評分，逐維度累計總分；若無維度則用 rubric 4級標準
+- word_problem / short_answer / map_draw（評價）：使用 rubricsDimensions 多維度評分，逐維度累計總分
+  - short_answer 必須使用 rubricsDimensions（至少兩維：作答依據、結論表達），不可退回 rubric 四級評量
   - word_problem 單位規則：「答句」維度中，若正解含單位，學生答句的單位必須正確。公尺 ≠ 公分，errorType='unit'。
   - ⚠️ 多維度評分時，每個維度的評分標準不同：
     - 「引導/選擇」維度（如：步驟一選擇面向）：看「是否完成」而非「是否正確」，只要學生有做選擇就給分
@@ -3344,7 +3429,7 @@ export async function extractAnswerKeyFromImage(
 
   console.log('📥 [AnswerKey raw response]', text)
   const answerKey = JSON.parse(text) as AnswerKey
-  return answerKey
+  return normalizeAnswerKeyShortAnswerDimensions(answerKey)
 }
 
 /**
@@ -3407,7 +3492,7 @@ export async function extractAnswerKeyFromImages(
     .trim()
 
   console.log('📥 [AnswerKey raw response]', text)
-  const result = JSON.parse(text) as AnswerKey
+  const result = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(text) as AnswerKey)
   console.log(`✅ 成功提取 ${result.questions.length} 題，總分 ${result.totalScore}`)
   return result
 }
@@ -3464,7 +3549,9 @@ ${basePrompt}
     .replace(/```json|```/g, '')
     .trim()
 
-  const result = JSON.parse(text) as import('./db').AnswerKey
+  const result = normalizeAnswerKeyShortAnswerDimensions(
+    JSON.parse(text) as import('./db').AnswerKey
+  )
 
   const requestedIds = markedQuestions.map((q) => q.id)
   const returnedIds = result.questions.map((q) => q.id)
@@ -3507,6 +3594,7 @@ export async function gradePhaseA(
   answerKey: AnswerKey,
   pageBreaks?: number[]
 ): Promise<PhaseAResult> {
+  const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey)
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
 
   const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'phase-a')
@@ -3518,7 +3606,7 @@ export async function gradePhaseA(
     contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
     ...(sid ? { inkSessionId: sid } : {}),
     routeKey: 'grading.phase_a',
-    answerKey: JSON.stringify(answerKey),
+    answerKey: JSON.stringify(normalizedAnswerKey),
     ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {})
   })
 
