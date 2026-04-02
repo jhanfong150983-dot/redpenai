@@ -584,6 +584,7 @@ export function useSync(options: UseSyncOptions = {}) {
         totalPages: a.totalPages,
         domain: a.domain,
         folder: a.folder === undefined ? null : a.folder,
+        scoringMode: a.scoringMode === 'unscored' ? 'unscored' : 'scored',
         answerKey: a.answerKey,
         conceptTags: a.conceptTags,
         updatedAt: a.updatedAt
@@ -950,8 +951,8 @@ export function useSync(options: UseSyncOptions = {}) {
 
     // 保留本地的 assignment folder 資料（因為後端可能還不支援 folder 欄位）
     const existingAssignments = await db.assignments.toArray()
-    const localAssignmentFolderMap = new Map(
-      existingAssignments.map((a) => [a.id, { folder: a.folder }])
+    const localAssignmentMetaMap = new Map(
+      existingAssignments.map((a) => [a.id, { folder: a.folder, scoringMode: a.scoringMode }])
     )
     const existingFolders = await db.folders.toArray()
     const localFolderClassroomMap = new Map(
@@ -964,10 +965,20 @@ export function useSync(options: UseSyncOptions = {}) {
       )
       .map((a: Assignment) => {
         const cloudFolder = (a as Assignment & { folder?: string }).folder
-        const localData = localAssignmentFolderMap.get(a.id)
+        const cloudScoringModeRaw =
+          (a as Assignment & { scoringMode?: unknown }).scoringMode ??
+          (a as { scoring_mode?: unknown }).scoring_mode
+        const cloudScoringMode =
+          cloudScoringModeRaw === 'unscored'
+            ? 'unscored'
+            : cloudScoringModeRaw === 'scored'
+              ? 'scored'
+              : undefined
+        const localData = localAssignmentMetaMap.get(a.id)
 
         // 如果雲端有資料，使用雲端的；否則保留本地的
         const finalFolder = cloudFolder !== undefined ? cloudFolder : localData?.folder
+        const finalScoringMode = cloudScoringMode ?? localData?.scoringMode
 
         return {
           id: a.id,
@@ -976,6 +987,7 @@ export function useSync(options: UseSyncOptions = {}) {
           totalPages: a.totalPages,
           domain: a.domain ?? undefined,
           folder: finalFolder,
+          scoringMode: finalScoringMode,
           answerKey: a.answerKey ?? undefined,
           updatedAt: toMillis(
             (a as Assignment & { updatedAt?: unknown }).updatedAt ??
