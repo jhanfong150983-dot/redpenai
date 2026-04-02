@@ -563,6 +563,10 @@ export interface ExtractAnswerKeyOptions {
   inferMode?: 'answer_key' | 'infer_blank'
   /** 108課綱概念清單（依班級年級篩出），用於 AI 標記每題的 concept_code */
   conceptMap?: { code: string; label: string }[]
+  /** 這批圖片在整份答案卷中的起始頁碼（1-based）。用於分批上傳時保持頁碼連續，避免重複題號。 */
+  startPage?: number
+  /** 整份答案卷的總頁數（跨所有批次）。當 totalPages > 1 時啟用頁碼前綴。 */
+  totalPages?: number
 }
 
 export interface GradeSubmissionOptions {
@@ -3336,7 +3340,13 @@ export async function extractAnswerKeyFromImages(
   if (answerSheetImages.length === 0) throw new Error('至少需要提供一張圖片')
 
   const isInferMode = opts?.inferMode === 'infer_blank'
-  console.log(`🧾 開始從 ${answerSheetImages.length} 張圖片${isInferMode ? '推論（空白作業模式）' : '抽取（解答圖模式）'} AnswerKey...`)
+  // startPage: page number of the first image in this batch (1-based, default 1)
+  // totalPages: total pages across ALL batches — determines whether page prefix is needed
+  const startPage = opts?.startPage ?? 1
+  const totalPages = opts?.totalPages ?? answerSheetImages.length
+  const needsPagePrefix = totalPages > 1
+
+  console.log(`🧾 開始從 ${answerSheetImages.length} 張圖片${isInferMode ? '推論（空白作業模式）' : '抽取（解答圖模式）'} AnswerKey... startPage=${startPage} totalPages=${totalPages}`)
 
   const prompt = isInferMode
     ? buildInferFromBlankPrompt(opts?.domain)
@@ -3344,7 +3354,7 @@ export async function extractAnswerKeyFromImages(
   console.log('📋 [AnswerKey prompt]', prompt)
 
   // 多圖片提示增強
-  const pageIdRule = answerSheetImages.length > 1
+  const pageIdRule = needsPagePrefix
     ? `\n- 【題目 ID 規則】每張照片的題目 id 必須加上頁碼前綴：將頁碼作為 idPath 的第一個元素，保留題目本身的完整階層。格式為 "<頁碼>-<大題號>-<小題號>..."（例：第1頁，一、第1小題→"1-1-1"；第2頁，三、第2小題→"2-3-2"）。僅有頂層題目時（無小題）：第1頁第1題→"1-1"。此格式保證不同頁面的題號不會衝突，請勿重新連續編號。`
     : ''
   const multiImageNote = isInferMode
@@ -3355,10 +3365,11 @@ export async function extractAnswerKeyFromImages(
   // 準備多圖片請求（每張照片前插入頁碼標記，讓 AI 明確知道頁碼）
   const requestParts: GeminiRequestPart[] = [multiImagePrompt]
 
-  // 添加所有圖片，並在每張前插入頁碼標記
+  // 添加所有圖片，並在每張前插入頁碼標記（使用全域頁碼 startPage+i）
   for (let i = 0; i < answerSheetImages.length; i++) {
-    const pageLabel = answerSheetImages.length > 1
-      ? `--- 第 ${i + 1} 張照片（頁碼 ${i + 1}，此頁所有題目 id 前綴為 "${i + 1}-"）---`
+    const pageNum = startPage + i
+    const pageLabel = needsPagePrefix
+      ? `--- 第 ${pageNum} 張照片（頁碼 ${pageNum}，此頁所有題目 id 前綴為 "${pageNum}-"）---`
       : `--- 第 1 張照片 ---`
     requestParts.push(pageLabel)
     const imageBase64 = await blobToBase64(answerSheetImages[i])
@@ -3366,7 +3377,7 @@ export async function extractAnswerKeyFromImages(
     requestParts.push({
       inlineData: { mimeType, data: imageBase64 }
     })
-    console.log(`  📄 已添加第 ${i + 1} 張圖片（頁碼前綴 "${i + 1}-"）`)
+    console.log(`  📄 已添加第 ${pageNum} 張圖片（頁碼前綴 "${needsPagePrefix ? `${pageNum}-` : '無'}"）`)
   }
 
   console.log('🤖 發送請求到 Gemini API...')

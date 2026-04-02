@@ -1397,18 +1397,26 @@ export default function AssignmentSetup({
       let duplicateNotice: string | null = null
 
       const batchConceptMap = await fetchConceptMapForCurrentClassroom()
+      const totalPages = imageBlobs.length  // 整份答案卷的總頁數（跨所有批次）
+      let runningPageCount = 0
 
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i]
+        const startPage = runningPageCount + 1
         console.log(`🤖 開始解析第 ${i + 1}/${batches.length} 批`, {
           batchCount: batch.length,
+          startPage,
+          totalPages,
           estimatedSizeMB: (batch.reduce((s, b) => s + b.size, 0) * base64Overhead / 1024 / 1024).toFixed(2)
         })
 
         const extracted = await extractAnswerKeyFromImages(batch, {
           domain: assignmentDomain,
-          conceptMap: batchConceptMap.length > 0 ? batchConceptMap : undefined
+          conceptMap: batchConceptMap.length > 0 ? batchConceptMap : undefined,
+          startPage,
+          totalPages,
         })
+        runningPageCount += batch.length
         const normalizedExtracted = normalizeAnswerKey(extracted)
 
         if (mergedAnswerKey) {
