@@ -1204,13 +1204,17 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - referenceAnswer 必須包含讀音說明
   - acceptableAnswers 列出標準答案中的所有範例詞
 
-▸ 如果是「引導式多段問答題」（如：步驟一/步驟二）：
+▸ 如果是「引導式多段問答題」（如：步驟一/步驟二、承上題選擇並說明）：
   - 識別特徵：「步驟一/二」「第一步/第二步」「先…再…」
+    或「承上題...請選擇一個...並說明」「根據上題...任選一項...說明」
   - 必須視為 1 題（不可拆成多題）
   - questionCategory: "short_answer"
   - 使用 rubricsDimensions 分階段：
     • 第一階段（引導）：criteria「完成選擇即可，無對錯」
     • 第二階段（主要作答）：criteria 寫具體評分標準
+  - ⚠️ 接題型（承上題）特別注意：第一階段 criteria 必須寫「完成選擇即可，無對錯」。
+    即使參考答案只展示部分例子（如只列「文化傳承」「教育」），仍不可將 criteria 鎖定為特定選項，
+    因為學生選擇上題任一有效選項均屬正確（「休閒娛樂」「社會凝聚力」同樣有效）。
 
 ▸ 如果是「方格框題目」（如：□□□□ 填字格）：
   - questionCategory: "fill_blank"
