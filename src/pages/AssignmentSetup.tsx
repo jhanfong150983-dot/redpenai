@@ -894,14 +894,23 @@ export default function AssignmentSetup({
           baseQuestion.answerFormat = 'matching'
         }
       } else if (questionType === 2) {
-        // multi_check and multi_choice use 'answer' field (comma-separated tokens e.g. "①,③" or "A,C")
-        if (q?.questionCategory === 'multi_check' || q?.questionCategory === 'multi_choice') {
+        // multi_check, multi_choice, multi_check_other use 'answer' field (comma-separated tokens e.g. "①,③" or "A,C")
+        if (q?.questionCategory === 'multi_check' || q?.questionCategory === 'multi_choice' || q?.questionCategory === 'multi_check_other') {
           baseQuestion.answer =
             typeof q?.answer === 'string'
               ? q.answer
               : q?.answer === null || q?.answer === undefined
                 ? ''
                 : String(q.answer)
+          // multi_check_other also has referenceAnswer for the open-ended 其他 text
+          if (q?.questionCategory === 'multi_check_other') {
+            baseQuestion.referenceAnswer =
+              typeof q?.referenceAnswer === 'string'
+                ? q.referenceAnswer
+                : q?.referenceAnswer === null || q?.referenceAnswer === undefined
+                  ? ''
+                  : String(q.referenceAnswer)
+          }
         } else {
           baseQuestion.referenceAnswer =
             typeof q?.referenceAnswer === 'string'
