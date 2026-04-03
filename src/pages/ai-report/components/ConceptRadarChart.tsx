@@ -44,11 +44,6 @@ function masteryColor(ratio: number) {
   return '#dc2626'
 }
 
-// Truncate label for radar vertex (space is tight)
-function shortLabel(label: string): string {
-  const s = label.replace(/^解題：/, '')
-  return s.length > 7 ? s.slice(0, 7) + '…' : s
-}
 
 export default function ConceptRadarChart({ students, concepts, debugInfo }: ConceptRadarChartProps) {
   // Empty state

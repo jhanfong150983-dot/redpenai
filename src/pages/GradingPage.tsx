@@ -378,6 +378,27 @@ interface BatchPhaseAEntry {
   imageBlob: Blob
 }
 
+// ─── ForensicSupportBadge ─────────────────────────────────────────────────────
+
+function ForensicSupportBadge({ support }: { support?: string }) {
+  if (!support) return null
+  const styles: Record<string, string> = {
+    strong: 'bg-green-100 text-green-700 border border-green-300',
+    weak: 'bg-orange-100 text-orange-700 border border-orange-300',
+    unsupported: 'bg-red-100 text-red-700 border border-red-300',
+  }
+  const labels: Record<string, string> = {
+    strong: '強',
+    weak: '弱',
+    unsupported: '無依據',
+  }
+  return (
+    <span className={`inline-block px-1 rounded text-[10px] font-semibold ${styles[support] ?? ''}`}>
+      {labels[support] ?? support}
+    </span>
+  )
+}
+
 // ─── ConsistencyQuestionCard ──────────────────────────────────────────────────
 
 function ConsistencyQuestionCard({
@@ -452,11 +473,22 @@ function ConsistencyQuestionCard({
         </div>
       )}
 
-      {/* AI3 裁判說明（幫助老師判斷，非可選） */}
-      {arbiterResult?.evidence && (
+      {/* AI3 鑑識結果（幫助老師判斷，非可選） */}
+      {arbiterResult && (arbiterResult.forensicMode === 'agree_review' ? arbiterResult.agreementSupport : arbiterResult.ai1Support || arbiterResult.ai2Support) && (
         <div className="flex items-start gap-1.5 text-[11px] text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1">
-          <span className="shrink-0">⚖️</span>
-          <span><span className="font-semibold">AI 裁判說明：</span>{arbiterResult.evidence}</span>
+          <span className="shrink-0">🔍</span>
+          {arbiterResult.forensicMode === 'agree_review' ? (
+            <span>
+              <span className="font-semibold">鑑識結果：</span>共識支持程度{' '}
+              <ForensicSupportBadge support={arbiterResult.agreementSupport} />
+            </span>
+          ) : (
+            <span>
+              <span className="font-semibold">鑑識結果：</span>
+              AI細節派 <ForensicSupportBadge support={arbiterResult.ai1Support} />
+              {'　'}AI全局派 <ForensicSupportBadge support={arbiterResult.ai2Support} />
+            </span>
+          )}
         </div>
       )}
 

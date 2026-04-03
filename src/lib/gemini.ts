@@ -212,8 +212,10 @@ type GeminiRouteKey =
 export interface ArbiterResult {
   arbiterStatus: 'arbitrated_agree' | 'arbitrated_pick_1' | 'arbitrated_pick_2' | 'needs_review'
   finalAnswer?: string   // AI1 or AI2 value; undefined when needs_review
-  evidence?: string      // display-only, not stored to DB
-  confidence?: 'high' | 'medium' | 'low'
+  forensicMode?: 'agree_review' | 'disagree_review'
+  agreementSupport?: 'strong' | 'weak' | 'unsupported'   // agree_review 題才有
+  ai1Support?: 'strong' | 'weak' | 'unsupported'         // disagree_review 題才有
+  ai2Support?: 'strong' | 'weak' | 'unsupported'         // disagree_review 題才有
 }
 
 export interface PhaseAQuestionResult {
