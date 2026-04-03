@@ -983,6 +983,7 @@ function buildGlobalTaskAndFormat(): string {
 【4. multi_check 多選勾選】
 - 答案空間是方框 □，學生可在多個方框內標記（可複選）
 - 識別特徵：題目有多個 □ 方框，且「請勾選」「可複選」「選出所有正確的」或可標記多個
+- ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"（見【4b】）
 - questionCategory: "multi_check"
 - answer: 填正確選項集合，用逗號分隔（格式依標籤類型決定）：
    - 有印刷標籤 ①②③ → answer: "①,③"
@@ -994,6 +995,14 @@ function buildGlobalTaskAndFormat(): string {
      - 直列版面（方框排成直行）：從上到下計數，最上面的框 = 第一個
      - 範例：4個橫排無標籤方框，第1與第3被打勾 → answer: "第一個,第三個"
 - 給分：部分給分（按「正確勾到的數量 − 多勾錯的數量」比例）
+
+【4b. multi_check_other 多選勾選（含其他）】
+- 同 multi_check，但最後一個選項是開放填寫的「□其他：___」欄位
+- 識別特徵：選項列表最後有「□其他：___」或「□其他：（空白）」
+- questionCategory: "multi_check_other"
+- answer: 只填有明確標準答案的選項（不含其他選項），格式同 multi_check
+- 最後一個選項（其他）自動被系統忽略，不計入分數加減
+- 範例：4個選項最後一個是其他，正確選項為①③ → answer: "①,③"（不含④）
 
 🚫 嚴格禁止自行解題：
 - ❌ 禁止：用自己的知識判斷「哪個選項是正確的」
@@ -1210,13 +1219,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個
-  - ⚠️【其他選項規則】若選項中有「其他：___」或「其他：（空白填寫）」這類開放式選項：
-    - 此選項「可選可不選」，不強制要求，不納入 answer 欄位
-    - 必須將「其他」選項在選項列表中的順序編號（從1開始計算）記錄於 referenceAnswer
-      格式：「其他選項：#N」（N 為其他在所有選項中的位置，例如排第4個則 #4）
-      若有填寫內容：「其他選項：#N；參考：XXX」（XXX 為老師範例填寫的文字）
-    - answer 只包含其餘有明確標準答案的選項（如 "①,③"）
-    - 目的：AI 批改時不因學生選了「其他」而扣分、也不因未選「其他」而扣分
+  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填其餘有標準答案的選項
 
 ▸ 如果是「造句題」（根據詞語或句型造句）：
   - questionCategory: "short_answer"
@@ -1281,10 +1284,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
-  - ⚠️【其他選項規則】若選項中有「其他：___」或「其他：（空白填寫）」這類開放式選項：
-    - 此選項不納入 answer 欄位；answer 只填其餘有明確標準答案的選項
-    - 必須在 referenceAnswer 記錄「其他」選項的順序編號（從1開始）
-      格式：「其他選項：#N」或「其他選項：#N；參考：XXX」（有填寫文字時）
+  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填其餘有標準答案的選項
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
@@ -1386,10 +1386,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
-  - ⚠️【其他選項規則】若選項中有「其他：___」或「其他：（空白填寫）」這類開放式選項：
-    - 此選項不納入 answer 欄位；answer 只填其餘有明確標準答案的選項
-    - 必須在 referenceAnswer 記錄「其他」選項的順序編號（從1開始）
-      格式：「其他選項：#N」或「其他選項：#N；參考：XXX」（有填寫文字時）
+  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填其餘有標準答案的選項
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
@@ -1419,10 +1416,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
-  - ⚠️【其他選項規則】若選項中有「其他：___」或「其他：（空白填寫）」這類開放式選項：
-    - 此選項不納入 answer 欄位；answer 只填其餘有明確標準答案的選項
-    - 必須在 referenceAnswer 記錄「其他」選項的順序編號（從1開始）
-      格式：「其他選項：#N」或「其他選項：#N；參考：XXX」（有填寫文字時）
+  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填其餘有標準答案的選項
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取

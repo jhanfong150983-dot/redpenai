@@ -39,7 +39,8 @@ export type QuestionCategory =
   | 'single_choice'  // 單選選擇：在括號()內填一個代號（A/甲/①），二元給分
   | 'multi_choice'   // 多選選擇：在括號()內填多個代號（逗號分隔，如"A,C"），部分給分
   | 'single_check'   // 單選勾選：在方框□內標記一個選項（✓/○/×），二元給分
-  | 'multi_check'    // 多選勾選：在方框□內標記多個選項，部分給分
+  | 'multi_check'       // 多選勾選：在方框□內標記多個選項，部分給分
+  | 'multi_check_other' // 多選勾選（含其他）：同 multi_check，但最後一個選項是開放填寫的「其他：___」，不計入勾選分數
   | 'true_false'     // 是非題：二元判斷（○/✗）
   | 'fill_blank'     // 填充題：唯一正解，單位嚴格比對
   | 'fill_variants'  // 填充題（多元）：多種說法皆可（造詞、近義詞）
