@@ -483,7 +483,6 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   )
 
   const conceptMasteryData = useMemo(() => {
-    const RUBRIC_CATEGORIES = new Set(['word_problem', 'short_answer', 'map_draw', 'diagram_draw'])
     const filteredAssignments = classAssignments.filter((a) =>
       !selectedDomain || selectedDomain === '全部' || normalizeDomain(a.domain) === selectedDomain
     )
@@ -498,18 +497,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
       const conceptTags = full?.conceptTags
       const qMap: QConceptMap = new Map()
       if (conceptTags && typeof conceptTags === 'object') {
-        // Also filter out rubric categories by checking answerKey question types
-        const rawKey = full?.answerKey
-        const parsedKey: { questions?: Array<{ id: string; questionCategory?: string }> } | null =
-          typeof rawKey === 'string' ? (() => { try { return JSON.parse(rawKey) } catch { return null } })() : (rawKey as never) ?? null
-        const categoryById = new Map<string, string>()
-        for (const q of parsedKey?.questions ?? []) {
-          if (q.questionCategory) categoryById.set(q.id, q.questionCategory)
-        }
         for (const [qId, tag] of Object.entries(conceptTags)) {
           if (!tag?.code) continue
-          const cat = categoryById.get(qId)
-          if (cat && RUBRIC_CATEGORIES.has(cat)) continue
           qMap.set(qId, { code: tag.code, label: tag.label ?? tag.code })
         }
       }
@@ -517,7 +506,10 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     }
 
     // Accumulate per-student per-concept stats
-    const studentConceptMap = new Map<string, Map<string, { correct: number; total: number }>>()
+    const studentConceptMap = new Map<
+      string,
+      Map<string, { full: number; partial: number; wrong: number; total: number }>
+    >()
     const allConcepts = new Map<string, string>() // code → label
 
     for (const sub of localSubmissions) {
@@ -538,14 +530,24 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
         }
         const cMap = studentConceptMap.get(sub.studentId)!
         if (!cMap.has(concept.code)) {
-          cMap.set(concept.code, { correct: 0, total: 0 })
+          cMap.set(concept.code, { full: 0, partial: 0, wrong: 0, total: 0 })
         }
         const entry = cMap.get(concept.code)!
         entry.total++
-        const score = detail.score ?? 0
-        const maxScore = detail.maxScore ?? 1
-        if (detail.isCorrect === true || score >= maxScore) {
-          entry.correct++
+        const score = toNumber(detail.score) ?? 0
+        const maxScoreRaw = toNumber(detail.maxScore)
+        const maxScore = maxScoreRaw !== null && maxScoreRaw > 0 ? maxScoreRaw : null
+
+        const isFull = detail.isCorrect === true || (maxScore !== null && score >= maxScore)
+        const isPartial =
+          !isFull && maxScore !== null && score > 0 && score < maxScore
+
+        if (isFull) {
+          entry.full++
+        } else if (isPartial) {
+          entry.partial++
+        } else {
+          entry.wrong++
         }
       }
     }

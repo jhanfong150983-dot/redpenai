@@ -7,7 +7,7 @@ type StudentMastery = {
   studentId: string
   studentName: string
   seatNumber?: number | null
-  concepts: Record<string, { correct: number; total: number }>
+  concepts: Record<string, { full: number; partial: number; wrong: number; total: number }>
 }
 
 type AssignmentDebugInfo = {
@@ -22,17 +22,15 @@ type ConceptMasteryTableProps = {
   debugInfo?: AssignmentDebugInfo[]
 }
 
-function getMasteryColor(correct: number, total: number): string {
+function getMasteryColor(ratio: number, total: number): string {
   if (total === 0) return 'transparent'
-  const ratio = correct / total
   if (ratio >= 0.8) return '#dcfce7'   // green-100
   if (ratio >= 0.6) return '#fef9c3'   // yellow-100
   return '#fee2e2'                      // red-100
 }
 
-function getMasteryTextColor(correct: number, total: number): string {
+function getMasteryTextColor(ratio: number, total: number): string {
   if (total === 0) return '#9ca3af'
-  const ratio = correct / total
   if (ratio >= 0.8) return '#166534'
   if (ratio >= 0.6) return '#854d0e'
   return '#991b1b'
@@ -174,10 +172,11 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
                 </td>
                 {concepts.map((concept) => {
                   const entry = student.concepts[concept.code]
-                  const correct = entry?.correct ?? 0
                   const total = entry?.total ?? 0
-                  const bgColor = getMasteryColor(correct, total)
-                  const textColor = getMasteryTextColor(correct, total)
+                  const weightedCorrect = (entry?.full ?? 0) + (entry?.partial ?? 0) * 0.5
+                  const ratio = total > 0 ? weightedCorrect / total : 0
+                  const bgColor = getMasteryColor(ratio, total)
+                  const textColor = getMasteryTextColor(ratio, total)
                   const lowSample = total > 0 && total < 5
                   return (
                     <td key={concept.code} style={{
@@ -192,7 +191,7 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
                     }}>
                       {total > 0 ? (
                         <>
-                          {Math.round(correct / total * 100)}%
+                          {Math.round(ratio * 100)}%
                           {lowSample && (
                             <span
                               title="題目數少於 5，結果僅供參考"

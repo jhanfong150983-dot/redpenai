@@ -81,14 +81,16 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
   }
 
   // Compute class-wide mastery per concept
-  const classMastery: Record<string, { correct: number; total: number }> = {}
+  const classMastery: Record<string, { full: number; partial: number; wrong: number; total: number }> = {}
   for (const concept of concepts) {
-    classMastery[concept.code] = { correct: 0, total: 0 }
+    classMastery[concept.code] = { full: 0, partial: 0, wrong: 0, total: 0 }
   }
   for (const student of students) {
     for (const [code, stat] of Object.entries(student.concepts)) {
       if (classMastery[code]) {
-        classMastery[code].correct += stat.correct
+        classMastery[code].full += stat.full
+        classMastery[code].partial += stat.partial
+        classMastery[code].wrong += stat.wrong
         classMastery[code].total += stat.total
       }
     }
@@ -96,7 +98,8 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
 
   const ratios = concepts.map((c) => {
     const s = classMastery[c.code]
-    return s.total > 0 ? s.correct / s.total : 0
+    if (!s || s.total <= 0) return 0
+    return (s.full + s.partial * 0.5) / s.total
   })
 
   const n = concepts.length
