@@ -1003,6 +1003,9 @@ function buildGlobalTaskAndFormat(): string {
 - answer: 只填固定選項中有被標記✓的選項（不含最後的其他選項），格式同 multi_check
   - 例：共4個選項，最後一個是其他，圖中 ②④(其他) 被標記 → answer: "②"（只填 ②，不填 ④）
   - 若固定選項全部都沒被標記（只有其他被標記）→ answer: ""（空字串，正常）
+- referenceAnswer: 若其他選項有被標記✓ 且欄位內有文字 → 填入該文字（去除括號備注如「答案僅供參考」）
+  - 例：「□④其他：逐漸成為文風鼎盛的社會。（答案僅供參考）」→ referenceAnswer: "逐漸成為文風鼎盛的社會"
+  - 若其他選項未被標記 或 欄位空白 → referenceAnswer: ""
 - 最後一個選項（其他）自動被系統忽略，不計入分數加減
 - ⚠️ "(答案僅供參考)" 備注只說明其他欄的填法是參考用，不影響固定選項的標記擷取。
   即使看到此備注，仍必須正常擷取固定選項中被標記的答案。
@@ -1222,7 +1225,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個
-  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含最後的其他選項）；圖中若有"(答案僅供參考)"備注不影響固定選項的擷取
+  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含其他），referenceAnswer 填其他欄的文字（若有勾且有文字，去掉括號備注；否則留空）
 
 ▸ 如果是「造句題」（根據詞語或句型造句）：
   - questionCategory: "short_answer"
@@ -1287,7 +1290,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
-  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含最後的其他選項）；圖中若有"(答案僅供參考)"備注不影響固定選項的擷取
+  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含其他），referenceAnswer 填其他欄的文字（若有勾且有文字，去掉括號備注；否則留空）
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
@@ -1389,7 +1392,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
-  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含最後的其他選項）；圖中若有"(答案僅供參考)"備注不影響固定選項的擷取
+  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含其他），referenceAnswer 填其他欄的文字（若有勾且有文字，去掉括號備注；否則留空）
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
@@ -1419,7 +1422,7 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "multi_check"
   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
   - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
-  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含最後的其他選項）；圖中若有"(答案僅供參考)"備注不影響固定選項的擷取
+  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含其他），referenceAnswer 填其他欄的文字（若有勾且有文字，去掉括號備注；否則留空）
 
 ▸ 其他題型：
   - 按照全域規則的顏色辨識原則提取
