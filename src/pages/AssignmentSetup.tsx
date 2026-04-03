@@ -3557,18 +3557,34 @@ export default function AssignmentSetup({
                             {/* Type 2: Reference Answer + Acceptable Answers */}
                             {questionType === 2 && (
                               <div className="space-y-2">
-                                {(effectiveCategory === 'multi_check' || effectiveCategory === 'multi_choice') ? (
-                                  <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
-                                    <span className="text-[11px] text-gray-500">正確選項</span>
-                                    <input
-                                      className="w-full px-2 py-1 border border-gray-300 rounded"
-                                      value={q.answer ?? ''}
-                                      onChange={(e) =>
-                                        updateQuestionField('create', idx, 'answer', e.target.value)
-                                      }
-                                      placeholder={effectiveCategory === 'multi_choice' ? '例如：A,C' : '例如：①,③'}
-                                    />
-                                  </div>
+                                {(effectiveCategory === 'multi_check' || effectiveCategory === 'multi_choice' || effectiveCategory === 'multi_check_other') ? (
+                                  <>
+                                    <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
+                                      <span className="text-[11px] text-gray-500">正確選項</span>
+                                      <input
+                                        className="w-full px-2 py-1 border border-gray-300 rounded"
+                                        value={q.answer ?? ''}
+                                        onChange={(e) =>
+                                          updateQuestionField('create', idx, 'answer', e.target.value)
+                                        }
+                                        placeholder={effectiveCategory === 'multi_choice' ? '例如：A,C' : '例如：①,③'}
+                                      />
+                                    </div>
+                                    {effectiveCategory === 'multi_check_other' && (
+                                      <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
+                                        <span className="text-[11px] text-gray-500">其他（參考）</span>
+                                        <textarea
+                                          rows={2}
+                                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                          value={q.referenceAnswer ?? ''}
+                                          onChange={(e) =>
+                                            updateQuestionField('create', idx, 'referenceAnswer', e.target.value)
+                                          }
+                                          placeholder="其他選項的參考答案（選填）"
+                                        />
+                                      </div>
+                                    )}
+                                  </>
                                 ) : (
                                   <>
                                     <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
@@ -4156,18 +4172,34 @@ export default function AssignmentSetup({
                         {/* Type 2: Reference Answer + Acceptable Answers */}
                         {questionType === 2 && (
                           <div className="space-y-2">
-                            {(effectiveCategory === 'multi_check' || effectiveCategory === 'multi_choice') ? (
-                              <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
-                                <span className="text-[11px] text-gray-500">正確選項</span>
-                                <input
-                                  className="w-full px-2 py-1 border border-gray-300 rounded"
-                                  value={q.answer ?? ''}
-                                  onChange={(e) =>
-                                    updateQuestionField('edit', idx, 'answer', e.target.value)
-                                  }
-                                  placeholder={effectiveCategory === 'multi_choice' ? '例如：A,C' : '例如：①,③'}
-                                />
-                              </div>
+                            {(effectiveCategory === 'multi_check' || effectiveCategory === 'multi_choice' || effectiveCategory === 'multi_check_other') ? (
+                              <>
+                                <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
+                                  <span className="text-[11px] text-gray-500">正確選項</span>
+                                  <input
+                                    className="w-full px-2 py-1 border border-gray-300 rounded"
+                                    value={q.answer ?? ''}
+                                    onChange={(e) =>
+                                      updateQuestionField('edit', idx, 'answer', e.target.value)
+                                    }
+                                    placeholder={effectiveCategory === 'multi_choice' ? '例如：A,C' : '例如：①,③'}
+                                  />
+                                </div>
+                                {effectiveCategory === 'multi_check_other' && (
+                                  <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
+                                    <span className="text-[11px] text-gray-500">其他（參考）</span>
+                                    <textarea
+                                      rows={2}
+                                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
+                                      value={q.referenceAnswer ?? ''}
+                                      onChange={(e) =>
+                                        updateQuestionField('edit', idx, 'referenceAnswer', e.target.value)
+                                      }
+                                      placeholder="其他選項的參考答案（選填）"
+                                    />
+                                  </div>
+                                )}
+                              </>
                             ) : (
                               <>
                                 <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
