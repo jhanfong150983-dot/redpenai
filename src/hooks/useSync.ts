@@ -952,7 +952,7 @@ export function useSync(options: UseSyncOptions = {}) {
     // 保留本地的 assignment folder 資料（因為後端可能還不支援 folder 欄位）
     const existingAssignments = await db.assignments.toArray()
     const localAssignmentMetaMap = new Map(
-      existingAssignments.map((a) => [a.id, { folder: a.folder, scoringMode: a.scoringMode }])
+      existingAssignments.map((a) => [a.id, { folder: a.folder, scoringMode: a.scoringMode, updatedAt: a.updatedAt, answerKey: a.answerKey }])
     )
     const existingFolders = await db.folders.toArray()
     const localFolderClassroomMap = new Map(
@@ -980,6 +980,14 @@ export function useSync(options: UseSyncOptions = {}) {
         const finalFolder = cloudFolder !== undefined ? cloudFolder : localData?.folder
         const finalScoringMode = cloudScoringMode ?? localData?.scoringMode
 
+        const cloudUpdatedAt = toMillis(
+          (a as Assignment & { updatedAt?: unknown }).updatedAt ??
+            (a as { updated_at?: unknown }).updated_at
+        )
+        const localUpdatedAt = localData?.updatedAt
+        // 若本地資料比雲端新（push 尚未完成就被 pull 覆蓋的競態），保留本地 answerKey 和 updatedAt
+        const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt > cloudUpdatedAt)
+
         return {
           id: a.id,
           classroomId: a.classroomId,
@@ -988,11 +996,8 @@ export function useSync(options: UseSyncOptions = {}) {
           domain: a.domain ?? undefined,
           folder: finalFolder,
           scoringMode: finalScoringMode,
-          answerKey: a.answerKey ?? undefined,
-          updatedAt: toMillis(
-            (a as Assignment & { updatedAt?: unknown }).updatedAt ??
-              (a as { updated_at?: unknown }).updated_at
-          )
+          answerKey: localIsNewer ? (localData?.answerKey ?? a.answerKey ?? undefined) : (a.answerKey ?? undefined),
+          updatedAt: localIsNewer ? localUpdatedAt : cloudUpdatedAt
         }
       })
 
