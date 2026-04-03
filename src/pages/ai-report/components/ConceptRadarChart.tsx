@@ -152,13 +152,14 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
 
   // ── Radar chart (≥ 3 concepts) ────────────────────────────────────────────
   return (
-    <div className="card" style={{ padding: '1.25rem 1.5rem', marginBottom: '1rem' }}>
+    <div className="card" style={{ padding: '1.25rem 1.5rem', marginBottom: '1rem', position: 'relative' }}>
       {header('班級概念精熟雷達圖')}
+      <div style={{ position: 'absolute', top: '1.25rem', right: '1.5rem' }}>{colorLegend()}</div>
 
       <div style={{ display: 'grid', justifyItems: 'center', gap: '0.75rem' }}>
         {/* Radar SVG */}
         <div>
-          <svg viewBox="0 0 500 500" style={{ width: '320px', height: '320px', display: 'block' }} aria-label="班級概念精熟雷達圖">
+          <svg viewBox="0 0 500 500" style={{ width: '460px', height: '460px', display: 'block' }} aria-label="班級概念精熟雷達圖">
             {/* Grid */}
             {GRID_STEPS.map((level) => (
               <polygon key={level} points={gridPoints(level, n)} fill="none" stroke="#e5e7eb" strokeWidth={level === 1.0 ? 1.5 : 1} />
@@ -202,7 +203,6 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
             })}
           </svg>
         </div>
-        <div>{colorLegend()}</div>
       </div>
     </div>
   )

@@ -895,7 +895,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           )}
 
           {activeTab === 'domain' && (
-            <section>
+            <section style={{ minWidth: 0 }}>
               {domainRangeStats.assignmentCount < 2 && domainRangeStats.assignmentCount > 0 && (
                 <section className="card domain-note">
                   樣本較少，趨勢判讀先以參考為主。
