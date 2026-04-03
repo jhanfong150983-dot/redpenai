@@ -155,9 +155,9 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
     <div className="card" style={{ padding: '1.25rem 1.5rem', marginBottom: '1rem' }}>
       {header('班級概念精熟雷達圖')}
 
-      <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      <div style={{ display: 'grid', justifyItems: 'center', gap: '0.75rem' }}>
         {/* Radar SVG */}
-        <div style={{ flex: '0 0 auto' }}>
+        <div>
           <svg viewBox="0 0 500 500" style={{ width: '320px', height: '320px', display: 'block' }} aria-label="班級概念精熟雷達圖">
             {/* Grid */}
             {GRID_STEPS.map((level) => (
@@ -202,37 +202,7 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
             })}
           </svg>
         </div>
-
-        {/* Ranking bar list */}
-        <div style={{ flex: '1 1 200px', minWidth: '180px' }}>
-          <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.6rem' }}>
-            需加強的概念（由低至高）
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {sorted.map((item) => {
-              const pct = Math.round(item.ratio * 100)
-              return (
-                <div key={item.code}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.15rem' }}>
-                    <span style={{ fontSize: '0.72rem', color: '#374151' }}>
-                      <span style={{ fontWeight: 700 }}>{item.code}</span>
-                      {item.label && item.label !== item.code && (
-                        <span style={{ color: '#6b7280', marginLeft: '0.35rem' }}>{item.label.split(/\s*[—–-]\s*/)[0].trim()}</span>
-                      )}
-                    </span>
-                    <span style={{ fontSize: '0.72rem', fontWeight: 600, color: masteryColor(item.ratio), marginLeft: '0.5rem', flexShrink: 0 }}>
-                      {pct}%
-                    </span>
-                  </div>
-                  <div style={{ background: '#f3f4f6', borderRadius: '2px', height: '7px', overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: masteryColor(item.ratio), borderRadius: '2px' }} />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-          <div style={{ marginTop: '1rem' }}>{colorLegend()}</div>
-        </div>
+        <div>{colorLegend()}</div>
       </div>
     </div>
   )
