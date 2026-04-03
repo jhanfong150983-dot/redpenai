@@ -144,6 +144,7 @@ export default function AssignmentSetup({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [showAnswerKeyConfirm, setShowAnswerKeyConfirm] = useState(false)
   const [showVocabFillWarning, setShowVocabFillWarning] = useState(false)
+  const [showMultiFillWarning, setShowMultiFillWarning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isInkNegative = typeof inkBalance === 'number' && inkBalance < 0
   const canCreateAssignment = !isInkNegative
@@ -1008,6 +1009,11 @@ export default function AssignmentSetup({
     }
   }
 
+  // Detect if an answer key contains multi_fill questions
+  const hasMultiFillQuestions = (ak: AnswerKey): boolean => {
+    return ak.questions.some(q => getEffectiveCategory(q) === 'multi_fill')
+  }
+
   // Detect if an answer key contains 國字注音 questions (single CJK char or phonetic-only answers)
   const hasVocabFillQuestions = (ak: AnswerKey): boolean => {
     const phoneticRe = /^[\u3105-\u312F\u02CA\u02C7\u02CB\u02D9]+$/  // bopomofo + tone marks
@@ -1357,6 +1363,9 @@ export default function AssignmentSetup({
         if (hasVocabFillQuestions(scoredKey)) {
           setShowVocabFillWarning(true)
         }
+        if (hasMultiFillQuestions(scoredKey)) {
+          setShowMultiFillWarning(true)
+        }
       } else if (duplicateNotice) {
         setAnswerKeyNotice(duplicateNotice)
       } else {
@@ -1506,6 +1515,9 @@ export default function AssignmentSetup({
         if (notices.length > 0) setEditAnswerKeyNotice(notices.join(' '))
         if (hasVocabFillQuestions(scoredKey)) {
           setShowVocabFillWarning(true)
+        }
+        if (hasMultiFillQuestions(scoredKey)) {
+          setShowMultiFillWarning(true)
         }
 
         // 非同步概念標記（edit 流程：直接更新 DB）
@@ -2356,7 +2368,7 @@ export default function AssignmentSetup({
     if (!current) return
     const questions = current.questions.filter((_, idx) => idx !== index)
     const totalScore = questions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
-    setter({ questions, totalScore })
+    setter({ ...current, questions, totalScore })
   }
 
   const updateQuestionField = (
@@ -2480,7 +2492,7 @@ export default function AssignmentSetup({
 
     questions[index] = item
     const totalScore = questions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
-    setter({ questions, totalScore })
+    setter({ ...base, questions, totalScore })
   }
 
   const inferUnorderedGroupId = (question: AnswerKeyQuestion, index: number) => {
@@ -3424,16 +3436,6 @@ export default function AssignmentSetup({
                     </div>
                   )}
                 </div>
-
-                {answerKey && answerKey.questions.some(q => getEffectiveCategory(q) === 'multi_fill') && (
-                  <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 flex items-start gap-2">
-                    <span className="text-amber-500 text-base leading-none mt-0.5">⚠️</span>
-                    <div className="text-xs text-amber-800">
-                      <p className="font-semibold">本份作業含有「多項填入題」（multi_fill），批改時請注意：</p>
-                      <p className="mt-0.5">AI 有一定機率將相鄰格子的答案上下填反（例如 2-1-1 與 2-1-2 互換），批改完成後請逐一核對各格答案是否正確。</p>
-                    </div>
-                  </div>
-                )}
 
                 {answerKey && (
                   <div data-tutorial="assignment-preview-answerkey">
@@ -4733,6 +4735,49 @@ export default function AssignmentSetup({
                 className="px-5 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 text-sm font-medium"
               >
                 我知道了，立即檢查
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 多項填入題擷取警告視窗 */}
+      {showMultiFillWarning && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setShowMultiFillWarning(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md border-2 border-red-400"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-red-200 bg-red-50 rounded-t-2xl flex items-center gap-3">
+              <span className="text-red-600 text-2xl">⚠️</span>
+              <h2 className="text-base font-bold text-red-800">重要警告：多項填入題擷取風險</h2>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-900">
+                系統偵測到本次擷取包含<span className="text-red-600">「多項填入題」</span>（答案欄位未標示題號的連續填空）。
+              </p>
+              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                <p className="text-sm text-red-800 font-semibold mb-1">⚠️ 已知 AI 擷取限制：</p>
+                <p className="text-sm text-red-700">
+                  由於多項填入題的答案格子沒有明確題號，AI 有一定機率將<strong>相鄰格子的答案上下顛倒</strong>（例如 2-1-1 與 2-1-2 互換），導致整題批改全錯。
+                </p>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                <p className="text-sm text-amber-900 font-medium">
+                  📋 請務必在下方「預覽答案」區逐一核對每個填入格的答案順序是否正確，必要時請手動調整後再建立作業。
+                </p>
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowMultiFillWarning(false)}
+                className="px-6 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 text-sm font-bold"
+              >
+                我知道了，立即核對答案
               </button>
             </div>
           </div>
