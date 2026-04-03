@@ -3425,6 +3425,16 @@ export default function AssignmentSetup({
                   )}
                 </div>
 
+                {answerKey && answerKey.questions.some(q => getEffectiveCategory(q) === 'multi_fill') && (
+                  <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 flex items-start gap-2">
+                    <span className="text-amber-500 text-base leading-none mt-0.5">⚠️</span>
+                    <div className="text-xs text-amber-800">
+                      <p className="font-semibold">本份作業含有「多項填入題」（multi_fill），批改時請注意：</p>
+                      <p className="mt-0.5">AI 有一定機率將相鄰格子的答案上下填反（例如 2-1-1 與 2-1-2 互換），批改完成後請逐一核對各格答案是否正確。</p>
+                    </div>
+                  </div>
+                )}
+
                 {answerKey && (
                   <div data-tutorial="assignment-preview-answerkey">
                   <div className="mt-2 border border-gray-200 rounded-xl p-4 bg-gray-50">
