@@ -1086,6 +1086,38 @@ export default function GradingPage({
           gradingResult,
           gradedAt: Date.now(),
         })
+        // Fire-and-forget: update forensic log with teacher decisions + Phase B results
+        const gradedAt = new Date().toISOString()
+        const forensicUpdates = entry.phaseAResult.questionResults.map((qr) => {
+          const arbiter = qr.arbiterResult
+          const isNeedsReview = arbiter?.arbiterStatus === 'needs_review'
+          const decision = entry.decisions.get(qr.questionId)
+          const phaseBDetail = gradingResult.details?.find((d) => d.questionId === qr.questionId)
+          let teacherReviewPick: string | null = null
+          if (isNeedsReview && decision) {
+            if (decision.source === 'ai_read1') teacherReviewPick = 'ai1'
+            else if (decision.source === 'ai_read2') teacherReviewPick = 'ai2'
+            else teacherReviewPick = 'manual'
+          }
+          return {
+            submissionId: entry.submissionId,
+            questionId: qr.questionId,
+            finalAnswer: decision?.finalAnswer ?? null,
+            finalAnswerSource: decision?.source === 'blank' ? 'manual' : (decision?.source ?? null),
+            teacherReviewPick,
+            reviewedAt: isNeedsReview ? gradedAt : null,
+            phaseBIsCorrect: phaseBDetail?.isCorrect ?? null,
+            phaseBScore: phaseBDetail?.score ?? null,
+            phaseBMaxScore: phaseBDetail?.maxScore ?? null,
+            gradedAt,
+          }
+        })
+        fetch('/api/data/update-ai3-forensic-log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ rows: forensicUpdates }),
+        }).catch(() => {})
 
         setSubmissions((prev) => {
           const next = new Map(prev)
@@ -2025,6 +2057,37 @@ export default function GradingPage({
       } else {
         setBatchPhaseAEntries(entries)
         setGradingPhase('awaiting_review')
+        // Fire-and-forget: write Phase A forensic data to Supabase for calibration
+        const forensicRows = entries.flatMap((entry) =>
+          entry.phaseAResult.questionResults.map((qr) => {
+            const arbiter = qr.arbiterResult
+            const isAutoPass = arbiter && arbiter.arbiterStatus !== 'needs_review'
+            return {
+              assignmentId,
+              studentId: entry.studentId,
+              submissionId: entry.submissionId,
+              questionId: qr.questionId,
+              questionType: qr.questionType ?? '',
+              ai1Answer: qr.readAnswer1?.studentAnswer ?? null,
+              ai1Status: qr.readAnswer1?.status ?? null,
+              ai2Answer: qr.readAnswer2?.studentAnswer ?? null,
+              ai2Status: qr.readAnswer2?.status ?? null,
+              consistencyStatus: qr.consistencyStatus ?? null,
+              forensicMode: arbiter?.forensicMode ?? null,
+              agreementSupport: arbiter?.agreementSupport ?? null,
+              ai1Support: arbiter?.ai1Support ?? null,
+              ai2Support: arbiter?.ai2Support ?? null,
+              systemDecision: arbiter?.arbiterStatus ?? 'needs_review',
+              autoConfirmedAnswer: isAutoPass ? (arbiter.finalAnswer ?? null) : null,
+            }
+          })
+        )
+        fetch('/api/data/upsert-ai3-forensic-log', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ rows: forensicRows }),
+        }).catch(() => {})
       }
     } catch (err) {
       console.error('批改失敗', err)
