@@ -218,6 +218,7 @@ export interface ArbiterResult {
 
 export interface PhaseAQuestionResult {
   questionId: string
+  questionType?: string
   consistencyStatus: 'stable' | 'diff' | 'unstable'
   consistencyReason?: string
   readAnswer1: { status: string; studentAnswer: string }
