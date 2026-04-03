@@ -24,9 +24,6 @@ type ConceptMasteryTableProps = {
 
 const CONCEPT_COLUMN_WIDTH = '10.5rem'
 const STUDENT_COLUMN_WIDTH = '7.5rem'
-const CONCEPT_COLUMN_WIDTH_PX = 168
-const STUDENT_COLUMN_WIDTH_PX = 120
-const TABLE_MIN_BASE_WIDTH_PX = 720
 
 function getMasteryColor(ratio: number, total: number): string {
   if (total === 0) return 'transparent'
@@ -45,11 +42,6 @@ function getMasteryTextColor(ratio: number, total: number): string {
 export type { StudentMastery, ConceptEntry }
 
 export default function ConceptMasteryTable({ students, concepts, debugInfo }: ConceptMasteryTableProps) {
-  const tableMinWidthPx = Math.max(
-    TABLE_MIN_BASE_WIDTH_PX,
-    STUDENT_COLUMN_WIDTH_PX + concepts.length * CONCEPT_COLUMN_WIDTH_PX
-  )
-
   if (concepts.length === 0 || students.length === 0) {
     return (
       <div className="card" style={{ padding: '1.25rem 1.5rem', fontSize: '0.875rem' }}>
@@ -92,15 +84,7 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
 
   return (
     <div className="card" style={{ padding: '1.25rem 1.5rem' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          marginBottom: '1rem',
-          flexWrap: 'wrap'
-        }}
-      >
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
         <span style={{
           fontSize: '0.7rem', fontWeight: 600, letterSpacing: '0.05em',
           background: '#e0f2fe', color: '#0369a1', borderRadius: '0.25rem', padding: '0.15rem 0.5rem'
@@ -110,21 +94,11 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
         <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
           {students.length} 位學生 · {concepts.length} 個概念
         </span>
-        <span
-          style={{
-            fontSize: '0.7rem',
-            color: '#94a3b8',
-            marginLeft: 'auto',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          可左右滑動查看全部指標
-        </span>
       </div>
 
       <div style={{
         overflowX: 'auto',
-        overflowY: 'visible',
+        overflowY: 'hidden',
         width: '100%',
         maxWidth: '100%',
         WebkitOverflowScrolling: 'touch',
@@ -135,8 +109,8 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
         <table style={{
           borderCollapse: 'collapse',
           fontSize: '0.75rem',
-          width: `${tableMinWidthPx}px`,
-          minWidth: `${tableMinWidthPx}px`,
+          width: 'max-content',
+          minWidth: '100%',
           tableLayout: 'fixed'
         }}>
           <thead>
