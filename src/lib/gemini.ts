@@ -1395,10 +1395,18 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - answer：填入該框應填的代號集合，例如 "ㄅ、ㄇ、ㄉ"（順序無關）
   - referenceAnswer：描述該框在圖表中的位置/語意，例如 "由大陸指向臺灣的進口箭頭方框"
   - maxScore：依題目各框配分
+
+  ⚠️【無題號時的子題 id 指派順序】
+  當空白框沒有印刷題號標示時，必須按以下固定順序指派子題 id（避免每次擷取順序不同）：
+  - 主要排序：**由上而下**（y 座標由小到大）
+  - 同一行有多格：**由左而右**（x 座標由小到大）
+  - ⚠️ 禁止依語意或重要性重排順序；必須完全依視覺位置由上而下、左而右編號
+  - referenceAnswer 必須描述該框的位置特徵（如「上方方框」「下方方框」「左側框」），方便老師核對 id 是否與實際位置吻合
+
   - 範例：清帝國貿易圖有3個方框→拆成3題
-    → id: "1-1", questionCategory: "multi_fill", answer: "ㄅ、ㄇ、ㄉ", referenceAnswer: "由大陸指向臺灣的進口箭頭方框"
-    → id: "1-2", questionCategory: "multi_fill", answer: "ㄆ、ㄊ", referenceAnswer: "由臺灣指向日本的出口箭頭方框"
-    → id: "1-3", questionCategory: "multi_fill", answer: "ㄆ、ㄈ", referenceAnswer: "由臺灣指向大陸的出口箭頭方框"
+    → id: "1-1", questionCategory: "multi_fill", answer: "ㄅ、ㄇ、ㄉ", referenceAnswer: "最上方方框：由大陸指向臺灣的進口箭頭"
+    → id: "1-2", questionCategory: "multi_fill", answer: "ㄆ、ㄊ", referenceAnswer: "中間方框：由臺灣指向日本的出口箭頭"
+    → id: "1-3", questionCategory: "multi_fill", answer: "ㄆ、ㄈ", referenceAnswer: "最下方方框：由臺灣指向大陸的出口箭頭"
 
 ▸ 如果是「繪圖/標記題」（在地圖上標註位置、畫符號、標記座標等）：
   - questionCategory: "map_draw"
