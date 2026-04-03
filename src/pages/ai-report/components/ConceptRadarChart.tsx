@@ -195,9 +195,9 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
               const anchor = Math.abs(Math.cos(angle)) < 0.1 ? 'middle' : Math.cos(angle) > 0 ? 'start' : 'end'
               const dy = Math.sin(angle) < -0.5 ? -6 : Math.sin(angle) > 0.5 ? 14 : 4
               return (
-                <g key={c.code}>
-                  <text x={x} y={y + dy - 8} textAnchor={anchor} fontSize={10} fontWeight={700} fill="#374151">{c.code}</text>
-                  <text x={x} y={y + dy + 4} textAnchor={anchor} fontSize={9} fill="#6b7280">{shortLabel(c.label)}</text>
+                <g key={c.code} cursor="help">
+                  <title>{c.label}</title>
+                  <text x={x} y={y + dy} textAnchor={anchor} fontSize={13} fontWeight={700} fill="#374151">{c.code}</text>
                 </g>
               )
             })}
