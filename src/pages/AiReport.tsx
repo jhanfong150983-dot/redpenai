@@ -692,6 +692,36 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     return { classroomName, domainLabel }
   }, [syncData, selectedClassroomId, selectedDomain])
 
+  const pageTitleText = useMemo(
+    () => `${classHeader.classroomName} · ${classHeader.domainLabel}`,
+    [classHeader.classroomName, classHeader.domainLabel]
+  )
+
+  const pageTitleFontSize = useMemo(() => {
+    const titleLength = pageTitleText.length
+    if (titleLength <= 16) return '1.75rem'
+    if (titleLength <= 24) return '1.55rem'
+    if (titleLength <= 32) return '1.4rem'
+    if (titleLength <= 40) return '1.26rem'
+    return '1.16rem'
+  }, [pageTitleText])
+
+  const selectedClassroomName = useMemo(() => {
+    if (!selectedClassroomId) return ''
+    return (
+      syncData?.classrooms.find((item) => item.id === selectedClassroomId)?.name ??
+      ''
+    )
+  }, [selectedClassroomId, syncData?.classrooms])
+
+  const selectedAssignmentLabel = useMemo(() => {
+    const item = filteredAssignmentMeta.find(
+      (meta) => meta.assignment.id === selectedAssignmentId
+    )
+    if (!item) return ''
+    return `${getAssignmentTitle(item.assignment)} · ${formatDate(item.lastActivity)}`
+  }, [filteredAssignmentMeta, selectedAssignmentId])
+
   const summaryRange = useMemo(() => {
     const dates = classFilteredSubmissions
       .map((submission) => submission.createdAtMs)
@@ -752,10 +782,14 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     <div className={`ai-report${embedded ? ' embedded' : ''}`}>
       <main className="report">
         <header className="page-header">
-          <div>
+          <div className="page-header-main">
             <div className="eyebrow">AI學情報告</div>
-            <h1>
-              {classHeader.classroomName} · {classHeader.domainLabel}
+            <h1
+              className="page-title"
+              style={{ fontSize: pageTitleFontSize }}
+              title={pageTitleText}
+            >
+              {pageTitleText}
             </h1>
             <p className="subtitle">
               資料區間：{summaryRange} · 作業 {assignmentMeta.length} 份 · 批改{' '}
@@ -768,6 +802,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 班級
                 <select
                   value={selectedClassroomId}
+                  title={selectedClassroomName || undefined}
                   onChange={(event) => setSelectedClassroomId(event.target.value)}
                 >
                   {classroomOptions.map((item) => (
@@ -816,6 +851,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               領域
               <select
                 value={selectedDomain}
+                title={selectedDomain || undefined}
                 onChange={(event) => setSelectedDomain(event.target.value)}
                 disabled={!domainOptions.length}
               >
@@ -831,6 +867,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 作業
                 <select
                   value={selectedAssignmentId}
+                  title={selectedAssignmentLabel || undefined}
                   onChange={(event) => setSelectedAssignmentId(event.target.value)}
                   disabled={!filteredAssignmentMeta.length}
                 >

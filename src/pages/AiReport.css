@@ -35,20 +35,32 @@
     }
 
     .page-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: start;
       gap: 1rem;
       margin-bottom: 1.5rem;
       padding-bottom: 1.25rem;
       border-bottom: 1px solid var(--border);
     }
 
+    .page-header-main {
+      min-width: 0;
+    }
+
+    .page-title {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      line-height: 1.22;
+    }
+
     .header-actions {
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       align-items: center;
       gap: 0.75rem;
+      min-width: 0;
+      justify-self: end;
     }
 
     .header-filter {
@@ -58,16 +70,22 @@
       font-size: 0.75rem;
       font-weight: 600;
       color: var(--muted-2);
+      min-width: 0;
     }
 
     .header-filter select {
-      min-width: 160px;
+      width: clamp(11rem, 24vw, 16rem);
+      max-width: 100%;
       padding: 0.45rem 0.6rem;
       border-radius: 0.5rem;
       border: 1px solid var(--border);
       background: var(--card);
       font-size: 0.85rem;
       color: var(--text);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .eyebrow {
@@ -162,8 +180,10 @@
     .summary-controls {
       display: grid;
       gap: 0.75rem;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      min-width: min(420px, 100%);
+      grid-template-columns: repeat(auto-fit, minmax(11rem, 14rem));
+      justify-content: end;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .tab-filters {
@@ -184,6 +204,7 @@
       font-size: 0.75rem;
       color: var(--muted);
       font-weight: 600;
+      min-width: 0;
     }
 
     .summary-controls select {
@@ -194,6 +215,10 @@
       background: #ffffff;
       font-size: 0.875rem;
       color: var(--text);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .time-range-card {
@@ -1240,8 +1265,27 @@
 
     @media (max-width: 900px) {
       .page-header {
+        display: flex;
         flex-direction: column;
         align-items: flex-start;
+      }
+
+      .header-actions {
+        width: 100%;
+      }
+
+      .header-filter {
+        width: 100%;
+      }
+
+      .header-filter select {
+        width: 100%;
+        max-width: none;
+      }
+
+      .summary-controls {
+        width: 100%;
+        grid-template-columns: 1fr;
       }
 
       .radar-wrap {

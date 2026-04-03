@@ -22,6 +22,9 @@ type ConceptMasteryTableProps = {
   debugInfo?: AssignmentDebugInfo[]
 }
 
+const CONCEPT_COLUMN_WIDTH = '10.5rem'
+const STUDENT_COLUMN_WIDTH = '7.5rem'
+
 function getMasteryColor(ratio: number, total: number): string {
   if (total === 0) return 'transparent'
   if (ratio >= 0.8) return '#dcfce7'   // green-100
@@ -91,14 +94,27 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
         <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
           {students.length} 位學生 · {concepts.length} 個概念
         </span>
+        <span style={{ fontSize: '0.7rem', color: '#94a3b8', marginLeft: 'auto' }}>
+          可左右滑動查看全部指標
+        </span>
       </div>
 
-      <div style={{ overflowX: 'auto' }}>
+      <div style={{
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        width: '100%',
+        maxWidth: '100%',
+        WebkitOverflowScrolling: 'touch',
+        scrollbarGutter: 'stable both-edges',
+        border: '1px solid #e5e7eb',
+        borderRadius: '0.5rem'
+      }}>
         <table style={{
           borderCollapse: 'collapse',
           fontSize: '0.75rem',
+          width: 'max-content',
           minWidth: '100%',
-          tableLayout: 'auto'
+          tableLayout: 'fixed'
         }}>
           <thead>
             {/* Row 1: concept codes */}
@@ -109,7 +125,7 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
                 borderRight: '1px solid #e5e7eb',
                 padding: '0.5rem 0.75rem',
                 textAlign: 'left', fontWeight: 600, color: '#374151',
-                whiteSpace: 'nowrap', minWidth: '5rem', verticalAlign: 'middle'
+                whiteSpace: 'nowrap', width: STUDENT_COLUMN_WIDTH, minWidth: STUDENT_COLUMN_WIDTH, verticalAlign: 'middle'
               }}>
                 學生
               </th>
@@ -119,7 +135,8 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
                   borderRight: '1px solid #e5e7eb',
                   padding: '0.35rem 0.5rem',
                   textAlign: 'center', fontWeight: 700, color: '#1f2937',
-                  background: '#f9fafb', whiteSpace: 'nowrap', minWidth: '5rem'
+                  background: '#f9fafb', whiteSpace: 'nowrap',
+                  width: CONCEPT_COLUMN_WIDTH, minWidth: CONCEPT_COLUMN_WIDTH
                 }}>
                   <span>{concept.code}</span>
                   {concept.label !== concept.code && (
@@ -142,11 +159,24 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
                   padding: '0.2rem 0.5rem',
                   textAlign: 'center', fontWeight: 400, color: '#6b7280',
                   background: '#f3f4f6', fontSize: '0.65rem',
-                  whiteSpace: 'nowrap'
+                  whiteSpace: 'nowrap',
+                  width: CONCEPT_COLUMN_WIDTH, minWidth: CONCEPT_COLUMN_WIDTH
                 }}>
-                  {concept.label !== concept.code
-                    ? concept.label.split(/\s*[—–-]\s*/)[0].trim()
-                    : ''}
+                  {concept.label !== concept.code ? (
+                    <span
+                      title={concept.label}
+                      style={{
+                        display: 'inline-block',
+                        width: '100%',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        verticalAlign: 'bottom'
+                      }}
+                    >
+                      {concept.label.split(/\s*[—–-]\s*/)[0].trim()}
+                    </span>
+                  ) : ''}
                 </th>
               ))}
             </tr>
@@ -161,7 +191,9 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
                   borderRight: '1px solid #e5e7eb',
                   padding: '0.4rem 0.75rem',
                   fontWeight: 500, color: '#374151',
-                  whiteSpace: 'nowrap'
+                  whiteSpace: 'nowrap',
+                  width: STUDENT_COLUMN_WIDTH,
+                  minWidth: STUDENT_COLUMN_WIDTH
                 }}>
                   {student.seatNumber != null && (
                     <span style={{ color: '#9ca3af', marginRight: '0.35rem', fontSize: '0.65rem' }}>
