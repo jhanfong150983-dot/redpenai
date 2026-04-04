@@ -10,9 +10,7 @@ import {
   FilePlus2,
   FileText,
   SlidersHorizontal,
-  ChevronDown,
-  Bell,
-  X
+  ChevronDown
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import ClassroomManagement from '@/pages/ClassroomManagement'
@@ -69,22 +67,6 @@ type Page =
   | 'admin-user-detail'
   | 'ink-topup'
   | 'teacher-preferences'
-
-type TeacherNotification = {
-  id: number
-  event: string
-  data: Record<string, unknown>
-  is_read: boolean
-  created_at: string
-}
-
-const NOTIFICATION_LABELS: Record<string, string> = {
-  submission_uploaded: '學生已提交作業',
-  grading_completed: '批改完成',
-  correction_dispatched: '已派發訂正',
-  correction_submitted: '學生提交訂正',
-  correction_limit_reached: '訂正次數已達上限'
-}
 
 type AuthState =
   | { status: 'loading' }
@@ -250,12 +232,9 @@ function App() {
     totalDrops: 0,
     amountTwd: 0
   })
-  const [notifications, setNotifications] = useState<TeacherNotification[]>([])
-  const [isNotifOpen, setIsNotifOpen] = useState(false)
   const [ssoPendingSync, setSsoPendingSync] = useState<{
     dsns: string
   } | null>(null)
-  const notifRef = useRef<HTMLDivElement | null>(null)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
   const ssoRedirectingRef = useRef(_isSsoEntry)
   const inkBalance =
@@ -742,18 +721,6 @@ function App() {
   }, [])
 
   useEffect(() => {
-    const handleOutsideClick = (event: MouseEvent) => {
-      if (!notifRef.current) return
-      if (!notifRef.current.contains(event.target as Node)) {
-        setIsNotifOpen(false)
-      }
-    }
-
-    window.addEventListener('mousedown', handleOutsideClick)
-    return () => window.removeEventListener('mousedown', handleOutsideClick)
-  }, [])
-
-  useEffect(() => {
     if (currentPage !== 'home') {
       setIsUserMenuOpen(false)
     }
@@ -1156,20 +1123,6 @@ function App() {
     }
   }, [])
 
-  const loadNotifications = useCallback(async () => {
-    if (auth.status !== 'authenticated') return
-    try {
-      const res = await fetch('/api/data/teacher-notifications', { credentials: 'include' })
-      if (!res.ok) return
-      const data = await res.json()
-      if (Array.isArray(data?.notifications)) {
-        setNotifications(data.notifications as TeacherNotification[])
-      }
-    } catch {
-      // ignore
-    }
-  }, [auth.status])
-
   useEffect(() => {
     if (urlPageHandled) return
     if (auth.status !== 'authenticated') return
@@ -1249,11 +1202,6 @@ function App() {
     if (!isUserMenuOpen) return
     void loadHomeOverview()
   }, [auth.status, isUserMenuOpen, loadHomeOverview])
-
-  useEffect(() => {
-    if (auth.status !== 'authenticated') return
-    void loadNotifications()
-  }, [auth.status, loadNotifications])
 
   if (auth.status === 'loading') {
     return (
@@ -1626,118 +1574,6 @@ function App() {
                     {auth.user.inkBalance ?? 0}
                   </span>
                 </span>
-              )}
-              {!isStudent && (
-                <div ref={notifRef} className="relative">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsNotifOpen((prev) => !prev)
-                      void loadNotifications()
-                    }}
-                    className="relative inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-200 bg-white shadow-sm transition-colors hover:border-slate-300"
-                    aria-label="通知"
-                  >
-                    <Bell className="h-5 w-5 text-slate-600" />
-                    {notifications.filter((n) => !n.is_read).length > 0 && (
-                      <span className="absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
-                        {Math.min(notifications.filter((n) => !n.is_read).length, 99)}
-                      </span>
-                    )}
-                  </button>
-                  {isNotifOpen && (
-                    <div className="absolute right-0 z-40 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
-                      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                        <p className="text-sm font-semibold text-slate-900">系統通知</p>
-                        {notifications.some((n) => !n.is_read) && (
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              try {
-                                await fetch('/api/data/teacher-notifications', {
-                                  method: 'POST',
-                                  credentials: 'include',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ markAllRead: true })
-                                })
-                                void loadNotifications()
-                              } catch {
-                                // ignore
-                              }
-                            }}
-                            className="text-xs font-semibold text-sky-600 hover:text-sky-700"
-                          >
-                            全部已讀
-                          </button>
-                        )}
-                      </div>
-                      <div className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
-                        {notifications.length === 0 ? (
-                          <p className="px-4 py-6 text-center text-xs text-slate-500">
-                            目前沒有通知。
-                          </p>
-                        ) : (
-                          <>
-                            {notifications.slice(0, 20).map((notif) => (
-                              <div
-                                key={notif.id}
-                                className={`px-4 py-3 ${notif.is_read ? 'bg-slate-50' : 'border-l-2 border-sky-400 bg-sky-50'}`}
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <div className="min-w-0 flex-1">
-                                    <p className={`text-xs font-semibold ${notif.is_read ? 'text-slate-500' : 'text-sky-900'}`}>
-                                      {NOTIFICATION_LABELS[notif.event] ?? notif.event}
-                                    </p>
-                                    {typeof notif.data?.assignmentTitle === 'string' && (
-                                      <p className="mt-0.5 truncate text-[11px] text-slate-500">
-                                        {notif.data.assignmentTitle}
-                                      </p>
-                                    )}
-                                    <p className="mt-0.5 text-[11px] text-slate-400">
-                                      {new Date(notif.created_at).toLocaleString('zh-TW', {
-                                        month: 'short',
-                                        day: 'numeric',
-                                        hour: '2-digit',
-                                        minute: '2-digit'
-                                      })}
-                                    </p>
-                                  </div>
-                                  {!notif.is_read && (
-                                    <button
-                                      type="button"
-                                      onClick={async () => {
-                                        try {
-                                          await fetch('/api/data/teacher-notifications', {
-                                            method: 'POST',
-                                            credentials: 'include',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ id: notif.id })
-                                          })
-                                          void loadNotifications()
-                                        } catch {
-                                          // ignore
-                                        }
-                                      }}
-                                      className="mt-0.5 shrink-0"
-                                      aria-label="標記已讀"
-                                    >
-                                      <X className="h-3.5 w-3.5 text-slate-400 hover:text-slate-600" />
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                            {notifications.length > 20 && (
-                              <p className="px-4 py-2 text-center text-[11px] text-slate-400">
-                                僅顯示最新 20 則，共 {notifications.length} 則
-                              </p>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
               )}
               <div ref={userMenuRef} className="relative">
                 <button

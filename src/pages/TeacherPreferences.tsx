@@ -3,11 +3,9 @@ import {
   ArrowLeft,
   Loader,
   Save,
-  Bell,
   Eye,
   RotateCcw,
   RefreshCw,
-  Volume2,
   CheckCircle2,
   AlertCircle
 } from 'lucide-react'
@@ -25,28 +23,12 @@ interface TeacherPreferencesProps {
   }
 }
 
-interface NotificationEvents {
-  submission_uploaded: boolean
-  grading_completed: boolean
-  correction_dispatched: boolean
-  correction_submitted: boolean
-  correction_limit_reached: boolean
-  correction_due_reminder: boolean
-}
-
 interface Preferences {
   student_portal_enabled: boolean
   show_score_to_students: boolean
   max_correction_attempts: number
-  notification_enabled: boolean
-  notification_channel: 'in_app' | 'email' | 'both' | 'none'
-  notification_events: NotificationEvents
   correction_dispatch_mode: 'manual' | 'auto'
   student_feedback_visibility: 'status_only' | 'score_only' | 'score_reason' | 'full'
-  notification_digest: 'instant' | 'daily'
-  quiet_hours_enabled: boolean
-  quiet_hours_start: string
-  quiet_hours_end: string
 }
 
 function ToggleSwitch({
@@ -120,15 +102,6 @@ function SettingRow({
   )
 }
 
-const NOTIFICATION_EVENT_LABELS: Record<keyof NotificationEvents, string> = {
-  submission_uploaded: '新繳交',
-  grading_completed: '批改完成',
-  correction_dispatched: '訂正已派發',
-  correction_submitted: '訂正已送出',
-  correction_limit_reached: '訂正次數用盡',
-  correction_due_reminder: '截止提醒'
-}
-
 const FEEDBACK_VISIBILITY_OPTIONS: Array<{
   value: Preferences['student_feedback_visibility']
   label: string
@@ -140,37 +113,12 @@ const FEEDBACK_VISIBILITY_OPTIONS: Array<{
   { value: 'full', label: '完整回饋', description: '顯示所有批改內容' }
 ]
 
-const CHANNEL_OPTIONS: Array<{
-  value: Preferences['notification_channel']
-  label: string
-  disabled?: boolean
-}> = [
-  { value: 'in_app', label: '站內通知' },
-  { value: 'email', label: 'Email（即將推出）', disabled: true },
-  { value: 'both', label: '站內＋Email（即將推出）', disabled: true },
-  { value: 'none', label: '關閉' }
-]
-
 const DEFAULT_PREFS: Preferences = {
   student_portal_enabled: true,
   show_score_to_students: false,
   max_correction_attempts: 3,
-  notification_enabled: true,
-  notification_channel: 'in_app',
-  notification_events: {
-    submission_uploaded: true,
-    grading_completed: true,
-    correction_dispatched: true,
-    correction_submitted: true,
-    correction_limit_reached: true,
-    correction_due_reminder: true
-  },
   correction_dispatch_mode: 'manual',
-  student_feedback_visibility: 'score_reason',
-  notification_digest: 'instant',
-  quiet_hours_enabled: false,
-  quiet_hours_start: '22:00',
-  quiet_hours_end: '07:00'
+  student_feedback_visibility: 'score_reason'
 }
 
 export default function TeacherPreferences({
@@ -203,18 +151,8 @@ export default function TeacherPreferences({
         student_portal_enabled: p.student_portal_enabled ?? DEFAULT_PREFS.student_portal_enabled,
         show_score_to_students: p.show_score_to_students ?? DEFAULT_PREFS.show_score_to_students,
         max_correction_attempts: p.max_correction_attempts ?? DEFAULT_PREFS.max_correction_attempts,
-        notification_enabled: p.notification_enabled ?? DEFAULT_PREFS.notification_enabled,
-        notification_channel: p.notification_channel ?? DEFAULT_PREFS.notification_channel,
-        notification_events: {
-          ...DEFAULT_PREFS.notification_events,
-          ...(p.notification_events ?? {})
-        },
         correction_dispatch_mode: p.correction_dispatch_mode ?? DEFAULT_PREFS.correction_dispatch_mode,
-        student_feedback_visibility: p.student_feedback_visibility ?? DEFAULT_PREFS.student_feedback_visibility,
-        notification_digest: p.notification_digest ?? DEFAULT_PREFS.notification_digest,
-        quiet_hours_enabled: p.quiet_hours_enabled ?? DEFAULT_PREFS.quiet_hours_enabled,
-        quiet_hours_start: p.quiet_hours_start ?? DEFAULT_PREFS.quiet_hours_start,
-        quiet_hours_end: p.quiet_hours_end ?? DEFAULT_PREFS.quiet_hours_end
+        student_feedback_visibility: p.student_feedback_visibility ?? DEFAULT_PREFS.student_feedback_visibility
       })
     } catch {
       setError('無法讀取設定，請稍後再試')
@@ -241,15 +179,8 @@ export default function TeacherPreferences({
           studentPortalEnabled: prefs.student_portal_enabled,
           showScoreToStudents: prefs.show_score_to_students,
           maxCorrectionAttempts: prefs.max_correction_attempts,
-          notificationEnabled: prefs.notification_enabled,
-          notificationChannel: prefs.notification_channel,
-          notificationEvents: prefs.notification_events,
           correctionDispatchMode: prefs.correction_dispatch_mode,
-          studentFeedbackVisibility: prefs.student_feedback_visibility,
-          notificationDigest: prefs.notification_digest,
-          quietHoursEnabled: prefs.quiet_hours_enabled,
-          quietHoursStart: prefs.quiet_hours_start,
-          quietHoursEnd: prefs.quiet_hours_end
+          studentFeedbackVisibility: prefs.student_feedback_visibility
         })
       })
       if (!res.ok) {
@@ -306,13 +237,6 @@ export default function TeacherPreferences({
 
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) => {
     setPrefs((prev) => ({ ...prev, [key]: value }))
-  }
-
-  const setEvent = (key: keyof NotificationEvents, value: boolean) => {
-    setPrefs((prev) => ({
-      ...prev,
-      notification_events: { ...prev.notification_events, [key]: value }
-    }))
   }
 
   return (
@@ -426,105 +350,6 @@ export default function TeacherPreferences({
                   className="w-20 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-center text-sm text-slate-700 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
                 />
               </SettingRow>
-            </SectionCard>
-
-            {/* 3. 通知設定 */}
-            <SectionCard title="通知設定" icon={Bell}>
-              <SettingRow label="通知總開關">
-                <ToggleSwitch
-                  checked={prefs.notification_enabled}
-                  onChange={(v) => set('notification_enabled', v)}
-                />
-              </SettingRow>
-              <SettingRow label="通知管道">
-                <select
-                  value={prefs.notification_channel}
-                  onChange={(e) =>
-                    set('notification_channel', e.target.value as Preferences['notification_channel'])
-                  }
-                  disabled={!prefs.notification_enabled}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {CHANNEL_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value} disabled={opt.disabled}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </SettingRow>
-
-              {prefs.notification_enabled && (
-                <>
-                  <div className="border-t border-slate-100 pt-3">
-                    <p className="mb-3 text-sm font-medium text-slate-700">通知事件</p>
-                    <div className="space-y-3">
-                      {(Object.keys(NOTIFICATION_EVENT_LABELS) as Array<keyof NotificationEvents>).map(
-                        (key) => (
-                          <div key={key} className="flex items-center justify-between">
-                            <span className="text-sm text-slate-600">
-                              {NOTIFICATION_EVENT_LABELS[key]}
-                            </span>
-                            <ToggleSwitch
-                              checked={prefs.notification_events[key]}
-                              onChange={(v) => setEvent(key, v)}
-                            />
-                          </div>
-                        )
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </SectionCard>
-
-            {/* 4. 通知頻率與靜音時段 */}
-            <SectionCard title="通知頻率與靜音時段" icon={Volume2}>
-              <SettingRow
-                label="通知頻率"
-                description="即時：每次事件發生時通知；每日彙整：每天一次整理"
-              >
-                <select
-                  value={prefs.notification_digest}
-                  onChange={(e) =>
-                    set('notification_digest', e.target.value as Preferences['notification_digest'])
-                  }
-                  disabled={!prefs.notification_enabled}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="instant">即時</option>
-                  <option value="daily" disabled>每日彙整（即將推出）</option>
-                </select>
-              </SettingRow>
-              <SettingRow label="靜音時段">
-                <ToggleSwitch
-                  checked={prefs.quiet_hours_enabled}
-                  onChange={(v) => set('quiet_hours_enabled', v)}
-                  disabled={!prefs.notification_enabled}
-                />
-              </SettingRow>
-              {prefs.quiet_hours_enabled && prefs.notification_enabled && (
-                <div className="flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 px-3 py-3">
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-slate-600">開始</label>
-                    <input
-                      type="time"
-                      value={prefs.quiet_hours_start}
-                      onChange={(e) => set('quiet_hours_start', e.target.value)}
-                      className="rounded border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
-                    />
-                  </div>
-                  <span className="text-xs text-slate-400">至</span>
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-slate-600">結束</label>
-                    <input
-                      type="time"
-                      value={prefs.quiet_hours_end}
-                      onChange={(e) => set('quiet_hours_end', e.target.value)}
-                      className="rounded border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
-                    />
-                  </div>
-                </div>
-              )}
             </SectionCard>
 
             {campus1Binding?.dsns && (
