@@ -360,7 +360,7 @@ function rebuildBlobFromBase64(base64: string): Blob {
 
 // ─── Phase A/B 一致性審查類型 ─────────────────────────────────────────────────
 
-type GradingPhase = 'idle' | 'phase_a_running' | 'awaiting_review' | 'phase_b_running'
+type GradingPhase = 'idle' | 'phase_a_running' | 'awaiting_review' | 'phase_b_running' | 'report_running'
 
 interface ConsistencyDecision {
   questionId: string
@@ -446,17 +446,9 @@ function PipelineStage({ index, label, sublabel, status }: PipelineStageProps) {
   )
 }
 
-function PipelineConnector({ done }: { done: boolean }) {
-  return (
-    <div style={{
-      flex: 1, height: '2px', background: done ? '#16a34a' : '#e5e7eb',
-      margin: '0 0.5rem', marginTop: '-1.2rem', transition: 'background 0.4s',
-    }} />
-  )
-}
 
 interface GradingPipelineOverlayProps {
-  phase: 'phase_a_running' | 'phase_b_running'
+  phase: 'phase_a_running' | 'phase_b_running' | 'report_running'
   phaseAProgress: { current: number; total: number }
   phaseBProgress: { current: number; total: number }
   phaseANeedsReviewCount: number
@@ -475,21 +467,25 @@ function GradingPipelineOverlay({
   onStop,
 }: GradingPipelineOverlayProps) {
   const isPhaseA = phase === 'phase_a_running'
+  const isReport = phase === 'report_running'
 
   const stageA: PipelineStageStatus = isPhaseA ? 'active' : 'done'
-  const stageReview: PipelineStageStatus = isPhaseA ? 'pending' : 'pending'
-  const stageB: PipelineStageStatus = isPhaseA ? 'pending' : 'active'
+  const stageReview: PipelineStageStatus = isPhaseA ? 'pending' : 'done'
+  const stageB: PipelineStageStatus = isPhaseA ? 'pending' : isReport ? 'done' : 'active'
+  const stageReport: PipelineStageStatus = isReport ? 'active' : 'pending'
 
   const aLabel = isPhaseA
     ? `${phaseAProgress.current}/${phaseAProgress.total}`
     : `${phaseAProgress.total}/${phaseAProgress.total}`
   const bLabel = isPhaseA
     ? `0/${phaseBProgress.total}`
-    : `${phaseBProgress.current}/${phaseBProgress.total}`
+    : isReport
+      ? `${phaseBProgress.total}/${phaseBProgress.total}`
+      : `${phaseBProgress.current}/${phaseBProgress.total}`
 
   const reviewLabel = phaseANeedsReviewCount > 0
     ? `需審查 ${phaseANeedsReviewCount} 份`
-    : isPhaseA ? '統計中...' : '待確認'
+    : isPhaseA ? '統計中...' : '已確認'
 
   return (
     <>
@@ -503,7 +499,7 @@ function GradingPipelineOverlay({
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
         zIndex: 9999, background: '#fff', borderRadius: '1.25rem',
         boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
-        padding: '2rem 2.5rem', minWidth: '420px', maxWidth: '90vw',
+        padding: '2rem 2.5rem', minWidth: '460px', maxWidth: '90vw',
         display: 'flex', flexDirection: 'column', gap: '1.5rem', alignItems: 'center',
       }}>
         {/* Title */}
@@ -513,12 +509,11 @@ function GradingPipelineOverlay({
         </div>
 
         {/* Pipeline stages */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%', padding: '0 0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%', padding: '0 0.25rem', gap: '0.25rem' }}>
           <PipelineStage index={1} label="擷取學生答案" sublabel={aLabel} status={stageA} />
-          <PipelineConnector done={!isPhaseA} />
           <PipelineStage index={2} label="教師人工審查" sublabel={reviewLabel} status={stageReview} />
-          <PipelineConnector done={false} />
           <PipelineStage index={3} label="AI批改評分" sublabel={bLabel} status={stageB} />
+          <PipelineStage index={4} label="生成作業報告" sublabel={isReport ? '生成中...' : '等待中'} status={stageReport} />
         </div>
 
         {/* 人工審查提醒（Phase A 執行中且已有需審查題目） */}
@@ -536,10 +531,10 @@ function GradingPipelineOverlay({
           </div>
         )}
 
-        {/* Stop button */}
+        {/* Stop button（報告生成中不提供停止，批改已完成） */}
         <button
           onClick={onStop}
-          disabled={stopRequested}
+          disabled={stopRequested || isReport}
           style={{
             padding: '0.5rem 1.75rem', borderRadius: '0.75rem', border: 'none',
             cursor: stopRequested ? 'not-allowed' : 'pointer',
@@ -1296,14 +1291,20 @@ export default function GradingPage({
 
     requestSync()
 
-    // 非同步觸發作業錯誤摘要生成（fire-and-forget）
-    if (successCount > 0) {
-      fetch('/api/data/refresh-assignment-summary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ assignmentId })
-      }).catch(() => {})
+    // 同步等待作業報告生成
+    if (successCount > 0 && !stopRequestedRef.current) {
+      setGradingPhase('report_running')
+      setGradingMessage('正在生成作業學情報告...')
+      try {
+        await fetch('/api/data/refresh-assignment-summary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ assignmentId })
+        })
+      } catch {
+        // 報告生成失敗不影響批改結果，靜默處理
+      }
     }
 
     setBatchPhaseAEntries([])
@@ -2829,11 +2830,14 @@ export default function GradingPage({
           </div>
         )}
 
-        {/* Download progress bar (unchanged) */}
-        {/* Grading pipeline overlay (下載圖片、Phase A、Phase B 統一顯示遮罩) */}
-        {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'phase_b_running') && (
+        {/* Grading pipeline overlay (下載圖片、Phase A、Phase B、生成報告 統一顯示遮罩) */}
+        {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'phase_b_running' || gradingPhase === 'report_running') && (
           <GradingPipelineOverlay
-            phase={gradingPhase === 'phase_b_running' ? 'phase_b_running' : 'phase_a_running'}
+            phase={
+              gradingPhase === 'phase_b_running' ? 'phase_b_running'
+              : gradingPhase === 'report_running' ? 'report_running'
+              : 'phase_a_running'
+            }
             phaseAProgress={
               isDownloading
                 ? downloadProgress
@@ -2841,7 +2845,13 @@ export default function GradingPage({
                   ? gradingProgress
                   : { current: gradingProgress.total, total: gradingProgress.total }
             }
-            phaseBProgress={gradingPhase === 'phase_b_running' ? gradingProgress : { current: 0, total: batchPhaseAEntries.length }}
+            phaseBProgress={
+              gradingPhase === 'phase_b_running'
+                ? gradingProgress
+                : gradingPhase === 'report_running'
+                  ? { current: batchPhaseAEntries.length, total: batchPhaseAEntries.length }
+                  : { current: 0, total: batchPhaseAEntries.length }
+            }
             phaseANeedsReviewCount={phaseANeedsReviewCount}
             gradingMessage={isDownloading ? '正在下載學生作業圖片...' : gradingMessage}
             stopRequested={stopRequested}
