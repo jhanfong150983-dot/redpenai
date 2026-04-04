@@ -14,11 +14,14 @@ type AssignmentSummaryData = {
   minority_suggestion: string | null
   student_summaries: StudentSummary[]
   sample_count: number
+  updated_at?: string | null
+  error_message?: string | null
 }
 
 type AssignmentSummaryPanelProps = {
   data: AssignmentSummaryData | null
   loading: boolean
+  onRetry?: () => void
 }
 
 function SuggestionBox({ suggestion }: { suggestion: string }) {
@@ -40,7 +43,28 @@ function SuggestionBox({ suggestion }: { suggestion: string }) {
   )
 }
 
-export default function AssignmentSummaryPanel({ data, loading }: AssignmentSummaryPanelProps) {
+function RetryButton({ onRetry, label = '重新生成' }: { onRetry: () => void; label?: string }) {
+  return (
+    <button
+      onClick={onRetry}
+      style={{
+        marginTop: '0.75rem',
+        padding: '0.4rem 1rem',
+        background: '#7c3aed',
+        color: '#fff',
+        border: 'none',
+        borderRadius: '0.5rem',
+        fontSize: '0.8rem',
+        fontWeight: 600,
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
+export default function AssignmentSummaryPanel({ data, loading, onRetry }: AssignmentSummaryPanelProps) {
   const [expanded, setExpanded] = useState(false)
 
   if (loading) {
@@ -60,17 +84,43 @@ export default function AssignmentSummaryPanel({ data, loading }: AssignmentSumm
   }
 
   if (data.status === 'running') {
+    // 判斷是否卡住：updated_at 超過 6 分鐘視為逾時
+    const isStuck = data.updated_at
+      ? Date.now() - new Date(data.updated_at).getTime() > 6 * 60 * 1000
+      : false
     return (
-      <div className="card" style={{ padding: '1.5rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
-        AI 摘要生成中...
+      <div className="card" style={{ padding: '1.5rem', fontSize: '0.875rem' }}>
+        {isStuck ? (
+          <>
+            <div style={{ color: '#92400e', fontWeight: 600 }}>摘要生成可能已逾時</div>
+            <p style={{ color: '#b45309', marginTop: '0.4rem', marginBottom: 0 }}>
+              上次更新超過 6 分鐘，伺服器可能已中斷。
+            </p>
+            {onRetry && <RetryButton onRetry={onRetry} label='重新觸發生成' />}
+          </>
+        ) : (
+          <div style={{ color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1.2s linear infinite', flexShrink: 0 }}>
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+            AI 摘要生成中...
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
       </div>
     )
   }
 
   if (data.status === 'failed') {
     return (
-      <div className="card" style={{ padding: '1.5rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
-        摘要生成失敗，請重新批改後再試。
+      <div className="card" style={{ padding: '1.5rem', fontSize: '0.875rem' }}>
+        <div style={{ color: '#991b1b', fontWeight: 600 }}>摘要生成失敗</div>
+        {data.error_message && (
+          <p style={{ color: '#b91c1c', marginTop: '0.35rem', marginBottom: 0, fontSize: '0.775rem', fontFamily: 'monospace' }}>
+            {data.error_message}
+          </p>
+        )}
+        {onRetry && <RetryButton onRetry={onRetry} />}
       </div>
     )
   }

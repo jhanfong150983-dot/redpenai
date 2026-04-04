@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { db } from '@/lib/db'
 import type { Submission } from '@/lib/db'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
@@ -268,26 +268,46 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     minority_suggestion: string | null
     student_summaries: { student_id: string; student_name: string; summary: string }[]
     sample_count: number
+    updated_at?: string | null
+    error_message?: string | null
   } | null>(null)
   const [assignmentSummaryLoading, setAssignmentSummaryLoading] = useState(false)
 
   // Fetch assignment error summary when assignment changes
+  const fetchAssignmentSummary = useCallback((assignmentId: string) => {
+    setAssignmentSummaryLoading(true)
+    fetch(`/api/data/assignment-summary?assignmentId=${encodeURIComponent(assignmentId)}`, {
+      credentials: 'include'
+    })
+      .then(r => r.json())
+      .then(data => { setAssignmentSummary(data?.summary ?? null) })
+      .catch(() => { setAssignmentSummary(null) })
+      .finally(() => { setAssignmentSummaryLoading(false) })
+  }, [])
+
   useEffect(() => {
     if (!selectedAssignmentId) {
       setAssignmentSummary(null)
       return
     }
-    let isActive = true
+    fetchAssignmentSummary(selectedAssignmentId)
+  }, [selectedAssignmentId, fetchAssignmentSummary])
+
+  const handleRetryAssignmentSummary = useCallback(() => {
+    if (!selectedAssignmentId) return
     setAssignmentSummaryLoading(true)
-    fetch(`/api/data/assignment-summary?assignmentId=${encodeURIComponent(selectedAssignmentId)}`, {
-      credentials: 'include'
+    fetch('/api/data/refresh-assignment-summary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ assignmentId: selectedAssignmentId }),
     })
-      .then(r => r.json())
-      .then(data => { if (isActive) setAssignmentSummary(data?.summary ?? null) })
-      .catch(() => { if (isActive) setAssignmentSummary(null) })
-      .finally(() => { if (isActive) setAssignmentSummaryLoading(false) })
-    return () => { isActive = false }
-  }, [selectedAssignmentId])
+      .then(() => {
+        // 等 1 秒後重新拉狀態（server 已設為 running）
+        setTimeout(() => fetchAssignmentSummary(selectedAssignmentId), 1000)
+      })
+      .catch(() => setAssignmentSummaryLoading(false))
+  }, [selectedAssignmentId, fetchAssignmentSummary])
 
   useEffect(() => {
     let isActive = true
@@ -890,6 +910,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               <AssignmentSummaryPanel
                 data={assignmentSummary as Parameters<typeof AssignmentSummaryPanel>[0]['data']}
                 loading={assignmentSummaryLoading}
+                onRetry={handleRetryAssignmentSummary}
               />
             </section>
           )}

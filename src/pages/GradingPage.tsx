@@ -7,12 +7,11 @@ import {
   XCircle,
   ImageIcon,
   FileQuestion,
-  Download,
+
   RefreshCw,
   X,
   AlertTriangle,
   Trash2,
-  Square,
   CheckCircle2,
   Eye,
   ChevronRight,
@@ -396,6 +395,169 @@ function ForensicSupportBadge({ support }: { support?: string }) {
     <span className={`inline-block px-1 rounded text-[10px] font-semibold ${styles[support] ?? ''}`}>
       {labels[support] ?? support}
     </span>
+  )
+}
+
+// ─── GradingPipelineOverlay ───────────────────────────────────────────────────
+// Full-screen lock mask + floating modal card shown during Phase A / Phase B
+
+type PipelineStageStatus = 'pending' | 'active' | 'done'
+
+interface PipelineStageProps {
+  index: number
+  label: string
+  sublabel: string
+  status: PipelineStageStatus
+}
+
+function PipelineStage({ index, label, sublabel, status }: PipelineStageProps) {
+  const colors = {
+    pending: { circle: '#e5e7eb', text: '#9ca3af', sub: '#d1d5db' },
+    active: { circle: '#7c3aed', text: '#374151', sub: '#6b7280' },
+    done: { circle: '#16a34a', text: '#374151', sub: '#6b7280' },
+  }
+  const c = colors[status]
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', minWidth: '90px' }}>
+      <div style={{
+        width: '2.5rem', height: '2.5rem', borderRadius: '50%',
+        background: c.circle,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        position: 'relative',
+        boxShadow: status === 'active' ? '0 0 0 4px #ede9fe' : undefined,
+      }}>
+        {status === 'done' ? (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+        ) : status === 'active' ? (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1.2s linear infinite' }}>
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+        ) : (
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#9ca3af' }}>{index}</span>
+        )}
+      </div>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: c.text, whiteSpace: 'nowrap' }}>{label}</div>
+        <div style={{ fontSize: '0.7rem', color: c.sub, marginTop: '0.1rem', whiteSpace: 'nowrap' }}>{sublabel}</div>
+      </div>
+    </div>
+  )
+}
+
+function PipelineConnector({ done }: { done: boolean }) {
+  return (
+    <div style={{
+      flex: 1, height: '2px', background: done ? '#16a34a' : '#e5e7eb',
+      margin: '0 0.5rem', marginTop: '-1.2rem', transition: 'background 0.4s',
+    }} />
+  )
+}
+
+interface GradingPipelineOverlayProps {
+  phase: 'phase_a_running' | 'phase_b_running'
+  phaseAProgress: { current: number; total: number }
+  phaseBProgress: { current: number; total: number }
+  phaseANeedsReviewCount: number
+  gradingMessage: string
+  stopRequested: boolean
+  onStop: () => void
+}
+
+function GradingPipelineOverlay({
+  phase,
+  phaseAProgress,
+  phaseBProgress,
+  phaseANeedsReviewCount,
+  gradingMessage,
+  stopRequested,
+  onStop,
+}: GradingPipelineOverlayProps) {
+  const isPhaseA = phase === 'phase_a_running'
+
+  const stageA: PipelineStageStatus = isPhaseA ? 'active' : 'done'
+  const stageReview: PipelineStageStatus = isPhaseA ? 'pending' : 'pending'
+  const stageB: PipelineStageStatus = isPhaseA ? 'pending' : 'active'
+
+  const aLabel = isPhaseA
+    ? `${phaseAProgress.current}/${phaseAProgress.total}`
+    : `${phaseAProgress.total}/${phaseAProgress.total}`
+  const bLabel = isPhaseA
+    ? `0/${phaseBProgress.total}`
+    : `${phaseBProgress.current}/${phaseBProgress.total}`
+
+  const reviewLabel = phaseANeedsReviewCount > 0
+    ? `需審查 ${phaseANeedsReviewCount} 份`
+    : isPhaseA ? '統計中...' : '待確認'
+
+  return (
+    <>
+      {/* Lock mask */}
+      <div style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+        zIndex: 9998, backdropFilter: 'blur(2px)',
+      }} />
+      {/* Floating card */}
+      <div style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+        zIndex: 9999, background: '#fff', borderRadius: '1.25rem',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+        padding: '2rem 2.5rem', minWidth: '420px', maxWidth: '90vw',
+        display: 'flex', flexDirection: 'column', gap: '1.5rem', alignItems: 'center',
+      }}>
+        {/* Title */}
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '1rem', fontWeight: 700, color: '#111827' }}>AI 批改進行中</div>
+          <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>{gradingMessage}</div>
+        </div>
+
+        {/* Pipeline stages */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%', padding: '0 0.5rem' }}>
+          <PipelineStage index={1} label="擷取學生答案" sublabel={aLabel} status={stageA} />
+          <PipelineConnector done={!isPhaseA} />
+          <PipelineStage index={2} label="教師人工審查" sublabel={reviewLabel} status={stageReview} />
+          <PipelineConnector done={false} />
+          <PipelineStage index={3} label="AI批改評分" sublabel={bLabel} status={stageB} />
+        </div>
+
+        {/* 人工審查提醒（Phase A 執行中且已有需審查題目） */}
+        {isPhaseA && phaseANeedsReviewCount > 0 && (
+          <div style={{
+            background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '0.75rem',
+            padding: '0.6rem 1rem', textAlign: 'center', width: '100%',
+          }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#92400e' }}>
+              ⚠️ 已發現 {phaseANeedsReviewCount} 份需要人工審查
+            </div>
+            <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: '0.2rem' }}>
+              擷取完成後請回來確認答案，再開始 AI 批改
+            </div>
+          </div>
+        )}
+
+        {/* Stop button */}
+        <button
+          onClick={onStop}
+          disabled={stopRequested}
+          style={{
+            padding: '0.5rem 1.75rem', borderRadius: '0.75rem', border: 'none',
+            cursor: stopRequested ? 'not-allowed' : 'pointer',
+            background: stopRequested ? '#e5e7eb' : '#fee2e2',
+            color: stopRequested ? '#9ca3af' : '#dc2626',
+            fontWeight: 600, fontSize: '0.875rem',
+            transition: 'background 0.2s',
+          }}
+        >
+          {stopRequested ? '正在停止...' : '停止批改'}
+        </button>
+        {stopRequested && (
+          <p style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '-1rem' }}>將在完成當前作業後停止</p>
+        )}
+      </div>
+      {/* CSS keyframe for spin */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </>
   )
 }
 
@@ -940,15 +1102,16 @@ export default function GradingPage({
   const [manualGradingStudentId, setManualGradingStudentId] = useState<string | null>(null)
 
   // 🆕 進度詳情
-  const [currentGradingStudent, setCurrentGradingStudent] = useState<string>('')
-  const [gradingStartTime, setGradingStartTime] = useState<number>(0)
-  const [completedReviewCount, setCompletedReviewCount] = useState(0)
+  const [_currentGradingStudent, setCurrentGradingStudent] = useState<string>('')
+  const [_gradingStartTime, setGradingStartTime] = useState<number>(0)
+  const [_completedReviewCount, setCompletedReviewCount] = useState(0)
   const [gradingMessage, setGradingMessage] = useState<string>('AI 批改中...')
-  const [nowTs, setNowTs] = useState(() => Date.now())
+  const [_nowTs, setNowTs] = useState(() => Date.now())
 
   // Phase A/B 批次一致性審查
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
   const [batchPhaseAEntries, setBatchPhaseAEntries] = useState<BatchPhaseAEntry[]>([])
+  const [phaseANeedsReviewCount, setPhaseANeedsReviewCount] = useState(0)
 
   useEffect(() => {
     onGradingPhaseChange?.(gradingPhase)
@@ -1974,6 +2137,7 @@ export default function GradingPage({
       setGradingProgress({ current: 0, total: toGrade.length })
       setGradingMessage('Step 1/2：正在讀取學生答案...')
       setGradingPhase('phase_a_running')
+      setPhaseANeedsReviewCount(0)
 
       if (!assignment?.answerKey) {
         alert('缺少答案卷，無法批改')
@@ -2009,6 +2173,11 @@ export default function GradingPage({
           const { sub, phaseAResult } = result
           const student = students.find((s) => s.id === sub.studentId)
           if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
+          // 即時統計需審查題數
+          const submissionNeedsReview = phaseAResult.questionResults.some(
+            (qr) => qr.arbiterResult ? qr.arbiterResult.arbiterStatus === 'needs_review' : qr.consistencyStatus !== 'stable'
+          )
+          if (submissionNeedsReview) setPhaseANeedsReviewCount((prev) => prev + 1)
           const decisions = new Map<string, ConsistencyDecision>()
           for (const qr of phaseAResult.questionResults) {
             const arbiter = qr.arbiterResult
@@ -2363,15 +2532,6 @@ export default function GradingPage({
           selectedConfidenceAverage < LOW_CONFIDENCE_THRESHOLD
         ? `平均信心 ${selectedConfidenceAverage}%`
         : null
-  const activeProgress = isDownloading ? downloadProgress : gradingProgress
-  const progressPercent =
-    activeProgress.total > 0
-      ? Math.round((activeProgress.current / activeProgress.total) * 100)
-      : 0
-  const progressWidth =
-    activeProgress.total > 0
-      ? (activeProgress.current / activeProgress.total) * 100
-      : 0
 
   if (isLoading) {
     return (
@@ -2669,81 +2829,24 @@ export default function GradingPage({
           </div>
         )}
 
-        {isBusy && (
-          <div className="sticky top-4 z-40 mb-4">
-            <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3 min-w-0">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 shrink-0">
-                  {isDownloading ? (
-                    <Download className="w-5 h-5 text-blue-500" />
-                  ) : (
-                    <Sparkles className="w-5 h-5 text-purple-500" />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 break-words">
-                    {isDownloading ? '準備圖片中...' : gradingMessage}
-                  </p>
-                  {currentGradingStudent && (
-                    <p className="text-xs text-gray-500 break-words">
-                      正在處理：{currentGradingStudent}
-                    </p>
-                  )}
-                  {!isDownloading && (
-                    <p className="text-xs text-gray-500">
-                      已用時 {gradingStartTime > 0 ? Math.round((nowTs - gradingStartTime) / 1000) : 0} 秒 · 需複核 {completedReviewCount}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex-1 sm:max-w-xs">
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
-                  <span>
-                    {isDownloading
-                      ? `下載 ${activeProgress.current}/${activeProgress.total}`
-                      : `已完成 ${activeProgress.current}/${activeProgress.total}`}
-                  </span>
-                  <span>{progressPercent}%</span>
-                </div>
-                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full transition-all duration-300 ${isDownloading ? 'bg-blue-500' : 'bg-purple-500'}`}
-                    style={{
-                      width: `${progressWidth}%`
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:items-end gap-1">
-                {needsReviewCount > 0 && (
-                  <button
-                    onClick={jumpToNextReview}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl transition-all bg-amber-100 text-amber-700 hover:bg-amber-200"
-                  >
-                    <Eye className="w-4 h-4" />
-                    跳到待複核 ({needsReviewCount})
-                  </button>
-                )}
-                <button
-                  onClick={handleStopGrading}
-                  disabled={stopRequested}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all ${
-                    stopRequested
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-red-100 text-red-600 hover:bg-red-200'
-                  }`}
-                >
-                  <Square className="w-4 h-4" />
-                  {stopRequested ? '正在停止...' : '停止批改'}
-                </button>
-                {stopRequested && (
-                  <p className="text-xs text-red-600">將在完成當前作業後停止</p>
-                )}
-              </div>
-            </div>
-          </div>
+        {/* Download progress bar (unchanged) */}
+        {/* Grading pipeline overlay (下載圖片、Phase A、Phase B 統一顯示遮罩) */}
+        {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'phase_b_running') && (
+          <GradingPipelineOverlay
+            phase={gradingPhase === 'phase_b_running' ? 'phase_b_running' : 'phase_a_running'}
+            phaseAProgress={
+              isDownloading
+                ? downloadProgress
+                : gradingPhase === 'phase_a_running'
+                  ? gradingProgress
+                  : { current: gradingProgress.total, total: gradingProgress.total }
+            }
+            phaseBProgress={gradingPhase === 'phase_b_running' ? gradingProgress : { current: 0, total: batchPhaseAEntries.length }}
+            phaseANeedsReviewCount={phaseANeedsReviewCount}
+            gradingMessage={isDownloading ? '正在下載學生作業圖片...' : gradingMessage}
+            stopRequested={stopRequested}
+            onStop={handleStopGrading}
+          />
         )}
 
         {!inkSessionReady && (
