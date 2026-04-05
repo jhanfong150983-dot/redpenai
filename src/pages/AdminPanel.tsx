@@ -39,7 +39,7 @@ export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'u
   }
 
   return (
-    <div className="min-h-screen bg-white p-4">
+    <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-7xl mx-auto">
         {/* 頂部導航 */}
         <div className="bg-white rounded-xl border border-slate-200 mb-6">

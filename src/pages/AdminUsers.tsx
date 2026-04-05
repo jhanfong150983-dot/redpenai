@@ -12,11 +12,22 @@ import {
   GraduationCap,
   CheckCircle2,
   Droplet,
-  Clock
+  Clock,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react'
 
 interface AdminUsersProps {
   onNavigateToDetail?: (userId: string) => void
+}
+
+interface StudentUsage {
+  studentId: string
+  studentName: string
+  classroomName: string
+  submissionCount: number
+  gradedCount: number
+  lastActiveAt: string | null
 }
 
 interface UserStatsData {
@@ -37,6 +48,7 @@ interface UserStatsData {
   gradingProgress: number
   totalInkUsed: number
   lastActiveAt?: string
+  students?: StudentUsage[]
 }
 
 type BalanceMode = 'none' | 'set' | 'delta'
@@ -46,6 +58,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set())
 
   const [editingUser, setEditingUser] = useState<UserStatsData | null>(null)
   const [role, setRole] = useState('user')
@@ -229,6 +242,16 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
     if (onNavigateToDetail) {
       onNavigateToDetail(user.userId)
     }
+  }
+
+  const toggleStudents = (userId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setExpandedStudents(prev => {
+      const next = new Set(prev)
+      if (next.has(userId)) next.delete(userId)
+      else next.add(userId)
+      return next
+    })
   }
 
   return (
@@ -421,6 +444,52 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                     編輯
                   </button>
                 </div>
+
+                {/* Student Toggle */}
+                {(user.students?.length ?? 0) > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => toggleStudents(user.userId, e)}
+                      className="w-full flex items-center justify-between px-4 py-2 bg-amber-50 hover:bg-amber-100 border-t border-amber-100 transition-colors text-xs font-medium text-amber-700"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <GraduationCap className="w-3.5 h-3.5" />
+                        查看學生（{user.students?.length} 位）
+                      </span>
+                      {expandedStudents.has(user.userId)
+                        ? <ChevronUp className="w-3.5 h-3.5" />
+                        : <ChevronDown className="w-3.5 h-3.5" />}
+                    </button>
+
+                    {expandedStudents.has(user.userId) && (
+                      <div className="px-3 pb-3 pt-1 bg-amber-50" onClick={(e) => e.stopPropagation()}>
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-gray-500">
+                              <th className="text-left py-1 px-1 font-medium">姓名</th>
+                              <th className="text-left py-1 px-1 font-medium">班級</th>
+                              <th className="text-right py-1 px-1 font-medium">繳交</th>
+                              <th className="text-right py-1 px-1 font-medium">批改</th>
+                              <th className="text-right py-1 px-1 font-medium">最後活躍</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {user.students?.map(s => (
+                              <tr key={s.studentId} className="border-t border-amber-100">
+                                <td className="py-1 px-1 font-medium text-gray-800">{s.studentName}</td>
+                                <td className="py-1 px-1 text-gray-500">{s.classroomName || '—'}</td>
+                                <td className="py-1 px-1 text-right font-semibold text-blue-700">{s.submissionCount}</td>
+                                <td className="py-1 px-1 text-right text-gray-600">{s.gradedCount}</td>
+                                <td className="py-1 px-1 text-right text-gray-400">{formatRelativeTime(s.lastActiveAt ?? undefined)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             ))
           )}
