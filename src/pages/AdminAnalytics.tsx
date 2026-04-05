@@ -95,17 +95,30 @@ function LineChart({ data, color = '#6366f1', height = 160 }: {
 
 function BarChart24h({ data }: { data: { hour: number; count: number }[] }) {
   const max = Math.max(...data.map(d => d.count), 1)
+  const BAR_H = 80
   return (
-    <div className="flex items-end gap-0.5 h-20 w-full">
-      {data.map(d => (
-        <div key={d.hour} className="flex-1 flex flex-col items-center gap-0.5" title={`${d.hour}時: ${d.count}份`}>
+    <div className="w-full select-none">
+      {/* bars */}
+      <div className="flex items-end gap-0.5 w-full" style={{ height: BAR_H }}>
+        {data.map(d => (
           <div
-            className="w-full rounded-t bg-amber-400"
-            style={{ height: `${Math.max((d.count / max) * 72, d.count > 0 ? 4 : 0)}px` }}
+            key={d.hour}
+            className="flex-1 rounded-t bg-amber-400 transition-all"
+            style={{ height: `${Math.max((d.count / max) * BAR_H, d.count > 0 ? 3 : 0)}px` }}
+            title={`${d.hour}時: ${d.count}份`}
           />
-          {d.hour % 6 === 0 && <span className="text-[9px] text-gray-400">{d.hour}時</span>}
-        </div>
-      ))}
+        ))}
+      </div>
+      {/* x-axis labels */}
+      <div className="flex gap-0.5 w-full mt-1">
+        {data.map(d => (
+          <div key={d.hour} className="flex-1 text-center">
+            {d.hour % 6 === 0
+              ? <span className="text-[9px] text-gray-400 leading-none">{d.hour}時</span>
+              : null}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
