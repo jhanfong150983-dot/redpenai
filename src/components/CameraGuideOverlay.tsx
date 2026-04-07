@@ -31,11 +31,11 @@ export default function CameraGuideOverlay({
 
   const bgOverlay =
     tiltStatus === 'flat'
-      ? 'bg-green-500/8'
+      ? 'bg-green-500/10'
       : tiltStatus === 'slight'
         ? 'bg-yellow-500/10'
         : tiltStatus === 'tilted'
-          ? 'bg-red-500/12'
+          ? 'bg-red-500/10'
           : ''
 
   const cornerColor =
