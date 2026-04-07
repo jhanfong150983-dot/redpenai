@@ -19,7 +19,7 @@ import {
   getFileType,
   sortFilesByNumber
 } from '@/lib/pdfToImage'
-import { blobToBase64, compressToTargetBytes } from '@/lib/imageCompression'
+import { blobToBase64, compressToTargetBytes, rotateImageBlob } from '@/lib/imageCompression'
 import { safeToBlobWithFallback } from '@/lib/canvasToBlob'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-storage'
 
@@ -45,46 +45,6 @@ interface MappingRow {
   seatNumber: number
   studentId: string
   name: string
-}
-
-/**
- * 旋轉圖片 Blob
- * @param blob 原始圖片 Blob
- * @param degrees 旋轉角度 (0, 90, 180, 270)
- * @returns 旋轉後的 Blob
- */
-async function rotateImageBlob(blob: Blob, degrees: number): Promise<Blob> {
-  // 如果不需要旋轉，直接返回原始 Blob
-  if (degrees === 0 || degrees === 360) return blob
-
-  const bitmap = await createImageBitmap(blob)
-  const isRotated90or270 = degrees === 90 || degrees === 270
-
-  // 90° 或 270° 時寬高互換
-  const canvas = document.createElement('canvas')
-  canvas.width = isRotated90or270 ? bitmap.height : bitmap.width
-  canvas.height = isRotated90or270 ? bitmap.width : bitmap.height
-
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    bitmap.close()
-    throw new Error('無法建立畫布')
-  }
-
-  // 移動到畫布中心，旋轉，再繪製
-  ctx.translate(canvas.width / 2, canvas.height / 2)
-  ctx.rotate((degrees * Math.PI) / 180)
-  ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2)
-  bitmap.close()
-
-  // 使用統一的輸出格式（Safari 用 JPEG，其他用 WebP）
-  const outputFormat = getDefaultImageFormat()
-  const rotated = await safeToBlobWithFallback(canvas, {
-    format: outputFormat,
-    quality: 0.85
-  })
-
-  return rotated
 }
 
 function loadImgElement(blob: Blob): Promise<HTMLImageElement> {

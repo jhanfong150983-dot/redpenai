@@ -4,6 +4,43 @@
 
 import { getWebPSupportSync } from './webpSupport'
 import { safeToBlobWithFallback } from './canvasToBlob'
+import { getDefaultImageFormat } from './pdfToImage'
+
+/**
+ * 旋轉圖片 Blob
+ * @param blob 原始圖片 Blob
+ * @param degrees 旋轉角度 (0, 90, 180, 270)
+ * @returns 旋轉後的 Blob
+ */
+export async function rotateImageBlob(blob: Blob, degrees: number): Promise<Blob> {
+  if (degrees === 0 || degrees === 360) return blob
+
+  const bitmap = await createImageBitmap(blob)
+  const isRotated90or270 = degrees === 90 || degrees === 270
+
+  const canvas = document.createElement('canvas')
+  canvas.width = isRotated90or270 ? bitmap.height : bitmap.width
+  canvas.height = isRotated90or270 ? bitmap.width : bitmap.height
+
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    bitmap.close()
+    throw new Error('無法建立畫布')
+  }
+
+  ctx.translate(canvas.width / 2, canvas.height / 2)
+  ctx.rotate((degrees * Math.PI) / 180)
+  ctx.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2)
+  bitmap.close()
+
+  const outputFormat = getDefaultImageFormat()
+  const rotated = await safeToBlobWithFallback(canvas, {
+    format: outputFormat,
+    quality: 0.85
+  })
+
+  return rotated
+}
 
 interface CompressImageOptions {
   maxWidth?: number

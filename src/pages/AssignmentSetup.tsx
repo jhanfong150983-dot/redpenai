@@ -32,10 +32,11 @@ import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages, reanalyzeQuestions, tagConceptsForAnswerKey } from '@/lib/gemini'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { convertPdfToImages, getFileType, fileToBlob, getDefaultImageFormat } from '@/lib/pdfToImage'
-import { compressImageFile } from '@/lib/imageCompression'
+import { compressImageFile, rotateImageBlob } from '@/lib/imageCompression'
 import { checkFolderNameUnique } from '@/lib/utils'
 import { useTutorial } from '@/hooks/useTutorial'
 import { TutorialOverlay } from '@/components/TutorialOverlay'
+import PageOrderModal from '@/components/PageOrderModal'
 
 interface AssignmentSetupProps {
   onBack?: () => void
@@ -131,13 +132,18 @@ export default function AssignmentSetup({
     '待努力'
   ]
   const [answerKey, setAnswerKey] = useState<AnswerKey | null>(null)
-  const [answerKeyFile, setAnswerKeyFile] = useState<File[]>([])
+  const [, setAnswerKeyFile] = useState<File[]>([])
   const [answerKeyInputKey, setAnswerKeyInputKey] = useState(0)
   const [answerSheetImage, setAnswerSheetImage] = useState<Blob | null>(null)
   const [pendingConceptTags, setPendingConceptTags] = useState<Record<string, { code: string; label: string }> | null>(null)
   const [isExtractingAnswerKey, setIsExtractingAnswerKey] = useState(false)
   const [answerKeyError, setAnswerKeyError] = useState<string | null>(null)
   const [answerKeyNotice, setAnswerKeyNotice] = useState<string | null>(null)
+
+  // 答案卷預覽排序狀態（建立流程）
+  const [answerKeyPreviewBlobs, setAnswerKeyPreviewBlobs] = useState<Array<{ index: number; url: string; blob: Blob }>>([])  
+  const [showAnswerKeyPreview, setShowAnswerKeyPreview] = useState(false)
+  const [isConvertingAnswerKey, setIsConvertingAnswerKey] = useState(false)
 
   const [isLoading, setIsLoading] = useState(true)
   const [isAssignmentsLoading, setIsAssignmentsLoading] = useState(false)
@@ -184,7 +190,7 @@ export default function AssignmentSetup({
   const [editingScoringMode, setEditingScoringMode] = useState<'scored' | 'unscored'>('scored')
   const [isSavingAnswerKey, setIsSavingAnswerKey] = useState(false)
   const [isReanalyzing, setIsReanalyzing] = useState(false)
-  const [editAnswerKeyFile, setEditAnswerKeyFile] = useState<File[]>([])
+  const [, setEditAnswerKeyFile] = useState<File[]>([])
   const [editAnswerSheetImage, setEditAnswerSheetImage] = useState<Blob | null>(null)
   const [isExtractingAnswerKeyEdit, setIsExtractingAnswerKeyEdit] =
     useState(false)
@@ -194,6 +200,11 @@ export default function AssignmentSetup({
   const [editAnswerKeyNotice, setEditAnswerKeyNotice] = useState<string | null>(
     null
   )
+
+  // 答案卷預覽排序狀態（編輯流程）
+  const [editAnswerKeyPreviewBlobs, setEditAnswerKeyPreviewBlobs] = useState<Array<{ index: number; url: string; blob: Blob }>>([])  
+  const [showEditAnswerKeyPreview, setShowEditAnswerKeyPreview] = useState(false)
+  const [isConvertingEditAnswerKey, setIsConvertingEditAnswerKey] = useState(false)
   const [inkSessionReady, setInkSessionReady] = useState(false)
   const [inkSessionError, setInkSessionError] = useState<string | null>(null)
   const [isClosingSession, setIsClosingSession] = useState(false)
@@ -1127,7 +1138,7 @@ export default function AssignmentSetup({
     }
   }
 
-  const handleAnswerKeyFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleAnswerKeyFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
 
     // 只做類型檢查，不用原始檔大小擋掉（後續壓縮會處理）
@@ -1142,14 +1153,75 @@ export default function AssignmentSetup({
 
     setAnswerKeyFile(files)
     setAnswerKeyError(null)
+    setAnswerKeyNotice(null)
 
-    // ✅ 顯示提示，不阻擋（後續壓縮會處理大檔案）
-    const totalMB = files.reduce((s, f) => s + f.size, 0) / 1024 / 1024
-    if (totalMB > 2.5) {
-      setAnswerKeyNotice(`已選擇 ${totalMB.toFixed(1)}MB，系統會自動壓縮並分批解析（建議一次 1–3 個檔案以保留清晰度）`)
-    } else {
-      setAnswerKeyNotice(null)
+    // 轉換檔案為 Blob 預覽
+    setIsConvertingAnswerKey(true)
+    try {
+      const blobs: Blob[] = []
+      for (const file of files) {
+        const fileType = getFileType(file)
+        if (fileType === 'pdf') {
+          const pdfBlobs = await convertPdfToImages(file, { scale: 1, quality: 0.5 })
+          blobs.push(...pdfBlobs)
+        } else {
+          blobs.push(await fileToBlob(file))
+        }
+      }
+      const previews = blobs.map((blob, idx) => ({
+        index: idx,
+        blob,
+        url: URL.createObjectURL(blob)
+      }))
+      setAnswerKeyPreviewBlobs(previews)
+      setShowAnswerKeyPreview(true)
+    } catch (err) {
+      console.error('轉換預覽失敗', err)
+      setAnswerKeyError(err instanceof Error ? err.message : '轉換預覽失敗')
+    } finally {
+      setIsConvertingAnswerKey(false)
     }
+  }
+
+  const handleAnswerKeyPreviewConfirm = async (
+    order: number[],
+    rotations: Map<number, number>
+  ) => {
+    setShowAnswerKeyPreview(false)
+    setIsConvertingAnswerKey(true)
+    try {
+      const reordered: Array<{ index: number; url: string; blob: Blob }> = await Promise.all(
+        order.map(async (origIdx, newIdx) => {
+          const orig = answerKeyPreviewBlobs.find(p => p.index === origIdx)!
+          const deg = rotations.get(origIdx) ?? 0
+          const blob = deg !== 0 ? await rotateImageBlob(orig.blob, deg) : orig.blob
+          return { index: newIdx, blob, url: URL.createObjectURL(blob) }
+        })
+      )
+      // 釋放舊 URL
+      answerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
+      setAnswerKeyPreviewBlobs(reordered)
+
+      const totalMB = reordered.reduce((s, p) => s + p.blob.size, 0) / 1024 / 1024
+      if (totalMB > 2.5) {
+        setAnswerKeyNotice(`共 ${reordered.length} 頁 (${totalMB.toFixed(1)}MB)，系統會自動壓縮並分批解析`)
+      } else {
+        setAnswerKeyNotice(`共 ${reordered.length} 頁，已確認順序`)
+      }
+    } catch (err) {
+      console.error('處理頁面排序失敗', err)
+      setAnswerKeyError(err instanceof Error ? err.message : '處理頁面排序失敗')
+    } finally {
+      setIsConvertingAnswerKey(false)
+    }
+  }
+
+  const handleAnswerKeyPreviewCancel = () => {
+    setShowAnswerKeyPreview(false)
+    answerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
+    setAnswerKeyPreviewBlobs([])
+    setAnswerKeyFile([])
+    setAnswerKeyInputKey(prev => prev + 1)
   }
 
   const handleExtractAnswerKey = async () => {
@@ -1157,7 +1229,7 @@ export default function AssignmentSetup({
       setAnswerKeyError('請先選擇領域，才能擷取標準答案')
       return
     }
-    if (answerKeyFile.length === 0) {
+    if (answerKeyPreviewBlobs.length === 0) {
       setAnswerKeyError('請選擇檔案，支援 PDF 或圖片')
       return
     }
@@ -1165,94 +1237,27 @@ export default function AssignmentSetup({
       return
     }
 
-    console.log(`📋 開始提取標準答案... (${answerKeyFile.length} 個檔案)`, { domain: assignmentDomain })
+    console.log(`📋 開始提取標準答案... (${answerKeyPreviewBlobs.length} 頁)`, { domain: assignmentDomain })
 
     let extractionSucceeded = false
     try {
       setIsExtractingAnswerKey(true)
       setAnswerKeyError(null)
 
-      // 處理所有檔案並轉換為 Blob[]
+      // 使用預覽中已排序/旋轉的 Blobs，再做壓縮
       const imageBlobs: Blob[] = []
+      const outputFormat = getDefaultImageFormat()
+      const targetSize = 2 * 1024 * 1024
 
-      for (const file of answerKeyFile) {
-        const fileType = getFileType(file)
-        if (fileType !== 'image' && fileType !== 'pdf') {
-          setAnswerKeyError(`不支援的檔案格式: ${file.name}，請改用圖片或 PDF`)
-          return
-        }
+      for (let i = 0; i < answerKeyPreviewBlobs.length; i++) {
+        let imageBlob = answerKeyPreviewBlobs[i].blob
 
-        let imageBlob: Blob
-        if (fileType === 'image') {
-          console.log('🖼️ 處理圖片檔案', { name: file.name, size: file.size, type: file.type })
-          imageBlob = await fileToBlob(file)
-
-          // 輕度壓縮：優先保持品質，單個檔案限制 < 2MB（Base64編碼後 < 2.7MB）
-          let compressionAttempts = 0
-          let targetSize = 2 * 1024 * 1024  // 2MB（保持高品質）
-
-          // Safari 用 JPEG，其他用 WebP
-          const outputFormat = getDefaultImageFormat()
-
-          while (imageBlob.size > targetSize && compressionAttempts < 3) {
-            console.log(`⚠️ ${file.name} 第 ${compressionAttempts + 1} 次壓縮...`, { currentSize: imageBlob.size })
-
-            const quality = 0.85 - (compressionAttempts * 0.1)  // 0.85, 0.75, 0.65（高品質）
-            const maxWidth = 2400 - (compressionAttempts * 400)  // 2400, 2000, 1600（保持大尺寸）
-
-            imageBlob = await compressImageFile(imageBlob, {
-              maxWidth,
-              quality,
-              format: outputFormat
-            })
-
-            compressionAttempts++
-            console.log(`✅ 壓縮完成 (第 ${compressionAttempts} 次)`, { compressedSize: imageBlob.size, maxWidth, quality })
-          }
-
-          if (imageBlob.size > targetSize) {
-            console.warn(`⚠️ ${file.name} 仍然過大，但已達壓縮上限`, { finalSize: imageBlob.size })
-          }
-        } else {
-          console.log('📄 處理 PDF 檔案', { name: file.name, size: file.size })
-
-          // Safari 用 JPEG，其他用 WebP
-          const pdfOutputFormat = getDefaultImageFormat()
-
-          // 轉換 PDF 所有頁面
-          const pdfBlobs = await convertPdfToImages(file, {
-            scale: 1,
-            format: pdfOutputFormat,
-            quality: 0.5
-          })
-
-          console.log(`✅ PDF 轉換完成，共 ${pdfBlobs.length} 頁`)
-
-          // 處理每一頁
-          for (let pageIndex = 0; pageIndex < pdfBlobs.length; pageIndex++) {
-            let pageBlob = pdfBlobs[pageIndex]
-
-            // PDF 每頁也需要壓縮檢查（壓縮後如果變大則保留原始）
-            if (pageBlob.size > 2 * 1024 * 1024) {
-              console.log(`⚠️ ${file.name} 第 ${pageIndex + 1} 頁過大，進行輕度壓縮...`, { originalSize: pageBlob.size })
-              const compressedPageBlob = await compressImageFile(pageBlob, {
-                maxWidth: 2000,
-                quality: 0.75,
-                format: pdfOutputFormat
-              })
-              // 只有壓縮後變小才使用
-              if (compressedPageBlob.size < pageBlob.size) {
-                pageBlob = compressedPageBlob
-                console.log('✅ 壓縮完成', { compressedSize: pageBlob.size })
-              } else {
-                console.log('⚠️ 壓縮後反而變大，使用原始', { originalSize: pageBlob.size, compressedSize: compressedPageBlob.size })
-              }
-            }
-
-            imageBlobs.push(pageBlob)
-          }
-
-          continue // 跳過下方的單一 imageBlob 處理
+        let compressionAttempts = 0
+        while (imageBlob.size > targetSize && compressionAttempts < 3) {
+          const quality = 0.85 - (compressionAttempts * 0.1)
+          const maxWidth = 2400 - (compressionAttempts * 400)
+          imageBlob = await compressImageFile(imageBlob, { maxWidth, quality, format: outputFormat })
+          compressionAttempts++
         }
 
         imageBlobs.push(imageBlob)
@@ -1395,8 +1400,92 @@ export default function AssignmentSetup({
       if (extractionSucceeded) {
         setAnswerKeyFile([])
         setAnswerKeyInputKey((prev) => prev + 1)
+        answerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
+        setAnswerKeyPreviewBlobs([])
       }
     }
+  }
+
+  const handleEditAnswerKeyFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+
+    for (const f of files) {
+      const t = getFileType(f)
+      if (t !== 'image' && t !== 'pdf') {
+        setEditAnswerKeyError(`不支援的檔案格式: ${f.name}，請改用圖片或 PDF`)
+        e.target.value = ''
+        return
+      }
+    }
+
+    setEditAnswerKeyFile(files)
+    setEditAnswerKeyError(null)
+    setEditAnswerKeyNotice(null)
+
+    setIsConvertingEditAnswerKey(true)
+    try {
+      const blobs: Blob[] = []
+      for (const file of files) {
+        const fileType = getFileType(file)
+        if (fileType === 'pdf') {
+          const pdfBlobs = await convertPdfToImages(file, { scale: 1, quality: 0.5 })
+          blobs.push(...pdfBlobs)
+        } else {
+          blobs.push(await fileToBlob(file))
+        }
+      }
+      const previews = blobs.map((blob, idx) => ({
+        index: idx,
+        blob,
+        url: URL.createObjectURL(blob)
+      }))
+      setEditAnswerKeyPreviewBlobs(previews)
+      setShowEditAnswerKeyPreview(true)
+    } catch (err) {
+      console.error('轉換預覽失敗', err)
+      setEditAnswerKeyError(err instanceof Error ? err.message : '轉換預覽失敗')
+    } finally {
+      setIsConvertingEditAnswerKey(false)
+    }
+  }
+
+  const handleEditAnswerKeyPreviewConfirm = async (
+    order: number[],
+    rotations: Map<number, number>
+  ) => {
+    setShowEditAnswerKeyPreview(false)
+    setIsConvertingEditAnswerKey(true)
+    try {
+      const reordered: Array<{ index: number; url: string; blob: Blob }> = await Promise.all(
+        order.map(async (origIdx, newIdx) => {
+          const orig = editAnswerKeyPreviewBlobs.find(p => p.index === origIdx)!
+          const deg = rotations.get(origIdx) ?? 0
+          const blob = deg !== 0 ? await rotateImageBlob(orig.blob, deg) : orig.blob
+          return { index: newIdx, blob, url: URL.createObjectURL(blob) }
+        })
+      )
+      editAnswerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
+      setEditAnswerKeyPreviewBlobs(reordered)
+
+      const totalMB = reordered.reduce((s, p) => s + p.blob.size, 0) / 1024 / 1024
+      if (totalMB > 2.5) {
+        setEditAnswerKeyNotice(`共 ${reordered.length} 頁 (${totalMB.toFixed(1)}MB)，系統會自動壓縮並分批解析`)
+      } else {
+        setEditAnswerKeyNotice(`共 ${reordered.length} 頁，已確認順序`)
+      }
+    } catch (err) {
+      console.error('處理頁面排序失敗', err)
+      setEditAnswerKeyError(err instanceof Error ? err.message : '處理頁面排序失敗')
+    } finally {
+      setIsConvertingEditAnswerKey(false)
+    }
+  }
+
+  const handleEditAnswerKeyPreviewCancel = () => {
+    setShowEditAnswerKeyPreview(false)
+    editAnswerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
+    setEditAnswerKeyPreviewBlobs([])
+    setEditAnswerKeyFile([])
   }
 
   const handleExtractAnswerKeyForEdit = async () => {
@@ -1404,7 +1493,7 @@ export default function AssignmentSetup({
       setEditAnswerKeyError('請先選擇領域，才能擷取標準答案')
       return
     }
-    if (editAnswerKeyFile.length === 0) {
+    if (editAnswerKeyPreviewBlobs.length === 0) {
       setEditAnswerKeyError('請選擇檔案，支援 PDF 或圖片')
       return
     }
@@ -1416,33 +1505,20 @@ export default function AssignmentSetup({
       setIsExtractingAnswerKeyEdit(true)
       setEditAnswerKeyError(null)
 
-      // 所有檔案轉為 Blob 陣列（PDF → 多頁）
+      // 使用預覽中已排序/旋轉的 Blobs，再做壓縮
       const imageBlobs: Blob[] = []
-      for (const file of editAnswerKeyFile) {
-        const fileType = getFileType(file)
-        if (fileType === 'pdf') {
-          const pages = await convertPdfToImages(file, { scale: 1, format: 'image/webp', quality: 0.5 })
-          for (let pageBlob of pages) {
-            if (pageBlob.size > 1.5 * 1024 * 1024) {
-              pageBlob = await compressImageFile(pageBlob, { maxWidth: 1200, quality: 0.4, format: 'image/webp' })
-            }
-            imageBlobs.push(pageBlob)
-          }
-        } else if (fileType === 'image') {
-          let imageBlob = await fileToBlob(file)
-          let compressionAttempts = 0
-          const targetSize = 1.5 * 1024 * 1024
-          while (imageBlob.size > targetSize && compressionAttempts < 3) {
-            const quality = 0.6 - compressionAttempts * 0.15
-            const maxWidth = 1600 - compressionAttempts * 400
-            imageBlob = await compressImageFile(imageBlob, { maxWidth, quality, format: 'image/webp' })
-            compressionAttempts++
-          }
-          imageBlobs.push(imageBlob)
-        } else {
-          setEditAnswerKeyError('不支援的檔案格式，請改用圖片或 PDF')
-          return
+      const targetSize = 1.5 * 1024 * 1024
+
+      for (let i = 0; i < editAnswerKeyPreviewBlobs.length; i++) {
+        let imageBlob = editAnswerKeyPreviewBlobs[i].blob
+        let compressionAttempts = 0
+        while (imageBlob.size > targetSize && compressionAttempts < 3) {
+          const quality = 0.6 - compressionAttempts * 0.15
+          const maxWidth = 1600 - compressionAttempts * 400
+          imageBlob = await compressImageFile(imageBlob, { maxWidth, quality, format: 'image/webp' })
+          compressionAttempts++
         }
+        imageBlobs.push(imageBlob)
       }
 
       // 保存第一張圖用於重新分析
@@ -1545,6 +1621,11 @@ export default function AssignmentSetup({
           }
         }
       }
+
+      // 清理預覽
+      editAnswerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
+      setEditAnswerKeyPreviewBlobs([])
+      setEditAnswerKeyFile([])
     } catch (err) {
       console.error('❌ AI 讀取標準答案失敗', err)
       const errorMsg = err instanceof Error ? err.message : String(err)
@@ -3129,7 +3210,7 @@ export default function AssignmentSetup({
                           {createScoreMode === 'fixed_both' && `（每題 ${createFixedPerScore} 分／總分 ${createFixedTotal} 分）`}
                         </p>
                       )}
-                      <p className="mt-2 text-xs text-emerald-700">已上傳答案卷 {answerKeyFile.length} 份</p>
+                      <p className="mt-2 text-xs text-emerald-700">已上傳答案卷 {answerKeyPreviewBlobs.length} 頁</p>
                     </div>
                   </aside>
 
@@ -3402,16 +3483,18 @@ export default function AssignmentSetup({
                       data-tutorial="assignment-ai-extract"
                       onClick={handleExtractAnswerKey}
                       disabled={
-                        answerKeyFile.length === 0 || isSubmitting || isExtractingAnswerKey
+                        answerKeyPreviewBlobs.length === 0 || isSubmitting || isExtractingAnswerKey || isConvertingAnswerKey
                       }
                       className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
                     >
-                      {isExtractingAnswerKey && (
+                      {(isExtractingAnswerKey || isConvertingAnswerKey) && (
                         <Loader className="w-4 h-4 animate-spin" />
                       )}
-                      {isExtractingAnswerKey
-                        ? 'AI 解析中…'
-                        : `使用 AI 解析並合併答案${answerKeyFile.length > 0 ? ` (${answerKeyFile.length} 個檔案)` : ''}`}
+                      {isConvertingAnswerKey
+                        ? '處理中…'
+                        : isExtractingAnswerKey
+                          ? 'AI 解析中…'
+                          : `使用 AI 解析並合併答案${answerKeyPreviewBlobs.length > 0 ? ` (${answerKeyPreviewBlobs.length} 頁)` : ''}`}
                     </button>
                     {answerKey && answerKey.questions.some(q => q.needsReanalysis) && (
                       <button
@@ -4000,12 +4083,8 @@ export default function AssignmentSetup({
                   type="file"
                   accept="image/*,application/pdf"
                   multiple
-                  onChange={(e) => {
-                    setEditAnswerKeyFile(Array.from(e.target.files || []))
-                    setEditAnswerKeyError(null)
-                    setEditAnswerKeyNotice(null)
-                  }}
-                  disabled={isExtractingAnswerKeyEdit}
+                  onChange={handleEditAnswerKeyFileChange}
+                  disabled={isExtractingAnswerKeyEdit || isConvertingEditAnswerKey}
                   className="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
                 />
                 <p className="text-xs text-gray-500 mt-1">
@@ -4024,16 +4103,18 @@ export default function AssignmentSetup({
                     type="button"
                     onClick={handleExtractAnswerKeyForEdit}
                     disabled={
-                      editAnswerKeyFile.length === 0 || isExtractingAnswerKeyEdit
+                      editAnswerKeyPreviewBlobs.length === 0 || isExtractingAnswerKeyEdit || isConvertingEditAnswerKey
                     }
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
-                    {isExtractingAnswerKeyEdit && (
+                    {(isExtractingAnswerKeyEdit || isConvertingEditAnswerKey) && (
                       <Loader className="w-4 h-4 animate-spin" />
                     )}
-                    {isExtractingAnswerKeyEdit
-                      ? 'AI 解析中…'
-                      : '使用 AI 解析並合併答案'}
+                    {isConvertingEditAnswerKey
+                      ? '處理中…'
+                      : isExtractingAnswerKeyEdit
+                        ? 'AI 解析中…'
+                        : `使用 AI 解析並合併答案${editAnswerKeyPreviewBlobs.length > 0 ? ` (${editAnswerKeyPreviewBlobs.length} 頁)` : ''}`}
                   </button>
                   <button
                     type="button"
@@ -4823,6 +4904,24 @@ export default function AssignmentSetup({
             </div>
           </div>
         </div>
+      )}
+
+      {/* 建立作業：標準答案頁面排序 */}
+      {showAnswerKeyPreview && answerKeyPreviewBlobs.length > 0 && (
+        <PageOrderModal
+          pages={answerKeyPreviewBlobs}
+          onConfirm={handleAnswerKeyPreviewConfirm}
+          onCancel={handleAnswerKeyPreviewCancel}
+        />
+      )}
+
+      {/* 編輯作業：標準答案頁面排序 */}
+      {showEditAnswerKeyPreview && editAnswerKeyPreviewBlobs.length > 0 && (
+        <PageOrderModal
+          pages={editAnswerKeyPreviewBlobs}
+          onConfirm={handleEditAnswerKeyPreviewConfirm}
+          onCancel={handleEditAnswerKeyPreviewCancel}
+        />
       )}
 
       {/* 引导式教学覆盖层 */}
