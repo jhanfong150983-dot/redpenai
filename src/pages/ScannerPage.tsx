@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import Webcam from 'react-webcam'
 import { Camera, Mic, MicOff, CheckCircle, AlertCircle, Upload, X, ShoppingCart } from 'lucide-react'
+import CameraGuideOverlay from '@/components/CameraGuideOverlay'
 import { useSeatController } from '@/hooks/useSeatController'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
@@ -935,6 +936,9 @@ export default function ScannerPage({
         }}
         className="absolute inset-0 w-full h-full object-cover"
       />
+
+      {/* 拍照引導層：引導框 + 水平儀 */}
+      <CameraGuideOverlay isLandscape={isLandscape} />
 
       {/* 成功提示動畫 - 作業飛入收集籃 */}
       {captureSuccess && (

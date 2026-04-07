@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 import Webcam from 'react-webcam'
 import { Camera, Upload, ArrowLeft, Loader, AlertCircle, CheckCircle, CameraOff, RefreshCw } from 'lucide-react'
 import { compressImage } from '@/lib/imageCompression'
+import CameraGuideOverlay from '@/components/CameraGuideOverlay'
 
 interface CameraCapturePageProps {
   studentId: string
@@ -187,6 +188,9 @@ export default function CameraCapturePage({
         onUserMediaError={handleCameraError}
         className="absolute inset-0 w-full h-full object-cover"
       />
+
+      {/* 拍照引導層：引導框 + 水平儀 */}
+      {!cameraError && <CameraGuideOverlay isLandscape={isLandscape} />}
 
       {/* 相機授權失敗畫面 */}
       {cameraError && (
