@@ -3,6 +3,7 @@ import Webcam from 'react-webcam'
 import { Camera, Upload, ArrowLeft, Loader, AlertCircle, CheckCircle, CameraOff, RefreshCw } from 'lucide-react'
 import { compressImage } from '@/lib/imageCompression'
 import CameraGuideOverlay from '@/components/CameraGuideOverlay'
+import { useGyroscope } from '@/hooks/useGyroscope'
 
 interface CameraCapturePageProps {
   studentId: string
@@ -33,6 +34,9 @@ export default function CameraCapturePage({
   const [cameraError, setCameraError] = useState<CameraErrorType>(null)
   const [webcamKey, setWebcamKey] = useState(0)
   const [retryCount, setRetryCount] = useState(0)
+  const [showGate, setShowGate] = useState(true)
+
+  const gyro = useGyroscope()
 
   // 調試：檢查 props
   useEffect(() => {
@@ -190,7 +194,85 @@ export default function CameraCapturePage({
       />
 
       {/* 拍照引導層：引導框 + 水平儀 */}
-      {!cameraError && <CameraGuideOverlay isLandscape={isLandscape} />}
+      {!cameraError && !showGate && (
+        <CameraGuideOverlay
+          isLandscape={isLandscape}
+          tiltStatus={gyro.tiltStatus}
+          tiltAngle={gyro.tiltAngle}
+        />
+      )}
+
+      {/* 準備拍照閘門畫面 */}
+      {showGate && !cameraError && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm px-6 text-center">
+          {gyro.permissionDenied ? (
+            <>
+              <div className="w-16 h-16 rounded-full bg-amber-500/20 flex items-center justify-center mb-4">
+                <AlertCircle className="w-8 h-8 text-amber-400" />
+              </div>
+              <h2 className="text-lg font-bold text-white mb-2">需要角度感測權限</h2>
+              <p className="text-sm text-slate-300 mb-1">
+                你剛才拒絕了動態感測權限。
+              </p>
+              <p className="text-sm text-slate-300 mb-6">
+                請按下方按鈕重新整理頁面，並在彈出視窗時按<strong className="text-white">「允許」</strong>。
+              </p>
+              <button
+                type="button"
+                onClick={() => location.reload()}
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-8 py-3 text-sm font-semibold text-white hover:bg-amber-500 active:scale-95 transition"
+              >
+                <RefreshCw className="h-4 w-4" />
+                重新整理頁面
+              </button>
+              <button
+                type="button"
+                onClick={onBack}
+                className="mt-3 text-sm text-slate-400 hover:text-slate-200"
+              >
+                返回
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="w-16 h-16 rounded-full bg-sky-500/20 flex items-center justify-center mb-4">
+                <Camera className="w-8 h-8 text-sky-400" />
+              </div>
+              <h2 className="text-lg font-bold text-white mb-2">準備拍照</h2>
+              <p className="text-sm text-slate-300 mb-1">
+                座號 {seatNumber}　{name}
+              </p>
+              <p className="text-sm text-slate-400 mb-6">
+                系統會開啟角度輔助，幫助你拍出清晰的作業照片。
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (gyro.needsPermission) {
+                    await gyro.requestPermission()
+                  }
+                  // 不論結果（granted / denied / not-needed），
+                  // 如果沒有 permissionDenied 就進入相機
+                  if (!gyro.permissionDenied) {
+                    setShowGate(false)
+                  }
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-8 py-3 text-sm font-semibold text-white hover:bg-sky-500 active:scale-95 transition"
+              >
+                <Camera className="h-4 w-4" />
+                開始拍照
+              </button>
+              <button
+                type="button"
+                onClick={onBack}
+                className="mt-3 text-sm text-slate-400 hover:text-slate-200"
+              >
+                返回
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* 相機授權失敗畫面 */}
       {cameraError && (

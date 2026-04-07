@@ -1,7 +1,8 @@
 import { useRef, useState, useEffect, useCallback } from 'react'
 import Webcam from 'react-webcam'
-import { Camera, Mic, MicOff, CheckCircle, AlertCircle, Upload, X, ShoppingCart } from 'lucide-react'
+import { Camera, Mic, MicOff, CheckCircle, AlertCircle, Upload, X, ShoppingCart, RefreshCw } from 'lucide-react'
 import CameraGuideOverlay from '@/components/CameraGuideOverlay'
+import { useGyroscope } from '@/hooks/useGyroscope'
 import { useSeatController } from '@/hooks/useSeatController'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
@@ -108,7 +109,9 @@ export default function ScannerPage({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isLandscape, setIsLandscape] = useState(false)
   const [previewStudentId, setPreviewStudentId] = useState<string | null>(null)
+  const [showGate, setShowGate] = useState(true)
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
+  const gyro = useGyroscope()
 
   // 調試：打印接收到的 props
   useEffect(() => {
@@ -938,7 +941,66 @@ export default function ScannerPage({
       />
 
       {/* 拍照引導層：引導框 + 水平儀 */}
-      <CameraGuideOverlay isLandscape={isLandscape} />
+      {!showGate && (
+        <CameraGuideOverlay
+          isLandscape={isLandscape}
+          tiltStatus={gyro.tiltStatus}
+          tiltAngle={gyro.tiltAngle}
+        />
+      )}
+
+      {/* 準備拍照閘門畫面 */}
+      {showGate && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm px-6 text-center">
+          {gyro.permissionDenied ? (
+            <>
+              <div className="w-16 h-16 rounded-full bg-amber-500/20 flex items-center justify-center mb-4">
+                <AlertCircle className="w-8 h-8 text-amber-400" />
+              </div>
+              <h2 className="text-lg font-bold text-white mb-2">需要角度感測權限</h2>
+              <p className="text-sm text-slate-300 mb-1">
+                你剛才拒絕了動態感測權限。
+              </p>
+              <p className="text-sm text-slate-300 mb-6">
+                請按下方按鈕重新整理頁面，並在彈出視窗時按<strong className="text-white">「允許」</strong>。
+              </p>
+              <button
+                type="button"
+                onClick={() => location.reload()}
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-8 py-3 text-sm font-semibold text-white hover:bg-amber-500 active:scale-95 transition"
+              >
+                <RefreshCw className="h-4 w-4" />
+                重新整理頁面
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="w-16 h-16 rounded-full bg-sky-500/20 flex items-center justify-center mb-4">
+                <Camera className="w-8 h-8 text-sky-400" />
+              </div>
+              <h2 className="text-lg font-bold text-white mb-2">準備掃描</h2>
+              <p className="text-sm text-slate-400 mb-6">
+                系統會開啟角度輔助，幫助你拍出清晰的作業照片。
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (gyro.needsPermission) {
+                    await gyro.requestPermission()
+                  }
+                  if (!gyro.permissionDenied) {
+                    setShowGate(false)
+                  }
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-8 py-3 text-sm font-semibold text-white hover:bg-sky-500 active:scale-95 transition"
+              >
+                <Camera className="h-4 w-4" />
+                開始掃描
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* 成功提示動畫 - 作業飛入收集籃 */}
       {captureSuccess && (
