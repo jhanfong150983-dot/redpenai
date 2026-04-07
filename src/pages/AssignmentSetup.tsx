@@ -1189,8 +1189,9 @@ export default function AssignmentSetup({
   ) => {
     setShowAnswerKeyPreview(false)
     setIsConvertingAnswerKey(true)
+    let reordered: Array<{ index: number; url: string; blob: Blob }> = []
     try {
-      const reordered: Array<{ index: number; url: string; blob: Blob }> = await Promise.all(
+      reordered = await Promise.all(
         order.map(async (origIdx, newIdx) => {
           const orig = answerKeyPreviewBlobs.find(p => p.index === origIdx)!
           const deg = rotations.get(origIdx) ?? 0
@@ -1202,18 +1203,16 @@ export default function AssignmentSetup({
       answerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
       setAnswerKeyPreviewBlobs(reordered)
 
-      const totalMB = reordered.reduce((s, p) => s + p.blob.size, 0) / 1024 / 1024
-      if (totalMB > 2.5) {
-        setAnswerKeyNotice(`共 ${reordered.length} 頁 (${totalMB.toFixed(1)}MB)，系統會自動壓縮並分批解析`)
-      } else {
-        setAnswerKeyNotice(`共 ${reordered.length} 頁，已確認順序`)
-      }
+      setAnswerKeyNotice(`共 ${reordered.length} 頁，開始 AI 解析…`)
     } catch (err) {
       console.error('處理頁面排序失敗', err)
       setAnswerKeyError(err instanceof Error ? err.message : '處理頁面排序失敗')
+      return
     } finally {
       setIsConvertingAnswerKey(false)
     }
+    // 確認後直接送 AI 解析
+    await handleExtractAnswerKey(reordered)
   }
 
   const handleAnswerKeyPreviewCancel = () => {
@@ -1224,12 +1223,13 @@ export default function AssignmentSetup({
     setAnswerKeyInputKey(prev => prev + 1)
   }
 
-  const handleExtractAnswerKey = async () => {
+  const handleExtractAnswerKey = async (overrideBlobs?: Array<{ index: number; url: string; blob: Blob }>) => {
     if (!assignmentDomain) {
       setAnswerKeyError('請先選擇領域，才能擷取標準答案')
       return
     }
-    if (answerKeyPreviewBlobs.length === 0) {
+    const blobs = overrideBlobs ?? answerKeyPreviewBlobs
+    if (blobs.length === 0) {
       setAnswerKeyError('請選擇檔案，支援 PDF 或圖片')
       return
     }
@@ -1237,7 +1237,7 @@ export default function AssignmentSetup({
       return
     }
 
-    console.log(`📋 開始提取標準答案... (${answerKeyPreviewBlobs.length} 頁)`, { domain: assignmentDomain })
+    console.log(`📋 開始提取標準答案... (${blobs.length} 頁)`, { domain: assignmentDomain })
 
     let extractionSucceeded = false
     try {
@@ -1249,8 +1249,8 @@ export default function AssignmentSetup({
       const outputFormat = getDefaultImageFormat()
       const targetSize = 2 * 1024 * 1024
 
-      for (let i = 0; i < answerKeyPreviewBlobs.length; i++) {
-        let imageBlob = answerKeyPreviewBlobs[i].blob
+      for (let i = 0; i < blobs.length; i++) {
+        let imageBlob = blobs[i].blob
 
         let compressionAttempts = 0
         while (imageBlob.size > targetSize && compressionAttempts < 3) {
@@ -1455,8 +1455,9 @@ export default function AssignmentSetup({
   ) => {
     setShowEditAnswerKeyPreview(false)
     setIsConvertingEditAnswerKey(true)
+    let reordered: Array<{ index: number; url: string; blob: Blob }> = []
     try {
-      const reordered: Array<{ index: number; url: string; blob: Blob }> = await Promise.all(
+      reordered = await Promise.all(
         order.map(async (origIdx, newIdx) => {
           const orig = editAnswerKeyPreviewBlobs.find(p => p.index === origIdx)!
           const deg = rotations.get(origIdx) ?? 0
@@ -1467,18 +1468,16 @@ export default function AssignmentSetup({
       editAnswerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
       setEditAnswerKeyPreviewBlobs(reordered)
 
-      const totalMB = reordered.reduce((s, p) => s + p.blob.size, 0) / 1024 / 1024
-      if (totalMB > 2.5) {
-        setEditAnswerKeyNotice(`共 ${reordered.length} 頁 (${totalMB.toFixed(1)}MB)，系統會自動壓縮並分批解析`)
-      } else {
-        setEditAnswerKeyNotice(`共 ${reordered.length} 頁，已確認順序`)
-      }
+      setEditAnswerKeyNotice(`共 ${reordered.length} 頁，開始 AI 解析…`)
     } catch (err) {
       console.error('處理頁面排序失敗', err)
       setEditAnswerKeyError(err instanceof Error ? err.message : '處理頁面排序失敗')
+      return
     } finally {
       setIsConvertingEditAnswerKey(false)
     }
+    // 確認後直接送 AI 解析
+    await handleExtractAnswerKeyForEdit(reordered)
   }
 
   const handleEditAnswerKeyPreviewCancel = () => {
@@ -1488,12 +1487,13 @@ export default function AssignmentSetup({
     setEditAnswerKeyFile([])
   }
 
-  const handleExtractAnswerKeyForEdit = async () => {
+  const handleExtractAnswerKeyForEdit = async (overrideBlobs?: Array<{ index: number; url: string; blob: Blob }>) => {
     if (!editingDomain) {
       setEditAnswerKeyError('請先選擇領域，才能擷取標準答案')
       return
     }
-    if (editAnswerKeyPreviewBlobs.length === 0) {
+    const blobs = overrideBlobs ?? editAnswerKeyPreviewBlobs
+    if (blobs.length === 0) {
       setEditAnswerKeyError('請選擇檔案，支援 PDF 或圖片')
       return
     }
@@ -1509,8 +1509,8 @@ export default function AssignmentSetup({
       const imageBlobs: Blob[] = []
       const targetSize = 1.5 * 1024 * 1024
 
-      for (let i = 0; i < editAnswerKeyPreviewBlobs.length; i++) {
-        let imageBlob = editAnswerKeyPreviewBlobs[i].blob
+      for (let i = 0; i < blobs.length; i++) {
+        let imageBlob = blobs[i].blob
         let compressionAttempts = 0
         while (imageBlob.size > targetSize && compressionAttempts < 3) {
           const quality = 0.6 - compressionAttempts * 0.15
@@ -3467,7 +3467,7 @@ export default function AssignmentSetup({
                     accept="image/*,application/pdf"
                     multiple
                     onChange={handleAnswerKeyFileChange}
-                    disabled={isSubmitting || isExtractingAnswerKey}
+                    disabled={isSubmitting || isExtractingAnswerKey || isConvertingAnswerKey}
                     className="block w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
                   />
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -3478,24 +3478,12 @@ export default function AssignmentSetup({
                     </ul>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      data-tutorial="assignment-ai-extract"
-                      onClick={handleExtractAnswerKey}
-                      disabled={
-                        answerKeyPreviewBlobs.length === 0 || isSubmitting || isExtractingAnswerKey || isConvertingAnswerKey
-                      }
-                      className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
-                    >
-                      {(isExtractingAnswerKey || isConvertingAnswerKey) && (
+                    {isExtractingAnswerKey && (
+                      <span className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-100 text-emerald-700 text-sm">
                         <Loader className="w-4 h-4 animate-spin" />
-                      )}
-                      {isConvertingAnswerKey
-                        ? '處理中…'
-                        : isExtractingAnswerKey
-                          ? 'AI 解析中…'
-                          : `使用 AI 解析並合併答案${answerKeyPreviewBlobs.length > 0 ? ` (${answerKeyPreviewBlobs.length} 頁)` : ''}`}
-                    </button>
+                        AI 解析中…
+                      </span>
+                    )}
                     {answerKey && answerKey.questions.some(q => q.needsReanalysis) && (
                       <button
                         type="button"
@@ -4099,23 +4087,12 @@ export default function AssignmentSetup({
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleExtractAnswerKeyForEdit}
-                    disabled={
-                      editAnswerKeyPreviewBlobs.length === 0 || isExtractingAnswerKeyEdit || isConvertingEditAnswerKey
-                    }
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  >
-                    {(isExtractingAnswerKeyEdit || isConvertingEditAnswerKey) && (
+                  {isExtractingAnswerKeyEdit && (
+                    <span className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-100 text-green-700 text-sm">
                       <Loader className="w-4 h-4 animate-spin" />
-                    )}
-                    {isConvertingEditAnswerKey
-                      ? '處理中…'
-                      : isExtractingAnswerKeyEdit
-                        ? 'AI 解析中…'
-                        : `使用 AI 解析並合併答案${editAnswerKeyPreviewBlobs.length > 0 ? ` (${editAnswerKeyPreviewBlobs.length} 頁)` : ''}`}
-                  </button>
+                      AI 解析中…
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={() => addQuestionRow('edit')}
