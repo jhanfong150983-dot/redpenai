@@ -3,11 +3,11 @@ import {
   ArrowLeft,
   FileImage,
   Loader,
-  RotateCw,
   Settings,
   Users,
   X
 } from 'lucide-react'
+import PageOrderModal from '@/components/PageOrderModal'
 import { NumericInput } from '@/components/NumericInput'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import type { Assignment, Student, Submission } from '@/lib/db'
@@ -178,7 +178,7 @@ export default function AssignmentImport({
   const [selectedMappingIndex, setSelectedMappingIndex] = useState(0)
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const [rotation, setRotation] = useState(0) // 0, 90, 180, 270
+  const [phase, setPhase] = useState<'select' | 'order-pages' | 'applying' | 'edit-mapping'>('select')
 
   // 計算班級中缺少的座號（跳號）
   const missingSeatNumbers = useMemo(() => {
@@ -272,6 +272,7 @@ export default function AssignmentImport({
     if (pages.length === 0 || students.length === 0) {
       return
     }
+    if (phase !== 'edit-mapping') return
 
     // 延遲一下讓 state 更新完成
     const timer = setTimeout(() => {
@@ -284,7 +285,8 @@ export default function AssignmentImport({
     startSeat,
     absentSeatsInput,
     students.length,
-    missingSeatNumbers.length
+    missingSeatNumbers.length,
+    phase
   ])
 
   // 智能檢測缺考座號
@@ -362,6 +364,7 @@ export default function AssignmentImport({
     setPages([])
     setMappings([])
     setSelectedMappingIndex(0)
+    setPhase('select')
 
     try {
       // 轉換為陣列並驗證檔案類型
@@ -408,6 +411,7 @@ export default function AssignmentImport({
     }))
 
     setPages(previews)
+    setPhase('order-pages')
     setIsUploading(false)
   }
 
@@ -437,6 +441,7 @@ export default function AssignmentImport({
       }))
 
       setPages(previews)
+      setPhase('order-pages')
       setFileName(`已串接 ${uploadedFiles.length} 個 PDF（共 ${previews.length} 頁）`)
       setUploadedFiles([])
 
@@ -454,6 +459,48 @@ export default function AssignmentImport({
     setShowMergeConfirm(false)
     setUploadedFiles([])
     setIsUploading(false)
+  }
+
+  const handlePageOrderConfirm = async (
+    order: number[],
+    rotations: Map<number, number>
+  ) => {
+    setPhase('applying')
+    setError(null)
+
+    try {
+      const newPages: PagePreview[] = await Promise.all(
+        order.map(async (origIdx, newIdx) => {
+          const origPage = pages.find((p) => p.index === origIdx)!
+          const deg = rotations.get(origIdx) ?? 0
+
+          const blob =
+            deg !== 0
+              ? await rotateImageBlob(origPage.blob, deg)
+              : origPage.blob
+
+          return {
+            index: newIdx,
+            blob,
+            url: URL.createObjectURL(blob)
+          }
+        })
+      )
+
+      setPages(newPages)
+      setPhase('edit-mapping')
+    } catch (e) {
+      console.error(e)
+      setError(e instanceof Error ? e.message : '處理頁面排序失敗')
+      setPhase('order-pages')
+    }
+  }
+
+  const handlePageOrderCancel = () => {
+    setPages([])
+    setMappings([])
+    setFileName('')
+    setPhase('select')
   }
 
   const handleAutoMap = () => {
@@ -559,9 +606,9 @@ export default function AssignmentImport({
       }
     }
 
-    // 送出前確認圖片方向
+    // 送出前確認
     const orientationConfirmed = confirm(
-      `❗ 送出前請確認：\n\n• 所有頁面方向是否正確？\n• 圖片不可以倒置或歪斜\n• 否則可能影響 AI 辨識結果\n\n如需旋轉，請點擊預覽區的旋轉按鈕。\n\n確認要送出嗎？`
+      `❗ 送出前請確認：\n\n• 所有頁面方向是否正確？\n• 頁面順序是否正確？\n• 圖片不可以倒置或歪斜\n• 否則可能影響 AI 辨識結果\n\n確認要送出嗎？`
     )
     if (!orientationConfirmed) {
       return
@@ -575,18 +622,11 @@ export default function AssignmentImport({
 
       for (const mapping of mappings) {
         // 先取得原始 Blobs
-        let pageBlobs = pages
+        const pageBlobs = pages
           .filter((p) => p.index >= mapping.fromIndex && p.index <= mapping.toIndex)
           .map((p) => p.blob)
 
         if (pageBlobs.length === 0) continue
-
-        // 如果有旋轉，先旋轉每個頁面
-        if (rotation !== 0) {
-          pageBlobs = await Promise.all(
-            pageBlobs.map((blob) => rotateImageBlob(blob, rotation))
-          )
-        }
 
         const mergeResult = pageBlobs.length === 1
           ? { blob: pageBlobs[0], pageBreaks: [] as number[] }
@@ -905,7 +945,7 @@ export default function AssignmentImport({
         </div>
 
         {/* 2. 左右分欄：左側學生列表 + 右側預覽 */}
-        {mappings.length > 0 && (
+        {phase === 'edit-mapping' && mappings.length > 0 && (
           <div className="grid lg:grid-cols-[350px_1fr] gap-4 mb-6">
             {/* 左側：學生選單 */}
             <div className="bg-white rounded-xl border border-slate-200 p-4 md:p-5">
@@ -1007,16 +1047,6 @@ export default function AssignmentImport({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-semibold text-gray-700">頁面預覽</h2>
-                {pages.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setRotation((r) => (r + 90) % 360)}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-colors"
-                    title="旋轉 90°"
-                  >
-                    <RotateCw className="w-4 h-4" />
-                  </button>
-                )}
               </div>
               {selectedMapping && (
                 <p className="text-xs text-gray-500">
@@ -1041,12 +1071,10 @@ export default function AssignmentImport({
                       第 {p.index + 1} 頁
                     </div>
                     <div className="aspect-[3/4] bg-white overflow-hidden">
-                      {/* eslint-disable-next-line jsx-a11y/img-redundant-alt */}
                       <img
                         src={p.url}
                         alt={`第 ${p.index + 1} 頁預覽`}
-                        className="w-full h-full object-contain transition-transform"
-                        style={{ transform: `rotate(${rotation}deg)` }}
+                        className="w-full h-full object-contain"
                       />
                     </div>
                   </div>
@@ -1065,6 +1093,26 @@ export default function AssignmentImport({
         )}
 
       </div>
+
+      {/* 頁面排序 Modal */}
+      {phase === 'order-pages' && pages.length > 0 && (
+        <PageOrderModal
+          pages={pages}
+          onConfirm={handlePageOrderConfirm}
+          onCancel={handlePageOrderCancel}
+        />
+      )}
+
+      {/* 套用旋轉 Loading */}
+      {phase === 'applying' && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-2xl px-8 py-6 text-center">
+            <Loader className="w-10 h-10 text-green-600 mx-auto mb-3 animate-spin" />
+            <p className="text-sm font-medium text-gray-700">正在套用旋轉並配對頁面...</p>
+          </div>
+        </div>
+      )}
+
       {isPreviewModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] overflow-hidden">
@@ -1089,15 +1137,6 @@ export default function AssignmentImport({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setRotation((r) => (r + 90) % 360)}
-                  className="p-2 rounded-full hover:bg-gray-100 text-gray-500 flex items-center gap-1"
-                  title="旋轉 90°"
-                >
-                  <RotateCw className="w-5 h-5" />
-                  <span className="text-xs">旋轉</span>
-                </button>
                 <button
                   type="button"
                   onClick={() => setIsPreviewModalOpen(false)}
@@ -1127,8 +1166,7 @@ export default function AssignmentImport({
                         <img
                           src={p.url}
                           alt={`第 ${p.index + 1} 頁預覽`}
-                          className="max-h-[75vh] w-full object-contain bg-white transition-transform"
-                          style={{ transform: `rotate(${rotation}deg)` }}
+                          className="max-h-[75vh] w-full object-contain bg-white"
                         />
                       </div>
                     </div>
