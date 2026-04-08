@@ -1302,9 +1302,24 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 題型判斷與擷取規則：
 
 ▸ 【最高優先】如果題目有明確填答空格（＿＿＿、(   )、（   ）、□ 內直接填值）：
-  - 單一標準答案 → questionCategory: "fill_blank"
-  - 多種可接受答案 → questionCategory: "fill_variants"
-  - 即使題目需要先計算（如比率、分數、百分率）再填空，仍屬 fill_blank / fill_variants，不是 calculation。
+  先判斷答案欄的內容型態：
+
+  ├─ 答案欄【只有最終值】（如 "20%"、"12 公分"、"3/4"，沒有算符或中間步驟）：
+  │   - 單一標準答案 → questionCategory: "fill_blank"
+  │   - 多種可接受答案 → questionCategory: "fill_variants"
+  │
+  └─ 答案欄【含完整計算過程】（有算符 ÷、×、+、- 且含中間步驟，如 8÷40=0.2=20%）：
+      → 同一子項目建立【兩題】：
+        ① 原題號（如 "1-1-A"）：questionCategory: "fill_blank"，answer = 最終值（如 "20%"）
+           對應表格填空欄位，classify 框表格欄位
+        ② 題號加 "-p"（如 "1-1-A-p"）：questionCategory: "calculation"
+           referenceAnswer = 最終數值（如 "20%"）
+           rubricsDimensions: [
+             {"name": "算式過程", "criteria": "算式方向正確，過程可追蹤"},
+             {"name": "最終答案", "criteria": "最終數值正確"}
+           ]
+           對應計算過程書寫區（標有 A、B、C、D 的算式行），classify 框算式行
+      → A、B、C、D 各自分別建兩題（原題號 + 原題號-p）
 
 ▸ 如果是「繪圖題」（在座標平面畫點/線、畫幾何圖形、標註角度等）：
   - questionCategory: "short_answer"（數學繪圖，非地圖符號）

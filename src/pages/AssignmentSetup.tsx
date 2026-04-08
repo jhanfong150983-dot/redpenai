@@ -1026,7 +1026,9 @@ export default function AssignmentSetup({
   }
 
   // Detect if an answer key contains 國字注音 questions (single CJK char or phonetic-only answers)
-  const hasVocabFillQuestions = (ak: AnswerKey): boolean => {
+  // Only relevant for 國語 domain — math/science single-char answers (e.g. 倍、無) should not trigger this warning
+  const hasVocabFillQuestions = (ak: AnswerKey, domain: string): boolean => {
+    if (domain && domain !== '國語') return false
     const phoneticRe = /^[\u3105-\u312F\u02CA\u02C7\u02CB\u02D9]+$/  // bopomofo + tone marks
     const singleCjkRe = /^[\u4E00-\u9FFF]$/  // single Chinese character
     return ak.questions.some((q) => {
@@ -1365,7 +1367,7 @@ export default function AssignmentSetup({
         if (duplicateNotice) notices.push(duplicateNotice)
         if (scoreNotice) notices.push(scoreNotice)
         setAnswerKeyNotice(notices.length > 0 ? notices.join(' ') : null)
-        if (hasVocabFillQuestions(scoredKey)) {
+        if (hasVocabFillQuestions(scoredKey, assignmentDomain)) {
           setShowVocabFillWarning(true)
         }
         if (hasMultiFillQuestions(scoredKey)) {
@@ -1589,7 +1591,7 @@ export default function AssignmentSetup({
         if (duplicateNotice) notices.push(duplicateNotice)
         if (scoreNotice) notices.push(scoreNotice)
         if (notices.length > 0) setEditAnswerKeyNotice(notices.join(' '))
-        if (hasVocabFillQuestions(scoredKey)) {
+        if (hasVocabFillQuestions(scoredKey, editingDomain)) {
           setShowVocabFillWarning(true)
         }
         if (hasMultiFillQuestions(scoredKey)) {
