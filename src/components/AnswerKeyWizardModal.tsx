@@ -409,8 +409,11 @@ export default function AnswerKeyWizardModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 shrink-0">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold text-gray-900">{stepTitle[step]}</h2>
+            {step === 'results' && (
+              <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">你可以相信 AI，但你一定要認真檢查</span>
+            )}
             {step === 'results' && notice && (
-              <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">{notice}</span>
+              <span className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">{notice}</span>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -428,7 +431,7 @@ export default function AnswerKeyWizardModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden relative">
+        <div className="flex-1 overflow-hidden relative min-h-0">
 
           {/* Step 1: Page Order */}
           {step === 'page_order' && (
@@ -462,10 +465,10 @@ export default function AnswerKeyWizardModal({
 
           {/* Step 3: Results */}
           {step === 'results' && editingKey && (
-            <div className="h-full flex overflow-hidden">
+            <div className="h-full flex overflow-hidden min-h-0">
 
               {/* Left sidebar: question list */}
-              <div className="w-56 border-r border-gray-200 flex flex-col shrink-0">
+              <div className="w-56 border-r border-gray-200 flex flex-col shrink-0 min-h-0">
                 <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
                   <span className="text-xs font-medium text-gray-500">共 {editingKey.questions.length} 題</span>
                   <button type="button" onClick={addQuestion} className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-green-600" title="新增題目">
@@ -509,7 +512,7 @@ export default function AnswerKeyWizardModal({
               </div>
 
               {/* Right panel */}
-              <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 flex flex-col overflow-hidden min-h-0">
                 {selectedQuestion ? (
                   <>
                     {/* Image preview with bbox */}
@@ -547,8 +550,10 @@ export default function AnswerKeyWizardModal({
                           <Crop className="w-3 h-3" />
                           {isDrawingBbox ? '點擊拖曳框選' : '調整框選區域'}
                         </button>
-                        {selectedQuestion.referenceBbox && (
-                          <button type="button" onClick={() => updateField(selectedIdx, 'referenceBbox', undefined)} className="text-xs text-gray-400 hover:text-red-500">清除 bbox</button>
+                        {selectedQuestion.referenceBbox ? (
+                          <button type="button" onClick={() => updateField(selectedIdx, 'referenceBbox', undefined)} className="text-xs text-gray-400 hover:text-red-500">清除框選</button>
+                        ) : (
+                          <span className="text-xs text-gray-400">尚未框選（點擊按鈕後拖曳標記位置）</span>
                         )}
                       </div>
                     </div>
@@ -712,7 +717,7 @@ export default function AnswerKeyWizardModal({
                   <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
                   <h3 className="font-semibold text-gray-900 text-sm">確定送出 AI 解析？</h3>
                 </div>
-                <p className="text-xs text-gray-600 mb-4">此操作將消耗 Ink 點數，完成後現有標準答案將被更新。</p>
+                <p className="text-xs text-gray-600 mb-4">此操作將消耗墨水，完成後現有標準答案將被更新。</p>
                 <div className="flex justify-end gap-2">
                   <button type="button" onClick={() => setOverlay(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">取消</button>
                   <button type="button" onClick={() => void handleStartExtract()} className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">確認送出</button>
