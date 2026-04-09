@@ -1246,6 +1246,10 @@ export default function AssignmentSetup({
       }
       const { paths } = await res.json() as { paths: string[] }
       await db.assignments.update(assignmentId, { answerSheetImagePaths: paths })
+      // 同步更新 React state，讓後續開啟 edit modal 能讀到路徑
+      setAssignments(prev => prev.map(a =>
+        a.id === assignmentId ? { ...a, answerSheetImagePaths: paths } : a
+      ))
     } catch (err) {
       console.warn('⚠️ 答案卷圖片上傳例外', err)
     }

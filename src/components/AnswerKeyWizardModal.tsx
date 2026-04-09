@@ -139,6 +139,14 @@ export default function AnswerKeyWizardModal({
   // ── extraction result state ──
   const [editingKey, setEditingKey] = useState<AnswerKey | null>(initialAnswerKey)
   const [imageBlobs, setImageBlobs] = useState<Blob[]>(initialAnswerSheetImages.length > 0 ? initialAnswerSheetImages : [])
+
+  // 當 prop 從外部非同步載入（下載完成）時，更新 imageBlobs（前提是尚未自行提取）
+  useEffect(() => {
+    if (initialAnswerSheetImages.length > 0 && imageBlobs.length === 0) {
+      setImageBlobs(initialAnswerSheetImages)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAnswerSheetImages])
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [loadingMsg, setLoadingMsg] = useState('正在解析…')
   const [extractError, setExtractError] = useState<string | null>(null)
