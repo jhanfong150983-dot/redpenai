@@ -408,10 +408,16 @@ export default function AnswerKeyWizardModal({
     img.onload = () => {
       if (cancelled) return
       const canvas = document.createElement('canvas')
-      const sx = Math.round(img.naturalWidth * activeBbox.x)
-      const sy = Math.round(img.naturalHeight * activeBbox.y)
-      const sw = Math.max(1, Math.round(img.naturalWidth * activeBbox.w))
-      const sh = Math.max(1, Math.round(img.naturalHeight * activeBbox.h))
+      // Add 1.5% padding on each side so tight bboxes still show the full answer
+      const pad = 0.015
+      const px = Math.max(0, activeBbox.x - pad)
+      const py = Math.max(0, activeBbox.y - pad)
+      const pw = Math.min(1 - px, activeBbox.w + pad * 2)
+      const ph = Math.min(1 - py, activeBbox.h + pad * 2)
+      const sx = Math.round(img.naturalWidth * px)
+      const sy = Math.round(img.naturalHeight * py)
+      const sw = Math.max(1, Math.round(img.naturalWidth * pw))
+      const sh = Math.max(1, Math.round(img.naturalHeight * ph))
       canvas.width = sw
       canvas.height = sh
       const ctx = canvas.getContext('2d')
