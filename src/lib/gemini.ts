@@ -874,7 +874,7 @@ function buildGlobalTaskAndFormat(): string {
     "unorderedGroupId": "1", // orderMode=unordered 時必填（同組共用）
     "questionCategory": "fill_blank",  // 題型（必填，見下方分類標準）
     "maxScore": 5,                      // 滿分
-    "answerBbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05}, // 答案區塊位置（歸一化，0-1；x/y=左上角，w/h=寬高）。請框稍微寬鬆的範圍，確保完整包住學生的作答空間（含邊距）。
+    "answerBbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05}, // 答案區塊位置（歸一化，0-1；x/y=左上角，w/h=寬高）。每題根據實際視覺位置獨立標記，禁止為避免重疊而偏移；相鄰題可緊鄰或微微重疊。框稍寬鬆，完整包住作答空間。
 
     // single_choice / true_false / fill_blank / multi_check / multi_choice / single_check 專用：標準答案
     // single_choice: 括號()內填一個代號，如 "A"、"甲"、"①"（答案空間為括號）
@@ -945,6 +945,7 @@ function buildGlobalTaskAndFormat(): string {
 - 配分：圖片有就用，無則估計（是非/選擇 2-5 分，簡答 5-8 分，申論 8-15 分）
 - totalScore = 所有 maxScore 總和
 - answerBbox：每題必填，標記學生填寫答案的區域（非題幹文字）。x/y 為左上角，w/h 為寬高，均為 0-1 之間的歸一化座標（相對於所在頁面圖片的寬高）。多頁試卷：bbox 是相對於該題所在的那一張圖片。框選範圍應稍微寬鬆，完整包住作答空間（含邊距），避免裁切到答案。
+  ⚠️ 每題 bbox 必須根據圖片上的實際視覺位置獨立標記，禁止為了「避免與其他題重疊」而偏移或縮小座標。相鄰題目的 bbox 可以緊鄰或微微重疊，不需要刻意留空隙。
 - 無法辨識時回傳 {"questions": [], "totalScore": 0}
 
 【題號層級（idPath）】
