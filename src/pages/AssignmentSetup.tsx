@@ -886,6 +886,7 @@ export default function AssignmentSetup({
         orderMode,
         unorderedGroupId: orderMode === 'unordered' ? unorderedGroupId : undefined,
         referenceBbox: q?.referenceBbox,
+        answerBbox: q?.answerBbox,
         concept_code: typeof q?.concept_code === 'string' && q.concept_code ? q.concept_code : undefined,
         concept_label: typeof q?.concept_label === 'string' && q.concept_label ? q.concept_label : undefined,
       }
