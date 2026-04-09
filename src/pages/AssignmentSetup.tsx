@@ -32,11 +32,11 @@ import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages, reanalyzeQuestions, tagConceptsForAnswerKey } from '@/lib/gemini'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { convertPdfToImages, getFileType, fileToBlob, getDefaultImageFormat } from '@/lib/pdfToImage'
-import { compressImageFile, rotateImageBlob } from '@/lib/imageCompression'
+import { compressImageFile } from '@/lib/imageCompression'
 import { checkFolderNameUnique } from '@/lib/utils'
 import { useTutorial } from '@/hooks/useTutorial'
 import { TutorialOverlay } from '@/components/TutorialOverlay'
-import PageOrderModal from '@/components/PageOrderModal'
+import AnswerKeyWizardModal from '@/components/AnswerKeyWizardModal'
 
 interface AssignmentSetupProps {
   onBack?: () => void
@@ -136,21 +136,17 @@ export default function AssignmentSetup({
   const [answerKeyInputKey, setAnswerKeyInputKey] = useState(0)
   const [answerSheetImage, setAnswerSheetImage] = useState<Blob | null>(null)
   const [pendingConceptTags, setPendingConceptTags] = useState<Record<string, { code: string; label: string }> | null>(null)
-  const [isExtractingAnswerKey, setIsExtractingAnswerKey] = useState(false)
+  const [isExtractingAnswerKey] = useState(false)
   const [answerKeyError, setAnswerKeyError] = useState<string | null>(null)
   const [answerKeyNotice, setAnswerKeyNotice] = useState<string | null>(null)
 
-  // 答案卷預覽排序狀態（建立流程）
-  const [answerKeyPreviewBlobs, setAnswerKeyPreviewBlobs] = useState<Array<{ index: number; url: string; blob: Blob }>>([])  
-  const [showAnswerKeyPreview, setShowAnswerKeyPreview] = useState(false)
-  const [isConvertingAnswerKey, setIsConvertingAnswerKey] = useState(false)
+  // 答案卷 Wizard 狀態（建立流程）
+  const [showCreateWizard, setShowCreateWizard] = useState(false)
+  const [createWizardPages, setCreateWizardPages] = useState<Array<{ index: number; url: string; blob: Blob }>>([])
 
   const [isLoading, setIsLoading] = useState(true)
   const [isAssignmentsLoading, setIsAssignmentsLoading] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [showAnswerKeyConfirm, setShowAnswerKeyConfirm] = useState(false)
-  const [showVocabFillWarning, setShowVocabFillWarning] = useState(false)
-  const [showMultiFillWarning, setShowMultiFillWarning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const isInkNegative = typeof inkBalance === 'number' && inkBalance < 0
   const canCreateAssignment = !isInkNegative
@@ -201,10 +197,9 @@ export default function AssignmentSetup({
     null
   )
 
-  // 答案卷預覽排序狀態（編輯流程）
-  const [editAnswerKeyPreviewBlobs, setEditAnswerKeyPreviewBlobs] = useState<Array<{ index: number; url: string; blob: Blob }>>([])  
-  const [showEditAnswerKeyPreview, setShowEditAnswerKeyPreview] = useState(false)
-  const [isConvertingEditAnswerKey, setIsConvertingEditAnswerKey] = useState(false)
+  // 答案卷 Wizard 狀態（編輯流程）
+  const [showEditWizard, setShowEditWizard] = useState(false)
+  const [editWizardPages, setEditWizardPages] = useState<Array<{ index: number; url: string; blob: Blob }>>([])
   const [inkSessionReady, setInkSessionReady] = useState(false)
   const [inkSessionError, setInkSessionError] = useState<string | null>(null)
   const [isClosingSession, setIsClosingSession] = useState(false)
@@ -1020,23 +1015,6 @@ export default function AssignmentSetup({
     }
   }
 
-  // Detect if an answer key contains multi_fill questions
-  const hasMultiFillQuestions = (ak: AnswerKey): boolean => {
-    return ak.questions.some(q => getEffectiveCategory(q) === 'multi_fill')
-  }
-
-  // Detect if an answer key contains 國字注音 questions (single CJK char or phonetic-only answers)
-  // Only relevant for 國語 domain — math/science single-char answers (e.g. 倍、無) should not trigger this warning
-  const hasVocabFillQuestions = (ak: AnswerKey, domain: string): boolean => {
-    if (domain && domain !== '國語') return false
-    const phoneticRe = /^[\u3105-\u312F\u02CA\u02C7\u02CB\u02D9]+$/  // bopomofo + tone marks
-    const singleCjkRe = /^[\u4E00-\u9FFF]$/  // single Chinese character
-    return ak.questions.some((q) => {
-      const ans = q.answer ?? q.referenceAnswer ?? ''
-      return singleCjkRe.test(ans.trim()) || phoneticRe.test(ans.trim())
-    })
-  }
-
   const fetchConceptMapForCurrentClassroom = async (): Promise<{ code: string; label: string }[]> => {
     const classroom = classrooms.find(c => c.id === selectedClassroomId)
     if (!classroom?.grade) return []
@@ -1108,11 +1086,10 @@ export default function AssignmentSetup({
     }
 
 
-    setShowAnswerKeyConfirm(true)
+    void doCreateAssignment()
   }
 
   const doCreateAssignment = async () => {
-    setShowAnswerKeyConfirm(false)
     setIsSubmitting(true)
     try {
       const assignment: Assignment = {
@@ -1143,7 +1120,6 @@ export default function AssignmentSetup({
   const handleAnswerKeyFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || [])
 
-    // 只做類型檢查，不用原始檔大小擋掉（後續壓縮會處理）
     for (const f of files) {
       const t = getFileType(f)
       if (t !== 'image' && t !== 'pdf') {
@@ -1157,8 +1133,6 @@ export default function AssignmentSetup({
     setAnswerKeyError(null)
     setAnswerKeyNotice(null)
 
-    // 轉換檔案為 Blob 預覽
-    setIsConvertingAnswerKey(true)
     try {
       const blobs: Blob[] = []
       for (const file of files) {
@@ -1170,242 +1144,117 @@ export default function AssignmentSetup({
           blobs.push(await fileToBlob(file))
         }
       }
-      const previews = blobs.map((blob, idx) => ({
-        index: idx,
-        blob,
-        url: URL.createObjectURL(blob)
-      }))
-      setAnswerKeyPreviewBlobs(previews)
-      setShowAnswerKeyPreview(true)
+      const pages = blobs.map((blob, idx) => ({ index: idx, blob, url: URL.createObjectURL(blob) }))
+      setCreateWizardPages(pages)
+      setShowCreateWizard(true)
     } catch (err) {
       console.error('轉換預覽失敗', err)
       setAnswerKeyError(err instanceof Error ? err.message : '轉換預覽失敗')
-    } finally {
-      setIsConvertingAnswerKey(false)
     }
   }
 
-  const handleAnswerKeyPreviewConfirm = async (
-    order: number[],
-    rotations: Map<number, number>
-  ) => {
-    setShowAnswerKeyPreview(false)
-    setIsConvertingAnswerKey(true)
-    let reordered: Array<{ index: number; url: string; blob: Blob }> = []
-    try {
-      reordered = await Promise.all(
-        order.map(async (origIdx, newIdx) => {
-          const orig = answerKeyPreviewBlobs.find(p => p.index === origIdx)!
-          const deg = rotations.get(origIdx) ?? 0
-          const blob = deg !== 0 ? await rotateImageBlob(orig.blob, deg) : orig.blob
-          return { index: newIdx, blob, url: URL.createObjectURL(blob) }
-        })
-      )
-      // 釋放舊 URL
-      answerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
-      setAnswerKeyPreviewBlobs(reordered)
+  // Wizard 建立流程：AI 解析（由 wizard 呼叫）
+  const handleWizardCreateExtract = async (
+    orderedBlobs: Array<{ index: number; url: string; blob: Blob }>,
+    onProgress: (msg: string) => void
+  ): Promise<{ answerKey: AnswerKey; imageBlobs: Blob[]; notice: string | null }> => {
+    if (!assignmentDomain) throw new Error('請先選擇領域，才能擷取標準答案')
+    if (!ensureInkSessionReady(() => {})) throw new Error(inkSessionError ?? '正在建立批改會話，請稍候再試')
 
-      setAnswerKeyNotice(`共 ${reordered.length} 頁，開始 AI 解析…`)
-    } catch (err) {
-      console.error('處理頁面排序失敗', err)
-      setAnswerKeyError(err instanceof Error ? err.message : '處理頁面排序失敗')
-      return
-    } finally {
-      setIsConvertingAnswerKey(false)
-    }
-    // 確認後直接送 AI 解析
-    await handleExtractAnswerKey(reordered)
-  }
+    const imageBlobs: Blob[] = []
+    const outputFormat = getDefaultImageFormat()
+    const targetSize = 2 * 1024 * 1024
 
-  const handleAnswerKeyPreviewCancel = () => {
-    setShowAnswerKeyPreview(false)
-    answerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
-    setAnswerKeyPreviewBlobs([])
-    setAnswerKeyFile([])
-    setAnswerKeyInputKey(prev => prev + 1)
-  }
-
-  const handleExtractAnswerKey = async (overrideBlobs?: Array<{ index: number; url: string; blob: Blob }>) => {
-    if (!assignmentDomain) {
-      setAnswerKeyError('請先選擇領域，才能擷取標準答案')
-      return
-    }
-    const blobs = overrideBlobs ?? answerKeyPreviewBlobs
-    if (blobs.length === 0) {
-      setAnswerKeyError('請選擇檔案，支援 PDF 或圖片')
-      return
-    }
-    if (!ensureInkSessionReady(setAnswerKeyError)) {
-      return
-    }
-
-    console.log(`📋 開始提取標準答案... (${blobs.length} 頁)`, { domain: assignmentDomain })
-
-    let extractionSucceeded = false
-    try {
-      setIsExtractingAnswerKey(true)
-      setAnswerKeyError(null)
-
-      // 使用預覽中已排序/旋轉的 Blobs，再做壓縮
-      const imageBlobs: Blob[] = []
-      const outputFormat = getDefaultImageFormat()
-      const targetSize = 2 * 1024 * 1024
-
-      for (let i = 0; i < blobs.length; i++) {
-        let imageBlob = blobs[i].blob
-
-        let compressionAttempts = 0
-        while (imageBlob.size > targetSize && compressionAttempts < 3) {
-          const quality = 0.85 - (compressionAttempts * 0.1)
-          const maxWidth = 2400 - (compressionAttempts * 400)
-          imageBlob = await compressImageFile(imageBlob, { maxWidth, quality, format: outputFormat })
-          compressionAttempts++
-        }
-
-        imageBlobs.push(imageBlob)
+    for (const item of orderedBlobs) {
+      let imageBlob = item.blob
+      let compressionAttempts = 0
+      while (imageBlob.size > targetSize && compressionAttempts < 3) {
+        const quality = 0.85 - compressionAttempts * 0.1
+        const maxWidth = 2400 - compressionAttempts * 400
+        imageBlob = await compressImageFile(imageBlob, { maxWidth, quality, format: outputFormat })
+        compressionAttempts++
       }
+      imageBlobs.push(imageBlob)
+    }
 
-      // 自動分批：避免一次請求過大觸發 413
-      const base64Overhead = 1.33
-      const maxRequestEstimatedSize = 2 * 1024 * 1024 // 2MB（單次請求保守上限）
-      const totalSize = imageBlobs.reduce((sum, blob) => sum + blob.size, 0)
-      const estimatedBase64Size = totalSize * base64Overhead
+    const base64Overhead = 1.33
+    const maxRequestEstimatedSize = 2 * 1024 * 1024
+    const batches: Blob[][] = []
+    let currentBatch: Blob[] = []
+    let currentEstimatedSize = 0
 
-      console.log('📊 檔案大小統計', {
-        檔案數量: imageBlobs.length,
-        總大小: `${(totalSize / 1024 / 1024).toFixed(2)} MB`,
-        Base64後預估: `${(estimatedBase64Size / 1024 / 1024).toFixed(2)} MB`,
-        單次請求上限: '2 MB',
-        策略: '自動分批'
-      })
-
-      const batches: Blob[][] = []
-      let currentBatch: Blob[] = []
-      let currentEstimatedSize = 0
-
-      for (const blob of imageBlobs) {
-        const blobEstimatedSize = blob.size * base64Overhead
-
-        if (blobEstimatedSize > maxRequestEstimatedSize) {
-          setAnswerKeyError(
-            `有單一頁面過大（預估 ${(blobEstimatedSize / 1024 / 1024).toFixed(1)} MB），超過單次請求上限 2 MB。\n請提高拍照清晰度或改用分頁上傳。`
-          )
-          return
-        }
-
-        if (
-          currentBatch.length > 0 &&
-          currentEstimatedSize + blobEstimatedSize > maxRequestEstimatedSize
-        ) {
-          batches.push(currentBatch)
-          currentBatch = [blob]
-          currentEstimatedSize = blobEstimatedSize
-        } else {
-          currentBatch.push(blob)
-          currentEstimatedSize += blobEstimatedSize
-        }
+    for (const blob of imageBlobs) {
+      const blobEstimatedSize = blob.size * base64Overhead
+      if (blobEstimatedSize > maxRequestEstimatedSize) {
+        throw new Error(`有單一頁面過大（預估 ${(blobEstimatedSize / 1024 / 1024).toFixed(1)} MB），超過單次請求上限 2 MB。`)
       }
-
-      if (currentBatch.length > 0) {
+      if (currentBatch.length > 0 && currentEstimatedSize + blobEstimatedSize > maxRequestEstimatedSize) {
         batches.push(currentBatch)
-      }
-
-      if (batches.length > 1) {
-        setAnswerKeyNotice(`檔案較多，系統已自動分成 ${batches.length} 批解析並合併。`)
+        currentBatch = [blob]
+        currentEstimatedSize = blobEstimatedSize
       } else {
-        setAnswerKeyNotice(null)
-      }
-
-      // Save first image blob for re-analysis
-      if (imageBlobs.length > 0) {
-        console.log('💾 保存第一張答案卷圖片 blob 用於重新分析', { blobSize: imageBlobs[0].size })
-        setAnswerSheetImage(imageBlobs[0])
-      }
-
-      // 逐批解析並合併（避免單次 payload 過大）
-      let mergedAnswerKey = answerKey ? normalizeAnswerKey(answerKey) : null
-      let duplicateNotice: string | null = null
-
-      const batchConceptMap = await fetchConceptMapForCurrentClassroom()
-      const totalPages = imageBlobs.length  // 整份答案卷的總頁數（跨所有批次）
-      setTotalPages(totalPages)  // 自動帶入，不需手動填寫
-      let runningPageCount = 0
-
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i]
-        const startPage = runningPageCount + 1
-        console.log(`🤖 開始解析第 ${i + 1}/${batches.length} 批`, {
-          batchCount: batch.length,
-          startPage,
-          totalPages,
-          estimatedSizeMB: (batch.reduce((s, b) => s + b.size, 0) * base64Overhead / 1024 / 1024).toFixed(2)
-        })
-
-        const extracted = await extractAnswerKeyFromImages(batch, {
-          domain: assignmentDomain,
-          conceptMap: batchConceptMap.length > 0 ? batchConceptMap : undefined,
-          startPage,
-          totalPages,
-        })
-        runningPageCount += batch.length
-        const normalizedExtracted = normalizeAnswerKey(extracted)
-
-        if (mergedAnswerKey) {
-          const { merged, notice } = mergeAnswerKeys(mergedAnswerKey, normalizedExtracted)
-          mergedAnswerKey = merged
-          if (notice) duplicateNotice = notice
-        } else {
-          mergedAnswerKey = normalizedExtracted
-        }
-      }
-
-      if (mergedAnswerKey) {
-        const { answerKey: scoredKey, scoreNotice } = applyCreateScoreMode(mergedAnswerKey)
-        setAnswerKey(scoredKey)
-
-        const notices: string[] = []
-        if (duplicateNotice) notices.push(duplicateNotice)
-        if (scoreNotice) notices.push(scoreNotice)
-        setAnswerKeyNotice(notices.length > 0 ? notices.join(' ') : null)
-        if (hasVocabFillQuestions(scoredKey, assignmentDomain)) {
-          setShowVocabFillWarning(true)
-        }
-        if (hasMultiFillQuestions(scoredKey)) {
-          setShowMultiFillWarning(true)
-        }
-      } else if (duplicateNotice) {
-        setAnswerKeyNotice(duplicateNotice)
-      } else {
-        setAnswerKeyNotice(null)
-      }
-      extractionSucceeded = true
-
-      // 非同步概念標記（不阻塞主流程）
-      if (mergedAnswerKey && batchConceptMap.length > 0) {
-        const questions = mergedAnswerKey.questions.map(q => ({ id: q.id, questionCategory: q.questionCategory }))
-        const blobs = imageBlobs.slice()
-        setPendingConceptTags(null)
-        tagConceptsForAnswerKey(blobs, questions, batchConceptMap)
-          .then(tags => {
-            if (Object.keys(tags).length > 0) {
-              console.log('🏷️ 概念標記完成', tags)
-              setPendingConceptTags(tags)
-            }
-          })
-          .catch(err => console.warn('⚠️ 概念標記失敗（非致命）', err))
-      }
-    } catch (err) {
-      console.error('❌ 提取 AnswerKey 失敗：', err)
-      setAnswerKeyError(err instanceof Error ? err.message : '提取失敗')
-    } finally {
-      setIsExtractingAnswerKey(false)
-      if (extractionSucceeded) {
-        setAnswerKeyFile([])
-        setAnswerKeyInputKey((prev) => prev + 1)
-        answerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
-        setAnswerKeyPreviewBlobs([])
+        currentBatch.push(blob)
+        currentEstimatedSize += blobEstimatedSize
       }
     }
+    if (currentBatch.length > 0) batches.push(currentBatch)
+
+    const totalPages = imageBlobs.length
+    setTotalPages(totalPages)
+
+    const batchConceptMap = await fetchConceptMapForCurrentClassroom()
+    let mergedAnswerKey: AnswerKey | null = answerKey ? normalizeAnswerKey(answerKey) : null
+    let duplicateNotice: string | null = null
+    let runningPageCount = 0
+
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i]
+      const startPage = runningPageCount + 1
+      onProgress(batches.length > 1 ? `正在解析第 ${i + 1}/${batches.length} 批…` : '正在解析…')
+      const extracted = await extractAnswerKeyFromImages(batch, {
+        domain: assignmentDomain,
+        conceptMap: batchConceptMap.length > 0 ? batchConceptMap : undefined,
+        startPage,
+        totalPages,
+      })
+      runningPageCount += batch.length
+      const normalizedExtracted = normalizeAnswerKey(extracted)
+      if (mergedAnswerKey) {
+        const { merged, notice } = mergeAnswerKeys(mergedAnswerKey, normalizedExtracted)
+        mergedAnswerKey = merged
+        if (notice) duplicateNotice = notice
+      } else {
+        mergedAnswerKey = normalizedExtracted
+      }
+    }
+
+    if (!mergedAnswerKey) throw new Error('AI 未能解析出任何題目')
+
+    const { answerKey: scoredKey, scoreNotice } = applyCreateScoreMode(mergedAnswerKey)
+    const notices: string[] = []
+    if (duplicateNotice) notices.push(duplicateNotice)
+    if (scoreNotice) notices.push(scoreNotice)
+
+    // 非同步概念標記
+    if (batchConceptMap.length > 0) {
+      const questions = scoredKey.questions.map(q => ({ id: q.id, questionCategory: q.questionCategory }))
+      setPendingConceptTags(null)
+      tagConceptsForAnswerKey(imageBlobs.slice(), questions, batchConceptMap)
+        .then(tags => { if (Object.keys(tags).length > 0) setPendingConceptTags(tags) })
+        .catch(err => console.warn('⚠️ 概念標記失敗（非致命）', err))
+    }
+
+    return { answerKey: scoredKey, imageBlobs, notice: notices.length > 0 ? notices.join(' ') : null }
+  }
+
+  // Wizard 建立流程：確認標準答案
+  const handleWizardCreateSave = async (ak: AnswerKey, imageBlobs: Blob[]) => {
+    setAnswerKey(ak)
+    if (imageBlobs.length > 0) setAnswerSheetImage(imageBlobs[0])
+    setShowCreateWizard(false)
+    createWizardPages.forEach(p => URL.revokeObjectURL(p.url))
+    setCreateWizardPages([])
+    setAnswerKeyInputKey(prev => prev + 1)
   }
 
   const handleEditAnswerKeyFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -1424,7 +1273,6 @@ export default function AssignmentSetup({
     setEditAnswerKeyError(null)
     setEditAnswerKeyNotice(null)
 
-    setIsConvertingEditAnswerKey(true)
     try {
       const blobs: Blob[] = []
       for (const file of files) {
@@ -1436,205 +1284,127 @@ export default function AssignmentSetup({
           blobs.push(await fileToBlob(file))
         }
       }
-      const previews = blobs.map((blob, idx) => ({
-        index: idx,
-        blob,
-        url: URL.createObjectURL(blob)
-      }))
-      setEditAnswerKeyPreviewBlobs(previews)
-      setShowEditAnswerKeyPreview(true)
+      const pages = blobs.map((blob, idx) => ({ index: idx, blob, url: URL.createObjectURL(blob) }))
+      setEditWizardPages(pages)
+      setShowEditWizard(true)
     } catch (err) {
       console.error('轉換預覽失敗', err)
       setEditAnswerKeyError(err instanceof Error ? err.message : '轉換預覽失敗')
-    } finally {
-      setIsConvertingEditAnswerKey(false)
     }
   }
 
-  const handleEditAnswerKeyPreviewConfirm = async (
-    order: number[],
-    rotations: Map<number, number>
-  ) => {
-    setShowEditAnswerKeyPreview(false)
-    setIsConvertingEditAnswerKey(true)
-    let reordered: Array<{ index: number; url: string; blob: Blob }> = []
-    try {
-      reordered = await Promise.all(
-        order.map(async (origIdx, newIdx) => {
-          const orig = editAnswerKeyPreviewBlobs.find(p => p.index === origIdx)!
-          const deg = rotations.get(origIdx) ?? 0
-          const blob = deg !== 0 ? await rotateImageBlob(orig.blob, deg) : orig.blob
-          return { index: newIdx, blob, url: URL.createObjectURL(blob) }
-        })
-      )
-      editAnswerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
-      setEditAnswerKeyPreviewBlobs(reordered)
+  // Wizard 編輯流程：AI 解析（由 wizard 呼叫）
+  const handleWizardEditExtract = async (
+    orderedBlobs: Array<{ index: number; url: string; blob: Blob }>,
+    onProgress: (msg: string) => void
+  ): Promise<{ answerKey: AnswerKey; imageBlobs: Blob[]; notice: string | null }> => {
+    if (!editingDomain) throw new Error('請先選擇領域，才能擷取標準答案')
+    if (!ensureInkSessionReady(() => {})) throw new Error(inkSessionError ?? '正在建立批改會話，請稍候再試')
 
-      setEditAnswerKeyNotice(`共 ${reordered.length} 頁，開始 AI 解析…`)
-    } catch (err) {
-      console.error('處理頁面排序失敗', err)
-      setEditAnswerKeyError(err instanceof Error ? err.message : '處理頁面排序失敗')
-      return
-    } finally {
-      setIsConvertingEditAnswerKey(false)
-    }
-    // 確認後直接送 AI 解析
-    await handleExtractAnswerKeyForEdit(reordered)
-  }
+    const imageBlobs: Blob[] = []
+    const targetSize = 1.5 * 1024 * 1024
 
-  const handleEditAnswerKeyPreviewCancel = () => {
-    setShowEditAnswerKeyPreview(false)
-    editAnswerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
-    setEditAnswerKeyPreviewBlobs([])
-    setEditAnswerKeyFile([])
-  }
-
-  const handleExtractAnswerKeyForEdit = async (overrideBlobs?: Array<{ index: number; url: string; blob: Blob }>) => {
-    if (!editingDomain) {
-      setEditAnswerKeyError('請先選擇領域，才能擷取標準答案')
-      return
-    }
-    const blobs = overrideBlobs ?? editAnswerKeyPreviewBlobs
-    if (blobs.length === 0) {
-      setEditAnswerKeyError('請選擇檔案，支援 PDF 或圖片')
-      return
-    }
-    if (!ensureInkSessionReady(setEditAnswerKeyError)) {
-      return
-    }
-
-    try {
-      setIsExtractingAnswerKeyEdit(true)
-      setEditAnswerKeyError(null)
-
-      // 使用預覽中已排序/旋轉的 Blobs，再做壓縮
-      const imageBlobs: Blob[] = []
-      const targetSize = 1.5 * 1024 * 1024
-
-      for (let i = 0; i < blobs.length; i++) {
-        let imageBlob = blobs[i].blob
-        let compressionAttempts = 0
-        while (imageBlob.size > targetSize && compressionAttempts < 3) {
-          const quality = 0.6 - compressionAttempts * 0.15
-          const maxWidth = 1600 - compressionAttempts * 400
-          imageBlob = await compressImageFile(imageBlob, { maxWidth, quality, format: 'image/webp' })
-          compressionAttempts++
-        }
-        imageBlobs.push(imageBlob)
+    for (const item of orderedBlobs) {
+      let imageBlob = item.blob
+      let compressionAttempts = 0
+      while (imageBlob.size > targetSize && compressionAttempts < 3) {
+        const quality = 0.6 - compressionAttempts * 0.15
+        const maxWidth = 1600 - compressionAttempts * 400
+        imageBlob = await compressImageFile(imageBlob, { maxWidth, quality, format: 'image/webp' })
+        compressionAttempts++
       }
+      imageBlobs.push(imageBlob)
+    }
 
-      // 保存第一張圖用於重新分析
-      if (imageBlobs.length > 0) {
-        setEditAnswerSheetImage(imageBlobs[0])
+    const base64Overhead = 1.33
+    const maxRequestEstimatedSize = 2 * 1024 * 1024
+    const batches: Blob[][] = []
+    let currentBatch: Blob[] = []
+    let currentEstimatedSize = 0
+
+    for (const blob of imageBlobs) {
+      const blobEstimatedSize = blob.size * base64Overhead
+      if (blobEstimatedSize > maxRequestEstimatedSize) {
+        throw new Error(`有單一頁面過大（預估 ${(blobEstimatedSize / 1024 / 1024).toFixed(1)} MB），超過單次請求上限 2 MB。`)
       }
-
-      // 自動分批
-      const base64Overhead = 1.33
-      const maxRequestEstimatedSize = 2 * 1024 * 1024
-      const batches: Blob[][] = []
-      let currentBatch: Blob[] = []
-      let currentEstimatedSize = 0
-
-      for (const blob of imageBlobs) {
-        const blobEstimatedSize = blob.size * base64Overhead
-        if (blobEstimatedSize > maxRequestEstimatedSize) {
-          setEditAnswerKeyError(`有單一頁面過大（預估 ${(blobEstimatedSize / 1024 / 1024).toFixed(1)} MB），超過單次請求上限 2 MB。`)
-          return
-        }
-        if (currentBatch.length > 0 && currentEstimatedSize + blobEstimatedSize > maxRequestEstimatedSize) {
-          batches.push(currentBatch)
-          currentBatch = [blob]
-          currentEstimatedSize = blobEstimatedSize
-        } else {
-          currentBatch.push(blob)
-          currentEstimatedSize += blobEstimatedSize
-        }
-      }
-      if (currentBatch.length > 0) batches.push(currentBatch)
-
-      if (batches.length > 1) {
-        setEditAnswerKeyNotice(`檔案較多，系統已自動分成 ${batches.length} 批解析並合併。`)
+      if (currentBatch.length > 0 && currentEstimatedSize + blobEstimatedSize > maxRequestEstimatedSize) {
+        batches.push(currentBatch)
+        currentBatch = [blob]
+        currentEstimatedSize = blobEstimatedSize
       } else {
-        setEditAnswerKeyNotice(null)
+        currentBatch.push(blob)
+        currentEstimatedSize += blobEstimatedSize
       }
-
-      // 逐批解析
-      const totalPages = imageBlobs.length
-      let runningPageCount = 0
-      let mergedAnswerKey: AnswerKey | null = editingAnswerKey ? normalizeAnswerKey(editingAnswerKey) : null
-      let duplicateNotice: string | null = null
-
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i]
-        const startPage = runningPageCount + 1
-        const extracted = await extractAnswerKeyFromImages(batch, {
-          domain: editingDomain,
-          startPage,
-          totalPages,
-        })
-        runningPageCount += batch.length
-        const normalizedExtracted = normalizeAnswerKey(extracted)
-
-        if (mergedAnswerKey) {
-          const { merged, notice } = mergeAnswerKeys(mergedAnswerKey, normalizedExtracted)
-          mergedAnswerKey = merged
-          if (notice) duplicateNotice = notice
-        } else {
-          mergedAnswerKey = normalizedExtracted
-        }
-      }
-
-      if (mergedAnswerKey) {
-        const { answerKey: scoredKey, scoreNotice } = applyCreateScoreMode(mergedAnswerKey)
-        setEditingAnswerKey(scoredKey)
-        const notices: string[] = []
-        if (duplicateNotice) notices.push(duplicateNotice)
-        if (scoreNotice) notices.push(scoreNotice)
-        if (notices.length > 0) setEditAnswerKeyNotice(notices.join(' '))
-        if (hasVocabFillQuestions(scoredKey, editingDomain)) {
-          setShowVocabFillWarning(true)
-        }
-        if (hasMultiFillQuestions(scoredKey)) {
-          setShowMultiFillWarning(true)
-        }
-
-        // 非同步概念標記（edit 流程：直接更新 DB）
-        if (editingAnswerAssignment) {
-          const classroom = classrooms.find(c => c.id === (editingClassroomId || editingAnswerAssignment.classroomId))
-          if (classroom?.grade) {
-            const assignmentId = editingAnswerAssignment.id
-            const questions = scoredKey.questions.map((q) => ({ id: q.id, questionCategory: q.questionCategory }))
-            fetch(`/api/data/concept-map?grade=${classroom.grade}`, { credentials: 'include' })
-              .then(r => r.ok ? r.json() : { items: [] })
-              .then(json => {
-                const conceptMap: { code: string; label: string }[] = json.items ?? []
-                if (conceptMap.length === 0) return
-                return tagConceptsForAnswerKey([imageBlobs[0]], questions, conceptMap)
-              })
-              .then(tags => {
-                if (tags && Object.keys(tags).length > 0) {
-                  console.log('🏷️ [edit] 概念標記完成', tags)
-                  db.assignments.update(assignmentId, { conceptTags: tags, updatedAt: Date.now() })
-                    .then(() => requestSync())
-                    .catch(err => console.warn('⚠️ [edit] 儲存概念標記失敗', err))
-                }
-              })
-              .catch(err => console.warn('⚠️ [edit] 概念標記失敗（非致命）', err))
-          }
-        }
-      }
-
-      // 清理預覽
-      editAnswerKeyPreviewBlobs.forEach(p => URL.revokeObjectURL(p.url))
-      setEditAnswerKeyPreviewBlobs([])
-      setEditAnswerKeyFile([])
-    } catch (err) {
-      console.error('❌ AI 讀取標準答案失敗', err)
-      const errorMsg = err instanceof Error ? err.message : String(err)
-      setEditAnswerKeyError(`AI 讀取失敗：${errorMsg}`)
-    } finally {
-      setIsExtractingAnswerKeyEdit(false)
     }
+    if (currentBatch.length > 0) batches.push(currentBatch)
+
+    const totalPages = imageBlobs.length
+    let mergedAnswerKey: AnswerKey | null = editingAnswerKey ? normalizeAnswerKey(editingAnswerKey) : null
+    let duplicateNotice: string | null = null
+    let runningPageCount = 0
+
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i]
+      const startPage = runningPageCount + 1
+      onProgress(batches.length > 1 ? `正在解析第 ${i + 1}/${batches.length} 批…` : '正在解析…')
+      const extracted = await extractAnswerKeyFromImages(batch, {
+        domain: editingDomain,
+        startPage,
+        totalPages,
+      })
+      runningPageCount += batch.length
+      const normalizedExtracted = normalizeAnswerKey(extracted)
+      if (mergedAnswerKey) {
+        const { merged, notice } = mergeAnswerKeys(mergedAnswerKey, normalizedExtracted)
+        mergedAnswerKey = merged
+        if (notice) duplicateNotice = notice
+      } else {
+        mergedAnswerKey = normalizedExtracted
+      }
+    }
+
+    if (!mergedAnswerKey) throw new Error('AI 未能解析出任何題目')
+
+    const { answerKey: scoredKey, scoreNotice } = applyCreateScoreMode(mergedAnswerKey)
+    const notices: string[] = []
+    if (duplicateNotice) notices.push(duplicateNotice)
+    if (scoreNotice) notices.push(scoreNotice)
+
+    // 非同步概念標記（edit 流程：直接更新 DB）
+    if (editingAnswerAssignment) {
+      const classroom = classrooms.find(c => c.id === (editingClassroomId || editingAnswerAssignment.classroomId))
+      if (classroom?.grade) {
+        const assignmentId = editingAnswerAssignment.id
+        const questions = scoredKey.questions.map(q => ({ id: q.id, questionCategory: q.questionCategory }))
+        fetch(`/api/data/concept-map?grade=${classroom.grade}`, { credentials: 'include' })
+          .then(r => r.ok ? r.json() : { items: [] })
+          .then(json => {
+            const conceptMap: { code: string; label: string }[] = json.items ?? []
+            if (conceptMap.length === 0) return
+            return tagConceptsForAnswerKey([imageBlobs[0]], questions, conceptMap)
+          })
+          .then(tags => {
+            if (tags && Object.keys(tags).length > 0) {
+              db.assignments.update(assignmentId, { conceptTags: tags, updatedAt: Date.now() })
+                .then(() => requestSync())
+                .catch(err => console.warn('⚠️ [edit] 儲存概念標記失敗', err))
+            }
+          })
+          .catch(err => console.warn('⚠️ [edit] 概念標記失敗（非致命）', err))
+      }
+    }
+
+    return { answerKey: scoredKey, imageBlobs, notice: notices.length > 0 ? notices.join(' ') : null }
+  }
+
+  // Wizard 編輯流程：確認標準答案（更新 editingAnswerKey 狀態，舊 modal 顯示更新後結果）
+  const handleWizardEditSave = async (ak: AnswerKey, imageBlobs: Blob[]) => {
+    setEditingAnswerKey(ak)
+    if (imageBlobs.length > 0) setEditAnswerSheetImage(imageBlobs[0])
+    setShowEditWizard(false)
+    editWizardPages.forEach(p => URL.revokeObjectURL(p.url))
+    setEditWizardPages([])
+    setEditAnswerKeyFile([])
   }
 
   const handleReanalyzeMarkedQuestions = async (target: 'create' | 'edit') => {
@@ -3212,7 +2982,9 @@ export default function AssignmentSetup({
                           {createScoreMode === 'fixed_both' && `（每題 ${createFixedPerScore} 分／總分 ${createFixedTotal} 分）`}
                         </p>
                       )}
-                      <p className="mt-2 text-xs text-emerald-700">已上傳答案卷 {answerKeyPreviewBlobs.length} 頁</p>
+                      {createWizardPages.length > 0 && (
+                        <p className="mt-2 text-xs text-emerald-700">已上傳答案卷 {createWizardPages.length} 頁</p>
+                      )}
                     </div>
                   </aside>
 
@@ -3469,7 +3241,7 @@ export default function AssignmentSetup({
                     accept="image/*,application/pdf"
                     multiple
                     onChange={handleAnswerKeyFileChange}
-                    disabled={isSubmitting || isExtractingAnswerKey || isConvertingAnswerKey}
+                    disabled={isSubmitting || isExtractingAnswerKey}
                     className="block w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
                   />
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -4074,7 +3846,7 @@ export default function AssignmentSetup({
                   accept="image/*,application/pdf"
                   multiple
                   onChange={handleEditAnswerKeyFileChange}
-                  disabled={isExtractingAnswerKeyEdit || isConvertingEditAnswerKey}
+                  disabled={isExtractingAnswerKeyEdit}
                   className="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
                 />
                 <p className="text-xs text-gray-500 mt-1">
@@ -4756,150 +4528,45 @@ export default function AssignmentSetup({
         </div>
       )}
 
-      {/* 國字注音擷取警告視窗 */}
-      {showVocabFillWarning && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-          onClick={() => setShowVocabFillWarning(false)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-amber-200 bg-amber-50 rounded-t-2xl flex items-center gap-2">
-              <span className="text-amber-600 text-xl">⚠️</span>
-              <h2 className="text-base font-semibold text-amber-800">注意：國字注音題擷取不穩定</h2>
-            </div>
-            <div className="px-5 py-4 space-y-3">
-              <p className="text-sm text-gray-700">
-                系統偵測到本次擷取包含<strong>國字注音題</strong>（答案為單一國字或注音符號）。
-              </p>
-              <p className="text-sm text-gray-700">
-                AI 在辨識試卷中的國字／注音答案框時，<strong>準確度尚不穩定</strong>，可能發生：
-              </p>
-              <ul className="text-sm text-gray-600 list-disc list-inside space-y-1">
-                <li>抓到題幹文字，而非答案框內容</li>
-                <li>注音或國字辨識錯誤</li>
-                <li>題數多或少於實際空格數</li>
-              </ul>
-              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                <p className="text-sm text-amber-800 font-medium">
-                  請逐題確認國字注音題的答案是否正確，必要時手動修改後再建立作業。
-                </p>
-              </div>
-            </div>
-            <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowVocabFillWarning(false)}
-                className="px-5 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 text-sm font-medium"
-              >
-                我知道了，立即檢查
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 多項填入題擷取警告視窗 */}
-      {showMultiFillWarning && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-          onClick={() => setShowMultiFillWarning(false)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-md border-2 border-red-400"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-red-200 bg-red-50 rounded-t-2xl flex items-center gap-3">
-              <span className="text-red-600 text-2xl">⚠️</span>
-              <h2 className="text-base font-bold text-red-800">重要警告：多項填入題擷取風險</h2>
-            </div>
-            <div className="px-5 py-4 space-y-3">
-              <p className="text-sm font-semibold text-gray-900">
-                系統偵測到本次擷取包含<span className="text-red-600">「多項填入題」</span>（答案欄位未標示題號的連續填空）。
-              </p>
-              <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
-                <p className="text-sm text-red-800 font-semibold mb-1">⚠️ 已知 AI 擷取限制：</p>
-                <p className="text-sm text-red-700">
-                  由於多項填入題的答案格子沒有明確題號，AI 有一定機率將<strong>相鄰格子的答案上下顛倒</strong>（例如 2-1-1 與 2-1-2 互換），導致整題批改全錯。
-                </p>
-              </div>
-              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-                <p className="text-sm text-amber-900 font-medium">
-                  📋 請務必在下方「預覽答案」區逐一核對每個填入格的答案順序是否正確，必要時請手動調整後再建立作業。
-                </p>
-              </div>
-            </div>
-            <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setShowMultiFillWarning(false)}
-                className="px-6 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 text-sm font-bold"
-              >
-                我知道了，立即核對答案
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 建立作業：標準答案確認對話框 */}
-      {showAnswerKeyConfirm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          onClick={() => setShowAnswerKeyConfirm(false)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-sm"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-gray-100">
-              <h2 className="text-base font-semibold text-gray-900">建立作業前確認</h2>
-            </div>
-            <div className="px-5 py-4">
-              <p className="text-sm text-gray-700">
-                是否已檢查所有標準答案？
-              </p>
-              <p className="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                標準答案錯誤會導致 AI 批改錯誤，請確認後再建立。
-              </p>
-            </div>
-            <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowAnswerKeyConfirm(false)}
-                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 text-sm"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={() => void doCreateAssignment()}
-                className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 text-sm"
-              >
-                確認建立
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 建立作業：標準答案頁面排序 */}
-      {showAnswerKeyPreview && answerKeyPreviewBlobs.length > 0 && (
-        <PageOrderModal
-          pages={answerKeyPreviewBlobs}
-          onConfirm={handleAnswerKeyPreviewConfirm}
-          onCancel={handleAnswerKeyPreviewCancel}
+      {/* 建立作業：標準答案 Wizard（頁面排序 → AI 解析 → 結果確認） */}
+      {showCreateWizard && createWizardPages.length > 0 && (
+        <AnswerKeyWizardModal
+          initialPages={createWizardPages}
+          initialStep="page_order"
+          initialAnswerKey={answerKey}
+          initialAnswerSheetImage={answerSheetImage}
+          scoringMode={createScoringMode === 'unscored' ? 'unscored' : 'scored'}
+          hasGradedSubmissions={false}
+          domain={assignmentDomain}
+          onExtract={handleWizardCreateExtract}
+          onSave={handleWizardCreateSave}
+          onCancel={() => {
+            createWizardPages.forEach(p => URL.revokeObjectURL(p.url))
+            setCreateWizardPages([])
+            setShowCreateWizard(false)
+            setAnswerKeyInputKey(prev => prev + 1)
+          }}
         />
       )}
 
-      {/* 編輯作業：標準答案頁面排序 */}
-      {showEditAnswerKeyPreview && editAnswerKeyPreviewBlobs.length > 0 && (
-        <PageOrderModal
-          pages={editAnswerKeyPreviewBlobs}
-          onConfirm={handleEditAnswerKeyPreviewConfirm}
-          onCancel={handleEditAnswerKeyPreviewCancel}
+      {/* 編輯作業：標準答案 Wizard（重新上傳檔案時） */}
+      {showEditWizard && editWizardPages.length > 0 && (
+        <AnswerKeyWizardModal
+          initialPages={editWizardPages}
+          initialStep="page_order"
+          initialAnswerKey={editingAnswerKey}
+          initialAnswerSheetImage={editAnswerSheetImage}
+          scoringMode={editingScoringMode}
+          hasGradedSubmissions={false}
+          domain={editingDomain}
+          onExtract={handleWizardEditExtract}
+          onSave={handleWizardEditSave}
+          onCancel={() => {
+            editWizardPages.forEach(p => URL.revokeObjectURL(p.url))
+            setEditWizardPages([])
+            setShowEditWizard(false)
+            setEditAnswerKeyFile([])
+          }}
         />
       )}
 
