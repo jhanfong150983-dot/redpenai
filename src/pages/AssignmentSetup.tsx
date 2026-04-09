@@ -1133,16 +1133,22 @@ export default function AssignmentSetup({
 
     const imageBlobs: Blob[] = []
     const outputFormat = getDefaultImageFormat()
-    const targetSize = 2 * 1024 * 1024
+    // 壓縮步驟：品質/尺寸逐漸降低，確保最終能送給 AI
+    const compressionSteps = [
+      { quality: 0.85, maxWidth: 2400 },
+      { quality: 0.75, maxWidth: 2000 },
+      { quality: 0.65, maxWidth: 1600 },
+      { quality: 0.5,  maxWidth: 1400 },
+      { quality: 0.4,  maxWidth: 1200 },
+      { quality: 0.3,  maxWidth: 1000 },
+    ]
+    const safeSize = Math.floor(1.5 * 1024 * 1024)  // 1.5MB → base64 後約 2MB，AI 可接受
 
     for (const item of orderedBlobs) {
       let imageBlob = item.blob
-      let compressionAttempts = 0
-      while (imageBlob.size > targetSize && compressionAttempts < 3) {
-        const quality = 0.85 - compressionAttempts * 0.1
-        const maxWidth = 2400 - compressionAttempts * 400
-        imageBlob = await compressImageFile(imageBlob, { maxWidth, quality, format: outputFormat })
-        compressionAttempts++
+      for (const step of compressionSteps) {
+        if (imageBlob.size <= safeSize) break
+        imageBlob = await compressImageFile(imageBlob, { ...step, format: outputFormat })
       }
       imageBlobs.push(imageBlob)
     }
@@ -1155,8 +1161,10 @@ export default function AssignmentSetup({
 
     for (const blob of imageBlobs) {
       const blobEstimatedSize = blob.size * base64Overhead
-      if (blobEstimatedSize > maxRequestEstimatedSize) {
-        throw new Error(`有單一頁面過大（預估 ${(blobEstimatedSize / 1024 / 1024).toFixed(1)} MB），超過單次請求上限 2 MB。`)
+      // 壓縮後仍超出上限時，單獨成批送出（讓 AI 自行處理，不報錯）
+      if (blobEstimatedSize > maxRequestEstimatedSize && currentBatch.length === 0) {
+        batches.push([blob])
+        continue
       }
       if (currentBatch.length > 0 && currentEstimatedSize + blobEstimatedSize > maxRequestEstimatedSize) {
         batches.push(currentBatch)
@@ -1333,16 +1341,21 @@ export default function AssignmentSetup({
     if (!ensureInkSessionReady(() => {})) throw new Error(inkSessionError ?? '正在建立批改會話，請稍候再試')
 
     const imageBlobs: Blob[] = []
-    const targetSize = 1.5 * 1024 * 1024
+    const compressionSteps = [
+      { quality: 0.85, maxWidth: 2400 },
+      { quality: 0.75, maxWidth: 2000 },
+      { quality: 0.65, maxWidth: 1600 },
+      { quality: 0.5,  maxWidth: 1400 },
+      { quality: 0.4,  maxWidth: 1200 },
+      { quality: 0.3,  maxWidth: 1000 },
+    ]
+    const safeSize = Math.floor(1.5 * 1024 * 1024)
 
     for (const item of orderedBlobs) {
       let imageBlob = item.blob
-      let compressionAttempts = 0
-      while (imageBlob.size > targetSize && compressionAttempts < 3) {
-        const quality = 0.6 - compressionAttempts * 0.15
-        const maxWidth = 1600 - compressionAttempts * 400
-        imageBlob = await compressImageFile(imageBlob, { maxWidth, quality, format: 'image/webp' })
-        compressionAttempts++
+      for (const step of compressionSteps) {
+        if (imageBlob.size <= safeSize) break
+        imageBlob = await compressImageFile(imageBlob, { ...step, format: 'image/webp' })
       }
       imageBlobs.push(imageBlob)
     }
@@ -1355,8 +1368,9 @@ export default function AssignmentSetup({
 
     for (const blob of imageBlobs) {
       const blobEstimatedSize = blob.size * base64Overhead
-      if (blobEstimatedSize > maxRequestEstimatedSize) {
-        throw new Error(`有單一頁面過大（預估 ${(blobEstimatedSize / 1024 / 1024).toFixed(1)} MB），超過單次請求上限 2 MB。`)
+      if (blobEstimatedSize > maxRequestEstimatedSize && currentBatch.length === 0) {
+        batches.push([blob])
+        continue
       }
       if (currentBatch.length > 0 && currentEstimatedSize + blobEstimatedSize > maxRequestEstimatedSize) {
         batches.push(currentBatch)
