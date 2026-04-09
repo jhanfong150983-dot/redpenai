@@ -151,6 +151,8 @@ export default function AnswerKeyWizardModal({
   const bboxDrawStart = useRef<{ x: number; y: number } | null>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const [imageObjUrl, setImageObjUrl] = useState<string | null>(null)
+  const [croppedUrl, setCroppedUrl] = useState<string | null>(null)
+  const [showFullImage, setShowFullImage] = useState(false)
 
   // ── image URL management ──
   useEffect(() => {
@@ -395,6 +397,32 @@ export default function AnswerKeyWizardModal({
   const activeBbox: NormalizedBbox | null = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
   const bboxIsAiDetected = !bboxDraft && !selectedQuestion?.referenceBbox && !!selectedQuestion?.answerBbox
 
+  // Reset full-image toggle when switching questions
+  useEffect(() => { setShowFullImage(false) }, [selectedIdx])
+
+  // Crop image to activeBbox whenever bbox or source image changes
+  useEffect(() => {
+    if (!activeBbox || !imageObjUrl) { setCroppedUrl(null); return }
+    let cancelled = false
+    const img = new window.Image()
+    img.onload = () => {
+      if (cancelled) return
+      const canvas = document.createElement('canvas')
+      const sx = Math.round(img.naturalWidth * activeBbox.x)
+      const sy = Math.round(img.naturalHeight * activeBbox.y)
+      const sw = Math.max(1, Math.round(img.naturalWidth * activeBbox.w))
+      const sh = Math.max(1, Math.round(img.naturalHeight * activeBbox.h))
+      canvas.width = sw
+      canvas.height = sh
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
+      if (!cancelled) setCroppedUrl(canvas.toDataURL('image/jpeg', 0.92))
+    }
+    img.src = imageObjUrl
+    return () => { cancelled = true }
+  }, [activeBbox, imageObjUrl])
+
   const stepTitle: Record<WizardStep, string> = {
     page_order: '調整頁面順序',
     loading: 'AI 解析中',
@@ -516,41 +544,60 @@ export default function AnswerKeyWizardModal({
               <div className="flex-1 flex flex-col overflow-hidden min-h-0">
                 {selectedQuestion ? (
                   <>
-                    {/* Image preview with bbox */}
+                    {/* Image preview */}
                     <div className="shrink-0 border-b border-gray-100 p-3 bg-gray-50">
-                      <div
-                        ref={imageContainerRef}
-                        className={`relative inline-block w-full max-h-48 overflow-hidden rounded-lg border border-gray-200 bg-white ${isDrawingBbox ? 'cursor-crosshair' : 'cursor-default'}`}
-                        onMouseDown={handleBboxMouseDown}
-                        onMouseMove={handleBboxMouseMove}
-                        onMouseUp={handleBboxMouseUp}
-                      >
-                        {imageObjUrl ? (
-                          <img src={imageObjUrl} alt="答案卷" className="w-full object-contain max-h-48 pointer-events-none" draggable={false} />
-                        ) : (
-                          <div className="flex items-center justify-center h-24 text-gray-400 text-xs">尚無圖片</div>
-                        )}
-                        {activeBbox && imageObjUrl && (
-                          <div
-                            className={`absolute border-2 pointer-events-none ${bboxIsAiDetected ? 'border-blue-500 bg-blue-500/10' : 'border-green-500 bg-green-500/10'}`}
-                            style={{
-                              left: `${activeBbox.x * 100}%`,
-                              top: `${activeBbox.y * 100}%`,
-                              width: `${activeBbox.w * 100}%`,
-                              height: `${activeBbox.h * 100}%`,
-                            }}
-                          />
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setIsDrawingBbox((v) => !v)}
-                          className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${isDrawingBbox ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300 hover:border-green-400'}`}
+                      {/* Cropped preview (default) */}
+                      {croppedUrl && !showFullImage ? (
+                        <div className="rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center max-h-40">
+                          <img src={croppedUrl} alt="答案區截圖" className="max-w-full max-h-40 object-contain pointer-events-none" draggable={false} />
+                        </div>
+                      ) : (
+                        /* Full image with bbox overlay (for drawing / full-image toggle) */
+                        <div
+                          ref={imageContainerRef}
+                          className={`relative inline-block w-full max-h-48 overflow-hidden rounded-lg border border-gray-200 bg-white ${isDrawingBbox ? 'cursor-crosshair' : 'cursor-default'}`}
+                          onMouseDown={handleBboxMouseDown}
+                          onMouseMove={handleBboxMouseMove}
+                          onMouseUp={handleBboxMouseUp}
                         >
-                          <Crop className="w-3 h-3" />
-                          {isDrawingBbox ? '點擊拖曳框選' : '調整框選區域'}
-                        </button>
+                          {imageObjUrl ? (
+                            <img src={imageObjUrl} alt="答案卷" className="w-full object-contain max-h-48 pointer-events-none" draggable={false} />
+                          ) : (
+                            <div className="flex items-center justify-center h-24 text-gray-400 text-xs">尚無圖片</div>
+                          )}
+                          {activeBbox && imageObjUrl && (
+                            <div
+                              className={`absolute border-2 pointer-events-none ${bboxIsAiDetected ? 'border-blue-500 bg-blue-500/10' : 'border-green-500 bg-green-500/10'}`}
+                              style={{
+                                left: `${activeBbox.x * 100}%`,
+                                top: `${activeBbox.y * 100}%`,
+                                width: `${activeBbox.w * 100}%`,
+                                height: `${activeBbox.h * 100}%`,
+                              }}
+                            />
+                          )}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 mt-1.5">
+                        {croppedUrl && (
+                          <button
+                            type="button"
+                            onClick={() => { setShowFullImage((v) => !v); setIsDrawingBbox(false) }}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border bg-white text-gray-600 border-gray-300 hover:border-blue-400 transition-colors"
+                          >
+                            {showFullImage ? '收起全圖' : '查看全圖'}
+                          </button>
+                        )}
+                        {(!croppedUrl || showFullImage) && (
+                          <button
+                            type="button"
+                            onClick={() => setIsDrawingBbox((v) => !v)}
+                            className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${isDrawingBbox ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300 hover:border-green-400'}`}
+                          >
+                            <Crop className="w-3 h-3" />
+                            {isDrawingBbox ? '點擊拖曳框選' : '調整框選區域'}
+                          </button>
+                        )}
                         {selectedQuestion.referenceBbox ? (
                           <button type="button" onClick={() => updateField(selectedIdx, 'referenceBbox', undefined)} className="text-xs text-gray-400 hover:text-red-500">清除框選</button>
                         ) : bboxIsAiDetected ? (
