@@ -432,11 +432,11 @@ export default function AnswerKeyWizardModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden relative min-h-0">
+        <div className="flex-1 overflow-hidden relative min-h-0 flex flex-col">
 
           {/* Step 1: Page Order */}
           {step === 'page_order' && (
-            <div className="h-full overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto p-4">
               {items.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-8">沒有頁面資料</p>
               ) : (
@@ -466,7 +466,7 @@ export default function AnswerKeyWizardModal({
 
           {/* Step 3: Results */}
           {step === 'results' && editingKey && (
-            <div className="h-full flex overflow-hidden min-h-0">
+            <div className="flex-1 flex overflow-hidden min-h-0">
 
               {/* Left sidebar: question list */}
               <div className="w-56 border-r border-gray-200 flex flex-col shrink-0 min-h-0">
