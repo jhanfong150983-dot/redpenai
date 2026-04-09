@@ -1309,17 +1309,14 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   │   - 多種可接受答案 → questionCategory: "fill_variants"
   │
   └─ 答案欄【含完整計算過程】（有算符 ÷、×、+、- 且含中間步驟，如 8÷40=0.2=20%）：
-      → 同一子項目建立【兩題】：
-        ① 原題號（如 "1-1-A"）：questionCategory: "fill_blank"，answer = 最終值（如 "20%"）
-           對應表格填空欄位，classify 框表格欄位
-        ② 題號加 "-p"（如 "1-1-A-p"）：questionCategory: "calculation"
-           referenceAnswer = 最終數值（如 "20%"）
-           rubricsDimensions: [
-             {"name": "算式過程", "criteria": "算式方向正確，過程可追蹤"},
-             {"name": "最終答案", "criteria": "最終數值正確"}
-           ]
-           對應計算過程書寫區（標有 A、B、C、D 的算式行），classify 框算式行
-      → A、B、C、D 各自分別建兩題（原題號 + 原題號-p）
+      → 單一題，questionCategory: "calculation"（不建立額外題號，不拆成兩題）
+        referenceAnswer = 最終數值（如 "55%"、"240"）
+        rubricsDimensions: [
+          {"name": "算式過程", "criteria": "算式方向正確，過程可追蹤"},
+          {"name": "最終答案", "criteria": "最終數值正確"}
+        ]
+      → A、B、C、D 各自建一題（題號保持原題號，如 "1-1-A"、"1-1-B"）
+      ⚠️ 禁止建立 "-p" 結尾的額外題號
 
 ▸ 如果是「繪圖題」（在座標平面畫點/線、畫幾何圖形、標註角度等）：
   - questionCategory: "short_answer"（數學繪圖，非地圖符號）
