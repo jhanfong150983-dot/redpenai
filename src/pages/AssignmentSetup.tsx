@@ -133,7 +133,7 @@ export default function AssignmentSetup({
   const [answerKey, setAnswerKey] = useState<AnswerKey | null>(null)
   const [, setAnswerKeyFile] = useState<File[]>([])
   const [answerKeyInputKey, setAnswerKeyInputKey] = useState(0)
-  const [answerSheetImage, setAnswerSheetImage] = useState<Blob | null>(null)
+  const [answerSheetImages, setAnswerSheetImages] = useState<Blob[]>([])
   const [pendingConceptTags, setPendingConceptTags] = useState<Record<string, { code: string; label: string }> | null>(null)
   const [isExtractingAnswerKey] = useState(false)
   const [answerKeyError, setAnswerKeyError] = useState<string | null>(null)
@@ -187,7 +187,7 @@ export default function AssignmentSetup({
   const [isSavingAnswerKey, setIsSavingAnswerKey] = useState(false)
   const [isReanalyzing, setIsReanalyzing] = useState(false)
   const [, setEditAnswerKeyFile] = useState<File[]>([])
-  const [editAnswerSheetImage, setEditAnswerSheetImage] = useState<Blob | null>(null)
+  const [editAnswerSheetImages, setEditAnswerSheetImages] = useState<Blob[]>([])
   const [isExtractingAnswerKeyEdit, setIsExtractingAnswerKeyEdit] =
     useState(false)
   const [editAnswerKeyError, setEditAnswerKeyError] = useState<string | null>(
@@ -515,7 +515,7 @@ export default function AssignmentSetup({
     setCreateScoringMode('scored')
     setAnswerKey(null)
     setAnswerKeyFile([])
-    setAnswerSheetImage(null)
+    setAnswerSheetImages([])
     setPendingConceptTags(null)
     setAnswerKeyError(null)
     setAnswerKeyNotice(null)
@@ -850,6 +850,7 @@ export default function AssignmentSetup({
         unorderedGroupId: orderMode === 'unordered' ? unorderedGroupId : undefined,
         referenceBbox: q?.referenceBbox,
         answerBbox: q?.answerBbox,
+        pageIndex: typeof q?.pageIndex === 'number' ? q.pageIndex : undefined,
         concept_code: typeof q?.concept_code === 'string' && q.concept_code ? q.concept_code : undefined,
         concept_label: typeof q?.concept_label === 'string' && q.concept_label ? q.concept_label : undefined,
       }
@@ -1072,6 +1073,10 @@ export default function AssignmentSetup({
       setAssignments((prev) => [assignment, ...prev])
       setAssignmentOrder((prev) => [assignment.id, ...prev.filter((id) => id !== assignment.id)])
       requestSync()
+      // 非同步上傳答案卷圖片（不阻塞建立流程）
+      if (answerSheetImages.length > 0) {
+        uploadAnswerSheetImages(assignment.id, answerSheetImages)
+      }
       resetForm()
       setIsCreateModalOpen(false)
     } catch (err) {
@@ -1182,6 +1187,11 @@ export default function AssignmentSetup({
         startPage,
         totalPages,
       })
+      // 標記 pageIndex（0-based 對應 imageBlobs 陣列）
+      const batchStartPageIndex = runningPageCount
+      if (extracted.questions) {
+        extracted.questions = extracted.questions.map(q => ({ ...q, pageIndex: batchStartPageIndex }))
+      }
       runningPageCount += batch.length
       const normalizedExtracted = normalizeAnswerKey(extracted)
       if (mergedAnswerKey) {
@@ -1212,10 +1222,55 @@ export default function AssignmentSetup({
     return { answerKey: scoredKey, imageBlobs, notice: notices.length > 0 ? notices.join(' ') : null }
   }
 
+  // ── 答案卷圖片上傳 / 下載（Supabase Storage） ──────────────────────────
+
+  const uploadAnswerSheetImages = async (assignmentId: string, blobs: Blob[]) => {
+    try {
+      const imagesBase64: string[] = await Promise.all(
+        blobs.map(blob => new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = reject
+          reader.readAsDataURL(blob)
+        }))
+      )
+      const res = await fetch('/api/storage/upload-answer-sheet', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignmentId, imagesBase64 }),
+      })
+      if (!res.ok) {
+        console.warn('⚠️ 答案卷圖片上傳失敗', await res.text())
+        return
+      }
+      const { paths } = await res.json() as { paths: string[] }
+      await db.assignments.update(assignmentId, { answerSheetImagePaths: paths })
+    } catch (err) {
+      console.warn('⚠️ 答案卷圖片上傳例外', err)
+    }
+  }
+
+  const downloadAnswerSheetImages = async (assignmentId: string, pageCount: number) => {
+    try {
+      const blobs = await Promise.all(
+        Array.from({ length: pageCount }, (_, i) =>
+          fetch(`/api/storage/download-answer-sheet?assignmentId=${encodeURIComponent(assignmentId)}&pageIndex=${i}`, {
+            credentials: 'include',
+          }).then(r => r.ok ? r.blob() : null)
+        )
+      )
+      const validBlobs = blobs.filter((b): b is Blob => b !== null)
+      if (validBlobs.length > 0) setEditAnswerSheetImages(validBlobs)
+    } catch (err) {
+      console.warn('⚠️ 答案卷圖片下載例外', err)
+    }
+  }
+
   // Wizard 建立流程：確認標準答案（從新上傳）
   const handleWizardCreateSave = async (ak: AnswerKey, imageBlobs: Blob[]) => {
     setAnswerKey(ak)
-    if (imageBlobs.length > 0) setAnswerSheetImage(imageBlobs[0])
+    if (imageBlobs.length > 0) setAnswerSheetImages(imageBlobs)
     setShowCreateWizard(false)
     createWizardPages.forEach(p => URL.revokeObjectURL(p.url))
     setCreateWizardPages([])
@@ -1225,7 +1280,7 @@ export default function AssignmentSetup({
   // Wizard 建立流程：確認標準答案（從「編輯正確答案」按鈕開啟）
   const handleWizardCreateEditSave = async (ak: AnswerKey, imageBlobs: Blob[]) => {
     setAnswerKey(ak)
-    if (imageBlobs.length > 0) setAnswerSheetImage(imageBlobs[0])
+    if (imageBlobs.length > 0) setAnswerSheetImages(imageBlobs)
     setShowAnswerKeyEditWizard(false)
   }
 
@@ -1324,6 +1379,11 @@ export default function AssignmentSetup({
         startPage,
         totalPages,
       })
+      // 標記 pageIndex（這批題目是從哪頁開始的，0-based 對應 imageBlobs 陣列）
+      const batchStartPageIndex = runningPageCount
+      if (extracted.questions) {
+        extracted.questions = extracted.questions.map(q => ({ ...q, pageIndex: batchStartPageIndex }))
+      }
       runningPageCount += batch.length
       const normalizedExtracted = normalizeAnswerKey(extracted)
       if (mergedAnswerKey) {
@@ -1372,7 +1432,13 @@ export default function AssignmentSetup({
   // Wizard 編輯流程：確認標準答案（更新 editingAnswerKey 狀態，舊 modal 顯示更新後結果）
   const handleWizardEditSave = async (ak: AnswerKey, imageBlobs: Blob[]) => {
     setEditingAnswerKey(ak)
-    if (imageBlobs.length > 0) setEditAnswerSheetImage(imageBlobs[0])
+    if (imageBlobs.length > 0) {
+      setEditAnswerSheetImages(imageBlobs)
+      // 非同步上傳圖片到 Supabase Storage（若有 assignment id）
+      if (editingAnswerAssignment?.id) {
+        uploadAnswerSheetImages(editingAnswerAssignment.id, imageBlobs)
+      }
+    }
     setShowEditWizard(false)
     setShowEditAnswerKeyWizard(false)
     editWizardPages.forEach(p => URL.revokeObjectURL(p.url))
@@ -1382,7 +1448,7 @@ export default function AssignmentSetup({
 
   const handleReanalyzeMarkedQuestions = async (target: 'create' | 'edit') => {
     const currentAnswerKey = target === 'create' ? answerKey : editingAnswerKey
-    const currentImage = target === 'create' ? answerSheetImage : editAnswerSheetImage
+    const currentImage = target === 'create' ? (answerSheetImages[0] ?? null) : (editAnswerSheetImages[0] ?? null)
     const currentDomain = target === 'create' ? assignmentDomain : editingDomain
     const setErrorFn = target === 'create' ? setAnswerKeyError : setEditAnswerKeyError
     const setNoticeFn = target === 'create' ? setAnswerKeyNotice : setEditAnswerKeyNotice
@@ -1951,10 +2017,14 @@ export default function AssignmentSetup({
     setEditingDomain(assignment.domain ?? '')
     setEditingScoringMode(assignment.scoringMode === 'unscored' ? 'unscored' : 'scored')
     setEditAnswerKeyFile([])
-    setEditAnswerSheetImage(null)  // 清空答案卷圖片
+    setEditAnswerSheetImages([])
     setEditAnswerKeyError(null)
     setEditAnswerKeyNotice(null)
     setAnswerKeyModalOpen(true)
+    // 非同步下載已存在的答案卷圖片（若有）
+    if (assignment.answerSheetImagePaths?.length) {
+      downloadAnswerSheetImages(assignment.id, assignment.answerSheetImagePaths.length)
+    }
   }
 
   const closeAnswerKeyModal = () => {
@@ -1964,7 +2034,7 @@ export default function AssignmentSetup({
     setEditingClassroomId('')
     setEditingDomain('')
     setEditAnswerKeyFile([])
-    setEditAnswerSheetImage(null)  // 清空答案卷圖片
+    setEditAnswerSheetImages([])
     setEditAnswerKeyError(null)
     setEditAnswerKeyNotice(null)
     setIsExtractingAnswerKeyEdit(false)
@@ -3424,7 +3494,7 @@ export default function AssignmentSetup({
           initialPages={createWizardPages}
           initialStep="page_order"
           initialAnswerKey={answerKey}
-          initialAnswerSheetImage={answerSheetImage}
+          initialAnswerSheetImages={answerSheetImages}
           scoringMode={createScoringMode === 'unscored' ? 'unscored' : 'scored'}
           hasGradedSubmissions={false}
           domain={assignmentDomain}
@@ -3445,7 +3515,7 @@ export default function AssignmentSetup({
           initialPages={editWizardPages}
           initialStep="page_order"
           initialAnswerKey={editingAnswerKey}
-          initialAnswerSheetImage={editAnswerSheetImage}
+          initialAnswerSheetImages={editAnswerSheetImages}
           scoringMode={editingScoringMode}
           hasGradedSubmissions={false}
           domain={editingDomain}
@@ -3466,7 +3536,7 @@ export default function AssignmentSetup({
           initialPages={[]}
           initialStep="results"
           initialAnswerKey={answerKey}
-          initialAnswerSheetImage={answerSheetImage}
+          initialAnswerSheetImages={answerSheetImages}
           scoringMode={createScoringMode === 'unscored' ? 'unscored' : 'scored'}
           hasGradedSubmissions={false}
           domain={assignmentDomain}
@@ -3482,7 +3552,7 @@ export default function AssignmentSetup({
           initialPages={[]}
           initialStep="results"
           initialAnswerKey={editingAnswerKey}
-          initialAnswerSheetImage={editAnswerSheetImage}
+          initialAnswerSheetImages={editAnswerSheetImages}
           scoringMode={editingScoringMode}
           hasGradedSubmissions={false}
           domain={editingDomain}

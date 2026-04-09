@@ -106,6 +106,10 @@ export interface AnswerKeyQuestion {
   // 從 answer_key.extract 回傳，用於在批改時提示答案大約在哪個位置
   answerBbox?: { x: number; y: number; w: number; h: number } | null
 
+  // 此題的 answerBbox 是相對於第幾頁的圖片（0-based）
+  // 多頁答案卷時用於 wizard 顯示正確的頁面預覽
+  pageIndex?: number
+
   needsReanalysis?: boolean // 教師修改題型後標記為true，需要重新分析
 
   // 108課綱對應概念（由 AnswerKey 抽取時 AI 標記）
@@ -160,6 +164,8 @@ export interface Assignment {
   scoringMode?: 'scored' | 'unscored' // 不計分：批改只顯示✓✗△，不納入成績統計
   answerKey?: AnswerKey
   conceptTags?: Record<string, { code: string; label: string }> // 108課綱概念標記（questionId → concept）
+  // Supabase Storage 路徑，answer-sheets/{id}/page-{i}.webp（各頁壓縮圖，用於 wizard 預覽）
+  answerSheetImagePaths?: string[]
   updatedAt?: number
 }
 

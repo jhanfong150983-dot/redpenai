@@ -103,7 +103,7 @@ export interface AnswerKeyWizardModalProps {
   initialPages: Array<{ index: number; url: string; blob: Blob }>
   initialStep?: WizardStep
   initialAnswerKey?: AnswerKey | null
-  initialAnswerSheetImage?: Blob | null
+  initialAnswerSheetImages?: Blob[]
   scoringMode?: 'scored' | 'unscored'
   hasGradedSubmissions?: boolean
   domain?: string
@@ -119,7 +119,7 @@ export default function AnswerKeyWizardModal({
   initialPages,
   initialStep = 'page_order',
   initialAnswerKey = null,
-  initialAnswerSheetImage = null,
+  initialAnswerSheetImages = [],
   scoringMode = 'scored',
   hasGradedSubmissions = false,
   domain,
@@ -138,7 +138,7 @@ export default function AnswerKeyWizardModal({
 
   // ── extraction result state ──
   const [editingKey, setEditingKey] = useState<AnswerKey | null>(initialAnswerKey)
-  const [imageBlobs, setImageBlobs] = useState<Blob[]>(initialAnswerSheetImage ? [initialAnswerSheetImage] : [])
+  const [imageBlobs, setImageBlobs] = useState<Blob[]>(initialAnswerSheetImages.length > 0 ? initialAnswerSheetImages : [])
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [loadingMsg, setLoadingMsg] = useState('正在解析…')
   const [extractError, setExtractError] = useState<string | null>(null)
@@ -154,18 +154,15 @@ export default function AnswerKeyWizardModal({
   const [croppedUrl, setCroppedUrl] = useState<string | null>(null)
   const [showFullImage, setShowFullImage] = useState(false)
 
-  // ── image URL management ──
+  // ── image URL management — use the correct page for the selected question ──
   useEffect(() => {
-    if (imageBlobs.length > 0) {
-      const url = URL.createObjectURL(imageBlobs[0])
-      setImageObjUrl(url)
-      return () => URL.revokeObjectURL(url)
-    } else if (initialAnswerSheetImage) {
-      const url = URL.createObjectURL(initialAnswerSheetImage)
-      setImageObjUrl(url)
-      return () => URL.revokeObjectURL(url)
-    }
-  }, [imageBlobs, initialAnswerSheetImage])
+    const pageIdx = (editingKey?.questions[selectedIdx]?.pageIndex) ?? 0
+    const blob = imageBlobs[pageIdx] ?? imageBlobs[0] ?? null
+    if (!blob) { setImageObjUrl(null); return }
+    const url = URL.createObjectURL(blob)
+    setImageObjUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [imageBlobs, selectedIdx, editingKey])
 
   // ── DnD sensors ──
   const sensors = useSensors(
