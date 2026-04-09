@@ -1712,6 +1712,48 @@ export default function GradingPage({
         }
       }
 
+      // 背景預取縮圖（給雲端同步但本地無縮圖的作業，下次 render 就能立即顯示）
+      const needsThumbnail = submissionsData.filter(
+        (s) => s.source !== 'student_correction' && s.id && !s.thumbnailBlob && !s.thumbnailBase64
+      )
+      if (needsThumbnail.length > 0) {
+        void (async () => {
+          const CONCURRENCY = 3
+          for (let i = 0; i < needsThumbnail.length; i += CONCURRENCY) {
+            const batch = needsThumbnail.slice(i, i + CONCURRENCY)
+            await Promise.all(batch.map(async (sub) => {
+              try {
+                const params = new URLSearchParams({ submissionId: sub.id, thumb: 'true' })
+                const resp = await fetch(buildApiUrl(`/api/storage/download?${params.toString()}`), { credentials: 'include' })
+                if (!resp.ok) return
+                const blob = await resp.blob()
+                if (blob.size === 0) return
+                if (avoidBlobStorage) {
+                  const base64 = await blobToBase64(blob)
+                  await db.submissions.update(sub.id, { thumbnailBase64: base64 })
+                  setSubmissions((prev) => {
+                    const next = new Map(prev)
+                    const existing = next.get(sub.studentId)
+                    if (existing) next.set(sub.studentId, { ...existing, thumbnailBase64: base64 })
+                    return next
+                  })
+                } else {
+                  await db.submissions.update(sub.id, { thumbnailBlob: blob })
+                  setSubmissions((prev) => {
+                    const next = new Map(prev)
+                    const existing = next.get(sub.studentId)
+                    if (existing) next.set(sub.studentId, { ...existing, thumbnailBlob: blob })
+                    return next
+                  })
+                }
+              } catch {
+                // 縮圖預取失敗，不影響主流程
+              }
+            }))
+          }
+        })()
+      }
+
     } catch (err) {
       console.error('載入失敗', err)
       setError(err instanceof Error ? err.message : '載入失敗')
