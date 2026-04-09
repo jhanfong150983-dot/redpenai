@@ -143,6 +143,7 @@ export default function AssignmentSetup({
   // 答案卷 Wizard 狀態（建立流程）
   const [showCreateWizard, setShowCreateWizard] = useState(false)
   const [createWizardPages, setCreateWizardPages] = useState<Array<{ index: number; url: string; blob: Blob }>>([])
+  const [showAnswerKeyEditWizard, setShowAnswerKeyEditWizard] = useState(false)
 
   const [isLoading, setIsLoading] = useState(true)
   const [isAssignmentsLoading, setIsAssignmentsLoading] = useState(false)
@@ -1247,7 +1248,7 @@ export default function AssignmentSetup({
     return { answerKey: scoredKey, imageBlobs, notice: notices.length > 0 ? notices.join(' ') : null }
   }
 
-  // Wizard 建立流程：確認標準答案
+  // Wizard 建立流程：確認標準答案（從新上傳）
   const handleWizardCreateSave = async (ak: AnswerKey, imageBlobs: Blob[]) => {
     setAnswerKey(ak)
     if (imageBlobs.length > 0) setAnswerSheetImage(imageBlobs[0])
@@ -1255,6 +1256,13 @@ export default function AssignmentSetup({
     createWizardPages.forEach(p => URL.revokeObjectURL(p.url))
     setCreateWizardPages([])
     setAnswerKeyInputKey(prev => prev + 1)
+  }
+
+  // Wizard 建立流程：確認標準答案（從「編輯正確答案」按鈕開啟）
+  const handleWizardCreateEditSave = async (ak: AnswerKey, imageBlobs: Blob[]) => {
+    setAnswerKey(ak)
+    if (imageBlobs.length > 0) setAnswerSheetImage(imageBlobs[0])
+    setShowAnswerKeyEditWizard(false)
   }
 
   const handleEditAnswerKeyFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -3283,394 +3291,22 @@ export default function AssignmentSetup({
                 </div>
 
                 {answerKey && (
-                  <div data-tutorial="assignment-preview-answerkey">
-                  <div className="mt-2 border border-gray-200 rounded-xl p-4 bg-gray-50">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-semibold text-gray-800">
-                        預覽答案
-                      </span>
+                  <div data-tutorial="assignment-preview-answerkey" className="mt-2 flex items-center justify-between rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-semibold text-green-800">✓ 已擷取 {answerKey.questions.length} 題</span>
                       {createScoringMode !== 'unscored' && (
-                        <span className="text-xs text-gray-500">
-                          總分：{answerKey.totalScore}
-                        </span>
+                        <span className="text-xs text-gray-500">總分 {answerKey.totalScore} 分</span>
                       )}
                     </div>
-                    <div className="space-y-3 max-h-56 overflow-auto pr-1">
-                      {answerKey.questions.map((q, idx) => {
-                        const effectiveCategory = getEffectiveCategory(q)
-                        const questionType = CATEGORY_TO_TYPE[effectiveCategory] ?? 2
-                        const rubric = q.rubric ?? buildDefaultRubric(q.maxScore || 0)
-
-                        return (
-                          <div
-                            key={q.uiKey || q.id || idx}
-                            className="space-y-2 text-xs bg-white rounded-lg px-3 py-2 border border-gray-200"
-                          >
-                            <div className={`grid gap-2 items-center ${createScoringMode === 'unscored' ? 'grid-cols-[auto,1fr,auto]' : 'grid-cols-[auto,1fr,auto,auto]'}`}>
-                              <div className="flex items-center gap-0.5">
-                                <input
-                                  className="w-14 px-1 py-1 border border-gray-300 rounded"
-                                  value={q.id}
-                                  onChange={(e) =>
-                                    updateQuestionField(
-                                      'create',
-                                      idx,
-                                      'id',
-                                      e.target.value
-                                    )
-                                  }
-                                />
-                                {q.referenceBbox && (
-                                  <span title={`位置參考 (${q.referenceBbox.x.toFixed(2)}, ${q.referenceBbox.y.toFixed(2)})`} className="text-blue-500 text-[10px]">📍</span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <select
-                                  className="flex-1 px-2 py-1 border border-gray-300 rounded bg-white"
-                                  value={effectiveCategory}
-                                  onChange={(e) =>
-                                    updateQuestionField(
-                                      'create',
-                                      idx,
-                                      'questionCategory',
-                                      e.target.value
-                                    )
-                                  }
-                                >
-                                  {(Object.entries(CATEGORY_LABELS) as [QuestionCategory, string][]).map(([cat, label]) => (
-                                    <option key={cat} value={cat}>{label}</option>
-                                  ))}
-                                </select>
-                              </div>
-                              {createScoringMode !== 'unscored' && (
-                                <NumericInput
-                                  className="w-16 px-1 py-1 border border-gray-300 rounded text-right"
-                                  value={q.maxScore}
-                                  allowDecimal
-                                  onChange={(v) =>
-                                    updateQuestionField(
-                                      'create',
-                                      idx,
-                                      'maxScore',
-                                      String(v)
-                                    )
-                                  }
-                                />
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => removeQuestionRow('create', idx)}
-                                className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-
-                            <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
-                              <span className="text-[11px] text-gray-500">順序規則</span>
-                              <select
-                                className="w-full px-2 py-1 border border-gray-300 rounded bg-white"
-                                value={q.orderMode === 'unordered' ? 'unordered' : 'strict'}
-                                onChange={(e) =>
-                                  updateQuestionOrderMode(
-                                    'create',
-                                    idx,
-                                    e.target.value === 'unordered' ? 'unordered' : 'strict'
-                                  )
-                                }
-                              >
-                                <option value="strict">固定位置（預設）</option>
-                                <option value="unordered">同組可互換（不限順序）</option>
-                              </select>
-                            </div>
-                            {(q.orderMode ?? 'strict') === 'unordered' && (
-                              <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
-                                <span className="text-[11px] text-gray-500">互換組別</span>
-                                <input
-                                  className="w-full px-2 py-1 border border-gray-300 rounded"
-                                  value={q.unorderedGroupId ?? ''}
-                                  onChange={(e) =>
-                                    updateQuestionUnorderedGroupId(
-                                      'create',
-                                      idx,
-                                      e.target.value
-                                    )
-                                  }
-                                  placeholder="例如：1"
-                                />
-                              </div>
-                            )}
-
-                            {/* Type 1: Standard Answer */}
-                            {questionType === 1 && (
-                              <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
-                                <span className="text-[11px] text-gray-500">標準答案</span>
-                                <input
-                                  className="w-full px-2 py-1 border border-gray-300 rounded"
-                                  value={q.answer ?? ''}
-                                  onChange={(e) =>
-                                    updateQuestionField(
-                                      'create',
-                                      idx,
-                                      'answer',
-                                      e.target.value
-                                    )
-                                  }
-                                />
-                              </div>
-                            )}
-
-                            {/* Type 2: Reference Answer + Acceptable Answers */}
-                            {questionType === 2 && (
-                              <div className="space-y-2">
-                                {(effectiveCategory === 'multi_check' || effectiveCategory === 'multi_choice' || effectiveCategory === 'multi_check_other') ? (
-                                  <>
-                                    <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
-                                      <span className="text-[11px] text-gray-500">正確選項</span>
-                                      <input
-                                        className="w-full px-2 py-1 border border-gray-300 rounded"
-                                        value={q.answer ?? ''}
-                                        onChange={(e) =>
-                                          updateQuestionField('create', idx, 'answer', e.target.value)
-                                        }
-                                        placeholder={effectiveCategory === 'multi_choice' ? '例如：A,C' : '例如：①,③'}
-                                      />
-                                    </div>
-                                    {effectiveCategory === 'multi_check_other' && (
-                                      <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
-                                        <span className="text-[11px] text-gray-500">其他（參考）</span>
-                                        <textarea
-                                          rows={2}
-                                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                                          value={q.referenceAnswer ?? ''}
-                                          onChange={(e) =>
-                                            updateQuestionField('create', idx, 'referenceAnswer', e.target.value)
-                                          }
-                                          placeholder="其他選項的參考答案（選填）"
-                                        />
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <>
-                                    <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
-                                      <span className="text-[11px] text-gray-500">參考答案</span>
-                                      <textarea
-                                        rows={2}
-                                        className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                                        value={q.referenceAnswer ?? ''}
-                                        onChange={(e) =>
-                                          updateQuestionField('create', idx, 'referenceAnswer', e.target.value)
-                                        }
-                                      />
-                                    </div>
-                                    <div>
-                                      <div className="flex items-center justify-between mb-1">
-                                        <span className="text-[11px] text-gray-500">可接受答案變體</span>
-                                        <button
-                                          type="button"
-                                          onClick={() => addAcceptableAnswer('create', idx)}
-                                          className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                        >
-                                          + 新增
-                                        </button>
-                                      </div>
-                                      {(q.acceptableAnswers ?? []).map((ans, ansIdx) => (
-                                        <div key={ansIdx} className="flex items-center gap-2 mb-1">
-                                          <input
-                                            className="flex-1 px-2 py-1 border border-gray-300 rounded"
-                                            value={ans}
-                                            onChange={(e) =>
-                                              updateAcceptableAnswer('create', idx, ansIdx, e.target.value)
-                                            }
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={() => removeAcceptableAnswer('create', idx, ansIdx)}
-                                            className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50"
-                                          >
-                                            <X className="w-3 h-3" />
-                                          </button>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Type 3: Reference Answer + Rubric */}
-                            {questionType === 3 && (
-                              <div className="space-y-2">
-                                <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
-                                  <span className="text-[11px] text-gray-500">參考答案</span>
-                                  <textarea
-                                    rows={2}
-                                    className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                                    value={q.referenceAnswer ?? ''}
-                                    onChange={(e) =>
-                                      updateQuestionField(
-                                        'create',
-                                        idx,
-                                        'referenceAnswer',
-                                        e.target.value
-                                      )
-                                    }
-                                  />
-                                </div>
-
-                                {/* Rubric Type Toggle */}
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[11px] text-gray-500">基規準類型：</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => switchRubricType('create', idx, 'multi-dimension')}
-                                    className={`text-xs px-2 py-1 rounded ${
-                                      q.rubricsDimensions ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'
-                                    }`}
-                                  >
-                                    多維度評分
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => switchRubricType('create', idx, '4-level')}
-                                    className={`text-xs px-2 py-1 rounded ${
-                                      q.rubric ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'
-                                    }`}
-                                  >
-                                    4級評價
-                                  </button>
-                                </div>
-
-                                {/* Multi-dimension Rubric */}
-                                {q.rubricsDimensions && (
-                                  <div>
-                                    <div className="flex items-center justify-between mb-1">
-                                      <span className="text-[11px] text-gray-500">評分維度</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => addRubricDimension('create', idx)}
-                                        className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                      >
-                                        + 新增維度
-                                      </button>
-                                    </div>
-                                    {q.rubricsDimensions.map((dim, dimIdx) => (
-                                      <div key={dimIdx} className="mb-2 p-2 bg-gray-50 rounded border border-gray-200">
-                                        <div className="flex items-center gap-2 mb-1">
-                                          <input
-                                            placeholder="維度名稱"
-                                            className="flex-1 px-2 py-1 border border-gray-300 rounded"
-                                            value={dim.name}
-                                            onChange={(e) =>
-                                              updateRubricDimension('create', idx, dimIdx, 'name', e.target.value)
-                                            }
-                                          />
-                                          {createScoringMode !== 'unscored' && (
-                                            <NumericInput
-                                              className="w-16 px-2 py-1 border border-gray-300 rounded text-right"
-                                              value={dim.maxScore}
-                                              allowDecimal
-                                              onChange={(v) =>
-                                                updateRubricDimension('create', idx, dimIdx, 'maxScore', String(v))
-                                              }
-                                            />
-                                          )}
-                                          <button
-                                            type="button"
-                                            onClick={() => removeRubricDimension('create', idx, dimIdx)}
-                                            className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50"
-                                          >
-                                            <X className="w-3 h-3" />
-                                          </button>
-                                        </div>
-                                        <textarea
-                                          rows={2}
-                                          placeholder="評分標準"
-                                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                                          value={dim.criteria}
-                                          onChange={(e) =>
-                                            updateRubricDimension('create', idx, dimIdx, 'criteria', e.target.value)
-                                          }
-                                        />
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {/* 4-Level Rubric */}
-                                {q.rubric && (
-                                  <div>
-                                    <div className="text-[11px] text-gray-500 mb-1">
-                                      基規準（四級）
-                                    </div>
-                                    <div className="space-y-1">
-                                      {rubric.levels.map((level, levelIndex) => (
-                                        <div
-                                          key={level.label}
-                                          className={`grid gap-2 items-center ${createScoringMode === 'unscored' ? 'grid-cols-[56px_1fr]' : 'grid-cols-[56px_44px_44px_1fr]'}`}
-                                        >
-                                          <span className="text-[11px] text-gray-600">
-                                            {level.label}
-                                          </span>
-                                          {createScoringMode !== 'unscored' && (
-                                            <>
-                                              <NumericInput
-                                                className="px-1 py-1 border border-gray-300 rounded text-right"
-                                                value={level.min}
-                                                allowDecimal
-                                                onChange={(v) =>
-                                                  updateRubricLevel(
-                                                    'create',
-                                                    idx,
-                                                    levelIndex,
-                                                    'min',
-                                                    String(v)
-                                                  )
-                                                }
-                                              />
-                                              <NumericInput
-                                                className="px-1 py-1 border border-gray-300 rounded text-right"
-                                                value={level.max}
-                                                allowDecimal
-                                                onChange={(v) =>
-                                                  updateRubricLevel(
-                                                    'create',
-                                                    idx,
-                                                    levelIndex,
-                                                    'max',
-                                                    String(v)
-                                                  )
-                                                }
-                                              />
-                                            </>
-                                          )}
-                                          <input
-                                            className="px-2 py-1 border border-gray-300 rounded"
-                                            value={level.criteria}
-                                            onChange={(e) =>
-                                              updateRubricLevel(
-                                                'create',
-                                                idx,
-                                                levelIndex,
-                                                'criteria',
-                                                e.target.value
-                                              )
-                                            }
-                                          />
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAnswerKeyEditWizard(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 bg-white border border-green-300 rounded-lg hover:bg-green-50 transition-colors"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      編輯正確答案
+                    </button>
                   </div>
-                </div>
                 )}
               </div>
             </section>
@@ -4567,6 +4203,22 @@ export default function AssignmentSetup({
             setShowEditWizard(false)
             setEditAnswerKeyFile([])
           }}
+        />
+      )}
+
+      {/* 建立作業：「編輯正確答案」按鈕開啟 Wizard（results 步驟） */}
+      {showAnswerKeyEditWizard && answerKey && (
+        <AnswerKeyWizardModal
+          initialPages={[]}
+          initialStep="results"
+          initialAnswerKey={answerKey}
+          initialAnswerSheetImage={answerSheetImage}
+          scoringMode={createScoringMode === 'unscored' ? 'unscored' : 'scored'}
+          hasGradedSubmissions={false}
+          domain={assignmentDomain}
+          onExtract={handleWizardCreateExtract}
+          onSave={handleWizardCreateEditSave}
+          onCancel={() => setShowAnswerKeyEditWizard(false)}
         />
       )}
 

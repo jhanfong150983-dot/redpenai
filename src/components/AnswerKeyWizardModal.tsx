@@ -392,7 +392,8 @@ export default function AnswerKeyWizardModal({
   const selectedQuestion = editingKey?.questions[selectedIdx] ?? null
   const selectedCategory = selectedQuestion ? getEffectiveCategory(selectedQuestion) : 'fill_blank'
   const selectedType = CATEGORY_TO_TYPE[selectedCategory] ?? 2
-  const activeBbox: NormalizedBbox | null = bboxDraft ?? selectedQuestion?.referenceBbox ?? null
+  const activeBbox: NormalizedBbox | null = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
+  const bboxIsAiDetected = !bboxDraft && !selectedQuestion?.referenceBbox && !!selectedQuestion?.answerBbox
 
   const stepTitle: Record<WizardStep, string> = {
     page_order: '調整頁面順序',
@@ -531,7 +532,7 @@ export default function AnswerKeyWizardModal({
                         )}
                         {activeBbox && imageObjUrl && (
                           <div
-                            className="absolute border-2 border-green-500 bg-green-500/10 pointer-events-none"
+                            className={`absolute border-2 pointer-events-none ${bboxIsAiDetected ? 'border-blue-500 bg-blue-500/10' : 'border-green-500 bg-green-500/10'}`}
                             style={{
                               left: `${activeBbox.x * 100}%`,
                               top: `${activeBbox.y * 100}%`,
@@ -552,6 +553,8 @@ export default function AnswerKeyWizardModal({
                         </button>
                         {selectedQuestion.referenceBbox ? (
                           <button type="button" onClick={() => updateField(selectedIdx, 'referenceBbox', undefined)} className="text-xs text-gray-400 hover:text-red-500">清除框選</button>
+                        ) : bboxIsAiDetected ? (
+                          <span className="text-xs text-blue-500">AI 已自動標記（可調整）</span>
                         ) : (
                           <span className="text-xs text-gray-400">尚未框選（點擊按鈕後拖曳標記位置）</span>
                         )}

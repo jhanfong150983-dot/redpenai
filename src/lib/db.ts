@@ -102,6 +102,10 @@ export interface AnswerKeyQuestion {
   // 對地圖填圖等無題號的空間配置型作業特別重要
   referenceBbox?: { x: number; y: number; w: number; h: number }
 
+  // AI 擷取答案時自動偵測的答案區塊位置（歸一化 [0,1] bbox）
+  // 從 answer_key.extract 回傳，用於在批改時提示答案大約在哪個位置
+  answerBbox?: { x: number; y: number; w: number; h: number } | null
+
   needsReanalysis?: boolean // 教師修改題型後標記為true，需要重新分析
 
   // 108課綱對應概念（由 AnswerKey 抽取時 AI 標記）
