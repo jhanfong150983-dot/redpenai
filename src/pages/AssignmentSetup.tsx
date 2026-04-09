@@ -15,7 +15,6 @@ import {
   Copy,
   HelpCircle
 } from 'lucide-react'
-import { NumericInput } from '@/components/NumericInput'
 import {
   db,
   generateId,
@@ -201,6 +200,7 @@ export default function AssignmentSetup({
   // 答案卷 Wizard 狀態（編輯流程）
   const [showEditWizard, setShowEditWizard] = useState(false)
   const [editWizardPages, setEditWizardPages] = useState<Array<{ index: number; url: string; blob: Blob }>>([])
+  const [showEditAnswerKeyWizard, setShowEditAnswerKeyWizard] = useState(false)
   const [inkSessionReady, setInkSessionReady] = useState(false)
   const [inkSessionError, setInkSessionError] = useState<string | null>(null)
   const [isClosingSession, setIsClosingSession] = useState(false)
@@ -578,9 +578,6 @@ export default function AssignmentSetup({
     return { levels }
   }
 
-  const buildDefaultRubric = (maxScore: number): Rubric => {
-    return normalizeRubric(undefined, maxScore)
-  }
 
   const CATEGORY_TO_TYPE: Record<QuestionCategory, QuestionCategoryType> = {
     single_choice: 1,
@@ -601,42 +598,8 @@ export default function AssignmentSetup({
     matching: 1,
   }
 
-  const CATEGORY_LABELS: Record<QuestionCategory, string> = {
-    single_choice: '單選選擇',
-    multi_choice: '多選選擇',
-    single_check: '單選勾選',
-    true_false: '是非題',
-    fill_blank: '填充題',
-    fill_variants: '填充題（多元）',
-    multi_check: '多選勾選',
-    multi_check_other: '多選勾選（含其他）',
-    calculation: '計算題',
-    word_problem: '應用題',
-    short_answer: '簡答題',
-    map_fill: '填圖題',
-    multi_fill: '多項填入',
-    map_draw: '繪圖題',
-    diagram_draw: '塗色題',
-    matching: '連連看',
-  }
 
-  function defaultCategoryFromType(type: QuestionCategoryType): QuestionCategory {
-    if (type === 1) return 'fill_blank'
-    if (type === 2) return 'fill_variants'
-    return 'short_answer'
-  }
 
-  function getEffectiveCategory(q: AnswerKeyQuestion): QuestionCategory {
-    if (q.questionCategory) return q.questionCategory
-    const t = typeof q.type === 'number' ? q.type : 2
-    // Heuristic for legacy type=3: if rubricsDimensions mention 列式/答句 → word_problem
-    if (t === 3 && Array.isArray(q.rubricsDimensions)) {
-      const names = q.rubricsDimensions.map((d) => d.name ?? '')
-      const isWordProblem = names.some((n) => /列式|算式|答句/.test(n))
-      if (isWordProblem) return 'word_problem'
-    }
-    return defaultCategoryFromType(t)
-  }
 
   function sanitizeQuestionId(value: unknown, fallback: string) {
     const normalized =
@@ -1411,6 +1374,7 @@ export default function AssignmentSetup({
     setEditingAnswerKey(ak)
     if (imageBlobs.length > 0) setEditAnswerSheetImage(imageBlobs[0])
     setShowEditWizard(false)
+    setShowEditAnswerKeyWizard(false)
     editWizardPages.forEach(p => URL.revokeObjectURL(p.url))
     setEditWizardPages([])
     setEditAnswerKeyFile([])
@@ -2223,368 +2187,20 @@ export default function AssignmentSetup({
     setter({ questions, totalScore })
   }
 
-  const removeQuestionRow = (target: 'create' | 'edit', index: number) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
 
-    if (!current) return
-    const questions = current.questions.filter((_, idx) => idx !== index)
-    const totalScore = questions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
-    setter({ ...current, questions, totalScore })
-  }
 
-  const updateQuestionField = (
-    target: 'create' | 'edit',
-    index: number,
-    field: 'id' | 'answer' | 'referenceAnswer' | 'type' | 'maxScore' | 'questionCategory',
-    value: string
-  ) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
 
-    const base = current ?? { questions: [], totalScore: 0 }
-    const questions = [...base.questions]
-    const existing = questions[index]
 
-    // Support both old QuestionType and new QuestionCategoryType
-    const currentType = typeof existing?.type === 'number'
-      ? existing.type
-      : existing?.type
-        ? (existing.type === 'truefalse' || existing.type === 'choice' ? 1
-          : existing.type === 'fill' || existing.type === 'short' || existing.type === 'short_sentence' ? 2
-          : 3)
-        : 2
-
-    const item: AnswerKeyQuestion = {
-      ...existing,
-      id: existing?.id ?? '',
-      type: currentType as QuestionCategoryType,
-      maxScore: existing?.maxScore ?? 0
-    }
-
-    if (field === 'maxScore') {
-      const num = Math.max(0, parseFloat(value || '0') || 0)
-      item.maxScore = num
-      if (item.type === 3 && item.rubric) {
-        item.rubric = normalizeRubric(item.rubric, num)
-      }
-    } else if (field === 'questionCategory') {
-      const nextCategory = value as QuestionCategory
-      const nextType = CATEGORY_TO_TYPE[nextCategory] ?? item.type
-      const oldCategory = getEffectiveCategory(item)
-
-      if (oldCategory !== nextCategory) {
-        item.questionCategory = nextCategory
-        item.type = nextType
-        item.needsReanalysis = true
-
-        // Clear all answer-related fields
-        item.answer = undefined
-        item.answerFormat = undefined
-        item.referenceAnswer = undefined
-        item.acceptableAnswers = undefined
-        item.rubric = undefined
-        item.rubricsDimensions = undefined
-
-        // Set default values based on category
-        if (nextType === 1) {
-          item.answer = ''
-        } else if (nextType === 2) {
-          item.referenceAnswer = ''
-          item.acceptableAnswers = []
-        } else if (nextType === 3) {
-          item.referenceAnswer = ''
-          if (item.maxScore <= 0) item.maxScore = 10
-          // type=3 categories each get appropriate default rubricsDimensions
-          if (nextCategory === 'word_problem') {
-            item.rubricsDimensions = [
-              { name: '列式計算', maxScore: Math.ceil((item.maxScore || 10) * 0.6), criteria: '算式正確、步驟清晰' },
-              { name: '答句', maxScore: Math.floor((item.maxScore || 10) * 0.4), criteria: '以「答：」開頭，含數字與單位（或完整文字答案）' },
-            ]
-          } else if (nextCategory === 'calculation') {
-            item.rubricsDimensions = [
-              { name: '算式過程', maxScore: Math.ceil((item.maxScore || 3) * 0.4), criteria: '列出正確算式（橫式或直式），步驟清晰' },
-              { name: '最終答案', maxScore: Math.floor((item.maxScore || 3) * 0.6), criteria: '數值正確（不需單位）' },
-            ]
-          } else if (nextCategory === 'diagram_draw') {
-            item.rubricsDimensions = [
-              { name: '作圖正確性', maxScore: Math.ceil((item.maxScore || 3) * 0.7), criteria: '塗色/繪圖範圍符合題目要求' },
-              { name: '完整性', maxScore: Math.floor((item.maxScore || 3) * 0.3), criteria: '塗色連續完整，無明顯空缺' },
-            ]
-          } else {
-            item.rubric = buildDefaultRubric(item.maxScore)
-          }
-        }
-      }
-    } else if (field === 'type') {
-      // Legacy path: keep for backward compat but also set questionCategory
-      const nextType = parseInt(value, 10) as QuestionCategoryType
-      const oldType = item.type
-
-      if (oldType !== nextType) {
-        item.type = nextType
-        item.questionCategory = defaultCategoryFromType(nextType)
-        item.needsReanalysis = true
-
-        item.answer = undefined
-        item.answerFormat = undefined
-        item.referenceAnswer = undefined
-        item.acceptableAnswers = undefined
-        item.rubric = undefined
-        item.rubricsDimensions = undefined
-
-        if (nextType === 1) {
-          item.answer = ''
-        } else if (nextType === 2) {
-          item.referenceAnswer = ''
-          item.acceptableAnswers = []
-        } else if (nextType === 3) {
-          item.referenceAnswer = ''
-          if (item.maxScore <= 0) item.maxScore = 10
-          item.rubric = buildDefaultRubric(item.maxScore)
-        }
-      }
-    } else if (field === 'id') {
-      item.id = sanitizeQuestionId(value, item.id || `${index + 1}`)
-    } else if (field === 'answer') {
-      item.answer = value
-    } else if (field === 'referenceAnswer') {
-      item.referenceAnswer = value
-    }
-
-    questions[index] = item
-    const totalScore = questions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
-    setter({ ...base, questions, totalScore })
-  }
-
-  const inferUnorderedGroupId = (question: AnswerKeyQuestion, index: number) => {
-    if (Array.isArray(question.idPath) && question.idPath.length > 0) {
-      const first = (question.idPath[0] ?? '').trim()
-      if (first) return first
-    }
-    const id = (question.id ?? '').trim()
-    if (id.includes('-')) {
-      const [head] = id.split('-')
-      if (head?.trim()) return head.trim()
-    }
-    return `${index + 1}`
-  }
-
-  const updateQuestionOrderMode = (
-    target: 'create' | 'edit',
-    index: number,
-    mode: 'strict' | 'unordered'
-  ) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
-    const base = current ?? { questions: [], totalScore: 0 }
-    const questions = [...base.questions]
-    const existing = questions[index]
-    if (!existing) return
-
-    const next: AnswerKeyQuestion = {
-      ...existing,
-      orderMode: mode
-    }
-    if (mode === 'unordered') {
-      next.unorderedGroupId =
-        (existing.unorderedGroupId ?? '').trim() || inferUnorderedGroupId(existing, index)
-    } else {
-      next.unorderedGroupId = undefined
-    }
-    questions[index] = next
-    setter({ questions, totalScore: base.totalScore })
-  }
-
-  const updateQuestionUnorderedGroupId = (
-    target: 'create' | 'edit',
-    index: number,
-    groupId: string
-  ) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
-    const base = current ?? { questions: [], totalScore: 0 }
-    const questions = [...base.questions]
-    const existing = questions[index]
-    if (!existing) return
-
-    const trimmed = groupId.trim()
-    questions[index] = {
-      ...existing,
-      orderMode: 'unordered',
-      unorderedGroupId: trimmed || inferUnorderedGroupId(existing, index)
-    }
-    setter({ questions, totalScore: base.totalScore })
-  }
 
   // Type 2: Acceptable Answers Management
-  const addAcceptableAnswer = (target: 'create' | 'edit', index: number) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
-    if (!current) return
 
-    const questions = [...current.questions]
-    const item = { ...questions[index] }
-    const acceptableAnswers = item.acceptableAnswers ?? []
-    item.acceptableAnswers = [...acceptableAnswers, '']
-    questions[index] = item
-    setter({ ...current, questions })
-  }
 
-  const removeAcceptableAnswer = (
-    target: 'create' | 'edit',
-    index: number,
-    ansIdx: number
-  ) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
-    if (!current) return
-
-    const questions = [...current.questions]
-    const item = { ...questions[index] }
-    const acceptableAnswers = item.acceptableAnswers ?? []
-    item.acceptableAnswers = acceptableAnswers.filter((_, i) => i !== ansIdx)
-    questions[index] = item
-    setter({ ...current, questions })
-  }
-
-  const updateAcceptableAnswer = (
-    target: 'create' | 'edit',
-    index: number,
-    ansIdx: number,
-    value: string
-  ) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
-    if (!current) return
-
-    const questions = [...current.questions]
-    const item = { ...questions[index] }
-    const acceptableAnswers = [...(item.acceptableAnswers ?? [])]
-    acceptableAnswers[ansIdx] = value
-    item.acceptableAnswers = acceptableAnswers
-    questions[index] = item
-    setter({ ...current, questions })
-  }
 
   // Type 3: Rubric Dimensions Management
-  const addRubricDimension = (target: 'create' | 'edit', index: number) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
-    if (!current) return
 
-    const questions = [...current.questions]
-    const item = { ...questions[index] }
-    const dimensions = item.rubricsDimensions ?? []
-    item.rubricsDimensions = [
-      ...dimensions,
-      { name: '', maxScore: 0, criteria: '' }
-    ]
-    questions[index] = item
-    setter({ ...current, questions })
-  }
 
-  const removeRubricDimension = (
-    target: 'create' | 'edit',
-    index: number,
-    dimIdx: number
-  ) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
-    if (!current) return
 
-    const questions = [...current.questions]
-    const item = { ...questions[index] }
-    const dimensions = item.rubricsDimensions ?? []
-    item.rubricsDimensions = dimensions.filter((_, i) => i !== dimIdx)
-    questions[index] = item
-    setter({ ...current, questions })
-  }
 
-  const updateRubricDimension = (
-    target: 'create' | 'edit',
-    index: number,
-    dimIdx: number,
-    field: 'name' | 'maxScore' | 'criteria',
-    value: string
-  ) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
-    if (!current) return
-
-    const questions = [...current.questions]
-    const item = { ...questions[index] }
-    const dimensions = [...(item.rubricsDimensions ?? [])]
-    const dimension = { ...dimensions[dimIdx] }
-
-    if (field === 'maxScore') {
-      dimension.maxScore = Math.max(0, parseFloat(value || '0') || 0)
-    } else {
-      dimension[field] = value
-    }
-
-    dimensions[dimIdx] = dimension
-    item.rubricsDimensions = dimensions
-    questions[index] = item
-    setter({ ...current, questions })
-  }
-
-  const switchRubricType = (
-    target: 'create' | 'edit',
-    index: number,
-    toType: 'multi-dimension' | '4-level'
-  ) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
-    if (!current) return
-
-    const questions = [...current.questions]
-    const item = { ...questions[index] }
-
-    if (toType === 'multi-dimension') {
-      item.rubric = undefined
-      item.rubricsDimensions = item.rubricsDimensions ?? [
-        { name: '', maxScore: 0, criteria: '' }
-      ]
-    } else {
-      item.rubricsDimensions = undefined
-      item.rubric = normalizeRubric(item.rubric, item.maxScore || 0)
-    }
-
-    questions[index] = item
-    setter({ ...current, questions })
-  }
-
-  const updateRubricLevel = (
-    target: 'create' | 'edit',
-    questionIndex: number,
-    levelIndex: number,
-    field: 'min' | 'max' | 'criteria',
-    value: string
-  ) => {
-    const current = target === 'create' ? answerKey : editingAnswerKey
-    const setter = target === 'create' ? setAnswerKey : setEditingAnswerKey
-    if (!current) return
-
-    const questions = [...current.questions]
-    const item = { ...questions[questionIndex] }
-    const rubric = normalizeRubric(item.rubric, item.maxScore || 0)
-    const levels = [...rubric.levels]
-    const level = { ...levels[levelIndex] }
-
-    if (field === 'criteria') {
-      level.criteria = value
-    } else {
-      const num = Math.max(0, parseFloat(value || '0') || 0)
-      level[field] = num
-    }
-
-    levels[levelIndex] = level
-    item.rubric = { levels }
-    questions[questionIndex] = item
-    const totalScore = questions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
-    setter({ questions, totalScore })
-  }
 
   if (isLoading) {
     return (
@@ -3504,13 +3120,6 @@ export default function AssignmentSetup({
                       AI 解析中…
                     </span>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => addQuestionRow('edit')}
-                    className="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200"
-                  >
-                    手動新增一題
-                  </button>
                   {editingAnswerKey && editingAnswerKey.questions.some(q => q.needsReanalysis) && (
                     <button
                       type="button"
@@ -3537,378 +3146,22 @@ export default function AssignmentSetup({
                 )}
               </div>
 
-              <div className="border border-gray-200 rounded-xl p-4 bg-gray-50">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold text-gray-800">
-                    標準答案
-                  </span>
-                  {editingScoringMode !== 'unscored' && (
-                    <span className="text-xs text-gray-500">
-                      總分：{editingAnswerKey.totalScore}
-                    </span>
-                  )}
+
+              {editingAnswerKey && (
+                <div className="flex items-center justify-between rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold text-green-800">✓ 已擷取 {editingAnswerKey.questions.length} 題</span>
+                    {editingScoringMode !== "unscored" && (
+                      <span className="text-xs text-gray-500">總分 {editingAnswerKey.totalScore} 分</span>
+                    )}
+                  </div>
+                  <button type="button" onClick={() => setShowEditAnswerKeyWizard(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 bg-white border border-green-300 rounded-lg hover:bg-green-50 transition-colors">
+                    <Edit2 className="w-3.5 h-3.5" />
+                    編輯正確答案
+                  </button>
                 </div>
-                <div className="space-y-3 max-h-56 overflow-auto pr-1">
-                  {editingAnswerKey.questions.map((q, idx) => {
-                    const effectiveCategory = getEffectiveCategory(q)
-                    const questionType = CATEGORY_TO_TYPE[effectiveCategory] ?? 2
-                    const rubric = q.rubric ?? buildDefaultRubric(q.maxScore || 0)
-
-                    return (
-                      <div
-                        key={q.uiKey || q.id || idx}
-                        className="space-y-2 text-xs bg-white rounded-lg px-3 py-2 border border-gray-200"
-                      >
-                        <div className={`grid gap-2 items-center ${editingScoringMode === 'unscored' ? 'grid-cols-[auto,1fr,auto]' : 'grid-cols-[auto,1fr,auto,auto]'}`}>
-                          <div className="flex items-center gap-0.5">
-                            <input
-                              className="w-14 px-1 py-1 border border-gray-300 rounded"
-                              value={q.id}
-                              onChange={(e) =>
-                                updateQuestionField('edit', idx, 'id', e.target.value)
-                              }
-                            />
-                            {q.referenceBbox && (
-                              <span title={`位置參考 (${q.referenceBbox.x.toFixed(2)}, ${q.referenceBbox.y.toFixed(2)})`} className="text-blue-500 text-[10px]">📍</span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <select
-                              className="flex-1 px-2 py-1 border border-gray-300 rounded bg-white"
-                              value={effectiveCategory}
-                              onChange={(e) =>
-                                updateQuestionField('edit', idx, 'questionCategory', e.target.value)
-                              }
-                            >
-                              {(Object.entries(CATEGORY_LABELS) as [QuestionCategory, string][]).map(([cat, label]) => (
-                                <option key={cat} value={cat}>{label}</option>
-                              ))}
-                            </select>
-                          </div>
-                          {editingScoringMode !== 'unscored' && (
-                            <NumericInput
-                              className="w-16 px-1 py-1 border border-gray-300 rounded text-right"
-                              value={q.maxScore}
-                              allowDecimal
-                              onChange={(v) =>
-                                updateQuestionField(
-                                  'edit',
-                                  idx,
-                                  'maxScore',
-                                  String(v)
-                                )
-                              }
-                            />
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => removeQuestionRow('edit', idx)}
-                            className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-
-                        <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
-                          <span className="text-[11px] text-gray-500">順序規則</span>
-                          <select
-                            className="w-full px-2 py-1 border border-gray-300 rounded bg-white"
-                            value={q.orderMode === 'unordered' ? 'unordered' : 'strict'}
-                            onChange={(e) =>
-                              updateQuestionOrderMode(
-                                'edit',
-                                idx,
-                                e.target.value === 'unordered' ? 'unordered' : 'strict'
-                              )
-                            }
-                          >
-                            <option value="strict">固定位置（預設）</option>
-                            <option value="unordered">同組可互換（不限順序）</option>
-                          </select>
-                        </div>
-                        {(q.orderMode ?? 'strict') === 'unordered' && (
-                          <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
-                            <span className="text-[11px] text-gray-500">互換組別</span>
-                            <input
-                              className="w-full px-2 py-1 border border-gray-300 rounded"
-                              value={q.unorderedGroupId ?? ''}
-                              onChange={(e) =>
-                                updateQuestionUnorderedGroupId('edit', idx, e.target.value)
-                              }
-                              placeholder="例如：1"
-                            />
-                          </div>
-                        )}
-
-                        {/* Type 1: Standard Answer */}
-                        {questionType === 1 && (
-                          <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
-                            <span className="text-[11px] text-gray-500">標準答案</span>
-                            <input
-                              className="w-full px-2 py-1 border border-gray-300 rounded"
-                              value={q.answer ?? ''}
-                              onChange={(e) =>
-                                updateQuestionField(
-                                  'edit',
-                                  idx,
-                                  'answer',
-                                  e.target.value
-                                )
-                              }
-                            />
-                          </div>
-                        )}
-
-                        {/* Type 2: Reference Answer + Acceptable Answers */}
-                        {questionType === 2 && (
-                          <div className="space-y-2">
-                            {(effectiveCategory === 'multi_check' || effectiveCategory === 'multi_choice' || effectiveCategory === 'multi_check_other') ? (
-                              <>
-                                <div className="grid grid-cols-[70px_1fr] gap-2 items-center">
-                                  <span className="text-[11px] text-gray-500">正確選項</span>
-                                  <input
-                                    className="w-full px-2 py-1 border border-gray-300 rounded"
-                                    value={q.answer ?? ''}
-                                    onChange={(e) =>
-                                      updateQuestionField('edit', idx, 'answer', e.target.value)
-                                    }
-                                    placeholder={effectiveCategory === 'multi_choice' ? '例如：A,C' : '例如：①,③'}
-                                  />
-                                </div>
-                                {effectiveCategory === 'multi_check_other' && (
-                                  <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
-                                    <span className="text-[11px] text-gray-500">其他（參考）</span>
-                                    <textarea
-                                      rows={2}
-                                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                                      value={q.referenceAnswer ?? ''}
-                                      onChange={(e) =>
-                                        updateQuestionField('edit', idx, 'referenceAnswer', e.target.value)
-                                      }
-                                      placeholder="其他選項的參考答案（選填）"
-                                    />
-                                  </div>
-                                )}
-                              </>
-                            ) : (
-                              <>
-                                <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
-                                  <span className="text-[11px] text-gray-500">參考答案</span>
-                                  <textarea
-                                    rows={2}
-                                    className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                                    value={q.referenceAnswer ?? ''}
-                                    onChange={(e) =>
-                                      updateQuestionField('edit', idx, 'referenceAnswer', e.target.value)
-                                    }
-                                  />
-                                </div>
-                                <div>
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-[11px] text-gray-500">可接受答案變體</span>
-                                    <button
-                                      type="button"
-                                      onClick={() => addAcceptableAnswer('edit', idx)}
-                                      className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                    >
-                                      + 新增
-                                    </button>
-                                  </div>
-                                  {(q.acceptableAnswers ?? []).map((ans, ansIdx) => (
-                                    <div key={ansIdx} className="flex items-center gap-2 mb-1">
-                                      <input
-                                        className="flex-1 px-2 py-1 border border-gray-300 rounded"
-                                        value={ans}
-                                        onChange={(e) =>
-                                          updateAcceptableAnswer('edit', idx, ansIdx, e.target.value)
-                                        }
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => removeAcceptableAnswer('edit', idx, ansIdx)}
-                                        className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50"
-                                      >
-                                        <X className="w-3 h-3" />
-                                      </button>
-                                    </div>
-                                  ))}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Type 3: Reference Answer + Rubric */}
-                        {questionType === 3 && (
-                          <div className="space-y-2">
-                            <div className="grid grid-cols-[70px_1fr] gap-2 items-start">
-                              <span className="text-[11px] text-gray-500">參考答案</span>
-                              <textarea
-                                rows={2}
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                                value={q.referenceAnswer ?? ''}
-                                onChange={(e) =>
-                                  updateQuestionField(
-                                    'edit',
-                                    idx,
-                                    'referenceAnswer',
-                                    e.target.value
-                                  )
-                                }
-                              />
-                            </div>
-
-                            {/* Rubric Type Toggle */}
-                            <div className="flex items-center gap-2">
-                              <span className="text-[11px] text-gray-500">基規準類型：</span>
-                              <button
-                                type="button"
-                                onClick={() => switchRubricType('edit', idx, 'multi-dimension')}
-                                className={`text-xs px-2 py-1 rounded ${
-                                  q.rubricsDimensions ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'
-                                }`}
-                              >
-                                多維度評分
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => switchRubricType('edit', idx, '4-level')}
-                                className={`text-xs px-2 py-1 rounded ${
-                                  q.rubric ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'
-                                }`}
-                              >
-                                4級評價
-                              </button>
-                            </div>
-
-                            {/* Multi-dimension Rubric */}
-                            {q.rubricsDimensions && (
-                              <div>
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className="text-[11px] text-gray-500">評分維度</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => addRubricDimension('edit', idx)}
-                                    className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                  >
-                                    + 新增維度
-                                  </button>
-                                </div>
-                                {q.rubricsDimensions.map((dim, dimIdx) => (
-                                  <div key={dimIdx} className="mb-2 p-2 bg-gray-50 rounded border border-gray-200">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <input
-                                        placeholder="維度名稱"
-                                        className="flex-1 px-2 py-1 border border-gray-300 rounded"
-                                        value={dim.name}
-                                        onChange={(e) =>
-                                          updateRubricDimension('edit', idx, dimIdx, 'name', e.target.value)
-                                        }
-                                      />
-                                      {editingScoringMode !== 'unscored' && (
-                                        <NumericInput
-                                          className="w-16 px-2 py-1 border border-gray-300 rounded text-right"
-                                          value={dim.maxScore}
-                                          allowDecimal
-                                          onChange={(v) =>
-                                            updateRubricDimension('edit', idx, dimIdx, 'maxScore', String(v))
-                                          }
-                                        />
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() => removeRubricDimension('edit', idx, dimIdx)}
-                                        className="p-1 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50"
-                                      >
-                                        <X className="w-3 h-3" />
-                                      </button>
-                                    </div>
-                                    <textarea
-                                      rows={2}
-                                      placeholder="評分標準"
-                                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs"
-                                      value={dim.criteria}
-                                      onChange={(e) =>
-                                        updateRubricDimension('edit', idx, dimIdx, 'criteria', e.target.value)
-                                      }
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* 4-Level Rubric */}
-                            {q.rubric && (
-                              <div>
-                                <div className="text-[11px] text-gray-500 mb-1">
-                                  基規準（四級）
-                                </div>
-                                <div className="space-y-1">
-                                  {rubric.levels.map((level, levelIndex) => (
-                                    <div
-                                      key={level.label}
-                                      className={`grid gap-2 items-center ${editingScoringMode === 'unscored' ? 'grid-cols-[56px_1fr]' : 'grid-cols-[56px_44px_44px_1fr]'}`}
-                                    >
-                                      <span className="text-[11px] text-gray-600">
-                                        {level.label}
-                                      </span>
-                                      {editingScoringMode !== 'unscored' && (
-                                        <>
-                                          <NumericInput
-                                            className="px-1 py-1 border border-gray-300 rounded text-right"
-                                            value={level.min}
-                                            allowDecimal
-                                            onChange={(v) =>
-                                              updateRubricLevel(
-                                                'edit',
-                                                idx,
-                                                levelIndex,
-                                                'min',
-                                                String(v)
-                                              )
-                                            }
-                                          />
-                                          <NumericInput
-                                            className="px-1 py-1 border border-gray-300 rounded text-right"
-                                            value={level.max}
-                                            allowDecimal
-                                            onChange={(v) =>
-                                              updateRubricLevel(
-                                                'edit',
-                                                idx,
-                                                levelIndex,
-                                                'max',
-                                                String(v)
-                                              )
-                                            }
-                                          />
-                                        </>
-                                      )}
-                                      <input
-                                        className="px-2 py-1 border border-gray-300 rounded"
-                                        value={level.criteria}
-                                        onChange={(e) =>
-                                          updateRubricLevel(
-                                            'edit',
-                                            idx,
-                                            levelIndex,
-                                            'criteria',
-                                            e.target.value
-                                          )
-                                        }
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
+              )}
             </div>
 
             <div className="px-4 py-3 border-t border-gray-200 bg-white rounded-b-2xl flex items-center justify-end gap-2">
@@ -4220,6 +3473,22 @@ export default function AssignmentSetup({
           onExtract={handleWizardCreateExtract}
           onSave={handleWizardCreateEditSave}
           onCancel={() => setShowAnswerKeyEditWizard(false)}
+        />
+      )}
+
+      {/* 編輯作業：「編輯正確答案」按鈕開啟 Wizard（results 步驟） */}
+      {showEditAnswerKeyWizard && editingAnswerKey && (
+        <AnswerKeyWizardModal
+          initialPages={[]}
+          initialStep="results"
+          initialAnswerKey={editingAnswerKey}
+          initialAnswerSheetImage={editAnswerSheetImage}
+          scoringMode={editingScoringMode}
+          hasGradedSubmissions={false}
+          domain={editingDomain}
+          onExtract={handleWizardEditExtract}
+          onSave={handleWizardEditSave}
+          onCancel={() => setShowEditAnswerKeyWizard(false)}
         />
       )}
 
