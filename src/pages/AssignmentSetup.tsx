@@ -1234,7 +1234,7 @@ export default function AssignmentSetup({
           reader.readAsDataURL(blob)
         }))
       )
-      const res = await fetch('/api/storage/answer-sheet', {
+      const res = await fetch('/api/storage/download', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -1255,7 +1255,7 @@ export default function AssignmentSetup({
     try {
       const blobs = await Promise.all(
         Array.from({ length: pageCount }, (_, i) =>
-          fetch(`/api/storage/answer-sheet?assignmentId=${encodeURIComponent(assignmentId)}&pageIndex=${i}`, {
+          fetch(`/api/storage/download?assignmentId=${encodeURIComponent(assignmentId)}&pageIndex=${i}`, {
             credentials: 'include',
           }).then(r => r.ok ? r.blob() : null)
         )
