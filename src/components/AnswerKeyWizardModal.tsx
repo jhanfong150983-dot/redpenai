@@ -553,29 +553,33 @@ export default function AnswerKeyWizardModal({
                         </div>
                       ) : (
                         /* Full image with bbox overlay (for drawing / full-image toggle) */
-                        <div
-                          ref={imageContainerRef}
-                          className={`relative inline-block w-full max-h-48 overflow-hidden rounded-lg border border-gray-200 bg-white ${isDrawingBbox ? 'cursor-crosshair' : 'cursor-default'}`}
-                          onMouseDown={handleBboxMouseDown}
-                          onMouseMove={handleBboxMouseMove}
-                          onMouseUp={handleBboxMouseUp}
-                        >
-                          {imageObjUrl ? (
-                            <img src={imageObjUrl} alt="答案卷" className="w-full object-contain max-h-48 pointer-events-none" draggable={false} />
-                          ) : (
-                            <div className="flex items-center justify-center h-24 text-gray-400 text-xs">尚無圖片</div>
-                          )}
-                          {activeBbox && imageObjUrl && (
-                            <div
-                              className={`absolute border-2 pointer-events-none ${bboxIsAiDetected ? 'border-blue-500 bg-blue-500/10' : 'border-green-500 bg-green-500/10'}`}
-                              style={{
-                                left: `${activeBbox.x * 100}%`,
-                                top: `${activeBbox.y * 100}%`,
-                                width: `${activeBbox.w * 100}%`,
-                                height: `${activeBbox.h * 100}%`,
-                              }}
-                            />
-                          )}
+                        /* Outer: centers the image horizontally */
+                        <div className="w-full flex justify-center rounded-lg border border-gray-200 bg-white overflow-hidden">
+                          {/* Inner: sized to actual rendered image — bbox % is relative to this */}
+                          <div
+                            ref={imageContainerRef}
+                            className={`relative inline-block max-h-48 ${isDrawingBbox ? 'cursor-crosshair' : 'cursor-default'}`}
+                            onMouseDown={handleBboxMouseDown}
+                            onMouseMove={handleBboxMouseMove}
+                            onMouseUp={handleBboxMouseUp}
+                          >
+                            {imageObjUrl ? (
+                              <img src={imageObjUrl} alt="答案卷" className="block max-w-full max-h-48 pointer-events-none" draggable={false} />
+                            ) : (
+                              <div className="flex items-center justify-center h-24 w-48 text-gray-400 text-xs">尚無圖片</div>
+                            )}
+                            {activeBbox && imageObjUrl && (
+                              <div
+                                className={`absolute border-2 pointer-events-none ${bboxIsAiDetected ? 'border-blue-500 bg-blue-500/10' : 'border-green-500 bg-green-500/10'}`}
+                                style={{
+                                  left: `${activeBbox.x * 100}%`,
+                                  top: `${activeBbox.y * 100}%`,
+                                  width: `${activeBbox.w * 100}%`,
+                                  height: `${activeBbox.h * 100}%`,
+                                }}
+                              />
+                            )}
+                          </div>
                         </div>
                       )}
                       <div className="flex items-center gap-2 mt-1.5">
