@@ -874,7 +874,7 @@ function buildGlobalTaskAndFormat(): string {
     "unorderedGroupId": "1", // orderMode=unordered 時必填（同組共用）
     "questionCategory": "fill_blank",  // 題型（必填，見下方分類標準）
     "maxScore": 5,                      // 滿分
-    "answerBbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05}, // 整個題目區塊位置（歸一化，0-1；x/y=左上角，w/h=寬高）。框住題幹＋答題空間＋標準答案，範圍完整寬鬆。每題獨立標記，禁止為避免重疊而偏移。
+    "answerBbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05}, // 你剛才讀到的 "answer" 文字／符號在圖像上的精確位置（歸一化，0-1；x/y=左上角，w/h=寬高）。框住你實際看到並識別的那些字元，不是猜測，是你已經視覺定位的文字。
 
     // single_choice / true_false / fill_blank / multi_check / multi_choice / single_check 專用：標準答案
     // single_choice: 括號()內填一個代號，如 "A"、"甲"、"①"（答案空間為括號）
@@ -944,15 +944,15 @@ function buildGlobalTaskAndFormat(): string {
   - 同一可互換組的所有子題，必須設定相同 unorderedGroupId（通常用主題號，如 "1"）
 - 配分：圖片有就用，無則估計（是非/選擇 2-5 分，簡答 5-8 分，申論 8-15 分）
 - totalScore = 所有 maxScore 總和
-- answerBbox：每題必填，框住**整個題目區塊**（題幹文字＋答題空間＋標準答案），不需要精確裁切答題線。x/y 為左上角，w/h 為寬高，均為 0-1 之間的歸一化座標（相對於所在頁面圖片的寬高）。多頁試卷：bbox 是相對於該題所在的那一張圖片。
-  目標：讓後端 AI 能定位到正確題目位置；bbox 範圍寬鬆完整比精確裁切更重要。
-  The bbox must use actual pixel proportions — do NOT output placeholder or estimated sizes.
-  規則：
-  - 每題從題號開始，到最後一行（標準答案或空格）結束，完整框住整題。
-  - multi_fill 例外：每個子題只框自己那個空格所在的小區塊（不含其他子題），避免框到相鄰格。
-  - matching（group_context）：框住整個配對題的左欄＋右欄＋連線區域。
-  ⚠️ 每題 bbox 必須根據圖片上的實際視覺位置獨立標記，禁止為了「避免與其他題重疊」而偏移或縮小座標。
-  ⚠️ 若完全無法定位該題，請省略 answerBbox（不要填入佔位符）。
+- answerBbox：每題必填。**這是 grounded bbox**：先讀出 answer 欄位的文字，再標記你剛才視覺識別到那些文字／符號的所在位置。
+  - 規則：answerBbox 必須是你**已經看見並讀取**的文字的邊框，不是猜測答題區的位置。
+  - x/y 為左上角，w/h 為寬高，均為 0-1 之間的歸一化座標（相對於所在頁面圖片的寬高）。
+  - 多頁試卷：bbox 相對於該題所在的那一張圖片。
+  - do NOT output placeholder or estimated coordinates — only output coordinates you can ground to specific visible characters.
+  - multi_fill 例外：每個子題的 answerBbox 對應你讀到那個格子內的文字位置（不含鄰格）。
+  - matching（group_context）：框住你識別到所有配對答案（右欄）的整體範圍。
+  ⚠️ 每題 bbox 根據實際視覺位置獨立標記，禁止為避免重疊而偏移座標。
+  ⚠️ 若該題的 answer 文字在圖上無法視覺定位，請省略 answerBbox。
 - 無法辨識時回傳 {"questions": [], "totalScore": 0}
 
 【題號層級（idPath）】
