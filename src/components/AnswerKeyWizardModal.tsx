@@ -479,7 +479,10 @@ export default function AnswerKeyWizardModal({
               ) : (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                   <SortableContext items={items.map((i) => i.id)} strategy={rectSortingStrategy}>
-                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
+                    <div
+                      className="grid gap-4 h-full"
+                      style={{ gridTemplateColumns: `repeat(${Math.min(items.length, 6)}, minmax(0, 1fr))` }}
+                    >
                       {items.map((item) => (
                         <SortablePageCard key={item.id} item={item} onRotate={handleRotateOne} />
                       ))}
