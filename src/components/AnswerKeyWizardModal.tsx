@@ -75,13 +75,13 @@ interface PageItem {
 function SortablePageCard({ item, onRotate }: { item: PageItem; onRotate: (id: string) => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   return (
-    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 50 : undefined, opacity: isDragging ? 0.8 : 1 }} className={`relative group ${isDragging ? 'shadow-2xl' : ''}`}>
-      <div {...attributes} {...listeners} className="border-2 border-gray-200 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing bg-white hover:border-green-400 transition-colors">
-        <div className="bg-gray-50 px-2 py-1.5 text-xs text-gray-600 font-medium flex items-center justify-between">
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 50 : undefined, opacity: isDragging ? 0.8 : 1 }} className={`relative group h-full ${isDragging ? 'shadow-2xl' : ''}`}>
+      <div {...attributes} {...listeners} className="border-2 border-gray-200 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing bg-white hover:border-green-400 transition-colors h-full flex flex-col">
+        <div className="bg-gray-50 px-2 py-1.5 text-xs text-gray-600 font-medium flex items-center justify-between shrink-0">
           <span>第 {item.originalIndex + 1} 頁</span>
           {item.rotation !== 0 && <span className="text-[10px] text-orange-600 font-semibold">{item.rotation}°</span>}
         </div>
-        <div className="aspect-[3/4] bg-white overflow-hidden">
+        <div className="flex-1 bg-white overflow-hidden flex items-center justify-center">
           <img src={item.url} alt={`第 ${item.originalIndex + 1} 頁`} className="w-full h-full object-contain" style={{ transform: `rotate(${item.rotation}deg)` }} draggable={false} />
         </div>
       </div>
@@ -473,14 +473,14 @@ export default function AnswerKeyWizardModal({
 
           {/* Step 1: Page Order */}
           {step === 'page_order' && (
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-hidden p-4 flex flex-col">
               {items.length === 0 ? (
                 <p className="text-sm text-gray-500 text-center py-8">沒有頁面資料</p>
               ) : (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                   <SortableContext items={items.map((i) => i.id)} strategy={rectSortingStrategy}>
                     <div
-                      className="grid gap-4 h-full"
+                      className="grid gap-4 flex-1 min-h-0"
                       style={{ gridTemplateColumns: `repeat(${Math.min(items.length, 6)}, minmax(0, 1fr))` }}
                     >
                       {items.map((item) => (
