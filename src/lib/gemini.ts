@@ -874,7 +874,7 @@ function buildGlobalTaskAndFormat(): string {
     "unorderedGroupId": "1", // orderMode=unordered 時必填（同組共用）
     "questionCategory": "fill_blank",  // 題型（必填，見下方分類標準）
     "maxScore": 5,                      // 滿分
-    "answerBbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05}, // 答案區塊位置（歸一化，0-1；x/y=左上角，w/h=寬高）。ACCURATE and TIGHT — 根據實際像素位置標記，禁止輸出估計值。每題獨立標記，禁止為避免重疊而偏移。無法精確定位時省略此欄位。
+    "answerBbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05}, // 整個題目區塊位置（歸一化，0-1；x/y=左上角，w/h=寬高）。框住題幹＋答題空間＋標準答案，範圍完整寬鬆。每題獨立標記，禁止為避免重疊而偏移。
 
     // single_choice / true_false / fill_blank / multi_check / multi_choice / single_check 專用：標準答案
     // single_choice: 括號()內填一個代號，如 "A"、"甲"、"①"（答案空間為括號）
@@ -944,17 +944,15 @@ function buildGlobalTaskAndFormat(): string {
   - 同一可互換組的所有子題，必須設定相同 unorderedGroupId（通常用主題號，如 "1"）
 - 配分：圖片有就用，無則估計（是非/選擇 2-5 分，簡答 5-8 分，申論 8-15 分）
 - totalScore = 所有 maxScore 總和
-- answerBbox：每題必填，標記學生填寫答案的區域（非題幹文字）。x/y 為左上角，w/h 為寬高，均為 0-1 之間的歸一化座標（相對於所在頁面圖片的寬高）。多頁試卷：bbox 是相對於該題所在的那一張圖片。
-  The bbox must be ACCURATE and TIGHT using actual pixel proportions — do NOT output placeholder or estimated sizes.
-  題型專屬規則：
-  - fill_blank（含注音）：框選答案橫線或空格；有多個連續空格（如注音格）請框住所有空格的整體範圍。
-  - single_choice / true_false：只框選括號 () 或選項標記那一行（學生填寫符號的空間），不含題幹文字。
-  - multi_choice / multi_check / single_check：框選所有選項行（從第一個選項到最後一個選項的完整範圍）。
-  - multi_fill：每個子題對應圖表中唯一的一個空格框，bbox 必須緊密裁切該格，絕對不可與相鄰子題 bbox 重疊；寧可框小，不可框到鄰格。
-  - word_problem / calculation / short_answer / diagram_draw：框選整個作答空間（含所有橫線或空白區）。
+- answerBbox：每題必填，框住**整個題目區塊**（題幹文字＋答題空間＋標準答案），不需要精確裁切答題線。x/y 為左上角，w/h 為寬高，均為 0-1 之間的歸一化座標（相對於所在頁面圖片的寬高）。多頁試卷：bbox 是相對於該題所在的那一張圖片。
+  目標：讓後端 AI 能定位到正確題目位置；bbox 範圍寬鬆完整比精確裁切更重要。
+  The bbox must use actual pixel proportions — do NOT output placeholder or estimated sizes.
+  規則：
+  - 每題從題號開始，到最後一行（標準答案或空格）結束，完整框住整題。
+  - multi_fill 例外：每個子題只框自己那個空格所在的小區塊（不含其他子題），避免框到相鄰格。
   - matching（group_context）：框住整個配對題的左欄＋右欄＋連線區域。
   ⚠️ 每題 bbox 必須根據圖片上的實際視覺位置獨立標記，禁止為了「避免與其他題重疊」而偏移或縮小座標。
-  ⚠️ 若無法精確定位答案區域，請省略 answerBbox（不要填入估計值或佔位符）。
+  ⚠️ 若完全無法定位該題，請省略 answerBbox（不要填入佔位符）。
 - 無法辨識時回傳 {"questions": [], "totalScore": 0}
 
 【題號層級（idPath）】
