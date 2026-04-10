@@ -1690,11 +1690,14 @@ function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: 
 }
 
 function buildTagConceptsPrompt(
-  questions: Array<{ id: string; questionCategory?: string }>,
+  questions: Array<{ id: string; questionCategory?: string; answer?: string }>,
   conceptMap: { code: string; label: string; description?: string }[]
 ): string {
   const questionList = questions
-    .map(q => `- id: "${q.id}"  題型: ${q.questionCategory ?? '未知'}`)
+    .map(q => {
+      const answerText = q.answer?.trim() ? `  答案: "${q.answer.trim()}"` : ''
+      return `- id: "${q.id}"  題型: ${q.questionCategory ?? '未知'}${answerText}`
+    })
     .join('\n')
 
   // Build concept list: show short label + description for context, but clearly separate them
@@ -3889,7 +3892,7 @@ function parseTagsResponse(text: string): Record<string, { code: string; label: 
  */
 export async function tagConceptsForAnswerKey(
   answerSheetImages: Blob[],
-  questions: Array<{ id: string; questionCategory?: string }>,
+  questions: Array<{ id: string; questionCategory?: string; answer?: string }>,
   conceptMap: { code: string; label: string; description?: string }[]
 ): Promise<Record<string, { code: string; label: string }>> {
   if (!isGeminiAvailable) throw new Error('Gemini 服務未設定')

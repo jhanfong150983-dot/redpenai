@@ -1217,7 +1217,7 @@ export default function AssignmentSetup({
 
     // 非同步概念標記
     if (batchConceptMap.length > 0) {
-      const questions = scoredKey.questions.map(q => ({ id: q.id, questionCategory: q.questionCategory }))
+      const questions = scoredKey.questions.map(q => ({ id: q.id, questionCategory: q.questionCategory, answer: q.answer ?? q.referenceAnswer }))
       setPendingConceptTags(null)
       tagConceptsForAnswerKey(imageBlobs.slice(), questions, batchConceptMap)
         .then(tags => { if (Object.keys(tags).length > 0) setPendingConceptTags(tags) })
@@ -1381,7 +1381,8 @@ export default function AssignmentSetup({
     if (currentBatch.length > 0) batches.push(currentBatch)
 
     const totalPages = imageBlobs.length
-    let mergedAnswerKey: AnswerKey | null = editingAnswerKey ? normalizeAnswerKey(editingAnswerKey) : null
+    // 重新截取時從空白開始（替換語意），不從現有答案鍵 merge（否則舊題號與新題號碰撞產生重複）
+    let mergedAnswerKey: AnswerKey | null = null
     let duplicateNotice: string | null = null
     let runningPageCount = 0
 
@@ -1422,7 +1423,7 @@ export default function AssignmentSetup({
       const classroom = classrooms.find(c => c.id === (editingClassroomId || editingAnswerAssignment.classroomId))
       if (classroom?.grade) {
         const assignmentId = editingAnswerAssignment.id
-        const questions = scoredKey.questions.map(q => ({ id: q.id, questionCategory: q.questionCategory }))
+        const questions = scoredKey.questions.map(q => ({ id: q.id, questionCategory: q.questionCategory, answer: q.answer ?? q.referenceAnswer }))
         fetch(`/api/data/concept-map?grade=${classroom.grade}`, { credentials: 'include' })
           .then(r => r.ok ? r.json() : { items: [] })
           .then(json => {
