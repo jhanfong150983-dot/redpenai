@@ -441,7 +441,7 @@ export default function AnswerKeyWizardModal({
   // ── render ───────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col relative">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[90vh] overflow-hidden flex flex-col relative">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 shrink-0">
@@ -557,23 +557,23 @@ export default function AnswerKeyWizardModal({
                     <div className="shrink-0 border-b border-gray-100 p-3 bg-gray-50">
                       {/* Cropped preview: backend Sharp crop (AI) or canvas crop (after manual draw) */}
                       {(manualCropUrl || selectedQuestion.cropImageUrl) && !isDrawingBbox ? (
-                        <div className="rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center max-h-40">
-                          <img src={manualCropUrl ?? selectedQuestion.cropImageUrl!} alt="答案區截圖" className="max-w-full max-h-40 object-contain pointer-events-none" draggable={false} />
+                        <div className="rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center h-40">
+                          <img src={manualCropUrl ?? selectedQuestion.cropImageUrl!} alt="答案區截圖" className="max-w-full max-h-full object-contain pointer-events-none" draggable={false} />
                         </div>
                       ) : (
                         /* Full image with drawing overlay */
                         /* Outer: centers the image horizontally */
-                        <div className="w-full flex justify-center rounded-lg border border-gray-200 bg-white overflow-hidden">
+                        <div className="w-full flex justify-center rounded-lg border border-gray-200 bg-white overflow-hidden h-40">
                           {/* Inner: sized to actual rendered image — bbox % is relative to this */}
                           <div
                             ref={imageContainerRef}
-                            className={`relative inline-block max-h-48 ${isDrawingBbox ? 'cursor-crosshair' : 'cursor-default'}`}
+                            className={`relative inline-block max-h-40 ${isDrawingBbox ? 'cursor-crosshair' : 'cursor-default'}`}
                             onMouseDown={handleBboxMouseDown}
                             onMouseMove={handleBboxMouseMove}
                             onMouseUp={handleBboxMouseUp}
                           >
                             {imageObjUrl ? (
-                              <img src={imageObjUrl} alt="答案卷" className="block max-w-full max-h-48 pointer-events-none" draggable={false} />
+                              <img src={imageObjUrl} alt="答案卷" className="block max-w-full max-h-40 pointer-events-none" draggable={false} />
                             ) : (
                               <div className="flex items-center justify-center h-24 w-48 text-gray-400 text-xs">尚無圖片</div>
                             )}
