@@ -110,6 +110,9 @@ export interface AnswerKeyQuestion {
   // 多頁答案卷時用於 wizard 顯示正確的頁面預覽
   pageIndex?: number
 
+  // 後端 Sharp 裁切的答案區截圖（base64 data URL），由 answer_key.extract 後處理產生
+  cropImageUrl?: string
+
   needsReanalysis?: boolean // 教師修改題型後標記為true，需要重新分析
 
   // 108課綱對應概念（由 AnswerKey 抽取時 AI 標記）

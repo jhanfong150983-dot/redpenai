@@ -159,7 +159,7 @@ export default function AnswerKeyWizardModal({
   const bboxDrawStart = useRef<{ x: number; y: number } | null>(null)
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const [imageObjUrl, setImageObjUrl] = useState<string | null>(null)
-  const [croppedUrl, setCroppedUrl] = useState<string | null>(null)
+  const [manualCropUrl, setManualCropUrl] = useState<string | null>(null) // canvas crop after manual bbox draw
 
   // ── image URL management — use the correct page for the selected question ──
   useEffect(() => {
@@ -401,23 +401,22 @@ export default function AnswerKeyWizardModal({
   const activeBbox: NormalizedBbox | null = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
   const bboxIsAiDetected = !bboxDraft && !selectedQuestion?.referenceBbox && !!selectedQuestion?.answerBbox
 
-  // Reset drawing mode when switching questions
-  useEffect(() => { setIsDrawingBbox(false) }, [selectedIdx])
+  // Reset drawing mode and manual crop when switching questions
+  useEffect(() => { setIsDrawingBbox(false); setManualCropUrl(null) }, [selectedIdx])
 
-  // Crop image to activeBbox whenever bbox or source image changes
+  // Canvas crop — only recalculates when teacher manually draws a new bbox (bboxDraft)
   useEffect(() => {
-    if (!activeBbox || !imageObjUrl) { setCroppedUrl(null); return }
+    if (!bboxDraft || !imageObjUrl) { setManualCropUrl(null); return }
     let cancelled = false
     const img = new window.Image()
     img.onload = () => {
       if (cancelled) return
       const canvas = document.createElement('canvas')
-      // Add 1.5% padding on each side so tight bboxes still show the full answer
       const pad = 0.015
-      const px = Math.max(0, activeBbox.x - pad)
-      const py = Math.max(0, activeBbox.y - pad)
-      const pw = Math.min(1 - px, activeBbox.w + pad * 2)
-      const ph = Math.min(1 - py, activeBbox.h + pad * 2)
+      const px = Math.max(0, bboxDraft.x - pad)
+      const py = Math.max(0, bboxDraft.y - pad)
+      const pw = Math.min(1 - px, bboxDraft.w + pad * 2)
+      const ph = Math.min(1 - py, bboxDraft.h + pad * 2)
       const sx = Math.round(img.naturalWidth * px)
       const sy = Math.round(img.naturalHeight * py)
       const sw = Math.max(1, Math.round(img.naturalWidth * pw))
@@ -427,11 +426,11 @@ export default function AnswerKeyWizardModal({
       const ctx = canvas.getContext('2d')
       if (!ctx) return
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
-      if (!cancelled) setCroppedUrl(canvas.toDataURL('image/jpeg', 0.92))
+      if (!cancelled) setManualCropUrl(canvas.toDataURL('image/jpeg', 0.92))
     }
     img.src = imageObjUrl
     return () => { cancelled = true }
-  }, [activeBbox, imageObjUrl])
+  }, [bboxDraft, imageObjUrl])
 
   const stepTitle: Record<WizardStep, string> = {
     page_order: '調整頁面順序',
@@ -556,10 +555,10 @@ export default function AnswerKeyWizardModal({
                   <>
                     {/* Image preview */}
                     <div className="shrink-0 border-b border-gray-100 p-3 bg-gray-50">
-                      {/* Cropped preview (default); full image shown when drawing */}
-                      {croppedUrl && !isDrawingBbox ? (
+                      {/* Cropped preview: backend Sharp crop (AI) or canvas crop (after manual draw) */}
+                      {(manualCropUrl || selectedQuestion.cropImageUrl) && !isDrawingBbox ? (
                         <div className="rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center max-h-40">
-                          <img src={croppedUrl} alt="答案區截圖" className="max-w-full max-h-40 object-contain pointer-events-none" draggable={false} />
+                          <img src={manualCropUrl ?? selectedQuestion.cropImageUrl!} alt="答案區截圖" className="max-w-full max-h-40 object-contain pointer-events-none" draggable={false} />
                         </div>
                       ) : (
                         /* Full image with drawing overlay */
