@@ -777,7 +777,7 @@ export default function AssignmentSetup({
       }
     }
     if (createScoreMode === 'fixed_total' && createFixedTotal > 0) {
-      const { answerKey, adjusted } = rebalanceAnswerKeyToTargetTotal(key, createFixedTotal)
+      const { answerKey } = rebalanceAnswerKeyToTargetTotal(key, createFixedTotal)
       return {
         answerKey,
         scoreNotice: null
@@ -791,7 +791,7 @@ export default function AssignmentSetup({
       }
     }
     // ai_auto (default): rebalance to 100
-    const { answerKey, adjusted } = rebalanceAnswerKeyToTargetTotal(key, 100)
+    const { answerKey } = rebalanceAnswerKeyToTargetTotal(key, 100)
     return {
       answerKey,
       scoreNotice: null
