@@ -780,9 +780,7 @@ export default function AssignmentSetup({
       const { answerKey, adjusted } = rebalanceAnswerKeyToTargetTotal(key, createFixedTotal)
       return {
         answerKey,
-        scoreNotice: adjusted
-          ? `已自動校準配分，確保總分為 ${createFixedTotal} 分（必要時保留到小數點後 1 位）。`
-          : null
+        scoreNotice: null
       }
     }
     if (createScoreMode === 'fixed_both' && createFixedPerScore > 0) {
@@ -796,9 +794,7 @@ export default function AssignmentSetup({
     const { answerKey, adjusted } = rebalanceAnswerKeyToTargetTotal(key, 100)
     return {
       answerKey,
-      scoreNotice: adjusted
-        ? '已自動校準配分，確保總分為 100 分（必要時保留到小數點後 1 位）。'
-        : null
+      scoreNotice: null
     }
   }
 
