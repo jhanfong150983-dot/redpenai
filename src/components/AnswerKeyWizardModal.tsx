@@ -160,7 +160,6 @@ export default function AnswerKeyWizardModal({
   const imageContainerRef = useRef<HTMLDivElement>(null)
   const [imageObjUrl, setImageObjUrl] = useState<string | null>(null)
   const [croppedUrl, setCroppedUrl] = useState<string | null>(null)
-  const [showFullImage, setShowFullImage] = useState(false)
 
   // ── image URL management — use the correct page for the selected question ──
   useEffect(() => {
@@ -402,8 +401,8 @@ export default function AnswerKeyWizardModal({
   const activeBbox: NormalizedBbox | null = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
   const bboxIsAiDetected = !bboxDraft && !selectedQuestion?.referenceBbox && !!selectedQuestion?.answerBbox
 
-  // Reset full-image toggle when switching questions
-  useEffect(() => { setShowFullImage(false) }, [selectedIdx])
+  // Reset drawing mode when switching questions
+  useEffect(() => { setIsDrawingBbox(false) }, [selectedIdx])
 
   // Crop image to activeBbox whenever bbox or source image changes
   useEffect(() => {
@@ -557,13 +556,13 @@ export default function AnswerKeyWizardModal({
                   <>
                     {/* Image preview */}
                     <div className="shrink-0 border-b border-gray-100 p-3 bg-gray-50">
-                      {/* Cropped preview (default) */}
-                      {croppedUrl && !showFullImage ? (
+                      {/* Cropped preview (default); full image shown when drawing */}
+                      {croppedUrl && !isDrawingBbox ? (
                         <div className="rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center max-h-40">
                           <img src={croppedUrl} alt="答案區截圖" className="max-w-full max-h-40 object-contain pointer-events-none" draggable={false} />
                         </div>
                       ) : (
-                        /* Full image with bbox overlay (for drawing / full-image toggle) */
+                        /* Full image with drawing overlay */
                         /* Outer: centers the image horizontally */
                         <div className="w-full flex justify-center rounded-lg border border-gray-200 bg-white overflow-hidden">
                           {/* Inner: sized to actual rendered image — bbox % is relative to this */}
@@ -594,25 +593,14 @@ export default function AnswerKeyWizardModal({
                         </div>
                       )}
                       <div className="flex items-center gap-2 mt-1.5">
-                        {croppedUrl && (
-                          <button
-                            type="button"
-                            onClick={() => { setShowFullImage((v) => !v); setIsDrawingBbox(false) }}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border bg-white text-gray-600 border-gray-300 hover:border-blue-400 transition-colors"
-                          >
-                            {showFullImage ? '收起全圖' : '查看全圖'}
-                          </button>
-                        )}
-                        {(!croppedUrl || showFullImage) && (
-                          <button
-                            type="button"
-                            onClick={() => setIsDrawingBbox((v) => !v)}
-                            className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${isDrawingBbox ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300 hover:border-green-400'}`}
-                          >
-                            <Crop className="w-3 h-3" />
-                            {isDrawingBbox ? '點擊拖曳框選' : '調整框選區域'}
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => setIsDrawingBbox((v) => !v)}
+                          className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${isDrawingBbox ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300 hover:border-green-400'}`}
+                        >
+                          <Crop className="w-3 h-3" />
+                          {isDrawingBbox ? '點擊拖曳框選' : '調整框選區域'}
+                        </button>
                         {selectedQuestion.referenceBbox ? (
                           <button type="button" onClick={() => updateField(selectedIdx, 'referenceBbox', undefined)} className="text-xs text-gray-400 hover:text-red-500">清除框選</button>
                         ) : bboxIsAiDetected ? (
