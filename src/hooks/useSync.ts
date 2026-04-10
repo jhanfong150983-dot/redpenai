@@ -952,7 +952,7 @@ export function useSync(options: UseSyncOptions = {}) {
     // 保留本地的 assignment folder 資料（因為後端可能還不支援 folder 欄位）
     const existingAssignments = await db.assignments.toArray()
     const localAssignmentMetaMap = new Map(
-      existingAssignments.map((a) => [a.id, { folder: a.folder, scoringMode: a.scoringMode, updatedAt: a.updatedAt, answerKey: a.answerKey }])
+      existingAssignments.map((a) => [a.id, { folder: a.folder, scoringMode: a.scoringMode, updatedAt: a.updatedAt, answerKey: a.answerKey, conceptTags: a.conceptTags, answerSheetImagePaths: a.answerSheetImagePaths }])
     )
     const existingFolders = await db.folders.toArray()
     const localFolderClassroomMap = new Map(
@@ -988,6 +988,7 @@ export function useSync(options: UseSyncOptions = {}) {
         // 若本地資料比雲端新（push 尚未完成就被 pull 覆蓋的競態），保留本地 answerKey 和 updatedAt
         const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt > cloudUpdatedAt)
 
+        const cloudConceptTags = (a as Assignment & { conceptTags?: unknown }).conceptTags ?? (a as { concept_tags?: unknown }).concept_tags
         return {
           id: a.id,
           classroomId: a.classroomId,
@@ -997,6 +998,10 @@ export function useSync(options: UseSyncOptions = {}) {
           folder: finalFolder,
           scoringMode: finalScoringMode,
           answerKey: localIsNewer ? (localData?.answerKey ?? a.answerKey ?? undefined) : (a.answerKey ?? undefined),
+          // conceptTags: 優先用雲端（若有），否則保留本地（避免 bulkPut 洗掉）
+          conceptTags: (cloudConceptTags ?? localData?.conceptTags) as Assignment['conceptTags'] | undefined,
+          // answerSheetImagePaths: 本地端特有欄位，永遠保留本地資料
+          answerSheetImagePaths: localData?.answerSheetImagePaths,
           updatedAt: localIsNewer ? localUpdatedAt : cloudUpdatedAt
         }
       })
