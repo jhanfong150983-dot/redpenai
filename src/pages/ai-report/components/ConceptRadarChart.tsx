@@ -4,6 +4,8 @@ type AssignmentDebugInfo = {
   title: string
   total: number
   withCode: number
+  gradedCount?: number
+  matchedCount?: number
 }
 
 type ConceptRadarChartProps = {
@@ -56,19 +58,29 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
         {debugInfo && debugInfo.length > 0 && (
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
             <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem' }}>診斷：各作業的概念標記狀態</div>
-            {debugInfo.map((d, i) => (
-              <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.75rem', marginBottom: '0.2rem' }}>
-                <span style={{ color: d.withCode > 0 ? '#166534' : '#991b1b', fontWeight: 600 }}>
-                  {d.withCode > 0 ? '✓' : '✗'}
-                </span>
-                <span style={{ color: '#374151' }}>{d.title}</span>
-                <span style={{ color: '#9ca3af' }}>
-                  {d.total === 0 ? '（答案鍵未設定）'
-                    : d.withCode === 0 ? `（${d.total} 題，全部未標記）`
-                    : `（${d.total} 題，${d.withCode} 題已標記）`}
-                </span>
-              </div>
-            ))}
+            {debugInfo.map((d, i) => {
+              const hasCode = d.withCode > 0
+              const noGraded = (d.gradedCount ?? 0) === 0
+              const noMatch = hasCode && (d.gradedCount ?? 0) > 0 && (d.matchedCount ?? 0) === 0
+              const hint = d.total === 0
+                ? '（答案鍵未設定）'
+                : d.withCode === 0
+                ? `（${d.total} 題，全部未標記）`
+                : noGraded
+                ? `（${d.total} 題，${d.withCode} 題已標記，尚無批改紀錄）`
+                : noMatch
+                ? `（${d.total} 題，${d.withCode} 題已標記，批改題號不吻合）`
+                : `（${d.total} 題，${d.withCode} 題已標記，${d.matchedCount} 題匹配）`
+              const icon = hasCode && !noGraded && !noMatch ? '✓' : d.withCode > 0 ? '⚠' : '✗'
+              const iconColor = hasCode && !noGraded && !noMatch ? '#166534' : d.withCode > 0 ? '#92400e' : '#991b1b'
+              return (
+                <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.75rem', marginBottom: '0.2rem' }}>
+                  <span style={{ color: iconColor, fontWeight: 600 }}>{icon}</span>
+                  <span style={{ color: '#374151' }}>{d.title}</span>
+                  <span style={{ color: '#9ca3af' }}>{hint}</span>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

@@ -532,18 +532,29 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     >()
     const allConcepts = new Map<string, string>() // code → label
 
+    // Diagnostic counters per assignment
+    const assignmentGradedCounts = new Map<string, number>()
+    const assignmentMatchedIds = new Map<string, Set<string>>()
+
     for (const sub of localSubmissions) {
       if (!filteredIds.has(sub.assignmentId)) continue
+      const details = sub.gradingResult?.details ?? []
+      if (details.length > 0) {
+        assignmentGradedCounts.set(sub.assignmentId, (assignmentGradedCounts.get(sub.assignmentId) ?? 0) + 1)
+      }
       if (!sub.studentId) continue
       const qMap = assignmentConceptMaps.get(sub.assignmentId)
       if (!qMap || qMap.size === 0) continue
 
-      const details = sub.gradingResult?.details ?? []
       for (const detail of details) {
         if (!detail.questionId) continue
         const concept = qMap.get(detail.questionId)
         if (!concept) continue
         allConcepts.set(concept.code, concept.label)
+        if (!assignmentMatchedIds.has(sub.assignmentId)) {
+          assignmentMatchedIds.set(sub.assignmentId, new Set())
+        }
+        assignmentMatchedIds.get(sub.assignmentId)!.add(detail.questionId)
 
         if (!studentConceptMap.has(sub.studentId)) {
           studentConceptMap.set(sub.studentId, new Map())
@@ -594,7 +605,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
       const questions = (parsed as { questions?: unknown[] } | null)?.questions ?? []
       const conceptTags = full?.conceptTags
       const withCode = conceptTags ? Object.keys(conceptTags).length : 0
-      return { title: a.title ?? a.id, total: questions.length, withCode }
+      const gradedCount = assignmentGradedCounts.get(a.id) ?? 0
+      const matchedCount = assignmentMatchedIds.get(a.id)?.size ?? 0
+      return { title: a.title ?? a.id, total: questions.length, withCode, gradedCount, matchedCount }
     })
 
     return { students, concepts, debugInfo }
