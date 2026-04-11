@@ -1189,8 +1189,8 @@ export default function AssignmentSetup({
       pageCounter += batch.length
     }
 
-    if (batches.length > 1) onProgress(`正在解析全部 ${batches.length} 批（並行中）…`)
-    else onProgress('正在解析…')
+    if (batches.length > 1) onProgress(`正在解析全部 ${batches.length} 批（並行中），預計需要 40–50 秒，實際時間依題數而有所不同…`)
+    else onProgress('正在解析，預計需要 40–50 秒，實際時間依題數而有所不同…')
 
     // 並行送出所有批次，Promise.all 保證回傳陣列順序與送出順序一致
     const extractedResults = await Promise.all(
@@ -1407,8 +1407,8 @@ export default function AssignmentSetup({
       pageCounter += batch.length
     }
 
-    if (batches.length > 1) onProgress(`正在解析全部 ${batches.length} 批（並行中）…`)
-    else onProgress('正在解析…')
+    if (batches.length > 1) onProgress(`正在解析全部 ${batches.length} 批（並行中），預計需要 40–50 秒，實際時間依題數而有所不同…`)
+    else onProgress('正在解析，預計需要 40–50 秒，實際時間依題數而有所不同…')
 
     const extractedResults = await Promise.all(
       batches.map((batch, i) =>
