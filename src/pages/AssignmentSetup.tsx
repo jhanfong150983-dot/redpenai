@@ -1180,24 +1180,38 @@ export default function AssignmentSetup({
     const batchConceptMap = await fetchConceptMapForCurrentClassroom()
     let mergedAnswerKey: AnswerKey | null = answerKey ? normalizeAnswerKey(answerKey) : null
     let duplicateNotice: string | null = null
-    let runningPageCount = 0
 
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i]
-      const startPage = runningPageCount + 1
-      onProgress(batches.length > 1 ? `正在解析第 ${i + 1}/${batches.length} 批…` : '正在解析…')
-      const extracted = await extractAnswerKeyFromImages(batch, {
-        domain: assignmentDomain,
-        conceptMap: batchConceptMap.length > 0 ? batchConceptMap : undefined,
-        startPage,
-        totalPages,
-      })
-      // 標記 pageIndex（0-based 對應 imageBlobs 陣列）
-      const batchStartPageIndex = runningPageCount
+    // 預先計算每個 batch 的 startPage（送出前就固定，與執行順序無關）
+    const batchStartPages: number[] = []
+    let pageCounter = 0
+    for (const batch of batches) {
+      batchStartPages.push(pageCounter + 1)
+      pageCounter += batch.length
+    }
+
+    if (batches.length > 1) onProgress(`正在解析全部 ${batches.length} 批（並行中）…`)
+    else onProgress('正在解析…')
+
+    // 並行送出所有批次，Promise.all 保證回傳陣列順序與送出順序一致
+    const extractedResults = await Promise.all(
+      batches.map((batch, i) =>
+        extractAnswerKeyFromImages(batch, {
+          domain: assignmentDomain,
+          conceptMap: batchConceptMap.length > 0 ? batchConceptMap : undefined,
+          startPage: batchStartPages[i],
+          totalPages,
+        })
+      )
+    )
+
+    // 依序 merge（順序由 Promise.all 保證）
+    let batchPageIndex = 0
+    for (let i = 0; i < extractedResults.length; i++) {
+      const extracted = extractedResults[i]
       if (extracted.questions) {
-        extracted.questions = extracted.questions.map(q => ({ ...q, pageIndex: batchStartPageIndex }))
+        extracted.questions = extracted.questions.map(q => ({ ...q, pageIndex: batchPageIndex }))
       }
-      runningPageCount += batch.length
+      batchPageIndex += batches[i].length
       const normalizedExtracted = normalizeAnswerKey(extracted)
       if (mergedAnswerKey) {
         const { merged, notice } = mergeAnswerKeys(mergedAnswerKey, normalizedExtracted)
@@ -1384,23 +1398,35 @@ export default function AssignmentSetup({
     // 重新截取時從空白開始（替換語意），不從現有答案鍵 merge（否則舊題號與新題號碰撞產生重複）
     let mergedAnswerKey: AnswerKey | null = null
     let duplicateNotice: string | null = null
-    let runningPageCount = 0
 
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i]
-      const startPage = runningPageCount + 1
-      onProgress(batches.length > 1 ? `正在解析第 ${i + 1}/${batches.length} 批…` : '正在解析…')
-      const extracted = await extractAnswerKeyFromImages(batch, {
-        domain: editingDomain,
-        startPage,
-        totalPages,
-      })
-      // 標記 pageIndex（這批題目是從哪頁開始的，0-based 對應 imageBlobs 陣列）
-      const batchStartPageIndex = runningPageCount
+    // 預先計算每個 batch 的 startPage
+    const batchStartPages: number[] = []
+    let pageCounter = 0
+    for (const batch of batches) {
+      batchStartPages.push(pageCounter + 1)
+      pageCounter += batch.length
+    }
+
+    if (batches.length > 1) onProgress(`正在解析全部 ${batches.length} 批（並行中）…`)
+    else onProgress('正在解析…')
+
+    const extractedResults = await Promise.all(
+      batches.map((batch, i) =>
+        extractAnswerKeyFromImages(batch, {
+          domain: editingDomain,
+          startPage: batchStartPages[i],
+          totalPages,
+        })
+      )
+    )
+
+    let batchPageIndex = 0
+    for (let i = 0; i < extractedResults.length; i++) {
+      const extracted = extractedResults[i]
       if (extracted.questions) {
-        extracted.questions = extracted.questions.map(q => ({ ...q, pageIndex: batchStartPageIndex }))
+        extracted.questions = extracted.questions.map(q => ({ ...q, pageIndex: batchPageIndex }))
       }
-      runningPageCount += batch.length
+      batchPageIndex += batches[i].length
       const normalizedExtracted = normalizeAnswerKey(extracted)
       if (mergedAnswerKey) {
         const { merged, notice } = mergeAnswerKeys(mergedAnswerKey, normalizedExtracted)
