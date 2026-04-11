@@ -1238,6 +1238,18 @@ export default function GradingPage({
         const student = students.find((s) => s.id === entry.studentId)
         if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
 
+        // 嵌入 concept code：批改完成當下凍結，與答案鍵未來的改動脫鉤
+        const conceptTags = assignment?.conceptTags
+        if (conceptTags && gradingResult.details) {
+          for (const detail of gradingResult.details) {
+            const tag = conceptTags[detail.questionId]
+            if (tag) {
+              detail.conceptCode = tag.code
+              detail.conceptLabel = tag.label
+            }
+          }
+        }
+
         await db.submissions.update(entry.submissionId, {
           status: 'graded',
           score: totalScore,

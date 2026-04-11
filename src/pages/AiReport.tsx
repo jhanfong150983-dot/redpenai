@@ -548,7 +548,10 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
 
       for (const detail of details) {
         if (!detail.questionId) continue
-        const concept = qMap.get(detail.questionId)
+        // 優先用批改時凍結的 conceptCode，找不到才 fallback 到 conceptTags join
+        const concept = (detail.conceptCode && detail.conceptLabel)
+          ? { code: detail.conceptCode, label: detail.conceptLabel }
+          : qMap.get(detail.questionId)
         if (!concept) continue
         allConcepts.set(concept.code, concept.label)
         if (!assignmentMatchedIds.has(sub.assignmentId)) {

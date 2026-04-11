@@ -217,6 +217,9 @@ export interface GradingDetail {
   answerCropImageUrl?: string
   mistakeTypeCodes?: string[]
   studentGuidance?: string
+  // 批改時嵌入的 108 課綱概念標記（來自 assignment.conceptTags，批改當下凍結）
+  conceptCode?: string
+  conceptLabel?: string
 }
 
 /**
