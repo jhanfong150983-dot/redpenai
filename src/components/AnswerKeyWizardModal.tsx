@@ -404,19 +404,21 @@ export default function AnswerKeyWizardModal({
   // Reset drawing mode and manual crop when switching questions
   useEffect(() => { setIsDrawingBbox(false); setManualCropUrl(null) }, [selectedIdx])
 
-  // Canvas crop — only recalculates when teacher manually draws a new bbox (bboxDraft)
+  // Canvas crop — recalculates on bboxDraft (while drawing) or referenceBbox (after confirmed)
+  // referenceBbox is used as fallback so the crop persists after bboxDraft is cleared on mouseUp
   useEffect(() => {
-    if (!bboxDraft || !imageObjUrl) { setManualCropUrl(null); return }
+    const bbox = bboxDraft ?? selectedQuestion?.referenceBbox ?? null
+    if (!bbox || !imageObjUrl) { setManualCropUrl(null); return }
     let cancelled = false
     const img = new window.Image()
     img.onload = () => {
       if (cancelled) return
       const canvas = document.createElement('canvas')
       const pad = 0.015
-      const px = Math.max(0, bboxDraft.x - pad)
-      const py = Math.max(0, bboxDraft.y - pad)
-      const pw = Math.min(1 - px, bboxDraft.w + pad * 2)
-      const ph = Math.min(1 - py, bboxDraft.h + pad * 2)
+      const px = Math.max(0, bbox.x - pad)
+      const py = Math.max(0, bbox.y - pad)
+      const pw = Math.min(1 - px, bbox.w + pad * 2)
+      const ph = Math.min(1 - py, bbox.h + pad * 2)
       const sx = Math.round(img.naturalWidth * px)
       const sy = Math.round(img.naturalHeight * py)
       const sw = Math.max(1, Math.round(img.naturalWidth * pw))
@@ -430,7 +432,8 @@ export default function AnswerKeyWizardModal({
     }
     img.src = imageObjUrl
     return () => { cancelled = true }
-  }, [bboxDraft, imageObjUrl])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bboxDraft, selectedQuestion?.referenceBbox, imageObjUrl])
 
   const stepTitle: Record<WizardStep, string> = {
     page_order: '調整頁面順序',
