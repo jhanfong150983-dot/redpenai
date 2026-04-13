@@ -899,6 +899,7 @@ export default function AssignmentSetup({
         cropImageUrl: typeof q?.cropImageUrl === 'string' && q.cropImageUrl ? q.cropImageUrl : undefined,
         concept_code: typeof q?.concept_code === 'string' && q.concept_code ? q.concept_code : undefined,
         concept_label: typeof q?.concept_label === 'string' && q.concept_label ? q.concept_label : undefined,
+        anchorHint: typeof q?.anchorHint === 'string' && q.anchorHint ? q.anchorHint : undefined,
       }
 
       // Add type-specific fields
