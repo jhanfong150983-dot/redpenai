@@ -3649,13 +3649,13 @@ export async function extractAnswerKeyFromImages(
     const aPhoto = parseInt(a.id.split('-')[0]) || 0
     const bPhoto = parseInt(b.id.split('-')[0]) || 0
     if (aPhoto !== bPhoto) return aPhoto - bPhoto
-    const aX = a.questionBbox?.x ?? 0
-    const bX = b.questionBbox?.x ?? 0
+    const aX = a.answerBbox?.x ?? 0
+    const bX = b.answerBbox?.x ?? 0
     const aCol = aX < 0.5 ? 0 : 1
     const bCol = bX < 0.5 ? 0 : 1
     if (aCol !== bCol) return aCol - bCol
-    const aY = a.questionBbox?.y ?? 0
-    const bY = b.questionBbox?.y ?? 0
+    const aY = a.answerBbox?.y ?? 0
+    const bY = b.answerBbox?.y ?? 0
     return aY - bY
   })
 
