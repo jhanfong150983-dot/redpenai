@@ -245,19 +245,29 @@ function getBatchFailureMessage(error: unknown): string {
 
 function toUserFriendlyBatchFailureReason(rawMessage: string): string {
   const message = rawMessage.trim()
-  if (!message) return '未知錯誤'
+  if (!message || message === '[object Object]') return '未知錯誤，請重試'
 
-  const phaseBStatusMatch = message.match(/^Phase B failed:\s*(\d{3})$/i)
+  const phaseBStatusMatch = message.match(/Phase B failed:\s*(\d{3})/i)
   if (phaseBStatusMatch) {
-    return `AI 批改失敗（HTTP ${phaseBStatusMatch[1]}）`
+    const code = Number(phaseBStatusMatch[1])
+    if (code === 504 || code === 408) return 'AI 回應逾時，請重試'
+    if (code === 429) return 'AI 請求過於頻繁，請稍後重試'
+    if (code === 500 || code === 502 || code === 503) return 'AI 服務暫時無法使用，請稍後重試'
+    if (code === 400) return 'AI 批改請求無效，請重新批改'
+    if (code === 401 || code === 403) return '登入已過期，請重新整理頁面後再試'
+    return `AI 批改失敗（錯誤碼 ${code}）`
   }
 
-  if (/Failed to fetch/i.test(message)) {
-    return '網路連線失敗，請稍後重試'
-  }
+  if (/timeout/i.test(message)) return 'AI 回應逾時，請重試'
+  if (/Failed to fetch|network|ERR_NETWORK/i.test(message)) return '網路連線失敗，請檢查網路後重試'
+  if (/rate.?limit|quota|resource.?exhaust/i.test(message)) return 'AI 請求過於頻繁，請稍後重試'
+  if (/empty response/i.test(message)) return 'AI 回傳空白結果，請重試'
+  if (/ink.*insufficient|balance|餘額不足/i.test(message)) return '批改點數不足，請先購買點數'
+  if (/JSON|parse|Unexpected token/i.test(message)) return 'AI 回傳格式異常，請重試'
+  if (/\[object Object\]/i.test(message)) return '批改失敗，請重試'
 
-  if (message.length > 180) {
-    return `${message.slice(0, 180)}...`
+  if (message.length > 100) {
+    return `${message.slice(0, 100)}...`
   }
 
   return message

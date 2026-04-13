@@ -3853,7 +3853,18 @@ export async function gradePhaseB(
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({})) as Record<string, unknown>
-    throw new Error((err?.error as string) || `Phase B failed: ${response.status}`)
+    let errMsg = `Phase B failed: ${response.status}`
+    if (typeof err?.error === 'string' && err.error) {
+      errMsg = err.error
+    } else if (err?.error && typeof err.error === 'object') {
+      const nested = err.error as Record<string, unknown>
+      errMsg = (typeof nested.message === 'string' && nested.message)
+        || (typeof nested.status === 'number' ? `Phase B failed: ${nested.status}` : '')
+        || JSON.stringify(err.error).slice(0, 200)
+    } else if (typeof err?.message === 'string' && err.message) {
+      errMsg = err.message
+    }
+    throw new Error(errMsg)
   }
 
   const data = await response.json()
