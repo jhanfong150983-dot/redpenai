@@ -226,6 +226,7 @@ export interface PhaseAQuestionResult {
   readAnswer1: { status: string; studentAnswer: string }
   readAnswer2: { status: string; studentAnswer: string }
   answerCropImageUrl?: string
+  answerBbox?: { x: number; y: number; w: number; h: number }
   arbiterResult?: ArbiterResult  // 三AI辯證裁決結果（新架構）
 }
 

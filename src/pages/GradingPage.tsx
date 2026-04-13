@@ -2356,6 +2356,79 @@ export default function GradingPage({
           failReasons: []
         })
       } else {
+        // ── Bbox cross-submission anomaly detection ───────────────────────────
+        // Collect median y per questionId, flag submissions deviating ≥3 questions
+        const MIN_SUBMISSIONS_FOR_COMPARISON = 3
+        const BBOX_DEVIATION_THRESHOLD = 0.05  // 5% of page height
+        const ANOMALY_QUESTION_COUNT = 3        // flag if ≥3 questions deviate
+
+        if (entries.length >= MIN_SUBMISSIONS_FOR_COMPARISON) {
+          // Build { questionId → y[] } across all entries
+          const ysByQuestion = new Map<string, number[]>()
+          for (const entry of entries) {
+            for (const qr of entry.phaseAResult.questionResults) {
+              if (qr.answerBbox) {
+                const arr = ysByQuestion.get(qr.questionId) ?? []
+                arr.push(qr.answerBbox.y)
+                ysByQuestion.set(qr.questionId, arr)
+              }
+            }
+          }
+          // Compute median per questionId
+          const medianY = new Map<string, number>()
+          for (const [qId, ys] of ysByQuestion) {
+            const sorted = [...ys].sort((a, b) => a - b)
+            medianY.set(qId, sorted[Math.floor(sorted.length / 2)])
+          }
+          // Find anomalous entries
+          const anomalousIndices: number[] = []
+          for (let i = 0; i < entries.length; i++) {
+            let deviatingCount = 0
+            for (const qr of entries[i].phaseAResult.questionResults) {
+              const med = medianY.get(qr.questionId)
+              if (med !== undefined && qr.answerBbox) {
+                if (Math.abs(qr.answerBbox.y - med) > BBOX_DEVIATION_THRESHOLD) deviatingCount++
+              }
+            }
+            if (deviatingCount >= ANOMALY_QUESTION_COUNT) {
+              console.warn(`[BboxCheck] submission ${entries[i].submissionId} anomaly: ${deviatingCount} deviating questions — re-running Phase A`)
+              anomalousIndices.push(i)
+            }
+          }
+          // Re-run Phase A once for anomalous entries
+          if (anomalousIndices.length > 0) {
+            await runWithConcurrency(
+              anomalousIndices,
+              5,
+              300,
+              async (idx) => {
+                if (stopRequestedRef.current) return null
+                const entry = entries[idx]
+                const sub = toGrade.find((s) => s.id === entry.submissionId)
+                if (!sub?.imageBlob) return null
+                const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id)
+                return { idx, phaseAResult }
+              },
+              (_i, result, err) => {
+                if (!result) { if (err) console.error('[BboxCheck] retry failed:', err); return }
+                const { idx, phaseAResult } = result
+                // Rebuild decisions for retried entry
+                const decisions = new Map<string, ConsistencyDecision>()
+                for (const qr of phaseAResult.questionResults) {
+                  const arbiter = qr.arbiterResult
+                  if (arbiter && arbiter.arbiterStatus !== 'needs_review') {
+                    const source = arbiter.arbiterStatus === 'arbitrated_pick_1' ? 'ai_read1' : arbiter.arbiterStatus === 'arbitrated_pick_2' ? 'ai_read2' : 'ai_arbiter'
+                    decisions.set(qr.questionId, { questionId: qr.questionId, source, finalAnswer: arbiter.finalAnswer ?? qr.readAnswer1.studentAnswer, confirmed: true })
+                  } else if (!arbiter && qr.consistencyStatus === 'stable') {
+                    decisions.set(qr.questionId, { questionId: qr.questionId, source: 'ai_read1', finalAnswer: qr.readAnswer1.studentAnswer, confirmed: true })
+                  }
+                }
+                entries[idx] = { ...entries[idx], phaseAResult, decisions }
+              }
+            )
+          }
+        }
+
         setBatchPhaseAEntries(entries)
         setGradingPhase('awaiting_review')
         // Fire-and-forget: write Phase A forensic data to Supabase for calibration
