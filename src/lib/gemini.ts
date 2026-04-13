@@ -3643,6 +3643,22 @@ export async function extractAnswerKeyFromImages(
 
   console.log('📥 [AnswerKey raw response]', text)
   const result = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(text) as AnswerKey, opts?.domain)
+
+  // 按照作業卷空間順序排序：照片序號 → 左欄/右欄（x < 0.5 先）→ 上下（y 小先）
+  result.questions.sort((a, b) => {
+    const aPhoto = parseInt(a.id.split('-')[0]) || 0
+    const bPhoto = parseInt(b.id.split('-')[0]) || 0
+    if (aPhoto !== bPhoto) return aPhoto - bPhoto
+    const aX = a.questionBbox?.x ?? 0
+    const bX = b.questionBbox?.x ?? 0
+    const aCol = aX < 0.5 ? 0 : 1
+    const bCol = bX < 0.5 ? 0 : 1
+    if (aCol !== bCol) return aCol - bCol
+    const aY = a.questionBbox?.y ?? 0
+    const bY = b.questionBbox?.y ?? 0
+    return aY - bY
+  })
+
   console.log(`✅ 成功提取 ${result.questions.length} 題，總分 ${result.totalScore}`)
   return result
 }
