@@ -72,8 +72,8 @@ export default function CameraGuideOverlay({
       {/* ── 引導框 ── */}
       <div className="absolute inset-0 z-[5] pointer-events-none">
         <div
-          className="absolute left-[10%] right-[10%] top-[8%] bottom-[18%]"
-          style={{ maxWidth: '85%', maxHeight: '80%' }}
+          className="absolute left-[3%] right-[3%] top-[5%] bottom-[14%]"
+          style={{ maxWidth: '94%', maxHeight: '81%' }}
         >
           {/* 半透明底色 */}
           <div className={`absolute inset-0 rounded-lg transition-colors duration-300 ${bgOverlay}`} />
