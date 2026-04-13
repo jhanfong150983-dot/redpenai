@@ -1209,7 +1209,14 @@ export default function AssignmentSetup({
     for (let i = 0; i < extractedResults.length; i++) {
       const extracted = extractedResults[i]
       if (extracted.questions) {
-        extracted.questions = extracted.questions.map(q => ({ ...q, pageIndex: batchPageIndex }))
+        extracted.questions = extracted.questions.map(q => {
+          let pageIndex = batchPageIndex
+          if (totalPages > 1) {
+            const firstSeg = parseInt(String(q.id ?? '').split('-')[0], 10)
+            if (!isNaN(firstSeg) && firstSeg >= 1) pageIndex = firstSeg - 1
+          }
+          return { ...q, pageIndex }
+        })
       }
       batchPageIndex += batches[i].length
       const normalizedExtracted = normalizeAnswerKey(extracted)
@@ -1399,6 +1406,7 @@ export default function AssignmentSetup({
     let mergedAnswerKey: AnswerKey | null = null
     let duplicateNotice: string | null = null
 
+
     // 預先計算每個 batch 的 startPage
     const batchStartPages: number[] = []
     let pageCounter = 0
@@ -1424,7 +1432,14 @@ export default function AssignmentSetup({
     for (let i = 0; i < extractedResults.length; i++) {
       const extracted = extractedResults[i]
       if (extracted.questions) {
-        extracted.questions = extracted.questions.map(q => ({ ...q, pageIndex: batchPageIndex }))
+        extracted.questions = extracted.questions.map(q => {
+          let pageIndex = batchPageIndex
+          if (totalPages > 1) {
+            const firstSeg = parseInt(String(q.id ?? '').split('-')[0], 10)
+            if (!isNaN(firstSeg) && firstSeg >= 1) pageIndex = firstSeg - 1
+          }
+          return { ...q, pageIndex }
+        })
       }
       batchPageIndex += batches[i].length
       const normalizedExtracted = normalizeAnswerKey(extracted)
