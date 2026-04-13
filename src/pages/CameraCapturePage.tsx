@@ -345,16 +345,30 @@ export default function CameraCapturePage({
           )}
 
           {/* 操作說明（僅授權被拒時顯示） */}
-          {cameraError === 'denied' && (
-            <div className="mt-5 w-full max-w-sm rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-left">
-              <p className="mb-1.5 text-xs font-semibold text-amber-300">
-                如果一直沒有出現授權請求：
-              </p>
-              <p className="text-xs leading-relaxed text-amber-200">
-                請點網址列旁的 🔒 圖示，找到相機設定，改為「允許」後再按重新嘗試。
-              </p>
-            </div>
-          )}
+          {cameraError === 'denied' && (() => {
+            const isStandalone =
+              window.matchMedia('(display-mode: standalone)').matches ||
+              (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+            return (
+              <div className="mt-5 w-full max-w-sm rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-left">
+                <p className="mb-1.5 text-xs font-semibold text-amber-300">
+                  如果一直沒有出現授權請求：
+                </p>
+                {isStandalone ? (
+                  <p className="text-xs leading-relaxed text-amber-200">
+                    {isIOS
+                      ? '請前往「設定 → 隱私權與安全性 → 相機」，開啟此 App 的相機權限，再返回重新嘗試。'
+                      : '請前往手機「設定 → 應用程式」，找到此 App，開啟相機權限後再返回重新嘗試。'}
+                  </p>
+                ) : (
+                  <p className="text-xs leading-relaxed text-amber-200">
+                    請點網址列旁的 🔒 圖示，找到相機設定，改為「允許」後再按重新嘗試。
+                  </p>
+                )}
+              </div>
+            )
+          })()}
 
           {/* 按鈕 */}
           <div className="mt-8 flex flex-col items-center gap-3">
