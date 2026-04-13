@@ -3737,7 +3737,8 @@ export async function gradePhaseA(
   submissionImageBlob: Blob,
   answerKey: AnswerKey,
   pageBreaks?: number[],
-  domain?: string
+  domain?: string,
+  assignmentId?: string
 ): Promise<PhaseAResult> {
   const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
@@ -3752,7 +3753,8 @@ export async function gradePhaseA(
     ...(sid ? { inkSessionId: sid } : {}),
     routeKey: 'grading.phase_a',
     answerKey: JSON.stringify(normalizedAnswerKey),
-    ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {})
+    ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
+    ...(assignmentId ? { assignmentId } : {})
   })
 
   let response = await fetch(geminiProxyUrl, {

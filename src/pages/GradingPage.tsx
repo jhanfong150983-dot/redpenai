@@ -2290,7 +2290,8 @@ export default function GradingPage({
             sub.imageBlob!,
             assignment.answerKey!,
             sub.pageBreaks,
-            assignment.domain
+            assignment.domain,
+            assignment.id
           )
           return { sub, phaseAResult }
         },
