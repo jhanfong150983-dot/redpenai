@@ -119,6 +119,11 @@ export interface AnswerKeyQuestion {
   concept_code?: string   // 例如 "N-4-12"
   concept_label?: string  // 例如 "積樣與立方公分"
 
+  // 語義錨點：描述此答案格附近可識別的文字/數字/圖形特徵（1-2句）
+  // 由 answer_key.extract 萃取，用於輔助 classify 定位正確的答案格（不依賴座標）
+  // 例如："表格中欄標題為「22」的格子"、"題幹「擲出來的點數和可能大於1嗎？」旁的括號"
+  anchorHint?: string
+
   // @deprecated 已廢棄的欄位（保留向後兼容）
   detectedType?: QuestionCategoryType // 已合併到 type
 }

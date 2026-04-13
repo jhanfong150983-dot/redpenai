@@ -875,6 +875,7 @@ function buildGlobalTaskAndFormat(): string {
     "questionCategory": "fill_blank",  // 題型（必填，見下方分類標準）
     "maxScore": 5,                      // 滿分
     "answerBbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05}, // 你剛才讀到的 "answer" 文字／符號在圖像上的精確位置（歸一化，0-1；x/y=左上角，w/h=寬高）。框住你實際看到並識別的那些字元，不是猜測，是你已經視覺定位的文字。
+    "anchorHint": "表格中欄標題為「22」的格子", // 此答案格附近最能唯一識別其位置的視覺特徵（1-2句）。描述鄰近的印刷文字、數字、圖形標籤等，讓後續 AI 無需依賴座標也能找到正確格子。multi_fill 每個子題各自描述自己格子旁的標誌。
 
     // single_choice / true_false / fill_blank / multi_check / multi_choice / single_check 專用：標準答案
     // single_choice: 括號()內填一個代號，如 "A"、"甲"、"①"（答案空間為括號）
@@ -953,6 +954,11 @@ function buildGlobalTaskAndFormat(): string {
   - matching（group_context）：框住你識別到所有配對答案（右欄）的整體範圍。
   ⚠️ 每題 bbox 根據實際視覺位置獨立標記，禁止為避免重疊而偏移座標。
   ⚠️ 若該題的 answer 文字在圖上無法視覺定位，請省略 answerBbox。
+- anchorHint：每題必填（除 word_problem / calculation / map_draw / diagram_draw 外）。用 1-2 句中文描述此答案格附近最能唯一識別其位置的印刷特徵：
+  - fill_blank 單格：描述緊鄰的題幹關鍵字或括號前後的文字，例如「括號前為「一定能，可能」，括號後接「大於1」」
+  - fill_blank 多格（multi_fill / 表格子題）：每個子題描述其所在格的欄標題或列標題，例如「欄標題為「22」的格子」「列標題為「西遊記」的分數格」
+  - single_choice / single_check：描述題幹第一句關鍵字，例如「題幹開頭為「擲出來的點數和可能大於1嗎」」
+  - 目標：描述應具體到能唯一定位該格，避免使用位置詞（「左邊第三格」→ 改用欄標題）
 - 無法辨識時回傳 {"questions": [], "totalScore": 0}
 
 【題號層級（idPath）】
