@@ -679,7 +679,56 @@ export default function AssignmentSetup({
       path: splitQuestionIdPath(question)
     }))
 
+    // 建立「大題群組」空間順序映射：同一頁（path[0] 相同）+ 有 bbox 時，依左欄/右欄排序
+    // key = "photo-printedQ"，value = spatial sort key
+    const groupSpatialOrder = new Map<string, number>()
+    const photoGroups = new Map<string, typeof indexed>()
+    for (const item of indexed) {
+      const photoKey = item.path[0] ?? ''
+      if (!photoGroups.has(photoKey)) photoGroups.set(photoKey, [])
+      photoGroups.get(photoKey)!.push(item)
+    }
+    for (const [, group] of photoGroups) {
+      // 只有當大部分題目有 bbox 時才用空間排序
+      const withBbox = group.filter(item => item.question.answerBbox)
+      if (withBbox.length < group.length * 0.5) continue
+
+      // 找每個「大題群組」（path[0]-path[1]）的代表 bbox（第一個有 bbox 的題目）
+      const questionGroups = new Map<string, { x: number; y: number }>()
+      for (const item of group) {
+        const groupKey = item.path.slice(0, 2).join('-')
+        if (!questionGroups.has(groupKey) && item.question.answerBbox) {
+          questionGroups.set(groupKey, {
+            x: item.question.answerBbox.x,
+            y: item.question.answerBbox.y
+          })
+        }
+      }
+
+      // 將大題群組依空間位置排序，產生排序序號
+      const sortedGroups = [...questionGroups.entries()].sort(([, a], [, b]) => {
+        const aCol = a.x < 0.5 ? 0 : 1
+        const bCol = b.x < 0.5 ? 0 : 1
+        if (aCol !== bCol) return aCol - bCol
+        return a.y - b.y
+      })
+      sortedGroups.forEach(([groupKey], order) => {
+        groupSpatialOrder.set(groupKey, order)
+      })
+    }
+
     indexed.sort((left, right) => {
+      const lGroupKey = left.path.slice(0, 2).join('-')
+      const rGroupKey = right.path.slice(0, 2).join('-')
+      const lOrder = groupSpatialOrder.get(lGroupKey)
+      const rOrder = groupSpatialOrder.get(rGroupKey)
+
+      // 同一頁、有空間排序 → 用空間順序
+      if (left.path[0] === right.path[0] && lOrder !== undefined && rOrder !== undefined) {
+        if (lOrder !== rOrder) return lOrder - rOrder
+      }
+
+      // 其他情況 fallback 到 ID 排序
       const pathCompare = compareQuestionIdPath(left.path, right.path)
       if (pathCompare !== 0) return pathCompare
       return left.index - right.index
