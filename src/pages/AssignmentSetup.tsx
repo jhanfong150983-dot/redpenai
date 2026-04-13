@@ -1202,34 +1202,28 @@ export default function AssignmentSetup({
     const totalPages = imageBlobs.length
     setTotalPages(totalPages)
 
-    // 多頁模式：每張圖片獨立成一個 batch，確保 AI 不會混淆頁碼前綴
-    // 單頁模式：依大小合批，減少 API 呼叫次數
-    const batches: Blob[][] = totalPages > 1
-      ? imageBlobs.map(b => [b])
-      : (() => {
-          const base64Overhead = 1.33
-          const maxRequestEstimatedSize = 2 * 1024 * 1024
-          const result: Blob[][] = []
-          let currentBatch: Blob[] = []
-          let currentEstimatedSize = 0
-          for (const blob of imageBlobs) {
-            const blobEstimatedSize = blob.size * base64Overhead
-            if (blobEstimatedSize > maxRequestEstimatedSize && currentBatch.length === 0) {
-              result.push([blob])
-              continue
-            }
-            if (currentBatch.length > 0 && currentEstimatedSize + blobEstimatedSize > maxRequestEstimatedSize) {
-              result.push(currentBatch)
-              currentBatch = [blob]
-              currentEstimatedSize = blobEstimatedSize
-            } else {
-              currentBatch.push(blob)
-              currentEstimatedSize += blobEstimatedSize
-            }
-          }
-          if (currentBatch.length > 0) result.push(currentBatch)
-          return result
-        })()
+    const base64Overhead = 1.33
+    const maxRequestEstimatedSize = 2 * 1024 * 1024
+    const batches: Blob[][] = []
+    let currentBatch: Blob[] = []
+    let currentEstimatedSize = 0
+    for (const blob of imageBlobs) {
+      const blobEstimatedSize = blob.size * base64Overhead
+      // 壓縮後仍超出上限時，單獨成批送出（讓 AI 自行處理，不報錯）
+      if (blobEstimatedSize > maxRequestEstimatedSize && currentBatch.length === 0) {
+        batches.push([blob])
+        continue
+      }
+      if (currentBatch.length > 0 && currentEstimatedSize + blobEstimatedSize > maxRequestEstimatedSize) {
+        batches.push(currentBatch)
+        currentBatch = [blob]
+        currentEstimatedSize = blobEstimatedSize
+      } else {
+        currentBatch.push(blob)
+        currentEstimatedSize += blobEstimatedSize
+      }
+    }
+    if (currentBatch.length > 0) batches.push(currentBatch)
 
     const batchConceptMap = await fetchConceptMapForCurrentClassroom()
     let mergedAnswerKey: AnswerKey | null = answerKey ? normalizeAnswerKey(answerKey) : null
@@ -1434,33 +1428,27 @@ export default function AssignmentSetup({
 
     const totalPages = imageBlobs.length
 
-    // 多頁模式：每張圖片獨立成一個 batch，確保 AI 不會混淆頁碼前綴
-    const batches: Blob[][] = totalPages > 1
-      ? imageBlobs.map(b => [b])
-      : (() => {
-          const base64Overhead = 1.33
-          const maxRequestEstimatedSize = 2 * 1024 * 1024
-          const result: Blob[][] = []
-          let currentBatch: Blob[] = []
-          let currentEstimatedSize = 0
-          for (const blob of imageBlobs) {
-            const blobEstimatedSize = blob.size * base64Overhead
-            if (blobEstimatedSize > maxRequestEstimatedSize && currentBatch.length === 0) {
-              result.push([blob])
-              continue
-            }
-            if (currentBatch.length > 0 && currentEstimatedSize + blobEstimatedSize > maxRequestEstimatedSize) {
-              result.push(currentBatch)
-              currentBatch = [blob]
-              currentEstimatedSize = blobEstimatedSize
-            } else {
-              currentBatch.push(blob)
-              currentEstimatedSize += blobEstimatedSize
-            }
-          }
-          if (currentBatch.length > 0) result.push(currentBatch)
-          return result
-        })()
+    const base64Overhead2 = 1.33
+    const maxRequestEstimatedSize2 = 2 * 1024 * 1024
+    const batches: Blob[][] = []
+    let currentBatch2: Blob[] = []
+    let currentEstimatedSize2 = 0
+    for (const blob of imageBlobs) {
+      const blobEstimatedSize = blob.size * base64Overhead2
+      if (blobEstimatedSize > maxRequestEstimatedSize2 && currentBatch2.length === 0) {
+        batches.push([blob])
+        continue
+      }
+      if (currentBatch2.length > 0 && currentEstimatedSize2 + blobEstimatedSize > maxRequestEstimatedSize2) {
+        batches.push(currentBatch2)
+        currentBatch2 = [blob]
+        currentEstimatedSize2 = blobEstimatedSize
+      } else {
+        currentBatch2.push(blob)
+        currentEstimatedSize2 += blobEstimatedSize
+      }
+    }
+    if (currentBatch2.length > 0) batches.push(currentBatch2)
     // 重新截取時從空白開始（替換語意），不從現有答案鍵 merge（否則舊題號與新題號碰撞產生重複）
     let mergedAnswerKey: AnswerKey | null = null
     let duplicateNotice: string | null = null
