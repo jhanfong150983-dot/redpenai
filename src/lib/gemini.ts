@@ -3611,9 +3611,16 @@ export async function extractAnswerKeyFromImages(
   const pageIdRule = needsPagePrefix
     ? `\n- 【題目 ID 規則（多頁模式）⚠️關鍵】ID 第一段必須是「第幾張照片」的編號，絕對不可使用答案卷上印刷的頁碼。\n  格式：<照片序號>-<大題印刷號>-<第幾小題>-...\n  • <照片序號>：即這張照片是本次上傳的第幾張（1, 2, 3...），與答案卷紙張上印刷的頁碼無關\n  • <大題印刷號>：直接使用答案卷上印刷的大題號（阿拉伯數字）。例如卷上印「三、」或「習答3」→ 用 3；印「4-3」或「習答1」→ 看該大題的實際編號。若無明確印刷號則依出現順序補號。\n  • <第幾小題>：此大題第1小題=1，第2小題=2，依此類推\n  ❌ 錯誤（第1張照片，大題印刷號是3）：用出現順序 → "1-1-1"（bug：忽略了印刷號3）\n  ✅ 正確（第1張照片，大題印刷號是3）→ "1-3-1"；同頁另一大題印刷號是1 → "1-1-1"\n  ⚠️ 同一張照片可能含多個不同印刷號的大題（如左側印「習答3」、右側印「習答1」），各自用各自的印刷號`
     : ''
+  // 當 batch 只有 1 張但屬於多頁集合時，明確告知 AI 這是整份作業中的第幾張
+  const batchPageDesc = needsPagePrefix && answerSheetImages.length === 1
+    ? `這是整份作業共 ${totalPages} 張中的【第 ${startPage} 張】，此張所有題目 ID 必須以 "${startPage}-" 開頭`
+    : answerSheetImages.length > 1
+      ? `你會收到 ${answerSheetImages.length} 張${isInferMode ? '空白作業' : '答案卷'}圖片（第 ${startPage}～${startPage + answerSheetImages.length - 1} 張）`
+      : `你會收到 1 張${isInferMode ? '空白作業' : '答案卷'}圖片`
+
   const multiImageNote = isInferMode
-    ? `【多張圖片處理】\n- 你會收到 ${answerSheetImages.length} 張空白作業圖片\n- 請從所有圖片中推論所有題目的正確答案，合併成完整 AnswerKey${pageIdRule}`
-    : `【多張圖片處理】\n- 你會收到 ${answerSheetImages.length} 張答案卷圖片\n- 這些圖片是同一份作業的不同頁面\n- 請從所有圖片中提取題目，合併成一個完整的 AnswerKey${pageIdRule}\n- totalScore 是所有圖片中所有題目的 maxScore 總和`
+    ? `【多張圖片處理】\n- ${batchPageDesc}\n- 請從所有圖片中推論所有題目的正確答案，合併成完整 AnswerKey${pageIdRule}`
+    : `【多張圖片處理】\n- ${batchPageDesc}\n- 請從圖片中提取所有題目，合併成一個完整的 AnswerKey${pageIdRule}\n- totalScore 是所有題目的 maxScore 總和`
   const multiImagePrompt = `${prompt}\n\n${multiImageNote}`.trim()
 
   // 準備多圖片請求（每張照片前插入頁碼標記，讓 AI 明確知道頁碼）
