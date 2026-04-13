@@ -99,10 +99,11 @@ export default function CameraGuideOverlay({
             style={{ width: cornerLen, height: cornerLen }}
           />
 
-          {/* 頂部提示文字 */}
-          <div className="absolute inset-x-0 top-2 flex justify-center">
-            <span className="text-[11px] text-white/60 bg-black/30 px-2 py-0.5 rounded">
-              請將作業對齊框線
+          {/* 中央浮水印提示文字 */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-3xl font-bold text-white/20 text-center leading-snug select-none"
+              style={{ textShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>
+              請將作業<br />對齊框線
             </span>
           </div>
         </div>
