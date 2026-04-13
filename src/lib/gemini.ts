@@ -981,6 +981,13 @@ function buildGlobalTaskAndFormat(): string {
 2. 第二步：提取這些紅色的內容作為答案（不管內容是什麼形式）
 3. 第三步：如果沒有明顯紅色，才參考題目要求
 
+【直式分數格規則】（適用於 fill_blank）
+- 若答案區為直式分數格（上格 + 橫線 + 下格），依顏色判斷作答區：
+  - 只有上格是紅色 → answer = 上格值（不含橫線與分母）
+  - 只有下格是紅色 → answer = 下格值（不含分子與橫線）
+  - 上下格都是紅色 → 答案本身是分數，answer = "上格/下格"（如 "3/4"）
+  - 黑色的格子是印刷結構，不屬於答案，不可含入 answer 欄位
+
 【選擇題與勾選題識別（4種題型）】
 
 ⚠️ 關鍵區分：「選擇」= 答案空間是括號 ( )；「勾選」= 答案空間是方框 □
@@ -1772,7 +1779,7 @@ function fillMissingQuestions(
     })
 
     // 重新計算 totalScore
-    result.totalScore = result.details.reduce((sum, d) => sum + (d.score ?? 0), 0)
+    result.totalScore = parseFloat(result.details.reduce((sum, d) => sum + (d.score ?? 0), 0).toFixed(1))
 
     // 標記需要複核
     result.needsReview = true
@@ -2204,7 +2211,7 @@ function mergeGradingResults(results: GradingResult[], answerKey?: AnswerKey): G
     })
   }
   
-  const totalScore = mergedDetails.reduce((sum, d) => sum + (d.score ?? 0), 0)
+  const totalScore = parseFloat(mergedDetails.reduce((sum, d) => sum + (d.score ?? 0), 0).toFixed(1))
   
   const merged: GradingResult = {
     totalScore,
