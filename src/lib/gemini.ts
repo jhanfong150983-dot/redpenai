@@ -951,8 +951,9 @@ function buildGlobalTaskAndFormat(): string {
   - x/y 為左上角，w/h 為寬高，均為 0-1 之間的歸一化座標（相對於所在頁面圖片的寬高）。
   - 多頁試卷：bbox 相對於該題所在的那一張圖片。
   - do NOT output placeholder or estimated coordinates — only output coordinates you can ground to specific visible characters.
+  - word_problem / calculation 例外：answerBbox 必須涵蓋**所有紅字區域**——從最上方的紅字算式/列式行，一路框到最末行的「答：___」。不可只框「答：」那一行，計算過程的紅字也必須包含在內。
   - multi_fill 例外：每個子題的 answerBbox 對應你讀到那個格子內的文字位置（不含鄰格）。
-  - matching（group_context）：框住你識別到所有配對答案（右欄）的整體範圍。
+  - matching（group_context）：answerBbox 必須涵蓋**整個連連看區域**——左欄所有項目、右欄所有選項、以及中間所有連接線，全部框在同一個 bbox 內。不可只框右欄文字，連線本身就是答案，必須完整包含。
   ⚠️ 每題 bbox 根據實際視覺位置獨立標記，禁止為避免重疊而偏移座標。
   ⚠️ 若該題的 answer 文字在圖上無法視覺定位，請省略 answerBbox。
 - anchorHint：每題必填（除 word_problem / calculation / map_draw / diagram_draw 外）。用 1-2 句中文描述此答案格附近最能唯一識別其位置的印刷特徵：
