@@ -38,6 +38,20 @@ export default function CameraCapturePage({
 
   const gyro = useGyroscope()
 
+  // 綠色連續 0.5 秒才允許拍照（防止手持抖動造成按鈕閃爍）
+  const [captureReady, setCaptureReady] = useState(false)
+  useEffect(() => {
+    if (gyro.tiltStatus !== 'flat') {
+      setCaptureReady(false)
+      return
+    }
+    const timer = setTimeout(() => setCaptureReady(true), 500)
+    return () => clearTimeout(timer)
+  }, [gyro.tiltStatus])
+
+  // unavailable = 陀螺儀不支援，不套用限制
+  const gyroBlocking = gyro.tiltStatus !== 'unavailable' && !captureReady
+
   // 調試：檢查 props
   useEffect(() => {
     console.log('📸 CameraCapturePage props:', {
@@ -414,27 +428,35 @@ export default function CameraCapturePage({
           className={`absolute ${
             isLandscape
               ? 'right-4 top-1/2 -translate-y-1/2 flex-col'
-              : 'left-0 right-0 bottom-5 flex-row justify-center'
-          } flex items-center gap-3`}
+              : 'left-0 right-0 bottom-5 flex-col items-center'
+          } flex gap-2`}
         >
-          <button
-            onClick={triggerFileUpload}
-            disabled={isProcessing}
-            className={actionBase}
-            aria-label="上傳作業"
-            title="上傳"
-          >
-            <Upload className="w-5 h-5" />
-          </button>
-          <button
-            onClick={handleCapture}
-            disabled={isProcessing}
-            className={`${actionBase} w-16 h-16 ${isProcessing ? 'scale-95' : 'hover:scale-105'}`}
-            aria-label="拍照"
-            title="拍照"
-          >
-            <Camera className="w-6 h-6" />
-          </button>
+          {/* 陀螺儀提示文字 */}
+          {gyroBlocking && !isProcessing && (
+            <p className="text-xs text-yellow-300 text-center drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
+              請拿平手機，角度正確後即可拍照
+            </p>
+          )}
+          <div className={`flex items-center gap-3 ${isLandscape ? 'flex-col' : 'flex-row justify-center'}`}>
+            <button
+              onClick={triggerFileUpload}
+              disabled={isProcessing}
+              className={actionBase}
+              aria-label="上傳作業"
+              title="上傳"
+            >
+              <Upload className="w-5 h-5" />
+            </button>
+            <button
+              onClick={handleCapture}
+              disabled={isProcessing || gyroBlocking}
+              className={`${actionBase} w-16 h-16 ${isProcessing || gyroBlocking ? 'scale-95 opacity-40' : 'hover:scale-105'}`}
+              aria-label="拍照"
+              title="拍照"
+            >
+              <Camera className="w-6 h-6" />
+            </button>
+          </div>
         </div>
       )}
     </div>
