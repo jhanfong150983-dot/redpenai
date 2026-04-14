@@ -108,6 +108,8 @@ export default function CameraCapturePage({
       // 裁切引導框範圍（與 CameraGuideOverlay 的框比例一致）
       // 框：left 3%, right 3%, top 5%, bottom 14%
       const FRAME_L = 0.03, FRAME_R = 0.03, FRAME_T = 0.05, FRAME_B = 0.14
+      // 安全距離：框線外再保留 2% 螢幕寬/高，避免貼框時切到作業邊緣
+      const PAD = 0.02
       const croppedSrc = await new Promise<string>((resolve) => {
         const img = new Image()
         img.onload = () => {
@@ -119,16 +121,16 @@ export default function CameraCapturePage({
           const s = Math.max(screenW / imgW, screenH / imgH)
           const leftCrop = (imgW * s - screenW) / 2  // display px cropped from left
           const topCrop  = (imgH * s - screenH) / 2  // display px cropped from top
-          // 框在螢幕上的位置（screen px）
-          const fL = screenW * FRAME_L
-          const fT = screenH * FRAME_T
-          const fR = screenW * (1 - FRAME_R)
-          const fB = screenH * (1 - FRAME_B)
-          // 映射回原圖座標
-          const cropX = Math.round((fL + leftCrop) / s)
-          const cropY = Math.round((fT + topCrop)  / s)
-          const cropW = Math.round((fR - fL) / s)
-          const cropH = Math.round((fB - fT) / s)
+          // 框在螢幕上的位置（screen px），向外擴展 PAD 安全距離
+          const fL = screenW * (FRAME_L - PAD)
+          const fT = screenH * (FRAME_T - PAD)
+          const fR = screenW * (1 - FRAME_R + PAD)
+          const fB = screenH * (1 - FRAME_B + PAD)
+          // 映射回原圖座標，夾在原圖範圍內
+          const cropX = Math.round(Math.max(0, (fL + leftCrop) / s))
+          const cropY = Math.round(Math.max(0, (fT + topCrop)  / s))
+          const cropW = Math.round(Math.min(imgW - cropX, (fR - fL) / s))
+          const cropH = Math.round(Math.min(imgH - cropY, (fB - fT) / s))
           const canvas = document.createElement('canvas')
           canvas.width  = cropW
           canvas.height = cropH
