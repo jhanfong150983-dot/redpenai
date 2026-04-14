@@ -68,7 +68,7 @@ export default function LandingPage() {
                 <span className="text-gray-400">不應該花在對答案上</span>
               </h1>
               <p className="mt-8 text-xl text-gray-500 leading-relaxed">
-                RedPen AI 自動批改、追蹤訂正、產出學情報告——你只需要確認和教學。
+                RedPen AI 自動批改、追蹤訂正、產出學情報告<br />——你只需要確認和教學。
               </p>
               <div className="mt-10 flex flex-col sm:flex-row gap-4">
                 <button
