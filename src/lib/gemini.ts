@@ -3682,9 +3682,24 @@ export async function extractAnswerKeyFromImages(
     }
   }
 
-  // 多頁模式：ID 第一段 = 照片序號（bbox 座標相對於該張照片自身，不是合併圖）
-  // 排序：照片序號（ID 首段）→ 左欄/右欄（x < 0.5 先）→ 上下（y 小先）
-  // bbox 無效的題目（像素座標已清除）排到同頁最後
+  // 計算每張照片的長寬比，決定排序策略
+  // 直向（ratio ≤ 1.3）= 單頁，橫向（ratio > 1.3）= 雙頁展開
+  const photoRatios = await Promise.all(
+    answerSheetImages.map(blob => new Promise<number>(resolve => {
+      const url = URL.createObjectURL(blob)
+      const img = new Image()
+      img.onload = () => { resolve(img.naturalWidth / img.naturalHeight); URL.revokeObjectURL(url) }
+      img.onerror = () => { resolve(1.0); URL.revokeObjectURL(url) }
+      img.src = url
+    }))
+  )
+  const LANDSCAPE_RATIO = 1.3
+  console.log('📐 [AnswerKey] 照片長寬比：', photoRatios.map((r, i) => `照片${i + 1}=${r.toFixed(2)}(${r > LANDSCAPE_RATIO ? '雙頁' : '單頁'})`).join(', '))
+
+  // 排序：照片序號（ID 首段）→ 依照片類型選策略
+  //   雙頁展開：左半頁（x < 0.5）先，右半頁（x ≥ 0.5）後，各自依 y 排
+  //   單頁直向：純粹依 y 排；同一列（y 差距 < 3%）內再依 x 由左到右
+  // bbox 無效的題目排到同頁最後
   result.questions.sort((a, b) => {
     const aPageNum = parseInt(String(a.id ?? '').split('-')[0], 10) || 0
     const bPageNum = parseInt(String(b.id ?? '').split('-')[0], 10) || 0
@@ -3692,12 +3707,24 @@ export async function extractAnswerKeyFromImages(
     const aHasBbox = !!a.answerBbox
     const bHasBbox = !!b.answerBbox
     if (aHasBbox !== bHasBbox) return aHasBbox ? -1 : 1
+    const photoIdx = aPageNum - 1
+    const isLandscape = (photoRatios[photoIdx] ?? 1.0) > LANDSCAPE_RATIO
+    const aY = a.answerBbox?.y ?? 0
+    const bY = b.answerBbox?.y ?? 0
     const aX = a.answerBbox?.x ?? 0
     const bX = b.answerBbox?.x ?? 0
-    const aCol = aX < 0.5 ? 0 : 1
-    const bCol = bX < 0.5 ? 0 : 1
-    if (aCol !== bCol) return aCol - bCol
-    return (a.answerBbox?.y ?? 0) - (b.answerBbox?.y ?? 0)
+    if (isLandscape) {
+      // 雙頁展開：左半頁 vs 右半頁
+      const aCol = aX < 0.5 ? 0 : 1
+      const bCol = bX < 0.5 ? 0 : 1
+      if (aCol !== bCol) return aCol - bCol
+      return aY - bY
+    } else {
+      // 單頁直向：依 y，同一列（y 差距 < 3%）再依 x
+      const yDiff = aY - bY
+      if (Math.abs(yDiff) > 0.03) return yDiff
+      return aX - bX
+    }
   })
 
   // 根據 ID 首段（照片序號，1-based）設定 pageIndex（0-based），供預覽底圖選取
