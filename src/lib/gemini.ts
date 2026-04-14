@@ -3681,6 +3681,12 @@ export async function extractAnswerKeyFromImages(
     return (a.answerBbox?.y ?? 0) - (b.answerBbox?.y ?? 0)
   })
 
+  // 根據 ID 首段（照片序號，1-based）設定 pageIndex（0-based），供預覽底圖選取
+  for (const q of result.questions) {
+    const pageNum = parseInt(String(q.id ?? '').split('-')[0], 10)
+    if (pageNum >= 1) q.pageIndex = pageNum - 1
+  }
+
   console.log(`✅ 成功提取 ${result.questions.length} 題，總分 ${result.totalScore}`)
   return result
 }
@@ -3777,6 +3783,12 @@ ${needsPagePrefix ? `\n【多張圖片處理 - 多頁模式】\n- 你會收到 $
 
     result.questions.push(...placeholderQuestions)
     console.log(`🔧 已自動為遺漏的 ${missingIds.length} 題創建佔位項（需手動編輯）`)
+  }
+
+  // 根據 ID 首段設定 pageIndex（0-based）
+  for (const q of result.questions) {
+    const pageNum = parseInt(String(q.id ?? '').split('-')[0], 10)
+    if (pageNum >= 1) q.pageIndex = pageNum - 1
   }
 
   console.log(`✅ 重新分析完成，共 ${result.questions.length} 題（要求 ${markedQuestions.length} 題）`)
