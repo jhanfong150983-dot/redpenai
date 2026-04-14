@@ -959,12 +959,11 @@ export default function AssignmentSetup({
           baseQuestion.acceptableAnswers = acceptableAnswers
         }
       } else if (questionType === 3) {
-        baseQuestion.referenceAnswer =
-          typeof q?.referenceAnswer === 'string'
-            ? q.referenceAnswer
-            : q?.referenceAnswer === null || q?.referenceAnswer === undefined
-              ? ''
-              : String(q.referenceAnswer)
+        // word_problem / short_answer / diagram_draw: prefer referenceAnswer, fall back to answer
+        const refAnswer = typeof q?.referenceAnswer === 'string' ? q.referenceAnswer
+          : q?.referenceAnswer == null ? '' : String(q.referenceAnswer)
+        const fallbackAnswer = typeof q?.answer === 'string' ? q.answer : ''
+        baseQuestion.referenceAnswer = refAnswer || fallbackAnswer
         if (Array.isArray(q?.rubricsDimensions)) {
           const normalizedDimensions: { name: string; maxScore: number; criteria: string }[] = q.rubricsDimensions
             .map((dimension: any) => ({

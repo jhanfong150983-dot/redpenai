@@ -1105,6 +1105,7 @@ function buildGlobalClassificationFallback(): string {
    - 答句維度的 criteria 必須說明：「以『答：』或『A：』開頭，含數字與單位（或完整文字答案如甲班、教師節）」
    - 關鍵：答案需要單位或文字說明（非純數值）
    - ⚠️「算算看」「計算看看」後若有「答：」行 → word_problem，不可改判 calculation
+   - ⚠️ word_problem 必須使用 referenceAnswer 欄位填入答案要點（如 "35÷4=8.75，答：爸爸的速度是8.75公里/時"），**禁止用 answer 欄位**
 
 4. 數學題 + 答題區只有計算算式、沒有「答：」或「A：」答句？
    → questionCategory: "calculation"（計算題）
