@@ -949,6 +949,7 @@ function buildGlobalTaskAndFormat(): string {
 - answerBbox：每題必填。**這是 grounded bbox**：先讀出 answer 欄位的文字，再標記你剛才視覺識別到那些文字／符號的所在位置。
   - 規則：answerBbox 必須是你**已經看見並讀取**的文字的邊框，不是猜測答題區的位置。
   - x/y 為左上角，w/h 為寬高，均為 0-1 之間的歸一化座標（相對於所在頁面圖片的寬高）。
+  - ⚠️ 絕對禁止輸出像素座標（如 x: 376, y: 313）。所有題型（包含 diagram_draw、word_problem、calculation）的 x/y/w/h 都必須在 0-1 範圍內。若不確定，寧可省略 answerBbox。
   - 多頁試卷：bbox 相對於該題所在的那一張圖片。
   - do NOT output placeholder or estimated coordinates — only output coordinates you can ground to specific visible characters.
   - word_problem 例外：answerBbox 必須涵蓋**整個作答區域**——從最上方的列式/算式行，一路框到最末行的「答：___」或「A：___」。⚠️ 不可只框「答：」那一行，計算步驟也必須在框內。
@@ -3671,12 +3672,26 @@ export async function extractAnswerKeyFromImages(
   console.log('📥 [AnswerKey raw response]', text)
   const result = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(text) as AnswerKey, opts?.domain)
 
+  // 像素 bbox 偵測：AI 有時對大面積題型（diagram_draw/word_problem）回傳像素座標而非 0-1 正規化
+  // 任何 x/y/w/h > 2 即視為像素座標，清除 answerBbox 避免排序錯亂
+  for (const q of result.questions) {
+    const b = q.answerBbox
+    if (b && (b.x > 2 || b.y > 2 || b.w > 2 || b.h > 2)) {
+      console.warn(`[AnswerKey] 題目 ${q.id} 的 answerBbox 為像素座標，已忽略：`, b)
+      q.answerBbox = undefined
+    }
+  }
+
   // 多頁模式：ID 第一段 = 照片序號（bbox 座標相對於該張照片自身，不是合併圖）
   // 排序：照片序號（ID 首段）→ 左欄/右欄（x < 0.5 先）→ 上下（y 小先）
+  // bbox 無效的題目（像素座標已清除）排到同頁最後
   result.questions.sort((a, b) => {
     const aPageNum = parseInt(String(a.id ?? '').split('-')[0], 10) || 0
     const bPageNum = parseInt(String(b.id ?? '').split('-')[0], 10) || 0
     if (aPageNum !== bPageNum) return aPageNum - bPageNum
+    const aHasBbox = !!a.answerBbox
+    const bHasBbox = !!b.answerBbox
+    if (aHasBbox !== bHasBbox) return aHasBbox ? -1 : 1
     const aX = a.answerBbox?.x ?? 0
     const bX = b.answerBbox?.x ?? 0
     const aCol = aX < 0.5 ? 0 : 1
