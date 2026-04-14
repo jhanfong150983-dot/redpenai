@@ -195,7 +195,7 @@ export default function LandingPage() {
               </ul>
             </div>
             <div className="animate-fade-in-up animation-delay-200 rounded-2xl overflow-hidden border border-gray-100 shadow-lg">
-              <img src="/screenshot-grading.png" alt="AI 批改介面" className="w-full h-auto" />
+              <img src="/screenshot-grading.jpg" alt="AI 批改介面" className="w-full h-auto" />
             </div>
           </div>
         </div>
@@ -267,7 +267,7 @@ export default function LandingPage() {
               </ul>
             </div>
             <div className="animate-fade-in-up animation-delay-200 rounded-2xl overflow-hidden border border-gray-100 shadow-lg">
-              <img src="/screenshot-summary.png" alt="學情報告" className="w-full h-auto" />
+              <img src="/screenshot-summary.jpg" alt="學情報告" className="w-full h-auto" />
             </div>
           </div>
         </div>
