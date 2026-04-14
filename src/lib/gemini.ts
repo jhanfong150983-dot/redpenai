@@ -3667,20 +3667,18 @@ export async function extractAnswerKeyFromImages(
   console.log('📥 [AnswerKey raw response]', text)
   const result = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(text) as AnswerKey, opts?.domain)
 
-  // 按照作業卷空間順序排序：頁面（y < 0.5 為第1頁）→ 左欄/右欄（x < 0.5 先）→ 上下（y 小先）
-  // 注意：不用題號前綴推算頁碼，因為題號不等於頁碼（例如題4在第1頁、題1在第2頁）
+  // 多頁模式：ID 第一段 = 照片序號（bbox 座標相對於該張照片自身，不是合併圖）
+  // 排序：照片序號（ID 首段）→ 左欄/右欄（x < 0.5 先）→ 上下（y 小先）
   result.questions.sort((a, b) => {
-    const aY = a.answerBbox?.y ?? 0
-    const bY = b.answerBbox?.y ?? 0
+    const aPageNum = parseInt(String(a.id ?? '').split('-')[0], 10) || 0
+    const bPageNum = parseInt(String(b.id ?? '').split('-')[0], 10) || 0
+    if (aPageNum !== bPageNum) return aPageNum - bPageNum
     const aX = a.answerBbox?.x ?? 0
     const bX = b.answerBbox?.x ?? 0
-    const aPage = aY < 0.5 ? 0 : 1
-    const bPage = bY < 0.5 ? 0 : 1
-    if (aPage !== bPage) return aPage - bPage
     const aCol = aX < 0.5 ? 0 : 1
     const bCol = bX < 0.5 ? 0 : 1
     if (aCol !== bCol) return aCol - bCol
-    return aY - bY
+    return (a.answerBbox?.y ?? 0) - (b.answerBbox?.y ?? 0)
   })
 
   console.log(`✅ 成功提取 ${result.questions.length} 題，總分 ${result.totalScore}`)
@@ -3692,7 +3690,7 @@ export async function extractAnswerKeyFromImages(
  * 只針對 needsReanalysis === true 的題目重新分析
  */
 export async function reanalyzeQuestions(
-  answerSheetImage: Blob,
+  answerSheetImages: Blob | Blob[],
   markedQuestions: import('./db').AnswerKeyQuestion[],
   domain?: string
 ): Promise<import('./db').AnswerKeyQuestion[]> {
@@ -3704,14 +3702,21 @@ export async function reanalyzeQuestions(
 
   console.log(`🔄 重新分析 ${markedQuestions.length} 題...`)
 
-  const imageBase64 = await blobToBase64(answerSheetImage)
-  const mimeType = answerSheetImage.type || 'image/jpeg'
-
+  const images = Array.isArray(answerSheetImages) ? answerSheetImages : [answerSheetImages]
+  const needsPagePrefix = images.length > 1
   const questionIds = markedQuestions.map((q) => q.id).join(', ')
   const basePrompt = buildAnswerKeyPrompt(domain)
 
+  const pageIdRule = needsPagePrefix
+    ? `\n- 【題目 ID 規則（多頁模式）】ID 第一段為照片序號（1, 2, 3...），與答案卷印刷頁碼無關。`
+    : ''
+  const pagePrefixList = needsPagePrefix
+    ? Array.from({ length: images.length }, (_, i) => `第 ${i + 1} 張 → 前綴 "${i + 1}-"`).join('；')
+    : ''
+
   const reanalyzePrompt = `
 ${basePrompt}
+${needsPagePrefix ? `\n【多張圖片處理 - 多頁模式】\n- 你會收到 ${images.length} 張答案卷圖片，每張照片有獨立的 ID 前綴：${pagePrefixList}\n- ⚠️ 嚴格禁止把第 2 張以後的題目用 "1-" 開頭${pageIdRule}` : ''}
 
 【重新分析模式 - 強制完整輸出】
 必須重新分析以下題號：${questionIds}（共 ${markedQuestions.length} 題）
@@ -3730,10 +3735,15 @@ ${basePrompt}
 請仔細辨識這些題目的內容，重新判斷類型並提取答案。
 `.trim()
 
-  const text = (await generateGeminiText(currentModelName, [
-    reanalyzePrompt,
-    { inlineData: { mimeType, data: imageBase64 } }
-  ], {
+  const parts: GeminiRequestPart[] = [reanalyzePrompt]
+  for (let i = 0; i < images.length; i++) {
+    if (needsPagePrefix) parts.push(`--- 第 ${i + 1} 張照片（此頁所有題目 id 前綴為 "${i + 1}-"）---`)
+    const imageBase64 = await blobToBase64(images[i])
+    const mimeType = images[i].type || 'image/jpeg'
+    parts.push({ inlineData: { mimeType, data: imageBase64 } })
+  }
+
+  const text = (await generateGeminiText(currentModelName, parts, {
     routeKey: 'answer_key.reanalyze'
   }))
     .replace(/```json|```/g, '')

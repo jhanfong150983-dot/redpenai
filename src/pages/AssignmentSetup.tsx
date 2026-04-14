@@ -1553,7 +1553,7 @@ export default function AssignmentSetup({
 
   const handleReanalyzeMarkedQuestions = async (target: 'create' | 'edit') => {
     const currentAnswerKey = target === 'create' ? answerKey : editingAnswerKey
-    const currentImage = target === 'create' ? (answerSheetImages[0] ?? null) : (editAnswerSheetImages[0] ?? null)
+    const currentImages = target === 'create' ? answerSheetImages : editAnswerSheetImages
     const currentDomain = target === 'create' ? assignmentDomain : editingDomain
     const setErrorFn = target === 'create' ? setAnswerKeyError : setEditAnswerKeyError
     const setNoticeFn = target === 'create' ? setAnswerKeyNotice : setEditAnswerKeyNotice
@@ -1562,8 +1562,7 @@ export default function AssignmentSetup({
     console.log('🔄 重新分析調試:', {
       target,
       hasAnswerKey: !!currentAnswerKey,
-      hasImage: !!currentImage,
-      imageSize: currentImage?.size,
+      imageCount: currentImages.length,
       markedQuestionsCount: currentAnswerKey?.questions.filter(q => q.needsReanalysis).length
     })
 
@@ -1573,7 +1572,7 @@ export default function AssignmentSetup({
       return
     }
 
-    if (!currentImage) {
+    if (currentImages.length === 0) {
       console.error('❌ 缺少答案卷圖片，請先上傳答案卷')
       const errorMsg = target === 'edit'
         ? '請先「重新上傳答案卷」並點擊「AI 解析並合併答案」，才能使用重新分析功能'
@@ -1600,7 +1599,7 @@ export default function AssignmentSetup({
 
     try {
       const reanalyzedQuestions = await reanalyzeQuestions(
-        currentImage,
+        currentImages,
         markedQuestions,
         currentDomain
       )
