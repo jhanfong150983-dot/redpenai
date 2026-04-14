@@ -163,7 +163,9 @@ export default function AnswerKeyWizardModal({
 
   // ── image URL management — use the correct page for the selected question ──
   useEffect(() => {
-    const pageIdx = (editingKey?.questions[selectedIdx]?.pageIndex) ?? 0
+    const q = editingKey?.questions[selectedIdx]
+    // pageIndex 優先；未設定時從 ID 首段（1-based）推算（舊資料相容）
+    const pageIdx = q?.pageIndex ?? Math.max(0, (parseInt(String(q?.id ?? '').split('-')[0], 10) || 1) - 1)
     const blob = imageBlobs[pageIdx] ?? imageBlobs[0] ?? null
     if (!blob) { setImageObjUrl(null); return }
     const url = URL.createObjectURL(blob)
