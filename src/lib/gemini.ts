@@ -951,7 +951,8 @@ function buildGlobalTaskAndFormat(): string {
   - x/y 為左上角，w/h 為寬高，均為 0-1 之間的歸一化座標（相對於所在頁面圖片的寬高）。
   - 多頁試卷：bbox 相對於該題所在的那一張圖片。
   - do NOT output placeholder or estimated coordinates — only output coordinates you can ground to specific visible characters.
-  - word_problem / calculation 例外：answerBbox 必須涵蓋**所有紅字區域**——從最上方的紅字算式/列式行，一路框到最末行的「答：___」。不可只框「答：」那一行，計算過程的紅字也必須包含在內。
+  - word_problem 例外：answerBbox 必須涵蓋**整個作答區域**——從最上方的列式/算式行，一路框到最末行的「答：___」或「A：___」。⚠️ 不可只框「答：」那一行，計算步驟也必須在框內。
+  - calculation 例外：answerBbox 必須涵蓋**所有算式行**——橫式、直式、最終數值結果，全部框在同一個 bbox 內。
   - multi_fill 例外：每個子題的 answerBbox 對應你讀到那個格子內的文字位置（不含鄰格）。
   - matching（group_context）：answerBbox 必須涵蓋**整個連連看區域**——左欄所有項目、右欄所有選項、以及中間所有連接線，全部框在同一個 bbox 內。不可只框右欄文字，連線本身就是答案，必須完整包含。
   ⚠️ 每題 bbox 根據實際視覺位置獨立標記，禁止為避免重疊而偏移座標。
@@ -1096,20 +1097,23 @@ function buildGlobalClassificationFallback(): string {
    - referenceAnswer 填入範例；acceptableAnswers 列出所有可接受答案
    - 同樣優先於 calculation / word_problem
 
-3. 數學題 + 有故事情境/附圖情境 + 需要列式計算 + 寫含單位的答句？
+3. 數學題 + 答題區結尾有「答：」或「A：」開頭的答句？
    → questionCategory: "word_problem"（應用題）
+   - 判斷標準（最優先）：答題區最後一行是「答：___」或「A：___」→ 一定是 word_problem，無論有無故事情境
    - rubricsDimensions: [列式計算, 答句]
    - 答句維度的 criteria 必須說明：「以『答：』或『A：』開頭，含數字與單位（或完整文字答案如甲班、教師節）」
    - 關鍵：答案需要單位或文字說明（非純數值）
+   - ⚠️「算算看」「計算看看」後若有「答：」行 → word_problem，不可改判 calculation
 
-4. 數學題 + 無故事情境 + 只需列算式 + 答案為純數值（不需單位/答句）？
+4. 數學題 + 答題區只有計算算式、沒有「答：」或「A：」答句？
    → questionCategory: "calculation"（計算題）
-   - 例：算算看、直式算算看、純算式計算
+   - 判斷標準（最優先）：答題區沒有「答：」或「A：」開頭的答句 → 才可判 calculation
+   - 例：直式算算看、純算式計算（只列橫式或直式，無答句）
    - referenceAnswer 填數值正解（如 "360"）
    - rubricsDimensions: [算式過程, 最終答案]
    - 算式過程 criteria: 列出正確算式（橫式或直式）
    - 最終答案 criteria: 數值正確（不需單位）
-   - ⚠️ 與 word_problem 差異：無情境、無答句、答案不含單位
+   - ⚠️ 與 word_problem 差異：答題區完全沒有「答：」或「A：」行
 
 5. 有括號 ( ) 作為答案空間，且需填入多個選項代號（可複選）？
    → questionCategory: "multi_choice"（多選選擇）
