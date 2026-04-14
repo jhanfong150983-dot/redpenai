@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, type FormEvent } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from 'react'
 import {
   Users,
   Plus,
@@ -90,6 +90,17 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [isSaving, setIsSaving] = useState(false)
+  // 備援：unmount 時若仍有 pending edit，fire-and-forget 寫入 Dexie
+  const pendingNameEditRef = useRef<{ id: string; name: string } | null>(null)
+  useEffect(() => {
+    pendingNameEditRef.current = editingId ? { id: editingId, name: editingName } : null
+  }, [editingId, editingName])
+  useEffect(() => {
+    return () => {
+      const p = pendingNameEditRef.current
+      if (p?.name.trim()) void db.classrooms.update(p.id, { name: p.name.trim() })
+    }
+  }, [])
 
 // 編輯學生名單
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false)

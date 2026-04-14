@@ -155,6 +155,17 @@ export default function AssignmentSetup({
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
+  // 備援：unmount 時若仍有 pending edit，fire-and-forget 寫入 Dexie
+  const pendingTitleEditRef = useRef<{ id: string; title: string } | null>(null)
+  useEffect(() => {
+    pendingTitleEditRef.current = editingId ? { id: editingId, title: editingTitle } : null
+  }, [editingId, editingTitle])
+  useEffect(() => {
+    return () => {
+      const p = pendingTitleEditRef.current
+      if (p?.title.trim()) void db.assignments.update(p.id, { title: p.title.trim() })
+    }
+  }, [])
 
   // 複製作業
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false)
