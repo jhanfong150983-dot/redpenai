@@ -794,12 +794,12 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                   return (
                     <tr
                       key={r.student.id}
-                      className={`hover:bg-gray-50 ${isLow ? 'bg-rose-50/80' : ''}`}
+                      className={`group hover:bg-gray-50 ${isLow ? 'bg-rose-50/80' : ''}`}
                     >
-                      <td className="sticky left-0 z-10 bg-inherit px-3 py-2 font-medium text-gray-900">
+                      <td className={`sticky left-0 z-10 px-3 py-2 font-medium text-gray-900 group-hover:bg-gray-50 ${isLow ? 'bg-rose-50/80' : 'bg-white'}`}>
                         {r.student.seatNumber ?? '—'}
                       </td>
-                      <td className="sticky left-16 z-10 bg-inherit px-3 py-2 text-gray-800">{r.student.name}</td>
+                      <td className={`sticky left-16 z-10 px-3 py-2 text-gray-800 group-hover:bg-gray-50 ${isLow ? 'bg-rose-50/80' : 'bg-white'}`}>{r.student.name}</td>
 
                       {/* Custom column scores */}
                       {customColumns.map((col, idx) => (
