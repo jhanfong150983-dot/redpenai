@@ -608,8 +608,8 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const totalCols = 2 + customColumns.length + filteredAssignments.length + 1
 
   return (
-    <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
-      <div className={`${embedded ? 'max-w-none mx-0 space-y-4' : 'max-w-7xl mx-auto space-y-4'}`}>
+    <div className={`${embedded ? 'bg-white p-0 flex flex-col h-full' : 'min-h-screen bg-white p-4'}`}>
+      <div className={`${embedded ? 'max-w-none mx-0 space-y-4 flex flex-col flex-1 min-h-0' : 'max-w-7xl mx-auto space-y-4'}`}>
         <div className={`${embedded ? 'mb-1 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3' : 'flex flex-wrap items-center justify-between gap-3'}`}>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-semibold text-gray-900">成績統計</h1>
@@ -685,10 +685,10 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
           </div>
         )}
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
+        <div className={`rounded-xl border border-slate-200 bg-white p-4 space-y-4 ${embedded ? 'flex flex-col flex-1 min-h-0' : ''}`}>
           <div className="text-xs text-gray-500">資料夾檢視下，總分會以目前可見欄位權重正規化後計算。</div>
-          <div className="grid">
-          <div className="w-full overflow-auto max-h-[calc(100vh-280px)]">
+          <div className={`grid ${embedded ? 'flex-1 min-h-0' : ''}`}>
+          <div className="w-full overflow-auto">
             <table className="min-w-full text-sm border-separate border-spacing-0">
               <thead>
                 {/* Helper row: "+ add column" button sitting right on top of the header border */}
