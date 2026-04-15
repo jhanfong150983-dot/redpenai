@@ -687,7 +687,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
           <div className="text-xs text-gray-500">資料夾檢視下，總分會以目前可見欄位權重正規化後計算。</div>
-          <div className="overflow-auto max-h-[calc(100vh-280px)]">
+          <div className="w-full overflow-auto max-h-[calc(100vh-280px)]">
             <table className="min-w-full text-sm border-separate border-spacing-0">
               <thead>
                 {/* Helper row: "+ add column" button sitting right on top of the header border */}
