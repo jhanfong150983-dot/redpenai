@@ -608,7 +608,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const totalCols = 2 + customColumns.length + filteredAssignments.length + 1
 
   return (
-    <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
+    <div className={`${embedded ? 'bg-white p-0 overflow-hidden' : 'min-h-screen bg-white p-4'}`}>
       <div className={`${embedded ? 'max-w-none mx-0 space-y-4' : 'max-w-7xl mx-auto space-y-4'}`}>
         <div className={`${embedded ? 'mb-1 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3' : 'flex flex-wrap items-center justify-between gap-3'}`}>
           <div className="flex items-center gap-3">
