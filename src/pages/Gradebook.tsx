@@ -711,8 +711,8 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                 </tr>
 
                 <tr className="bg-gray-50 text-gray-700">
-                  <th className="sticky left-0 top-0 z-30 bg-gray-50 px-3 py-2 text-left w-16">座號</th>
-                  <th className="sticky left-16 top-0 z-30 bg-gray-50 px-3 py-2 text-left w-32">姓名</th>
+                  <th className="sticky left-0 top-0 z-[100] bg-gray-50 px-3 py-2 text-left w-16">座號</th>
+                  <th className="sticky left-16 top-0 z-[100] bg-gray-50 px-3 py-2 text-left w-32">姓名</th>
 
                   {/* Custom columns — shown BEFORE assignment columns */}
                   {customColumns.map((col, idx) => (
@@ -796,10 +796,10 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       key={r.student.id}
                       className={`group hover:bg-gray-50 ${isLow ? 'bg-rose-50/80' : ''}`}
                     >
-                      <td className={`sticky left-0 z-10 px-3 py-2 font-medium text-gray-900 group-hover:bg-gray-50 ${isLow ? 'bg-rose-50/80' : 'bg-white'}`}>
+                      <td className={`sticky left-0 z-10 px-3 py-2 font-medium text-gray-900 group-hover:bg-gray-50 ${isLow ? 'bg-rose-50' : 'bg-white'}`}>
                         {r.student.seatNumber ?? '—'}
                       </td>
-                      <td className={`sticky left-16 z-10 px-3 py-2 text-gray-800 group-hover:bg-gray-50 ${isLow ? 'bg-rose-50/80' : 'bg-white'}`}>{r.student.name}</td>
+                      <td className={`sticky left-16 z-10 px-3 py-2 text-gray-800 group-hover:bg-gray-50 ${isLow ? 'bg-rose-50' : 'bg-white'}`}>{r.student.name}</td>
 
                       {/* Custom column scores */}
                       {customColumns.map((col, idx) => (
