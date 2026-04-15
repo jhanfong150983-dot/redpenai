@@ -690,6 +690,17 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
           <div className={`grid ${embedded ? 'flex-1 min-h-0' : ''}`}>
           <div className="w-full overflow-auto">
             <table className="min-w-full text-sm border-separate border-spacing-0 table-fixed">
+              <colgroup>
+                <col className="w-16" />
+                <col className="w-32" />
+                {customColumns.map((col) => (
+                  <col key={col.id} className="w-40" />
+                ))}
+                {filteredAssignments.map((a) => (
+                  <col key={a.id} className="w-36" />
+                ))}
+                <col className="w-[120px]" />
+              </colgroup>
               <thead>
                 {/* Helper row: "+ add column" button sitting right on top of the header border */}
                 <tr className="bg-white">
