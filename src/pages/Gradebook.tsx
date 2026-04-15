@@ -608,7 +608,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const totalCols = 2 + customColumns.length + filteredAssignments.length + 1
 
   return (
-    <div className={`${embedded ? 'bg-white p-0 overflow-hidden' : 'min-h-screen bg-white p-4'}`}>
+    <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
       <div className={`${embedded ? 'max-w-none mx-0 space-y-4' : 'max-w-7xl mx-auto space-y-4'}`}>
         <div className={`${embedded ? 'mb-1 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3' : 'flex flex-wrap items-center justify-between gap-3'}`}>
           <div className="flex items-center gap-3">
@@ -687,6 +687,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
           <div className="text-xs text-gray-500">資料夾檢視下，總分會以目前可見欄位權重正規化後計算。</div>
+          <div className="grid">
           <div className="w-full overflow-auto max-h-[calc(100vh-280px)]">
             <table className="min-w-full text-sm border-separate border-spacing-0">
               <thead>
@@ -846,6 +847,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                 )}
               </tbody>
             </table>
+          </div>
           </div>
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <AlertTriangle className="w-4 h-4 text-rose-500" />
