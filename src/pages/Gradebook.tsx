@@ -689,7 +689,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
           <div className="text-xs text-gray-500">資料夾檢視下，總分會以目前可見欄位權重正規化後計算。</div>
           <div className={`grid ${embedded ? 'flex-1 min-h-0' : ''}`}>
           <div className="w-full overflow-auto">
-            <table className="min-w-full text-sm border-separate border-spacing-0">
+            <table className="min-w-full text-sm border-separate border-spacing-0 table-fixed">
               <thead>
                 {/* Helper row: "+ add column" button sitting right on top of the header border */}
                 <tr className="bg-white">
@@ -716,7 +716,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
                   {/* Custom columns — shown BEFORE assignment columns */}
                   {customColumns.map((col, idx) => (
-                    <th key={col.id} className="sticky top-0 z-20 px-3 py-2 text-center min-w-[160px] bg-amber-50">
+                    <th key={col.id} className="sticky top-0 z-20 px-3 py-2 text-center w-40 bg-amber-50">
                       <div className="flex items-center justify-center gap-1">
                         <input
                           type="text"
@@ -755,7 +755,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
                   {/* Assignment columns */}
                   {filteredAssignments.map((a) => (
-                    <th key={a.id} className="sticky top-0 z-20 px-3 py-2 text-center min-w-[140px] bg-gray-50">
+                    <th key={a.id} className="sticky top-0 z-20 px-3 py-2 text-center w-36 bg-gray-50">
                       <div className="font-semibold text-gray-900">{a.title}</div>
                       <div className="mt-1 flex items-center justify-center gap-1 text-xs text-gray-500">
                         占比(%)
@@ -776,7 +776,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                     </th>
                   ))}
 
-                  <th className="sticky top-0 z-20 px-3 py-2 text-center min-w-[120px] bg-gray-50">
+                  <th className="sticky top-0 z-20 px-3 py-2 text-center w-[120px] bg-gray-50">
                     <div className="font-semibold text-gray-900">總分(加權平均)</div>
                     <div className="mt-1 text-[11px] text-gray-500">
                       平均 {formatNumber(totalStats.average)}
