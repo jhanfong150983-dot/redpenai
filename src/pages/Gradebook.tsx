@@ -604,8 +604,8 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     )
   }
 
-  // total cols = 座號 + 姓名 + custom + assignments + 總分
-  const totalCols = 2 + customColumns.length + filteredAssignments.length + 1
+  // total cols = 學生(merged) + custom + assignments + 總分
+  const totalCols = 1 + customColumns.length + filteredAssignments.length + 1
 
   return (
     <div className={`${embedded ? 'bg-white p-0 flex flex-col h-full' : 'min-h-screen bg-white p-4'}`}>
@@ -699,10 +699,15 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
           </div>
           <div className={`grid ${embedded ? 'flex-1 min-h-0' : ''}`}>
           <div className="w-full overflow-auto">
+            {/*
+              Header: 4 sticky rows (作業名稱 / 占比 / 平均 / 中位)
+              Heights: row1=h-9(36px), row2=h-9(36px), row3=h-7(28px), row4=h-7(28px)
+              Sticky top offsets: 0 / 36px / 72px / 100px
+              Left sticky: single merged 學生 column — no gap between two sticky cols
+            */}
             <table className="min-w-full text-sm border-separate border-spacing-0 table-fixed">
               <colgroup>
-                <col style={{ width: '4rem' }} />
-                <col style={{ width: '8rem' }} />
+                <col style={{ width: '9rem' }} />
                 {customColumns.map((col) => (
                   <col key={col.id} style={{ width: '10rem' }} />
                 ))}
@@ -712,23 +717,19 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                 <col style={{ width: '7.5rem' }} />
               </colgroup>
               <thead>
-                <tr className="bg-gray-50 text-gray-700">
-                  <th className="sticky left-0 top-0 z-[100] bg-gray-50 p-0 text-left w-16">
-                    <div className="px-3 py-2">座號</div>
+                {/* ── Row 1: 作業名稱 ── */}
+                <tr>
+                  <th className="sticky left-0 top-0 z-[100] bg-gray-50 p-0 border-r-2 border-b border-gray-200">
+                    <div className="h-9 flex items-center px-3 text-xs text-gray-400 font-normal">學生</div>
                   </th>
-                  <th className="sticky left-16 top-0 z-[100] bg-gray-50 p-0 text-left w-32 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.08)]">
-                    <div className="px-3 py-2">姓名</div>
-                  </th>
-
-                  {/* Custom columns — shown BEFORE assignment columns */}
-                  {customColumns.map((col, idx) => (
-                    <th key={col.id} className="sticky top-0 z-20 px-3 py-2 text-center w-40 bg-amber-50">
-                      <div className="flex items-center justify-center gap-1">
+                  {customColumns.map((col) => (
+                    <th key={col.id} className="sticky top-0 z-20 bg-amber-50 p-0 text-center border-b border-amber-200">
+                      <div className="h-9 flex items-center justify-center gap-1 px-2">
                         <input
                           type="text"
                           value={col.name}
                           onChange={(e) => handleCustomNameChange(col.id, e.target.value)}
-                          className="w-full bg-transparent text-center text-sm font-semibold text-amber-900 outline-none border-b border-transparent hover:border-amber-300 focus:border-amber-500 transition-colors"
+                          className="min-w-0 flex-1 bg-transparent text-center text-xs font-semibold text-amber-900 outline-none border-b border-transparent hover:border-amber-300 focus:border-amber-500 transition-colors truncate"
                           aria-label="欄位名稱"
                         />
                         <button
@@ -740,59 +741,111 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                           <X className="w-3 h-3" />
                         </button>
                       </div>
-                      <div className="mt-1 flex items-center justify-center gap-1 text-xs text-amber-700">
-                        占比(%)
+                    </th>
+                  ))}
+                  {filteredAssignments.map((a) => (
+                    <th key={a.id} className="sticky top-0 z-20 bg-gray-50 p-0 text-center border-b border-gray-200">
+                      <div className="h-9 flex items-center justify-center px-3">
+                        <span className="truncate text-xs font-semibold text-gray-900">{a.title}</span>
+                      </div>
+                    </th>
+                  ))}
+                  <th className="sticky top-0 z-20 bg-gray-50 p-0 text-center border-b border-gray-200">
+                    <div className="h-9 flex items-center justify-center px-3">
+                      <span className="text-xs font-semibold text-gray-900">總分(加權)</span>
+                    </div>
+                  </th>
+                </tr>
+
+                {/* ── Row 2: 占比(%) ── top = 36px = top-9 */}
+                <tr>
+                  <th className="sticky left-0 top-9 z-[100] bg-gray-50 p-0 border-r-2 border-b border-gray-200">
+                    <div className="h-9 flex items-center px-3 text-xs text-gray-500">占比 (%)</div>
+                  </th>
+                  {customColumns.map((col) => (
+                    <th key={col.id} className="sticky top-9 z-20 bg-amber-50 p-0 text-center border-b border-amber-200">
+                      <div className="h-9 flex items-center justify-center px-2">
                         <NumericInput
                           allowDecimal={true}
                           min={0}
                           value={col.weightPercent}
                           onChange={(v) => handleCustomWeightChange(col.id, typeof v === 'number' ? v : Number(v) || 0)}
-                          className="w-16 rounded border border-amber-300 bg-white px-2 py-1 text-xs text-amber-800"
+                          className="w-16 rounded border border-amber-300 bg-white px-2 py-0.5 text-xs text-center text-amber-800"
                         />
-                      </div>
-                      <div className="mt-1 text-[11px] text-amber-600">
-                        平均 {formatNumber(customColumnStats[idx]?.average)}
-                      </div>
-                      <div className="text-[11px] text-amber-600">
-                        中位 {formatNumber(customColumnStats[idx]?.median)}
                       </div>
                     </th>
                   ))}
-
-                  {/* Assignment columns */}
                   {filteredAssignments.map((a) => (
-                    <th key={a.id} className="sticky top-0 z-20 px-3 py-2 text-center w-36 bg-gray-50">
-                      <div className="font-semibold text-gray-900">{a.title}</div>
-                      <div className="mt-1 flex items-center justify-center gap-1 text-xs text-gray-500">
-                        占比(%)
+                    <th key={a.id} className="sticky top-9 z-20 bg-gray-50 p-0 text-center border-b border-gray-200">
+                      <div className="h-9 flex items-center justify-center px-2">
                         <NumericInput
                           allowDecimal={true}
                           min={0}
                           value={toNonNegativeNumber(a.gradeWeightPercent, 0)}
                           onChange={(v) => handleWeightChange(a.id, typeof v === 'number' ? v : Number(v) || 0)}
-                          className="w-16 rounded border border-gray-300 px-2 py-1 text-xs text-gray-700"
+                          className="w-16 rounded border border-gray-300 px-2 py-0.5 text-xs text-center text-gray-700"
                         />
-                      </div>
-                      <div className="mt-1 text-[11px] text-gray-500">
-                        平均 {formatNumber(assignmentStats[a.id]?.average)}
-                      </div>
-                      <div className="text-[11px] text-gray-500">
-                        中位 {formatNumber(assignmentStats[a.id]?.median)}
                       </div>
                     </th>
                   ))}
+                  <th className="sticky top-9 z-20 bg-gray-50 p-0 border-b border-gray-200">
+                    <div className="h-9" />
+                  </th>
+                </tr>
 
-                  <th className="sticky top-0 z-20 px-3 py-2 text-center w-[120px] bg-gray-50">
-                    <div className="font-semibold text-gray-900">總分(加權平均)</div>
-                    <div className="mt-1 text-[11px] text-gray-500">
-                      平均 {formatNumber(totalStats.average)}
+                {/* ── Row 3: 平均 ── top = 72px */}
+                <tr>
+                  <th className="sticky left-0 top-[72px] z-[100] bg-gray-50 p-0 border-r-2 border-b border-gray-200">
+                    <div className="h-7 flex items-center px-3 text-xs text-gray-500">平均</div>
+                  </th>
+                  {customColumns.map((col, idx) => (
+                    <th key={col.id} className="sticky top-[72px] z-20 bg-amber-50 p-0 text-center border-b border-amber-200">
+                      <div className="h-7 flex items-center justify-center px-2 text-[11px] text-amber-600">
+                        {formatNumber(customColumnStats[idx]?.average)}
+                      </div>
+                    </th>
+                  ))}
+                  {filteredAssignments.map((a) => (
+                    <th key={a.id} className="sticky top-[72px] z-20 bg-gray-50 p-0 text-center border-b border-gray-200">
+                      <div className="h-7 flex items-center justify-center px-2 text-[11px] text-gray-500">
+                        {formatNumber(assignmentStats[a.id]?.average)}
+                      </div>
+                    </th>
+                  ))}
+                  <th className="sticky top-[72px] z-20 bg-gray-50 p-0 text-center border-b border-gray-200">
+                    <div className="h-7 flex items-center justify-center px-2 text-[11px] text-gray-500">
+                      {formatNumber(totalStats.average)}
                     </div>
-                    <div className="text-[11px] text-gray-500">
-                      中位 {formatNumber(totalStats.median)}
+                  </th>
+                </tr>
+
+                {/* ── Row 4: 中位 ── top = 100px, thick bottom border separates from body */}
+                <tr>
+                  <th className="sticky left-0 top-[100px] z-[100] bg-gray-50 p-0 border-r-2 border-b-2 border-gray-300">
+                    <div className="h-7 flex items-center px-3 text-xs text-gray-500">中位</div>
+                  </th>
+                  {customColumns.map((col, idx) => (
+                    <th key={col.id} className="sticky top-[100px] z-20 bg-amber-50 p-0 text-center border-b-2 border-gray-300">
+                      <div className="h-7 flex items-center justify-center px-2 text-[11px] text-amber-600">
+                        {formatNumber(customColumnStats[idx]?.median)}
+                      </div>
+                    </th>
+                  ))}
+                  {filteredAssignments.map((a) => (
+                    <th key={a.id} className="sticky top-[100px] z-20 bg-gray-50 p-0 text-center border-b-2 border-gray-300">
+                      <div className="h-7 flex items-center justify-center px-2 text-[11px] text-gray-500">
+                        {formatNumber(assignmentStats[a.id]?.median)}
+                      </div>
+                    </th>
+                  ))}
+                  <th className="sticky top-[100px] z-20 bg-gray-50 p-0 text-center border-b-2 border-gray-300">
+                    <div className="h-7 flex items-center justify-center px-2 text-[11px] text-gray-500">
+                      {formatNumber(totalStats.median)}
                     </div>
                   </th>
                 </tr>
               </thead>
+
               <tbody className="divide-y divide-gray-100">
                 {rows.map((r) => {
                   const isLow =
@@ -802,11 +855,12 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       key={r.student.id}
                       className={`group hover:bg-gray-50 ${isLow ? 'bg-rose-50/80' : ''}`}
                     >
-                      <td className={`sticky left-0 z-10 p-0 font-medium text-gray-900 ${isLow ? 'bg-rose-50' : 'bg-white'} group-hover:bg-gray-50`}>
-                        <div className="px-3 py-2">{r.student.seatNumber ?? '—'}</div>
-                      </td>
-                      <td className={`sticky left-16 z-10 p-0 text-gray-800 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.08)] ${isLow ? 'bg-rose-50' : 'bg-white'} group-hover:bg-gray-50`}>
-                        <div className="px-3 py-2">{r.student.name}</div>
+                      {/* Single sticky column: 座號 + 姓名 merged */}
+                      <td className={`sticky left-0 z-10 p-0 border-r-2 border-gray-200 ${isLow ? 'bg-rose-50' : 'bg-white'} group-hover:bg-gray-50`}>
+                        <div className="px-3 py-2 flex items-center gap-2 min-w-0">
+                          <span className="text-xs text-gray-400 shrink-0 w-5 text-right tabular-nums">{r.student.seatNumber ?? '—'}</span>
+                          <span className="text-gray-900 font-medium truncate">{r.student.name}</span>
+                        </div>
                       </td>
 
                       {/* Custom column scores */}
@@ -829,6 +883,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                         </td>
                       ))}
 
+                      {/* 總分 */}
                       <td className="px-3 py-2 text-center font-semibold">
                         <span
                           className={`inline-flex items-center justify-center gap-1 ${
@@ -841,8 +896,6 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                           {r.weightedTotal == null ? '—' : r.weightedTotal.toFixed(1)}
                         </span>
                       </td>
-
-
                     </tr>
                   )
                 })}
