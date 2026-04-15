@@ -12,6 +12,7 @@ interface NumericInputProps extends Omit<React.InputHTMLAttributes<HTMLInputElem
  * 數字輸入框元件
  * 解決移動設備上 type="number" 無法完全清除的問題
  * 使用 type="text" + inputMode="numeric" + 自動選取
+ * 使用內部 state 避免輸入小數點中途被外部 state 覆蓋（如 "14." → 14 → 失去小數點）
  */
 export function NumericInput({
   value,
@@ -24,38 +25,63 @@ export function NumericInput({
   onBlur,
   ...props
 }: NumericInputProps) {
+  const [localValue, setLocalValue] = React.useState<string>(
+    value != null && value !== '' ? String(value) : ''
+  )
+  const isFocused = React.useRef(false)
+
+  // 外部 value 變更時同步（僅在未聚焦時）
+  React.useEffect(() => {
+    if (!isFocused.current) {
+      setLocalValue(value != null && value !== '' ? String(value) : '')
+    }
+  }, [value])
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = e.target.value
 
-    // 允許空字串（讓用戶可以清空後重新輸入）
     if (v === '') {
+      setLocalValue('')
       onChange('')
       return
     }
 
-    // 驗證格式
     const regex = allowDecimal ? /^\d*\.?\d*$/ : /^\d+$/
-    if (!regex.test(v)) {
-      return // 不符合格式，不更新
-    }
+    if (!regex.test(v)) return
 
-    // 檢查範圍（只檢查 max，min 在 blur 時處理）
     const num = Number(v)
     if (max !== undefined && num > max) return
 
-    onChange(allowDecimal ? v : num)
+    setLocalValue(v)
+
+    if (allowDecimal) {
+      // 末尾是 "." 時為輸入中間狀態，暫不通知外部（blur 時再通知）
+      if (!v.endsWith('.')) {
+        onChange(num)
+      }
+    } else {
+      onChange(num)
+    }
   }
 
   const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
-    // 點擊時自動選取全部文字
+    isFocused.current = true
     e.target.select()
     onFocus?.(e)
   }
 
   const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    // 失焦時確保是有效數字
-    if (e.target.value === '') {
-      onChange(min ?? 0)
+    isFocused.current = false
+    const v = e.target.value
+
+    if (v === '' || v === '.') {
+      const fallback = min ?? 0
+      setLocalValue(String(fallback))
+      onChange(fallback)
+    } else {
+      const num = Number(v)
+      setLocalValue(String(num)) // 正規化，例如 "14." → "14"
+      onChange(num)
     }
     onBlur?.(e)
   }
@@ -67,7 +93,7 @@ export function NumericInput({
       inputMode={allowDecimal ? 'decimal' : 'numeric'}
       pattern={allowDecimal ? '[0-9]*\\.?[0-9]*' : '[0-9]*'}
       className={className}
-      value={value ?? ''}
+      value={localValue}
       onChange={handleChange}
       onFocus={handleFocus}
       onBlur={handleBlur}

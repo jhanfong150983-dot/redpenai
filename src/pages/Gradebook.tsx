@@ -687,7 +687,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
           <div className="text-xs text-gray-500">資料夾檢視下，總分會以目前可見欄位權重正規化後計算。</div>
-          <div className="overflow-x-auto">
+          <div className="overflow-auto max-h-[calc(100vh-280px)]">
             <table className="min-w-full text-sm border-separate border-spacing-0">
               <thead>
                 {/* Helper row: "+ add column" button sitting right on top of the header border */}
@@ -710,12 +710,12 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                 </tr>
 
                 <tr className="bg-gray-50 text-gray-700">
-                  <th className="sticky left-0 z-10 bg-gray-50 px-3 py-2 text-left w-16">座號</th>
-                  <th className="sticky left-16 z-10 bg-gray-50 px-3 py-2 text-left w-32">姓名</th>
+                  <th className="sticky left-0 top-0 z-30 bg-gray-50 px-3 py-2 text-left w-16">座號</th>
+                  <th className="sticky left-16 top-0 z-30 bg-gray-50 px-3 py-2 text-left w-32">姓名</th>
 
                   {/* Custom columns — shown BEFORE assignment columns */}
                   {customColumns.map((col, idx) => (
-                    <th key={col.id} className="px-3 py-2 text-center min-w-[160px] bg-amber-50">
+                    <th key={col.id} className="sticky top-0 z-20 px-3 py-2 text-center min-w-[160px] bg-amber-50">
                       <div className="flex items-center justify-center gap-1">
                         <input
                           type="text"
@@ -734,7 +734,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                         </button>
                       </div>
                       <div className="mt-1 flex items-center justify-center gap-1 text-xs text-amber-700">
-                        權重(%)
+                        占比(%)
                         <NumericInput
                           allowDecimal={true}
                           min={0}
@@ -744,18 +744,20 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                         />
                       </div>
                       <div className="mt-1 text-[11px] text-amber-600">
-                        平均 {formatNumber(customColumnStats[idx]?.average)} ／ 中位數{' '}
-                        {formatNumber(customColumnStats[idx]?.median)}
+                        平均 {formatNumber(customColumnStats[idx]?.average)}
+                      </div>
+                      <div className="text-[11px] text-amber-600">
+                        中位 {formatNumber(customColumnStats[idx]?.median)}
                       </div>
                     </th>
                   ))}
 
                   {/* Assignment columns */}
                   {filteredAssignments.map((a) => (
-                    <th key={a.id} className="px-3 py-2 text-center min-w-[140px]">
+                    <th key={a.id} className="sticky top-0 z-20 px-3 py-2 text-center min-w-[140px] bg-gray-50">
                       <div className="font-semibold text-gray-900">{a.title}</div>
                       <div className="mt-1 flex items-center justify-center gap-1 text-xs text-gray-500">
-                        權重(%)
+                        占比(%)
                         <NumericInput
                           allowDecimal={true}
                           min={0}
@@ -765,16 +767,21 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                         />
                       </div>
                       <div className="mt-1 text-[11px] text-gray-500">
-                        平均 {formatNumber(assignmentStats[a.id]?.average)} ／ 中位數{' '}
-                        {formatNumber(assignmentStats[a.id]?.median)}
+                        平均 {formatNumber(assignmentStats[a.id]?.average)}
+                      </div>
+                      <div className="text-[11px] text-gray-500">
+                        中位 {formatNumber(assignmentStats[a.id]?.median)}
                       </div>
                     </th>
                   ))}
 
-                  <th className="px-3 py-2 text-center min-w-[120px]">
+                  <th className="sticky top-0 z-20 px-3 py-2 text-center min-w-[120px] bg-gray-50">
                     <div className="font-semibold text-gray-900">總分(加權平均)</div>
                     <div className="mt-1 text-[11px] text-gray-500">
-                      平均 {formatNumber(totalStats.average)} ／ 中位數 {formatNumber(totalStats.median)}
+                      平均 {formatNumber(totalStats.average)}
+                    </div>
+                    <div className="text-[11px] text-gray-500">
+                      中位 {formatNumber(totalStats.median)}
                     </div>
                   </th>
                 </tr>
