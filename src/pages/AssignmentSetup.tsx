@@ -1122,6 +1122,7 @@ export default function AssignmentSetup({
         totalPages,
         domain: assignmentDomain!,
         folder: undefined,  // 新作業預設為全部
+        gradeWeightPercent: 0,
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
         answerKey: answerKey ? { ...answerKey, strictness: createStrictness } : undefined,
         conceptTags: pendingConceptTags ?? undefined
@@ -2030,6 +2031,7 @@ export default function AssignmentSetup({
         totalPages: sourceAssignment.totalPages,
         domain: sourceAssignment.domain,
         folder: sourceAssignment.folder,
+        gradeWeightPercent: sourceAssignment.gradeWeightPercent ?? 0,
         answerKey: copiedAnswerKey
       }
 

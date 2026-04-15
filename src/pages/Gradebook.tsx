@@ -1,8 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Download, Info, Plus, X } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
+import { queueDeleteMany } from '@/lib/sync-delete-queue'
+import { requestSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
-import type { Assignment, Classroom, Folder as AssignmentFolder, Student, Submission } from '@/lib/db'
+import type {
+  Assignment,
+  Classroom,
+  Folder as AssignmentFolder,
+  GradebookCustomScore,
+  Student,
+  Submission
+} from '@/lib/db'
 
 interface GradebookProps {
   onBack?: () => void
@@ -17,12 +26,52 @@ interface SimpleStats {
 interface CustomColumn {
   id: string
   name: string
-  weight: number
+  weightPercent: number
+  sortOrder: number
+  updatedAt?: number
   scores: Record<string, number | null>
 }
 
-function storageKey(classroomId: string) {
-  return `gradebook_custom_cols_${classroomId}`
+const WEIGHT_EPSILON = 0.05
+const FOLDER_FILTER_ALL = '__all__'
+const FOLDER_FILTER_UNCATEGORIZED = '__uncategorized__'
+
+function toNonNegativeNumber(value: unknown, fallback = 0): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value)
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return Math.max(0, parsed)
+  }
+  return fallback
+}
+
+function normalizeWeightsToHundred(rawWeights: number[]): number[] {
+  const normalizedInput = rawWeights.map((w) => (Number.isFinite(w) ? Math.max(0, w) : 0))
+  if (normalizedInput.length === 0) return []
+
+  const total = normalizedInput.reduce((sum, w) => sum + w, 0)
+  const rawUnits =
+    total > 0
+      ? normalizedInput.map((w) => (w / total) * 1000)
+      : normalizedInput.map(() => 1000 / normalizedInput.length)
+
+  const baseUnits = rawUnits.map((v) => Math.floor(v))
+  let remainingUnits = 1000 - baseUnits.reduce((sum, v) => sum + v, 0)
+
+  if (remainingUnits > 0) {
+    const byFractionDesc = rawUnits
+      .map((value, idx) => ({ idx, fraction: value - baseUnits[idx] }))
+      .sort((a, b) => b.fraction - a.fraction)
+    let cursor = 0
+    while (remainingUnits > 0 && byFractionDesc.length > 0) {
+      const target = byFractionDesc[cursor % byFractionDesc.length]
+      baseUnits[target.idx] += 1
+      remainingUnits -= 1
+      cursor += 1
+    }
+  }
+
+  return baseUnits.map((v) => v / 10)
 }
 
 export default function Gradebook({ embedded = false }: GradebookProps) {
@@ -30,18 +79,105 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const [selectedClassroomId, setSelectedClassroomId] = useState('')
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [assignmentFolders, setAssignmentFolders] = useState<AssignmentFolder[]>([])
-  const [selectedFolder, setSelectedFolder] = useState('__uncategorized__')
+  const [selectedFolder, setSelectedFolder] = useState(FOLDER_FILTER_ALL)
   const [students, setStudents] = useState<Student[]>([])
   const [submissions, setSubmissions] = useState<Submission[]>([])
-  const [weights, setWeights] = useState<Record<string, number>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Custom columns
   const [customColumns, setCustomColumns] = useState<CustomColumn[]>([])
-  const customColsLoadedRef = useRef(false)
 
   const hasClassrooms = classrooms.length > 0
+
+  const maybeSeedInitialWeights = useCallback(
+    async (
+      sourceAssignments: Assignment[],
+      sourceColumns: CustomColumn[]
+    ): Promise<{
+      assignments: Assignment[]
+      columns: CustomColumn[]
+      didUpdate: boolean
+    }> => {
+      const scoredAssignments = sourceAssignments.filter((a) => a.scoringMode !== 'unscored')
+      if (scoredAssignments.length === 0) {
+        return {
+          assignments: sourceAssignments,
+          columns: sourceColumns,
+          didUpdate: false
+        }
+      }
+
+      const allAssignmentWeightsMissing = scoredAssignments.every(
+        (a) =>
+          !(typeof a.gradeWeightPercent === 'number' && Number.isFinite(a.gradeWeightPercent))
+      )
+      if (!allAssignmentWeightsMissing) {
+        return {
+          assignments: sourceAssignments,
+          columns: sourceColumns,
+          didUpdate: false
+        }
+      }
+
+      const assignmentRawWeights = scoredAssignments.map(() => 1)
+      const customRawWeights = sourceColumns.map((col) => {
+        const weight = toNonNegativeNumber(col.weightPercent, 0)
+        return weight > 0 ? weight : 1
+      })
+
+      const normalized = normalizeWeightsToHundred([
+        ...assignmentRawWeights,
+        ...customRawWeights
+      ])
+      const normalizedAssignmentWeights = normalized.slice(0, scoredAssignments.length)
+      const normalizedCustomWeights = normalized.slice(scoredAssignments.length)
+
+      const now = Date.now()
+      const scoredWeightMap = new Map(
+        scoredAssignments.map((a, idx) => [a.id, normalizedAssignmentWeights[idx]])
+      )
+      const nextAssignments = sourceAssignments.map((assignment) => {
+        if (assignment.scoringMode === 'unscored') return assignment
+        const weight = scoredWeightMap.get(assignment.id)
+        if (weight == null) return assignment
+        return {
+          ...assignment,
+          gradeWeightPercent: weight,
+          updatedAt: now
+        }
+      })
+
+      const nextColumns = sourceColumns.map((column, idx) => ({
+        ...column,
+        weightPercent: normalizedCustomWeights[idx] ?? 0,
+        updatedAt: now
+      }))
+
+      await db.assignments.bulkPut(
+        nextAssignments.filter((a) => a.scoringMode !== 'unscored')
+      )
+      if (nextColumns.length > 0) {
+        await db.gradebookCustomColumns.bulkPut(
+          nextColumns.map((column) => ({
+            id: column.id,
+            classroomId: selectedClassroomId,
+            name: column.name,
+            weightPercent: column.weightPercent,
+            sortOrder: column.sortOrder,
+            updatedAt: column.updatedAt
+          }))
+        )
+      }
+      requestSync()
+
+      return {
+        assignments: nextAssignments,
+        columns: nextColumns,
+        didUpdate: true
+      }
+    },
+    [selectedClassroomId]
+  )
 
   useEffect(() => {
     const loadClassrooms = async () => {
@@ -56,7 +192,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
         setAssignmentFolders([])
         setStudents([])
         setSubmissions([])
-        setWeights({})
+        setCustomColumns([])
         setIsLoading(false)
       }
     }
@@ -70,44 +206,74 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
         setAssignmentFolders([])
         setStudents([])
         setSubmissions([])
+        setCustomColumns([])
         setIsLoading(false)
         return
       }
       setIsLoading(true)
       setError(null)
       try {
-        const [asgs, stus, folders] = await Promise.all([
+        const [asgs, stus, folders, columnRows, scoreRows] = await Promise.all([
           db.assignments.where('classroomId').equals(selectedClassroomId).toArray(),
           db.students.where('classroomId').equals(selectedClassroomId).toArray(),
           db.folders
             .where('[type+classroomId]')
             .equals(['assignment', selectedClassroomId])
+            .toArray(),
+          db.gradebookCustomColumns
+            .where('classroomId')
+            .equals(selectedClassroomId)
+            .toArray(),
+          db.gradebookCustomScores
+            .where('classroomId')
+            .equals(selectedClassroomId)
             .toArray()
         ])
 
         const sortedAssignments = [...asgs].sort((a, b) => a.title.localeCompare(b.title))
         const sortedStudents = [...stus].sort((a, b) => (a.seatNumber ?? 99999) - (b.seatNumber ?? 99999))
-        setAssignments(sortedAssignments)
-        setStudents(sortedStudents)
-        setAssignmentFolders(folders)
 
-        if (sortedAssignments.length > 0) {
-          const subs = await db.submissions
-            .where('assignmentId')
-            .anyOf(sortedAssignments.map((a) => a.id))
-            .toArray()
-          setSubmissions(subs)
-        } else {
-          setSubmissions([])
+        const sortedColumns = [...columnRows]
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((column) => ({
+            ...column,
+            weightPercent: toNonNegativeNumber(column.weightPercent, 0),
+            scores: {}
+          }))
+
+        const scoreByColumn = new Map<string, Record<string, number | null>>()
+        for (const scoreRow of scoreRows) {
+          const columnScores = scoreByColumn.get(scoreRow.columnId) ?? {}
+          columnScores[scoreRow.studentId] =
+            scoreRow.score === null
+              ? null
+              : typeof scoreRow.score === 'number' && Number.isFinite(scoreRow.score)
+                ? scoreRow.score
+                : null
+          scoreByColumn.set(scoreRow.columnId, columnScores)
         }
 
-        setWeights((prev) => {
-          const next = { ...prev }
-          sortedAssignments.forEach((a) => {
-            if (next[a.id] == null) next[a.id] = 1
-          })
-          return next
-        })
+        const mergedColumns: CustomColumn[] = sortedColumns.map((column) => ({
+          id: column.id,
+          name: column.name,
+          weightPercent: column.weightPercent,
+          sortOrder: column.sortOrder,
+          updatedAt: column.updatedAt,
+          scores: scoreByColumn.get(column.id) ?? {}
+        }))
+
+        const seeded = await maybeSeedInitialWeights(sortedAssignments, mergedColumns)
+        const assignmentIds = seeded.assignments.map((a) => a.id)
+        const subs =
+          assignmentIds.length > 0
+            ? await db.submissions.where('assignmentId').anyOf(assignmentIds).toArray()
+            : []
+
+        setAssignments(seeded.assignments)
+        setStudents(sortedStudents)
+        setAssignmentFolders(folders)
+        setSubmissions(subs)
+        setCustomColumns(seeded.columns)
       } catch (e) {
         console.error(e)
         setError(e instanceof Error ? e.message : '載入成績資料失敗')
@@ -116,54 +282,37 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
       }
     }
     void load()
-  }, [selectedClassroomId])
+  }, [selectedClassroomId, maybeSeedInitialWeights])
 
   useEffect(() => {
     if (selectedClassroomId) {
-      setSelectedFolder('__uncategorized__')
+      setSelectedFolder(FOLDER_FILTER_ALL)
     }
   }, [selectedClassroomId])
-
-  // Load custom columns from localStorage when classroom changes
-  useEffect(() => {
-    if (!selectedClassroomId) {
-      setCustomColumns([])
-      customColsLoadedRef.current = false
-      return
-    }
-    try {
-      const stored = localStorage.getItem(storageKey(selectedClassroomId))
-      setCustomColumns(stored ? (JSON.parse(stored) as CustomColumn[]) : [])
-    } catch {
-      setCustomColumns([])
-    }
-    customColsLoadedRef.current = true
-  }, [selectedClassroomId])
-
-  // Save custom columns to localStorage on every change
-  useEffect(() => {
-    if (!selectedClassroomId || !customColsLoadedRef.current) return
-    localStorage.setItem(storageKey(selectedClassroomId), JSON.stringify(customColumns))
-  }, [selectedClassroomId, customColumns])
 
   const emptyFolders = useMemo(
     () => assignmentFolders.map((folder) => folder.name),
     [assignmentFolders]
   )
 
+  const allScoredAssignments = useMemo(
+    () => assignments.filter((a) => a.scoringMode !== 'unscored'),
+    [assignments]
+  )
+
   const usedFolders = useMemo(() => {
-    const folders = assignments
+    const folders = allScoredAssignments
       .map((a) => a.folder)
       .filter((f): f is string => !!f && !!f.trim())
     const allFolders = [...new Set([...folders, ...emptyFolders])]
     return allFolders.sort()
-  }, [assignments, emptyFolders])
+  }, [allScoredAssignments, emptyFolders])
 
   const filteredAssignments = useMemo(() => {
     return assignments.filter((a) => {
       if (a.scoringMode === 'unscored') return false
-      if (!selectedFolder) return true
-      if (selectedFolder === '__uncategorized__') return !a.folder
+      if (selectedFolder === FOLDER_FILTER_ALL || !selectedFolder) return true
+      if (selectedFolder === FOLDER_FILTER_UNCATEGORIZED) return !a.folder
       return a.folder === selectedFolder
     })
   }, [assignments, selectedFolder])
@@ -176,12 +325,53 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     return map
   }, [submissions])
 
-  const totalWeight = useMemo(
-    () =>
-      filteredAssignments.reduce((sum, a) => sum + (weights[a.id] ?? 0), 0) +
-      customColumns.reduce((sum, c) => sum + c.weight, 0),
-    [filteredAssignments, weights, customColumns]
-  )
+  const globalWeightTotal = useMemo(() => {
+    const assignmentWeightSum = allScoredAssignments.reduce(
+      (sum, a) => sum + toNonNegativeNumber(a.gradeWeightPercent, 0),
+      0
+    )
+    const customWeightSum = customColumns.reduce(
+      (sum, c) => sum + toNonNegativeNumber(c.weightPercent, 0),
+      0
+    )
+    return assignmentWeightSum + customWeightSum
+  }, [allScoredAssignments, customColumns])
+
+  const hasWeightTargets = allScoredAssignments.length + customColumns.length > 0
+  const isGlobalWeightValid =
+    !hasWeightTargets || Math.abs(globalWeightTotal - 100) <= WEIGHT_EPSILON
+
+  const visibleWeightTotal = useMemo(() => {
+    const assignmentWeightSum = filteredAssignments.reduce(
+      (sum, a) => sum + toNonNegativeNumber(a.gradeWeightPercent, 0),
+      0
+    )
+    const customWeightSum = customColumns.reduce(
+      (sum, c) => sum + toNonNegativeNumber(c.weightPercent, 0),
+      0
+    )
+    return assignmentWeightSum + customWeightSum
+  }, [filteredAssignments, customColumns])
+
+  const normalizedAssignmentWeightMap = useMemo(() => {
+    const map = new Map<string, number>()
+    if (visibleWeightTotal <= 0) return map
+    filteredAssignments.forEach((assignment) => {
+      const weight = toNonNegativeNumber(assignment.gradeWeightPercent, 0)
+      map.set(assignment.id, (weight / visibleWeightTotal) * 100)
+    })
+    return map
+  }, [filteredAssignments, visibleWeightTotal])
+
+  const normalizedCustomWeightMap = useMemo(() => {
+    const map = new Map<string, number>()
+    if (visibleWeightTotal <= 0) return map
+    customColumns.forEach((column) => {
+      const weight = toNonNegativeNumber(column.weightPercent, 0)
+      map.set(column.id, (weight / visibleWeightTotal) * 100)
+    })
+    return map
+  }, [customColumns, visibleWeightTotal])
 
   const rows = useMemo(() => {
     return students.map((s) => {
@@ -191,22 +381,42 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
       })
       const customScores = customColumns.map((col) => col.scores[s.id] ?? null)
 
-      const weightedTotal =
-        totalWeight > 0
-          ? filteredAssignments.reduce((sum, a, idx) => {
-              const score = scores[idx]
-              const w = weights[a.id] ?? 0
-              return sum + (score != null ? score * w : 0)
-            }, 0) +
-            customColumns.reduce((sum, col, idx) => {
-              const score = customScores[idx]
-              return sum + (score != null ? score * col.weight : 0)
-            }, 0)
-          : null
+      let numerator = 0
+      let denominator = 0
+      if (isGlobalWeightValid && visibleWeightTotal > 0) {
+        filteredAssignments.forEach((assignment, idx) => {
+          const score = scores[idx]
+          const normalizedWeight = normalizedAssignmentWeightMap.get(assignment.id) ?? 0
+          if (score != null && normalizedWeight > 0) {
+            numerator += score * normalizedWeight
+            denominator += normalizedWeight
+          }
+        })
+
+        customColumns.forEach((column, idx) => {
+          const score = customScores[idx]
+          const normalizedWeight = normalizedCustomWeightMap.get(column.id) ?? 0
+          if (score != null && normalizedWeight > 0) {
+            numerator += score * normalizedWeight
+            denominator += normalizedWeight
+          }
+        })
+      }
+
+      const weightedTotal = denominator > 0 ? numerator / denominator : null
 
       return { student: s, scores, customScores, weightedTotal }
     })
-  }, [students, filteredAssignments, submissionMap, weights, totalWeight, customColumns])
+  }, [
+    students,
+    filteredAssignments,
+    submissionMap,
+    customColumns,
+    isGlobalWeightValid,
+    visibleWeightTotal,
+    normalizedAssignmentWeightMap,
+    normalizedCustomWeightMap
+  ])
 
   const calcStats = (values: Array<number | null>): SimpleStats => {
     const valid = values.filter((v): v is number => v != null)
@@ -259,31 +469,87 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     v == null ? '—' : Number.isInteger(v) ? v.toString() : v.toFixed(1)
 
   const handleWeightChange = (id: string, value: number) => {
-    setWeights((prev) => ({ ...prev, [id]: Math.max(0, value) }))
+    const nextWeight = Math.max(0, value)
+    setAssignments((prev) =>
+      prev.map((assignment) =>
+        assignment.id === id
+          ? {
+              ...assignment,
+              gradeWeightPercent: nextWeight
+            }
+          : assignment
+      )
+    )
+    void db.assignments.update(id, { gradeWeightPercent: nextWeight })
+    requestSync()
   }
 
-  // Custom column handlers
   const handleAddColumn = () => {
+    if (!selectedClassroomId) return
+
+    const minSortOrder =
+      customColumns.length > 0
+        ? Math.min(...customColumns.map((c) => c.sortOrder))
+        : 0
     const id = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
     const n = customColumns.length + 1
-    setCustomColumns((prev) => [{ id, name: `自訂欄位${n}`, weight: 1, scores: {} }, ...prev])
+    const newColumn: CustomColumn = {
+      id,
+      name: `自訂欄位${n}`,
+      weightPercent: 0,
+      sortOrder: minSortOrder - 1,
+      updatedAt: Date.now(),
+      scores: {}
+    }
+
+    setCustomColumns((prev) => [newColumn, ...prev])
+    void db.gradebookCustomColumns.add({
+      id,
+      classroomId: selectedClassroomId,
+      name: newColumn.name,
+      weightPercent: newColumn.weightPercent,
+      sortOrder: newColumn.sortOrder,
+      updatedAt: newColumn.updatedAt
+    })
+    requestSync()
   }
 
   const handleDeleteColumn = (id: string) => {
     setCustomColumns((prev) => prev.filter((c) => c.id !== id))
+
+    void (async () => {
+      const scoreRows = await db.gradebookCustomScores.where('columnId').equals(id).toArray()
+      const scoreIds = scoreRows.map((row) => row.id)
+
+      await queueDeleteMany('gradebook_custom_columns', [id])
+      if (scoreIds.length > 0) {
+        await queueDeleteMany('gradebook_custom_scores', scoreIds)
+      }
+
+      await db.gradebookCustomScores.where('columnId').equals(id).delete()
+      await db.gradebookCustomColumns.delete(id)
+      requestSync()
+    })()
   }
 
   const handleCustomNameChange = (id: string, name: string) => {
     setCustomColumns((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)))
+    void db.gradebookCustomColumns.update(id, { name })
+    requestSync()
   }
 
   const handleCustomWeightChange = (id: string, value: number) => {
+    const nextWeight = Math.max(0, value)
     setCustomColumns((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, weight: Math.max(0, value) } : c))
+      prev.map((c) => (c.id === id ? { ...c, weightPercent: nextWeight } : c))
     )
+    void db.gradebookCustomColumns.update(id, { weightPercent: nextWeight })
+    requestSync()
   }
 
   const handleCustomScoreChange = (colId: string, studentId: string, raw: string) => {
+    if (!selectedClassroomId) return
+
     const trimmed = raw.trim()
     const value = trimmed === '' ? null : Number(trimmed)
     const score = trimmed === '' ? null : Number.isFinite(value) ? value : null
@@ -292,6 +558,16 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
         c.id === colId ? { ...c, scores: { ...c.scores, [studentId]: score } } : c
       )
     )
+    const id = `${colId}::${studentId}`
+    void db.gradebookCustomScores.put({
+      id,
+      classroomId: selectedClassroomId,
+      columnId: colId,
+      studentId,
+      score,
+      updatedAt: Date.now()
+    } as GradebookCustomScore)
+    requestSync()
   }
 
   const handleExportCsv = () => {
@@ -340,7 +616,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
           </div>
           <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-gray-600">
             <Info className="h-4 w-4 text-gray-400" />
-            總分 = Σ(作業分數 × 權重)
+            總分 = Σ(分數 × 權重%) ÷ Σ(有成績欄位權重%)
           </div>
         </div>
 
@@ -370,11 +646,14 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                 className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
                 aria-label="選擇資料夾"
               >
-                <option value="__uncategorized__">
-                  全部 ({assignments.filter((a) => !a.folder).length})
+                <option value={FOLDER_FILTER_ALL}>
+                  全部 ({allScoredAssignments.length})
+                </option>
+                <option value={FOLDER_FILTER_UNCATEGORIZED}>
+                  未分類 ({allScoredAssignments.filter((a) => !a.folder).length})
                 </option>
                 {usedFolders.map((folder) => {
-                  const count = assignments.filter((a) => a.folder === folder).length
+                  const count = allScoredAssignments.filter((a) => a.folder === folder).length
                   return (
                     <option key={folder} value={folder}>
                       {folder} ({count})
@@ -400,7 +679,14 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
           </div>
         )}
 
+        {hasWeightTargets && !isGlobalWeightValid && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
+            權重總和目前為 {globalWeightTotal.toFixed(1)}%，需等於 100% 才會計算總分。
+          </div>
+        )}
+
         <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
+          <div className="text-xs text-gray-500">資料夾檢視下，總分會以目前可見欄位權重正規化後計算。</div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm border-separate border-spacing-0">
               <thead>
@@ -448,11 +734,11 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                         </button>
                       </div>
                       <div className="mt-1 flex items-center justify-center gap-1 text-xs text-amber-700">
-                        權重
+                        權重(%)
                         <NumericInput
                           allowDecimal={true}
                           min={0}
-                          value={col.weight}
+                          value={col.weightPercent}
                           onChange={(v) => handleCustomWeightChange(col.id, typeof v === 'number' ? v : Number(v) || 0)}
                           className="w-16 rounded border border-amber-300 bg-white px-2 py-1 text-xs text-amber-800"
                         />
@@ -469,11 +755,11 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                     <th key={a.id} className="px-3 py-2 text-center min-w-[140px]">
                       <div className="font-semibold text-gray-900">{a.title}</div>
                       <div className="mt-1 flex items-center justify-center gap-1 text-xs text-gray-500">
-                        權重
+                        權重(%)
                         <NumericInput
                           allowDecimal={true}
                           min={0}
-                          value={weights[a.id] ?? 1}
+                          value={toNonNegativeNumber(a.gradeWeightPercent, 0)}
                           onChange={(v) => handleWeightChange(a.id, typeof v === 'number' ? v : Number(v) || 0)}
                           className="w-16 rounded border border-gray-300 px-2 py-1 text-xs text-gray-700"
                         />
@@ -486,7 +772,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                   ))}
 
                   <th className="px-3 py-2 text-center min-w-[120px]">
-                    <div className="font-semibold text-gray-900">總分(權重)</div>
+                    <div className="font-semibold text-gray-900">總分(加權平均)</div>
                     <div className="mt-1 text-[11px] text-gray-500">
                       平均 {formatNumber(totalStats.average)} ／ 中位數 {formatNumber(totalStats.median)}
                     </div>

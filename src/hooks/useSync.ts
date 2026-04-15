@@ -3,7 +3,14 @@ import { db } from '@/lib/db'
 import { useOnlineStatus } from './useOnlineStatus'
 import { SYNC_EVENT_NAME, notifySyncComplete } from '@/lib/sync-events'
 import { clearDeleteQueue, readDeleteQueue, queueDeleteMany } from '@/lib/sync-delete-queue'
-import type { Assignment, Classroom, Student, Submission } from '@/lib/db'
+import type {
+  Assignment,
+  Classroom,
+  GradebookCustomColumn,
+  GradebookCustomScore,
+  Student,
+  Submission
+} from '@/lib/db'
 import { blobToBase64 as blobToDataUrl, compressImage } from '@/lib/imageCompression'
 import { downloadImageFromSupabase } from '@/lib/supabase-download'
 import { fixCorruptedBase64 } from '@/lib/utils'
@@ -476,13 +483,24 @@ export function useSync(options: UseSyncOptions = {}) {
    */
   const pushMetadata = useCallback(async () => {
     debugLog('📤 pushMetadata 開始')
-    const [classrooms, students, assignments, submissions, folders, deleteQueue] =
+    const [
+      classrooms,
+      students,
+      assignments,
+      submissions,
+      folders,
+      gradebookCustomColumns,
+      gradebookCustomScores,
+      deleteQueue
+    ] =
       await Promise.all([
         db.classrooms.toArray(),
         db.students.toArray(),
         db.assignments.toArray(),
         db.submissions.toArray(),
         db.folders.toArray(),
+        db.gradebookCustomColumns.toArray(),
+        db.gradebookCustomScores.toArray(),
         readDeleteQueue()
       ])
 
@@ -507,7 +525,9 @@ export function useSync(options: UseSyncOptions = {}) {
       students: [],
       assignments: [],
       submissions: [],
-      folders: []
+      folders: [],
+      gradebook_custom_columns: [],
+      gradebook_custom_scores: []
     }
 
     const deleteMap = new Map<
@@ -551,6 +571,16 @@ export function useSync(options: UseSyncOptions = {}) {
     const deletedAssignmentIds = new Set(
       [...deleteMap.values()].filter((e) => e.tableName === 'assignments').map((e) => e.recordId)
     )
+    const deletedGradebookCustomColumnIds = new Set(
+      [...deleteMap.values()]
+        .filter((e) => e.tableName === 'gradebook_custom_columns')
+        .map((e) => e.recordId)
+    )
+    const deletedGradebookCustomScoreIds = new Set(
+      [...deleteMap.values()]
+        .filter((e) => e.tableName === 'gradebook_custom_scores')
+        .map((e) => e.recordId)
+    )
 
     const classroomPayload = classrooms
       .filter((c) => c?.id && !deletedClassroomIds.has(c.id))
@@ -585,6 +615,10 @@ export function useSync(options: UseSyncOptions = {}) {
         domain: a.domain,
         folder: a.folder === undefined ? null : a.folder,
         scoringMode: a.scoringMode === 'unscored' ? 'unscored' : 'scored',
+        gradeWeightPercent:
+          typeof a.gradeWeightPercent === 'number' && Number.isFinite(a.gradeWeightPercent)
+            ? a.gradeWeightPercent
+            : null,
         answerKey: a.answerKey,
         conceptTags: a.conceptTags,
         updatedAt: a.updatedAt
@@ -637,6 +671,49 @@ export function useSync(options: UseSyncOptions = {}) {
         updatedAt: f.updatedAt
       }))
 
+    const gradebookCustomColumnsPayload = gradebookCustomColumns
+      .filter(
+        (c) => c?.id && c?.classroomId && !deletedGradebookCustomColumnIds.has(c.id)
+      )
+      .map((c) => ({
+        id: c.id,
+        classroomId: c.classroomId,
+        name: c.name,
+        weightPercent:
+          typeof c.weightPercent === 'number' && Number.isFinite(c.weightPercent)
+            ? c.weightPercent
+            : 0,
+        sortOrder:
+          typeof c.sortOrder === 'number' && Number.isFinite(c.sortOrder)
+            ? Math.floor(c.sortOrder)
+            : 0,
+        updatedAt: c.updatedAt
+      }))
+
+    const gradebookCustomScoresPayload = gradebookCustomScores
+      .filter(
+        (s) =>
+          s?.id &&
+          s?.classroomId &&
+          s?.columnId &&
+          s?.studentId &&
+          !deletedGradebookCustomScoreIds.has(s.id) &&
+          !deletedGradebookCustomColumnIds.has(s.columnId)
+      )
+      .map((s) => ({
+        id: s.id,
+        classroomId: s.classroomId,
+        columnId: s.columnId,
+        studentId: s.studentId,
+        score:
+          s.score === null
+            ? null
+            : typeof s.score === 'number' && Number.isFinite(s.score)
+              ? s.score
+              : null,
+        updatedAt: s.updatedAt
+      }))
+
     const pushController = new AbortController()
     const pushAbortTimer = setTimeout(() => pushController.abort(), 50_000)
     const response = await fetch(buildSyncUrl(), {
@@ -651,6 +728,8 @@ export function useSync(options: UseSyncOptions = {}) {
         assignments: assignmentPayload,
         submissions: submissionPayload,
         folders: foldersPayload,
+        gradebookCustomColumns: gradebookCustomColumnsPayload,
+        gradebookCustomScores: gradebookCustomScoresPayload,
         deleted: deletedPayload
       })
     }).finally(() => clearTimeout(pushAbortTimer))
@@ -707,6 +786,12 @@ export function useSync(options: UseSyncOptions = {}) {
     const assignments = Array.isArray(data.assignments) ? data.assignments : []
     const submissions = Array.isArray(data.submissions) ? data.submissions : []
     const folders = Array.isArray(data.folders) ? data.folders : []
+    const gradebookCustomColumns = Array.isArray(data.gradebookCustomColumns)
+      ? data.gradebookCustomColumns
+      : []
+    const gradebookCustomScores = Array.isArray(data.gradebookCustomScores)
+      ? data.gradebookCustomScores
+      : []
     const deleted = data?.deleted && typeof data.deleted === 'object' ? data.deleted : {}
     
     console.log(`📥 [Sync Pull] 從雲端拉取 ${assignments.length} 個作業:`, assignments.map((a: any) => ({ id: a.id, title: a.title, hasAnswerKey: !!a.answerKey })))
@@ -729,6 +814,8 @@ export function useSync(options: UseSyncOptions = {}) {
     const deletedAssignmentIds = collectDeletedIds(deleted.assignments)
     const deletedSubmissionIds = collectDeletedIds(deleted.submissions)
     const deletedFolderIds = collectDeletedIds(deleted.folders)
+    const deletedGradebookCustomColumnIds = collectDeletedIds(deleted.gradebook_custom_columns)
+    const deletedGradebookCustomScoreIds = collectDeletedIds(deleted.gradebook_custom_scores)
 
     debugLog('🗑️ 要刪除的 folders:', deletedFolderIds)
 
@@ -741,6 +828,8 @@ export function useSync(options: UseSyncOptions = {}) {
     const deletedAssignmentSet = new Set(deletedAssignmentIds)
     const deletedSubmissionSet = new Set(deletedSubmissionIds)
     const deletedFolderSet = new Set(deletedFolderIds)
+    const deletedGradebookCustomColumnSet = new Set(deletedGradebookCustomColumnIds)
+    const deletedGradebookCustomScoreSet = new Set(deletedGradebookCustomScoreIds)
 
     const existingSubmissions = await db.submissions.toArray()
 
@@ -952,7 +1041,18 @@ export function useSync(options: UseSyncOptions = {}) {
     // 保留本地的 assignment folder 資料（因為後端可能還不支援 folder 欄位）
     const existingAssignments = await db.assignments.toArray()
     const localAssignmentMetaMap = new Map(
-      existingAssignments.map((a) => [a.id, { folder: a.folder, scoringMode: a.scoringMode, updatedAt: a.updatedAt, answerKey: a.answerKey, conceptTags: a.conceptTags, answerSheetImagePaths: a.answerSheetImagePaths }])
+      existingAssignments.map((a) => [
+        a.id,
+        {
+          folder: a.folder,
+          scoringMode: a.scoringMode,
+          gradeWeightPercent: a.gradeWeightPercent,
+          updatedAt: a.updatedAt,
+          answerKey: a.answerKey,
+          conceptTags: a.conceptTags,
+          answerSheetImagePaths: a.answerSheetImagePaths
+        }
+      ])
     )
     const existingFolders = await db.folders.toArray()
     const localFolderClassroomMap = new Map(
@@ -975,10 +1075,18 @@ export function useSync(options: UseSyncOptions = {}) {
               ? 'scored'
               : undefined
         const localData = localAssignmentMetaMap.get(a.id)
+        const cloudGradeWeightPercentRaw =
+          (a as Assignment & { gradeWeightPercent?: unknown }).gradeWeightPercent ??
+          (a as { grade_weight_percent?: unknown }).grade_weight_percent
+        const cloudGradeWeightPercent = toNumber(cloudGradeWeightPercentRaw)
 
         // 如果雲端有資料，使用雲端的；否則保留本地的
         const finalFolder = cloudFolder !== undefined ? cloudFolder : localData?.folder
         const finalScoringMode = cloudScoringMode ?? localData?.scoringMode
+        const finalGradeWeightPercent =
+          cloudGradeWeightPercent !== undefined
+            ? cloudGradeWeightPercent
+            : localData?.gradeWeightPercent
 
         const cloudUpdatedAt = toMillis(
           (a as Assignment & { updatedAt?: unknown }).updatedAt ??
@@ -997,12 +1105,89 @@ export function useSync(options: UseSyncOptions = {}) {
           domain: a.domain ?? undefined,
           folder: finalFolder,
           scoringMode: finalScoringMode,
+          gradeWeightPercent: finalGradeWeightPercent,
           answerKey: localIsNewer ? (localData?.answerKey ?? a.answerKey ?? undefined) : (a.answerKey ?? undefined),
           // conceptTags: 優先用雲端（若有），否則保留本地（避免 bulkPut 洗掉）
           conceptTags: (cloudConceptTags ?? localData?.conceptTags) as Assignment['conceptTags'] | undefined,
           // answerSheetImagePaths: 本地端特有欄位，永遠保留本地資料
           answerSheetImagePaths: localData?.answerSheetImagePaths,
           updatedAt: localIsNewer ? localUpdatedAt : cloudUpdatedAt
+        }
+      })
+
+    const existingCustomColumns = await db.gradebookCustomColumns.toArray()
+    const existingCustomScores = await db.gradebookCustomScores.toArray()
+    const localCustomColumnMap = new Map(existingCustomColumns.map((c) => [c.id, c]))
+    const localCustomScoreMap = new Map(existingCustomScores.map((s) => [s.id, s]))
+
+    const normalizedGradebookCustomColumns: GradebookCustomColumn[] = gradebookCustomColumns
+      .filter(
+        (c: GradebookCustomColumn & { classroom_id?: string }) =>
+          c?.id &&
+          (c.classroomId || c.classroom_id) &&
+          !deletedGradebookCustomColumnSet.has(c.id)
+      )
+      .map((c: GradebookCustomColumn & {
+        classroom_id?: string
+        weight_percent?: unknown
+        sort_order?: unknown
+        updated_at?: unknown
+      }) => {
+        const localData = localCustomColumnMap.get(c.id)
+        const cloudUpdatedAt = toMillis(c.updatedAt ?? c.updated_at)
+        const localUpdatedAt = localData?.updatedAt
+        const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt > cloudUpdatedAt)
+
+        if (localIsNewer && localData) {
+          return localData
+        }
+
+        return {
+          id: c.id,
+          classroomId: c.classroomId ?? c.classroom_id!,
+          name: c.name,
+          weightPercent: toNumber(c.weightPercent ?? c.weight_percent) ?? 0,
+          sortOrder:
+            toNumber(c.sortOrder ?? c.sort_order) != null
+              ? Math.floor(toNumber(c.sortOrder ?? c.sort_order)!)
+              : 0,
+          updatedAt: cloudUpdatedAt
+        }
+      })
+
+    const normalizedGradebookCustomScores: GradebookCustomScore[] = gradebookCustomScores
+      .filter(
+        (s: GradebookCustomScore & { classroom_id?: string; column_id?: string; student_id?: string }) =>
+          s?.id &&
+          (s.classroomId || s.classroom_id) &&
+          (s.columnId || s.column_id) &&
+          (s.studentId || s.student_id) &&
+          !deletedGradebookCustomScoreSet.has(s.id)
+      )
+      .map((s: GradebookCustomScore & {
+        classroom_id?: string
+        column_id?: string
+        student_id?: string
+        updated_at?: unknown
+      }) => {
+        const localData = localCustomScoreMap.get(s.id)
+        const cloudUpdatedAt = toMillis(s.updatedAt ?? s.updated_at)
+        const localUpdatedAt = localData?.updatedAt
+        const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt > cloudUpdatedAt)
+
+        if (localIsNewer && localData) {
+          return localData
+        }
+
+        const parsedScore =
+          s.score === null || s.score === undefined ? null : toNumber(s.score) ?? null
+        return {
+          id: s.id,
+          classroomId: s.classroomId ?? s.classroom_id!,
+          columnId: s.columnId ?? s.column_id!,
+          studentId: s.studentId ?? s.student_id!,
+          score: parsedScore,
+          updatedAt: cloudUpdatedAt
         }
       })
 
@@ -1047,6 +1232,16 @@ export function useSync(options: UseSyncOptions = {}) {
       if (orphanFolders.length > 0) {
         await db.folders.bulkDelete(orphanFolders.map(f => f.id))
       }
+      const orphanCustomColumns = await db.gradebookCustomColumns
+        .where('classroomId')
+        .anyOf(deletedClassroomIds)
+        .toArray()
+      if (orphanCustomColumns.length > 0) {
+        const columnIds = orphanCustomColumns.map((c) => c.id)
+        await db.gradebookCustomColumns.bulkDelete(columnIds)
+        await db.gradebookCustomScores.where('columnId').anyOf(columnIds).delete()
+      }
+      await db.gradebookCustomScores.where('classroomId').anyOf(deletedClassroomIds).delete()
       await db.classrooms.bulkDelete(deletedClassroomIds)
     }
     if (deletedStudentIds.length > 0) {
@@ -1058,6 +1253,7 @@ export function useSync(options: UseSyncOptions = {}) {
       }
       await db.students.bulkDelete(deletedStudentIds)
       await db.answerExtractionCorrections.where('studentId').anyOf(deletedStudentIds).delete()
+      await db.gradebookCustomScores.where('studentId').anyOf(deletedStudentIds).delete()
     }
     if (deletedAssignmentIds.length > 0) {
       // 級聯清理作業的 submissions
@@ -1078,6 +1274,13 @@ export function useSync(options: UseSyncOptions = {}) {
       debugLog('⚠️ 執行刪除 folders:', deletedFolderIds)
       await db.folders.bulkDelete(deletedFolderIds)
     }
+    if (deletedGradebookCustomColumnIds.length > 0) {
+      await db.gradebookCustomColumns.bulkDelete(deletedGradebookCustomColumnIds)
+      await db.gradebookCustomScores.where('columnId').anyOf(deletedGradebookCustomColumnIds).delete()
+    }
+    if (deletedGradebookCustomScoreIds.length > 0) {
+      await db.gradebookCustomScores.bulkDelete(deletedGradebookCustomScoreIds)
+    }
 
     // 在所有 bulkDelete 之後檢查 folders
     const afterDelete = await db.folders.toArray()
@@ -1097,6 +1300,10 @@ export function useSync(options: UseSyncOptions = {}) {
     const pendingAssignmentDeletes = pendingDeleteByTable.get('assignments') ?? new Set()
     const pendingSubmissionDeletes = pendingDeleteByTable.get('submissions') ?? new Set()
     const pendingFolderDeletes = pendingDeleteByTable.get('folders') ?? new Set()
+    const pendingGradebookCustomColumnDeletes =
+      pendingDeleteByTable.get('gradebook_custom_columns') ?? new Set()
+    const pendingGradebookCustomScoreDeletes =
+      pendingDeleteByTable.get('gradebook_custom_scores') ?? new Set()
 
     if (pendingDeletes.length > 0) {
       debugLog(`🛡️ 本地有 ${pendingDeletes.length} 筆待刪除記錄，bulkPut 將跳過這些 ID`)
@@ -1108,6 +1315,14 @@ export function useSync(options: UseSyncOptions = {}) {
     const safeAssignments = normalizedAssignments.filter(a => !pendingAssignmentDeletes.has(a.id))
     const safeSubmissions = mergedSubmissions.filter(s => !pendingSubmissionDeletes.has(s.id))
     const safeFolders = normalizedFolders.filter((f: { id: string }) => !pendingFolderDeletes.has(f.id))
+    const safeGradebookCustomColumns = normalizedGradebookCustomColumns.filter(
+      (c) => !pendingGradebookCustomColumnDeletes.has(c.id)
+    )
+    const safeGradebookCustomScores = normalizedGradebookCustomScores.filter(
+      (s) =>
+        !pendingGradebookCustomScoreDeletes.has(s.id) &&
+        !pendingGradebookCustomColumnDeletes.has(s.columnId)
+    )
 
     if (safeClassrooms.length < normalizedClassrooms.length) {
       debugLog(`🛡️ 跳過 ${normalizedClassrooms.length - safeClassrooms.length} 個待刪除的 classrooms`)
@@ -1124,6 +1339,20 @@ export function useSync(options: UseSyncOptions = {}) {
     if (safeFolders.length < normalizedFolders.length) {
       debugLog(`🛡️ 跳過 ${normalizedFolders.length - safeFolders.length} 個待刪除的 folders`)
     }
+    if (safeGradebookCustomColumns.length < normalizedGradebookCustomColumns.length) {
+      debugLog(
+        `🛡️ 跳過 ${
+          normalizedGradebookCustomColumns.length - safeGradebookCustomColumns.length
+        } 個待刪除的 gradebook_custom_columns`
+      )
+    }
+    if (safeGradebookCustomScores.length < normalizedGradebookCustomScores.length) {
+      debugLog(
+        `🛡️ 跳過 ${
+          normalizedGradebookCustomScores.length - safeGradebookCustomScores.length
+        } 個待刪除的 gradebook_custom_scores`
+      )
+    }
 
     // 先檢查 folders 狀態
     const beforePut = await db.folders.toArray()
@@ -1137,6 +1366,8 @@ export function useSync(options: UseSyncOptions = {}) {
 
     await db.students.bulkPut(safeStudents)
     await db.assignments.bulkPut(safeAssignments)
+    await db.gradebookCustomColumns.bulkPut(safeGradebookCustomColumns)
+    await db.gradebookCustomScores.bulkPut(safeGradebookCustomScores)
     try {
       await db.submissions.bulkPut(safeSubmissions)
     } catch (err) {
@@ -1187,6 +1418,36 @@ export function useSync(options: UseSyncOptions = {}) {
       await queueDeleteMany('folders', orphanIds)
       await db.folders.bulkDelete(orphanIds)
       debugLog(`🧹 清理了 ${orphanIds.length} 個孤兒 assignment 資料夾:`, orphanIds)
+    }
+
+    // 清理孤兒 gradebook columns/scores
+    const allCustomColumns = await db.gradebookCustomColumns.toArray()
+    const orphanCustomColumns = allCustomColumns.filter(
+      (c) => !allClassroomIds.has(c.classroomId)
+    )
+    if (orphanCustomColumns.length > 0) {
+      const orphanColumnIds = orphanCustomColumns.map((c) => c.id)
+      await queueDeleteMany('gradebook_custom_columns', orphanColumnIds)
+      await db.gradebookCustomColumns.bulkDelete(orphanColumnIds)
+      await db.gradebookCustomScores.where('columnId').anyOf(orphanColumnIds).delete()
+      debugLog(`🧹 清理了 ${orphanColumnIds.length} 個孤兒 gradebook custom columns`, orphanColumnIds)
+    }
+
+    const allStudents = await db.students.toArray()
+    const allStudentIds = new Set(allStudents.map((s) => s.id))
+    const validColumnIds = new Set((await db.gradebookCustomColumns.toArray()).map((c) => c.id))
+    const allCustomScores = await db.gradebookCustomScores.toArray()
+    const orphanCustomScores = allCustomScores.filter(
+      (s) =>
+        !allClassroomIds.has(s.classroomId) ||
+        !allStudentIds.has(s.studentId) ||
+        !validColumnIds.has(s.columnId)
+    )
+    if (orphanCustomScores.length > 0) {
+      const orphanScoreIds = orphanCustomScores.map((s) => s.id)
+      await queueDeleteMany('gradebook_custom_scores', orphanScoreIds)
+      await db.gradebookCustomScores.bulkDelete(orphanScoreIds)
+      debugLog(`🧹 清理了 ${orphanScoreIds.length} 個孤兒 gradebook custom scores`, orphanScoreIds)
     }
   }, [buildSyncUrl])
   // 頁面初次載入時更新 pendingCount

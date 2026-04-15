@@ -168,6 +168,7 @@ export interface Assignment {
   totalPages: number
   domain?: string // 國語、數學、社會、自然、英語、其他
   folder?: string // 資料夾分類（例如：段考、小考、作業）
+  gradeWeightPercent?: number // 成績統計權重（百分比格式，作業+自訂欄位總和需為 100）
 
   scoringMode?: 'scored' | 'unscored' // 不計分：批改只顯示✓✗△，不納入成績統計
   answerKey?: AnswerKey
@@ -341,6 +342,24 @@ export interface DomainDiagnosisCache {
   updatedAt: number
 }
 
+export interface GradebookCustomColumn {
+  id: string
+  classroomId: string
+  name: string
+  weightPercent: number
+  sortOrder: number
+  updatedAt?: number
+}
+
+export interface GradebookCustomScore {
+  id: string // `${columnId}::${studentId}`
+  classroomId: string
+  columnId: string
+  studentId: string
+  score: number | null
+  updatedAt?: number
+}
+
 /**
  * Dexie DB 定義
  */
@@ -354,6 +373,8 @@ class RedPenDatabase extends Dexie {
   folders!: EntityTable<Folder, 'id'>
   teacherSummaryCache!: EntityTable<TeacherSummaryCache, 'cacheKey'>
   domainDiagnosisCache!: EntityTable<DomainDiagnosisCache, 'cacheKey'>
+  gradebookCustomColumns!: EntityTable<GradebookCustomColumn, 'id'>
+  gradebookCustomScores!: EntityTable<GradebookCustomScore, 'id'>
 
   constructor() {
     super('RedPenDB')
@@ -569,6 +590,136 @@ class RedPenDatabase extends Dexie {
       domainDiagnosisCache: '&cacheKey, domain, startDate, endDate, updatedAt'
     })
 
+    this.version(9).stores({
+      classrooms: '&id, name, folder',
+      students: '&id, classroomId, seatNumber, name',
+      assignments: '&id, classroomId, title, folder',
+      submissions:
+        '&id, assignmentId, studentId, status, createdAt, [assignmentId+studentId]',
+      syncQueue: '++id, tableName, recordId, createdAt',
+      answerExtractionCorrections:
+        '++id, assignmentId, studentId, submissionId, questionId, createdAt',
+      folders: '&id, name, type, classroomId, [type+classroomId], [type+classroomId+name]',
+      teacherSummaryCache: '&cacheKey, assignmentId, updatedAt',
+      domainDiagnosisCache: '&cacheKey, domain, startDate, endDate, updatedAt',
+      gradebookCustomColumns:
+        '&id, classroomId, [classroomId+sortOrder], updatedAt',
+      gradebookCustomScores:
+        '&id, classroomId, columnId, studentId, [columnId+studentId], [classroomId+studentId], updatedAt'
+    }).upgrade(async (trans) => {
+      // Migration: localStorage 的舊版自訂欄位資料轉入 Dexie，避免跨裝置資料遺失
+      try {
+        const columnTable = trans.table('gradebookCustomColumns')
+        const scoreTable = trans.table('gradebookCustomScores')
+
+        const oldKeys: string[] = []
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i)
+          if (key && key.startsWith('gradebook_custom_cols_')) {
+            oldKeys.push(key)
+          }
+        }
+
+        for (const key of oldKeys) {
+          const classroomId = key.replace('gradebook_custom_cols_', '').trim()
+          if (!classroomId) continue
+
+          const raw = localStorage.getItem(key)
+          if (!raw) continue
+
+          let parsed: Array<{
+            id?: unknown
+            name?: unknown
+            weight?: unknown
+            scores?: Record<string, unknown>
+          }> = []
+          try {
+            const json = JSON.parse(raw)
+            if (Array.isArray(json)) {
+              parsed = json as Array<{
+                id?: unknown
+                name?: unknown
+                weight?: unknown
+                scores?: Record<string, unknown>
+              }>
+            }
+          } catch {
+            parsed = []
+          }
+
+          if (parsed.length === 0) {
+            localStorage.removeItem(key)
+            continue
+          }
+
+          const now = Date.now()
+          const columnRows: GradebookCustomColumn[] = []
+          const scoreRows: GradebookCustomScore[] = []
+
+          parsed.forEach((col, index) => {
+            const baseId =
+              typeof col.id === 'string' && col.id.trim()
+                ? col.id.trim()
+                : `${classroomId}-custom-${index}-${Math.random().toString(36).slice(2, 8)}`
+            const name =
+              typeof col.name === 'string' && col.name.trim()
+                ? col.name.trim()
+                : `自訂欄位${index + 1}`
+            const parsedWeight =
+              typeof col.weight === 'number' && Number.isFinite(col.weight)
+                ? col.weight
+                : typeof col.weight === 'string' && col.weight.trim()
+                  ? Number(col.weight)
+                  : 0
+            const weightPercent = Number.isFinite(parsedWeight)
+              ? Math.max(0, parsedWeight)
+              : 0
+
+            columnRows.push({
+              id: baseId,
+              classroomId,
+              name,
+              weightPercent,
+              sortOrder: index,
+              updatedAt: now
+            })
+
+            const scores = col.scores && typeof col.scores === 'object'
+              ? col.scores
+              : {}
+            Object.entries(scores).forEach(([studentId, rawScore]) => {
+              if (!studentId) return
+              const score =
+                rawScore === null || rawScore === undefined || rawScore === ''
+                  ? null
+                  : Number(rawScore)
+              if (score !== null && !Number.isFinite(score)) return
+
+              scoreRows.push({
+                id: `${baseId}::${studentId}`,
+                classroomId,
+                columnId: baseId,
+                studentId,
+                score,
+                updatedAt: now
+              })
+            })
+          })
+
+          if (columnRows.length > 0) {
+            await columnTable.bulkPut(columnRows)
+          }
+          if (scoreRows.length > 0) {
+            await scoreTable.bulkPut(scoreRows)
+          }
+
+          localStorage.removeItem(key)
+        }
+      } catch (error) {
+        console.error('❌ 遷移成績統計自訂欄位失敗:', error)
+      }
+    })
+
     const setUpdatedAt = (value: unknown) => {
       if (typeof value === 'number' && Number.isFinite(value)) return value
       return Date.now()
@@ -639,6 +790,16 @@ class RedPenDatabase extends Dexie {
       applyUpdatedAtOnCreate(obj)
     })
     this.folders.hook('updating', (mods) => applyUpdatedAtOnUpdate(mods))
+
+    this.gradebookCustomColumns.hook('creating', (_, obj) => {
+      applyUpdatedAtOnCreate(obj)
+    })
+    this.gradebookCustomColumns.hook('updating', (mods) => applyUpdatedAtOnUpdate(mods))
+
+    this.gradebookCustomScores.hook('creating', (_, obj) => {
+      applyUpdatedAtOnCreate(obj)
+    })
+    this.gradebookCustomScores.hook('updating', (mods) => applyUpdatedAtOnUpdate(mods))
   }
 }
 
