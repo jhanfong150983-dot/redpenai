@@ -902,6 +902,14 @@ function buildGlobalTaskAndFormat(): string {
     // - 一般：作答依據 + 結論表達
     // - 社會領域可用「核心結論優先」：核心結論 + 作答依據（兩維皆可配分）
     // diagram_draw: [作圖正確性, 完整性]
+    //
+    // ⚠️【rubricsDimensions criteria 黃金規則】（short_answer / word_problem 必讀）
+    // criteria 必須從【題幹要求】推導，描述「何種答案符合」，禁止把參考答案的具體名詞直接寫進 criteria。
+    // 參考答案（referenceAnswer）只是一個例子的深度示範，不代表唯一正確答案。
+    // ✅ 正確：criteria: "能從圖片中辨識出一種現代較少使用或已被取代的生活器具"
+    // ❌ 錯誤：criteria: "能正確指出「灶」被取代"（綁死特定答案，學生寫油燈也對但會被扣分）
+    // ✅ 正確：criteria: "能說明該器具被取代的原因或舉出現代替代品"
+    // ❌ 錯誤：criteria: "能說明瓦斯爐或電磁爐及其優點"（綁死參考答案內容）
     "referenceAnswer": "評分要點",
     "rubricsDimensions": [
       {"name": "列式計算", "maxScore": 3, "criteria": "算式正確、步驟清晰"},
