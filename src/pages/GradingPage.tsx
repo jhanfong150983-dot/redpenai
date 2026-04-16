@@ -685,8 +685,36 @@ function ConsistencyQuestionCard({
 
   const badgeLabel = isConfirmed ? '已確認' : isUnstable ? '無法判讀' : '讀取不一致'
 
+  // 從計算題/應用題完整文字中提取最終答案（純顯示用，與 server 端 extractFinalAnswerFromCalc 邏輯一致）
+  const extractFinalAnswer = (raw: string): string | null => {
+    const s = raw.trim()
+    if (!s) return null
+    // 1. 答：xxx / 答:xxx / A:xxx
+    const prefixMatch = s.match(/(?:答[：:：]|[Aa][：:])\s*[（(]?\s*(.+?)\s*[）)]?[\s。，,]*$/u)
+    if (prefixMatch?.[1]?.trim()) return prefixMatch[1].trim()
+    // 2. =(xxx) bracket
+    const firstSeg = s.split(/[,，\n]/)[0]
+    const bracketMatch = firstSeg.match(/=\s*[（(]\s*([^）)，,\n]+?)\s*[）)]/u)
+    if (bracketMatch?.[1]?.trim()) return bracketMatch[1].trim()
+    // 3. last =
+    const lastEq = s.lastIndexOf('=')
+    if (lastEq >= 0) {
+      const val = s.slice(lastEq + 1).trim().replace(/[。.，,]+$/, '')
+      if (val) return val
+    }
+    return null
+  }
+
+  const isCalcType = questionResult.questionType === 'calculation' || questionResult.questionType === 'word_problem'
+
   const formatAnswer = (r: { status: string; studentAnswer: string }) => {
-    if (r.status === 'read') return `「${r.studentAnswer || '空白'}」`
+    if (r.status === 'read') {
+      if (isCalcType) {
+        const final = extractFinalAnswer(r.studentAnswer)
+        if (final) return `「${final}」`
+      }
+      return `「${r.studentAnswer || '空白'}」`
+    }
     if (r.status === 'blank') return '（空白）'
     if (r.status === 'unreadable') return '（無法截取）'
     return `（${r.status}）`
@@ -852,7 +880,7 @@ function ConsistencyQuestionCard({
               : 'border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50/40'
           }`}
         >
-          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read1' ? 'text-purple-700' : 'text-gray-500'}`}>AI 細節讀取（裁切圖）</span>
+          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read1' ? 'text-purple-700' : 'text-gray-500'}`}>{isCalcType ? 'AI 讀取 1（最終答案）' : 'AI 細節讀取（裁切圖）'}</span>
           <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read1' ? 'text-purple-900' : 'text-gray-800'}`}>{formatAnswer(readAnswer1)}</span>
         </button>
 
@@ -867,7 +895,7 @@ function ConsistencyQuestionCard({
               : 'border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50/40'
           }`}
         >
-          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read2' ? 'text-purple-700' : 'text-gray-500'}`}>AI 全局讀取（全圖）</span>
+          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read2' ? 'text-purple-700' : 'text-gray-500'}`}>{isCalcType ? 'AI 讀取 2（最終答案）' : 'AI 全局讀取（全圖）'}</span>
           <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read2' ? 'text-purple-900' : 'text-gray-800'}`}>{formatAnswer(readAnswer2)}</span>
         </button>
 
