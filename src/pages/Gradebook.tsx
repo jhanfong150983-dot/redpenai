@@ -97,7 +97,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
   const [editingCell, setEditingCell] = useState<{ assignmentId: string; studentId: string } | null>(null)
   const [restorePortal, setRestorePortal] = useState<{
-    x: number; y: number; submissionId: string; aiScore: number
+    x: number; y: number; submissionId: string; aiScore: number | null
   } | null>(null)
   const hideRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -592,16 +592,21 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const handleScoreManualEdit = (submissionId: string, newScore: number | null) => {
     const existing = submissions.find((s) => s.id === submissionId)
     if (!existing) return
-    // Skip if value didn't actually change (null === null also works)
-    if (existing.score === newScore) return
+    // Treat undefined and null as equivalent — skip if value didn't actually change
+    const existingScore = existing.score ?? null
+    if (existingScore === newScore) return
 
     const now = Date.now()
-    // Preserve pre-edit score as aiScore so old AI-graded data stays restorable
-    const preservedAiScore = existing.aiScore ?? existing.score
+    // Only capture originalAiScore on the FIRST manual edit (scoreSource not yet 'manual').
+    // If already 'manual', aiScore already holds the true original — don't overwrite it.
+    const originalAiScore: number | null | undefined =
+      existing.scoreSource === 'manual'
+        ? existing.aiScore  // already set from first edit
+        : (existing.aiScore ?? existing.score ?? null)  // capture pre-edit value
     setSubmissions((prev) =>
       prev.map((s) =>
         s.id === submissionId
-          ? { ...s, score: newScore ?? undefined, aiScore: preservedAiScore ?? undefined, scoreSource: 'manual', updatedAt: now }
+          ? { ...s, score: newScore ?? undefined, aiScore: originalAiScore ?? undefined, scoreSource: 'manual', updatedAt: now }
           : s
       )
     )
@@ -609,18 +614,27 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
       score: newScore ?? undefined,
       scoreSource: 'manual',
       updatedAt: now,
-      ...(preservedAiScore != null ? { aiScore: preservedAiScore } : {})
+      aiScore: originalAiScore ?? undefined
     }
     void db.submissions.update(submissionId, dbUpdate)
     requestSync()
   }
 
-  const handleScoreRestore = (submissionId: string, aiScore: number) => {
+  const handleScoreRestore = (submissionId: string, aiScore: number | null) => {
     const now = Date.now()
     setSubmissions((prev) =>
-      prev.map((s) => s.id === submissionId ? { ...s, score: aiScore, scoreSource: 'ai', updatedAt: now } : s)
+      prev.map((s) =>
+        s.id === submissionId
+          ? { ...s, score: aiScore ?? undefined, aiScore: undefined, scoreSource: undefined, updatedAt: now }
+          : s
+      )
     )
-    void db.submissions.update(submissionId, { score: aiScore, scoreSource: 'ai' as const, updatedAt: now })
+    void db.submissions.update(submissionId, {
+      score: aiScore ?? undefined,
+      aiScore: undefined,
+      scoreSource: undefined,
+      updatedAt: now
+    })
     setRestorePortal(null)
     requestSync()
   }
@@ -628,7 +642,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const handleScoreCellMouseEnter = (
     e: React.MouseEvent<HTMLTableCellElement>,
     submissionId: string,
-    aiScore: number
+    aiScore: number | null
   ) => {
     if (hideRestoreTimerRef.current) clearTimeout(hideRestoreTimerRef.current)
     const rect = e.currentTarget.getBoundingClientRect()
@@ -946,9 +960,10 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       {r.scoreCells.map((cell, idx) => {
                         const assignment = filteredAssignments[idx]
                         const isManual = cell.scoreSource === 'manual'
-                        // aiScore is always set on first manual edit (even for old AI data)
-                        const hasRestoreTarget = isManual && cell.submissionId != null && cell.aiScore != null
-                        const restoreAiScore = cell.aiScore
+                        // Show restore for any manual edit — aiScore may be null (original had no score)
+                        const hasRestoreTarget = isManual && cell.submissionId != null
+                        // aiScore holds the true original (could be null = originally no score)
+                        const restoreAiScore = cell.aiScore ?? null
                         const isEditing =
                           editingCell?.assignmentId === assignment.id &&
                           editingCell?.studentId === r.student.id
@@ -1050,10 +1065,10 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
             top: restorePortal.y,
             transform: 'translate(-100%, -100%)'
           }}
-          title={`還原 AI 成績: ${restorePortal.aiScore}`}
+          title={restorePortal.aiScore != null ? `還原原始成績: ${restorePortal.aiScore}` : '清除成績（還原無成績狀態）'}
         >
           <RotateCcw className="w-3 h-3" />
-          還原 {restorePortal.aiScore}
+          {restorePortal.aiScore != null ? `還原 ${restorePortal.aiScore}` : '清除'}
         </button>,
         document.body
       )}
