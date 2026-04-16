@@ -901,13 +901,14 @@ function buildGlobalTaskAndFormat(): string {
     // answer: "國字/注音"，如 "彰/ㄓㄤ"（斜線分隔，學生寫任一個都算對）
     // 🚫 注音必須讀自圖片，禁止用語言知識推測
 
-    // word_problem / calculation / short_answer / map_draw / diagram_draw 專用：評分規準
+    // word_problem / calculation / short_answer / map_draw / diagram_draw / diagram_color 專用：評分規準
     // word_problem: [列式計算, 答句（含單位）]
     // calculation: [算式過程, 最終答案（純數值，不需單位）]
     // short_answer: 必須使用 rubricsDimensions（至少兩維）
     // - 一般：作答依據 + 結論表達
     // - 社會領域可用「核心結論優先」：核心結論 + 作答依據（兩維皆可配分）
-    // diagram_draw: [作圖正確性, 完整性]
+    // diagram_color: [塗色比例, 塗色位置, 塗色完整性]
+    // diagram_draw: [數值正確性, 標籤完整性]
     //
     // ⚠️【rubricsDimensions criteria 黃金規則】（short_answer / word_problem 必讀）
     // criteria 必須從【題幹要求】推導，描述「何種答案符合」，禁止把參考答案的具體名詞直接寫進 criteria。
@@ -963,7 +964,7 @@ function buildGlobalTaskAndFormat(): string {
 - answerBbox：每題必填。**這是 grounded bbox**：先讀出 answer 欄位的文字，再標記你剛才視覺識別到那些文字／符號的所在位置。
   - 規則：answerBbox 必須是你**已經看見並讀取**的文字的邊框，不是猜測答題區的位置。
   - x/y 為左上角，w/h 為寬高，均為 0-1 之間的歸一化座標（相對於所在頁面圖片的寬高）。
-  - ⚠️ 絕對禁止輸出像素座標（如 x: 376, y: 313）。所有題型（包含 diagram_draw、word_problem、calculation）的 x/y/w/h 都必須在 0-1 範圍內。若不確定，寧可省略 answerBbox。
+  - ⚠️ 絕對禁止輸出像素座標（如 x: 376, y: 313）。所有題型（包含 diagram_draw、diagram_color、word_problem、calculation）的 x/y/w/h 都必須在 0-1 範圍內。若不確定，寧可省略 answerBbox。
   - 多頁試卷：bbox 相對於該題所在的那一張圖片。
   - do NOT output placeholder or estimated coordinates — only output coordinates you can ground to specific visible characters.
   - word_problem 例外：answerBbox 必須涵蓋**整個作答區域**——從最上方的列式/算式行，一路框到最末行的「答：___」或「A：___」。⚠️ 不可只框「答：」那一行，計算步驟也必須在框內。
@@ -972,7 +973,7 @@ function buildGlobalTaskAndFormat(): string {
   - matching（group_context）：answerBbox 必須涵蓋**整個連連看區域**——左欄所有項目、右欄所有選項、以及中間所有連接線，全部框在同一個 bbox 內。不可只框右欄文字，連線本身就是答案，必須完整包含。
   ⚠️ 每題 bbox 根據實際視覺位置獨立標記，禁止為避免重疊而偏移座標。
   ⚠️ 若該題的 answer 文字在圖上無法視覺定位，請省略 answerBbox。
-- anchorHint：每題必填（除 word_problem / calculation / map_draw / diagram_draw 外）。用 1-2 句中文描述此答案格附近最能唯一識別其位置的印刷特徵：
+- anchorHint：每題必填（除 word_problem / calculation / map_draw / diagram_draw / diagram_color 外）。用 1-2 句中文描述此答案格附近最能唯一識別其位置的印刷特徵：
   - fill_blank 單格：描述緊鄰的題幹關鍵字或括號前後的文字，例如「括號前為「一定能，可能」，括號後接「大於1」」
   - fill_blank 多格（multi_fill / 表格子題）：優先描述格子本身的視覺外觀（印刷格式、括號樣式、預留空白），再以欄標題或列標題作為輔助定位。例如：「比率列中有印刷括號（　）/180的空格，位於欄標題「三國演義」正下方」「票數列中對應「金銀島」欄的空白數字格」。禁止只寫欄標題文字（如「欄標題為「三國演義」的格子」），因為欄標題本身不是答案格。
   - single_choice / single_check：描述題幹第一句關鍵字，例如「題幹開頭為「擲出來的點數和可能大於1嗎」」
@@ -1168,10 +1169,16 @@ function buildGlobalClassificationFallback(): string {
    - 連線圖例：依編號順序連接座標點
 
 10. 需要在預印圖形上塗色/填色？
-    → questionCategory: "diagram_draw"（塗色題）
+    → questionCategory: "diagram_color"（塗色題）
     - 例：塗色表示分數（塗 1⅔ 個圓）、塗色表示數量
     - referenceAnswer 描述應塗色的範圍/比例
-    - rubricsDimensions: [作圖正確性, 完整性]
+    - rubricsDimensions: [塗色比例, 塗色位置, 塗色完整性]
+
+10b. 需要繪製圖表（長條圖、圓餅圖、折線圖等）？
+    → questionCategory: "diagram_draw"（圖表繪製題）
+    - 例：根據數據畫長條圖、畫圓餅圖標記百分比
+    - referenceAnswer 描述正確的標籤與數值
+    - rubricsDimensions: [數值正確性, 標籤完整性]
 
 11. 題目要求把左欄和右欄的項目用線連起來（連連看）？
     → questionCategory: "matching"（連連看）
@@ -3692,7 +3699,7 @@ export async function extractAnswerKeyFromImages(
   console.log('📥 [AnswerKey raw response]', text)
   const result = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(text) as AnswerKey, opts?.domain)
 
-  // 像素 bbox 偵測：AI 有時對大面積題型（diagram_draw/word_problem）回傳像素座標而非 0-1 正規化
+  // 像素 bbox 偵測：AI 有時對大面積題型（diagram_draw/diagram_color/word_problem）回傳像素座標而非 0-1 正規化
   // 任何 x/y/w/h > 2 即視為像素座標，清除 answerBbox 避免排序錯亂
   for (const q of result.questions) {
     const b = q.answerBbox

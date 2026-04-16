@@ -20,7 +20,7 @@ const CATEGORY_TO_TYPE: Record<QuestionCategory, QuestionCategoryType> = {
   single_choice: 1, multi_choice: 2, single_check: 1, true_false: 1,
   fill_blank: 1, fill_variants: 2, multi_check: 2, multi_check_other: 2,
   calculation: 3, word_problem: 3, short_answer: 3, map_fill: 2,
-  multi_fill: 1, map_draw: 3, diagram_draw: 3, matching: 1,
+  multi_fill: 1, map_draw: 3, diagram_draw: 3, diagram_color: 3, matching: 1,
 }
 
 const CATEGORY_LABELS: Record<QuestionCategory, string> = {
@@ -29,7 +29,7 @@ const CATEGORY_LABELS: Record<QuestionCategory, string> = {
   multi_check: '多選勾選', multi_check_other: '多選勾選（含其他）',
   calculation: '計算題', word_problem: '應用題', short_answer: '簡答題',
   map_fill: '填圖題', multi_fill: '多項填入', map_draw: '繪圖題',
-  diagram_draw: '塗色題', matching: '連連看',
+  diagram_draw: '圖表繪製題', diagram_color: '塗色題', matching: '連連看',
 }
 
 function getEffectiveCategory(q: AnswerKeyQuestion): QuestionCategory {

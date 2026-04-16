@@ -610,6 +610,7 @@ export default function AssignmentSetup({
     multi_fill: 1,
     map_draw: 3,
     diagram_draw: 3,
+    diagram_color: 3,
     matching: 1,
   }
 
@@ -963,7 +964,7 @@ export default function AssignmentSetup({
           baseQuestion.acceptableAnswers = acceptableAnswers
         }
       } else if (questionType === 3) {
-        // word_problem / short_answer / diagram_draw: prefer referenceAnswer, fall back to answer
+        // word_problem / short_answer / diagram_draw / diagram_color: prefer referenceAnswer, fall back to answer
         const refAnswer = typeof q?.referenceAnswer === 'string' ? q.referenceAnswer
           : q?.referenceAnswer == null ? '' : String(q.referenceAnswer)
         const fallbackAnswer = typeof q?.answer === 'string' ? q.answer : ''
