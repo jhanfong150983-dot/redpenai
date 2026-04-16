@@ -589,25 +589,24 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     requestSync()
   }
 
-  const handleScoreManualEdit = (submissionId: string, newScore: number) => {
-    // Find existing submission to check if value actually changed
+  const handleScoreManualEdit = (submissionId: string, newScore: number | null) => {
     const existing = submissions.find((s) => s.id === submissionId)
     if (!existing) return
-    // Skip save if score didn't actually change — NumericInput always fires onChange on blur
+    // Skip if value didn't actually change (null === null also works)
     if (existing.score === newScore) return
 
     const now = Date.now()
-    // Preserve the pre-edit score as aiScore if not already set (supports old AI-graded data)
+    // Preserve pre-edit score as aiScore so old AI-graded data stays restorable
     const preservedAiScore = existing.aiScore ?? existing.score
     setSubmissions((prev) =>
       prev.map((s) =>
         s.id === submissionId
-          ? { ...s, score: newScore, aiScore: preservedAiScore ?? undefined, scoreSource: 'manual', updatedAt: now }
+          ? { ...s, score: newScore ?? undefined, aiScore: preservedAiScore ?? undefined, scoreSource: 'manual', updatedAt: now }
           : s
       )
     )
     const dbUpdate: Partial<Pick<Submission, 'score' | 'aiScore' | 'scoreSource' | 'updatedAt'>> = {
-      score: newScore,
+      score: newScore ?? undefined,
       scoreSource: 'manual',
       updatedAt: now,
       ...(preservedAiScore != null ? { aiScore: preservedAiScore } : {})
@@ -968,22 +967,28 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                             }}
                           >
                             {isEditing ? (
-                              <NumericInput
-                                allowDecimal={false}
-                                min={0}
-                                value={cell.score ?? 0}
-                                onChange={(v) => {
-                                  // onChange fires on every keystroke and on blur
-                                  // handleScoreManualEdit guards: skips if value unchanged
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                defaultValue={cell.score ?? ''}
+                                autoFocus
+                                onFocus={(e) => e.target.select()}
+                                onBlur={(e) => {
+                                  const raw = e.target.value.trim()
+                                  const parsed = raw === '' ? null : Number(raw)
+                                  const newScore = raw === '' ? null : (Number.isFinite(parsed) ? parsed : cell.score)
                                   if (cell.submissionId) {
-                                    handleScoreManualEdit(
-                                      cell.submissionId,
-                                      typeof v === 'number' ? v : Number(v) || 0
-                                    )
+                                    handleScoreManualEdit(cell.submissionId, newScore ?? null)
+                                  }
+                                  setEditingCell(null)
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') e.currentTarget.blur()
+                                  if (e.key === 'Escape') {
+                                    setEditingCell(null)
                                   }
                                 }}
-                                onBlur={() => setEditingCell(null)}
-                                autoFocus
                                 className="w-16 rounded border border-blue-300 bg-white px-2 py-0.5 text-xs text-center text-blue-700 outline-none focus:ring-1 focus:ring-blue-400"
                               />
                             ) : (
