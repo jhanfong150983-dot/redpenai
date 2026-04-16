@@ -552,7 +552,7 @@ export default function AnswerKeyWizardModal({
                 </div>
                 {editingKey.questions.length > 0 && scoringMode !== 'unscored' && (
                   <div className="px-3 py-2 border-t border-gray-100 text-xs text-gray-500">
-                    總分 {editingKey.totalScore ?? editingKey.questions.reduce((s, q) => s + (q.maxScore ?? 0), 0)} 分
+                    總分 {editingKey.questions.reduce((s, q) => s + (q.maxScore ?? 0), 0)} 分
                   </div>
                 )}
               </div>
