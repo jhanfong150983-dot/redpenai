@@ -2383,62 +2383,33 @@ export default function GradingPage({
         setGradingMessage('正在進行品質總檢查...')
         setQualityCheckRetryCount(0)
 
-        const MIN_SUBMISSIONS_FOR_BBOX = 3
-        const BBOX_DEVIATION_THRESHOLD = 0.05  // 5% of page height
-        const BBOX_ANOMALY_QUESTION_COUNT = 3   // ≥3 題 bbox 偏差 → 重跑
         const CONSECUTIVE_BLANK_THRESHOLD = 3   // ≥3 題連續空白 → 重跑
+        const MIN_SUBMISSIONS_FOR_TYPE = 3       // 至少 N 份才能建立主流類型
+        const DOMINANT_TYPE_RATIO = 0.6          // ≥60% 同意才算確立主流
+
+        // 答案類型分類（三種，邊界明確）
+        type AnswerType = 'numeric' | 'chinese_text' | 'blank'
+        const classifyAnswerType = (status: string, answer: string): AnswerType => {
+          if (status === 'blank' || status === 'unreadable' || !answer.trim()) return 'blank'
+          if (/\d/.test(answer)) return 'numeric'
+          return 'chinese_text'
+        }
 
         const anomalousIndices = new Set<number>()
         // 收集每份被標記作業的詳細原因，結束後 POST 到後端
         const flagDetails = new Map<number, {
           conditions: string[]
-          bboxDeviatingCount?: number
           consecutiveBlankMax?: number
           typeMismatchCount?: number
-          typeMismatchQuestionIds?: string[]
+          typeMismatchDetails?: Array<{ questionId: string; expected: string; got: string }>
         }>()
         const getFlag = (i: number) => {
           if (!flagDetails.has(i)) flagDetails.set(i, { conditions: [] })
           return flagDetails.get(i)!
         }
 
-        // 條件一：bbox 跨作業中位數比較（需至少 MIN_SUBMISSIONS_FOR_BBOX 份）
-        if (entries.length >= MIN_SUBMISSIONS_FOR_BBOX) {
-          const ysByQuestion = new Map<string, number[]>()
-          for (const entry of entries) {
-            for (const qr of entry.phaseAResult.questionResults) {
-              if (qr.answerBbox) {
-                const arr = ysByQuestion.get(qr.questionId) ?? []
-                arr.push(qr.answerBbox.y)
-                ysByQuestion.set(qr.questionId, arr)
-              }
-            }
-          }
-          const medianY = new Map<string, number>()
-          for (const [qId, ys] of ysByQuestion) {
-            const sorted = [...ys].sort((a, b) => a - b)
-            medianY.set(qId, sorted[Math.floor(sorted.length / 2)])
-          }
-          for (let i = 0; i < entries.length; i++) {
-            let deviatingCount = 0
-            for (const qr of entries[i].phaseAResult.questionResults) {
-              const med = medianY.get(qr.questionId)
-              if (med !== undefined && qr.answerBbox && Math.abs(qr.answerBbox.y - med) > BBOX_DEVIATION_THRESHOLD) {
-                deviatingCount++
-              }
-            }
-            if (deviatingCount >= BBOX_ANOMALY_QUESTION_COUNT) {
-              anomalousIndices.add(i)
-              const f = getFlag(i)
-              f.conditions.push('bbox_anomaly')
-              f.bboxDeviatingCount = deviatingCount
-            }
-          }
-        }
-
-        // 條件二：連續空白/無法辨識 ≥ CONSECUTIVE_BLANK_THRESHOLD 題
+        // 條件一：連續空白/無法辨識 ≥ CONSECUTIVE_BLANK_THRESHOLD 題
         for (let i = 0; i < entries.length; i++) {
-          if (anomalousIndices.has(i)) continue  // 已被條件一標記，跳過
           const results = entries[i].phaseAResult.questionResults
           let consecutive = 0
           let maxConsecutive = 0
@@ -2460,63 +2431,55 @@ export default function GradingPage({
           }
         }
 
-        // 條件三：跨作業 fill_blank 答案類型一致性（數字型 vs 純文字）
-        // 若某題多數學生答數字，但某份作業答純漢字（如「健康」「挑戰」），視為 classify 認錯列
-        const MIN_SUBMISSIONS_FOR_TYPE = 3
-        const DOMINANT_NUMERIC_RATIO = 0.5    // ≥50% 作業為數字 → 視為數字型題目
-        const TYPE_MISMATCH_MIN_QUESTIONS = 2  // ≥2 題類型不符 → 重跑
-        let numericDominantQuestionsForLog: string[] = []
-
+        // 條件二：fill_blank 答案類型主流不符（含 blank 視為類型之一）
+        // 三種類型：numeric（含數字）、chinese_text（純漢字）、blank
+        // 每題需 ≥60% 同意才確立主流；任一題不符即觸發重跑
         if (entries.length >= MIN_SUBMISSIONS_FOR_TYPE) {
-          const numericCountByQuestion = new Map<string, number>()
-          const readCountByQuestion = new Map<string, number>()
-
+          // 第一輪：統計每題各類型的數量
+          const typeCountsByQuestion = new Map<string, Record<AnswerType, number>>()
           for (const entry of entries) {
             for (const qr of entry.phaseAResult.questionResults) {
               if (qr.questionType !== 'fill_blank') continue
-              const answer = qr.readAnswer1?.studentAnswer ?? ''
-              const status = qr.readAnswer1?.status
-              if (status === 'blank' || status === 'unreadable' || !answer.trim()) continue
-              readCountByQuestion.set(qr.questionId, (readCountByQuestion.get(qr.questionId) ?? 0) + 1)
-              if (/\d/.test(answer)) {
-                numericCountByQuestion.set(qr.questionId, (numericCountByQuestion.get(qr.questionId) ?? 0) + 1)
+              const t = classifyAnswerType(qr.readAnswer1?.status ?? '', qr.readAnswer1?.studentAnswer ?? '')
+              if (!typeCountsByQuestion.has(qr.questionId)) {
+                typeCountsByQuestion.set(qr.questionId, { numeric: 0, chinese_text: 0, blank: 0 })
+              }
+              typeCountsByQuestion.get(qr.questionId)![t]++
+            }
+          }
+
+          // 確立每題的主流類型（≥60% 才算）
+          const dominantTypeByQuestion = new Map<string, AnswerType>()
+          for (const [qId, counts] of typeCountsByQuestion) {
+            const total = counts.numeric + counts.chinese_text + counts.blank
+            if (total < MIN_SUBMISSIONS_FOR_TYPE) continue
+            for (const t of ['numeric', 'chinese_text', 'blank'] as AnswerType[]) {
+              if (counts[t] / total >= DOMINANT_TYPE_RATIO) {
+                dominantTypeByQuestion.set(qId, t)
+                break
               }
             }
           }
 
-          // 找出「主流為數字」的題目
-          const numericDominantQuestions = new Set<string>()
-          for (const [qId, readCount] of readCountByQuestion) {
-            if (readCount < MIN_SUBMISSIONS_FOR_TYPE) continue
-            const numCount = numericCountByQuestion.get(qId) ?? 0
-            if (numCount / readCount >= DOMINANT_NUMERIC_RATIO) {
-              numericDominantQuestions.add(qId)
-            }
-          }
-          numericDominantQuestionsForLog = Array.from(numericDominantQuestions)
-
-          // 找出答案為純文字但該題主流是數字的作業
+          // 第二輪：找出任一 fill_blank 題類型不符的作業
           for (let i = 0; i < entries.length; i++) {
             if (anomalousIndices.has(i)) continue
-            let typeMismatchCount = 0
-            const mismatchQids: string[] = []
+            const mismatchDetails: Array<{ questionId: string; expected: string; got: string }> = []
             for (const qr of entries[i].phaseAResult.questionResults) {
               if (qr.questionType !== 'fill_blank') continue
-              if (!numericDominantQuestions.has(qr.questionId)) continue
-              const answer = qr.readAnswer1?.studentAnswer ?? ''
-              const status = qr.readAnswer1?.status
-              if (status === 'blank' || status === 'unreadable' || !answer.trim()) continue
-              if (!/\d/.test(answer)) {
-                typeMismatchCount++
-                mismatchQids.push(qr.questionId)
+              const dominant = dominantTypeByQuestion.get(qr.questionId)
+              if (!dominant) continue  // 該題未確立主流，跳過
+              const got = classifyAnswerType(qr.readAnswer1?.status ?? '', qr.readAnswer1?.studentAnswer ?? '')
+              if (got !== dominant) {
+                mismatchDetails.push({ questionId: qr.questionId, expected: dominant, got })
               }
             }
-            if (typeMismatchCount >= TYPE_MISMATCH_MIN_QUESTIONS) {
+            if (mismatchDetails.length >= 1) {
               anomalousIndices.add(i)
               const f = getFlag(i)
               f.conditions.push('answer_type_mismatch')
-              f.typeMismatchCount = typeMismatchCount
-              f.typeMismatchQuestionIds = mismatchQids
+              f.typeMismatchCount = mismatchDetails.length
+              f.typeMismatchDetails = mismatchDetails
             }
           }
         }
@@ -2528,10 +2491,9 @@ export default function GradingPage({
             studentId: entries[i].studentId,
             conditions: detail.conditions,
             detail: {
-              bboxDeviatingCount: detail.bboxDeviatingCount,
               consecutiveBlankMax: detail.consecutiveBlankMax,
               typeMismatchCount: detail.typeMismatchCount,
-              typeMismatchQuestionIds: detail.typeMismatchQuestionIds,
+              typeMismatchDetails: detail.typeMismatchDetails,
             }
           }))
           fetch('/api/data/quality-check-log', {
@@ -2542,7 +2504,6 @@ export default function GradingPage({
               assignmentId: assignment.id,
               totalSubmissions: entries.length,
               flaggedCount: anomalousIndices.size,
-              numericDominantQuestions: numericDominantQuestionsForLog,
               flags,
             })
           }).catch(() => {/* log 失敗不影響主流程 */})
