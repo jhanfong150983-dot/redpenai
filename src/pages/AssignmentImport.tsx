@@ -1,13 +1,31 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
+  CopyCheck,
   FileImage,
   Loader,
+  RotateCw,
   Settings,
   Users,
-  X
+  X,
 } from 'lucide-react'
-import PageOrderModal from '@/components/PageOrderModal'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  rectSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { NumericInput } from '@/components/NumericInput'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import type { Assignment, Student, Submission } from '@/lib/db'
@@ -25,6 +43,131 @@ import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-stora
 
 // 目標檔案大小上限（1.5MB）
 const TARGET_MAX_BYTES = 1.9 * 1024 * 1024
+
+// ── 可排序頁面卡片 ────────────────────────────────────────────────────────────
+
+function SortablePreviewCard({
+  page,
+  rotation,
+  position,
+  onRotate
+}: {
+  page: PagePreview
+  rotation: number
+  position: number
+  onRotate: (index: number) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `page-${page.index}`
+  })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.8 : 1
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className={`relative group ${isDragging ? 'shadow-2xl' : ''}`}>
+      <div
+        {...attributes}
+        {...listeners}
+        className="border-2 border-gray-200 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing bg-white hover:border-green-400 transition-colors"
+      >
+        <div className="bg-gray-50 px-3 py-1.5 text-xs text-gray-600 font-medium flex items-center justify-between">
+          <span>第 {position + 1} 頁</span>
+          {rotation !== 0 && (
+            <span className="text-[10px] text-orange-600 font-semibold">{rotation}°</span>
+          )}
+        </div>
+        <div className="aspect-[3/4] bg-white overflow-hidden">
+          <img
+            src={page.url}
+            alt={`第 ${position + 1} 頁`}
+            className="w-full h-full object-contain transition-transform"
+            style={{ transform: `rotate(${rotation}deg)` }}
+            draggable={false}
+          />
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onRotate(page.index) }}
+        className="absolute top-9 right-1 p-1.5 rounded-full bg-white/90 border border-gray-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-100"
+        title="旋轉 90°"
+      >
+        <RotateCw className="w-3.5 h-3.5 text-gray-600" />
+      </button>
+    </div>
+  )
+}
+
+function PagePreviewSortable({
+  pages,
+  rotations,
+  onRotate,
+  onReorder
+}: {
+  pages: PagePreview[]
+  rotations: Map<number, number>
+  onRotate: (pageIndex: number) => void
+  onReorder: (newOrder: number[]) => void
+}) {
+  const [items, setItems] = useState(() => pages.map((p) => p.index))
+
+  // 當外部 pages 變更（切換學生）時同步重設
+  useEffect(() => {
+    setItems(pages.map((p) => p.index))
+  }, [pages])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      setItems((prev) => {
+        const oldIndex = prev.findIndex((id) => `page-${id}` === active.id)
+        const newIndex = prev.findIndex((id) => `page-${id}` === over.id)
+        const next = arrayMove(prev, oldIndex, newIndex)
+        onReorder(next)
+        return next
+      })
+    }
+  }, [onReorder])
+
+  const pageByIndex = useMemo(() => {
+    const m = new Map<number, PagePreview>()
+    pages.forEach((p) => m.set(p.index, p))
+    return m
+  }, [pages])
+
+  const cols = pages.length === 1 ? 'grid-cols-1' : pages.length === 2 ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'
+
+  return (
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={items.map((id) => `page-${id}`)} strategy={rectSortingStrategy}>
+        <div className={`grid ${cols} gap-3`}>
+          {items.map((pageIndex, position) => {
+            const page = pageByIndex.get(pageIndex)
+            if (!page) return null
+            return (
+              <SortablePreviewCard
+                key={pageIndex}
+                page={page}
+                rotation={rotations.get(pageIndex) ?? 0}
+                position={position}
+                onRotate={onRotate}
+              />
+            )
+          })}
+        </div>
+      </SortableContext>
+    </DndContext>
+  )
+}
 
 interface AssignmentImportProps {
   assignmentId: string
@@ -138,7 +281,12 @@ export default function AssignmentImport({
   const [selectedMappingIndex, setSelectedMappingIndex] = useState(0)
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const [phase, setPhase] = useState<'select' | 'order-pages' | 'applying' | 'edit-mapping'>('select')
+  const [phase, setPhase] = useState<'select' | 'edit-mapping'>('select')
+
+  // 每頁的旋轉角度（0 / 90 / 180 / 270）
+  const [pageRotations, setPageRotations] = useState<Map<number, number>>(new Map())
+  // 每位學生的自訂頁序（studentId → 頁面 index 陣列）
+  const [studentPageOrders, setStudentPageOrders] = useState<Map<string, number[]>>(new Map())
 
   // 計算班級中缺少的座號（跳號）
   const missingSeatNumbers = useMemo(() => {
@@ -293,12 +441,12 @@ export default function AssignmentImport({
 
   const pagesInSelectedRange = useMemo(() => {
     if (!selectedMapping) return []
-    return pages.filter(
-      (p) =>
-        p.index >= selectedMapping.fromIndex &&
-        p.index <= selectedMapping.toIndex
-    )
-  }, [pages, selectedMapping])
+    const customOrder = studentPageOrders.get(selectedMapping.studentId)
+    if (customOrder) {
+      return customOrder.map((idx) => pages.find((p) => p.index === idx)!).filter(Boolean)
+    }
+    return pages.filter((p) => p.index >= selectedMapping.fromIndex && p.index <= selectedMapping.toIndex)
+  }, [selectedMapping, pages, studentPageOrders])
 
   const unusedPages = useMemo(() => {
     const used = new Set<number>()
@@ -361,7 +509,6 @@ export default function AssignmentImport({
   const processSinglePdf = async (file: File) => {
     setFileName(file.name)
 
-    // 讓 pdfToImage 的護欄統一控制 scale/format/quality
     const blobs = await convertPdfToImages(file)
 
     const previews: PagePreview[] = blobs.map((blob, idx) => ({
@@ -371,7 +518,9 @@ export default function AssignmentImport({
     }))
 
     setPages(previews)
-    setPhase('order-pages')
+    setPageRotations(new Map())
+    setStudentPageOrders(new Map())
+    setPhase('edit-mapping')
     setIsUploading(false)
   }
 
@@ -401,7 +550,9 @@ export default function AssignmentImport({
       }))
 
       setPages(previews)
-      setPhase('order-pages')
+      setPageRotations(new Map())
+      setStudentPageOrders(new Map())
+      setPhase('edit-mapping')
       setFileName(`已串接 ${uploadedFiles.length} 個 PDF（共 ${previews.length} 頁）`)
       setUploadedFiles([])
 
@@ -421,47 +572,77 @@ export default function AssignmentImport({
     setIsUploading(false)
   }
 
-  const handlePageOrderConfirm = async (
-    order: number[],
-    rotations: Map<number, number>
-  ) => {
-    setPhase('applying')
-    setError(null)
+  // ── 旋轉與換序 ────────────────────────────────────────────────────────────
 
-    try {
-      const newPages: PagePreview[] = await Promise.all(
-        order.map(async (origIdx, newIdx) => {
-          const origPage = pages.find((p) => p.index === origIdx)!
-          const deg = rotations.get(origIdx) ?? 0
+  const handleRotatePage = useCallback((pageIndex: number) => {
+    setPageRotations((prev) => {
+      const next = new Map(prev)
+      next.set(pageIndex, ((prev.get(pageIndex) ?? 0) + 90) % 360)
+      return next
+    })
+  }, [])
 
-          const blob =
-            deg !== 0
-              ? await rotateImageBlob(origPage.blob, deg)
-              : origPage.blob
+  const handleRotateAll = useCallback(() => {
+    setPageRotations((prev) => {
+      const next = new Map(prev)
+      // 取得所有頁面 index
+      setPages((currentPages) => {
+        for (const p of currentPages) {
+          next.set(p.index, ((prev.get(p.index) ?? 0) + 90) % 360)
+        }
+        return currentPages
+      })
+      return next
+    })
+  }, [])
 
-          return {
-            index: newIdx,
-            blob,
-            url: URL.createObjectURL(blob)
-          }
-        })
-      )
-
-      setPages(newPages)
-      setPhase('edit-mapping')
-    } catch (e) {
-      console.error(e)
-      setError(e instanceof Error ? e.message : '處理頁面排序失敗')
-      setPhase('order-pages')
+  // 取得某位學生的頁面（套用自訂順序）
+  const getStudentPages = useCallback((mapping: MappingRow): PagePreview[] => {
+    const customOrder = studentPageOrders.get(mapping.studentId)
+    if (customOrder) {
+      return customOrder.map((idx) => pages.find((p) => p.index === idx)!).filter(Boolean)
     }
-  }
+    return pages.filter((p) => p.index >= mapping.fromIndex && p.index <= mapping.toIndex)
+  }, [pages, studentPageOrders])
 
-  const handlePageOrderCancel = () => {
-    setPages([])
-    setMappings([])
-    setFileName('')
-    setPhase('select')
-  }
+  // 套用目前學生的順序 + 旋轉樣式到所有學生
+  const handleApplyToAll = useCallback(() => {
+    if (!selectedMapping) return
+    const sourcePages = getStudentPages(selectedMapping)
+    const sourceCount = sourcePages.length
+
+    setStudentPageOrders((prevOrders) => {
+      const next = new Map(prevOrders)
+      setPageRotations((prevRots) => {
+        const nextRots = new Map(prevRots)
+        for (const mapping of mappings) {
+          if (mapping.studentId === selectedMapping.studentId) continue
+          const targetPages = pages.filter(
+            (p) => p.index >= mapping.fromIndex && p.index <= mapping.toIndex
+          )
+          if (targetPages.length !== sourceCount) continue
+
+          // 套用同樣的相對順序
+          const sourceDefaultPages = pages.filter(
+            (p) => p.index >= selectedMapping.fromIndex && p.index <= selectedMapping.toIndex
+          )
+          const newOrder = sourcePages.map((sp) => {
+            const relativeOffset = sourceDefaultPages.findIndex((dp) => dp.index === sp.index)
+            return targetPages[relativeOffset]?.index ?? sp.index
+          }).filter((idx): idx is number => idx !== undefined)
+          next.set(mapping.studentId, newOrder)
+
+          // 套用同樣的旋轉
+          sourcePages.forEach((sp, i) => {
+            const rot = prevRots.get(sp.index) ?? 0
+            if (targetPages[i]) nextRots.set(targetPages[i].index, rot)
+          })
+        }
+        return nextRots
+      })
+      return next
+    })
+  }, [selectedMapping, getStudentPages, mappings, pages])
 
   const handleAutoMap = () => {
     if (pages.length === 0) {
@@ -581,10 +762,17 @@ export default function AssignmentImport({
       let successCount = 0
 
       for (const mapping of mappings) {
-        // 先取得原始 Blobs
-        const pageBlobs = pages
-          .filter((p) => p.index >= mapping.fromIndex && p.index <= mapping.toIndex)
-          .map((p) => p.blob)
+        // 取得頁面（套用自訂順序）
+        const orderedPages = getStudentPages(mapping)
+        if (orderedPages.length === 0) continue
+
+        // 套用旋轉到每頁 blob
+        const pageBlobs = await Promise.all(
+          orderedPages.map(async (p) => {
+            const rot = pageRotations.get(p.index) ?? 0
+            return rot !== 0 ? rotateImageBlob(p.blob, rot) : p.blob
+          })
+        )
 
         if (pageBlobs.length === 0) continue
 
@@ -1002,44 +1190,47 @@ export default function AssignmentImport({
               </div>
             </div>
 
-            {/* 右側：頁面預覽 */}
+            {/* 右側：頁面預覽（可旋轉、拖曳換序） */}
           <div className="bg-white rounded-xl border border-slate-200 p-4 md:p-5 flex flex-col gap-3 min-h-[320px]">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-gray-700">頁面預覽</h2>
-              </div>
-              {selectedMapping && (
-                <p className="text-xs text-gray-500">
-                  顯示：第 {selectedMapping.fromIndex + 1}
-                  {selectedMapping.toIndex === selectedMapping.fromIndex
-                    ? ''
-                    : `–${selectedMapping.toIndex + 1}`}
-                  頁
-                </p>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h2 className="text-sm font-semibold text-gray-700">頁面預覽</h2>
+              {selectedMapping && pagesInSelectedRange.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRotateAll}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    <RotateCw className="w-3.5 h-3.5" />
+                    全部旋轉
+                  </button>
+                  {mappings.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={handleApplyToAll}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+                    >
+                      <CopyCheck className="w-3.5 h-3.5" />
+                      套用到全部學生
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
             {selectedMapping && pagesInSelectedRange.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {pagesInSelectedRange.map((p) => (
-                  <div
-                    key={p.index}
-                    className="border border-gray-200 rounded-xl overflow-hidden cursor-pointer hover:shadow-lg transition-shadow"
-                    onClick={() => setIsPreviewModalOpen(true)}
-                  >
-                    <div className="bg-gray-50 px-3 py-2 text-sm text-gray-700 font-medium">
-                      第 {p.index + 1} 頁
-                    </div>
-                    <div className="aspect-[3/4] bg-white overflow-hidden">
-                      <img
-                        src={p.url}
-                        alt={`第 ${p.index + 1} 頁預覽`}
-                        className="w-full h-full object-contain"
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <PagePreviewSortable
+                pages={pagesInSelectedRange}
+                rotations={pageRotations}
+                onRotate={handleRotatePage}
+                onReorder={(newOrder) => {
+                  setStudentPageOrders((prev) => {
+                    const next = new Map(prev)
+                    next.set(selectedMapping.studentId, newOrder)
+                    return next
+                  })
+                }}
+              />
             ) : (
               <div className="flex-1 border border-dashed border-gray-200 rounded-xl flex items-center justify-center bg-slate-50 min-h-[200px]">
                 <div className="text-xs text-gray-400 flex flex-col items-center gap-1">
@@ -1053,25 +1244,6 @@ export default function AssignmentImport({
         )}
 
       </div>
-
-      {/* 頁面排序 Modal */}
-      {phase === 'order-pages' && pages.length > 0 && (
-        <PageOrderModal
-          pages={pages}
-          onConfirm={handlePageOrderConfirm}
-          onCancel={handlePageOrderCancel}
-        />
-      )}
-
-      {/* 套用旋轉 Loading */}
-      {phase === 'applying' && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-2xl px-8 py-6 text-center">
-            <Loader className="w-10 h-10 text-green-600 mx-auto mb-3 animate-spin" />
-            <p className="text-sm font-medium text-gray-700">正在套用旋轉並配對頁面...</p>
-          </div>
-        </div>
-      )}
 
       {isPreviewModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
