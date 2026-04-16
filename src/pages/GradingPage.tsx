@@ -2572,6 +2572,76 @@ export default function GradingPage({
           }
         }
 
+        // 條件四：fill_blank 鄰題答案交叉比對（bbox 偏移檢測）
+        // 如果學生某題的答案 ≠ 該題標準答案，但 = 隔壁 fill_blank 的標準答案 → bbox 可能偏移
+        if (assignment?.answerKey?.questions) {
+          const akQuestions = assignment.answerKey.questions
+          // 建立 fill_blank 題目的有序清單（按 questionId）和標準答案 map
+          const fillBlankIds = akQuestions
+            .filter((q) => q.questionCategory === 'fill_blank' && q.answer)
+            .map((q) => q.id)
+            .sort()
+          const refAnswerById = new Map(
+            akQuestions
+              .filter((q) => q.questionCategory === 'fill_blank' && q.answer)
+              .map((q) => [q.id, String(q.answer).trim()])
+          )
+
+          // 數值等值比對（簡易版）
+          const numEq = (a: string, b: string): boolean => {
+            if (!a || !b) return false
+            const norm = (s: string) => s.replace(/\s+/g, '').replace(/[，]/g, ',').replace(/[−–—]/g, '-').toLowerCase()
+            if (norm(a) === norm(b)) return true
+            const toNum = (s: string): number | null => {
+              const frac = s.match(/^(-?\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/)
+              if (frac) { const d = parseFloat(frac[2]); return d !== 0 ? parseFloat(frac[1]) / d : null }
+              if (s.endsWith('%')) { const v = parseFloat(s); return isFinite(v) ? v / 100 : null }
+              const v = parseFloat(s); return isFinite(v) ? v : null
+            }
+            const na = toNum(norm(a)), nb = toNum(norm(b))
+            return na !== null && nb !== null && Math.abs(na - nb) < 1e-9
+          }
+
+          for (let i = 0; i < entries.length; i++) {
+            if (anomalousIndices.has(i)) continue
+            const neighborMismatches: Array<{ questionId: string; studentAnswer: string; neighborId: string; neighborRef: string }> = []
+
+            for (const qr of entries[i].phaseAResult.questionResults) {
+              if (qr.questionType !== 'fill_blank') continue
+              const stuAns = qr.readAnswer1?.studentAnswer ?? ''
+              if (!stuAns || qr.readAnswer1?.status !== 'read') continue
+              const ref = refAnswerById.get(qr.questionId)
+              if (!ref) continue
+              // 如果答對了（含等值），不檢查
+              if (numEq(stuAns, ref)) continue
+
+              // 找相鄰的 fill_blank
+              const idx = fillBlankIds.indexOf(qr.questionId)
+              if (idx < 0) continue
+              const neighbors = [fillBlankIds[idx - 1], fillBlankIds[idx + 1]].filter(Boolean)
+              for (const nId of neighbors) {
+                const nRef = refAnswerById.get(nId!)
+                if (nRef && numEq(stuAns, nRef)) {
+                  neighborMismatches.push({
+                    questionId: qr.questionId,
+                    studentAnswer: stuAns,
+                    neighborId: nId!,
+                    neighborRef: nRef,
+                  })
+                  break
+                }
+              }
+            }
+
+            if (neighborMismatches.length >= 1) {
+              anomalousIndices.add(i)
+              const f = getFlag(i)
+              f.conditions.push('fill_blank_neighbor_match')
+              ;(f as any).neighborMatchDetails = neighborMismatches
+            }
+          }
+        }
+
         // 品質檢查結果 POST 到後端（Vercel log）
         if (anomalousIndices.size > 0 || entries.length > 0) {
           const flags = Array.from(flagDetails.entries()).map(([i, detail]) => ({
@@ -2583,6 +2653,7 @@ export default function GradingPage({
               typeMismatchCount: detail.typeMismatchCount,
               typeMismatchDetails: detail.typeMismatchDetails,
               abcdMismatchDetails: detail.abcdMismatchDetails,
+              neighborMatchDetails: (detail as any).neighborMatchDetails,
             }
           }))
           fetch('/api/data/quality-check-log', {
