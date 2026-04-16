@@ -2389,6 +2389,18 @@ export default function GradingPage({
         const CONSECUTIVE_BLANK_THRESHOLD = 3   // ≥3 題連續空白 → 重跑
 
         const anomalousIndices = new Set<number>()
+        // 收集每份被標記作業的詳細原因，結束後 POST 到後端
+        const flagDetails = new Map<number, {
+          conditions: string[]
+          bboxDeviatingCount?: number
+          consecutiveBlankMax?: number
+          typeMismatchCount?: number
+          typeMismatchQuestionIds?: string[]
+        }>()
+        const getFlag = (i: number) => {
+          if (!flagDetails.has(i)) flagDetails.set(i, { conditions: [] })
+          return flagDetails.get(i)!
+        }
 
         // 條件一：bbox 跨作業中位數比較（需至少 MIN_SUBMISSIONS_FOR_BBOX 份）
         if (entries.length >= MIN_SUBMISSIONS_FOR_BBOX) {
@@ -2416,8 +2428,10 @@ export default function GradingPage({
               }
             }
             if (deviatingCount >= BBOX_ANOMALY_QUESTION_COUNT) {
-              console.warn(`[QualityCheck] bbox anomaly: submission ${entries[i].submissionId} has ${deviatingCount} deviating questions`)
               anomalousIndices.add(i)
+              const f = getFlag(i)
+              f.conditions.push('bbox_anomaly')
+              f.bboxDeviatingCount = deviatingCount
             }
           }
         }
@@ -2427,13 +2441,17 @@ export default function GradingPage({
           if (anomalousIndices.has(i)) continue  // 已被條件一標記，跳過
           const results = entries[i].phaseAResult.questionResults
           let consecutive = 0
+          let maxConsecutive = 0
           for (const qr of results) {
             const status = qr.readAnswer1?.status
             if (status === 'blank' || status === 'unreadable') {
               consecutive++
+              if (consecutive > maxConsecutive) maxConsecutive = consecutive
               if (consecutive >= CONSECUTIVE_BLANK_THRESHOLD) {
-                console.warn(`[QualityCheck] consecutive blanks: submission ${entries[i].submissionId} has ${consecutive}+ consecutive blanks`)
                 anomalousIndices.add(i)
+                const f = getFlag(i)
+                f.conditions.push('consecutive_blanks')
+                f.consecutiveBlankMax = maxConsecutive
                 break
               }
             } else {
@@ -2447,6 +2465,7 @@ export default function GradingPage({
         const MIN_SUBMISSIONS_FOR_TYPE = 3
         const DOMINANT_NUMERIC_RATIO = 0.5    // ≥50% 作業為數字 → 視為數字型題目
         const TYPE_MISMATCH_MIN_QUESTIONS = 2  // ≥2 題類型不符 → 重跑
+        let numericDominantQuestionsForLog: string[] = []
 
         if (entries.length >= MIN_SUBMISSIONS_FOR_TYPE) {
           const numericCountByQuestion = new Map<string, number>()
@@ -2474,24 +2493,59 @@ export default function GradingPage({
               numericDominantQuestions.add(qId)
             }
           }
+          numericDominantQuestionsForLog = Array.from(numericDominantQuestions)
 
           // 找出答案為純文字但該題主流是數字的作業
           for (let i = 0; i < entries.length; i++) {
             if (anomalousIndices.has(i)) continue
             let typeMismatchCount = 0
+            const mismatchQids: string[] = []
             for (const qr of entries[i].phaseAResult.questionResults) {
               if (qr.questionType !== 'fill_blank') continue
               if (!numericDominantQuestions.has(qr.questionId)) continue
               const answer = qr.readAnswer1?.studentAnswer ?? ''
               const status = qr.readAnswer1?.status
               if (status === 'blank' || status === 'unreadable' || !answer.trim()) continue
-              if (!/\d/.test(answer)) typeMismatchCount++
+              if (!/\d/.test(answer)) {
+                typeMismatchCount++
+                mismatchQids.push(qr.questionId)
+              }
             }
             if (typeMismatchCount >= TYPE_MISMATCH_MIN_QUESTIONS) {
-              console.warn(`[QualityCheck] answer-type mismatch: submission ${entries[i].submissionId} has ${typeMismatchCount} fill_blank questions returning text when numeric is dominant`)
               anomalousIndices.add(i)
+              const f = getFlag(i)
+              f.conditions.push('answer_type_mismatch')
+              f.typeMismatchCount = typeMismatchCount
+              f.typeMismatchQuestionIds = mismatchQids
             }
           }
+        }
+
+        // 品質檢查結果 POST 到後端（Vercel log）
+        if (anomalousIndices.size > 0 || entries.length > 0) {
+          const flags = Array.from(flagDetails.entries()).map(([i, detail]) => ({
+            submissionId: entries[i].submissionId,
+            studentId: entries[i].studentId,
+            conditions: detail.conditions,
+            detail: {
+              bboxDeviatingCount: detail.bboxDeviatingCount,
+              consecutiveBlankMax: detail.consecutiveBlankMax,
+              typeMismatchCount: detail.typeMismatchCount,
+              typeMismatchQuestionIds: detail.typeMismatchQuestionIds,
+            }
+          }))
+          fetch('/api/data/quality-check-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              assignmentId: assignment.id,
+              totalSubmissions: entries.length,
+              flaggedCount: anomalousIndices.size,
+              numericDominantQuestions: numericDominantQuestionsForLog,
+              flags,
+            })
+          }).catch(() => {/* log 失敗不影響主流程 */})
         }
 
         // 重跑品質不通過的作業（最多一次）
