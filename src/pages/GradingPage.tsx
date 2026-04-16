@@ -2402,6 +2402,7 @@ export default function GradingPage({
           consecutiveBlankMax?: number
           typeMismatchCount?: number
           typeMismatchDetails?: Array<{ questionId: string; expected: string; got: string }>
+          abcdMismatchDetails?: Array<{ questionId: string; got: string }>
         }>()
         const getFlag = (i: number) => {
           if (!flagDetails.has(i)) flagDetails.set(i, { conditions: [] })
@@ -2484,6 +2485,58 @@ export default function GradingPage({
           }
         }
 
+        // 條件三：是非題主流（O/X）但個別作業被讀成 ABCD
+        // 若某題 ≥60% 非空白答案是 O/X 類型，標記任何被讀成 A/B/C/D 的作業
+        if (entries.length >= MIN_SUBMISSIONS_FOR_TYPE) {
+          const isTrueFalseAnswer = (answer: string) => /^[OoXx○×✓✗✕⭕❌是非對錯]$/.test(answer.trim())
+          const isABCDAnswer = (answer: string) => /^[A-Da-d]$/.test(answer.trim())
+
+          // 第一輪：統計每題是非題答案佔比
+          const tfCountsByQuestion = new Map<string, { tf: number; total: number }>()
+          for (const entry of entries) {
+            for (const qr of entry.phaseAResult.questionResults) {
+              const ans = qr.readAnswer1?.studentAnswer ?? ''
+              const status = qr.readAnswer1?.status ?? ''
+              if (status === 'blank' || status === 'unreadable' || !ans.trim()) continue
+              if (!tfCountsByQuestion.has(qr.questionId)) {
+                tfCountsByQuestion.set(qr.questionId, { tf: 0, total: 0 })
+              }
+              const c = tfCountsByQuestion.get(qr.questionId)!
+              c.total++
+              if (isTrueFalseAnswer(ans)) c.tf++
+            }
+          }
+
+          // 確立是非題主流（≥60%）
+          const trueFalseQuestions = new Set<string>()
+          for (const [qId, { tf, total }] of tfCountsByQuestion) {
+            if (total >= MIN_SUBMISSIONS_FOR_TYPE && tf / total >= DOMINANT_TYPE_RATIO) {
+              trueFalseQuestions.add(qId)
+            }
+          }
+
+          // 第二輪：找出是非題被讀成 ABCD 的作業
+          if (trueFalseQuestions.size > 0) {
+            for (let i = 0; i < entries.length; i++) {
+              if (anomalousIndices.has(i)) continue
+              const abcdMismatches: Array<{ questionId: string; got: string }> = []
+              for (const qr of entries[i].phaseAResult.questionResults) {
+                if (!trueFalseQuestions.has(qr.questionId)) continue
+                const ans = qr.readAnswer1?.studentAnswer ?? ''
+                if (isABCDAnswer(ans)) {
+                  abcdMismatches.push({ questionId: qr.questionId, got: ans.trim() })
+                }
+              }
+              if (abcdMismatches.length >= 1) {
+                anomalousIndices.add(i)
+                const f = getFlag(i)
+                f.conditions.push('trueFalse_abcd_mismatch')
+                f.abcdMismatchDetails = abcdMismatches
+              }
+            }
+          }
+        }
+
         // 品質檢查結果 POST 到後端（Vercel log）
         if (anomalousIndices.size > 0 || entries.length > 0) {
           const flags = Array.from(flagDetails.entries()).map(([i, detail]) => ({
@@ -2494,6 +2547,7 @@ export default function GradingPage({
               consecutiveBlankMax: detail.consecutiveBlankMax,
               typeMismatchCount: detail.typeMismatchCount,
               typeMismatchDetails: detail.typeMismatchDetails,
+              abcdMismatchDetails: detail.abcdMismatchDetails,
             }
           }))
           fetch('/api/data/quality-check-log', {
