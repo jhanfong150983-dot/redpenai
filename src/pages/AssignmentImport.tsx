@@ -28,7 +28,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { NumericInput } from '@/components/NumericInput'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import type { Assignment, Student, Submission } from '@/lib/db'
-import { requestSync, waitForSync } from '@/lib/sync-events'
+import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import {
   convertPdfToImages,
@@ -1179,24 +1179,8 @@ export default function AssignmentImport({
       }
 
       if (successCount > 0) {
-        console.log('⏰ [PDF匯入] 觸發同步並等待完成...')
-
-        // 先設置監聯器，再觸發同步，避免錯過事件
-        // 設定 30 秒超時，避免無限等待（離線或同步失敗時）
-        const syncPromise = waitForSync(30000)
+        alert(`已成功建立 ${successCount} 份作業`)
         requestSync(true)
-
-        try {
-          // 等待同步完成（30 秒超時）
-          await syncPromise
-          console.log('✅ [PDF匯入] 同步已完成')
-          alert(`已成功建立 ${successCount} 份作業並同步到雲端`)
-        } catch (error) {
-          console.warn('⚠️ [PDF匯入] 同步失敗:', error)
-          alert(`已建立 ${successCount} 份作業，但同步失敗`)
-        }
-
-        console.log('🏠 [PDF匯入] 跳回首頁')
         onUploadComplete?.()
       } else {
         alert('沒有建立任何作業')
