@@ -3885,12 +3885,20 @@ ${needsPagePrefix ? `\n【多張圖片處理 - 多頁模式】\n- 你會收到 $
  * 回傳 PhaseAResult，包含每題的一致性狀態與兩次讀取結果。
  * 老師確認後再呼叫 gradePhaseB。
  */
+export interface ClassifyCorrection {
+  questionId: string
+  previousAnswer: string
+  neighborId: string
+  neighborRef: string
+}
+
 export async function gradePhaseA(
   submissionImageBlob: Blob,
   answerKey: AnswerKey,
   pageBreaks?: number[],
   domain?: string,
-  assignmentId?: string
+  assignmentId?: string,
+  classifyCorrections?: ClassifyCorrection[]
 ): Promise<PhaseAResult> {
   const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
@@ -3906,7 +3914,8 @@ export async function gradePhaseA(
     routeKey: 'grading.phase_a',
     answerKey: JSON.stringify(normalizedAnswerKey),
     ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
-    ...(assignmentId ? { assignmentId } : {})
+    ...(assignmentId ? { assignmentId } : {}),
+    ...(classifyCorrections && classifyCorrections.length > 0 ? { classifyCorrections } : {})
   })
 
   let response = await fetch(geminiProxyUrl, {

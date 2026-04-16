@@ -2683,7 +2683,15 @@ export default function GradingPage({
               const entry = entries[idx]
               const sub = toGrade.find((s) => s.id === entry.submissionId)
               if (!sub?.imageBlob) return null
-              const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id)
+              // 傳遞 classify 修正提示（fill_blank_neighbor_match 偵測到的偏移資訊）
+              const flag = flagDetails.get(idx)
+              const corrections = (flag as any)?.neighborMatchDetails?.map((m: any) => ({
+                questionId: m.questionId,
+                previousAnswer: m.studentAnswer,
+                neighborId: m.neighborId,
+                neighborRef: m.neighborRef,
+              })) ?? []
+              const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id, corrections)
               return { idx, phaseAResult }
             },
             (_i, result, err) => {
