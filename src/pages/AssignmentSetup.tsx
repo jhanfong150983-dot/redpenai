@@ -139,6 +139,10 @@ export default function AssignmentSetup({
   const [answerKeyError, setAnswerKeyError] = useState<string | null>(null)
   const [answerKeyNotice, setAnswerKeyNotice] = useState<string | null>(null)
 
+  // 答案卷文件類型（習作 / 考卷），決定題目排序策略
+  const [createAnswerDocType, setCreateAnswerDocType] = useState<'worksheet' | 'exam'>('worksheet')
+  const [editAnswerDocType, setEditAnswerDocType] = useState<'worksheet' | 'exam'>('worksheet')
+
   // 答案卷 Wizard 狀態（建立流程）
   const [showCreateWizard, setShowCreateWizard] = useState(false)
   const [createWizardPages, setCreateWizardPages] = useState<Array<{ index: number; url: string; blob: Blob }>>([])
@@ -1260,6 +1264,7 @@ export default function AssignmentSetup({
           conceptMap: batchConceptMap.length > 0 ? batchConceptMap : undefined,
           startPage: batchStartPages[i],
           totalPages,
+          docType: createAnswerDocType,
         })
       )
     )
@@ -1483,6 +1488,7 @@ export default function AssignmentSetup({
           domain: editingDomain,
           startPage: batchStartPages[i],
           totalPages,
+          docType: editAnswerDocType,
         })
       )
     )
@@ -3045,16 +3051,27 @@ export default function AssignmentSetup({
                   <label className="block text-sm font-medium text-slate-700">
                     上傳答案卷（可用 PDF 或圖片，支援多檔案選取）
                   </label>
-                  <input
-                    key={answerKeyInputKey}
-                    type="file"
-                    data-tutorial="assignment-upload-answerkey"
-                    accept="image/*,application/pdf"
-                    multiple
-                    onChange={handleAnswerKeyFileChange}
-                    disabled={isSubmitting || isExtractingAnswerKey}
-                    className="block w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
-                  />
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={createAnswerDocType}
+                      onChange={(e) => setCreateAnswerDocType(e.target.value as 'worksheet' | 'exam')}
+                      disabled={isSubmitting || isExtractingAnswerKey}
+                      className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    >
+                      <option value="worksheet">習作</option>
+                      <option value="exam">考卷</option>
+                    </select>
+                    <input
+                      key={answerKeyInputKey}
+                      type="file"
+                      data-tutorial="assignment-upload-answerkey"
+                      accept="image/*,application/pdf"
+                      multiple
+                      onChange={handleAnswerKeyFileChange}
+                      disabled={isSubmitting || isExtractingAnswerKey}
+                      className="min-w-0 flex-1 text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+                    />
+                  </div>
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                     <p className="text-xs font-semibold text-slate-700">提醒</p>
                     <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-slate-600">
@@ -3280,14 +3297,25 @@ export default function AssignmentSetup({
                 <label className="block text-sm font-medium text-gray-700">
                   重新上傳答案卷（可選 PDF 或圖片）
                 </label>
-                <input
-                  type="file"
-                  accept="image/*,application/pdf"
-                  multiple
-                  onChange={handleEditAnswerKeyFileChange}
-                  disabled={isExtractingAnswerKeyEdit}
-                  className="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
-                />
+                <div className="flex items-center gap-2">
+                  <select
+                    value={editAnswerDocType}
+                    onChange={(e) => setEditAnswerDocType(e.target.value as 'worksheet' | 'exam')}
+                    disabled={isExtractingAnswerKeyEdit}
+                    className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                  >
+                    <option value="worksheet">習作</option>
+                    <option value="exam">考卷</option>
+                  </select>
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    multiple
+                    onChange={handleEditAnswerKeyFileChange}
+                    disabled={isExtractingAnswerKeyEdit}
+                    className="min-w-0 flex-1 text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                  />
+                </div>
                 <p className="text-xs text-gray-500 mt-1">
                   系統會自動壓縮後交給 AI。可多次上傳，題目會合併；重複題號會自動加上後綴。
                 </p>
