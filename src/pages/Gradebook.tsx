@@ -590,11 +590,29 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   }
 
   const handleScoreManualEdit = (submissionId: string, newScore: number) => {
+    // Find existing submission to check if value actually changed
+    const existing = submissions.find((s) => s.id === submissionId)
+    if (!existing) return
+    // Skip save if score didn't actually change — NumericInput always fires onChange on blur
+    if (existing.score === newScore) return
+
     const now = Date.now()
+    // Preserve the pre-edit score as aiScore if not already set (supports old AI-graded data)
+    const preservedAiScore = existing.aiScore ?? existing.score
     setSubmissions((prev) =>
-      prev.map((s) => s.id === submissionId ? { ...s, score: newScore, scoreSource: 'manual', updatedAt: now } : s)
+      prev.map((s) =>
+        s.id === submissionId
+          ? { ...s, score: newScore, aiScore: preservedAiScore ?? undefined, scoreSource: 'manual', updatedAt: now }
+          : s
+      )
     )
-    void db.submissions.update(submissionId, { score: newScore, scoreSource: 'manual' as const, updatedAt: now })
+    const dbUpdate: Partial<Pick<Submission, 'score' | 'aiScore' | 'scoreSource' | 'updatedAt'>> = {
+      score: newScore,
+      scoreSource: 'manual',
+      updatedAt: now,
+      ...(preservedAiScore != null ? { aiScore: preservedAiScore } : {})
+    }
+    void db.submissions.update(submissionId, dbUpdate)
     requestSync()
   }
 
@@ -929,7 +947,9 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       {r.scoreCells.map((cell, idx) => {
                         const assignment = filteredAssignments[idx]
                         const isManual = cell.scoreSource === 'manual'
+                        // aiScore is always set on first manual edit (even for old AI data)
                         const hasRestoreTarget = isManual && cell.submissionId != null && cell.aiScore != null
+                        const restoreAiScore = cell.aiScore
                         const isEditing =
                           editingCell?.assignmentId === assignment.id &&
                           editingCell?.studentId === r.student.id
@@ -938,7 +958,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                             key={assignment.id}
                             className="px-3 py-2 text-center"
                             onMouseEnter={hasRestoreTarget
-                              ? (e) => handleScoreCellMouseEnter(e, cell.submissionId!, cell.aiScore!)
+                              ? (e) => handleScoreCellMouseEnter(e, cell.submissionId!, restoreAiScore!)
                               : undefined}
                             onMouseLeave={hasRestoreTarget ? handleScoreCellMouseLeave : undefined}
                             onClick={() => {
@@ -953,6 +973,8 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                                 min={0}
                                 value={cell.score ?? 0}
                                 onChange={(v) => {
+                                  // onChange fires on every keystroke and on blur
+                                  // handleScoreManualEdit guards: skips if value unchanged
                                   if (cell.submissionId) {
                                     handleScoreManualEdit(
                                       cell.submissionId,
