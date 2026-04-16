@@ -690,7 +690,7 @@ function ConsistencyQuestionCard({
     const s = raw.trim()
     if (!s) return null
     // 1. 答：xxx / 答:xxx / A:xxx
-    const prefixMatch = s.match(/(?:答[：:：]|[Aa](?:ns)?[：:])\s*[（(]?\s*(.+?)\s*[）)]?[\s。，,]*$/u)
+    const prefixMatch = s.match(/(?:答[：:：]|[Aa](?:ns)?[：:\s])\s*[（(]?\s*(.+?)\s*[）)]?[\s。，,]*$/u)
     if (prefixMatch?.[1]?.trim()) return prefixMatch[1].trim()
     // 2. =(xxx) bracket
     const firstSeg = s.split(/[,，\n]/)[0]
