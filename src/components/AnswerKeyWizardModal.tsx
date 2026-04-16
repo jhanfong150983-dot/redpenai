@@ -234,6 +234,17 @@ export default function AnswerKeyWizardModal({
 
   const doSave = async () => {
     if (!editingKey) return
+    // 檢查多維度配分加總是否與題目配分一致
+    const mismatchQuestions = editingKey.questions.filter((q) => {
+      if (!q.rubricsDimensions || q.rubricsDimensions.length === 0) return false
+      const dimSum = q.rubricsDimensions.reduce((s, d) => s + (d.maxScore ?? 0), 0)
+      return dimSum !== (q.maxScore ?? 0)
+    })
+    if (mismatchQuestions.length > 0) {
+      const ids = mismatchQuestions.map((q) => q.id).join('、')
+      alert(`以下題目的評分維度加總與題目配分不一致，請調整後再儲存：\n${ids}`)
+      return
+    }
     setOverlay(null)
     setIsSaving(true)
     try {
@@ -737,6 +748,19 @@ export default function AnswerKeyWizardModal({
                                   <textarea rows={2} placeholder="評分標準" className="w-full px-2 py-1 border border-gray-300 rounded text-xs" value={dim.criteria ?? ''} onChange={(e) => updateDimension(selectedIdx, dIdx, 'criteria', e.target.value)} />
                                 </div>
                               ))}
+                              {scoringMode !== 'unscored' && (() => {
+                                const dimSum = selectedQuestion.rubricsDimensions!.reduce((s, d) => s + (d.maxScore ?? 0), 0)
+                                const qMax = selectedQuestion.maxScore ?? 0
+                                if (dimSum !== qMax) {
+                                  return (
+                                    <div className="flex items-center gap-1.5 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1.5 mt-1">
+                                      <span className="shrink-0">⚠️</span>
+                                      <span>維度加總 <b>{dimSum}</b> 分 ≠ 題目配分 <b>{qMax}</b> 分，請調整後才能儲存</span>
+                                    </div>
+                                  )
+                                }
+                                return null
+                              })()}
                             </div>
                           )}
                           {selectedQuestion.rubric && (
