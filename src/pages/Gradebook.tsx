@@ -470,17 +470,15 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
   const handleWeightChange = (id: string, value: number) => {
     const nextWeight = Math.max(0, value)
+    const now = Date.now()
     setAssignments((prev) =>
       prev.map((assignment) =>
         assignment.id === id
-          ? {
-              ...assignment,
-              gradeWeightPercent: nextWeight
-            }
+          ? { ...assignment, gradeWeightPercent: nextWeight, updatedAt: now }
           : assignment
       )
     )
-    void db.assignments.update(id, { gradeWeightPercent: nextWeight })
+    void db.assignments.update(id, { gradeWeightPercent: nextWeight, updatedAt: now })
     requestSync()
   }
 
@@ -533,17 +531,19 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   }
 
   const handleCustomNameChange = (id: string, name: string) => {
-    setCustomColumns((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)))
-    void db.gradebookCustomColumns.update(id, { name })
+    const now = Date.now()
+    setCustomColumns((prev) => prev.map((c) => (c.id === id ? { ...c, name, updatedAt: now } : c)))
+    void db.gradebookCustomColumns.update(id, { name, updatedAt: now })
     requestSync()
   }
 
   const handleCustomWeightChange = (id: string, value: number) => {
     const nextWeight = Math.max(0, value)
+    const now = Date.now()
     setCustomColumns((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, weightPercent: nextWeight } : c))
+      prev.map((c) => (c.id === id ? { ...c, weightPercent: nextWeight, updatedAt: now } : c))
     )
-    void db.gradebookCustomColumns.update(id, { weightPercent: nextWeight })
+    void db.gradebookCustomColumns.update(id, { weightPercent: nextWeight, updatedAt: now })
     requestSync()
   }
 
