@@ -371,7 +371,7 @@ function rebuildBlobFromBase64(base64: string): Blob {
 
 // ─── Phase A/B 一致性審查類型 ─────────────────────────────────────────────────
 
-type GradingPhase = 'idle' | 'phase_a_running' | 'awaiting_review' | 'phase_b_running' | 'report_running'
+type GradingPhase = 'idle' | 'phase_a_running' | 'quality_check' | 'awaiting_review' | 'phase_b_running' | 'report_running'
 
 interface ConsistencyDecision {
   questionId: string
@@ -525,10 +525,11 @@ function PipelineStage({ index, label, sublabel, status }: PipelineStageProps) {
 
 
 interface GradingPipelineOverlayProps {
-  phase: 'phase_a_running' | 'phase_b_running' | 'report_running'
+  phase: 'phase_a_running' | 'quality_check' | 'phase_b_running' | 'report_running'
   phaseAProgress: { current: number; total: number }
   phaseBProgress: { current: number; total: number }
   phaseANeedsReviewCount: number
+  qualityCheckRetryCount: number
   gradingMessage: string
   stopRequested: boolean
   onStop: () => void
@@ -539,30 +540,40 @@ function GradingPipelineOverlay({
   phaseAProgress,
   phaseBProgress,
   phaseANeedsReviewCount,
+  qualityCheckRetryCount,
   gradingMessage,
   stopRequested,
   onStop,
 }: GradingPipelineOverlayProps) {
   const isPhaseA = phase === 'phase_a_running'
+  const isQualityCheck = phase === 'quality_check'
   const isReport = phase === 'report_running'
+  const isAfterQuality = !isPhaseA && !isQualityCheck
 
   const stageA: PipelineStageStatus = isPhaseA ? 'active' : 'done'
-  const stageReview: PipelineStageStatus = isPhaseA ? 'pending' : 'done'
-  const stageB: PipelineStageStatus = isPhaseA ? 'pending' : isReport ? 'done' : 'active'
+  const stageQC: PipelineStageStatus = isPhaseA ? 'pending' : isQualityCheck ? 'active' : 'done'
+  const stageReview: PipelineStageStatus = isAfterQuality ? 'done' : 'pending'
+  const stageB: PipelineStageStatus = isAfterQuality ? (isReport ? 'done' : 'active') : 'pending'
   const stageReport: PipelineStageStatus = isReport ? 'active' : 'pending'
 
   const aLabel = isPhaseA
     ? `${phaseAProgress.current}/${phaseAProgress.total}`
     : `${phaseAProgress.total}/${phaseAProgress.total}`
-  const bLabel = isPhaseA
+  const bLabel = !isAfterQuality
     ? `0/${phaseBProgress.total}`
     : isReport
       ? `${phaseBProgress.total}/${phaseBProgress.total}`
       : `${phaseBProgress.current}/${phaseBProgress.total}`
 
+  const qcLabel = isPhaseA
+    ? '等待中'
+    : isQualityCheck
+      ? (qualityCheckRetryCount > 0 ? `重跑 ${qualityCheckRetryCount} 份` : '檢查中...')
+      : (qualityCheckRetryCount > 0 ? `重跑 ${qualityCheckRetryCount} 份` : '通過')
+
   const reviewLabel = phaseANeedsReviewCount > 0
     ? `需審查 ${phaseANeedsReviewCount} 份`
-    : isPhaseA ? '統計中...' : '已確認'
+    : isPhaseA || isQualityCheck ? '統計中...' : '已確認'
 
   return (
     <>
@@ -576,7 +587,7 @@ function GradingPipelineOverlay({
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
         zIndex: 9999, background: '#fff', borderRadius: '1.25rem',
         boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
-        padding: '2rem 2.5rem', minWidth: '460px', maxWidth: '90vw',
+        padding: '2rem 2.5rem', minWidth: '520px', maxWidth: '90vw',
         display: 'flex', flexDirection: 'column', gap: '1.5rem', alignItems: 'center',
       }}>
         {/* Title */}
@@ -588,9 +599,10 @@ function GradingPipelineOverlay({
         {/* Pipeline stages */}
         <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%', padding: '0 0.25rem', gap: '0.25rem' }}>
           <PipelineStage index={1} label="擷取學生答案" sublabel={aLabel} status={stageA} />
-          <PipelineStage index={2} label="教師人工審查" sublabel={reviewLabel} status={stageReview} />
-          <PipelineStage index={3} label="AI批改評分" sublabel={bLabel} status={stageB} />
-          <PipelineStage index={4} label="生成作業報告" sublabel={isReport ? '生成中...' : '等待中'} status={stageReport} />
+          <PipelineStage index={2} label="品質總檢查" sublabel={qcLabel} status={stageQC} />
+          <PipelineStage index={3} label="教師人工審查" sublabel={reviewLabel} status={stageReview} />
+          <PipelineStage index={4} label="AI批改評分" sublabel={bLabel} status={stageB} />
+          <PipelineStage index={5} label="生成作業報告" sublabel={isReport ? '生成中...' : '等待中'} status={stageReport} />
         </div>
 
         {/* 人工審查提醒（Phase A 執行中且已有需審查題目） */}
@@ -1184,6 +1196,7 @@ export default function GradingPage({
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
   const [batchPhaseAEntries, setBatchPhaseAEntries] = useState<BatchPhaseAEntry[]>([])
   const [phaseANeedsReviewCount, setPhaseANeedsReviewCount] = useState(0)
+  const [qualityCheckRetryCount, setQualityCheckRetryCount] = useState(0)
 
   useEffect(() => {
     onGradingPhaseChange?.(gradingPhase)
@@ -2365,14 +2378,20 @@ export default function GradingPage({
           failedEntries: [],
         })
       } else {
-        // ── Bbox cross-submission anomaly detection ───────────────────────────
-        // Collect median y per questionId, flag submissions deviating ≥3 questions
-        const MIN_SUBMISSIONS_FOR_COMPARISON = 3
-        const BBOX_DEVIATION_THRESHOLD = 0.05  // 5% of page height
-        const ANOMALY_QUESTION_COUNT = 3        // flag if ≥3 questions deviate
+        // ── 品質總檢查（所有作業 Phase A 完成後） ─────────────────────────────
+        setGradingPhase('quality_check')
+        setGradingMessage('正在進行品質總檢查...')
+        setQualityCheckRetryCount(0)
 
-        if (entries.length >= MIN_SUBMISSIONS_FOR_COMPARISON) {
-          // Build { questionId → y[] } across all entries
+        const MIN_SUBMISSIONS_FOR_BBOX = 3
+        const BBOX_DEVIATION_THRESHOLD = 0.05  // 5% of page height
+        const BBOX_ANOMALY_QUESTION_COUNT = 3   // ≥3 題 bbox 偏差 → 重跑
+        const CONSECUTIVE_BLANK_THRESHOLD = 3   // ≥3 題連續空白 → 重跑
+
+        const anomalousIndices = new Set<number>()
+
+        // 條件一：bbox 跨作業中位數比較（需至少 MIN_SUBMISSIONS_FOR_BBOX 份）
+        if (entries.length >= MIN_SUBMISSIONS_FOR_BBOX) {
           const ysByQuestion = new Map<string, number[]>()
           for (const entry of entries) {
             for (const qr of entry.phaseAResult.questionResults) {
@@ -2383,59 +2402,79 @@ export default function GradingPage({
               }
             }
           }
-          // Compute median per questionId
           const medianY = new Map<string, number>()
           for (const [qId, ys] of ysByQuestion) {
             const sorted = [...ys].sort((a, b) => a - b)
             medianY.set(qId, sorted[Math.floor(sorted.length / 2)])
           }
-          // Find anomalous entries
-          const anomalousIndices: number[] = []
           for (let i = 0; i < entries.length; i++) {
             let deviatingCount = 0
             for (const qr of entries[i].phaseAResult.questionResults) {
               const med = medianY.get(qr.questionId)
-              if (med !== undefined && qr.answerBbox) {
-                if (Math.abs(qr.answerBbox.y - med) > BBOX_DEVIATION_THRESHOLD) deviatingCount++
+              if (med !== undefined && qr.answerBbox && Math.abs(qr.answerBbox.y - med) > BBOX_DEVIATION_THRESHOLD) {
+                deviatingCount++
               }
             }
-            if (deviatingCount >= ANOMALY_QUESTION_COUNT) {
-              console.warn(`[BboxCheck] submission ${entries[i].submissionId} anomaly: ${deviatingCount} deviating questions — re-running Phase A`)
-              anomalousIndices.push(i)
+            if (deviatingCount >= BBOX_ANOMALY_QUESTION_COUNT) {
+              console.warn(`[QualityCheck] bbox anomaly: submission ${entries[i].submissionId} has ${deviatingCount} deviating questions`)
+              anomalousIndices.add(i)
             }
           }
-          // Re-run Phase A once for anomalous entries
-          if (anomalousIndices.length > 0) {
-            await runWithConcurrency(
-              anomalousIndices,
-              5,
-              300,
-              async (idx) => {
-                if (stopRequestedRef.current) return null
-                const entry = entries[idx]
-                const sub = toGrade.find((s) => s.id === entry.submissionId)
-                if (!sub?.imageBlob) return null
-                const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id)
-                return { idx, phaseAResult }
-              },
-              (_i, result, err) => {
-                if (!result) { if (err) console.error('[BboxCheck] retry failed:', err); return }
-                const { idx, phaseAResult } = result
-                // Rebuild decisions for retried entry
-                const decisions = new Map<string, ConsistencyDecision>()
-                for (const qr of phaseAResult.questionResults) {
-                  const arbiter = qr.arbiterResult
-                  if (arbiter && arbiter.arbiterStatus !== 'needs_review') {
-                    const source = arbiter.arbiterStatus === 'arbitrated_pick_1' ? 'ai_read1' : arbiter.arbiterStatus === 'arbitrated_pick_2' ? 'ai_read2' : 'ai_arbiter'
-                    decisions.set(qr.questionId, { questionId: qr.questionId, source, finalAnswer: arbiter.finalAnswer ?? qr.readAnswer1.studentAnswer, confirmed: true })
-                  } else if (!arbiter && qr.consistencyStatus === 'stable') {
-                    decisions.set(qr.questionId, { questionId: qr.questionId, source: 'ai_read1', finalAnswer: qr.readAnswer1.studentAnswer, confirmed: true })
-                  }
+        }
+
+        // 條件二：連續空白/無法辨識 ≥ CONSECUTIVE_BLANK_THRESHOLD 題
+        for (let i = 0; i < entries.length; i++) {
+          if (anomalousIndices.has(i)) continue  // 已被條件一標記，跳過
+          const results = entries[i].phaseAResult.questionResults
+          let consecutive = 0
+          for (const qr of results) {
+            const status = qr.readAnswer1?.status
+            if (status === 'blank' || status === 'unreadable') {
+              consecutive++
+              if (consecutive >= CONSECUTIVE_BLANK_THRESHOLD) {
+                console.warn(`[QualityCheck] consecutive blanks: submission ${entries[i].submissionId} has ${consecutive}+ consecutive blanks`)
+                anomalousIndices.add(i)
+                break
+              }
+            } else {
+              consecutive = 0
+            }
+          }
+        }
+
+        // 重跑品質不通過的作業（最多一次）
+        if (anomalousIndices.size > 0) {
+          setQualityCheckRetryCount(anomalousIndices.size)
+          setGradingMessage(`品質不通過，重新批改 ${anomalousIndices.size} 份...`)
+          const indicesToRetry = Array.from(anomalousIndices)
+          await runWithConcurrency(
+            indicesToRetry,
+            5,
+            300,
+            async (idx) => {
+              if (stopRequestedRef.current) return null
+              const entry = entries[idx]
+              const sub = toGrade.find((s) => s.id === entry.submissionId)
+              if (!sub?.imageBlob) return null
+              const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id)
+              return { idx, phaseAResult }
+            },
+            (_i, result, err) => {
+              if (!result) { if (err) console.error('[QualityCheck] retry failed:', err); return }
+              const { idx, phaseAResult } = result
+              const decisions = new Map<string, ConsistencyDecision>()
+              for (const qr of phaseAResult.questionResults) {
+                const arbiter = qr.arbiterResult
+                if (arbiter && arbiter.arbiterStatus !== 'needs_review') {
+                  const source = arbiter.arbiterStatus === 'arbitrated_pick_1' ? 'ai_read1' : arbiter.arbiterStatus === 'arbitrated_pick_2' ? 'ai_read2' : 'ai_arbiter'
+                  decisions.set(qr.questionId, { questionId: qr.questionId, source, finalAnswer: arbiter.finalAnswer ?? qr.readAnswer1.studentAnswer, confirmed: true })
+                } else if (!arbiter && qr.consistencyStatus === 'stable') {
+                  decisions.set(qr.questionId, { questionId: qr.questionId, source: 'ai_read1', finalAnswer: qr.readAnswer1.studentAnswer, confirmed: true })
                 }
-                entries[idx] = { ...entries[idx], phaseAResult, decisions }
               }
-            )
-          }
+              entries[idx] = { ...entries[idx], phaseAResult, decisions }
+            }
+          )
         }
 
         setBatchPhaseAEntries(entries)
@@ -3060,11 +3099,12 @@ export default function GradingPage({
         )}
 
         {/* Grading pipeline overlay (下載圖片、Phase A、Phase B、生成報告 統一顯示遮罩) */}
-        {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'phase_b_running' || gradingPhase === 'report_running') && (
+        {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'quality_check' || gradingPhase === 'phase_b_running' || gradingPhase === 'report_running') && (
           <GradingPipelineOverlay
             phase={
               gradingPhase === 'phase_b_running' ? 'phase_b_running'
               : gradingPhase === 'report_running' ? 'report_running'
+              : gradingPhase === 'quality_check' ? 'quality_check'
               : 'phase_a_running'
             }
             phaseAProgress={
@@ -3082,6 +3122,7 @@ export default function GradingPage({
                   : { current: 0, total: batchPhaseAEntries.length }
             }
             phaseANeedsReviewCount={phaseANeedsReviewCount}
+            qualityCheckRetryCount={qualityCheckRetryCount}
             gradingMessage={isDownloading ? '正在下載學生作業圖片...' : gradingMessage}
             stopRequested={stopRequested}
             onStop={handleStopGrading}
