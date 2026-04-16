@@ -312,6 +312,7 @@ type GradeResultNotice = {
   failCount: number
   totalCount: number
   failReasons: string[]
+  failedEntries: BatchPhaseAEntry[]
 }
 
 /**
@@ -1256,23 +1257,25 @@ export default function GradingPage({
   }, [needsReviewStudents, selectedSubmission, submissions])
 
   // ─── Batch Phase B: 正式批改（全班）────────────────────────────────────────
-  const executeBatchPhaseB = useCallback(async () => {
-    if (batchPhaseAEntries.length === 0) return
+  const executeBatchPhaseB = useCallback(async (entriesToProcess?: BatchPhaseAEntry[]) => {
+    const entries = entriesToProcess ?? batchPhaseAEntries
+    if (entries.length === 0) return
 
     setGradingPhase('phase_b_running')
     setGradingMessage('Step 2/2：正在批改...')
     setIsGrading(true)
     setGradingStartTime(Date.now())
-    setGradingProgress({ current: 0, total: batchPhaseAEntries.length })
+    setGradingProgress({ current: 0, total: entries.length })
     setCompletedReviewCount(0)
 
     let successCount = 0
     let failCount = 0
     let completedB = 0
     const failReasons: string[] = []
+    const failedEntries: BatchPhaseAEntry[] = []
 
     await runWithConcurrency(
-      batchPhaseAEntries,
+      entries,
       7,
       300,
       async (entry) => {
@@ -1291,11 +1294,12 @@ export default function GradingPage({
       },
       async (_i, result, err) => {
         completedB++
-        setGradingProgress({ current: completedB, total: batchPhaseAEntries.length })
+        setGradingProgress({ current: completedB, total: entries.length })
         if (err || !result) {
-          console.error(`Phase B failed for ${batchPhaseAEntries[_i]?.submissionId}:`, err)
+          console.error(`Phase B failed for ${entries[_i]?.submissionId}:`, err)
           failCount++
-          const failedEntry = batchPhaseAEntries[_i]
+          const failedEntry = entries[_i]
+          if (failedEntry && !stopRequestedRef.current) failedEntries.push(failedEntry)
           const failedStudent = failedEntry ? students.find((s) => s.id === failedEntry.studentId) : undefined
           const studentLabel = failedStudent
             ? `${failedStudent.seatNumber}號 ${failedStudent.name}`
@@ -1406,8 +1410,9 @@ export default function GradingPage({
       stopped: stopRequestedRef.current,
       successCount,
       failCount,
-      totalCount: batchPhaseAEntries.length,
+      totalCount: entries.length,
       failReasons,
+      failedEntries,
     })
     setStopRequested(false)
     stopRequestedRef.current = false
@@ -2244,7 +2249,8 @@ export default function GradingPage({
             successCount: 0,
             failCount: 0,
             totalCount: candidates.length,
-            failReasons: []
+            failReasons: [],
+            failedEntries: [],
           })
           return
         }
@@ -2355,7 +2361,8 @@ export default function GradingPage({
           successCount: 0,
           failCount: 0,
           totalCount: toGrade.length,
-          failReasons: []
+          failReasons: [],
+          failedEntries: [],
         })
       } else {
         // ── Bbox cross-submission anomaly detection ───────────────────────────
@@ -2960,12 +2967,26 @@ export default function GradingPage({
                 </div>
               )}
             </div>
-            <button
-              onClick={() => setGradeResultNotice(null)}
-              className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-700 transition-colors"
-            >
-              關閉
-            </button>
+            <div className="flex flex-col gap-2">
+              {gradeResultNotice.failedEntries.length > 0 && (
+                <button
+                  onClick={() => {
+                    const toRetry = gradeResultNotice.failedEntries
+                    setGradeResultNotice(null)
+                    void executeBatchPhaseB(toRetry)
+                  }}
+                  className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-medium text-white hover:bg-rose-700 transition-colors"
+                >
+                  重新批改失敗的 {gradeResultNotice.failedEntries.length} 份
+                </button>
+              )}
+              <button
+                onClick={() => setGradeResultNotice(null)}
+                className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-700 transition-colors"
+              >
+                關閉
+              </button>
+            </div>
           </div>
         </div>
       )}
