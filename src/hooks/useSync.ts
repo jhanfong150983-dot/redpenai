@@ -649,6 +649,8 @@ export function useSync(options: UseSyncOptions = {}) {
           rest.thumbnailUrl ||
           `submissions/thumbs/${rest.id}.webp`,
         score: rest.score,
+        aiScore: rest.aiScore,
+        scoreSource: rest.scoreSource,
         feedback: rest.feedback,
         gradingResult: rest.gradingResult,
         gradedAt: rest.gradedAt,
@@ -932,6 +934,12 @@ export function useSync(options: UseSyncOptions = {}) {
           status: finalStatus,
           createdAt,
           score: sub.score,
+          aiScore: (sub as Submission & { aiScore?: number }).aiScore ??
+            (sub as { ai_score?: number }).ai_score ?? undefined,
+          scoreSource: (
+            (sub as Submission & { scoreSource?: string }).scoreSource ??
+            (sub as { score_source?: string }).score_source
+          ) as 'ai' | 'manual' | undefined,
           feedback: sub.feedback,
           // 伺服器同步不再回傳 gradingResult，優先保留本地已有的批改結果
           gradingResult: localImageData?.gradingResult ?? sub.gradingResult,

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Download, Info, Plus, X } from 'lucide-react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { AlertTriangle, Download, Info, Plus, RotateCcw, X } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { requestSync } from '@/lib/sync-events'
@@ -21,6 +22,13 @@ interface GradebookProps {
 interface SimpleStats {
   average: number | null
   median: number | null
+}
+
+interface ScoreCell {
+  score: number | null
+  submissionId?: string
+  aiScore?: number
+  scoreSource?: 'ai' | 'manual'
 }
 
 interface CustomColumn {
@@ -86,6 +94,12 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const [error, setError] = useState<string | null>(null)
 
   const [customColumns, setCustomColumns] = useState<CustomColumn[]>([])
+
+  const [editingCell, setEditingCell] = useState<{ assignmentId: string; studentId: string } | null>(null)
+  const [restorePortal, setRestorePortal] = useState<{
+    x: number; y: number; submissionId: string; aiScore: number
+  } | null>(null)
+  const hideRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const hasClassrooms = classrooms.length > 0
 
@@ -375,9 +389,14 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
   const rows = useMemo(() => {
     return students.map((s) => {
-      const scores = filteredAssignments.map((a) => {
+      const scoreCells: ScoreCell[] = filteredAssignments.map((a) => {
         const sub = submissionMap.get(`${a.id}-${s.id}`)
-        return sub?.score ?? null
+        return {
+          score: sub?.score ?? null,
+          submissionId: sub?.id,
+          aiScore: sub?.aiScore,
+          scoreSource: sub?.scoreSource
+        }
       })
       const customScores = customColumns.map((col) => col.scores[s.id] ?? null)
 
@@ -385,7 +404,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
       let denominator = 0
       if (isGlobalWeightValid && visibleWeightTotal > 0) {
         filteredAssignments.forEach((assignment, idx) => {
-          const score = scores[idx]
+          const score = scoreCells[idx].score
           const normalizedWeight = normalizedAssignmentWeightMap.get(assignment.id) ?? 0
           if (score != null && normalizedWeight > 0) {
             numerator += score * normalizedWeight
@@ -405,7 +424,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
       const weightedTotal = denominator > 0 ? numerator / denominator : null
 
-      return { student: s, scores, customScores, weightedTotal }
+      return { student: s, scoreCells, customScores, weightedTotal }
     })
   }, [
     students,
@@ -444,7 +463,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const assignmentStats = useMemo(() => {
     const map: Record<string, SimpleStats> = {}
     filteredAssignments.forEach((a, idx) => {
-      const values = rows.map((r) => r.scores[idx])
+      const values = rows.map((r) => r.scoreCells[idx].score)
       map[a.id] = calcStats(values)
     })
     return map
@@ -570,6 +589,39 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     requestSync()
   }
 
+  const handleScoreManualEdit = (submissionId: string, newScore: number) => {
+    const now = Date.now()
+    setSubmissions((prev) =>
+      prev.map((s) => s.id === submissionId ? { ...s, score: newScore, scoreSource: 'manual', updatedAt: now } : s)
+    )
+    void db.submissions.update(submissionId, { score: newScore, scoreSource: 'manual' as const, updatedAt: now })
+    requestSync()
+  }
+
+  const handleScoreRestore = (submissionId: string, aiScore: number) => {
+    const now = Date.now()
+    setSubmissions((prev) =>
+      prev.map((s) => s.id === submissionId ? { ...s, score: aiScore, scoreSource: 'ai', updatedAt: now } : s)
+    )
+    void db.submissions.update(submissionId, { score: aiScore, scoreSource: 'ai' as const, updatedAt: now })
+    setRestorePortal(null)
+    requestSync()
+  }
+
+  const handleScoreCellMouseEnter = (
+    e: React.MouseEvent<HTMLTableCellElement>,
+    submissionId: string,
+    aiScore: number
+  ) => {
+    if (hideRestoreTimerRef.current) clearTimeout(hideRestoreTimerRef.current)
+    const rect = e.currentTarget.getBoundingClientRect()
+    setRestorePortal({ x: rect.right, y: rect.top, submissionId, aiScore })
+  }
+
+  const handleScoreCellMouseLeave = () => {
+    hideRestoreTimerRef.current = setTimeout(() => setRestorePortal(null), 300)
+  }
+
   const handleExportCsv = () => {
     const customHeaders = customColumns.map((c) => c.name)
     const headers = ['座號', '姓名', ...customHeaders, ...filteredAssignments.map((a) => a.title), '總分']
@@ -578,7 +630,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
         r.student.seatNumber ?? '',
         r.student.name,
         ...r.customScores.map((s) => (s == null ? '' : s.toString())),
-        ...r.scores.map((s) => (s == null ? '' : s.toString())),
+        ...r.scoreCells.map((sc) => (sc.score == null ? '' : sc.score.toString())),
         r.weightedTotal == null ? '' : r.weightedTotal.toFixed(1)
       ]
       return cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')
@@ -874,11 +926,52 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       ))}
 
                       {/* Assignment scores */}
-                      {r.scores.map((score, idx) => (
-                        <td key={filteredAssignments[idx].id} className="px-3 py-2 text-center text-gray-900">
-                          {score == null ? '—' : score}
-                        </td>
-                      ))}
+                      {r.scoreCells.map((cell, idx) => {
+                        const assignment = filteredAssignments[idx]
+                        const isManual = cell.scoreSource === 'manual'
+                        const hasRestoreTarget = isManual && cell.submissionId != null && cell.aiScore != null
+                        const isEditing =
+                          editingCell?.assignmentId === assignment.id &&
+                          editingCell?.studentId === r.student.id
+                        return (
+                          <td
+                            key={assignment.id}
+                            className="px-3 py-2 text-center"
+                            onMouseEnter={hasRestoreTarget
+                              ? (e) => handleScoreCellMouseEnter(e, cell.submissionId!, cell.aiScore!)
+                              : undefined}
+                            onMouseLeave={hasRestoreTarget ? handleScoreCellMouseLeave : undefined}
+                            onClick={() => {
+                              if (cell.submissionId) {
+                                setEditingCell({ assignmentId: assignment.id, studentId: r.student.id })
+                              }
+                            }}
+                          >
+                            {isEditing ? (
+                              <NumericInput
+                                allowDecimal={false}
+                                min={0}
+                                value={cell.score ?? 0}
+                                onChange={(v) => {
+                                  if (cell.submissionId) {
+                                    handleScoreManualEdit(
+                                      cell.submissionId,
+                                      typeof v === 'number' ? v : Number(v) || 0
+                                    )
+                                  }
+                                }}
+                                onBlur={() => setEditingCell(null)}
+                                autoFocus
+                                className="w-16 rounded border border-blue-300 bg-white px-2 py-0.5 text-xs text-center text-blue-700 outline-none focus:ring-1 focus:ring-blue-400"
+                              />
+                            ) : (
+                              <span className={isManual ? 'text-blue-600 font-medium cursor-pointer' : cell.submissionId ? 'text-gray-900 cursor-pointer' : 'text-gray-400'}>
+                                {cell.score == null ? '—' : cell.score}
+                              </span>
+                            )}
+                          </td>
+                        )
+                      })}
 
                       {/* 總分 */}
                       <td className="px-3 py-2 text-center font-semibold">
@@ -914,6 +1007,29 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
           </div>
         </div>
       </div>
+
+      {/* ── Portal: restore-to-AI icon (floats above document body) ── */}
+      {restorePortal !== null && createPortal(
+        <button
+          type="button"
+          onMouseEnter={() => {
+            if (hideRestoreTimerRef.current) clearTimeout(hideRestoreTimerRef.current)
+          }}
+          onMouseLeave={handleScoreCellMouseLeave}
+          onClick={() => handleScoreRestore(restorePortal.submissionId, restorePortal.aiScore)}
+          className="fixed z-[9999] flex items-center gap-1 rounded-full border border-blue-300 bg-white px-2 py-0.5 text-[11px] font-medium text-blue-600 shadow-md hover:bg-blue-50 transition-colors"
+          style={{
+            left: restorePortal.x,
+            top: restorePortal.y,
+            transform: 'translate(-100%, -100%)'
+          }}
+          title={`還原 AI 成績: ${restorePortal.aiScore}`}
+        >
+          <RotateCcw className="w-3 h-3" />
+          還原 {restorePortal.aiScore}
+        </button>,
+        document.body
+      )}
     </div>
   )
 }

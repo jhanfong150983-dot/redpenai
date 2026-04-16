@@ -285,6 +285,8 @@ export interface Submission {
 
   // AI 批改欄位
   score?: number
+  aiScore?: number        // AI 批改的原始分數（唯讀，僅 AI 批改時寫入）
+  scoreSource?: 'ai' | 'manual'  // 'manual' 表示老師手動覆蓋
   feedback?: string
   gradingResult?: GradingResult
   mistakesCount?: number  // 雲端同步的錯題數量（避免傳輸完整 gradingResult）
@@ -718,6 +720,25 @@ class RedPenDatabase extends Dexie {
       } catch (error) {
         console.error('❌ 遷移成績統計自訂欄位失敗:', error)
       }
+    })
+
+    // version 10: add aiScore / scoreSource to submissions (index-free, plain fields)
+    this.version(10).stores({
+      classrooms: '&id, name, folder',
+      students: '&id, classroomId, seatNumber, name',
+      assignments: '&id, classroomId, title, folder',
+      submissions:
+        '&id, assignmentId, studentId, status, createdAt, [assignmentId+studentId]',
+      syncQueue: '++id, tableName, recordId, createdAt',
+      answerExtractionCorrections:
+        '++id, assignmentId, studentId, submissionId, questionId, createdAt',
+      folders: '&id, name, type, classroomId, [type+classroomId], [type+classroomId+name]',
+      teacherSummaryCache: '&cacheKey, assignmentId, updatedAt',
+      domainDiagnosisCache: '&cacheKey, domain, startDate, endDate, updatedAt',
+      gradebookCustomColumns:
+        '&id, classroomId, [classroomId+sortOrder], updatedAt',
+      gradebookCustomScores:
+        '&id, classroomId, columnId, studentId, [columnId+studentId], [classroomId+studentId], updatedAt'
     })
 
     const setUpdatedAt = (value: unknown) => {

@@ -1329,6 +1329,8 @@ export default function GradingPage({
         await db.submissions.update(entry.submissionId, {
           status: 'graded',
           score: totalScore,
+          aiScore: totalScore,
+          scoreSource: 'ai',
           gradingResult,
           gradedAt: Date.now(),
         })
@@ -2533,6 +2535,8 @@ export default function GradingPage({
     try {
       await db.submissions.update(id, {
         score: newTotal,
+        aiScore: newTotal,
+        scoreSource: 'ai',
         gradingResult: newGradingResult
       })
       requestSync()
