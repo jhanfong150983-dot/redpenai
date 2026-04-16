@@ -2442,6 +2442,58 @@ export default function GradingPage({
           }
         }
 
+        // 條件三：跨作業 fill_blank 答案類型一致性（數字型 vs 純文字）
+        // 若某題多數學生答數字，但某份作業答純漢字（如「健康」「挑戰」），視為 classify 認錯列
+        const MIN_SUBMISSIONS_FOR_TYPE = 3
+        const DOMINANT_NUMERIC_RATIO = 0.5    // ≥50% 作業為數字 → 視為數字型題目
+        const TYPE_MISMATCH_MIN_QUESTIONS = 2  // ≥2 題類型不符 → 重跑
+
+        if (entries.length >= MIN_SUBMISSIONS_FOR_TYPE) {
+          const numericCountByQuestion = new Map<string, number>()
+          const readCountByQuestion = new Map<string, number>()
+
+          for (const entry of entries) {
+            for (const qr of entry.phaseAResult.questionResults) {
+              if (qr.questionType !== 'fill_blank') continue
+              const answer = qr.readAnswer1?.studentAnswer ?? ''
+              const status = qr.readAnswer1?.status
+              if (status === 'blank' || status === 'unreadable' || !answer.trim()) continue
+              readCountByQuestion.set(qr.questionId, (readCountByQuestion.get(qr.questionId) ?? 0) + 1)
+              if (/\d/.test(answer)) {
+                numericCountByQuestion.set(qr.questionId, (numericCountByQuestion.get(qr.questionId) ?? 0) + 1)
+              }
+            }
+          }
+
+          // 找出「主流為數字」的題目
+          const numericDominantQuestions = new Set<string>()
+          for (const [qId, readCount] of readCountByQuestion) {
+            if (readCount < MIN_SUBMISSIONS_FOR_TYPE) continue
+            const numCount = numericCountByQuestion.get(qId) ?? 0
+            if (numCount / readCount >= DOMINANT_NUMERIC_RATIO) {
+              numericDominantQuestions.add(qId)
+            }
+          }
+
+          // 找出答案為純文字但該題主流是數字的作業
+          for (let i = 0; i < entries.length; i++) {
+            if (anomalousIndices.has(i)) continue
+            let typeMismatchCount = 0
+            for (const qr of entries[i].phaseAResult.questionResults) {
+              if (qr.questionType !== 'fill_blank') continue
+              if (!numericDominantQuestions.has(qr.questionId)) continue
+              const answer = qr.readAnswer1?.studentAnswer ?? ''
+              const status = qr.readAnswer1?.status
+              if (status === 'blank' || status === 'unreadable' || !answer.trim()) continue
+              if (!/\d/.test(answer)) typeMismatchCount++
+            }
+            if (typeMismatchCount >= TYPE_MISMATCH_MIN_QUESTIONS) {
+              console.warn(`[QualityCheck] answer-type mismatch: submission ${entries[i].submissionId} has ${typeMismatchCount} fill_blank questions returning text when numeric is dominant`)
+              anomalousIndices.add(i)
+            }
+          }
+        }
+
         // 重跑品質不通過的作業（最多一次）
         if (anomalousIndices.size > 0) {
           setQualityCheckRetryCount(anomalousIndices.size)
