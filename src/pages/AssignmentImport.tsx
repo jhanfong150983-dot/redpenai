@@ -5,7 +5,6 @@ import {
   FileImage,
   Loader,
   RotateCw,
-  Settings,
   Users,
   X,
 } from 'lucide-react'
@@ -35,6 +34,7 @@ import {
   convertPdfToImages,
   getDefaultImageFormat,
   getFileType,
+  getPdfFirstPageAndCount,
   sortFilesByNumber
 } from '@/lib/pdfToImage'
 import { blobToBase64, compressToTargetBytes, rotateImageBlob } from '@/lib/imageCompression'
@@ -169,6 +169,258 @@ function PagePreviewSortable({
   )
 }
 
+// ── PDF 檔案資訊（匯入設定對話框用）────────────────────────────────────────
+
+interface PdfFileInfo {
+  file: File
+  pageCount: number
+  firstPageUrl: string
+}
+
+// ── 交錯合併：將多份 PDF 的頁面依學生交叉合併 ─────────────────────────────────
+
+function interleavePdfPages(pdfPages: Blob[][], pagesPerStudentPerPdf: number): Blob[] {
+  if (pdfPages.length === 0) return []
+  if (pdfPages.length === 1) return pdfPages[0]
+
+  const chunked = pdfPages.map((pages) => {
+    const chunks: Blob[][] = []
+    for (let i = 0; i < pages.length; i += pagesPerStudentPerPdf) {
+      chunks.push(pages.slice(i, i + pagesPerStudentPerPdf))
+    }
+    return chunks
+  })
+
+  const maxChunks = Math.max(...chunked.map((c) => c.length))
+  const result: Blob[] = []
+  for (let ci = 0; ci < maxChunks; ci++) {
+    for (const pdfChunks of chunked) {
+      if (ci < pdfChunks.length) result.push(...pdfChunks[ci])
+    }
+  }
+  return result
+}
+
+// ── 匯入設定對話框 ─────────────────────────────────────────────────────────
+
+interface ImportConfigDialogProps {
+  files: PdfFileInfo[]
+  mergeMode: 'concat' | 'interleave'
+  onMergeModeChange: (m: 'concat' | 'interleave') => void
+  pagesPerStudentPerPdf: number
+  onPagesPerStudentPerPdfChange: (n: number) => void
+  pagesPerStudent: number
+  onPagesPerStudentChange: (n: number) => void
+  startPage: number
+  onStartPageChange: (n: number) => void
+  endPage: number
+  onEndPageChange: (n: number) => void
+  maxPage: number
+  confirmed: boolean
+  onConfirmedChange: (b: boolean) => void
+  onConfirm: () => void
+  onCancel: () => void
+}
+
+function ImportConfigDialog({
+  files,
+  mergeMode,
+  onMergeModeChange,
+  pagesPerStudentPerPdf,
+  onPagesPerStudentPerPdfChange,
+  pagesPerStudent,
+  onPagesPerStudentChange,
+  startPage,
+  onStartPageChange,
+  endPage,
+  onEndPageChange,
+  maxPage,
+  confirmed,
+  onConfirmedChange,
+  onConfirm,
+  onCancel
+}: ImportConfigDialogProps) {
+  const isMultiPdf = files.length > 1
+  const totalPagesPerStudent =
+    isMultiPdf && mergeMode === 'interleave'
+      ? pagesPerStudentPerPdf * files.length
+      : pagesPerStudent
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+          <h2 className="text-lg font-semibold text-gray-900">📂 匯入設定</h2>
+          <button type="button" onClick={onCancel} className="p-2 rounded-full hover:bg-gray-100">
+            <X className="w-5 h-5 text-gray-500" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 space-y-6 overflow-y-auto flex-1">
+
+          {/* 1. 預覽檔案 */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-700 mb-2">預覽檔案</h3>
+            <p className="text-xs text-gray-500 mb-3">請確認下方每個 PDF 的第一頁是否正確。</p>
+            <div className="flex gap-3 overflow-x-auto pb-1">
+              {files.map((info, i) => (
+                <div key={i} className="flex-shrink-0 w-28 text-center">
+                  <div className="border border-gray-200 rounded-lg overflow-hidden mb-1.5 bg-gray-50">
+                    <img src={info.firstPageUrl} alt={info.file.name} className="w-full h-auto" />
+                  </div>
+                  <p className="text-xs text-gray-700 truncate font-medium" title={info.file.name}>
+                    {info.file.name}
+                  </p>
+                  <p className="text-xs text-gray-400">{info.pageCount} 頁</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* 2. 合併方式（多 PDF 才顯示） */}
+          {isMultiPdf && (
+            <section>
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">合併方式</h3>
+              <p className="text-xs text-gray-500 mb-3">
+                <strong>串接：</strong>將所有 PDF 頁面依序排列（PDF1 全部 → PDF2 全部），
+                適合每份考卷所有頁面都在同一個 PDF 裡。<br />
+                <strong>交錯：</strong>將多份 PDF 中同一位學生的頁面合在一起
+                （PDF1 第1位 + PDF2 第1位 → 合給同一位學生），
+                適合同一份考卷的不同部分分散在不同 PDF 裡。
+              </p>
+              <div className="flex gap-5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={mergeMode === 'concat'}
+                    onChange={() => onMergeModeChange('concat')}
+                    className="w-4 h-4 text-green-600 accent-green-600"
+                  />
+                  <span className="text-sm text-gray-700 font-medium">串接</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    checked={mergeMode === 'interleave'}
+                    onChange={() => onMergeModeChange('interleave')}
+                    className="w-4 h-4 text-green-600 accent-green-600"
+                  />
+                  <span className="text-sm text-gray-700 font-medium">交錯</span>
+                </label>
+              </div>
+            </section>
+          )}
+
+          {/* 3. 每位學生頁數 */}
+          <section>
+            {isMultiPdf && mergeMode === 'interleave' ? (
+              <>
+                <h3 className="text-sm font-semibold text-gray-700 mb-1">
+                  每份 PDF 中每位學生幾頁
+                </h3>
+                <p className="text-xs text-gray-500 mb-2">
+                  每一份 PDF 裡，屬於同一位學生的頁數。合併後每位學生共{' '}
+                  <strong>
+                    {pagesPerStudentPerPdf} × {files.length} = {totalPagesPerStudent} 頁
+                  </strong>
+                  。例如：考卷前 2 頁在 PDF1，後 2 頁在 PDF2，請填 2。
+                </p>
+                <NumericInput
+                  min={1}
+                  max={8}
+                  value={pagesPerStudentPerPdf}
+                  onChange={(v) => onPagesPerStudentPerPdfChange(typeof v === 'number' ? v : 1)}
+                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </>
+            ) : (
+              <>
+                <h3 className="text-sm font-semibold text-gray-700 mb-1">每位學生頁數</h3>
+                <p className="text-xs text-gray-500 mb-2">
+                  每份考卷佔幾頁（例如：2 頁正反面）。系統會依照此數字將頁面依序分配給各位學生。
+                </p>
+                <NumericInput
+                  min={1}
+                  max={8}
+                  value={pagesPerStudent}
+                  onChange={(v) => onPagesPerStudentChange(typeof v === 'number' ? v : 1)}
+                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </>
+            )}
+          </section>
+
+          {/* 4. 頁數範圍 */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">使用頁數範圍</h3>
+            <p className="text-xs text-gray-500 mb-2">
+              若掃描檔前後有多餘空白頁，可縮小此範圍，只匯入指定頁碼內的頁面（每份 PDF 各自套用）。
+            </p>
+            <div className="flex items-end gap-3">
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">開始頁</label>
+                <NumericInput
+                  min={1}
+                  max={maxPage}
+                  value={startPage}
+                  onChange={(v) => onStartPageChange(typeof v === 'number' ? v : 1)}
+                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <span className="text-gray-400 pb-2">~</span>
+              <div>
+                <label className="block text-xs text-gray-600 mb-1">結束頁</label>
+                <NumericInput
+                  min={1}
+                  max={maxPage}
+                  value={endPage}
+                  onChange={(v) => onEndPageChange(typeof v === 'number' ? v : maxPage)}
+                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <span className="text-xs text-gray-400 pb-2">（最多 {maxPage} 頁）</span>
+            </div>
+          </section>
+
+          {/* 5. 確認勾選框 */}
+          <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border-2 border-gray-200 hover:border-green-400 transition-colors">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(e) => onConfirmedChange(e.target.checked)}
+              className="w-4 h-4 mt-0.5 accent-green-600"
+            />
+            <span className="text-sm text-gray-700">我已確認上述設定正確，可以開始匯入</span>
+          </label>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 flex-shrink-0">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={!confirmed}
+            className="px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          >
+            開始匯入
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 主元件 ────────────────────────────────────────────────────────────────────
+
 interface AssignmentImportProps {
   assignmentId: string
   onBack?: () => void
@@ -269,13 +521,22 @@ export default function AssignmentImport({
   const [pages, setPages] = useState<PagePreview[]>([])
   const [isUploading, setIsUploading] = useState(false)
 
-  // 多 PDF 合併相關狀態
-  const [uploadedFiles, setUploadedFiles] = useState<File[]>([])
-  const [showMergeConfirm, setShowMergeConfirm] = useState(false)
   const [isMerging, setIsMerging] = useState(false)
 
+  // 匯入設定對話框
+  const [showImportConfig, setShowImportConfig] = useState(false)
+  const [pdfFilesInfo, setPdfFilesInfo] = useState<PdfFileInfo[]>([])
+  const [isLoadingPreviews, setIsLoadingPreviews] = useState(false)
+  const [configMergeMode, setConfigMergeMode] = useState<'concat' | 'interleave'>('concat')
+  const [configPagesPerStudentPerPdf, setConfigPagesPerStudentPerPdf] = useState(1)
+  const [configPagesPerStudent, setConfigPagesPerStudent] = useState(1)
+  const [configStartPage, setConfigStartPage] = useState(1)
+  const [configEndPage, setConfigEndPage] = useState(999)
+  const [configMaxPage, setConfigMaxPage] = useState(999)
+  const [configConfirmed, setConfigConfirmed] = useState(false)
+
   const [pagesPerStudent, setPagesPerStudent] = useState(1)
-  const [startSeat, setStartSeat] = useState(1)
+  const [startSeat] = useState(1)
   const [absentSeatsInput, setAbsentSeatsInput] = useState('')
   const [mappings, setMappings] = useState<MappingRow[]>([])
   const [selectedMappingIndex, setSelectedMappingIndex] = useState(0)
@@ -469,79 +730,95 @@ export default function AssignmentImport({
 
     setError(null)
     setIsUploading(true)
+    setIsLoadingPreviews(true)
     setPages([])
     setMappings([])
     setSelectedMappingIndex(0)
     setPhase('select')
 
     try {
-      // 轉換為陣列並驗證檔案類型
       let fileArray = Array.from(files)
       for (const file of fileArray) {
-        const type = getFileType(file)
-        if (type !== 'pdf') {
+        if (getFileType(file) !== 'pdf') {
           throw new Error(`檔案 "${file.name}" 不是 PDF 格式。僅支援 PDF 檔案。`)
         }
       }
 
-      // 智能排序：按照檔案名稱中的數字排序
       fileArray = sortFilesByNumber(fileArray)
-      console.log('📂 檔案已按數字排序:', fileArray.map(f => f.name))
+      console.log('📂 檔案已按數字排序:', fileArray.map((f) => f.name))
 
-      // 如果選擇多個 PDF,顯示合併確認介面
-      if (fileArray.length > 1) {
-        setUploadedFiles(fileArray)
-        setShowMergeConfirm(true)
-        setIsUploading(false)
-        return
+      // 載入每個 PDF 的第一頁預覽 + 頁數
+      const infos: PdfFileInfo[] = []
+      for (const file of fileArray) {
+        // eslint-disable-next-line no-await-in-loop
+        const { blob, pageCount } = await getPdfFirstPageAndCount(file)
+        infos.push({ file, pageCount, firstPageUrl: URL.createObjectURL(blob) })
       }
 
-      // 單一 PDF 的情況,直接處理
-      const first = fileArray[0]
-      await processSinglePdf(first)
+      const maxPage = Math.max(...infos.map((i) => i.pageCount))
+      setConfigMaxPage(maxPage)
+      setConfigEndPage(maxPage)
+      setConfigStartPage(1)
+      setConfigMergeMode('concat')
+      setConfigPagesPerStudent(pagesPerStudent)
+      setConfigPagesPerStudentPerPdf(1)
+      setConfigConfirmed(false)
+      setPdfFilesInfo(infos)
+      setShowImportConfig(true)
     } catch (e) {
       console.error(e)
       setError(e instanceof Error ? e.message : '處理檔案失敗')
+    } finally {
+      setIsLoadingPreviews(false)
       setIsUploading(false)
     }
   }
 
-  const processSinglePdf = async (file: File) => {
-    setFileName(file.name)
-
-    const blobs = await convertPdfToImages(file)
-
-    const previews: PagePreview[] = blobs.map((blob, idx) => ({
-      index: idx,
-      blob,
-      url: URL.createObjectURL(blob)
-    }))
-
-    setPages(previews)
-    setPageRotations(new Map())
-    setStudentPageOrders(new Map())
-    setPhase('edit-mapping')
+  const handleImportCancel = () => {
+    pdfFilesInfo.forEach((info) => URL.revokeObjectURL(info.firstPageUrl))
+    setPdfFilesInfo([])
+    setShowImportConfig(false)
     setIsUploading(false)
   }
 
-  const handleMergeConfirm = async () => {
-    if (uploadedFiles.length === 0) return
+  const handleImportConfirm = async () => {
+    const fileArray = pdfFilesInfo.map((i) => i.file)
+    if (fileArray.length === 0) return
 
+    // 清理預覽 URL
+    pdfFilesInfo.forEach((info) => URL.revokeObjectURL(info.firstPageUrl))
+    setPdfFilesInfo([])
+    setShowImportConfig(false)
     setIsMerging(true)
-    setShowMergeConfirm(false)
     setError(null)
 
     try {
-      console.log(`開始串接 ${uploadedFiles.length} 個 PDF 檔案`)
+      console.log(`開始處理 ${fileArray.length} 個 PDF 檔案`)
 
-      // 直接串接所有 PDF 的頁面，不做真正的 merge
-      const allBlobs: Blob[] = []
-      for (const f of uploadedFiles) {
-        console.log(`處理: ${f.name}`)
+      // 轉換所有 PDF 並套用頁數範圍
+      const allPdfPages: Blob[][] = []
+      for (const file of fileArray) {
+        console.log(`處理: ${file.name}`)
         // eslint-disable-next-line no-await-in-loop
-        const blobs = await convertPdfToImages(f) // 用 pdfToImage 的預設護欄
-        allBlobs.push(...blobs)
+        const blobs = await convertPdfToImages(file)
+        const filtered = blobs.slice(configStartPage - 1, configEndPage)
+        allPdfPages.push(filtered)
       }
+
+      let allBlobs: Blob[]
+      let effectivePagesPerStudent: number
+
+      if (fileArray.length > 1 && configMergeMode === 'interleave') {
+        allBlobs = interleavePdfPages(allPdfPages, configPagesPerStudentPerPdf)
+        effectivePagesPerStudent = configPagesPerStudentPerPdf * fileArray.length
+        console.log(`交錯合併完成，每位學生 ${effectivePagesPerStudent} 頁，共 ${allBlobs.length} 頁`)
+      } else {
+        allBlobs = allPdfPages.flat()
+        effectivePagesPerStudent = configPagesPerStudent
+        console.log(`串接完成，每位學生 ${effectivePagesPerStudent} 頁，共 ${allBlobs.length} 頁`)
+      }
+
+      setPagesPerStudent(effectivePagesPerStudent)
 
       const previews: PagePreview[] = allBlobs.map((blob, idx) => ({
         index: idx,
@@ -553,23 +830,19 @@ export default function AssignmentImport({
       setPageRotations(new Map())
       setStudentPageOrders(new Map())
       setPhase('edit-mapping')
-      setFileName(`已串接 ${uploadedFiles.length} 個 PDF（共 ${previews.length} 頁）`)
-      setUploadedFiles([])
 
-      console.log(`串接完成，共 ${previews.length} 頁`)
+      if (fileArray.length === 1) {
+        setFileName(fileArray[0].name)
+      } else {
+        const modeLabel = configMergeMode === 'interleave' ? '交錯' : '串接'
+        setFileName(`已${modeLabel} ${fileArray.length} 個 PDF（共 ${previews.length} 頁）`)
+      }
     } catch (e) {
       console.error(e)
       setError(e instanceof Error ? e.message : '處理 PDF 失敗')
-      setShowMergeConfirm(true) // 返回合併確認介面
     } finally {
       setIsMerging(false)
     }
-  }
-
-  const handleMergeCancel = () => {
-    setShowMergeConfirm(false)
-    setUploadedFiles([])
-    setIsUploading(false)
   }
 
   // ── 旋轉與換序 ────────────────────────────────────────────────────────────
@@ -977,118 +1250,68 @@ export default function AssignmentImport({
           </div>
         )}
 
-        {/* 1. 檔案上傳 + 自動配對設定 */}
+        {/* 1. 檔案上傳 */}
         <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
-          <div className="grid gap-5 text-sm md:grid-cols-3">
-            <div className="md:col-span-1">
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                上傳 PDF 檔案
-              </label>
-              <input
-                type="file"
-                accept="application/pdf"
-                multiple
-                onChange={handleFileChange}
-                disabled={isUploading || isMerging}
-                className="block w-full text-xs text-gray-700
-                  file:mr-2 file:px-3 file:py-2 file:border-0
-                  file:text-xs file:font-semibold
-                  file:bg-green-50 file:text-green-700
-                  hover:file:bg-green-100"
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                <span className="font-medium">可選擇單一或多個 PDF:</span><br />
-                • 單一 PDF: 自動分頁配對<br />
-                • 多個 PDF: 會先合併後分頁
+          <div className="text-sm">
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              上傳 PDF 檔案
+            </label>
+            <input
+              type="file"
+              accept="application/pdf"
+              multiple
+              onChange={handleFileChange}
+              disabled={isUploading || isLoadingPreviews || isMerging}
+              className="block w-full text-xs text-gray-700
+                file:mr-2 file:px-3 file:py-2 file:border-0
+                file:text-xs file:font-semibold
+                file:bg-green-50 file:text-green-700
+                hover:file:bg-green-100"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              可選擇單一或多個 PDF，上傳後會跳出設定對話框進行確認。
+            </p>
+            {(isUploading || isLoadingPreviews) && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-indigo-600">
+                <Loader className="w-4 h-4 animate-spin" />
+                <span>載入 PDF 預覽中，請稍候...</span>
+              </div>
+            )}
+            {isMerging && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-emerald-600">
+                <Loader className="w-4 h-4 animate-spin" />
+                <span>處理 PDF 中，請稍候...</span>
+              </div>
+            )}
+            {!isUploading && !isLoadingPreviews && !isMerging && fileName && (
+              <p className="mt-1 text-xs text-gray-500">已匯入：{fileName}</p>
+            )}
+            {!isUploading && !isLoadingPreviews && !isMerging && pages.length > 0 && (
+              <p className="mt-1 text-xs text-gray-500">
+                已拆出 {pages.length} 頁影像，每位學生 {pagesPerStudent} 頁
               </p>
-              <p className="text-xs text-gray-400 mt-1">
-                檔案大小限制：每頁壓縮後需小於 1.5 MB
-              </p>
-              {isUploading && (
-                <div className="mt-2 flex items-center gap-2 text-xs text-indigo-600">
-                  <Loader className="w-4 h-4 animate-spin" />
-                  <span>處理 PDF 中，請稍候...</span>
-                </div>
-              )}
-              {isMerging && (
-                <div className="mt-2 flex items-center gap-2 text-xs text-emerald-600">
-                  <Loader className="w-4 h-4 animate-spin" />
-                  <span>處理多個 PDF 中，請稍候...</span>
-                </div>
-              )}
-              {!isUploading && !isMerging && fileName && (
-                <p className="mt-1 text-xs text-gray-500">已選擇：{fileName}</p>
-              )}
-              {!isUploading && !isMerging && pages.length > 0 && (
-                <p className="mt-1 text-xs text-gray-500">
-                  已拆出 {pages.length} 頁影像
+            )}
+            {/* 顯示班級中缺少的座號 */}
+            {missingSeatNumbers.length > 0 && (
+              <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-xs text-blue-800 font-medium mb-1">
+                  班級中缺少的座號：
                 </p>
-              )}
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Settings className="w-4 h-4 text-gray-600" />
-                <span className="text-xs font-semibold text-gray-700">
-                  自動配對設定
-                </span>
+                <div className="flex flex-wrap gap-1">
+                  {missingSeatNumbers.map((seat) => (
+                    <span
+                      key={seat}
+                      className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs"
+                    >
+                      {seat}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-xs text-blue-600 mt-1">
+                  這些座號在班級管理中不存在，系統會自動跳過。
+                </p>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                    每位學生頁數
-                  </label>
-                  <NumericInput
-                    min={1}
-                    max={4}
-                    value={pagesPerStudent}
-                    onChange={(v) => setPagesPerStudent(typeof v === 'number' ? v : (v === '' ? ('' as unknown as number) : 1))}
-                    className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">
-                    起始頁號
-                  </label>
-                  <NumericInput
-                    min={1}
-                    max={200}
-                    value={startSeat}
-                    onChange={(v) => setStartSeat(typeof v === 'number' ? v : (v === '' ? ('' as unknown as number) : 1))}
-                    className="w-full px-2 py-1 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              {/* 顯示班級中缺少的座號 */}
-              {missingSeatNumbers.length > 0 && (
-                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-xs text-blue-800 font-medium mb-1">
-                    班級中缺少的座號：
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {missingSeatNumbers.map(seat => (
-                      <span
-                        key={seat}
-                        className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs"
-                      >
-                        {seat}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-xs text-blue-600 mt-1">
-                    這些座號在班級管理中不存在，系統會自動跳過。
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <div className="text-xs text-gray-500">
-              <p>
-                建議先將紙本考卷依座號大致排序後再掃描。
-                上傳 PDF 後會自動配對，請在下方檢查每位學生的分配結果。
-              </p>
-            </div>
+            )}
           </div>
         </div>
 
@@ -1310,84 +1533,26 @@ export default function AssignmentImport({
         </div>
       )}
 
-      {/* 合併確認對話框 */}
-      {showMergeConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">
-                合併 PDF 檔案
-              </h2>
-              <button
-                type="button"
-                onClick={handleMergeCancel}
-                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                aria-label="關閉"
-              >
-                <X className="w-5 h-5 text-gray-600" />
-              </button>
-            </div>
-
-            <div className="px-5 py-4 overflow-y-auto max-h-[calc(85vh-140px)]">
-              <div className="mb-4">
-                <p className="text-sm text-gray-700 mb-2">
-                  您已選擇 <span className="font-semibold text-indigo-600">{uploadedFiles.length}</span> 個 PDF 檔案。
-                </p>
-                <p className="text-sm text-gray-600 mb-1">
-                  系統已自動按照<span className="font-semibold text-emerald-600">檔案名稱中的數字</span>排序，將按以下順序合併：
-                </p>
-                <p className="text-xs text-gray-500">
-                  （例如：1.pdf → 2.pdf → 10.pdf → 11.pdf）
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                {uploadedFiles.map((file, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200"
-                  >
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 font-semibold text-sm">
-                      {index + 1}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">{file.name}</p>
-                      <p className="text-xs text-gray-500">
-                        {(file.size / 1024 / 1024).toFixed(2)} MB
-                      </p>
-                    </div>
-                    <FileImage className="w-5 h-5 text-gray-400" />
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
-                <p className="text-xs text-emerald-700">
-                  <span className="font-semibold">✨ 智能排序：</span>
-                  系統已自動按照檔案名稱中的數字排序（支援 1.pdf、座號01.pdf、scan_003.pdf 等格式）。
-                  如果順序不正確，請確保檔案名稱包含正確的數字。
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-200 bg-gray-50">
-              <button
-                type="button"
-                onClick={handleMergeCancel}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={handleMergeConfirm}
-                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                確認合併
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* 匯入設定對話框 */}
+      {showImportConfig && (
+        <ImportConfigDialog
+          files={pdfFilesInfo}
+          mergeMode={configMergeMode}
+          onMergeModeChange={setConfigMergeMode}
+          pagesPerStudentPerPdf={configPagesPerStudentPerPdf}
+          onPagesPerStudentPerPdfChange={setConfigPagesPerStudentPerPdf}
+          pagesPerStudent={configPagesPerStudent}
+          onPagesPerStudentChange={setConfigPagesPerStudent}
+          startPage={configStartPage}
+          onStartPageChange={setConfigStartPage}
+          endPage={configEndPage}
+          onEndPageChange={setConfigEndPage}
+          maxPage={configMaxPage}
+          confirmed={configConfirmed}
+          onConfirmedChange={setConfigConfirmed}
+          onConfirm={handleImportConfirm}
+          onCancel={handleImportCancel}
+        />
       )}
     </div>
   )

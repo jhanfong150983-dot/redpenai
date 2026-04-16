@@ -534,6 +534,62 @@ export async function convertPdfToImages(
 }
 
 /**
+ * 取得 PDF 第一頁預覽圖 + 總頁數（低解析度，供對話框快速預覽用）
+ * @param file PDF 檔
+ * @param maxWidth 預覽寬度（預設 320px）
+ */
+export async function getPdfFirstPageAndCount(
+  file: File,
+  maxWidth = 320
+): Promise<{ blob: Blob; pageCount: number }> {
+  const defaultFormat = isSafari() ? 'image/jpeg' : 'image/webp'
+  let loadingTask: pdfjsLib.PDFDocumentLoadingTask | undefined
+  let pdf: pdfjsLib.PDFDocumentProxy | undefined
+
+  try {
+    const arrayBuffer = await file.arrayBuffer()
+    loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
+    pdf = await loadingTask.promise
+
+    const pageCount = pdf.numPages
+    const page = await pdf.getPage(1)
+    const baseViewport = page.getViewport({ scale: 1 })
+
+    const scale = maxWidth / baseViewport.width
+    const viewport = page.getViewport({ scale })
+
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(baseViewport.width * scale)
+    canvas.height = Math.round(baseViewport.height * scale)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('無法建立 Canvas')
+
+    await page.render({ canvasContext: ctx, viewport, canvas }).promise
+
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('toBlob 失敗'))),
+        defaultFormat,
+        0.75
+      )
+    })
+
+    canvas.width = 0
+    canvas.height = 0
+    page.cleanup()
+
+    return { blob, pageCount }
+  } catch (error) {
+    throw new Error(
+      error instanceof Error ? `PDF 預覽失敗：${error.message}` : 'PDF 預覽失敗'
+    )
+  } finally {
+    try { await pdf?.destroy?.() } catch {}
+    try { await loadingTask?.destroy?.() } catch {}
+  }
+}
+
+/**
  * 從檔案名稱中提取數字（通常是座號）
  * 例如：「1.pdf」→ 1, 「座號03.pdf」→ 3, 「scan_025.pdf」→ 25
  */
