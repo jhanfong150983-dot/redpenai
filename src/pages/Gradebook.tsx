@@ -609,24 +609,38 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
   return (
     <div className={`${embedded ? 'bg-white p-0 flex flex-col h-full' : 'min-h-screen bg-white p-4'}`}>
-      <div className={`${embedded ? 'max-w-none mx-0 space-y-4 flex flex-col flex-1 min-h-0' : 'max-w-7xl mx-auto space-y-4'}`}>
-        <div className={`${embedded ? 'mb-1 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3' : 'flex flex-wrap items-center justify-between gap-3'}`}>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold text-gray-900">成績統計</h1>
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-gray-600">
-            <Info className="h-4 w-4 text-gray-400" />
+      <div className={`${embedded ? 'max-w-none mx-0 flex flex-col flex-1 min-h-0 gap-2' : 'max-w-7xl mx-auto space-y-4'}`}>
+
+        {/* ── 標題列 ── */}
+        <div className={`flex flex-wrap items-center justify-between gap-2 ${embedded ? 'border-b border-slate-200 pb-2' : ''}`}>
+          <h1 className="text-xl font-semibold text-gray-900">成績統計</h1>
+          <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-gray-500">
+            <Info className="h-3.5 w-3.5 text-gray-400 shrink-0" />
             總分 = Σ(分數 × 權重%) ÷ Σ(有成績欄位權重%)
           </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {hasWeightTargets && !isGlobalWeightValid && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+            權重總和目前為 {globalWeightTotal.toFixed(1)}%，需等於 100% 才會計算總分。
+          </div>
+        )}
+
+        {/* ── 表格卡片（佔滿剩餘空間）── */}
+        <div className={`rounded-xl border border-slate-200 bg-white ${embedded ? 'flex flex-col flex-1 min-h-0' : ''}`}>
+          {/* 卡片 header：篩選器 + 操作按鈕全合一列 */}
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-slate-200">
             <div className="flex flex-wrap items-center gap-2">
               <select
                 value={selectedClassroomId}
                 onChange={(e) => setSelectedClassroomId(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
                 aria-label="選擇班級"
                 disabled={!hasClassrooms}
               >
@@ -643,12 +657,10 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
               <select
                 value={selectedFolder}
                 onChange={(e) => setSelectedFolder(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
                 aria-label="選擇資料夾"
               >
-                <option value={FOLDER_FILTER_ALL}>
-                  全部 ({allScoredAssignments.length})
-                </option>
+                <option value={FOLDER_FILTER_ALL}>全部 ({allScoredAssignments.length})</option>
                 <option value={FOLDER_FILTER_UNCATEGORIZED}>
                   未分類 ({allScoredAssignments.filter((a) => !a.folder).length})
                 </option>
@@ -662,41 +674,26 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                 })}
               </select>
             </div>
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
-            >
-              <Download className="w-4 h-4" />
-              匯出 CSV
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAddColumn}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                新增自訂欄位
+              </button>
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                <Download className="w-3.5 h-3.5" />
+                匯出 CSV
+              </button>
+            </div>
           </div>
-        </div>
-
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-red-700">
-            {error}
-          </div>
-        )}
-
-        {hasWeightTargets && !isGlobalWeightValid && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-800">
-            權重總和目前為 {globalWeightTotal.toFixed(1)}%，需等於 100% 才會計算總分。
-          </div>
-        )}
-
-        <div className={`rounded-xl border border-slate-200 bg-white p-4 space-y-4 ${embedded ? 'flex flex-col flex-1 min-h-0' : ''}`}>
-          {/* Card header: add-column button */}
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              onClick={handleAddColumn}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors"
-            >
-              <Plus className="w-3 h-3" />
-              新增自訂欄位
-            </button>
-          </div>
+          <div className={`${embedded ? 'flex flex-col flex-1 min-h-0' : ''} p-3`}>
           <div className={`grid ${embedded ? 'flex-1 min-h-0' : ''}`}>
           <div className="w-full overflow-auto">
             {/*
@@ -910,8 +907,9 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
             </table>
           </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-gray-500">
-            <AlertTriangle className="w-4 h-4 text-rose-500" />
+          </div>{/* end content area */}
+          <div className="flex items-center gap-2 px-4 py-2 border-t border-slate-100 text-xs text-gray-500">
+            <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
             底部四分位（Q1）以下的總分會以顏色與圖示標示，方便後段班補救。
           </div>
         </div>
