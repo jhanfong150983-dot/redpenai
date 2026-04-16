@@ -2369,10 +2369,16 @@ export default function GradingPage({
                 arbiter.arbiterStatus === 'arbitrated_pick_1' ? 'ai_read1'
                 : arbiter.arbiterStatus === 'arbitrated_pick_2' ? 'ai_read2'
                 : 'ai_arbiter'  // arbitrated_agree
+              // calculation/word_problem：用完整步驟文字（readAnswer1），不用 arbiter 的短答案
+              // 否則 accessor 只看到最終答案，會誤判「未列出計算算式」
+              const isCalcType = qr.questionType === 'calculation' || qr.questionType === 'word_problem'
+              const fullAnswer = isCalcType
+                ? qr.readAnswer1.studentAnswer
+                : (arbiter.finalAnswer ?? qr.readAnswer1.studentAnswer)
               decisions.set(qr.questionId, {
                 questionId: qr.questionId,
                 source,
-                finalAnswer: arbiter.finalAnswer ?? qr.readAnswer1.studentAnswer,
+                finalAnswer: fullAnswer,
                 confirmed: true,
               })
             } else if (!arbiter && qr.consistencyStatus === 'stable') {
@@ -2617,7 +2623,9 @@ export default function GradingPage({
                 const arbiter = qr.arbiterResult
                 if (arbiter && arbiter.arbiterStatus !== 'needs_review') {
                   const source = arbiter.arbiterStatus === 'arbitrated_pick_1' ? 'ai_read1' : arbiter.arbiterStatus === 'arbitrated_pick_2' ? 'ai_read2' : 'ai_arbiter'
-                  decisions.set(qr.questionId, { questionId: qr.questionId, source, finalAnswer: arbiter.finalAnswer ?? qr.readAnswer1.studentAnswer, confirmed: true })
+                  const isCalcType = qr.questionType === 'calculation' || qr.questionType === 'word_problem'
+                  const fullAnswer = isCalcType ? qr.readAnswer1.studentAnswer : (arbiter.finalAnswer ?? qr.readAnswer1.studentAnswer)
+                  decisions.set(qr.questionId, { questionId: qr.questionId, source, finalAnswer: fullAnswer, confirmed: true })
                 } else if (!arbiter && qr.consistencyStatus === 'stable') {
                   decisions.set(qr.questionId, { questionId: qr.questionId, source: 'ai_read1', finalAnswer: qr.readAnswer1.studentAnswer, confirmed: true })
                 }
