@@ -2683,14 +2683,32 @@ export default function GradingPage({
               const entry = entries[idx]
               const sub = toGrade.find((s) => s.id === entry.submissionId)
               if (!sub?.imageBlob) return null
-              // 傳遞 classify 修正提示（fill_blank_neighbor_match 偵測到的偏移資訊）
+              // 組裝 classify 修正提示（各品質檢查條件 → 對應的提醒類型）
               const flag = flagDetails.get(idx)
-              const corrections = (flag as any)?.neighborMatchDetails?.map((m: any) => ({
-                questionId: m.questionId,
-                previousAnswer: m.studentAnswer,
-                neighborId: m.neighborId,
-                neighborRef: m.neighborRef,
-              })) ?? []
+              const corrections: Array<{ questionId: string; type: 'neighbor_match' | 'consecutive_blank' | 'type_mismatch'; neighborId?: string }> = []
+              if (flag) {
+                // fill_blank_neighbor_match → neighbor_match
+                const neighborDetails = (flag as any).neighborMatchDetails as Array<{ questionId: string; neighborId: string }> | undefined
+                if (neighborDetails) {
+                  for (const m of neighborDetails) {
+                    corrections.push({ questionId: m.questionId, type: 'neighbor_match', neighborId: m.neighborId })
+                  }
+                }
+                // consecutive_blanks → consecutive_blank（標記連續空白的題目）
+                if (flag.conditions.includes('consecutive_blanks')) {
+                  for (const qr of entries[idx].phaseAResult.questionResults) {
+                    if (qr.readAnswer1?.status === 'blank' || qr.readAnswer1?.status === 'unreadable') {
+                      corrections.push({ questionId: qr.questionId, type: 'consecutive_blank' })
+                    }
+                  }
+                }
+                // answer_type_mismatch → type_mismatch
+                if (flag.typeMismatchDetails) {
+                  for (const m of flag.typeMismatchDetails) {
+                    corrections.push({ questionId: m.questionId, type: 'type_mismatch' })
+                  }
+                }
+              }
               const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id, corrections)
               return { idx, phaseAResult }
             },

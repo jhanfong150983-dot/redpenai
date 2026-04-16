@@ -3887,9 +3887,8 @@ ${needsPagePrefix ? `\n【多張圖片處理 - 多頁模式】\n- 你會收到 $
  */
 export interface ClassifyCorrection {
   questionId: string
-  previousAnswer: string
-  neighborId: string
-  neighborRef: string
+  type: 'neighbor_match' | 'consecutive_blank' | 'type_mismatch'
+  neighborId?: string
 }
 
 export async function gradePhaseA(
