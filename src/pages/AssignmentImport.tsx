@@ -878,44 +878,53 @@ export default function AssignmentImport({
     return pages.filter((p) => p.index >= mapping.fromIndex && p.index <= mapping.toIndex)
   }, [pages, studentPageOrders])
 
+  // 套用到全部學生後的回饋訊息
+  const [applyFeedback, setApplyFeedback] = useState<string | null>(null)
+
   // 套用目前學生的順序 + 旋轉樣式到所有學生
   const handleApplyToAll = useCallback(() => {
     if (!selectedMapping) return
     const sourcePages = getStudentPages(selectedMapping)
     const sourceCount = sourcePages.length
+    const sourceDefaultPages = pages.filter(
+      (p) => p.index >= selectedMapping.fromIndex && p.index <= selectedMapping.toIndex
+    )
 
-    setStudentPageOrders((prevOrders) => {
-      const next = new Map(prevOrders)
-      setPageRotations((prevRots) => {
-        const nextRots = new Map(prevRots)
-        for (const mapping of mappings) {
-          if (mapping.studentId === selectedMapping.studentId) continue
-          const targetPages = pages.filter(
-            (p) => p.index >= mapping.fromIndex && p.index <= mapping.toIndex
-          )
-          if (targetPages.length !== sourceCount) continue
+    // 先把兩個 Map 都算好，再一起 set（不能巢狀呼叫 setState）
+    const newOrders = new Map(studentPageOrders)
+    const newRotations = new Map(pageRotations)
+    let appliedCount = 0
 
-          // 套用同樣的相對順序
-          const sourceDefaultPages = pages.filter(
-            (p) => p.index >= selectedMapping.fromIndex && p.index <= selectedMapping.toIndex
-          )
-          const newOrder = sourcePages.map((sp) => {
-            const relativeOffset = sourceDefaultPages.findIndex((dp) => dp.index === sp.index)
-            return targetPages[relativeOffset]?.index ?? sp.index
-          }).filter((idx): idx is number => idx !== undefined)
-          next.set(mapping.studentId, newOrder)
+    for (const mapping of mappings) {
+      if (mapping.studentId === selectedMapping.studentId) continue
+      const targetPages = pages.filter(
+        (p) => p.index >= mapping.fromIndex && p.index <= mapping.toIndex
+      )
+      if (targetPages.length !== sourceCount) continue
 
-          // 套用同樣的旋轉
-          sourcePages.forEach((sp, i) => {
-            const rot = prevRots.get(sp.index) ?? 0
-            if (targetPages[i]) nextRots.set(targetPages[i].index, rot)
-          })
-        }
-        return nextRots
+      // 套用相對順序
+      const newOrder = sourcePages.map((sp) => {
+        const relativeOffset = sourceDefaultPages.findIndex((dp) => dp.index === sp.index)
+        return targetPages[relativeOffset]?.index ?? sp.index
+      }).filter((idx): idx is number => idx !== undefined)
+      newOrders.set(mapping.studentId, newOrder)
+
+      // 套用旋轉
+      sourcePages.forEach((sp, i) => {
+        const rot = pageRotations.get(sp.index) ?? 0
+        if (targetPages[i]) newRotations.set(targetPages[i].index, rot)
       })
-      return next
-    })
-  }, [selectedMapping, getStudentPages, mappings, pages])
+
+      appliedCount++
+    }
+
+    setStudentPageOrders(newOrders)
+    setPageRotations(newRotations)
+
+    // 顯示回饋訊息 2 秒
+    setApplyFeedback(`已套用到 ${appliedCount} 位學生`)
+    setTimeout(() => setApplyFeedback(null), 2000)
+  }, [selectedMapping, getStudentPages, mappings, pages, studentPageOrders, pageRotations])
 
   const handleAutoMap = () => {
     if (pages.length === 0) {
@@ -1428,14 +1437,21 @@ export default function AssignmentImport({
                     全部旋轉
                   </button>
                   {mappings.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={handleApplyToAll}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
-                    >
-                      <CopyCheck className="w-3.5 h-3.5" />
-                      套用到全部學生
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleApplyToAll}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+                      >
+                        <CopyCheck className="w-3.5 h-3.5" />
+                        套用到全部學生
+                      </button>
+                      {applyFeedback && (
+                        <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-1 rounded-lg animate-fade-in">
+                          ✓ {applyFeedback}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
