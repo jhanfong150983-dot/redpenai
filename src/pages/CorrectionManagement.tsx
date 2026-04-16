@@ -104,6 +104,10 @@ function canDispatchStudent(student: DashboardStudent) {
   return !isActive && hasMistakes && hasAttempts
 }
 
+function canStopStudent(student: DashboardStudent) {
+  return ['correction_required', 'correction_in_progress'].includes(student.status)
+}
+
 export default function CorrectionManagement({
   embedded = false,
   assignmentId,
@@ -235,6 +239,12 @@ export default function CorrectionManagement({
     setError(null)
     setMessage(null)
 
+    // Only scope to selected stoppable students if any are checked; otherwise stop all
+    const selectedStoppableIds = selectedStudentIds.filter((id) => {
+      const s = students.find((st) => st.studentId === id)
+      return s ? canStopStudent(s) : false
+    })
+
     try {
       const response = await fetch('/api/data/correction-dispatch-toggle', {
         method: 'POST',
@@ -242,7 +252,8 @@ export default function CorrectionManagement({
         credentials: 'include',
         body: JSON.stringify({
           assignmentId,
-          action: 'stop'
+          action: 'stop',
+          ...(selectedStoppableIds.length > 0 ? { studentIds: selectedStoppableIds } : {})
         })
       })
       const data = await response.json().catch(() => ({}))
@@ -252,6 +263,7 @@ export default function CorrectionManagement({
 
       const blocked: Array<{ studentId: string; name: string; seatNumber: number }> = data.blockedStudents || []
       const recalledCount: number = data.recalledCount ?? 0
+      const isTargeted = selectedStoppableIds.length > 0
 
       if (blocked.length > 0) {
         const names = blocked.map((s) => `${s.seatNumber} 號 ${s.name}`).join('、')
@@ -261,10 +273,13 @@ export default function CorrectionManagement({
             ? `已收回 ${recalledCount} 位學生訂正。${blockedMsg}`
             : blockedMsg
         )
+      } else if (isTargeted) {
+        setMessage(`已收回 ${recalledCount} 位學生的訂正。`)
       } else {
         setMessage('已停止本次作業訂正。')
       }
 
+      setSelectedStudentIds([])
       await loadDashboard()
       // 停止派發後立即強制同步，讓狀態即時反映到其他裝置
       requestSync(true)
@@ -321,21 +336,34 @@ export default function CorrectionManagement({
     () => new Set(dispatchableStudentIds),
     [dispatchableStudentIds]
   )
+  const stoppableStudentIds = useMemo(
+    () => students.filter(canStopStudent).map((student) => student.studentId),
+    [students]
+  )
+  const stoppableStudentIdSet = useMemo(
+    () => new Set(stoppableStudentIds),
+    [stoppableStudentIds]
+  )
+  const selectableStudentIdSet = useMemo(
+    () => new Set([...dispatchableStudentIds, ...stoppableStudentIds]),
+    [dispatchableStudentIds, stoppableStudentIds]
+  )
   const selectedStudentIdSet = useMemo(
     () => new Set(selectedStudentIds),
     [selectedStudentIds]
   )
-  const selectedDispatchCount = selectedStudentIds.length
+  const selectedDispatchCount = selectedStudentIds.filter((id) => dispatchableStudentIdSet.has(id)).length
+  const selectedStoppableCount = selectedStudentIds.filter((id) => stoppableStudentIdSet.has(id)).length
   const isAllDispatchSelected =
     dispatchableStudentIds.length > 0 && selectedDispatchCount === dispatchableStudentIds.length
   const isPartialDispatchSelected = selectedDispatchCount > 0 && !isAllDispatchSelected
 
   useEffect(() => {
     setSelectedStudentIds((prev) => {
-      const next = prev.filter((id) => dispatchableStudentIdSet.has(id))
+      const next = prev.filter((id) => selectableStudentIdSet.has(id))
       return next.length === prev.length ? prev : next
     })
-  }, [dispatchableStudentIdSet])
+  }, [selectableStudentIdSet])
 
   useEffect(() => {
     if (selectAllRef.current) {
@@ -352,7 +380,7 @@ export default function CorrectionManagement({
   }
 
   const handleToggleStudentSelection = (studentId: string) => {
-    if (!dispatchableStudentIdSet.has(studentId)) return
+    if (!selectableStudentIdSet.has(studentId)) return
     setSelectedStudentIds((prev) =>
       prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId]
     )
@@ -527,7 +555,7 @@ export default function CorrectionManagement({
               派發勾選{selectedDispatchCount > 0 ? ` (${selectedDispatchCount})` : ''}
             </button>
 
-            {dashboard?.dispatchActive ? (
+            {(dashboard?.dispatchActive || stoppableStudentIds.length > 0) ? (
               <button
                 type="button"
                 onClick={() => void handleStopDispatch()}
@@ -536,7 +564,7 @@ export default function CorrectionManagement({
               >
                 {isDispatchBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 <Square className="h-4 w-4" />
-                停止訂正
+                停止訂正{selectedStoppableCount > 0 ? ` (${selectedStoppableCount})` : ''}
               </button>
             ) : null}
           </div>
@@ -586,7 +614,7 @@ export default function CorrectionManagement({
         )}
 
         <div className="mb-3 text-xs text-slate-500">
-          可勾選「待派發」學生後按「派發勾選」，就能單獨派發訂正。
+          可勾選「待派發」學生後按「派發勾選」單獨派發；勾選「訂正中」學生後按「停止訂正」可單獨收回，未勾選則停止全部。
         </div>
 
         {error && (
@@ -648,7 +676,7 @@ export default function CorrectionManagement({
                       type="checkbox"
                       checked={selectedStudentIdSet.has(student.studentId)}
                       onChange={() => handleToggleStudentSelection(student.studentId)}
-                      disabled={!canDispatchStudent(student) || isDispatchBusy || isLoading}
+                      disabled={(!canDispatchStudent(student) && !canStopStudent(student)) || isDispatchBusy || isLoading}
                       aria-label={`勾選 ${student.name}`}
                       className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
                     />
