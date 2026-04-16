@@ -2335,6 +2335,7 @@ export default function GradingPage({
         300,
         async (sub) => {
           if (stopRequestedRef.current) return null
+          console.log(`📄 [PhaseA] student=${sub.studentId} pageBreaks=${JSON.stringify(sub.pageBreaks ?? [])}`)
           const phaseAResult = await gradePhaseA(
             sub.imageBlob!,
             assignment.answerKey!,

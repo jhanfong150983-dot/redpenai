@@ -1133,7 +1133,10 @@ export default function AssignmentImport({
           studentId: mapping.studentId,
           status: 'scanned',
           imageSize: `${(imageBase64.length / 1024).toFixed(2)} KB`,
-          hasBlob: !!submission.imageBlob
+          hasBlob: !!submission.imageBlob,
+          pageBlobCount: pageBlobs.length,
+          pageBreaks,
+          hasPageBreaks: pageBreaks.length > 0
         })
 
         try {
