@@ -902,17 +902,18 @@ export default function AssignmentImport({
       )
       if (targetPages.length !== sourceCount) continue
 
-      // 套用相對順序
-      const newOrder = sourcePages.map((sp) => {
+      // 套用相對順序：計算目標學生在新順序下的 page index 陣列
+      const orderedTargetIndices = sourcePages.map((sp) => {
         const relativeOffset = sourceDefaultPages.findIndex((dp) => dp.index === sp.index)
-        return targetPages[relativeOffset]?.index ?? sp.index
+        return targetPages[relativeOffset]?.index
       }).filter((idx): idx is number => idx !== undefined)
-      newOrders.set(mapping.studentId, newOrder)
+      newOrders.set(mapping.studentId, orderedTargetIndices)
 
-      // 套用旋轉
+      // 套用旋轉：依「新順序的第 i 個位置」對應，而非預設順序
       sourcePages.forEach((sp, i) => {
         const rot = pageRotations.get(sp.index) ?? 0
-        if (targetPages[i]) newRotations.set(targetPages[i].index, rot)
+        const targetIdx = orderedTargetIndices[i]
+        if (targetIdx !== undefined) newRotations.set(targetIdx, rot)
       })
 
       appliedCount++
