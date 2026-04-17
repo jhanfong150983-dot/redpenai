@@ -14,6 +14,8 @@ import {
   Trash2,
   Undo2,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import {
   DndContext,
@@ -265,6 +267,7 @@ export default function UnifiedImportPage({
   // ── Preview modal ───────────────────────────────────────────────────────
   const [previewStudent, setPreviewStudent] = useState<Student | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewZoom, setPreviewZoom] = useState(1)
 
   // ── Refresh (sync from cloud) ───────────────────────────────────────────
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -983,6 +986,7 @@ export default function UnifiedImportPage({
     }
     setPreviewStudent(null)
     setPreviewUrl(null)
+    setPreviewZoom(1)
   }, [previewUrl])
 
   // ── Reject student submission (退回重傳) ────────────────────────────────
@@ -1387,18 +1391,65 @@ export default function UnifiedImportPage({
                 <X className="w-5 h-5 text-slate-500" />
               </button>
             </div>
-            {/* Image */}
-            <div className="flex-1 overflow-y-auto bg-slate-50 flex items-center justify-center p-4">
+            {/* Image with zoom */}
+            <div className="flex-1 min-h-0 overflow-auto bg-slate-50 relative">
               {previewUrl ? (
-                <img
-                  src={previewUrl}
-                  alt="作業預覽"
-                  className="max-w-full max-h-[60vh] object-contain rounded-lg shadow"
-                />
+                <div
+                  className="min-h-full flex items-center justify-center p-4"
+                  onWheel={(e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                      e.preventDefault()
+                      setPreviewZoom((z) =>
+                        Math.min(5, Math.max(0.5, z + (e.deltaY > 0 ? -0.2 : 0.2))),
+                      )
+                    }
+                  }}
+                >
+                  <img
+                    src={previewUrl}
+                    alt="作業預覽"
+                    className="object-contain rounded-lg shadow transition-transform"
+                    style={{
+                      transform: `scale(${previewZoom})`,
+                      transformOrigin: 'center center',
+                      maxWidth: previewZoom <= 1 ? '100%' : 'none',
+                      maxHeight: previewZoom <= 1 ? '100%' : 'none',
+                    }}
+                  />
+                </div>
               ) : (
-                <div className="flex flex-col items-center gap-2 text-slate-400">
+                <div className="min-h-full flex flex-col items-center justify-center gap-2 text-slate-400">
                   <Loader className="w-8 h-8 animate-spin" />
                   <span className="text-sm">載入預覽中...</span>
+                </div>
+              )}
+              {/* Zoom controls */}
+              {previewUrl && (
+                <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-white/90 rounded-lg shadow border border-slate-200 px-1 py-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewZoom((z) => Math.max(0.5, z - 0.25))}
+                    className="p-1.5 rounded hover:bg-slate-100 transition-colors"
+                    title="縮小"
+                  >
+                    <ZoomOut className="w-4 h-4 text-slate-600" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewZoom(1)}
+                    className="px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded transition-colors min-w-[3rem] text-center"
+                    title="重設縮放"
+                  >
+                    {Math.round(previewZoom * 100)}%
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewZoom((z) => Math.min(5, z + 0.25))}
+                    className="p-1.5 rounded hover:bg-slate-100 transition-colors"
+                    title="放大"
+                  >
+                    <ZoomIn className="w-4 h-4 text-slate-600" />
+                  </button>
                 </div>
               )}
             </div>
