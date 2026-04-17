@@ -8,6 +8,7 @@ import {
   ImageIcon,
   Loader,
   Plus,
+  RefreshCw,
   X,
 } from 'lucide-react'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
@@ -170,6 +171,10 @@ export default function UnifiedImportPage({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const actionStudentRef = useRef<Student | null>(null)
+
+  // ── Preview modal ───────────────────────────────────────────────────────
+  const [previewStudent, setPreviewStudent] = useState<Student | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   // ── Single student saving ───────────────────────────────────────────────
   const [savingStudentId, setSavingStudentId] = useState<string | null>(null)
@@ -593,15 +598,69 @@ export default function UnifiedImportPage({
     return 'bg-emerald-500 text-white'
   }
 
+  // ── Preview ─────────────────────────────────────────────────────────────
+
+  const openPreview = useCallback(
+    (student: Student) => {
+      const info = submissionMap[student.id]
+      const sub = info?.submission
+      if (!sub) return
+
+      // Build preview URL from blob or base64
+      const blob = sub.imageBlob && sub.imageBlob.size > 0 ? sub.imageBlob : null
+      const base64 = sub.imageBase64 || null
+
+      if (blob) {
+        setPreviewUrl(URL.createObjectURL(blob))
+      } else if (base64) {
+        setPreviewUrl(base64)
+      } else if (sub.imageUrl) {
+        setPreviewUrl(sub.imageUrl)
+      } else {
+        return
+      }
+
+      setPreviewStudent(student)
+    },
+    [submissionMap],
+  )
+
+  const closePreview = useCallback(() => {
+    if (previewUrl && !previewUrl.startsWith('data:')) {
+      URL.revokeObjectURL(previewUrl)
+    }
+    setPreviewStudent(null)
+    setPreviewUrl(null)
+  }, [previewUrl])
+
+  // ── Card click handler ──────────────────────────────────────────────────
+
+  const handleCardClick = useCallback(
+    (student: Student) => {
+      const info = submissionMap[student.id]
+      const hasSubmission = !!info?.submission
+      if (hasSubmission) {
+        // Has submission → open preview
+        openPreview(student)
+      } else {
+        // No submission → toggle action sheet
+        setActionSheetStudent(
+          actionSheetStudent?.id === student.id ? null : student,
+        )
+      }
+    },
+    [submissionMap, openPreview, actionSheetStudent],
+  )
+
   // ── Render: Loading ─────────────────────────────────────────────────────
 
   if (isLoading) {
     return (
       <div
-        className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-gray-50 flex items-center justify-center`}
+        className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}
       >
         <div className="text-center">
-          <Loader className="w-12 h-12 text-indigo-600 mx-auto mb-4 animate-spin" />
+          <Loader className="w-12 h-12 text-purple-600 mx-auto mb-4 animate-spin" />
           <p className="text-gray-600">載入中...</p>
         </div>
       </div>
@@ -628,7 +687,7 @@ export default function UnifiedImportPage({
 
   return (
     <div
-      className={`${embedded ? '' : 'min-h-screen'} bg-gray-50 flex flex-col`}
+      className={`${embedded ? '' : 'min-h-screen'} bg-white flex flex-col`}
     >
       {/* Hidden file inputs */}
       <input
@@ -655,16 +714,16 @@ export default function UnifiedImportPage({
       />
 
       {/* Header */}
-      <div className="sticky top-0 z-30 bg-white border-b border-gray-200 px-4 py-3">
+      <div className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {onBack && (
               <button
                 type="button"
                 onClick={onBack}
-                className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
+                className="p-2 rounded-xl hover:bg-slate-100 transition-colors"
               >
-                <ArrowLeft className="w-5 h-5 text-gray-600" />
+                <ArrowLeft className="w-5 h-5 text-slate-600" />
               </button>
             )}
             <div>
@@ -672,7 +731,7 @@ export default function UnifiedImportPage({
                 匯入作業
               </h1>
               {assignment && (
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-slate-500">
                   {assignment.title}
                 </p>
               )}
@@ -682,7 +741,7 @@ export default function UnifiedImportPage({
             type="button"
             onClick={() => batchPdfInputRef.current?.click()}
             disabled={isBatchProcessing}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 disabled:bg-gray-300 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 transition-colors"
           >
             <FileUp className="w-4 h-4" />
             PDF 批次匯入
@@ -706,9 +765,9 @@ export default function UnifiedImportPage({
 
       {/* Batch processing overlay */}
       {isBatchProcessing && (
-        <div className="mx-4 mt-3 px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center gap-3">
-          <Loader className="w-5 h-5 text-indigo-600 animate-spin" />
-          <span className="text-sm text-indigo-700">{batchProgress}</span>
+        <div className="mx-4 mt-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-3">
+          <Loader className="w-5 h-5 text-blue-600 animate-spin" />
+          <span className="text-sm text-blue-700">{batchProgress}</span>
         </div>
       )}
 
@@ -727,15 +786,11 @@ export default function UnifiedImportPage({
                 <button
                   type="button"
                   disabled={isSaving || isBatchProcessing}
-                  onClick={() =>
-                    setActionSheetStudent(
-                      actionSheetStudent?.id === student.id ? null : student,
-                    )
-                  }
+                  onClick={() => handleCardClick(student)}
                   className={`relative w-full aspect-[3/4] rounded-xl border-2 overflow-hidden transition-all transform hover:scale-[1.03] active:scale-95 ${
                     hasSubmission
                       ? 'border-emerald-300 bg-white'
-                      : 'border-gray-200 bg-white hover:border-indigo-400'
+                      : 'border-slate-200 bg-white hover:border-slate-400'
                   } ${isSaving ? 'opacity-50' : ''}`}
                 >
                   {/* Thumbnail or placeholder */}
@@ -748,16 +803,16 @@ export default function UnifiedImportPage({
                       </div>
                     </>
                   ) : (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
                       <Plus className="w-8 h-8 mb-1" />
                       <span className="text-xs">上傳</span>
                     </div>
                   )}
 
-                  {/* Source badge */}
+                  {/* Source badge — 老師 / 學生 */}
                   {sourceLabel && (
                     <div
-                      className={`absolute top-1 right-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium ${badgeClass}`}
+                      className={`absolute top-1 right-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold shadow-sm ${badgeClass}`}
                     >
                       {sourceLabel}
                     </div>
@@ -766,7 +821,7 @@ export default function UnifiedImportPage({
                   {/* Saving indicator */}
                   {isSaving && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white/60">
-                      <Loader className="w-6 h-6 text-indigo-600 animate-spin" />
+                      <Loader className="w-6 h-6 text-blue-600 animate-spin" />
                     </div>
                   )}
 
@@ -781,7 +836,7 @@ export default function UnifiedImportPage({
                   </div>
                 </button>
 
-                {/* Action sheet popover */}
+                {/* Action sheet popover — show BELOW the card */}
                 {actionSheetStudent?.id === student.id && (
                   <>
                     {/* Backdrop */}
@@ -789,20 +844,20 @@ export default function UnifiedImportPage({
                       className="fixed inset-0 z-40"
                       onClick={() => setActionSheetStudent(null)}
                     />
-                    {/* Popover */}
-                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-50 bg-white rounded-xl shadow-xl border border-gray-200 py-1 w-36 animate-in fade-in slide-in-from-bottom-2">
+                    {/* Popover (below card) */}
+                    <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 bg-white rounded-xl shadow-xl border border-slate-200 py-1 w-36">
                       <button
                         type="button"
                         onClick={() => handleStartCamera(student)}
-                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                       >
-                        <Camera className="w-4 h-4 text-indigo-500" />
+                        <Camera className="w-4 h-4 text-blue-500" />
                         拍照
                       </button>
                       <button
                         type="button"
                         onClick={() => triggerPhotoUpload(student)}
-                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                       >
                         <ImageIcon className="w-4 h-4 text-emerald-500" />
                         上傳照片
@@ -810,7 +865,7 @@ export default function UnifiedImportPage({
                       <button
                         type="button"
                         onClick={() => triggerPdfUpload(student)}
-                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                       >
                         <FileImage className="w-4 h-4 text-orange-500" />
                         上傳 PDF
@@ -825,12 +880,12 @@ export default function UnifiedImportPage({
       </div>
 
       {/* Bottom bar */}
-      <div className="sticky bottom-0 z-20 bg-white border-t border-gray-200 px-4 py-3">
+      <div className="sticky bottom-0 z-20 bg-white border-t border-slate-200 px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4 text-sm">
             <span className="flex items-center gap-1.5">
               <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" />
-              <span className="text-gray-600">
+              <span className="text-slate-600">
                 已完成{' '}
                 <span className="font-semibold text-emerald-600">
                   {completedCount}
@@ -838,10 +893,10 @@ export default function UnifiedImportPage({
               </span>
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-full bg-gray-300 inline-block" />
-              <span className="text-gray-600">
+              <span className="w-3 h-3 rounded-full bg-slate-300 inline-block" />
+              <span className="text-slate-600">
                 未完成{' '}
-                <span className="font-semibold text-gray-700">
+                <span className="font-semibold text-slate-700">
                   {totalCount - completedCount}
                 </span>
               </span>
@@ -858,6 +913,85 @@ export default function UnifiedImportPage({
           )}
         </div>
       </div>
+
+      {/* Preview modal — shows full image + re-upload options */}
+      {previewStudent && previewUrl && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 flex-shrink-0">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">
+                  {previewStudent.seatNumber} 號 {previewStudent.name}
+                </h3>
+                {(() => {
+                  const src = submissionMap[previewStudent.id]?.source
+                  const label = getSourceLabel(src)
+                  const cls = getSourceBadgeClass(src)
+                  return label ? (
+                    <span className={`inline-block mt-1 px-2 py-0.5 rounded text-xs font-medium ${cls}`}>
+                      來源：{label}
+                    </span>
+                  ) : null
+                })()}
+              </div>
+              <button
+                type="button"
+                onClick={closePreview}
+                className="p-2 rounded-full hover:bg-slate-100"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+            {/* Image */}
+            <div className="flex-1 overflow-y-auto bg-slate-50 flex items-center justify-center p-4">
+              <img
+                src={previewUrl}
+                alt="作業預覽"
+                className="max-w-full max-h-[60vh] object-contain rounded-lg shadow"
+              />
+            </div>
+            {/* Footer — re-upload options */}
+            <div className="flex items-center justify-center gap-3 px-5 py-3 border-t border-slate-200 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  closePreview()
+                  handleStartCamera(previewStudent)
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                <Camera className="w-4 h-4 text-blue-500" />
+                重新拍照
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const student = previewStudent
+                  closePreview()
+                  triggerPhotoUpload(student)
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4 text-emerald-500" />
+                重新上傳照片
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const student = previewStudent
+                  closePreview()
+                  triggerPdfUpload(student)
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                <FileImage className="w-4 h-4 text-orange-500" />
+                重新上傳 PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ImportConfigDialog for batch PDF */}
       {showImportConfig && (
