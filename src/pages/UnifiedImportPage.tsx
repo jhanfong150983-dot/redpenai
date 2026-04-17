@@ -498,20 +498,24 @@ export default function UnifiedImportPage({
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const files = event.target.files
       if (!files || files.length === 0) return
+
+      // Copy files before clearing input (some browsers invalidate FileList)
+      const fileArray = sortFilesByNumber(
+        Array.from(files).filter((f) => {
+          if (getFileType(f) !== 'pdf') {
+            setError(`檔案 "${f.name}" 不是 PDF 格式。僅支援 PDF 檔案。`)
+            return false
+          }
+          return true
+        }),
+      )
+      // Now safe to reset
       event.target.value = ''
+
+      if (fileArray.length === 0) return
 
       setError(null)
       try {
-        let fileArray = Array.from(files)
-        for (const file of fileArray) {
-          if (getFileType(file) !== 'pdf') {
-            throw new Error(
-              `檔案 "${file.name}" 不是 PDF 格式。僅支援 PDF 檔案。`,
-            )
-          }
-        }
-        fileArray = sortFilesByNumber(fileArray)
-
         const infos: PdfFileInfo[] = []
         for (const file of fileArray) {
           const { blob, pageCount } = await getPdfFirstPageAndCount(file)
@@ -521,6 +525,8 @@ export default function UnifiedImportPage({
             firstPageUrl: URL.createObjectURL(blob),
           })
         }
+
+        if (infos.length === 0) return
 
         const maxPage = Math.max(...infos.map((i) => i.pageCount))
         setConfigMaxPage(maxPage)
