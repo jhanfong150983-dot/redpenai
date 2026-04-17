@@ -891,7 +891,7 @@ export default function UnifiedImportPage({
 
   return (
     <div
-      className={`${embedded ? '' : 'min-h-screen'} bg-white flex flex-col`}
+      className={`${embedded ? 'h-full' : 'h-screen'} bg-white flex flex-col overflow-hidden`}
     >
       {/* Hidden file inputs */}
       <input
@@ -917,8 +917,8 @@ export default function UnifiedImportPage({
         onChange={handleBatchPdfSelect}
       />
 
-      {/* Header */}
-      <div className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 py-3">
+      {/* Header — fixed in flex layout, not sticky */}
+      <div className="shrink-0 bg-white border-b border-slate-200 px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             {onBack && (
@@ -986,8 +986,8 @@ export default function UnifiedImportPage({
         </div>
       )}
 
-      {/* Thumbnail grid */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 relative z-0">
+      {/* Thumbnail grid — scrollable area */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 py-4">
         <div className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-3">
           {students.map((student) => {
             const info = submissionMap[student.id]
@@ -1094,8 +1094,8 @@ export default function UnifiedImportPage({
         </div>
       </div>
 
-      {/* Bottom bar */}
-      <div className="sticky bottom-0 z-20 bg-white border-t border-slate-200 px-4 py-3">
+      {/* Bottom bar — fixed in flex layout, not sticky */}
+      <div className="shrink-0 bg-white border-t border-slate-200 px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4 text-sm">
             <span className="flex items-center gap-1.5">
