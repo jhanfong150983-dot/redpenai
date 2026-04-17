@@ -9,6 +9,7 @@ import {
   Loader,
   Plus,
   RefreshCw,
+  RotateCw,
   Trash2,
   Undo2,
   X,
@@ -17,7 +18,7 @@ import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import type { Assignment, Student, Submission } from '@/lib/db'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
-import { blobToBase64, compressToTargetBytes } from '@/lib/imageCompression'
+import { blobToBase64, compressToTargetBytes, rotateImageBlob } from '@/lib/imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-storage'
 import { mergePageBlobs } from '@/lib/image-merge'
 import {
@@ -201,6 +202,14 @@ export default function UnifiedImportPage({
   const [isBatchProcessing, setIsBatchProcessing] = useState(false)
   const [batchProgress, setBatchProgress] = useState('')
 
+  // ── Upload preview (per-page rotation before merge) ─────────────────────
+  const [uploadPreviewStudent, setUploadPreviewStudent] = useState<Student | null>(null)
+  const [uploadPreviewBlobs, setUploadPreviewBlobs] = useState<Blob[]>([])
+  const [uploadPreviewUrls, setUploadPreviewUrls] = useState<string[]>([])
+  const [uploadPreviewRotations, setUploadPreviewRotations] = useState<number[]>([])
+  const [uploadPreviewSource, setUploadPreviewSource] = useState<string>('teacher_student_upload')
+  const [isUploadPreviewSaving, setIsUploadPreviewSaving] = useState(false)
+
   // ── Load data ───────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -344,12 +353,11 @@ export default function UnifiedImportPage({
     onCaptureModeChange?.(false)
   }, [onCaptureModeChange])
 
-  // ── Single file upload (image) ──────────────────────────────────────────
+  // ── Single file upload → open preview ───────────────────────────────────
 
   const handleFileUpload = useCallback(
     async (student: Student, file: File) => {
       const fileType = getFileType(file)
-      setSavingStudentId(student.id)
       setActionSheetStudent(null)
       setError(null)
 
@@ -361,24 +369,89 @@ export default function UnifiedImportPage({
           blobs = [file]
         }
 
-        await saveStudentSubmission(
-          assignmentId,
-          student.id,
-          blobs,
-          avoidBlobStorage,
+        // Open preview for rotation before merge
+        const urls = blobs.map((b) => URL.createObjectURL(b))
+        setUploadPreviewStudent(student)
+        setUploadPreviewBlobs(blobs)
+        setUploadPreviewUrls(urls)
+        setUploadPreviewRotations(new Array(blobs.length).fill(0))
+        setUploadPreviewSource(
           fileType === 'pdf' ? 'teacher_scan' : 'teacher_student_upload',
         )
-        requestSync()
-        await loadData()
       } catch (err) {
         console.error('上傳失敗:', err)
         setError(err instanceof Error ? err.message : '上傳失敗')
-      } finally {
-        setSavingStudentId(null)
       }
     },
-    [assignmentId, avoidBlobStorage, loadData],
+    [],
   )
+
+  const handleUploadPreviewRotate = useCallback((pageIndex: number) => {
+    setUploadPreviewRotations((prev) => {
+      const next = [...prev]
+      next[pageIndex] = ((next[pageIndex] ?? 0) + 90) % 360
+      return next
+    })
+  }, [])
+
+  const handleUploadPreviewRotateAll = useCallback(() => {
+    setUploadPreviewRotations((prev) => prev.map((r) => (r + 90) % 360))
+  }, [])
+
+  const handleUploadPreviewCancel = useCallback(() => {
+    uploadPreviewUrls.forEach((u) => URL.revokeObjectURL(u))
+    setUploadPreviewStudent(null)
+    setUploadPreviewBlobs([])
+    setUploadPreviewUrls([])
+    setUploadPreviewRotations([])
+  }, [uploadPreviewUrls])
+
+  const handleUploadPreviewConfirm = useCallback(async () => {
+    if (!uploadPreviewStudent) return
+    setIsUploadPreviewSaving(true)
+
+    try {
+      // Apply rotations
+      const rotatedBlobs = await Promise.all(
+        uploadPreviewBlobs.map(async (blob, i) => {
+          const rot = uploadPreviewRotations[i] ?? 0
+          return rot !== 0 ? rotateImageBlob(blob, rot) : blob
+        }),
+      )
+
+      await saveStudentSubmission(
+        assignmentId,
+        uploadPreviewStudent.id,
+        rotatedBlobs,
+        avoidBlobStorage,
+        uploadPreviewSource,
+      )
+      requestSync()
+
+      // Cleanup
+      uploadPreviewUrls.forEach((u) => URL.revokeObjectURL(u))
+      setUploadPreviewStudent(null)
+      setUploadPreviewBlobs([])
+      setUploadPreviewUrls([])
+      setUploadPreviewRotations([])
+
+      await loadData()
+    } catch (err) {
+      console.error('儲存失敗:', err)
+      setError(err instanceof Error ? err.message : '儲存失敗')
+    } finally {
+      setIsUploadPreviewSaving(false)
+    }
+  }, [
+    uploadPreviewStudent,
+    uploadPreviewBlobs,
+    uploadPreviewRotations,
+    uploadPreviewUrls,
+    uploadPreviewSource,
+    assignmentId,
+    avoidBlobStorage,
+    loadData,
+  ])
 
   const handleFileInputChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1143,6 +1216,98 @@ export default function UnifiedImportPage({
                     <Trash2 className="w-4 h-4" />
                   )}
                   刪除作業
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload preview modal — per-page rotation before merge */}
+      {uploadPreviewStudent && uploadPreviewUrls.length > 0 && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 flex-shrink-0">
+              <h3 className="text-base font-semibold text-gray-900">
+                上傳預覽 — {uploadPreviewStudent.seatNumber} 號 {uploadPreviewStudent.name}
+                <span className="ml-2 text-sm font-normal text-slate-500">
+                  共 {uploadPreviewUrls.length} 頁
+                </span>
+              </h3>
+              <button
+                type="button"
+                onClick={handleUploadPreviewCancel}
+                className="p-2 rounded-full hover:bg-slate-100"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            {/* Pages grid */}
+            <div className="flex-1 overflow-y-auto bg-slate-50 p-4">
+              <div className={`grid gap-4 ${
+                uploadPreviewUrls.length === 1 ? 'grid-cols-1 max-w-sm mx-auto' : 'grid-cols-2 sm:grid-cols-3'
+              }`}>
+                {uploadPreviewUrls.map((url, i) => (
+                  <div key={i} className="relative bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                    {/* Page label */}
+                    <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/50 rounded-md text-white text-xs font-medium">
+                      第 {i + 1} 頁
+                    </div>
+                    {/* Rotate button */}
+                    <button
+                      type="button"
+                      onClick={() => handleUploadPreviewRotate(i)}
+                      className="absolute top-2 right-2 z-10 p-1.5 bg-white/90 rounded-lg shadow hover:bg-white transition-colors"
+                      title="旋轉 90°"
+                    >
+                      <RotateCw className="w-4 h-4 text-slate-600" />
+                    </button>
+                    {/* Image */}
+                    <div className="aspect-[3/4] flex items-center justify-center p-2">
+                      <img
+                        src={url}
+                        alt={`第 ${i + 1} 頁`}
+                        className="max-w-full max-h-full object-contain transition-transform"
+                        style={{ transform: `rotate(${uploadPreviewRotations[i] ?? 0}deg)` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                {uploadPreviewUrls.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={handleUploadPreviewRotateAll}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    <RotateCw className="w-4 h-4" />
+                    全部旋轉
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleUploadPreviewCancel}
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  disabled={isUploadPreviewSaving}
+                  onClick={handleUploadPreviewConfirm}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300 transition-colors"
+                >
+                  {isUploadPreviewSaving && <Loader className="w-4 h-4 animate-spin" />}
+                  確認上傳
                 </button>
               </div>
             </div>
