@@ -177,6 +177,9 @@ export default function UnifiedImportPage({
   const [previewStudent, setPreviewStudent] = useState<Student | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
+  // ── Refresh (sync from cloud) ───────────────────────────────────────────
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
   // ── Single student saving ───────────────────────────────────────────────
   const [savingStudentId, setSavingStudentId] = useState<string | null>(null)
 
@@ -244,6 +247,24 @@ export default function UnifiedImportPage({
 
   useEffect(() => {
     void loadData()
+  }, [loadData])
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    try {
+      requestSync(true)
+      try {
+        await waitForSync(15000)
+      } catch {
+        // sync timeout is non-fatal
+      }
+      await loadData()
+    } catch (error) {
+      console.error('同步失敗:', error)
+      alert(error instanceof Error ? error.message : '同步失敗')
+    } finally {
+      setIsRefreshing(false)
+    }
   }, [loadData])
 
   // ── Computed ────────────────────────────────────────────────────────────
@@ -782,15 +803,26 @@ export default function UnifiedImportPage({
               )}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => batchPdfInputRef.current?.click()}
-            disabled={isBatchProcessing}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 transition-colors"
-          >
-            <FileUp className="w-4 h-4" />
-            PDF 批次匯入
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={isRefreshing || isBatchProcessing}
+              className="flex items-center gap-2 px-3 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 transition-colors"
+              title="同步雲端資料"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              type="button"
+              onClick={() => batchPdfInputRef.current?.click()}
+              disabled={isBatchProcessing}
+              className="flex items-center gap-2 px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 transition-colors"
+            >
+              <FileUp className="w-4 h-4" />
+              PDF 批次匯入
+            </button>
+          </div>
         </div>
       </div>
 
