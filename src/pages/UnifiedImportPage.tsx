@@ -203,6 +203,14 @@ export default function UnifiedImportPage({
   const [isBatchProcessing, setIsBatchProcessing] = useState(false)
   const [batchProgress, setBatchProgress] = useState('')
 
+  // ── Batch preview (per-page rotation before auto-map + save) ────────────
+  const [batchPreviewBlobs, setBatchPreviewBlobs] = useState<Blob[]>([])
+  const [batchPreviewUrls, setBatchPreviewUrls] = useState<string[]>([])
+  const [batchPreviewRotations, setBatchPreviewRotations] = useState<number[]>([])
+  const [batchPreviewPagesPerStudent, setBatchPreviewPagesPerStudent] = useState(1)
+  const [showBatchPreview, setShowBatchPreview] = useState(false)
+  const [batchPreviewSelectedStudent, setBatchPreviewSelectedStudent] = useState(0)
+
   // ── Upload preview (per-page rotation before merge) ─────────────────────
   const [uploadPreviewStudent, setUploadPreviewStudent] = useState<Student | null>(null)
   const [uploadPreviewBlobs, setUploadPreviewBlobs] = useState<Blob[]>([])
@@ -553,6 +561,7 @@ export default function UnifiedImportPage({
     setShowImportConfig(false)
   }, [pdfFilesInfo])
 
+  // Step 1: Convert PDFs → open batch preview
   const handleImportConfirm = useCallback(async () => {
     const fileArray = pdfFilesInfo.map((i) => i.file)
     if (fileArray.length === 0) return
@@ -565,7 +574,6 @@ export default function UnifiedImportPage({
     setError(null)
 
     try {
-      // Convert PDFs
       const allPdfPages: Blob[][] = []
       for (const file of fileArray) {
         const blobs = await convertPdfToImages(file)
@@ -584,55 +592,103 @@ export default function UnifiedImportPage({
         effectivePagesPerStudent = configPagesPerStudent
       }
 
-      // Auto-map to students by seat order
-      const sortedStudents = [...students].sort(
-        (a, b) => a.seatNumber - b.seatNumber,
-      )
-      const totalStudentsNeeded = Math.floor(
-        allBlobs.length / effectivePagesPerStudent,
-      )
-
-      if (totalStudentsNeeded === 0) {
-        throw new Error('PDF 頁數不足，無法分配給任何學生')
+      if (allBlobs.length === 0) {
+        throw new Error('PDF 頁數不足')
       }
 
-      // Ask about absent seats if mismatch
-      let targetStudents = sortedStudents
-      if (totalStudentsNeeded < sortedStudents.length) {
-        const missingCount = sortedStudents.length - totalStudentsNeeded
-        const input = prompt(
-          `PDF 共 ${allBlobs.length} 頁，每位學生 ${effectivePagesPerStudent} 頁，` +
-            `預計 ${totalStudentsNeeded} 位學生的作業。\n` +
-            `班上共 ${sortedStudents.length} 位學生，少了 ${missingCount} 位。\n\n` +
-            `請輸入未交座號（用逗號分隔，例如：3, 5, 12）：`,
-        )
-        if (input === null) {
-          setIsBatchProcessing(false)
-          return
-        }
-        const absentSet = new Set(
-          input
-            .split(/[,\s，、]+/)
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0 && /^\d+$/.test(s))
-            .map((s) => Number.parseInt(s, 10)),
-        )
-        targetStudents = sortedStudents.filter(
-          (s) => !absentSet.has(s.seatNumber),
-        )
-      }
+      // Open batch preview for rotation
+      const urls = allBlobs.map((b) => URL.createObjectURL(b))
+      setBatchPreviewBlobs(allBlobs)
+      setBatchPreviewUrls(urls)
+      setBatchPreviewRotations(new Array(allBlobs.length).fill(0))
+      setBatchPreviewPagesPerStudent(effectivePagesPerStudent)
+      setBatchPreviewSelectedStudent(0)
+      setShowBatchPreview(true)
+    } catch (e) {
+      console.error(e)
+      setError(e instanceof Error ? e.message : 'PDF 批次匯入失敗')
+    } finally {
+      setIsBatchProcessing(false)
+      setBatchProgress('')
+    }
+  }, [
+    pdfFilesInfo,
+    configStartPage,
+    configEndPage,
+    configMergeMode,
+    configPagesPerStudentPerPdf,
+    configPagesPerStudent,
+  ])
 
-      // Confirm before saving
-      const orientationConfirmed = confirm(
-        `即將匯入 ${Math.min(totalStudentsNeeded, targetStudents.length)} 位學生的作業。\n\n` +
-          `❗ 請確認 PDF 頁面方向正確（不可倒置或歪斜），否則可能影響 AI 辨識結果。\n\n確認要匯入嗎？`,
+  const handleBatchPreviewRotate = useCallback((pageIndex: number) => {
+    setBatchPreviewRotations((prev) => {
+      const next = [...prev]
+      next[pageIndex] = ((next[pageIndex] ?? 0) + 90) % 360
+      return next
+    })
+  }, [])
+
+  const handleBatchPreviewRotateAll = useCallback(() => {
+    setBatchPreviewRotations((prev) => prev.map((r) => (r + 90) % 360))
+  }, [])
+
+  const handleBatchPreviewCancel = useCallback(() => {
+    batchPreviewUrls.forEach((u) => URL.revokeObjectURL(u))
+    setBatchPreviewBlobs([])
+    setBatchPreviewUrls([])
+    setBatchPreviewRotations([])
+    setShowBatchPreview(false)
+  }, [batchPreviewUrls])
+
+  // Step 2: Apply rotations → auto-map → save
+  const handleBatchPreviewConfirm = useCallback(async () => {
+    const allBlobs = batchPreviewBlobs
+    const effectivePagesPerStudent = batchPreviewPagesPerStudent
+    if (allBlobs.length === 0) return
+
+    // Auto-map to students
+    const sortedStudents = [...students].sort(
+      (a, b) => a.seatNumber - b.seatNumber,
+    )
+    const totalStudentsNeeded = Math.floor(
+      allBlobs.length / effectivePagesPerStudent,
+    )
+
+    if (totalStudentsNeeded === 0) {
+      setError('PDF 頁數不足，無法分配給任何學生')
+      return
+    }
+
+    // Ask about absent seats if mismatch
+    let targetStudents = sortedStudents
+    if (totalStudentsNeeded < sortedStudents.length) {
+      const missingCount = sortedStudents.length - totalStudentsNeeded
+      const input = prompt(
+        `PDF 共 ${allBlobs.length} 頁，每位學生 ${effectivePagesPerStudent} 頁，` +
+          `預計 ${totalStudentsNeeded} 位學生的作業。\n` +
+          `班上共 ${sortedStudents.length} 位學生，少了 ${missingCount} 位。\n\n` +
+          `請輸入未交座號（用逗號分隔，例如：3, 5, 12）：`,
       )
-      if (!orientationConfirmed) {
-        setIsBatchProcessing(false)
-        return
-      }
+      if (input === null) return
+      const absentSet = new Set(
+        input
+          .split(/[,\s，、]+/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0 && /^\d+$/.test(s))
+          .map((s) => Number.parseInt(s, 10)),
+      )
+      targetStudents = sortedStudents.filter(
+        (s) => !absentSet.has(s.seatNumber),
+      )
+    }
 
-      // Save each student's pages
+    // Close preview + start saving
+    batchPreviewUrls.forEach((u) => URL.revokeObjectURL(u))
+    setShowBatchPreview(false)
+    setIsBatchProcessing(true)
+    setError(null)
+
+    try {
       let successCount = 0
       const studentsToProcess = targetStudents.slice(0, totalStudentsNeeded)
 
@@ -648,10 +704,18 @@ export default function UnifiedImportPage({
           `正在儲存 ${i + 1}/${studentsToProcess.length}（${student.seatNumber} 號 ${student.name}）`,
         )
 
+        // Apply rotations to this student's pages
+        const rotatedBlobs = await Promise.all(
+          studentBlobs.map(async (blob, j) => {
+            const rot = batchPreviewRotations[startIdx + j] ?? 0
+            return rot !== 0 ? rotateImageBlob(blob, rot) : blob
+          }),
+        )
+
         await saveStudentSubmission(
           assignmentId,
           student.id,
-          studentBlobs,
+          rotatedBlobs,
           avoidBlobStorage,
           'teacher_scan',
         )
@@ -667,16 +731,17 @@ export default function UnifiedImportPage({
       console.error(e)
       setError(e instanceof Error ? e.message : 'PDF 批次匯入失敗')
     } finally {
+      setBatchPreviewBlobs([])
+      setBatchPreviewUrls([])
+      setBatchPreviewRotations([])
       setIsBatchProcessing(false)
       setBatchProgress('')
     }
   }, [
-    pdfFilesInfo,
-    configStartPage,
-    configEndPage,
-    configMergeMode,
-    configPagesPerStudentPerPdf,
-    configPagesPerStudent,
+    batchPreviewBlobs,
+    batchPreviewUrls,
+    batchPreviewRotations,
+    batchPreviewPagesPerStudent,
     students,
     assignmentId,
     avoidBlobStorage,
@@ -1246,6 +1311,124 @@ export default function UnifiedImportPage({
                     <Trash2 className="w-4 h-4" />
                   )}
                   刪除作業
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch PDF preview modal — per-page rotation + student mapping */}
+      {showBatchPreview && batchPreviewUrls.length > 0 && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 shrink-0">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">
+                  PDF 預覽
+                  <span className="ml-2 text-sm font-normal text-slate-500">
+                    共 {batchPreviewUrls.length} 頁，每位學生 {batchPreviewPagesPerStudent} 頁
+                  </span>
+                </h3>
+                {/* Student tabs */}
+                <div className="flex gap-1 mt-2 overflow-x-auto pb-1">
+                  {Array.from(
+                    { length: Math.ceil(batchPreviewUrls.length / batchPreviewPagesPerStudent) },
+                    (_, i) => {
+                      const sortedStudents = [...students].sort((a, b) => a.seatNumber - b.seatNumber)
+                      const stu = sortedStudents[i]
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setBatchPreviewSelectedStudent(i)}
+                          className={`shrink-0 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                            batchPreviewSelectedStudent === i
+                              ? 'bg-indigo-100 text-indigo-700'
+                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                          }`}
+                        >
+                          {stu ? `${stu.seatNumber}號` : `學生${i + 1}`}
+                        </button>
+                      )
+                    },
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleBatchPreviewCancel}
+                className="p-2 rounded-full hover:bg-slate-100 shrink-0 self-start"
+              >
+                <X className="w-5 h-5 text-slate-500" />
+              </button>
+            </div>
+
+            {/* Pages for selected student */}
+            <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50 p-4">
+              {(() => {
+                const startIdx = batchPreviewSelectedStudent * batchPreviewPagesPerStudent
+                const endIdx = Math.min(startIdx + batchPreviewPagesPerStudent, batchPreviewUrls.length)
+                const pageIndices = Array.from({ length: endIdx - startIdx }, (_, i) => startIdx + i)
+                return (
+                  <div className={`grid gap-4 ${
+                    pageIndices.length === 1 ? 'grid-cols-1 max-w-md mx-auto' : 'grid-cols-2 lg:grid-cols-3'
+                  }`}>
+                    {pageIndices.map((idx) => (
+                      <div key={idx} className="relative bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/50 rounded-md text-white text-xs font-medium">
+                          第 {idx + 1} 頁
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleBatchPreviewRotate(idx)}
+                          className="absolute top-2 right-2 z-10 p-1.5 bg-white/90 rounded-lg shadow hover:bg-white transition-colors"
+                          title="旋轉 90°"
+                        >
+                          <RotateCw className="w-4 h-4 text-slate-600" />
+                        </button>
+                        <div className="aspect-[3/4] flex items-center justify-center p-2">
+                          <img
+                            src={batchPreviewUrls[idx]}
+                            alt={`第 ${idx + 1} 頁`}
+                            className="max-w-full max-h-full object-contain transition-transform"
+                            style={{ transform: `rotate(${batchPreviewRotations[idx] ?? 0}deg)` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 shrink-0">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleBatchPreviewRotateAll}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <RotateCw className="w-4 h-4" />
+                  全部旋轉
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleBatchPreviewCancel}
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBatchPreviewConfirm}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
+                >
+                  確認匯入
                 </button>
               </div>
             </div>
