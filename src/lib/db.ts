@@ -125,6 +125,17 @@ export interface AnswerKeyQuestion {
   // 例如："表格中欄標題為「22」的格子"、"題幹「擲出來的點數和可能大於1嗎？」旁的括號"
   anchorHint?: string
 
+  // 表格座標定位（由 answer_key.extract 產生）
+  // 用於 classify 階段精準定位表格中的答案格，比 anchorHint 更可靠
+  tablePosition?: {
+    col: number      // 欄位序號（1-based，含標題欄，從最左邊開始）
+    row: number      // 列序號（1-based，含標題列，從最上面開始）
+    totalCols: number // 表格總欄數
+    totalRows: number // 表格總列數
+    colspan?: number  // 合併欄數（預設 1）
+    rowspan?: number  // 合併列數（預設 1）
+  }
+
   // @deprecated 已廢棄的欄位（保留向後兼容）
   detectedType?: QuestionCategoryType // 已合併到 type
 }

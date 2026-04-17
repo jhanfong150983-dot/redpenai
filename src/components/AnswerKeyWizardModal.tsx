@@ -248,7 +248,12 @@ export default function AnswerKeyWizardModal({
     setOverlay(null)
     setIsSaving(true)
     try {
-      await onSave(editingKey, imageBlobs)
+      // 同步 totalScore 為各題 maxScore 加總
+      const updatedKey: AnswerKey = {
+        ...editingKey,
+        totalScore: editingKey.questions.reduce((s, q) => s + (q.maxScore ?? 0), 0),
+      }
+      await onSave(updatedKey, imageBlobs)
     } finally {
       setIsSaving(false)
     }

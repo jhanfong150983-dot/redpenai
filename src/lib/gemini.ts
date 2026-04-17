@@ -883,6 +883,7 @@ function buildGlobalTaskAndFormat(): string {
     "maxScore": 5,                      // 滿分
     "answerBbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05}, // 你剛才讀到的 "answer" 文字／符號在圖像上的精確位置（歸一化，0-1；x/y=左上角，w/h=寬高）。框住你實際看到並識別的那些字元，不是猜測，是你已經視覺定位的文字。
     "anchorHint": "比率列中有印刷括號（　）/180的空格，位於欄標題「三國演義」正下方", // 此答案格本身的視覺外觀（優先）＋鄰近印刷標誌（輔助）。讓後續 AI 能精確定位答案格本身，而非欄標題。multi_fill 每個子題各自描述自己格子的外觀。
+    "tablePosition": {"col": 4, "row": 3, "totalCols": 8, "totalRows": 3, "colspan": 1, "rowspan": 1}, // 表格題專用：此答案格在表格中的座標（1-based，含標題欄/列）。非表格題省略此欄位。
 
     // single_choice / true_false / fill_blank / multi_check / multi_choice / single_check 專用：標準答案
     // single_choice: 括號()內填一個代號，如 "A"、"甲"、"①"（答案空間為括號）
@@ -978,6 +979,16 @@ function buildGlobalTaskAndFormat(): string {
   - fill_blank 多格（multi_fill / 表格子題）：優先描述格子本身的視覺外觀（印刷格式、括號樣式、預留空白），再以欄標題或列標題作為輔助定位。例如：「比率列中有印刷括號（　）/180的空格，位於欄標題「三國演義」正下方」「票數列中對應「金銀島」欄的空白數字格」。禁止只寫欄標題文字（如「欄標題為「三國演義」的格子」），因為欄標題本身不是答案格。
   - single_choice / single_check：描述題幹第一句關鍵字，例如「題幹開頭為「擲出來的點數和可能大於1嗎」」
   - 目標：描述應具體到能唯一定位該格，避免使用位置詞（「左邊第三格」→ 改用欄標題）
+- tablePosition（表格題必填）：當答案格位於表格（有可見的格線/欄列結構）中時，輸出該格的座標資訊：
+  - col: 欄位序號（1-based），從表格最左欄開始計數（含列標題欄）
+  - row: 列序號（1-based），從表格最上列開始計數（含欄標題列）
+  - totalCols: 表格總欄數
+  - totalRows: 表格總列數
+  - colspan: 若此格橫跨多欄，填實際跨欄數（預設 1，可省略）
+  - rowspan: 若此格縱跨多列，填實際跨列數（預設 1，可省略）
+  - 範例：一個 8 欄 × 3 列的表格，第 1 列是欄標題（就讀國中、光武國中、建功國中…），第 1 欄是列標題（人數、比率）。「建功國中」欄的「比率」格 → col=4, row=3, totalCols=8, totalRows=3
+  - 同一表格的所有子題必須共用相同的 totalCols / totalRows
+  - 非表格題（答案不在表格格線結構中）不需輸出 tablePosition
 - 無法辨識時回傳 {"questions": [], "totalScore": 0}
 
 【題號層級（idPath）】
