@@ -301,6 +301,7 @@ export default function UnifiedImportPage({
   const [batchPreviewSelectedStudent, setBatchPreviewSelectedStudent] = useState(0)
   // Per-student custom page order: studentIndex → [pageIndex, pageIndex, ...]
   const [batchPreviewPageOrders, setBatchPreviewPageOrders] = useState<Map<number, number[]>>(new Map())
+  const [batchPreviewTargetStudents, setBatchPreviewTargetStudents] = useState<Student[]>([])
   const [batchApplyFeedback, setBatchApplyFeedback] = useState<string | null>(null)
 
   // ── Upload preview (per-page rotation before merge) ─────────────────────
@@ -688,12 +689,51 @@ export default function UnifiedImportPage({
         throw new Error('PDF 頁數不足')
       }
 
-      // Open batch preview for rotation
+      // Ask about absent seats BEFORE preview so student tabs are correct
+      const sortedStudents = [...students].sort(
+        (a, b) => a.seatNumber - b.seatNumber,
+      )
+      const totalStudentsNeeded = Math.floor(
+        allBlobs.length / effectivePagesPerStudent,
+      )
+
+      if (totalStudentsNeeded === 0) {
+        throw new Error('PDF 頁數不足，無法分配給任何學生')
+      }
+
+      let targetStudents = sortedStudents
+      if (totalStudentsNeeded < sortedStudents.length) {
+        const missingCount = sortedStudents.length - totalStudentsNeeded
+        const input = prompt(
+          `PDF 共 ${allBlobs.length} 頁，每位學生 ${effectivePagesPerStudent} 頁，` +
+            `預計 ${totalStudentsNeeded} 位學生的作業。\n` +
+            `班上共 ${sortedStudents.length} 位學生，少了 ${missingCount} 位。\n\n` +
+            `請輸入未交座號（用逗號分隔，例如：3, 5, 12）：`,
+        )
+        if (input === null) {
+          setIsBatchProcessing(false)
+          setBatchProgress('')
+          return
+        }
+        const absentSet = new Set(
+          input
+            .split(/[,\s，、]+/)
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0 && /^\d+$/.test(s))
+            .map((s) => Number.parseInt(s, 10)),
+        )
+        targetStudents = sortedStudents.filter(
+          (s) => !absentSet.has(s.seatNumber),
+        )
+      }
+
+      // Open batch preview for rotation — student tabs now match correctly
       const urls = allBlobs.map((b) => URL.createObjectURL(b))
       setBatchPreviewBlobs(allBlobs)
       setBatchPreviewUrls(urls)
       setBatchPreviewRotations(new Array(allBlobs.length).fill(0))
       setBatchPreviewPagesPerStudent(effectivePagesPerStudent)
+      setBatchPreviewTargetStudents(targetStudents.slice(0, totalStudentsNeeded))
       setBatchPreviewSelectedStudent(0)
       setShowBatchPreview(true)
     } catch (e) {
@@ -710,6 +750,7 @@ export default function UnifiedImportPage({
     configMergeMode,
     configPagesPerStudentPerPdf,
     configPagesPerStudent,
+    students,
   ])
 
   const handleBatchPreviewRotate = useCallback((pageIndex: number) => {
@@ -797,47 +838,11 @@ export default function UnifiedImportPage({
     batchPreviewRotations,
   ])
 
-  // Step 2: Apply rotations + page orders → auto-map → save
+  // Step 2: Apply rotations + page orders → save (absent seats already resolved)
   const handleBatchPreviewConfirm = useCallback(async () => {
     const allBlobs = batchPreviewBlobs
     const effectivePagesPerStudent = batchPreviewPagesPerStudent
     if (allBlobs.length === 0) return
-
-    // Auto-map to students
-    const sortedStudents = [...students].sort(
-      (a, b) => a.seatNumber - b.seatNumber,
-    )
-    const totalStudentsNeeded = Math.floor(
-      allBlobs.length / effectivePagesPerStudent,
-    )
-
-    if (totalStudentsNeeded === 0) {
-      setError('PDF 頁數不足，無法分配給任何學生')
-      return
-    }
-
-    // Ask about absent seats if mismatch
-    let targetStudents = sortedStudents
-    if (totalStudentsNeeded < sortedStudents.length) {
-      const missingCount = sortedStudents.length - totalStudentsNeeded
-      const input = prompt(
-        `PDF 共 ${allBlobs.length} 頁，每位學生 ${effectivePagesPerStudent} 頁，` +
-          `預計 ${totalStudentsNeeded} 位學生的作業。\n` +
-          `班上共 ${sortedStudents.length} 位學生，少了 ${missingCount} 位。\n\n` +
-          `請輸入未交座號（用逗號分隔，例如：3, 5, 12）：`,
-      )
-      if (input === null) return
-      const absentSet = new Set(
-        input
-          .split(/[,\s，、]+/)
-          .map((s) => s.trim())
-          .filter((s) => s.length > 0 && /^\d+$/.test(s))
-          .map((s) => Number.parseInt(s, 10)),
-      )
-      targetStudents = sortedStudents.filter(
-        (s) => !absentSet.has(s.seatNumber),
-      )
-    }
 
     // Close preview + start saving
     batchPreviewUrls.forEach((u) => URL.revokeObjectURL(u))
@@ -847,7 +852,7 @@ export default function UnifiedImportPage({
 
     try {
       let successCount = 0
-      const studentsToProcess = targetStudents.slice(0, totalStudentsNeeded)
+      const studentsToProcess = batchPreviewTargetStudents
 
       for (let i = 0; i < studentsToProcess.length; i++) {
         const student = studentsToProcess[i]
@@ -909,7 +914,7 @@ export default function UnifiedImportPage({
     batchPreviewRotations,
     batchPreviewPageOrders,
     batchPreviewPagesPerStudent,
-    students,
+    batchPreviewTargetStudents,
     assignmentId,
     avoidBlobStorage,
     loadData,
@@ -1536,13 +1541,12 @@ export default function UnifiedImportPage({
       {/* Batch PDF preview modal — rotation + drag-reorder + apply to all */}
       {showBatchPreview && batchPreviewUrls.length > 0 && (() => {
         const pps = batchPreviewPagesPerStudent
-        const totalStudents = Math.ceil(batchPreviewUrls.length / pps)
         const si = batchPreviewSelectedStudent
         const startIdx = si * pps
         const endIdx = Math.min(startIdx + pps, batchPreviewUrls.length)
         const defaultIndices = Array.from({ length: endIdx - startIdx }, (_, i) => startIdx + i)
         const currentOrder = batchPreviewPageOrders.get(si) ?? defaultIndices
-        const sortedStudentsList = [...students].sort((a, b) => a.seatNumber - b.seatNumber)
+        const targetStudentsList = batchPreviewTargetStudents
 
         const handleDragEnd = (event: DragEndEvent) => {
           const { active, over } = event
@@ -1573,23 +1577,20 @@ export default function UnifiedImportPage({
                     </span>
                   </h3>
                   <div className="flex gap-1 mt-2 overflow-x-auto pb-1">
-                    {Array.from({ length: totalStudents }, (_, i) => {
-                      const stu = sortedStudentsList[i]
-                      return (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => setBatchPreviewSelectedStudent(i)}
-                          className={`shrink-0 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                            batchPreviewSelectedStudent === i
-                              ? 'bg-indigo-100 text-indigo-700'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                          }`}
-                        >
-                          {stu ? `${stu.seatNumber}號` : `學生${i + 1}`}
-                        </button>
-                      )
-                    })}
+                    {targetStudentsList.map((stu, i) => (
+                      <button
+                        key={stu.id}
+                        type="button"
+                        onClick={() => setBatchPreviewSelectedStudent(i)}
+                        className={`shrink-0 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                          batchPreviewSelectedStudent === i
+                            ? 'bg-indigo-100 text-indigo-700'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        {stu.seatNumber}號
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <button
