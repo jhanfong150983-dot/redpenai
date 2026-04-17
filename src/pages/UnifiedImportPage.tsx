@@ -623,12 +623,16 @@ export default function UnifiedImportPage({
   // ── Preview ─────────────────────────────────────────────────────────────
 
   const openPreview = useCallback(
-    (student: Student) => {
+    async (student: Student) => {
       const info = submissionMap[student.id]
-      const sub = info?.submission
+      const subId = info?.submission?.id
+      if (!subId) return
+
+      // Re-fetch full submission from DB to get blob/base64
+      const sub = await db.submissions.get(subId)
       if (!sub) return
 
-      // Build preview URL from blob or base64
+      // Try blob → base64 → imageUrl
       const blob = sub.imageBlob && sub.imageBlob.size > 0 ? sub.imageBlob : null
       const base64 = sub.imageBase64 || null
 
@@ -707,7 +711,7 @@ export default function UnifiedImportPage({
       const hasSubmission = !!info?.submission
       if (hasSubmission) {
         // Has submission → open preview
-        openPreview(student)
+        void openPreview(student)
       } else {
         // No submission → toggle action sheet
         setActionSheetStudent(
