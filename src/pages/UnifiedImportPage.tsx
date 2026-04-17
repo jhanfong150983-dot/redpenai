@@ -32,6 +32,7 @@ import ImportConfigDialog, {
   type PdfFileInfo,
   interleavePdfPages,
 } from '@/components/ImportConfigDialog'
+import { buildApiUrl } from '@/lib/api-base'
 import CameraCapturePage from './CameraCapturePage'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -712,21 +713,37 @@ export default function UnifiedImportPage({
       const sub = await db.submissions.get(subId)
       if (!sub) return
 
-      // Try blob → base64 → imageUrl
+      // Try blob → base64 → API download
       const blob = sub.imageBlob && sub.imageBlob.size > 0 ? sub.imageBlob : null
       const base64 = sub.imageBase64 || null
 
       if (blob) {
         setPreviewUrl(URL.createObjectURL(blob))
+        setPreviewStudent(student)
       } else if (base64) {
         setPreviewUrl(base64)
-      } else if (sub.imageUrl) {
-        setPreviewUrl(sub.imageUrl)
+        setPreviewStudent(student)
       } else {
-        return
+        // Synced submissions: fetch from cloud via API
+        try {
+          setPreviewStudent(student)
+          setPreviewUrl(null) // show loading state
+          const url = buildApiUrl(
+            `/api/storage/download?submissionId=${encodeURIComponent(subId)}`,
+          )
+          const response = await fetch(url, {
+            method: 'GET',
+            credentials: 'include',
+          })
+          if (!response.ok) throw new Error(`載入失敗 (${response.status})`)
+          const downloadedBlob = await response.blob()
+          setPreviewUrl(URL.createObjectURL(downloadedBlob))
+        } catch (err) {
+          console.error('預覽載入失敗:', err)
+          setPreviewStudent(null)
+          setError('預覽載入失敗，請稍後再試')
+        }
       }
-
-      setPreviewStudent(student)
     },
     [submissionMap],
   )
@@ -1113,7 +1130,7 @@ export default function UnifiedImportPage({
       </div>
 
       {/* Preview modal — shows full image + re-upload options */}
-      {previewStudent && previewUrl && (
+      {previewStudent && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
             {/* Modal header */}
@@ -1143,11 +1160,18 @@ export default function UnifiedImportPage({
             </div>
             {/* Image */}
             <div className="flex-1 overflow-y-auto bg-slate-50 flex items-center justify-center p-4">
-              <img
-                src={previewUrl}
-                alt="作業預覽"
-                className="max-w-full max-h-[60vh] object-contain rounded-lg shadow"
-              />
+              {previewUrl ? (
+                <img
+                  src={previewUrl}
+                  alt="作業預覽"
+                  className="max-w-full max-h-[60vh] object-contain rounded-lg shadow"
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-2 text-slate-400">
+                  <Loader className="w-8 h-8 animate-spin" />
+                  <span className="text-sm">載入預覽中...</span>
+                </div>
+              )}
             </div>
             {/* Footer — actions depend on source */}
             <div className="flex flex-col gap-2 px-5 py-3 border-t border-slate-200 flex-shrink-0">
