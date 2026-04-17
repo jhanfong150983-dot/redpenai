@@ -877,7 +877,7 @@ function App() {
   const isStudent = viewMode === 'student'
 
   useEffect(() => {
-    if (!isStudent && currentPage !== 'assignment-scan' && isCameraCaptureMode) {
+    if (!isStudent && currentPage !== 'assignment-scan' && currentPage !== 'unified-import' && isCameraCaptureMode) {
       setIsCameraCaptureMode(false)
     }
   }, [currentPage, isCameraCaptureMode, isStudent])
