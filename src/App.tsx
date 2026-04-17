@@ -1777,7 +1777,7 @@ function App() {
                   assignmentId={selectedAssignmentId}
                   onBack={() => {
                     setSelectedAssignmentId('')
-                    setCurrentPage('assignment-import-select')
+                    setCurrentPage('grading-list')
                   }}
                   onUploadComplete={() => setCurrentPage('grading')}
                   onCaptureModeChange={setIsCameraCaptureMode}
