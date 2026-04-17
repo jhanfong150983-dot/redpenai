@@ -853,7 +853,7 @@ export default function UnifiedImportPage({
       )}
 
       {/* Thumbnail grid */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 relative z-0">
         <div className="grid grid-cols-[repeat(auto-fill,minmax(110px,1fr))] gap-3">
           {students.map((student) => {
             const info = submissionMap[student.id]
@@ -868,9 +868,9 @@ export default function UnifiedImportPage({
                   type="button"
                   disabled={isSaving || isBatchProcessing}
                   onClick={() => handleCardClick(student)}
-                  className={`relative w-full aspect-[3/4] rounded-xl border-2 overflow-hidden transition-all transform hover:scale-[1.03] active:scale-95 ${
+                  className={`relative w-full aspect-[3/4] rounded-xl border-2 overflow-hidden transition-colors ${
                     hasSubmission
-                      ? 'border-emerald-300 bg-white'
+                      ? 'border-emerald-300 bg-white hover:border-emerald-400'
                       : 'border-slate-200 bg-white hover:border-slate-400'
                   } ${isSaving ? 'opacity-50' : ''}`}
                 >
