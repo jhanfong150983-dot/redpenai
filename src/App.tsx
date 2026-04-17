@@ -20,6 +20,7 @@ import GradingPage from '@/pages/GradingPage'
 import AssignmentImport from '@/pages/AssignmentImport'
 import AssignmentImportSelect from '@/pages/AssignmentImportSelect'
 import AssignmentScanImport from '@/pages/AssignmentScanImport'
+import UnifiedImportPage from '@/pages/UnifiedImportPage'
 import CorrectionSelect from '@/pages/CorrectionSelect'
 import CorrectionManagement from '@/pages/CorrectionManagement'
 import Gradebook from '@/pages/Gradebook'
@@ -60,6 +61,7 @@ type Page =
   | 'grading'
   | 'gradebook'
   | 'assignment-import'
+  | 'unified-import'
   | 'correction-select'
   | 'correction'
   | 'ai-report'
@@ -1411,7 +1413,7 @@ function App() {
     switch (key) {
       case 'overview': return currentPage === 'home'
       case 'assignment-setup': return currentPage === 'assignment-setup'
-      case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'assignment-import', 'assignment-scan', 'correction-select', 'correction'].includes(currentPage)
+      case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'assignment-import', 'assignment-scan', 'unified-import', 'correction-select', 'correction'].includes(currentPage)
       case 'gradebook': return currentPage === 'gradebook'
       case 'report': return false
       case 'classroom-management': return currentPage === 'classroom-management'
@@ -1752,11 +1754,11 @@ function App() {
                   onFolderChange={setImportSelectedFolder}
                   onSelectScanImport={(assignmentId) => {
                     setSelectedAssignmentId(assignmentId)
-                    setCurrentPage('assignment-scan')
+                    setCurrentPage('unified-import')
                   }}
                   onSelectBatchImport={(assignmentId) => {
                     setSelectedAssignmentId(assignmentId)
-                    setCurrentPage('assignment-import')
+                    setCurrentPage('unified-import')
                   }}
                 />
               ) : currentPage === 'assignment-import' && selectedAssignmentId ? (
@@ -1769,6 +1771,17 @@ function App() {
                   }}
                   onUploadComplete={() => setCurrentPage('grading')}
                 />
+              ) : currentPage === 'unified-import' && selectedAssignmentId ? (
+                <UnifiedImportPage
+                  embedded
+                  assignmentId={selectedAssignmentId}
+                  onBack={() => {
+                    setSelectedAssignmentId('')
+                    setCurrentPage('assignment-import-select')
+                  }}
+                  onUploadComplete={() => setCurrentPage('grading')}
+                  onCaptureModeChange={setIsCameraCaptureMode}
+                />
               ) : currentPage === 'grading-list' ? (
                 <AssignmentList
                   embedded
@@ -1778,11 +1791,11 @@ function App() {
                   onFolderChange={setGradingSelectedFolder}
                   onSelectScanImport={(assignmentId) => {
                     setSelectedAssignmentId(assignmentId)
-                    setCurrentPage('assignment-scan')
+                    setCurrentPage('unified-import')
                   }}
                   onSelectBatchImport={(assignmentId) => {
                     setSelectedAssignmentId(assignmentId)
-                    setCurrentPage('assignment-import')
+                    setCurrentPage('unified-import')
                   }}
                   onSelectAssignment={(assignmentId) => {
                     if (!ensureInkNonNegative()) return
@@ -1813,11 +1826,11 @@ function App() {
                   onFolderChange={setGradingSelectedFolder}
                   onSelectScanImport={(assignmentId) => {
                     setSelectedAssignmentId(assignmentId)
-                    setCurrentPage('assignment-scan')
+                    setCurrentPage('unified-import')
                   }}
                   onSelectBatchImport={(assignmentId) => {
                     setSelectedAssignmentId(assignmentId)
-                    setCurrentPage('assignment-import')
+                    setCurrentPage('unified-import')
                   }}
                   onSelectAssignment={(assignmentId) => {
                     if (!ensureInkNonNegative()) return

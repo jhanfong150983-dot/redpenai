@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, BookOpen, FileImage, Camera, Loader, Folder, Users } from 'lucide-react'
+import { ArrowLeft, BookOpen, Loader, Folder, Upload, Users } from 'lucide-react'
 import { db } from '@/lib/db'
 import type { Assignment, Classroom, Folder as AssignmentFolder } from '@/lib/db'
 
@@ -21,7 +21,6 @@ interface AssignmentWithClassroom extends Assignment {
 export default function AssignmentImportSelect({
   onBack,
   onSelectScanImport,
-  onSelectBatchImport,
   embedded = false,
   initialClassroomId,
   initialFolder = '__uncategorized__',
@@ -251,18 +250,10 @@ export default function AssignmentImportSelect({
                     <button
                       type="button"
                       onClick={() => onSelectScanImport?.(assignment.id)}
-                      className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                      className="inline-flex h-12 px-5 items-center justify-center gap-2 rounded-xl bg-indigo-600 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
                     >
-                      <Camera className="h-4 w-4" />
-                      <span className="text-center leading-tight">拍照上傳</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSelectBatchImport?.(assignment.id)}
-                      className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                    >
-                      <FileImage className="h-4 w-4" />
-                      <span className="text-center leading-tight">掃描上傳</span>
+                      <Upload className="h-4 w-4" />
+                      匯入作業
                     </button>
                   </div>
                 </div>

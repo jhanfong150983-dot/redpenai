@@ -7,8 +7,7 @@ import {
   Plus,
   Folder,
   Users,
-  Camera,
-  FileImage,
+  Upload,
   Sparkles,
   ClipboardCheck
 } from 'lucide-react'
@@ -50,7 +49,6 @@ export default function AssignmentList({
   onBack,
   onSelectAssignment,
   onSelectScanImport,
-  onSelectBatchImport,
   onSelectCorrection,
   canUseCorrection = true,
   embedded = false,
@@ -472,19 +470,10 @@ export default function AssignmentList({
                     <button
                       type="button"
                       onClick={() => onSelectScanImport?.(assignment.id)}
-                      className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                      className="inline-flex h-12 px-5 items-center justify-center gap-2 rounded-xl bg-indigo-600 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
                     >
-                      <Camera className="h-4 w-4" />
-                      <span className="text-center leading-tight">拍照上傳</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => onSelectBatchImport?.(assignment.id)}
-                      className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                    >
-                      <FileImage className="h-4 w-4" />
-                      <span className="text-center leading-tight">掃描上傳</span>
+                      <Upload className="h-4 w-4" />
+                      匯入作業
                     </button>
 
                     <span className="px-1 text-slate-300">›</span>
