@@ -9,6 +9,7 @@ import {
   Loader,
   Plus,
   RefreshCw,
+  Trash2,
   Undo2,
   X,
 } from 'lucide-react'
@@ -703,6 +704,43 @@ export default function UnifiedImportPage({
     [submissionMap, closePreview, loadData],
   )
 
+  // ── Delete submission (清空作業) ──────────────────────────────────────────
+
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const handleDeleteSubmission = useCallback(
+    async (student: Student) => {
+      const info = submissionMap[student.id]
+      const submissionId = info?.submission?.id
+      if (!submissionId) return
+
+      const confirmed = window.confirm(
+        `確定要刪除 ${student.seatNumber} 號 ${student.name} 的作業嗎？\n\n刪除後無法復原。`,
+      )
+      if (!confirmed) return
+
+      setIsDeleting(true)
+      try {
+        await queueDeleteMany('submissions', [submissionId])
+        await db.answerExtractionCorrections
+          .where('submissionId')
+          .equals(submissionId)
+          .delete()
+        await db.submissions.delete(submissionId)
+
+        requestSync(true)
+        closePreview()
+        await loadData()
+      } catch (error) {
+        console.error('刪除作業失敗:', error)
+        alert(error instanceof Error ? error.message : '刪除失敗')
+      } finally {
+        setIsDeleting(false)
+      }
+    },
+    [submissionMap, closePreview, loadData],
+  )
+
   // ── Card click handler ──────────────────────────────────────────────────
 
   const handleCardClick = useCallback(
@@ -1033,62 +1071,80 @@ export default function UnifiedImportPage({
               />
             </div>
             {/* Footer — actions depend on source */}
-            <div className="flex items-center justify-center gap-3 px-5 py-3 border-t border-slate-200 flex-shrink-0">
-              {submissionMap[previewStudent.id]?.source?.startsWith('student') ? (
-                /* Student source → 退回重傳 */
+            <div className="flex flex-col gap-2 px-5 py-3 border-t border-slate-200 flex-shrink-0">
+              <div className="flex items-center justify-center gap-3">
+                {submissionMap[previewStudent.id]?.source?.startsWith('student') ? (
+                  /* Student source → 退回重傳 */
+                  <button
+                    type="button"
+                    disabled={isRejecting}
+                    onClick={() => handleRejectStudentSubmission(previewStudent)}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 text-sm font-semibold text-white hover:bg-rose-700 disabled:bg-slate-300 transition-colors"
+                  >
+                    {isRejecting ? (
+                      <Loader className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Undo2 className="w-4 h-4" />
+                    )}
+                    退回重傳
+                  </button>
+                ) : (
+                  /* Teacher source → re-upload options */
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closePreview()
+                        handleStartCamera(previewStudent)
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                    >
+                      <Camera className="w-4 h-4 text-blue-500" />
+                      重新拍照
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const student = previewStudent
+                        closePreview()
+                        triggerPhotoUpload(student)
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                    >
+                      <RefreshCw className="w-4 h-4 text-emerald-500" />
+                      重新上傳照片
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const student = previewStudent
+                        closePreview()
+                        triggerPdfUpload(student)
+                      }}
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                    >
+                      <FileImage className="w-4 h-4 text-orange-500" />
+                      重新上傳 PDF
+                    </button>
+                  </>
+                )}
+              </div>
+              {/* 刪除作業 */}
+              <div className="flex items-center justify-center">
                 <button
                   type="button"
-                  disabled={isRejecting}
-                  onClick={() => handleRejectStudentSubmission(previewStudent)}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 text-sm font-semibold text-white hover:bg-rose-700 disabled:bg-slate-300 transition-colors"
+                  disabled={isDeleting}
+                  onClick={() => handleDeleteSubmission(previewStudent)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors"
                 >
-                  {isRejecting ? (
+                  {isDeleting ? (
                     <Loader className="w-4 h-4 animate-spin" />
                   ) : (
-                    <Undo2 className="w-4 h-4" />
+                    <Trash2 className="w-4 h-4" />
                   )}
-                  退回重傳
+                  刪除作業
                 </button>
-              ) : (
-                /* Teacher source → re-upload options */
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      closePreview()
-                      handleStartCamera(previewStudent)
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                  >
-                    <Camera className="w-4 h-4 text-blue-500" />
-                    重新拍照
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const student = previewStudent
-                      closePreview()
-                      triggerPhotoUpload(student)
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                  >
-                    <RefreshCw className="w-4 h-4 text-emerald-500" />
-                    重新上傳照片
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const student = previewStudent
-                      closePreview()
-                      triggerPdfUpload(student)
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                  >
-                    <FileImage className="w-4 h-4 text-orange-500" />
-                    重新上傳 PDF
-                  </button>
-                </>
-              )}
+              </div>
             </div>
           </div>
         </div>
