@@ -238,6 +238,12 @@ export default function UnifiedImportPage({
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
+
+  // DnD sensors — must be at component top level (hooks rules)
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
   const pagesPerStudent = useMemo(
     () => Math.max(1, assignment?.totalPages || 1),
     [assignment],
@@ -1487,11 +1493,6 @@ export default function UnifiedImportPage({
         const currentOrder = batchPreviewPageOrders.get(si) ?? defaultIndices
         const sortedStudentsList = [...students].sort((a, b) => a.seatNumber - b.seatNumber)
 
-        const sensors = [
-          { sensor: PointerSensor, options: { activationConstraint: { distance: 5 } } },
-          { sensor: KeyboardSensor, options: { coordinateGetter: sortableKeyboardCoordinates } },
-        ]
-
         const handleDragEnd = (event: DragEndEvent) => {
           const { active, over } = event
           if (over && active.id !== over.id) {
@@ -1553,10 +1554,7 @@ export default function UnifiedImportPage({
               <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50 p-4">
                 <p className="text-xs text-slate-400 mb-3 text-center">拖曳卡片可調整頁面順序</p>
                 <DndContext
-                  sensors={useSensors(
-                    useSensor(sensors[0].sensor, sensors[0].options),
-                    useSensor(sensors[1].sensor, sensors[1].options),
-                  )}
+                  sensors={dndSensors}
                   collisionDetection={closestCenter}
                   onDragEnd={handleDragEnd}
                 >
