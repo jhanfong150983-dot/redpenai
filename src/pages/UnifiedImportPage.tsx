@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   Camera,
   CheckCircle,
+  CopyCheck,
   FileImage,
   FileUp,
   ImageIcon,
@@ -14,6 +15,23 @@ import {
   Undo2,
   X,
 } from 'lucide-react'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  rectSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import type { Assignment, Student, Submission } from '@/lib/db'
 import { requestSync, waitForSync } from '@/lib/sync-events'
@@ -140,6 +158,68 @@ async function saveStudentSubmission(
   }
 }
 
+// ── Sortable card for batch preview ───────────────────────────────────────────
+
+function SortableBatchCard({
+  pageIndex,
+  url,
+  rotation,
+  position,
+  onRotate,
+}: {
+  pageIndex: number
+  url: string
+  rotation: number
+  position: number
+  onRotate: (idx: number) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: `bp-${pageIndex}` })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.8 : 1,
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className={`relative group ${isDragging ? 'shadow-2xl' : ''}`}>
+      <div
+        {...attributes}
+        {...listeners}
+        className="border-2 border-slate-200 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing bg-white hover:border-emerald-400 transition-colors"
+      >
+        <div className="bg-slate-50 px-3 py-1.5 text-xs text-slate-600 font-medium flex items-center justify-between">
+          <span>第 {position + 1} 頁</span>
+          {rotation !== 0 && (
+            <span className="text-[10px] text-orange-600 font-semibold">{rotation}°</span>
+          )}
+        </div>
+        <div className="aspect-[3/4] bg-white overflow-hidden">
+          <img
+            src={url}
+            alt={`第 ${position + 1} 頁`}
+            className="w-full h-full object-contain transition-transform"
+            style={{ transform: `rotate(${rotation}deg)` }}
+            draggable={false}
+          />
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onRotate(pageIndex)
+        }}
+        className="absolute top-9 right-1 p-1.5 rounded-full bg-white/90 border border-slate-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-slate-100"
+        title="旋轉 90°"
+      >
+        <RotateCw className="w-3.5 h-3.5 text-slate-600" />
+      </button>
+    </div>
+  )
+}
+
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function UnifiedImportPage({
@@ -210,6 +290,9 @@ export default function UnifiedImportPage({
   const [batchPreviewPagesPerStudent, setBatchPreviewPagesPerStudent] = useState(1)
   const [showBatchPreview, setShowBatchPreview] = useState(false)
   const [batchPreviewSelectedStudent, setBatchPreviewSelectedStudent] = useState(0)
+  // Per-student custom page order: studentIndex → [pageIndex, pageIndex, ...]
+  const [batchPreviewPageOrders, setBatchPreviewPageOrders] = useState<Map<number, number[]>>(new Map())
+  const [batchApplyFeedback, setBatchApplyFeedback] = useState<string | null>(null)
 
   // ── Upload preview (per-page rotation before merge) ─────────────────────
   const [uploadPreviewStudent, setUploadPreviewStudent] = useState<Student | null>(null)
@@ -637,10 +720,75 @@ export default function UnifiedImportPage({
     setBatchPreviewBlobs([])
     setBatchPreviewUrls([])
     setBatchPreviewRotations([])
+    setBatchPreviewPageOrders(new Map())
     setShowBatchPreview(false)
   }, [batchPreviewUrls])
 
-  // Step 2: Apply rotations → auto-map → save
+  // Reorder pages within a student
+  const handleBatchPreviewReorder = useCallback(
+    (studentIdx: number, newOrder: number[]) => {
+      setBatchPreviewPageOrders((prev) => {
+        const next = new Map(prev)
+        next.set(studentIdx, newOrder)
+        return next
+      })
+    },
+    [],
+  )
+
+  // Apply current student's rotation + page order to all students
+  const handleBatchApplyToAll = useCallback(() => {
+    const srcIdx = batchPreviewSelectedStudent
+    const pps = batchPreviewPagesPerStudent
+    const srcStart = srcIdx * pps
+    const totalStudents = Math.ceil(batchPreviewBlobs.length / pps)
+
+    // Get source student's custom order (or default)
+    const srcCustomOrder = batchPreviewPageOrders.get(srcIdx)
+    const srcDefaultIndices = Array.from({ length: pps }, (_, i) => srcStart + i)
+    const srcOrder = srcCustomOrder ?? srcDefaultIndices
+
+    const newOrders = new Map(batchPreviewPageOrders)
+    const newRotations = [...batchPreviewRotations]
+    let appliedCount = 0
+
+    for (let si = 0; si < totalStudents; si++) {
+      if (si === srcIdx) continue
+      const tgtStart = si * pps
+      const tgtEnd = Math.min(tgtStart + pps, batchPreviewBlobs.length)
+      const tgtCount = tgtEnd - tgtStart
+      if (tgtCount !== pps) continue // skip incomplete last student
+
+      // Apply relative page order
+      const tgtOrder = srcOrder.map((srcPageIdx) => {
+        const relativeOffset = srcPageIdx - srcStart
+        return tgtStart + relativeOffset
+      })
+      newOrders.set(si, tgtOrder)
+
+      // Apply rotations
+      srcOrder.forEach((srcPageIdx, i) => {
+        const rot = batchPreviewRotations[srcPageIdx] ?? 0
+        const tgtPageIdx = tgtOrder[i]
+        if (tgtPageIdx !== undefined) newRotations[tgtPageIdx] = rot
+      })
+
+      appliedCount++
+    }
+
+    setBatchPreviewPageOrders(newOrders)
+    setBatchPreviewRotations(newRotations)
+    setBatchApplyFeedback(`已套用到 ${appliedCount} 位學生`)
+    setTimeout(() => setBatchApplyFeedback(null), 2000)
+  }, [
+    batchPreviewSelectedStudent,
+    batchPreviewPagesPerStudent,
+    batchPreviewBlobs,
+    batchPreviewPageOrders,
+    batchPreviewRotations,
+  ])
+
+  // Step 2: Apply rotations + page orders → auto-map → save
   const handleBatchPreviewConfirm = useCallback(async () => {
     const allBlobs = batchPreviewBlobs
     const effectivePagesPerStudent = batchPreviewPagesPerStudent
@@ -695,8 +843,15 @@ export default function UnifiedImportPage({
       for (let i = 0; i < studentsToProcess.length; i++) {
         const student = studentsToProcess[i]
         const startIdx = i * effectivePagesPerStudent
-        const endIdx = startIdx + effectivePagesPerStudent
-        const studentBlobs = allBlobs.slice(startIdx, endIdx)
+
+        // Get custom page order or default sequential
+        const customOrder = batchPreviewPageOrders.get(i)
+        const pageIndices = customOrder ??
+          Array.from({ length: effectivePagesPerStudent }, (_, j) => startIdx + j)
+
+        const studentBlobs = pageIndices
+          .map((idx) => allBlobs[idx])
+          .filter(Boolean)
 
         if (studentBlobs.length === 0) continue
 
@@ -704,11 +859,12 @@ export default function UnifiedImportPage({
           `正在儲存 ${i + 1}/${studentsToProcess.length}（${student.seatNumber} 號 ${student.name}）`,
         )
 
-        // Apply rotations to this student's pages
+        // Apply rotations to this student's pages (using original indices)
         const rotatedBlobs = await Promise.all(
-          studentBlobs.map(async (blob, j) => {
-            const rot = batchPreviewRotations[startIdx + j] ?? 0
-            return rot !== 0 ? rotateImageBlob(blob, rot) : blob
+          pageIndices.map(async (origIdx, j) => {
+            const rot = batchPreviewRotations[origIdx] ?? 0
+            const blob = studentBlobs[j]
+            return rot !== 0 && blob ? rotateImageBlob(blob, rot) : blob
           }),
         )
 
@@ -734,6 +890,7 @@ export default function UnifiedImportPage({
       setBatchPreviewBlobs([])
       setBatchPreviewUrls([])
       setBatchPreviewRotations([])
+      setBatchPreviewPageOrders(new Map())
       setIsBatchProcessing(false)
       setBatchProgress('')
     }
@@ -741,6 +898,7 @@ export default function UnifiedImportPage({
     batchPreviewBlobs,
     batchPreviewUrls,
     batchPreviewRotations,
+    batchPreviewPageOrders,
     batchPreviewPagesPerStudent,
     students,
     assignmentId,
@@ -1318,26 +1476,53 @@ export default function UnifiedImportPage({
         </div>
       )}
 
-      {/* Batch PDF preview modal — per-page rotation + student mapping */}
-      {showBatchPreview && batchPreviewUrls.length > 0 && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 shrink-0">
-              <div>
-                <h3 className="text-base font-semibold text-gray-900">
-                  PDF 預覽
-                  <span className="ml-2 text-sm font-normal text-slate-500">
-                    共 {batchPreviewUrls.length} 頁，每位學生 {batchPreviewPagesPerStudent} 頁
-                  </span>
-                </h3>
-                {/* Student tabs */}
-                <div className="flex gap-1 mt-2 overflow-x-auto pb-1">
-                  {Array.from(
-                    { length: Math.ceil(batchPreviewUrls.length / batchPreviewPagesPerStudent) },
-                    (_, i) => {
-                      const sortedStudents = [...students].sort((a, b) => a.seatNumber - b.seatNumber)
-                      const stu = sortedStudents[i]
+      {/* Batch PDF preview modal — rotation + drag-reorder + apply to all */}
+      {showBatchPreview && batchPreviewUrls.length > 0 && (() => {
+        const pps = batchPreviewPagesPerStudent
+        const totalStudents = Math.ceil(batchPreviewUrls.length / pps)
+        const si = batchPreviewSelectedStudent
+        const startIdx = si * pps
+        const endIdx = Math.min(startIdx + pps, batchPreviewUrls.length)
+        const defaultIndices = Array.from({ length: endIdx - startIdx }, (_, i) => startIdx + i)
+        const currentOrder = batchPreviewPageOrders.get(si) ?? defaultIndices
+        const sortedStudentsList = [...students].sort((a, b) => a.seatNumber - b.seatNumber)
+
+        const sensors = [
+          { sensor: PointerSensor, options: { activationConstraint: { distance: 5 } } },
+          { sensor: KeyboardSensor, options: { coordinateGetter: sortableKeyboardCoordinates } },
+        ]
+
+        const handleDragEnd = (event: DragEndEvent) => {
+          const { active, over } = event
+          if (over && active.id !== over.id) {
+            const oldIndex = currentOrder.findIndex((id) => `bp-${id}` === active.id)
+            const newIndex = currentOrder.findIndex((id) => `bp-${id}` === over.id)
+            const newOrder = arrayMove(currentOrder, oldIndex, newIndex)
+            handleBatchPreviewReorder(si, newOrder)
+          }
+        }
+
+        const cols = currentOrder.length === 1
+          ? 'grid-cols-1 max-w-md mx-auto'
+          : currentOrder.length === 2
+            ? 'grid-cols-2'
+            : 'grid-cols-2 sm:grid-cols-3'
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 shrink-0">
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-base font-semibold text-gray-900">
+                    PDF 預覽
+                    <span className="ml-2 text-sm font-normal text-slate-500">
+                      共 {batchPreviewUrls.length} 頁，每位學生 {pps} 頁
+                    </span>
+                  </h3>
+                  <div className="flex gap-1 mt-2 overflow-x-auto pb-1">
+                    {Array.from({ length: totalStudents }, (_, i) => {
+                      const stu = sortedStudentsList[i]
                       return (
                         <button
                           key={i}
@@ -1352,89 +1537,93 @@ export default function UnifiedImportPage({
                           {stu ? `${stu.seatNumber}號` : `學生${i + 1}`}
                         </button>
                       )
-                    },
-                  )}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleBatchPreviewCancel}
-                className="p-2 rounded-full hover:bg-slate-100 shrink-0 self-start"
-              >
-                <X className="w-5 h-5 text-slate-500" />
-              </button>
-            </div>
-
-            {/* Pages for selected student */}
-            <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50 p-4">
-              {(() => {
-                const startIdx = batchPreviewSelectedStudent * batchPreviewPagesPerStudent
-                const endIdx = Math.min(startIdx + batchPreviewPagesPerStudent, batchPreviewUrls.length)
-                const pageIndices = Array.from({ length: endIdx - startIdx }, (_, i) => startIdx + i)
-                return (
-                  <div className={`grid gap-4 ${
-                    pageIndices.length === 1 ? 'grid-cols-1 max-w-md mx-auto' : 'grid-cols-2 lg:grid-cols-3'
-                  }`}>
-                    {pageIndices.map((idx) => (
-                      <div key={idx} className="relative bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-                        <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/50 rounded-md text-white text-xs font-medium">
-                          第 {idx + 1} 頁
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleBatchPreviewRotate(idx)}
-                          className="absolute top-2 right-2 z-10 p-1.5 bg-white/90 rounded-lg shadow hover:bg-white transition-colors"
-                          title="旋轉 90°"
-                        >
-                          <RotateCw className="w-4 h-4 text-slate-600" />
-                        </button>
-                        <div className="aspect-[3/4] flex items-center justify-center p-2">
-                          <img
-                            src={batchPreviewUrls[idx]}
-                            alt={`第 ${idx + 1} 頁`}
-                            className="max-w-full max-h-full object-contain transition-transform"
-                            style={{ transform: `rotate(${batchPreviewRotations[idx] ?? 0}deg)` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
+                    })}
                   </div>
-                )
-              })()}
-            </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 shrink-0">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleBatchPreviewRotateAll}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                >
-                  <RotateCw className="w-4 h-4" />
-                  全部旋轉
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
+                </div>
                 <button
                   type="button"
                   onClick={handleBatchPreviewCancel}
-                  className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+                  className="p-2 rounded-full hover:bg-slate-100 shrink-0 self-start ml-2"
                 >
-                  取消
+                  <X className="w-5 h-5 text-slate-500" />
                 </button>
-                <button
-                  type="button"
-                  onClick={handleBatchPreviewConfirm}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
+              </div>
+
+              {/* Sortable pages for selected student */}
+              <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50 p-4">
+                <p className="text-xs text-slate-400 mb-3 text-center">拖曳卡片可調整頁面順序</p>
+                <DndContext
+                  sensors={useSensors(
+                    useSensor(sensors[0].sensor, sensors[0].options),
+                    useSensor(sensors[1].sensor, sensors[1].options),
+                  )}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
                 >
-                  確認匯入
-                </button>
+                  <SortableContext
+                    items={currentOrder.map((id) => `bp-${id}`)}
+                    strategy={rectSortingStrategy}
+                  >
+                    <div className={`grid ${cols} gap-3`}>
+                      {currentOrder.map((pageIdx, position) => (
+                        <SortableBatchCard
+                          key={pageIdx}
+                          pageIndex={pageIdx}
+                          url={batchPreviewUrls[pageIdx]}
+                          rotation={batchPreviewRotations[pageIdx] ?? 0}
+                          position={position}
+                          onRotate={handleBatchPreviewRotate}
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 shrink-0">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBatchPreviewRotateAll}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    <RotateCw className="w-4 h-4" />
+                    全部旋轉
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBatchApplyToAll}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    <CopyCheck className="w-4 h-4" />
+                    套用到全部學生
+                  </button>
+                  {batchApplyFeedback && (
+                    <span className="text-xs text-emerald-600 font-medium">{batchApplyFeedback}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBatchPreviewCancel}
+                    className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleBatchPreviewConfirm}
+                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
+                  >
+                    確認匯入
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Upload preview modal — per-page rotation before merge */}
       {uploadPreviewStudent && uploadPreviewUrls.length > 0 && (
