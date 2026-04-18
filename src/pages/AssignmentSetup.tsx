@@ -169,6 +169,8 @@ export default function AssignmentSetup({
   const createBlockedMessage = '餘額不足，請先補充墨水後再新增作業。是否前往補充墨水？'
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
+  const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   // 備援：unmount 時若仍有 pending edit，fire-and-forget 寫入 Dexie
@@ -531,6 +533,8 @@ export default function AssignmentSetup({
   }, [selectedClassroomId, folderOrder])
 
   const resetForm = () => {
+    setModalMode('create')
+    setEditingAssignmentId(null)
     setAssignmentTitle('')
     setTotalPages(1)
     setAssignmentDomain('')
@@ -1150,7 +1154,51 @@ export default function AssignmentSetup({
     }
 
 
-    void doCreateAssignment()
+    if (modalMode === 'edit') {
+      void doEditAssignment()
+    } else {
+      void doCreateAssignment()
+    }
+  }
+
+  const doEditAssignment = async () => {
+    if (!editingAssignmentId || !answerKey) return
+    setIsSubmitting(true)
+    try {
+      const now = Date.now()
+      const updatedAk = {
+        ...answerKey,
+        strictness: createStrictness || 'standard',
+        ...(assignmentDomain === '數學' && createFractionRule ? { fractionRule: createFractionRule } : {}),
+        ...(assignmentDomain === '英語' && (createEnPunctuationCheck || createEnWordOrderCheck) ? {
+          englishRules: {
+            ...(createEnPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: createEnPunctuationDeduction } } : {}),
+            ...(createEnWordOrderCheck ? { wordOrderCheck: { enabled: true, deductionPerError: createEnWordOrderDeduction } } : {})
+          }
+        } : {})
+      }
+      await db.assignments.update(editingAssignmentId, {
+        title: assignmentTitle.trim(),
+        answerKey: updatedAk,
+        scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
+        updatedAt: now
+      })
+      setAssignments((prev) =>
+        prev.map((a) =>
+          a.id === editingAssignmentId
+            ? { ...a, title: assignmentTitle.trim(), answerKey: updatedAk, scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined, updatedAt: now }
+            : a
+        )
+      )
+      requestSync()
+      resetForm()
+      setIsCreateModalOpen(false)
+    } catch (err) {
+      console.error('編輯作業失敗', err)
+      setError('儲存失敗，請稍後再試')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const doCreateAssignment = async () => {
@@ -2175,21 +2223,30 @@ export default function AssignmentSetup({
   }
 
   const openAnswerKeyModal = (assignment: Assignment) => {
-    const ak =
-      assignment.answerKey || {
-        questions: [],
-        totalScore: 0
-      }
+    const ak = assignment.answerKey || { questions: [], totalScore: 0 }
+    const normalizedAk = normalizeAnswerKey(ak)
+    // 用共用 modal 的 edit mode
+    setModalMode('edit')
+    setEditingAssignmentId(assignment.id)
     setEditingAnswerAssignment(assignment)
-    setEditingAnswerKey(normalizeAnswerKey(ak))
+    setEditingAnswerKey(normalizedAk)
     setEditingClassroomId(assignment.classroomId)
     setEditingDomain(assignment.domain ?? '')
     setEditingScoringMode(assignment.scoringMode === 'unscored' ? 'unscored' : 'scored')
-    setEditAnswerKeyFile([])
-    setEditAnswerSheetImages([])
-    setEditAnswerKeyError(null)
-    setEditAnswerKeyNotice(null)
-    setAnswerKeyModalOpen(true)
+    // 填入共用 modal 的表單欄位
+    setAssignmentTitle(assignment.title)
+    setSelectedClassroomId(assignment.classroomId)
+    setAssignmentDomain(assignment.domain ?? '')
+    setCreateStrictness((ak.strictness as any) || '')
+    setCreateFractionRule((ak.fractionRule as any) || '')
+    setCreateEnPunctuationCheck(ak.englishRules?.punctuationCheck?.enabled ?? false)
+    setCreateEnPunctuationDeduction(ak.englishRules?.punctuationCheck?.deductionPerError ?? 1)
+    setCreateEnWordOrderCheck(ak.englishRules?.wordOrderCheck?.enabled ?? false)
+    setCreateEnWordOrderDeduction(ak.englishRules?.wordOrderCheck?.deductionPerError ?? 1)
+    setCreateScoringMode(assignment.scoringMode === 'unscored' ? 'unscored' : 'scored')
+    setCreateScoreMode('ai_auto')  // edit mode doesn't re-apply score mode
+    setAnswerKey(normalizedAk)
+    setIsCreateModalOpen(true)
     // 非同步下載已存在的答案卷圖片（若有）
     if (assignment.answerSheetImagePaths?.length) {
       downloadAnswerSheetImages(assignment.id, assignment.answerSheetImagePaths.length)
@@ -2768,7 +2825,7 @@ export default function AssignmentSetup({
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
                   Assignment Builder
                 </p>
-                <h2 className="mt-1 text-xl font-semibold text-slate-900">新增作業</h2>
+                <h2 className="mt-1 text-xl font-semibold text-slate-900">{modalMode === 'edit' ? '編輯作業設定' : '新增作業'}</h2>
                 <p className="mt-1 text-sm text-slate-600">
                   指派班級並建立作業，再用 AI 解析與編修標準答案。
                 </p>
@@ -2884,12 +2941,13 @@ export default function AssignmentSetup({
                     value={selectedClassroomId}
                     onChange={(e) => setSelectedClassroomId(e.target.value)}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || modalMode === 'edit'}
                   >
                     {classrooms.map((classroom) => (
                       <option key={classroom.id} value={classroom.id}>{classroom.name}</option>
                     ))}
                   </select>
+                  {modalMode === 'edit' && <p className="mt-1 text-xs text-slate-400">班級在建立後無法更改</p>}
                 </div>
                       </div>
                     </section>
@@ -2913,13 +2971,14 @@ export default function AssignmentSetup({
                       value={assignmentDomain}
                       onChange={(e) => setAssignmentDomain(e.target.value)}
                       className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white ${!assignmentDomain ? 'border-amber-400' : 'border-gray-300'}`}
-                      disabled={isSubmitting}
+                      disabled={isSubmitting || modalMode === 'edit'}
                     >
                       <option value="">請選擇</option>
                       {domainOptions.map((d) => (
                         <option key={d} value={d}>{d}</option>
                       ))}
                     </select>
+                    {modalMode === 'edit' && <p className="mt-1 text-xs text-slate-400">領域在建立後無法更改</p>}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">作業形式</label>
@@ -3232,7 +3291,7 @@ export default function AssignmentSetup({
                     disabled={isSubmitting || getMissingFields.length > 0}
                     className="rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
-                    {isSubmitting ? '建立中…' : '建立作業'}
+                    {isSubmitting ? (modalMode === 'edit' ? '儲存中…' : '建立中…') : (modalMode === 'edit' ? '儲存變更' : '建立作業')}
                   </button>
                 </div>
                 </div>
