@@ -913,6 +913,16 @@ export default function AssignmentSetup({
         concept_code: typeof q?.concept_code === 'string' && q.concept_code ? q.concept_code : undefined,
         concept_label: typeof q?.concept_label === 'string' && q.concept_label ? q.concept_label : undefined,
         anchorHint: typeof q?.anchorHint === 'string' && q.anchorHint ? q.anchorHint : undefined,
+        tablePosition: q?.tablePosition && typeof q.tablePosition.col === 'number' && typeof q.tablePosition.row === 'number'
+          ? {
+              col: q.tablePosition.col,
+              row: q.tablePosition.row,
+              totalCols: q.tablePosition.totalCols,
+              totalRows: q.tablePosition.totalRows,
+              ...(q.tablePosition.colspan > 1 ? { colspan: q.tablePosition.colspan } : {}),
+              ...(q.tablePosition.rowspan > 1 ? { rowspan: q.tablePosition.rowspan } : {}),
+            }
+          : undefined,
       }
 
       // Add type-specific fields
