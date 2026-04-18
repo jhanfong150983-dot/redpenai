@@ -1046,7 +1046,18 @@ export default function AssignmentSetup({
       return baseQuestion
     })
     const totalScore = questions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
-    return { questions, totalScore, ...(strictness ? { strictness } : {}) }
+    // 保留所有 AnswerKey 頂層設定欄位（不只 strictness）
+    const akAny = ak as any
+    return {
+      questions,
+      totalScore,
+      ...(strictness ? { strictness } : {}),
+      ...(akAny?.fractionRule ? { fractionRule: akAny.fractionRule } : {}),
+      ...(akAny?.englishRules ? { englishRules: akAny.englishRules } : {}),
+      ...(akAny?.scoreMode ? { scoreMode: akAny.scoreMode } : {}),
+      ...(typeof akAny?.fixedPerScore === 'number' ? { fixedPerScore: akAny.fixedPerScore } : {}),
+      ...(typeof akAny?.fixedTotal === 'number' ? { fixedTotal: akAny.fixedTotal } : {}),
+    }
   }
 
   const mergeAnswerKeys = (current: AnswerKey | null, incoming: AnswerKey) => {
