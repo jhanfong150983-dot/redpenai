@@ -2940,7 +2940,7 @@ export default function AssignmentSetup({
                     data-tutorial="assignment-classroom"
                     value={selectedClassroomId}
                     onChange={(e) => setSelectedClassroomId(e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white"
+                    className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all ${modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'}`}
                     disabled={isSubmitting || modalMode === 'edit'}
                   >
                     {classrooms.map((classroom) => (
@@ -2970,7 +2970,7 @@ export default function AssignmentSetup({
                       data-tutorial="assignment-domain"
                       value={assignmentDomain}
                       onChange={(e) => setAssignmentDomain(e.target.value)}
-                      className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white ${!assignmentDomain ? 'border-amber-400' : 'border-gray-300'}`}
+                      className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all ${modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-gray-300' : `bg-white ${!assignmentDomain ? 'border-amber-400' : 'border-gray-300'}`}`}
                       disabled={isSubmitting || modalMode === 'edit'}
                     >
                       <option value="">請選擇</option>
