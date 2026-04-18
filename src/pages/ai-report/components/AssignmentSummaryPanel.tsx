@@ -6,10 +6,18 @@ type StudentSummary = {
   summary: string
 }
 
+type ErrorGroup = {
+  error_pattern: string
+  student_names: string[]
+  count: number
+  suggestion: string
+}
+
 type AssignmentSummaryData = {
   status: 'pending' | 'running' | 'ready' | 'failed'
   class_summary: string | null
   class_suggestion: string | null
+  error_groups?: ErrorGroup[]
   minority_summary: string | null
   minority_suggestion: string | null
   student_summaries: StudentSummary[]
@@ -151,7 +159,59 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry }: Assig
         {data.class_suggestion && <SuggestionBox suggestion={data.class_suggestion} />}
       </div>
 
-      {/* 2. 補充：個人錯誤摘要（預設摺疊） */}
+      {/* 2. 常見錯誤群組（最多 3 個，橫向 grid） */}
+      {Array.isArray(data.error_groups) && data.error_groups.length > 0 && (
+        <div className="card" style={{ padding: '1.25rem 1.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <span style={{
+              fontSize: '0.7rem', fontWeight: 600, letterSpacing: '0.05em',
+              background: '#fef3c7', color: '#92400e', borderRadius: '0.25rem', padding: '0.15rem 0.5rem'
+            }}>
+              常見錯誤群組
+            </span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+              共 {data.error_groups.length} 組
+            </span>
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${Math.min(data.error_groups.length, 3)}, 1fr)`,
+            gap: '0.75rem'
+          }}>
+            {data.error_groups.slice(0, 3).map((group, idx) => (
+              <div key={idx} style={{
+                border: '1px solid #e5e7eb',
+                borderRadius: '0.75rem',
+                padding: '1rem',
+                background: '#fafafa',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem'
+              }}>
+                <div style={{ fontSize: '0.825rem', fontWeight: 600, color: '#1f2937', lineHeight: 1.4 }}>
+                  {group.error_pattern}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                  {group.count}/{data.sample_count} 人
+                </div>
+                <div style={{
+                  fontSize: '0.75rem', color: '#374151', lineHeight: 1.5,
+                  background: '#f3f4f6', borderRadius: '0.375rem', padding: '0.375rem 0.5rem'
+                }}>
+                  {group.student_names.join('、')}
+                </div>
+                {group.suggestion && (
+                  <div style={{ fontSize: '0.75rem', color: '#15803d', lineHeight: 1.5 }}>
+                    → {group.suggestion}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 3. 補充：個人錯誤摘要（預設摺疊） */}
       {students.length > 0 && (
         <div className="card" style={{ padding: '1.25rem 1.5rem' }}>
           <button
