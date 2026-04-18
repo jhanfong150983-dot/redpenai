@@ -762,7 +762,7 @@ export default function AssignmentSetup({
       return { answerKey: { questions, totalScore: 0 }, adjusted: false }
     }
 
-    const targetUnits = Math.round(targetTotal * 10)
+    const targetInt = Math.round(targetTotal)
     const sanitizedWeights = questions.map((q) => {
       const raw = typeof q.maxScore === 'number' && Number.isFinite(q.maxScore) ? q.maxScore : 0
       return Math.max(0, raw)
@@ -775,32 +775,33 @@ export default function AssignmentSetup({
       return { answerKey: { questions, totalScore: key.totalScore || 0 }, adjusted: false }
     }
 
-    const rawUnits = weights.map((w) => (w / weightSum) * targetUnits)
-    const baseUnits = rawUnits.map((value) => Math.floor(value))
-    let assignedUnits = baseUnits.reduce((sum, unit) => sum + unit, 0)
-    let remainingUnits = targetUnits - assignedUnits
+    // 整數配分：每題至少 1 分，按權重比例分配，餘數依小數部分大小補到各題
+    const rawScores = weights.map((w) => (w / weightSum) * targetInt)
+    const baseScores = rawScores.map((value) => Math.max(1, Math.floor(value)))
+    let assignedTotal = baseScores.reduce((sum, s) => sum + s, 0)
+    let remaining = targetInt - assignedTotal
 
-    if (remainingUnits > 0) {
-      const byFractionDesc = rawUnits
-        .map((value, idx) => ({ idx, fraction: value - baseUnits[idx] }))
+    if (remaining > 0) {
+      const byFractionDesc = rawScores
+        .map((value, idx) => ({ idx, fraction: value - baseScores[idx] }))
         .sort((a, b) => b.fraction - a.fraction)
       let cursor = 0
-      while (remainingUnits > 0) {
+      while (remaining > 0) {
         const target = byFractionDesc[cursor % byFractionDesc.length]
-        baseUnits[target.idx] += 1
-        remainingUnits -= 1
+        baseScores[target.idx] += 1
+        remaining -= 1
         cursor += 1
       }
-    } else if (remainingUnits < 0) {
-      const byFractionAsc = rawUnits
-        .map((value, idx) => ({ idx, fraction: value - baseUnits[idx] }))
+    } else if (remaining < 0) {
+      const byFractionAsc = rawScores
+        .map((value, idx) => ({ idx, fraction: value - baseScores[idx] }))
         .sort((a, b) => a.fraction - b.fraction)
       let cursor = 0
-      while (remainingUnits < 0) {
+      while (remaining < 0) {
         const target = byFractionAsc[cursor % byFractionAsc.length]
-        if (baseUnits[target.idx] > 0) {
-          baseUnits[target.idx] -= 1
-          remainingUnits += 1
+        if (baseScores[target.idx] > 1) {
+          baseScores[target.idx] -= 1
+          remaining += 1
         }
         cursor += 1
         if (cursor > byFractionAsc.length * 20) break
@@ -809,14 +810,10 @@ export default function AssignmentSetup({
 
     const adjustedQuestions = questions.map((question, idx) => ({
       ...question,
-      maxScore: Number((baseUnits[idx] / 10).toFixed(1))
+      maxScore: baseScores[idx]
     }))
-    const adjustedTotal = Number(
-      adjustedQuestions.reduce((sum, q) => sum + (q.maxScore || 0), 0).toFixed(1)
-    )
-    const originalTotal = Number(
-      questions.reduce((sum, q) => sum + (q.maxScore || 0), 0).toFixed(1)
-    )
+    const adjustedTotal = adjustedQuestions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
+    const originalTotal = questions.reduce((sum, q) => sum + (q.maxScore || 0), 0)
     const adjusted = Math.abs(adjustedTotal - originalTotal) > 0.001 || adjustedTotal !== targetTotal
 
     return {
