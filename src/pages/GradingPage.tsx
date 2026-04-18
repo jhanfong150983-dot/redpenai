@@ -1317,6 +1317,7 @@ export default function GradingPage({
           scoreSource: 'ai',
           gradingResult,
           gradedAt: Date.now(),
+          updatedAt: Date.now(),
         })
         // Fire-and-forget: update forensic log with teacher decisions + Phase B results
         const gradedAt = new Date().toISOString()
@@ -1770,7 +1771,8 @@ export default function GradingPage({
                 const totalScore = typeof gr.totalScore === 'number' ? gr.totalScore : undefined
                 await db.submissions.update(id, {
                   gradingResult: gr,
-                  ...(totalScore !== undefined ? { score: totalScore, aiScore: totalScore, scoreSource: 'ai' as const } : {})
+                  ...(totalScore !== undefined ? { score: totalScore, aiScore: totalScore, scoreSource: 'ai' as const } : {}),
+                  updatedAt: Date.now()
                 })
               }
             }
@@ -2800,7 +2802,8 @@ export default function GradingPage({
         score: newTotal,
         aiScore: newTotal,
         scoreSource: 'ai',
-        gradingResult: newGradingResult
+        gradingResult: newGradingResult,
+        updatedAt: Date.now()
       })
       requestSync()
 
@@ -3858,7 +3861,8 @@ export default function GradingPage({
                           const totalScore = typeof newGradingResult.totalScore === 'number' ? newGradingResult.totalScore : undefined
                           await db.submissions.update(id, {
                             gradingResult: newGradingResult,
-                            ...(totalScore !== undefined ? { score: totalScore, aiScore: totalScore, scoreSource: 'ai' as const } : {})
+                            ...(totalScore !== undefined ? { score: totalScore, aiScore: totalScore, scoreSource: 'ai' as const } : {}),
+                            updatedAt: Date.now()
                           })
                           requestSync()
 
