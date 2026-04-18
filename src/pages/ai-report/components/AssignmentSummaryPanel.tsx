@@ -78,7 +78,7 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry }: Assig
   if (!data) {
     return (
       <div className="card" style={{ padding: '1.5rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
-        尚無作業錯誤摘要。完成批改後系統將自動生成。
+        沒有可用的報告
       </div>
     )
   }
@@ -113,14 +113,8 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry }: Assig
 
   if (data.status === 'failed') {
     return (
-      <div className="card" style={{ padding: '1.5rem', fontSize: '0.875rem' }}>
-        <div style={{ color: '#991b1b', fontWeight: 600 }}>摘要生成失敗</div>
-        {data.error_message && (
-          <p style={{ color: '#b91c1c', marginTop: '0.35rem', marginBottom: 0, fontSize: '0.775rem', fontFamily: 'monospace' }}>
-            {data.error_message}
-          </p>
-        )}
-        {onRetry && <RetryButton onRetry={onRetry} />}
+      <div className="card" style={{ padding: '1.5rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
+        沒有可用的報告
       </div>
     )
   }
@@ -128,7 +122,7 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry }: Assig
   if (data.status !== 'ready') {
     return (
       <div className="card" style={{ padding: '1.5rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
-        尚無摘要資料。
+        沒有可用的報告
       </div>
     )
   }
