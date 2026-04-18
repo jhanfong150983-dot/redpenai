@@ -144,6 +144,10 @@ export interface AnswerKey {
   questions: AnswerKeyQuestion[]
   totalScore: number
   strictness?: 'strict' | 'standard' | 'lenient'
+  // 分數約分規則（數學領域專用）
+  // require_simplified: 必須最簡分數（2/4 算錯，2/2=1 除外）
+  // allow_equivalent: 接受等值分數（2/4 = 1/2 算對）
+  fractionRule?: 'require_simplified' | 'allow_equivalent'
 }
 
 /**

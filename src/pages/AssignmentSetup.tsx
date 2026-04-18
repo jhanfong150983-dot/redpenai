@@ -96,28 +96,35 @@ export default function AssignmentSetup({
   const [dragOverAssignmentId, setDragOverAssignmentId] = useState<string | null>(null)
   const [dragOverFolderName, setDragOverFolderName] = useState<string | null>(null)
 
-  const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false)
-  const [createStrictness, setCreateStrictness] = useState<'strict' | 'standard' | 'lenient'>(
-    'standard'
-  )
+  // const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false) // removed: advanced settings replaced by Section 3+4
+  const [createStrictness, setCreateStrictness] = useState<'strict' | 'standard' | 'lenient' | ''>('')
+  const [createFractionRule, setCreateFractionRule] = useState<'require_simplified' | 'allow_equivalent' | ''>('')
   type CreateScoreMode = 'ai_auto' | 'fixed_per_question' | 'fixed_total' | 'fixed_both'
-  const [createScoreMode, setCreateScoreMode] = useState<CreateScoreMode>('ai_auto')
+  const [createScoreMode, setCreateScoreMode] = useState<CreateScoreMode | ''>('')
   const [createFixedPerScore, setCreateFixedPerScore] = useState<number>(5)
   const [createFixedTotal, setCreateFixedTotal] = useState<number>(100)
-  const [createScoringMode, setCreateScoringMode] = useState<'scored' | 'unscored'>('scored')
+  const [createScoringMode, setCreateScoringMode] = useState<'scored' | 'unscored' | ''>('')
 
   const domainOptions = ['國語', '數學', '社會', '自然', '英語', '其他']
-  const createStrictnessLabels: Record<'strict' | 'standard' | 'lenient', string> = {
+  const createStrictnessLabels: Record<string, string> = {
     strict: '嚴格',
     standard: '標準',
     lenient: '寬鬆'
   }
-  const createStrictnessHints: Record<'strict' | 'standard' | 'lenient', string> = {
+  const createStrictnessHints: Record<string, string> = {
     strict: '字詞順序格式須完全一致',
     standard: '允許同義、格式小差異',
     lenient: '只要核心意思正確即可'
   }
-  const createScoreModeLabels: Record<CreateScoreMode, string> = {
+  const createFractionRuleLabels: Record<string, string> = {
+    require_simplified: '必須最簡分數',
+    allow_equivalent: '接受等值分數'
+  }
+  const createFractionRuleHints: Record<string, string> = {
+    require_simplified: '2/4 算錯，必須寫 1/2（整數如 2/2=1 除外）',
+    allow_equivalent: '2/4 = 1/2 都算對'
+  }
+  const createScoreModeLabels: Record<string, string> = {
     ai_auto: 'AI 自動（100分）',
     fixed_per_question: '每題固定分',
     fixed_total: '固定總分',
@@ -324,7 +331,7 @@ export default function AssignmentSetup({
   useEffect(() => {
     const stepId = tutorial.flow?.steps?.[tutorial.currentStep]?.id
     if (tutorial.isActive && stepId === 'assignment-prior-weight') {
-      setIsAdvancedSettingsOpen(true)
+      // Previously opened advanced settings panel; now settings are always visible in Section 3+4
     }
   }, [tutorial.isActive, tutorial.currentStep, tutorial.flow])
 
@@ -522,12 +529,12 @@ export default function AssignmentSetup({
     setAssignmentTitle('')
     setTotalPages(1)
     setAssignmentDomain('')
-    setIsAdvancedSettingsOpen(false)
-    setCreateStrictness('standard')
-    setCreateScoreMode('ai_auto')
+    setCreateStrictness('')
+    setCreateFractionRule('')
+    setCreateScoreMode('')
     setCreateFixedPerScore(5)
     setCreateFixedTotal(100)
-    setCreateScoringMode('scored')
+    setCreateScoringMode('')
     setAnswerKey(null)
     setAnswerKeyFile([])
     setAnswerSheetImages([])
@@ -540,12 +547,14 @@ export default function AssignmentSetup({
   const getMissingFields = useMemo(() => {
     const missing: string[] = []
 
-    if (!selectedClassroomId) {
-      missing.push('班級')
-    }
+    // Section 1: 基本設定
     if (!assignmentTitle.trim()) {
       missing.push('作業標題')
     }
+    if (!selectedClassroomId) {
+      missing.push('班級')
+    }
+    // Section 2: 匯入答案
     if (!assignmentDomain) {
       missing.push('作業領域')
     }
@@ -557,9 +566,20 @@ export default function AssignmentSetup({
         missing.push(`題號重複（${formatDuplicateQuestionIds(duplicateIds)}）`)
       }
     }
+    // Section 3: 批改規則
+    if (!createStrictness) {
+      missing.push('問答題嚴謹度')
+    }
+    if (assignmentDomain === '數學' && !createFractionRule) {
+      missing.push('分數約分規則')
+    }
+    // Section 4: 計分方式
+    if (!createScoringMode) {
+      missing.push('計分方式')
+    }
 
     return missing
-  }, [selectedClassroomId, assignmentTitle, assignmentDomain, totalPages, answerKey])
+  }, [selectedClassroomId, assignmentTitle, assignmentDomain, totalPages, answerKey, createStrictness, createFractionRule, createScoringMode])
 
   const buildRubricRanges = (maxScore: number) => {
     const safeMax = Math.max(1, Math.round(maxScore))
@@ -1136,7 +1156,11 @@ export default function AssignmentSetup({
         folder: undefined,  // 新作業預設為全部
         gradeWeightPercent: 0,
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
-        answerKey: answerKey ? { ...answerKey, strictness: createStrictness } : undefined,
+        answerKey: answerKey ? {
+          ...answerKey,
+          strictness: createStrictness || 'standard',
+          ...(assignmentDomain === '數學' && createFractionRule ? { fractionRule: createFractionRule } : {})
+        } : undefined,
         conceptTags: pendingConceptTags ?? undefined
       }
       await db.assignments.add(assignment)
@@ -2814,43 +2838,31 @@ export default function AssignmentSetup({
                   </aside>
 
                   <div className="min-w-0 space-y-4">
+                    {/* ═══════════════ Section 1: 基本設定 ═══════════════ */}
                     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                       <div className="mb-4 flex items-center justify-between">
                         <div>
                           <h3 className="text-base font-semibold text-slate-900">基本設定</h3>
-                          <p className="text-xs text-slate-500">先填作業資訊，再上傳標準答案。</p>
+                          <p className="text-xs text-slate-500">作業名稱與指派班級</p>
                         </div>
-                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
-                          Step 1
-                        </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">1</span>
                       </div>
                       <div className="space-y-4">
                 <div>
-                  <label
-                    htmlFor="assignmentTitle"
-                    className="block text-sm font-medium text-gray-700 mb-2"
-                  >
-                    作業標題
-                  </label>
+                  <label htmlFor="assignmentTitle" className="block text-sm font-medium text-gray-700 mb-2">作業標題</label>
                   <input
                     id="assignmentTitle"
                     data-tutorial="assignment-title"
                     type="text"
                     value={assignmentTitle}
                     onChange={(e) => setAssignmentTitle(e.target.value)}
-                    placeholder="例：數學作業第 1 份"
+                    placeholder="例：數學習作第 6 回"
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
                     disabled={isSubmitting}
                   />
                 </div>
-
                 <div>
-                  <label
-                    htmlFor="classroom"
-                    className="block text-sm font-medium text-gray-700 mb-2"
-                  >
-                    指派班級
-                  </label>
+                  <label htmlFor="classroom" className="block text-sm font-medium text-gray-700 mb-2">指派班級</label>
                   <select
                     id="classroom"
                     data-tutorial="assignment-classroom"
@@ -2860,107 +2872,207 @@ export default function AssignmentSetup({
                     disabled={isSubmitting}
                   >
                     {classrooms.map((classroom) => (
-                      <option key={classroom.id} value={classroom.id}>
-                        {classroom.name}
-                      </option>
+                      <option key={classroom.id} value={classroom.id}>{classroom.name}</option>
                     ))}
                   </select>
                 </div>
+                      </div>
+                    </section>
 
-                <div>
-                  <label
-                    htmlFor="assignmentDomain"
-                    className="block text-sm font-medium text-gray-700 mb-2"
-                  >
-                    作業領域
-                  </label>
-                  <select
-                    id="assignmentDomain"
-                    data-tutorial="assignment-domain"
-                    value={assignmentDomain}
-                    onChange={(e) => setAssignmentDomain(e.target.value)}
-                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white ${!assignmentDomain ? 'border-red-400' : 'border-gray-300'}`}
-                    disabled={isSubmitting}
-                  >
-                    <option value="">請選擇（必填）</option>
-                    {domainOptions.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
+                    {/* ═══════════════ Section 2: 匯入答案 ═══════════════ */}
+                    <section className={`mt-4 rounded-2xl border p-4 shadow-sm sm:p-5 transition-opacity ${assignmentTitle.trim() ? 'border-slate-200 bg-white opacity-100' : 'border-slate-100 bg-slate-50 opacity-50 pointer-events-none'}`}>
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-base font-semibold text-slate-900">匯入答案</h3>
+                          <p className="text-xs text-slate-500">選擇領域與作業形式，再上傳標準答案</p>
+                        </div>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">2</span>
+                      </div>
+                      <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="assignmentDomain" className="block text-sm font-medium text-gray-700 mb-2">領域</label>
+                    <select
+                      id="assignmentDomain"
+                      data-tutorial="assignment-domain"
+                      value={assignmentDomain}
+                      onChange={(e) => setAssignmentDomain(e.target.value)}
+                      className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white ${!assignmentDomain ? 'border-amber-400' : 'border-gray-300'}`}
+                      disabled={isSubmitting}
+                    >
+                      <option value="">請選擇</option>
+                      {domainOptions.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">作業形式</label>
+                    <select
+                      value={createAnswerDocType}
+                      onChange={(e) => setCreateAnswerDocType(e.target.value as 'worksheet' | 'exam')}
+                      disabled={isSubmitting || isExtractingAnswerKey}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white"
+                    >
+                      <option value="worksheet">習作</option>
+                      <option value="exam">考卷</option>
+                    </select>
+                  </div>
                 </div>
 
-              </div>
-
-              <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+              <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setIsAdvancedSettingsOpen((prev) => !prev)}
-                  className="flex w-full items-start justify-between gap-3 text-left"
+                  onClick={() => addQuestionRow('create')}
+                  className="text-xs px-2 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
                 >
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-900">進階設定（選填）</h3>
-                    <p className="mt-1 text-xs text-slate-500">
-                      可自訂批改嚴格度與預設分數；未設定時使用 AI 預設。
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
-                      批改嚴格度：{createStrictnessLabels[createStrictness]}
-                    </span>
-                    {createScoringMode === 'unscored' ? (
-                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
-                        不計分數
-                      </span>
-                    ) : createScoreMode !== 'ai_auto' && (
-                      <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-700">
-                        {createScoreModeLabels[createScoreMode]}
-                        {createScoreMode === 'fixed_per_question' && `（每題 ${createFixedPerScore} 分）`}
-                        {createScoreMode === 'fixed_total' && `（總分 ${createFixedTotal} 分）`}
-                        {createScoreMode === 'fixed_both' && `（每題 ${createFixedPerScore}／總分 ${createFixedTotal}）`}
-                      </span>
-                    )}
-                    {isAdvancedSettingsOpen ? (
-                      <ChevronDown className="h-4 w-4 text-slate-500" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-slate-500" />
-                    )}
-                  </div>
+                  手動新增一題
                 </button>
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-slate-700">上傳答案卷（PDF 或圖片，支援多檔案）</label>
+                <input
+                  key={answerKeyInputKey}
+                  type="file"
+                  data-tutorial="assignment-upload-answerkey"
+                  accept="image/*,application/pdf"
+                  multiple
+                  onChange={handleAnswerKeyFileChange}
+                  disabled={isSubmitting || isExtractingAnswerKey}
+                  className="min-w-0 w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+                />
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-xs font-semibold text-slate-700">提醒</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-slate-600">
+                    <li>建議使用紅筆、藍筆等彩色筆填寫，AI 較容易辨識標準答案。</li>
+                    <li>系統會自動壓縮與分批解析；檔案較多時建議一次 1-3 檔，品質較穩定。</li>
+                  </ul>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isExtractingAnswerKey && (
+                    <span className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-100 text-emerald-700 text-sm">
+                      <Loader className="w-4 h-4 animate-spin" />
+                      AI 解析中…
+                    </span>
+                  )}
+                  {answerKey && answerKey.questions.some(q => q.needsReanalysis) && (
+                    <button
+                      type="button"
+                      onClick={() => handleReanalyzeMarkedQuestions('create')}
+                      disabled={isReanalyzing}
+                      className="mt-2 inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm hover:bg-amber-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isReanalyzing ? 'animate-spin' : ''}`} />
+                      {isReanalyzing ? '重新分析中…' : `重新分析 (${answerKey.questions.filter(q => q.needsReanalysis).length} 題)`}
+                    </button>
+                  )}
+                </div>
+                {answerKeyError && (
+                  <p className="text-sm text-red-600 mt-1 whitespace-pre-line">{answerKeyError}</p>
+                )}
+                {answerKeyNotice && (
+                  <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                    <p className="text-xs text-amber-800 font-medium whitespace-pre-line">{answerKeyNotice}</p>
+                  </div>
+                )}
+              </div>
 
-                {isAdvancedSettingsOpen && (
-                  <div className="mt-4 space-y-4 border-t border-slate-200 pt-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-slate-500 shrink-0">批改嚴格度</span>
-                      <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs bg-white">
-                        {(['strict', 'standard', 'lenient'] as const).map((level) => (
-                          <button
-                            key={level}
-                            type="button"
-                            onClick={() => setCreateStrictness(level)}
-                            className={`px-3 py-1 transition-colors ${
-                              createStrictness === level
-                                ? 'bg-emerald-600 text-white font-medium'
-                                : 'bg-white text-slate-600 hover:bg-slate-50'
-                            }`}
-                          >
-                            {createStrictnessLabels[level]}
-                          </button>
-                        ))}
+              {answerKey && (
+                <div data-tutorial="assignment-preview-answerkey" className="mt-2 flex items-center justify-between rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm font-semibold text-green-800">已擷取 {answerKey.questions.length} 題</span>
+                    {createScoringMode !== 'unscored' && (
+                      <span className="text-xs text-gray-500">總分 {answerKey.totalScore} 分</span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAnswerKeyEditWizard(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 bg-white border border-green-300 rounded-lg hover:bg-green-50 transition-colors"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    編輯正確答案
+                  </button>
+                </div>
+              )}
                       </div>
-                      <span className="text-xs text-slate-400">{createStrictnessHints[createStrictness]}</span>
-                    </div>
+                    </section>
 
-                    {/* 分數設定：不計分數 與 預設分數 互斥 */}
-                    <div className="flex flex-wrap items-start gap-x-2 gap-y-2">
-                      <span className="text-xs text-slate-500 shrink-0 pt-1">分數</span>
-                      <div className="flex flex-col gap-2">
+                    {/* ═══════════════ Section 3: 批改規則 ═══════════════ */}
+                    <section className={`mt-4 rounded-2xl border p-4 shadow-sm sm:p-5 transition-opacity ${answerKey ? 'border-slate-200 bg-white opacity-100' : 'border-slate-100 bg-slate-50 opacity-50 pointer-events-none'}`}>
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-base font-semibold text-slate-900">批改規則</h3>
+                          <p className="text-xs text-slate-500">設定 AI 批改時的判斷標準</p>
+                        </div>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">3</span>
+                      </div>
+                      <div className="space-y-5">
+                        {/* 問答題嚴謹度 — 所有領域 */}
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-2">問答題嚴謹度</label>
+                          <div className="grid grid-cols-3 gap-2">
+                            {(['strict', 'standard', 'lenient'] as const).map((level) => (
+                              <button
+                                key={level}
+                                type="button"
+                                onClick={() => setCreateStrictness(level)}
+                                className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-all ${
+                                  createStrictness === level
+                                    ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                                }`}
+                              >
+                                <span className="text-sm font-semibold">{createStrictnessLabels[level]}</span>
+                                <span className="text-[11px] text-slate-500">{createStrictnessHints[level]}</span>
+                              </button>
+                            ))}
+                          </div>
+                          {!createStrictness && <p className="mt-1 text-xs text-amber-600">請選擇一個嚴謹度</p>}
+                        </div>
+
+                        {/* 分數約分規則 — 僅數學領域 */}
+                        {assignmentDomain === '數學' && (
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-2">分數約分規則</label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {(['require_simplified', 'allow_equivalent'] as const).map((rule) => (
+                                <button
+                                  key={rule}
+                                  type="button"
+                                  onClick={() => setCreateFractionRule(rule)}
+                                  className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-all ${
+                                    createFractionRule === rule
+                                      ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                                  }`}
+                                >
+                                  <span className="text-sm font-semibold">{createFractionRuleLabels[rule]}</span>
+                                  <span className="text-[11px] text-slate-500">{createFractionRuleHints[rule]}</span>
+                                </button>
+                              ))}
+                            </div>
+                            {!createFractionRule && <p className="mt-1 text-xs text-amber-600">請選擇約分規則</p>}
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    {/* ═══════════════ Section 4: 計分方式 ═══════════════ */}
+                    <section className={`mt-4 rounded-2xl border p-4 shadow-sm sm:p-5 transition-opacity ${answerKey ? 'border-slate-200 bg-white opacity-100' : 'border-slate-100 bg-slate-50 opacity-50 pointer-events-none'}`}>
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-base font-semibold text-slate-900">計分方式</h3>
+                          <p className="text-xs text-slate-500">選擇配分模式</p>
+                        </div>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">4</span>
+                      </div>
+                      <div className="space-y-3">
                         <div className="flex flex-wrap rounded-lg border border-slate-200 overflow-hidden text-xs bg-white">
                           <button
                             type="button"
-                            onClick={() => setCreateScoringMode('unscored')}
-                            className={`px-3 py-1 transition-colors ${
+                            onClick={() => { setCreateScoringMode('unscored'); setCreateScoreMode('') }}
+                            className={`px-3 py-2 transition-colors ${
                               createScoringMode === 'unscored'
                                 ? 'bg-emerald-600 text-white font-medium'
                                 : 'bg-white text-slate-600 hover:bg-slate-50'
@@ -2973,7 +3085,7 @@ export default function AssignmentSetup({
                               key={mode}
                               type="button"
                               onClick={() => { setCreateScoringMode('scored'); setCreateScoreMode(mode) }}
-                              className={`px-3 py-1 transition-colors ${
+                              className={`px-3 py-2 transition-colors ${
                                 createScoringMode === 'scored' && createScoreMode === mode
                                   ? 'bg-emerald-600 text-white font-medium'
                                   : 'bg-white text-slate-600 hover:bg-slate-50'
@@ -2983,6 +3095,7 @@ export default function AssignmentSetup({
                             </button>
                           ))}
                         </div>
+                        {!createScoringMode && <p className="text-xs text-amber-600">請選擇計分方式</p>}
                         {createScoringMode === 'unscored' && (
                           <span className="text-xs text-slate-400">批改結果只顯示 ✓ / ✗ / △，不納入成績統計</span>
                         )}
@@ -2992,155 +3105,30 @@ export default function AssignmentSetup({
                         {createScoringMode === 'scored' && (createScoreMode === 'fixed_per_question' || createScoreMode === 'fixed_both') && (
                           <label className="flex items-center gap-2 text-xs text-slate-600">
                             每題
-                            <input
-                              type="number"
-                              min={0.5}
-                              step={0.5}
-                              value={createFixedPerScore}
+                            <input type="number" min={1} step={1} value={createFixedPerScore}
                               onChange={(e) => setCreateFixedPerScore(Number(e.target.value))}
-                              className="w-16 rounded border border-slate-300 px-2 py-0.5 text-xs text-center"
-                            />
-                            分，總分依題數加總
+                              className="w-16 rounded border border-slate-300 px-2 py-0.5 text-xs text-center" />
+                            分
                             {createScoreMode === 'fixed_per_question' && answerKey && (
-                              <span className="text-slate-400">（預計 {(createFixedPerScore * (answerKey.questions?.length ?? 0)).toFixed(1)} 分）</span>
+                              <span className="text-slate-400">（共 {answerKey.questions?.length ?? 0} 題，總分 {createFixedPerScore * (answerKey.questions?.length ?? 0)} 分）</span>
                             )}
                           </label>
                         )}
                         {createScoringMode === 'scored' && (createScoreMode === 'fixed_total' || createScoreMode === 'fixed_both') && (
                           <label className="flex items-center gap-2 text-xs text-slate-600">
                             {createScoreMode === 'fixed_both' ? '另設' : ''}總分
-                            <input
-                              type="number"
-                              min={1}
-                              step={1}
-                              value={createFixedTotal}
+                            <input type="number" min={1} step={1} value={createFixedTotal}
                               onChange={(e) => setCreateFixedTotal(Number(e.target.value))}
-                              className="w-16 rounded border border-slate-300 px-2 py-0.5 text-xs text-center"
-                            />
+                              className="w-16 rounded border border-slate-300 px-2 py-0.5 text-xs text-center" />
                             分
-                            {createScoreMode === 'fixed_total' && (
-                              <span className="text-slate-400">（每題由 AI 按比例分配）</span>
-                            )}
-                            {createScoreMode === 'fixed_both' && (
-                              <span className="text-slate-400">（加總不一定等於此總分）</span>
-                            )}
                           </label>
                         )}
                       </div>
-                    </div>
+                    </section>
 
-                  </div>
-                )}
-              </section>
-
-              <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-sm font-semibold text-slate-800">
-                      標準答案
-                    </h3>
-                    <p className="text-xs text-slate-500">上傳答案卷後可 AI 解析，並手動微調。</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-white px-2 py-1 text-[11px] font-medium text-slate-600 border border-slate-200">
-                      Step 2
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => addQuestionRow('create')}
-                      className="text-xs px-2 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 hover:bg-slate-100"
-                    >
-                      手動新增一題
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-slate-700">
-                    上傳答案卷（可用 PDF 或圖片，支援多檔案選取）
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={createAnswerDocType}
-                      onChange={(e) => setCreateAnswerDocType(e.target.value as 'worksheet' | 'exam')}
-                      disabled={isSubmitting || isExtractingAnswerKey}
-                      className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                    >
-                      <option value="worksheet">習作</option>
-                      <option value="exam">考卷</option>
-                    </select>
-                    <input
-                      key={answerKeyInputKey}
-                      type="file"
-                      data-tutorial="assignment-upload-answerkey"
-                      accept="image/*,application/pdf"
-                      multiple
-                      onChange={handleAnswerKeyFileChange}
-                      disabled={isSubmitting || isExtractingAnswerKey}
-                      className="min-w-0 flex-1 text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
-                    />
-                  </div>
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                    <p className="text-xs font-semibold text-slate-700">提醒</p>
-                    <ul className="mt-1 list-disc space-y-1 pl-4 text-xs text-slate-600">
-                      <li>建議使用紅筆、藍筆等彩色筆填寫，AI 較容易辨識標準答案。</li>
-                      <li>系統會自動壓縮與分批解析；檔案較多時建議一次 1-3 檔，品質較穩定。</li>
-                    </ul>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isExtractingAnswerKey && (
-                      <span className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-100 text-emerald-700 text-sm">
-                        <Loader className="w-4 h-4 animate-spin" />
-                        AI 解析中…
-                      </span>
-                    )}
-                    {answerKey && answerKey.questions.some(q => q.needsReanalysis) && (
-                      <button
-                        type="button"
-                        onClick={() => handleReanalyzeMarkedQuestions('create')}
-                        disabled={isReanalyzing}
-                        className="mt-2 inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm hover:bg-amber-700 disabled:bg-slate-300 disabled:cursor-not-allowed"
-                      >
-                        <RefreshCw className={`w-4 h-4 ${isReanalyzing ? 'animate-spin' : ''}`} />
-                        {isReanalyzing
-                          ? '重新分析中…'
-                          : `重新分析 (${answerKey.questions.filter(q => q.needsReanalysis).length} 題)`}
-                      </button>
-                    )}
-                  </div>
-                  {answerKeyError && (
-                    <p className="text-sm text-red-600 mt-1 whitespace-pre-line">{answerKeyError}</p>
-                  )}
-                  {answerKeyNotice && (
-                    <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
-                      <p className="text-xs text-amber-800 font-medium whitespace-pre-line">{answerKeyNotice}</p>
-                    </div>
-                  )}
-                </div>
-
-                {answerKey && (
-                  <div data-tutorial="assignment-preview-answerkey" className="mt-2 flex items-center justify-between rounded-xl border border-green-200 bg-green-50 px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm font-semibold text-green-800">✓ 已擷取 {answerKey.questions.length} 題</span>
-                      {createScoringMode !== 'unscored' && (
-                        <span className="text-xs text-gray-500">總分 {answerKey.totalScore} 分</span>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowAnswerKeyEditWizard(true)}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 bg-white border border-green-300 rounded-lg hover:bg-green-50 transition-colors"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      編輯正確答案
-                    </button>
-                  </div>
-                )}
-              </div>
-            </section>
-          </div>
-        </div>
-      </div>
+                  </div>{/* end main content column */}
+                </div>{/* end grid */}
+              </div>{/* end scrollable content */}
 
               <div className="flex-shrink-0 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
