@@ -3993,7 +3993,8 @@ export async function gradePhaseA(
 export async function gradePhaseB(
   submissionImageBlob: Blob,
   phaseAResult: PhaseAResult,
-  finalAnswers: FinalAnswer[]
+  finalAnswers: FinalAnswer[],
+  domain?: string
 ): Promise<GradingResult> {
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
 
@@ -4017,7 +4018,8 @@ export async function gradePhaseB(
     ...(sid ? { inkSessionId: sid } : {}),
     routeKey: 'grading.phase_b',
     phaseAResult: phaseAForServer,
-    finalAnswers
+    finalAnswers,
+    ...(domain ? { domain } : {})
   })
 
   let response = await fetch(geminiProxyUrl, {

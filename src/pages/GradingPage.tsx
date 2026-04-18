@@ -1267,7 +1267,7 @@ export default function GradingPage({
             finalAnswerSource: src === 'blank' ? 'manual' : src,
           }
         })
-        const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers)
+        const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain)
         return { entry, gradingResult }
       },
       async (_i, result, err) => {
