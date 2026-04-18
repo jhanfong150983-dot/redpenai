@@ -907,7 +907,11 @@ export function useSync(options: UseSyncOptions = {}) {
         const finalStatus = (localStatus === 'graded' && serverStatus !== 'graded')
           ? 'graded'
           : serverStatus
-        const gradedAt = serverGradedAt ?? (localStatus === 'graded' ? localImageData?.gradedAt : undefined)
+        // gradedAt 取較大值（本地 vs server），避免 pull 覆蓋本地剛批改的新值
+        const localGradedAt = localStatus === 'graded' ? localImageData?.gradedAt : undefined
+        const gradedAt = (typeof serverGradedAt === 'number' && typeof localGradedAt === 'number')
+          ? Math.max(serverGradedAt, localGradedAt)
+          : serverGradedAt ?? localGradedAt
         const imageUrl =
           (sub as Submission & { imageUrl?: string }).imageUrl ??
           (sub as { image_url?: string }).image_url ??
@@ -928,22 +932,30 @@ export function useSync(options: UseSyncOptions = {}) {
           })
         }
 
+        // 本地批改較新時，保留本地的 score/gradingResult（避免 pull 覆蓋新批改結果）
+        const localIsNewerGrade = typeof localGradedAt === 'number' && typeof serverGradedAt === 'number' && localGradedAt > serverGradedAt
+        const mergedScore = localIsNewerGrade ? (localImageData?.gradingResult?.totalScore ?? sub.score) : sub.score
+        const mergedGradingResult = localIsNewerGrade
+          ? (localImageData?.gradingResult ?? sub.gradingResult)
+          : (localImageData?.gradingResult ?? sub.gradingResult)
+
         return {
           id: sub.id,
           assignmentId: assignmentId!,
           studentId: studentId!,
           status: finalStatus,
           createdAt,
-          score: sub.score,
-          aiScore: (sub as Submission & { aiScore?: number }).aiScore ??
-            (sub as { ai_score?: number }).ai_score ?? undefined,
+          score: mergedScore,
+          aiScore: localIsNewerGrade
+            ? (mergedScore ?? undefined)
+            : ((sub as Submission & { aiScore?: number }).aiScore ?? (sub as { ai_score?: number }).ai_score ?? undefined),
           scoreSource: (
             (sub as Submission & { scoreSource?: string }).scoreSource ??
             (sub as { score_source?: string }).score_source
           ) as 'ai' | 'manual' | undefined,
           feedback: sub.feedback,
           // 伺服器同步不再回傳 gradingResult，優先保留本地已有的批改結果
-          gradingResult: localImageData?.gradingResult ?? sub.gradingResult,
+          gradingResult: mergedGradingResult,
           // 雲端同步的錯題數量（本地有 gradingResult 時不需要，但保留作為跨裝置 fallback）
           mistakesCount: (sub as Submission & { mistakesCount?: number }).mistakesCount,
           gradedAt,
@@ -975,7 +987,10 @@ export function useSync(options: UseSyncOptions = {}) {
             (sub as Submission & { thumbnailUrl?: string }).thumbnailUrl ??
             (sub as { thumbnail_url?: string }).thumbnail_url ??
             localImageData?.thumbnailUrl,
-          updatedAt: toMillis(sub.updatedAt ?? (sub as { updated_at?: unknown }).updated_at)
+          // updatedAt: 本地批改較新時用 Date.now() 確保 push 不被判 stale
+          updatedAt: localIsNewerGrade
+            ? Date.now()
+            : (toMillis(sub.updatedAt ?? (sub as { updated_at?: unknown }).updated_at) || undefined)
         }
       })
 
