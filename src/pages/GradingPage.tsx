@@ -1763,9 +1763,13 @@ export default function GradingPage({
             const json = await resp.json()
             const gradingResults: Record<string, unknown> = json?.gradingResults ?? {}
             for (const id of missingIds) {
-              const gr = gradingResults[id]
+              const gr = gradingResults[id] as any
               if (gr) {
-                await db.submissions.update(id, { gradingResult: gr as any })
+                const totalScore = typeof gr.totalScore === 'number' ? gr.totalScore : undefined
+                await db.submissions.update(id, {
+                  gradingResult: gr,
+                  ...(totalScore !== undefined ? { score: totalScore, aiScore: totalScore, scoreSource: 'ai' as const } : {})
+                })
               }
             }
             // 更新 React state
@@ -3781,7 +3785,11 @@ export default function GradingPage({
                             needsReview: false,
                             reviewReasons: []
                           }
-                          await db.submissions.update(id, { gradingResult: newGradingResult })
+                          const totalScore = typeof newGradingResult.totalScore === 'number' ? newGradingResult.totalScore : undefined
+                          await db.submissions.update(id, {
+                            gradingResult: newGradingResult,
+                            ...(totalScore !== undefined ? { score: totalScore, aiScore: totalScore, scoreSource: 'ai' as const } : {})
+                          })
                           requestSync()
 
                           const updated = await db.submissions.get(id)
