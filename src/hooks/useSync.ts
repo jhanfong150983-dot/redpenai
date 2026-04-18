@@ -613,6 +613,7 @@ export function useSync(options: UseSyncOptions = {}) {
         title: a.title,
         totalPages: a.totalPages,
         domain: a.domain,
+        docType: a.docType ?? null,
         folder: a.folder === undefined ? null : a.folder,
         scoringMode: a.scoringMode === 'unscored' ? 'unscored' : 'scored',
         gradeWeightPercent:
@@ -1111,6 +1112,7 @@ export function useSync(options: UseSyncOptions = {}) {
           title: a.title,
           totalPages: a.totalPages,
           domain: a.domain ?? undefined,
+          docType: (a as any).docType ?? (a as any).doc_type ?? undefined,
           folder: finalFolder,
           scoringMode: finalScoringMode,
           gradeWeightPercent: finalGradeWeightPercent,

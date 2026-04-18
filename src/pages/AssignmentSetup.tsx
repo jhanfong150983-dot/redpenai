@@ -1174,6 +1174,9 @@ export default function AssignmentSetup({
       const updatedAk = {
         ...answerKey,
         strictness: createStrictness || 'standard',
+        scoreMode: createScoringMode === 'scored' && createScoreMode ? createScoreMode : undefined,
+        fixedPerScore: (createScoreMode === 'fixed_per_question' || createScoreMode === 'fixed_both') ? createFixedPerScore : undefined,
+        fixedTotal: (createScoreMode === 'fixed_total' || createScoreMode === 'fixed_both') ? createFixedTotal : undefined,
         ...(assignmentDomain === '數學' && createFractionRule ? { fractionRule: createFractionRule } : {}),
         ...(assignmentDomain === '英語' && (createEnPunctuationCheck || createEnWordOrderCheck) ? {
           englishRules: {
@@ -1184,6 +1187,7 @@ export default function AssignmentSetup({
       }
       await db.assignments.update(editingAssignmentId, {
         title: assignmentTitle.trim(),
+        docType: createAnswerDocType,
         answerKey: updatedAk,
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
         updatedAt: now
@@ -1191,7 +1195,7 @@ export default function AssignmentSetup({
       setAssignments((prev) =>
         prev.map((a) =>
           a.id === editingAssignmentId
-            ? { ...a, title: assignmentTitle.trim(), answerKey: updatedAk, scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined, updatedAt: now }
+            ? { ...a, title: assignmentTitle.trim(), docType: createAnswerDocType, answerKey: updatedAk, scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined, updatedAt: now }
             : a
         )
       )
@@ -1218,9 +1222,13 @@ export default function AssignmentSetup({
         folder: undefined,  // 新作業預設為全部
         gradeWeightPercent: 0,
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
+        docType: createAnswerDocType,
         answerKey: answerKey ? {
           ...answerKey,
           strictness: createStrictness || 'standard',
+          scoreMode: createScoringMode === 'scored' && createScoreMode ? createScoreMode : undefined,
+          fixedPerScore: (createScoreMode === 'fixed_per_question' || createScoreMode === 'fixed_both') ? createFixedPerScore : undefined,
+          fixedTotal: (createScoreMode === 'fixed_total' || createScoreMode === 'fixed_both') ? createFixedTotal : undefined,
           ...(assignmentDomain === '數學' && createFractionRule ? { fractionRule: createFractionRule } : {}),
           ...(assignmentDomain === '英語' && (createEnPunctuationCheck || createEnWordOrderCheck) ? {
             englishRules: {
@@ -2249,7 +2257,10 @@ export default function AssignmentSetup({
     setCreateEnWordOrderCheck(ak.englishRules?.wordOrderCheck?.enabled ?? false)
     setCreateEnWordOrderDeduction(ak.englishRules?.wordOrderCheck?.deductionPerError ?? 1)
     setCreateScoringMode(assignment.scoringMode === 'unscored' ? 'unscored' : 'scored')
-    setCreateScoreMode('ai_auto')  // edit mode doesn't re-apply score mode
+    setCreateScoreMode((ak.scoreMode as any) || 'ai_auto')
+    setCreateFixedPerScore(ak.fixedPerScore ?? 5)
+    setCreateFixedTotal(ak.fixedTotal ?? 100)
+    setCreateAnswerDocType(assignment.docType ?? 'worksheet')
     setAnswerKey(normalizedAk)
     setIsCreateModalOpen(true)
     // 非同步下載已存在的答案卷圖片（若有）

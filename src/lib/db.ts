@@ -145,6 +145,10 @@ export interface AnswerKey {
   questions: AnswerKeyQuestion[]
   totalScore: number
   strictness?: 'strict' | 'standard' | 'lenient'
+  // 配分設定（老師選擇的配分方式，用於還原/重新套用）
+  scoreMode?: 'ai_auto' | 'fixed_per_question' | 'fixed_total' | 'fixed_both'
+  fixedPerScore?: number  // 每題固定分（scoreMode=fixed_per_question 或 fixed_both 時）
+  fixedTotal?: number     // 固定總分（scoreMode=fixed_total 或 fixed_both 時）
   // 分數約分規則（數學領域專用）
   // require_simplified: 必須最簡分數（2/4 算錯，2/2=1 除外）
   // allow_equivalent: 接受等值分數（2/4 = 1/2 算對）
@@ -195,6 +199,7 @@ export interface Assignment {
   gradeWeightPercent?: number // 成績統計權重（百分比格式，作業+自訂欄位總和需為 100）
 
   scoringMode?: 'scored' | 'unscored' // 不計分：批改只顯示✓✗△，不納入成績統計
+  docType?: 'worksheet' | 'exam' // 作業形式：習作 / 考卷（影響答案卷排序策略）
   answerKey?: AnswerKey
   conceptTags?: Record<string, { code: string; label: string }> // 108課綱概念標記（questionId → concept）
   // Supabase Storage 路徑，answer-sheets/{id}/page-{i}.webp（各頁壓縮圖，用於 wizard 預覽）
