@@ -654,7 +654,9 @@ export function useSync(options: UseSyncOptions = {}) {
         scoreSource: rest.scoreSource,
         feedback: rest.feedback,
         gradingResult: rest.gradingResult,
-        gradedAt: rest.gradedAt,
+        // gradedAt: 已批改且有 gradingResult 的 submission 用 Date.now()
+        // 確保 push 不被 server 判 stale（pull 可能把本地 gradedAt 覆蓋成舊值）
+        gradedAt: (rest.status === 'graded' && rest.gradingResult) ? Date.now() : rest.gradedAt,
         correctionCount: rest.correctionCount,
         source: rest.source,
         // submissions.round 在後端為 NOT NULL；舊本地資料可能缺值，統一補 0
