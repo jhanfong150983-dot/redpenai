@@ -99,6 +99,11 @@ export default function AssignmentSetup({
   // const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false) // removed: advanced settings replaced by Section 3+4
   const [createStrictness, setCreateStrictness] = useState<'strict' | 'standard' | 'lenient' | ''>('')
   const [createFractionRule, setCreateFractionRule] = useState<'require_simplified' | 'allow_equivalent' | ''>('')
+  // 英語專屬規則
+  const [createEnPunctuationCheck, setCreateEnPunctuationCheck] = useState(false)
+  const [createEnPunctuationDeduction, setCreateEnPunctuationDeduction] = useState(1)
+  const [createEnWordOrderCheck, setCreateEnWordOrderCheck] = useState(false)
+  const [createEnWordOrderDeduction, setCreateEnWordOrderDeduction] = useState(1)
   type CreateScoreMode = 'ai_auto' | 'fixed_per_question' | 'fixed_total' | 'fixed_both'
   const [createScoreMode, setCreateScoreMode] = useState<CreateScoreMode | ''>('')
   const [createFixedPerScore, setCreateFixedPerScore] = useState<number>(5)
@@ -531,6 +536,10 @@ export default function AssignmentSetup({
     setAssignmentDomain('')
     setCreateStrictness('')
     setCreateFractionRule('')
+    setCreateEnPunctuationCheck(false)
+    setCreateEnPunctuationDeduction(1)
+    setCreateEnWordOrderCheck(false)
+    setCreateEnWordOrderDeduction(1)
     setCreateScoreMode('')
     setCreateFixedPerScore(5)
     setCreateFixedTotal(100)
@@ -1159,7 +1168,13 @@ export default function AssignmentSetup({
         answerKey: answerKey ? {
           ...answerKey,
           strictness: createStrictness || 'standard',
-          ...(assignmentDomain === '數學' && createFractionRule ? { fractionRule: createFractionRule } : {})
+          ...(assignmentDomain === '數學' && createFractionRule ? { fractionRule: createFractionRule } : {}),
+          ...(assignmentDomain === '英語' && (createEnPunctuationCheck || createEnWordOrderCheck) ? {
+            englishRules: {
+              ...(createEnPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: createEnPunctuationDeduction } } : {}),
+              ...(createEnWordOrderCheck ? { wordOrderCheck: { enabled: true, deductionPerError: createEnWordOrderDeduction } } : {})
+            }
+          } : {})
         } : undefined,
         conceptTags: pendingConceptTags ?? undefined
       }
@@ -3053,6 +3068,67 @@ export default function AssignmentSetup({
                               ))}
                             </div>
                             {!createFractionRule && <p className="mt-1 text-xs text-amber-600">請選擇約分規則</p>}
+                          </div>
+                        )}
+
+                        {/* 英語專屬規則 — 僅英語領域 */}
+                        {assignmentDomain === '英語' && (
+                          <div className="space-y-3">
+                            <label className="block text-sm font-medium text-slate-700">英語專屬規則</label>
+
+                            {/* 標點符號檢查 */}
+                            <div className={`rounded-xl border-2 px-4 py-3 transition-all ${createEnPunctuationCheck ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                              <label className="flex items-center justify-between cursor-pointer">
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={createEnPunctuationCheck}
+                                    onChange={(e) => setCreateEnPunctuationCheck(e.target.checked)}
+                                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                  />
+                                  <div>
+                                    <span className="text-sm font-semibold text-slate-800">標點符號檢查</span>
+                                    <p className="text-[11px] text-slate-500">句尾需 ? . / 縮寫需 &apos;</p>
+                                  </div>
+                                </div>
+                                {createEnPunctuationCheck && (
+                                  <label className="flex items-center gap-1 text-xs text-slate-600">
+                                    每錯扣
+                                    <input type="number" min={1} step={1} value={createEnPunctuationDeduction}
+                                      onChange={(e) => setCreateEnPunctuationDeduction(Math.max(1, Number(e.target.value)))}
+                                      className="w-12 rounded border border-slate-300 px-2 py-0.5 text-xs text-center" />
+                                    分
+                                  </label>
+                                )}
+                              </label>
+                            </div>
+
+                            {/* 單字順序/缺漏檢查 */}
+                            <div className={`rounded-xl border-2 px-4 py-3 transition-all ${createEnWordOrderCheck ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                              <label className="flex items-center justify-between cursor-pointer">
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type="checkbox"
+                                    checked={createEnWordOrderCheck}
+                                    onChange={(e) => setCreateEnWordOrderCheck(e.target.checked)}
+                                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                  />
+                                  <div>
+                                    <span className="text-sm font-semibold text-slate-800">單字順序 / 缺漏檢查</span>
+                                    <p className="text-[11px] text-slate-500">單字位置錯誤或缺少單字</p>
+                                  </div>
+                                </div>
+                                {createEnWordOrderCheck && (
+                                  <label className="flex items-center gap-1 text-xs text-slate-600">
+                                    每錯扣
+                                    <input type="number" min={1} step={1} value={createEnWordOrderDeduction}
+                                      onChange={(e) => setCreateEnWordOrderDeduction(Math.max(1, Number(e.target.value)))}
+                                      className="w-12 rounded border border-slate-300 px-2 py-0.5 text-xs text-center" />
+                                    分
+                                  </label>
+                                )}
+                              </label>
+                            </div>
                           </div>
                         )}
                       </div>

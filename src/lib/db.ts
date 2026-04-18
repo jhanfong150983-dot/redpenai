@@ -148,6 +148,13 @@ export interface AnswerKey {
   // require_simplified: 必須最簡分數（2/4 算錯，2/2=1 除外）
   // allow_equivalent: 接受等值分數（2/4 = 1/2 算對）
   fractionRule?: 'require_simplified' | 'allow_equivalent'
+  // 英語領域專用批改規則
+  englishRules?: {
+    // 標點符號檢查：句尾需 ? . / 縮寫需 '
+    punctuationCheck?: { enabled: boolean; deductionPerError: number }
+    // 單字順序/缺漏檢查：單字位置錯誤或缺少單字
+    wordOrderCheck?: { enabled: boolean; deductionPerError: number }
+  }
 }
 
 /**
