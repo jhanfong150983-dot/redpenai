@@ -586,9 +586,9 @@ export default function AssignmentSetup({
     if (assignmentDomain === '數學' && !createFractionRule) {
       missing.push('分數約分規則')
     }
-    // Section 4: 計分方式
+    // 計分設定（在 Section 2 匯入答案裡）
     if (!createScoringMode) {
-      missing.push('計分方式')
+      missing.push('計分設定')
     }
 
     return missing
@@ -860,7 +860,11 @@ export default function AssignmentSetup({
   }
 
   const applyCreateScoreMode = (key: AnswerKey): { answerKey: AnswerKey; scoreNotice: string | null } => {
-    const questions = [...(key.questions ?? [])]
+    // 先快照 AI 原始配分（只在第一次設定時保存，後續不覆蓋）
+    const questions = (key.questions ?? []).map((q) => ({
+      ...q,
+      aiMaxScore: q.aiMaxScore ?? q.maxScore  // 保留 AI 原始分數
+    }))
     if (questions.length === 0) return { answerKey: key, scoreNotice: null }
 
     if (createScoreMode === 'fixed_per_question' && createFixedPerScore > 0) {
@@ -956,6 +960,7 @@ export default function AssignmentSetup({
               ...(q.tablePosition.rowspan > 1 ? { rowspan: q.tablePosition.rowspan } : {}),
             }
           : undefined,
+        aiMaxScore: typeof q?.aiMaxScore === 'number' ? q.aiMaxScore : undefined,
       }
 
       // Add type-specific fields
@@ -2994,6 +2999,89 @@ export default function AssignmentSetup({
                   </div>
                 </div>
 
+              {/* 計分設定 */}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">計分設定</label>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => { setCreateScoringMode('unscored'); setCreateScoreMode('') }}
+                    className={`flex-1 rounded-xl border-2 px-4 py-2.5 text-center text-sm font-semibold transition-all ${
+                      createScoringMode === 'unscored'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    不計分
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { if (createScoringMode !== 'scored') { setCreateScoringMode('scored'); setCreateScoreMode('ai_auto') } }}
+                    className={`flex-1 rounded-xl border-2 px-4 py-2.5 text-center text-sm font-semibold transition-all ${
+                      createScoringMode === 'scored'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                    }`}
+                  >
+                    計分
+                  </button>
+                </div>
+                {!createScoringMode && <p className="text-xs text-amber-600">請選擇計分設定</p>}
+                {createScoringMode === 'unscored' && (
+                  <p className="text-xs text-slate-400">批改結果只顯示 ✓ / ✗ / △，不納入成績統計</p>
+                )}
+                {createScoringMode === 'scored' && (
+                  <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <label className="block text-xs font-medium text-slate-600">配分方式</label>
+                    <div className="flex flex-wrap rounded-lg border border-slate-200 overflow-hidden text-xs bg-white">
+                      {(['ai_auto', 'fixed_per_question', 'fixed_total', 'fixed_both'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => {
+                            if (createScoreMode && createScoreMode !== mode && answerKey) {
+                              if (!confirm('更換配分方式會覆蓋目前所有題目的配分，確定嗎？')) return
+                            }
+                            setCreateScoreMode(mode)
+                          }}
+                          className={`px-3 py-1.5 transition-colors ${
+                            createScoreMode === mode
+                              ? 'bg-emerald-600 text-white font-medium'
+                              : 'bg-white text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          {createScoreModeLabels[mode]}
+                        </button>
+                      ))}
+                    </div>
+                    {createScoreMode === 'ai_auto' && (
+                      <p className="text-xs text-slate-400">AI 依題型比例配分，加總為 100 分</p>
+                    )}
+                    {(createScoreMode === 'fixed_per_question' || createScoreMode === 'fixed_both') && (
+                      <label className="flex items-center gap-2 text-xs text-slate-600">
+                        每題
+                        <input type="number" min={1} step={1} value={createFixedPerScore}
+                          onChange={(e) => setCreateFixedPerScore(Number(e.target.value))}
+                          className="w-16 rounded border border-slate-300 px-2 py-0.5 text-xs text-center" />
+                        分
+                        {createScoreMode === 'fixed_per_question' && answerKey && (
+                          <span className="text-slate-400">（共 {answerKey.questions?.length ?? 0} 題，總分 {createFixedPerScore * (answerKey.questions?.length ?? 0)} 分）</span>
+                        )}
+                      </label>
+                    )}
+                    {(createScoreMode === 'fixed_total' || createScoreMode === 'fixed_both') && (
+                      <label className="flex items-center gap-2 text-xs text-slate-600">
+                        {createScoreMode === 'fixed_both' ? '另設' : ''}總分
+                        <input type="number" min={1} step={1} value={createFixedTotal}
+                          onChange={(e) => setCreateFixedTotal(Number(e.target.value))}
+                          className="w-16 rounded border border-slate-300 px-2 py-0.5 text-xs text-center" />
+                        分
+                      </label>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-end">
                 <button
                   type="button"
@@ -3082,7 +3170,7 @@ export default function AssignmentSetup({
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">3</span>
                       </div>
                       <div className="space-y-5">
-                        {/* 問答題嚴謹度 — 所有領域 */}
+                        {/* 問答題嚴謹度 — all domains */}
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-2">問答題嚴謹度</label>
                           <div className="grid grid-cols-3 gap-2">
@@ -3189,74 +3277,6 @@ export default function AssignmentSetup({
                               </label>
                             </div>
                           </div>
-                        )}
-                      </div>
-                    </section>
-
-                    {/* ═══════════════ Section 4: 計分方式 ═══════════════ */}
-                    <section className={`mt-4 rounded-2xl border p-4 shadow-sm sm:p-5 transition-opacity ${answerKey ? 'border-slate-200 bg-white opacity-100' : 'border-slate-100 bg-slate-50 opacity-50 pointer-events-none'}`}>
-                      <div className="mb-4 flex items-center justify-between">
-                        <div>
-                          <h3 className="text-base font-semibold text-slate-900">計分方式</h3>
-                          <p className="text-xs text-slate-500">選擇配分模式</p>
-                        </div>
-                        <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">4</span>
-                      </div>
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap rounded-lg border border-slate-200 overflow-hidden text-xs bg-white">
-                          <button
-                            type="button"
-                            onClick={() => { setCreateScoringMode('unscored'); setCreateScoreMode('') }}
-                            className={`px-3 py-2 transition-colors ${
-                              createScoringMode === 'unscored'
-                                ? 'bg-emerald-600 text-white font-medium'
-                                : 'bg-white text-slate-600 hover:bg-slate-50'
-                            }`}
-                          >
-                            不計分數
-                          </button>
-                          {(['ai_auto', 'fixed_per_question', 'fixed_total', 'fixed_both'] as const).map((mode) => (
-                            <button
-                              key={mode}
-                              type="button"
-                              onClick={() => { setCreateScoringMode('scored'); setCreateScoreMode(mode) }}
-                              className={`px-3 py-2 transition-colors ${
-                                createScoringMode === 'scored' && createScoreMode === mode
-                                  ? 'bg-emerald-600 text-white font-medium'
-                                  : 'bg-white text-slate-600 hover:bg-slate-50'
-                              }`}
-                            >
-                              {createScoreModeLabels[mode]}
-                            </button>
-                          ))}
-                        </div>
-                        {!createScoringMode && <p className="text-xs text-amber-600">請選擇計分方式</p>}
-                        {createScoringMode === 'unscored' && (
-                          <span className="text-xs text-slate-400">批改結果只顯示 ✓ / ✗ / △，不納入成績統計</span>
-                        )}
-                        {createScoringMode === 'scored' && createScoreMode === 'ai_auto' && (
-                          <span className="text-xs text-slate-400">AI 依題型比例配分，加總為 100 分</span>
-                        )}
-                        {createScoringMode === 'scored' && (createScoreMode === 'fixed_per_question' || createScoreMode === 'fixed_both') && (
-                          <label className="flex items-center gap-2 text-xs text-slate-600">
-                            每題
-                            <input type="number" min={1} step={1} value={createFixedPerScore}
-                              onChange={(e) => setCreateFixedPerScore(Number(e.target.value))}
-                              className="w-16 rounded border border-slate-300 px-2 py-0.5 text-xs text-center" />
-                            分
-                            {createScoreMode === 'fixed_per_question' && answerKey && (
-                              <span className="text-slate-400">（共 {answerKey.questions?.length ?? 0} 題，總分 {createFixedPerScore * (answerKey.questions?.length ?? 0)} 分）</span>
-                            )}
-                          </label>
-                        )}
-                        {createScoringMode === 'scored' && (createScoreMode === 'fixed_total' || createScoreMode === 'fixed_both') && (
-                          <label className="flex items-center gap-2 text-xs text-slate-600">
-                            {createScoreMode === 'fixed_both' ? '另設' : ''}總分
-                            <input type="number" min={1} step={1} value={createFixedTotal}
-                              onChange={(e) => setCreateFixedTotal(Number(e.target.value))}
-                              className="w-16 rounded border border-slate-300 px-2 py-0.5 text-xs text-center" />
-                            分
-                          </label>
                         )}
                       </div>
                     </section>

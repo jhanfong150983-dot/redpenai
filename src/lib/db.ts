@@ -97,6 +97,7 @@ export interface AnswerKeyQuestion {
   rubricsDimensions?: RubricDimension[] // 多維度評分（有標準答案+思考過程）
 
   maxScore: number
+  aiMaxScore?: number // AI 原始配分（永遠不動，供老師還原用）
 
   // 答案卷上此題的參考位置（歸一化 [0,1] bbox）
   // 用於 Reference-guided Classify：提示 AI 學生答案大約在哪個位置
