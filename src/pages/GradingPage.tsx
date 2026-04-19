@@ -1366,6 +1366,90 @@ export default function GradingPage({
 
     requestSync()
 
+    // ── Phase B 品質檢查：偵測 accessor 回應不完整 ──
+    // 如果一個學生有 3 題以上 confidence≤70 + score=0 + reason='需人工複核'，
+    // 代表 accessor 回應不完整，自動重跑 Phase B
+    const phaseBRetryEntries: BatchPhaseAEntry[] = []
+    const submissionsMap = new Map<string, Submission>()
+    setSubmissions((prev) => { prev.forEach((s) => submissionsMap.set(s.id, s)); return prev })
+
+    for (const entry of entries) {
+      const sub = Array.from(submissionsMap.values()).find((s) => s.id === entry.submissionId)
+      const gr = sub?.gradingResult
+      if (!gr?.details) continue
+      const incompleteCount = gr.details.filter((d: any) =>
+        d.score === 0 && d.confidence <= 70 && (!d.reason || d.reason === '需人工複核')
+      ).length
+      if (incompleteCount >= 3) {
+        phaseBRetryEntries.push(entry)
+      }
+    }
+
+    if (phaseBRetryEntries.length > 0 && !stopRequestedRef.current) {
+      console.log(`[PhaseB-QC] ${phaseBRetryEntries.length} submissions need retry (accessor incomplete)`)
+      setGradingMessage(`品質檢查：重新批改 ${phaseBRetryEntries.length} 份（accessor 回應不完整）...`)
+      let retrySuccess = 0
+      for (const entry of phaseBRetryEntries) {
+        try {
+          const finalAnswers: FinalAnswer[] = entry.phaseAResult.questionResults.map((qr) => {
+            const decision = entry.decisions.get(qr.questionId)
+            const src = decision?.source ?? 'ai_read1'
+            return {
+              questionId: qr.questionId,
+              finalStudentAnswer: src === 'unrecognizable' ? '無法辨識' : src === 'blank' ? '' : (decision?.finalAnswer ?? qr.readAnswer1.studentAnswer),
+              finalAnswerSource: src === 'blank' ? 'manual' : src,
+            }
+          })
+          const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain)
+          const totalScore = typeof gradingResult.totalScore === 'number' ? gradingResult.totalScore : 0
+          await db.submissions.update(entry.submissionId, {
+            status: 'graded', score: totalScore, aiScore: totalScore, scoreSource: 'ai',
+            gradingResult, gradedAt: Date.now(), updatedAt: Date.now(),
+          })
+          setSubmissions((prev) => {
+            const next = new Map(prev)
+            const sub = Array.from(prev.values()).find((s) => s.id === entry.submissionId)
+            if (sub) next.set(sub.studentId, { ...sub, status: 'graded', score: totalScore, gradingResult })
+            return next
+          })
+          retrySuccess++
+        } catch (err) {
+          console.warn(`[PhaseB-QC] retry failed for ${entry.submissionId}:`, err)
+        }
+      }
+      console.log(`[PhaseB-QC] retry complete: ${retrySuccess}/${phaseBRetryEntries.length} succeeded`)
+      requestSync()
+
+      // 重跑後再次檢查，仍有問題的顯示警告
+      const stillFailing: Array<{ submissionId: string; studentLabel: string; incompleteCount: number }> = []
+      for (const entry of phaseBRetryEntries) {
+        const sub = Array.from(submissionsMap.values()).find((s) => s.id === entry.submissionId)
+        const gr = sub?.gradingResult
+        if (!gr?.details) continue
+        const incompleteCount = gr.details.filter((d: any) =>
+          d.score === 0 && d.confidence <= 70 && (!d.reason || d.reason === '需人工複核')
+        ).length
+        if (incompleteCount >= 3) {
+          const student = students.find((s) => s.id === entry.studentId)
+          stillFailing.push({
+            submissionId: entry.submissionId,
+            studentLabel: student ? `${student.seatNumber}號 ${student.name}` : entry.studentId,
+            incompleteCount
+          })
+        }
+      }
+      if (stillFailing.length > 0) {
+        setPostRetryWarnings((prev) => [
+          ...prev,
+          ...stillFailing.map((f) => ({
+            submissionId: f.submissionId,
+            studentLabel: f.studentLabel,
+            unreadCount: f.incompleteCount
+          }))
+        ])
+      }
+    }
+
     // 同步等待作業報告生成
     if (successCount > 0 && !stopRequestedRef.current) {
       setGradingPhase('report_running')
