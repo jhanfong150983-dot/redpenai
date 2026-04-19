@@ -1,7 +1,4 @@
 import type { DomainDiagnosis, DomainPlan } from '../types'
-import DomainOverviewSection from './DomainOverviewSection'
-import DomainRiskSection from './DomainRiskSection'
-import TeachingActionsSection from './TeachingActionsSection'
 import AbilitySection from './AbilitySection'
 
 type DomainDiagnosisCard = {
@@ -25,7 +22,7 @@ export default function DomainDiagnosisView({
 
   return (
     <section className="domain-diagnosis">
-      {cards.map(({ plan, diagnosis, loading }) => (
+      {cards.map(({ plan, diagnosis }) => (
         <article key={plan.domainName} className="domain-card">
           <header className="domain-card__header">
             <div>
@@ -40,17 +37,6 @@ export default function DomainDiagnosisView({
             </span>
           </header>
 
-          {loading && (
-            <div className="summary-loading">正在生成領域診斷摘要...</div>
-          )}
-
-          <DomainOverviewSection overview={diagnosis?.overview ?? '摘要生成中'} />
-          <DomainRiskSection
-            topTags={plan.topTags}
-            trendSummary={diagnosis?.trendSummary ?? '摘要生成中'}
-            mustAddCaveat={plan.mustAddCaveat}
-          />
-          <TeachingActionsSection actions={diagnosis?.teachingActions ?? []} />
           <AbilitySection insight={diagnosis?.abilityInsight} />
         </article>
       ))}
