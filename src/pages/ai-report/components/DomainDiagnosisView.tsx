@@ -12,6 +12,12 @@ type DomainDiagnosisViewProps = {
   emptyState?: string
 }
 
+const RISK_LABELS: Record<string, string> = {
+  HIGH: '需優先關注',
+  MED: '留意觀察',
+  LOW: '表現穩定'
+}
+
 export default function DomainDiagnosisView({
   cards,
   emptyState
@@ -22,24 +28,27 @@ export default function DomainDiagnosisView({
 
   return (
     <section className="domain-diagnosis">
-      {cards.map(({ plan, diagnosis }) => (
-        <article key={plan.domainName} className="domain-card">
-          <header className="domain-card__header">
-            <div>
-              <h3>{plan.domainName}</h3>
-              <p className="subtitle">
-                作業 {plan.windowInfo.assignmentCount} 份 · 樣本{' '}
-                {plan.windowInfo.sampleCountTotal} · 風險 {plan.riskLevel}
-              </p>
-            </div>
-            <span className={`pill ${plan.riskLevel === 'HIGH' ? 'warn' : 'info'}`}>
-              {plan.riskLevel}
-            </span>
-          </header>
+      {cards.map(({ plan, diagnosis }) => {
+        const riskLabel = RISK_LABELS[plan.riskLevel] ?? plan.riskLevel
+        return (
+          <article key={plan.domainName} className="domain-card">
+            <header className="domain-card__header">
+              <div>
+                <h3>{plan.domainName}</h3>
+                <p className="subtitle">
+                  作業 {plan.windowInfo.assignmentCount} 份 · 樣本{' '}
+                  {plan.windowInfo.sampleCountTotal} · {riskLabel}
+                </p>
+              </div>
+              <span className={`pill ${plan.riskLevel === 'HIGH' ? 'warn' : 'info'}`}>
+                {riskLabel}
+              </span>
+            </header>
 
-          <AbilitySection insight={diagnosis?.abilityInsight} />
-        </article>
-      ))}
+            <AbilitySection insight={diagnosis?.abilityInsight} />
+          </article>
+        )
+      })}
     </section>
   )
 }
