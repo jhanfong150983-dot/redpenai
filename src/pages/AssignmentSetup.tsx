@@ -1372,7 +1372,8 @@ export default function AssignmentSetup({
     if (currentBatch.length > 0) batches.push(currentBatch)
 
     const batchConceptMap = await fetchConceptMapForCurrentClassroom()
-    let mergedAnswerKey: AnswerKey | null = answerKey ? normalizeAnswerKey(answerKey) : null
+    // 每次重新上傳都覆蓋（不接續舊答案），多頁批次之間仍會合併
+    let mergedAnswerKey: AnswerKey | null = null
     let duplicateNotice: string | null = null
 
     // 預先計算每個 batch 的 startPage（送出前就固定，與執行順序無關）
@@ -3539,7 +3540,7 @@ export default function AssignmentSetup({
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  系統會自動壓縮後交給 AI。可多次上傳，題目會合併；重複題號會自動加上後綴。
+                  系統會自動壓縮後交給 AI。可一次選取多個檔案，重新上傳會覆蓋先前的解析結果。
                 </p>
                 <p className="text-xs text-amber-600 mt-1">
                   💡 若要使用「重新分析」功能，請先上傳答案卷並點擊「AI 解析」
