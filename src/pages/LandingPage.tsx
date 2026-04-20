@@ -63,9 +63,9 @@ export default function LandingPage() {
             {/* 左：文字 */}
             <div className="animate-fade-in-up">
               <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 tracking-tight leading-tight">
-                你教書的時間
+                批改更有品質
                 <br />
-                <span className="text-gray-400">不應該花在對答案上</span>
+                <span className="text-gray-400">時間更有價值</span>
               </h1>
               <p className="mt-8 text-xl text-gray-500 leading-relaxed">
                 RedPen AI 自動批改、追蹤訂正、產出學情報告<br />——你只需要確認和教學。
