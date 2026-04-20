@@ -114,6 +114,8 @@ export interface AnswerKeyQuestion {
 
   // 後端 Sharp 裁切的答案區截圖（base64 data URL），由 answer_key.extract 後處理產生
   cropImageUrl?: string
+  // Supabase Storage 路徑（answer-crops/{assignmentId}/{questionId}.jpg），持久化版本
+  cropImagePath?: string
 
   needsReanalysis?: boolean // 教師修改題型後標記為true，需要重新分析
 

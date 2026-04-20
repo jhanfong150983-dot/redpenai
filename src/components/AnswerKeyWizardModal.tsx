@@ -579,10 +579,10 @@ export default function AnswerKeyWizardModal({
                   <>
                     {/* Image preview */}
                     <div className="shrink-0 border-b border-gray-100 p-3 bg-gray-50">
-                      {/* Cropped preview: backend Sharp crop (AI) or canvas crop (after manual draw) */}
-                      {(manualCropUrl || selectedQuestion.cropImageUrl) && !isDrawingBbox ? (
+                      {/* Cropped preview: backend Sharp crop (AI) or canvas crop (after manual draw) or Storage path */}
+                      {(manualCropUrl || selectedQuestion.cropImageUrl || selectedQuestion.cropImagePath) && !isDrawingBbox ? (
                         <div className="rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center h-40">
-                          <img src={manualCropUrl ?? selectedQuestion.cropImageUrl!} alt="答案區截圖" className="max-w-full max-h-full object-contain pointer-events-none" draggable={false} />
+                          <img src={manualCropUrl ?? selectedQuestion.cropImageUrl ?? `/api/storage/download?assignmentId=${encodeURIComponent(selectedQuestion.cropImagePath!.split('/')[1])}&cropPath=${encodeURIComponent(selectedQuestion.cropImagePath!)}`} alt="答案區截圖" className="max-w-full max-h-full object-contain pointer-events-none" draggable={false} />
                         </div>
                       ) : (
                         /* Full image with drawing overlay */

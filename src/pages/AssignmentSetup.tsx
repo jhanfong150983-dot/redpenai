@@ -954,6 +954,7 @@ export default function AssignmentSetup({
         answerBbox: q?.answerBbox,
         pageIndex: typeof q?.pageIndex === 'number' ? q.pageIndex : undefined,
         cropImageUrl: typeof q?.cropImageUrl === 'string' && q.cropImageUrl ? q.cropImageUrl : undefined,
+        cropImagePath: typeof q?.cropImagePath === 'string' && q.cropImagePath ? q.cropImagePath : undefined,
         concept_code: typeof q?.concept_code === 'string' && q.concept_code ? q.concept_code : undefined,
         concept_label: typeof q?.concept_label === 'string' && q.concept_label ? q.concept_label : undefined,
         anchorHint: typeof q?.anchorHint === 'string' && q.anchorHint ? q.anchorHint : undefined,
@@ -1261,9 +1262,12 @@ export default function AssignmentSetup({
       setAssignments((prev) => [assignment, ...prev])
       setAssignmentOrder((prev) => [assignment.id, ...prev.filter((id) => id !== assignment.id)])
       requestSync()
-      // 非同步上傳答案卷圖片（不阻塞建立流程）
+      // 非同步上傳答案卷圖片和答案截圖（不阻塞建立流程）
       if (answerSheetImages.length > 0) {
         uploadAnswerSheetImages(assignment.id, answerSheetImages)
+      }
+      if (assignment.answerKey) {
+        uploadAnswerCrops(assignment.id, assignment.answerKey)
       }
       resetForm()
       setIsCreateModalOpen(false)
@@ -1469,6 +1473,42 @@ export default function AssignmentSetup({
       ))
     } catch (err) {
       console.warn('⚠️ 答案卷圖片上傳例外', err)
+    }
+  }
+
+  // 上傳 answerKey 每題的 cropImageUrl (base64) 到 Supabase Storage，並回寫 cropImagePath
+  const uploadAnswerCrops = async (assignmentId: string, ak: AnswerKey) => {
+    const questionsWithCrop = (ak.questions || []).filter(q => q.cropImageUrl)
+    if (questionsWithCrop.length === 0) return
+    try {
+      const crops = questionsWithCrop.map(q => ({
+        questionId: q.id,
+        imageBase64: q.cropImageUrl!
+      }))
+      const res = await fetch('/api/storage/download', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'upload_crops', assignmentId, crops }),
+      })
+      if (!res.ok) {
+        console.warn('⚠️ 答案截圖上傳失敗', await res.text())
+        return
+      }
+      const { paths } = await res.json() as { paths: Record<string, string> }
+      if (!paths || Object.keys(paths).length === 0) return
+      // 回寫 cropImagePath 到 answerKey
+      const updatedQuestions = ak.questions.map(q => {
+        const p = paths[q.id]
+        return p ? { ...q, cropImagePath: p } : q
+      })
+      await db.assignments.update(assignmentId, {
+        answerKey: { ...ak, questions: updatedQuestions },
+        updatedAt: Date.now()
+      })
+      console.log(`✅ 答案截圖已上傳 ${Object.keys(paths).length}/${questionsWithCrop.length} 題`)
+    } catch (err) {
+      console.warn('⚠️ 答案截圖上傳例外', err)
     }
   }
 
@@ -2479,6 +2519,10 @@ export default function AssignmentSetup({
       })
       console.log(`🔄 [答案解析] 觸發同步...`)
       requestSync()
+      // 非同步上傳答案截圖（不阻塞儲存流程）
+      if (editingAnswerKey) {
+        uploadAnswerCrops(editingAnswerAssignment.id, editingAnswerKey)
+      }
       closeAnswerKeyModal()
     } catch (err) {
       console.error('儲存標準答案失敗', err)
