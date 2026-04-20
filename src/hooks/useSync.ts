@@ -1406,10 +1406,10 @@ export function useSync(options: UseSyncOptions = {}) {
       await db.submissions.bulkPut(safeSubmissions)
     } catch (err) {
       if (isQuotaError(err)) {
-        console.warn('⚠️ IndexedDB 儲存空間不足，略過圖片快取後重試寫入 submissions')
+        console.warn('⚠️ IndexedDB 儲存空間不足，略過圖片快取後重試寫入 submissions（保留 gradingResult）')
         const stripped = safeSubmissions.map(
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          ({ imageBlob, imageBase64, thumbnailBlob, thumbnailBase64, gradingResult, ...rest }) => rest as Submission
+          ({ imageBlob, imageBase64, thumbnailBlob, thumbnailBase64, ...rest }) => rest as Submission
         )
         try {
           await db.submissions.bulkPut(stripped)
