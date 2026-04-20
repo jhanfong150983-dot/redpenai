@@ -17,10 +17,14 @@ export interface SubmissionThumbnailData {
   thumbnailUrl?: string
 }
 
+// Cache: submissionId → fetched ObjectURL (avoid re-fetching on every render)
+const fetchedUrlCache = new Map<string, string>()
+
 export default function SubmissionThumbnail({ submission }: {
   submission?: SubmissionThumbnailData | null
 }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [fetchedUrl, setFetchedUrl] = useState<string | null>(null)
 
   // Determine the blob to use (thumbnail preferred, fall back to full image)
   const activeBlob = submission?.thumbnailBlob && submission.thumbnailBlob.size > 0
@@ -48,8 +52,44 @@ export default function SubmissionThumbnail({ submission }: {
     return () => { URL.revokeObjectURL(url) }
   }, [activeBlob])
 
+  // Fallback: fetch thumbnail from Storage API when no local data available
+  const subId = submission?.id
+  const storagePath = submission?.thumbUrl || submission?.thumbnailUrl || submission?.imageUrl || null
+  const needsFetch = !base64Url && !activeBlob && !!subId && !!storagePath
+
+  useEffect(() => {
+    if (!needsFetch || !subId) return
+
+    // Check cache first
+    const cached = fetchedUrlCache.get(subId)
+    if (cached) {
+      setFetchedUrl(cached)
+      return
+    }
+
+    let cancelled = false
+    const fetchThumb = async () => {
+      try {
+        const res = await fetch(
+          `/api/storage/download?submissionId=${encodeURIComponent(subId)}&thumbnail=1`,
+          { credentials: 'include' }
+        )
+        if (!res.ok || cancelled) return
+        const blob = await res.blob()
+        if (cancelled || blob.size === 0) return
+        const url = URL.createObjectURL(blob)
+        fetchedUrlCache.set(subId, url)
+        setFetchedUrl(url)
+      } catch {
+        // Silent fail — placeholder icon will show
+      }
+    }
+    fetchThumb()
+    return () => { cancelled = true }
+  }, [needsFetch, subId])
+
   const isSynced = submission?.status === 'synced'
-  const imageUrl = base64Url ?? blobUrl ?? submission?.thumbnailUrl ?? submission?.thumbUrl ?? submission?.imageUrl ?? null
+  const imageUrl = base64Url ?? blobUrl ?? fetchedUrl ?? null
 
   return (
     <>
