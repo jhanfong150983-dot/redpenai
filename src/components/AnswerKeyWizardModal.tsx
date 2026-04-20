@@ -640,15 +640,21 @@ export default function AnswerKeyWizardModal({
                       <div className="flex items-center gap-2">
                         <div className="flex flex-col gap-1">
                           <span className="text-gray-500">題號</span>
-                          <input className="w-20 px-2 py-1 border border-gray-300 rounded" value={selectedQuestion.id ?? ''} onChange={(e) => updateField(selectedIdx, 'id', e.target.value)} />
+                          <span className="w-20 px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-600 select-all">{selectedQuestion.id ?? ''}</span>
                         </div>
                         <div className="flex-1 flex flex-col gap-1">
                           <span className="text-gray-500">題型</span>
-                          <select className="w-full px-2 py-1 border border-gray-300 rounded bg-white" value={selectedCategory} onChange={(e) => updateField(selectedIdx, 'questionCategory', e.target.value as QuestionCategory)}>
+                          <select
+                            className={`w-full px-2 py-1 border border-gray-300 rounded ${hasGradedSubmissions ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'bg-white'}`}
+                            value={selectedCategory}
+                            disabled={hasGradedSubmissions}
+                            onChange={(e) => updateField(selectedIdx, 'questionCategory', e.target.value as QuestionCategory)}
+                          >
                             {(Object.entries(CATEGORY_LABELS) as [QuestionCategory, string][]).map(([cat, label]) => (
                               <option key={cat} value={cat}>{label}</option>
                             ))}
                           </select>
+                          {hasGradedSubmissions && <span className="text-[10px] text-amber-600">已有批改，無法更改題型</span>}
                         </div>
                         {scoringMode !== 'unscored' && (
                           <div className="flex flex-col gap-1">
