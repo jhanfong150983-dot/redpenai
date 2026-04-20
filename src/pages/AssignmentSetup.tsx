@@ -110,7 +110,14 @@ export default function AssignmentSetup({
   const [createFixedTotal, setCreateFixedTotal] = useState<number>(100)
   const [createScoringMode, setCreateScoringMode] = useState<'scored' | 'unscored' | ''>('')
 
-  const domainOptions = ['國語', '數學', '社會', '自然', '英語', '其他']
+  const domainOptions = [
+    { value: '國語', label: '國語（測試中）' },
+    { value: '數學', label: '數學' },
+    { value: '社會', label: '社會' },
+    { value: '自然', label: '自然' },
+    { value: '英語', label: '英語' },
+    { value: '其他', label: '其他' }
+  ]
   const createStrictnessLabels: Record<string, string> = {
     strict: '嚴格',
     standard: '標準',
@@ -3002,7 +3009,7 @@ export default function AssignmentSetup({
                     >
                       <option value="">請選擇</option>
                       {domainOptions.map((d) => (
-                        <option key={d} value={d}>{d}</option>
+                        <option key={d.value} value={d.value}>{d.label}</option>
                       ))}
                     </select>
                     {modalMode === 'edit' && <p className="mt-1 text-xs text-slate-400">領域在建立後無法更改</p>}
@@ -3404,8 +3411,8 @@ export default function AssignmentSetup({
                 >
                   <option value="">請選擇</option>
                   {domainOptions.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
+                    <option key={d.value} value={d.value}>
+                      {d.label}
                     </option>
                   ))}
                 </select>
