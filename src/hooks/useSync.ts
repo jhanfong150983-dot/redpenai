@@ -943,10 +943,15 @@ export function useSync(options: UseSyncOptions = {}) {
 
         // 本地批改較新時，保留本地的 score/gradingResult（避免 pull 覆蓋新批改結果）
         const localIsNewerGrade = typeof localGradedAt === 'number' && typeof serverGradedAt === 'number' && localGradedAt > serverGradedAt
+        // Server 回傳的欄位可能是 snake_case (grading_result) 或 camelCase (gradingResult)
+        const serverGradingResult =
+          (sub as Submission & { gradingResult?: unknown }).gradingResult ??
+          (sub as { grading_result?: unknown }).grading_result ??
+          undefined
         const mergedScore = localIsNewerGrade ? (localImageData?.gradingResult?.totalScore ?? sub.score) : sub.score
         const mergedGradingResult = localIsNewerGrade
-          ? (localImageData?.gradingResult ?? sub.gradingResult)
-          : (localImageData?.gradingResult ?? sub.gradingResult)
+          ? (localImageData?.gradingResult ?? serverGradingResult)
+          : (localImageData?.gradingResult ?? serverGradingResult)
 
         return {
           id: sub.id,
