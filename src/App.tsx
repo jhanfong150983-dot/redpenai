@@ -308,7 +308,10 @@ function App() {
     }
   }, [])
 
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
+
   const handleLogout = useCallback(async () => {
+    setIsLoggingOut(true)
     try {
       await fetch('/api/auth/logout', {
         method: 'POST',
@@ -1245,10 +1248,11 @@ function App() {
                 </button>
                 <button
                   type="button"
+                  disabled={isLoggingOut}
                   onClick={handleLogout}
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-50 active:scale-95 disabled:opacity-70 disabled:cursor-wait"
                 >
-                  重新登入
+                  {isLoggingOut ? '登出中...' : '重新登入'}
                 </button>
               </div>
             </>
@@ -1656,10 +1660,11 @@ function App() {
                       )}
                       <button
                         type="button"
+                        disabled={isLoggingOut}
                         onClick={handleLogout}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition-colors hover:border-red-300 hover:text-red-600"
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition-all duration-200 hover:border-red-300 hover:text-red-600 active:scale-95 disabled:opacity-70 disabled:cursor-wait"
                       >
-                        登出
+                        {isLoggingOut ? '登出中...' : '登出'}
                       </button>
                     </div>
                   </div>
