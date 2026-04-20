@@ -658,8 +658,14 @@ function ConsistencyQuestionCard({
   }
 
   // 切換到人工輸入時，以讀取1為預填基底（方便修改）
+  // 計算題/應用題只預填最終答案，避免老師看到一大串算式
   const switchToManual = () => {
-    const prefill = manualInput || readAnswer1.studentAnswer || ''
+    let prefill = manualInput || ''
+    if (!prefill && readAnswer1.studentAnswer) {
+      prefill = isCalcType
+        ? (extractFinalAnswer(readAnswer1.studentAnswer) ?? readAnswer1.studentAnswer)
+        : readAnswer1.studentAnswer
+    }
     setManualInput(prefill)
     onDecision(questionId, {
       source: 'manual',
@@ -883,7 +889,7 @@ function ConsistencyQuestionCard({
               rows={2}
               value={manualInput}
               disabled={disabled}
-              placeholder="輸入答案..."
+              placeholder={isCalcType ? '輸入最終答案（不需要寫算式）' : '輸入答案...'}
               className="mt-1.5 w-full rounded-lg border border-blue-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50 resize-y"
               autoFocus
               onChange={(e) => {
