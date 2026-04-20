@@ -620,7 +620,14 @@ export function useSync(options: UseSyncOptions = {}) {
           typeof a.gradeWeightPercent === 'number' && Number.isFinite(a.gradeWeightPercent)
             ? a.gradeWeightPercent
             : null,
-        answerKey: a.answerKey,
+        answerKey: a.answerKey ? {
+          ...a.answerKey,
+          questions: a.answerKey.questions?.map(q => {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { cropImageUrl, ...rest } = q
+            return rest
+          })
+        } : undefined,
         conceptTags: a.conceptTags,
         updatedAt: a.updatedAt
       }))
