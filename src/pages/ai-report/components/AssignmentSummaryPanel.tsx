@@ -7,6 +7,7 @@ type StudentSummary = {
 }
 
 type ErrorGroup = {
+  question_id?: string
   error_pattern: string
   student_names: string[]
   count: number
@@ -188,6 +189,11 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry }: Assig
                 flexDirection: 'column',
                 gap: '0.5rem'
               }}>
+                {group.question_id && (
+                  <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6366f1', marginBottom: '-0.25rem' }}>
+                    第 {group.question_id} 題
+                  </div>
+                )}
                 <div style={{ fontSize: '0.825rem', fontWeight: 600, color: '#1f2937', lineHeight: 1.4 }}>
                   {group.error_pattern}
                 </div>
