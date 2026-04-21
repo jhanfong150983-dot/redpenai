@@ -1472,18 +1472,25 @@ export default function GradingPage({
       }
     }
 
+    // 合併品質檢查失敗到結果摘要
+    const qualityFails = postRetryWarnings
+    const qualityFailReasons = qualityFails.map((f) => `${f.studentLabel}：${f.unreadCount} 題無法讀取，建議重新批改`)
+    const qualityFailedEntries = qualityFails.map((f) => batchPhaseAEntries.find((e) => e.submissionId === f.submissionId)).filter(Boolean) as BatchPhaseAEntry[]
+    const totalEntries = entries.length + qualityFails.length
+
     setBatchPhaseAEntries([])
     setGradingPhase('idle')
     setIsGrading(false)
     setCurrentGradingStudent('')
     setSelectedSubmissionIds(new Set())
+    setPostRetryWarnings([])
     setGradeResultNotice({
       stopped: stopRequestedRef.current,
       successCount,
-      failCount,
-      totalCount: entries.length,
-      failReasons,
-      failedEntries,
+      failCount: failCount + qualityFails.length,
+      totalCount: totalEntries,
+      failReasons: [...failReasons, ...qualityFailReasons],
+      failedEntries: [...failedEntries, ...qualityFailedEntries],
     })
     setStopRequested(false)
     stopRequestedRef.current = false
@@ -2767,8 +2774,9 @@ export default function GradingPage({
           )
         }
 
-        // 品質檢查後的二次問題偵測：如果重跑後仍有大量未讀取的題目，提醒老師
-        const retryWarnings: Array<{ submissionId: string; studentLabel: string; unreadCount: number }> = []
+        // 品質檢查後的二次問題偵測：如果重跑後仍有大量未讀取的題目，標記為失敗
+        // 這些 submissions 會從批次中移除，在 Phase B 結果摘要中顯示為失敗
+        const phaseAQualityFails: Array<{ submissionId: string; studentLabel: string; unreadCount: number }> = []
         for (const entry of entries) {
           const blankOrUnreadable = entry.phaseAResult.questionResults.filter(
             (qr) => qr.readAnswer1?.status === 'blank' || qr.readAnswer1?.status === 'unreadable'
@@ -2777,16 +2785,18 @@ export default function GradingPage({
           // 超過 30% 的題目無法讀取 → 可能是 bbox 定位問題
           if (totalQuestions > 0 && blankOrUnreadable.length > totalQuestions * 0.3) {
             const student = students.find((s) => s.id === entry.studentId)
-            retryWarnings.push({
-              submissionId: entry.submissionId,
-              studentLabel: student ? `${student.seatNumber}號 ${student.name}` : entry.studentId,
-              unreadCount: blankOrUnreadable.length
-            })
+            const studentLabel = student ? `${student.seatNumber}號 ${student.name}` : entry.studentId
+            phaseAQualityFails.push({ submissionId: entry.submissionId, studentLabel, unreadCount: blankOrUnreadable.length })
           }
         }
-        setPostRetryWarnings(retryWarnings)
+        setPostRetryWarnings(phaseAQualityFails)
 
-        setBatchPhaseAEntries(entries)
+        // 從批次中移除品質失敗的 submissions（它們會在 Phase B 結果中顯示為失敗）
+        const qualityFailIds = new Set(phaseAQualityFails.map((f) => f.submissionId))
+        const validEntries = qualityFailIds.size > 0
+          ? entries.filter((e) => !qualityFailIds.has(e.submissionId))
+          : entries
+        setBatchPhaseAEntries(validEntries)
         setGradingPhase('awaiting_review')
         // Fire-and-forget: write Phase A forensic data to Supabase for calibration
         const forensicRows = entries.flatMap((entry) =>
@@ -3442,56 +3452,6 @@ export default function GradingPage({
         {!inkSessionReady && (
           <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl px-4 py-3 text-sm">
             正在建立批改會話，請稍候...
-          </div>
-        )}
-
-        {/* Batch Phase A 一致性審查（重新批改時，顯示於標籤篩選上方） */}
-        {gradingPhase === 'awaiting_review' && postRetryWarnings.length > 0 && (
-          <div className="mx-4 mb-3 rounded-xl border border-amber-300 bg-amber-50 p-4">
-            <div className="flex items-start gap-3">
-              <span className="text-lg">⚠️</span>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-amber-800">
-                  以下考卷經品質檢查重跑後仍有多題無法讀取，建議重新批改：
-                </p>
-                <ul className="mt-2 space-y-1">
-                  {postRetryWarnings.map((w) => (
-                    <li key={w.submissionId} className="flex items-center justify-between text-sm text-amber-700">
-                      <span>{w.studentLabel}（{w.unreadCount} 題無法讀取）</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPostRetryWarnings((prev) => prev.filter((p) => p.submissionId !== w.submissionId))
-                          // 重新觸發該學生的 Phase A
-                          const entry = batchPhaseAEntries.find((e) => e.submissionId === w.submissionId)
-                          if (entry) {
-                            void (async () => {
-                              try {
-                                const phaseAResult = await gradePhaseA(entry.imageBlob, assignment!.answerKey!, undefined, assignment!.domain, assignment!.id)
-                                const decisions = new Map<string, ConsistencyDecision>()
-                                for (const qr of phaseAResult.questionResults) {
-                                  const arbiter = qr.arbiterResult
-                                  if (arbiter?.arbiterStatus !== 'needs_review' && arbiter?.finalAnswer) {
-                                    const source = arbiter.arbiterStatus === 'arbitrated_pick_2' ? 'ai_read2' as const : 'ai_read1' as const
-                                    decisions.set(qr.questionId, { questionId: qr.questionId, finalAnswer: arbiter.finalAnswer, source, confirmed: true })
-                                  }
-                                }
-                                setBatchPhaseAEntries((prev) => prev.map((e) => e.submissionId === w.submissionId ? { ...e, phaseAResult, decisions } : e))
-                              } catch (err) {
-                                console.error('重新批改失敗', err)
-                              }
-                            })()
-                          }
-                        }}
-                        className="rounded-lg bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700"
-                      >
-                        重新批改
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
           </div>
         )}
 
