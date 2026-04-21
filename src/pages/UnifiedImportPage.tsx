@@ -676,7 +676,7 @@ export default function UnifiedImportPage({
       for (let fi = 0; fi < totalFiles; fi++) {
         const file = fileArray[fi]
         setBatchProgress(`正在轉換 PDF（${fi + 1}/${totalFiles}）：${file.name}`)
-        const blobs = await convertPdfToImages(file, { scale: 1.5, quality: 0.7 })
+        const blobs = await convertPdfToImages(file, { scale: 1, quality: 0.6, maxWidth: 1400, minWidth: 1000, hardMinWidth: 900 })
         const filtered = blobs.slice(configStartPage - 1, configEndPage)
         allPdfPages.push(filtered)
       }
