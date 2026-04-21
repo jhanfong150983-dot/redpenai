@@ -381,6 +381,17 @@ export default function UnifiedImportPage({
     }
   }, [loadData])
 
+  // ── 防止轉換 PDF 時離開瀏覽器 ──────────────────────────────────────────
+  useEffect(() => {
+    if (!isBatchProcessing) return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [isBatchProcessing])
+
   // ── Computed ────────────────────────────────────────────────────────────
 
   const completedCount = useMemo(
@@ -1214,9 +1225,12 @@ export default function UnifiedImportPage({
 
       {/* Batch processing overlay */}
       {isBatchProcessing && (
-        <div className="mx-4 mt-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-3">
-          <Loader className="w-5 h-5 text-blue-600 animate-spin" />
-          <span className="text-sm text-blue-700">{batchProgress}</span>
+        <div className="mx-4 mt-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
+          <div className="flex items-center gap-3">
+            <Loader className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
+            <span className="text-sm text-blue-700">{batchProgress}</span>
+          </div>
+          <p className="text-xs text-blue-500 mt-1.5 ml-8">請勿離開此頁面，離開將中斷處理。</p>
         </div>
       )}
 
