@@ -68,7 +68,8 @@ async function runWithConcurrency<T, R>(
   concurrency: number,
   staggerMs: number,
   fn: (item: T, index: number) => Promise<R | null>,
-  onDone: (index: number, result: R | null, error: unknown) => Promise<void> | void
+  onDone: (index: number, result: R | null, error: unknown) => Promise<void> | void,
+  abortSignal?: { readonly current: boolean }
 ): Promise<void> {
   const queue = items.map((item, i) => ({ item, i }))
   let running = 0
@@ -76,17 +77,28 @@ async function runWithConcurrency<T, R>(
 
   await new Promise<void>((resolve) => {
     function startNext() {
+      // 立即中斷：abortSignal 為 true 時，不再啟動新任務，等剩餘完成後 resolve
+      if (abortSignal?.current) {
+        if (running === 0) resolve()
+        return
+      }
       if (nextIndex >= queue.length && running === 0) {
         resolve()
         return
       }
       while (running < concurrency && nextIndex < queue.length) {
+        if (abortSignal?.current) break
         const { item, i } = queue[nextIndex++]
         // 只對初始批次（前 concurrency 個）錯開啟動，避免 API burst
         const delay = i < concurrency ? i * staggerMs : 0
         running++
         const launch = async () => {
           if (delay > 0) await new Promise((r) => setTimeout(r, delay))
+          if (abortSignal?.current) {
+            running--
+            startNext()
+            return
+          }
           try {
             const result = await fn(item, i)
             await onDone(i, result, null)
@@ -1367,7 +1379,8 @@ export default function GradingPage({
 
         if (gradingResult.needsReview) setCompletedReviewCount((prev) => prev + 1)
         successCount++
-      }
+      },
+      stopRequestedRef
     )
 
     requestSync()
@@ -2317,7 +2330,8 @@ export default function GradingPage({
             } else {
               setCurrentGradingStudent(student ? `${student.seatNumber}號 ${student.name}` : '')
             }
-          }
+          },
+          stopRequestedRef
         )
 
         setIsDownloading(false)
@@ -2440,7 +2454,8 @@ export default function GradingPage({
             decisions,
             imageBlob: sub.imageBlob!,
           })
-        }
+        },
+        stopRequestedRef
       )
 
       if (stopRequestedRef.current) {
@@ -2770,7 +2785,8 @@ export default function GradingPage({
                 }
               }
               entries[idx] = { ...entries[idx], phaseAResult, decisions }
-            }
+            },
+            stopRequestedRef
           )
         }
 
