@@ -202,10 +202,15 @@ export default function ImportConfigDialog({
                   <p className="text-xs text-gray-700 truncate font-medium" title={info.file.name}>
                     {info.file.name}
                   </p>
-                  <p className="text-xs text-gray-400">{info.pageCount} 頁</p>
+                  <p className="text-xs text-gray-400">{info.pageCount} 頁 · {(info.file.size / 1024 / 1024).toFixed(1)}MB</p>
                 </div>
               ))}
             </div>
+            {files.some((f) => f.file.size > 20 * 1024 * 1024) && (
+              <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                ⚠ 有檔案超過 20MB，轉換可能需要較長時間。建議先用壓縮工具（如 <a href="https://www.ilovepdf.com/compress_pdf" target="_blank" rel="noopener noreferrer" className="underline font-medium">iLovePDF</a>）壓縮後再上傳。
+              </div>
+            )}
           </section>
 
           {/* 2. 合併方式（多 PDF 才顯示） */}

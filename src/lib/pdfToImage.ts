@@ -393,6 +393,7 @@ export async function convertPdfToImages(
     maxPixels?: number
     minWidth?: number
     hardMinWidth?: number
+    onProgress?: (current: number, total: number) => void
   } = {}
 ): Promise<Blob[]> {
   const defaultFormat = isSafari() ? 'image/jpeg' : 'image/webp'
@@ -403,6 +404,7 @@ export async function convertPdfToImages(
     maxWidth = 1900,
     maxPixels = 10_000_000,
     minWidth = 1400,
+    onProgress,
     hardMinWidth = 1280
   } = options
 
@@ -498,6 +500,8 @@ export async function convertPdfToImages(
 
       page.cleanup()
       blobs.push(blob)
+
+      onProgress?.(pageNum, pdf.numPages)
 
       // eslint-disable-next-line no-await-in-loop
       await new Promise((r) => setTimeout(r, 0))
