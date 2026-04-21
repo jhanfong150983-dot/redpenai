@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { X } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 
@@ -9,16 +10,32 @@ export interface PdfFileInfo {
   firstPageUrl: string
 }
 
-// ── 交錯合併：將多份 PDF 的頁面依學生交叉合併 ─────────────────────────────────
+// ── 學生資訊（未交勾選用）────────────────────────────────────────────────
 
-export function interleavePdfPages(pdfPages: Blob[][], pagesPerStudentPerPdf: number): Blob[] {
+export interface StudentInfo {
+  id: string
+  seatNumber: number
+  name: string
+}
+
+// ── 交錯合併：將多份 PDF 的頁面依學生交叉合併（支援每份 PDF 不同頁數）──────
+
+export function interleavePdfPages(
+  pdfPages: Blob[][],
+  pagesPerStudentPerPdf: number | number[]
+): Blob[] {
   if (pdfPages.length === 0) return []
   if (pdfPages.length === 1) return pdfPages[0]
 
-  const chunked = pdfPages.map((pages) => {
+  const perPdfArray = Array.isArray(pagesPerStudentPerPdf)
+    ? pagesPerStudentPerPdf
+    : pdfPages.map(() => pagesPerStudentPerPdf)
+
+  const chunked = pdfPages.map((pages, i) => {
+    const chunkSize = perPdfArray[i] ?? 1
     const chunks: Blob[][] = []
-    for (let i = 0; i < pages.length; i += pagesPerStudentPerPdf) {
-      chunks.push(pages.slice(i, i + pagesPerStudentPerPdf))
+    for (let j = 0; j < pages.length; j += chunkSize) {
+      chunks.push(pages.slice(j, j + chunkSize))
     }
     return chunks
   })
@@ -41,6 +58,8 @@ export interface ImportConfigDialogProps {
   onMergeModeChange: (m: 'concat' | 'interleave') => void
   pagesPerStudentPerPdf: number
   onPagesPerStudentPerPdfChange: (n: number) => void
+  perPdfPagesArray: number[]
+  onPerPdfPagesArrayChange: (arr: number[]) => void
   pagesPerStudent: number
   onPagesPerStudentChange: (n: number) => void
   startPage: number
@@ -48,6 +67,9 @@ export interface ImportConfigDialogProps {
   endPage: number
   onEndPageChange: (n: number) => void
   maxPage: number
+  students: StudentInfo[]
+  absentSeatNumbers: Set<number>
+  onAbsentSeatNumbersChange: (s: Set<number>) => void
   confirmed: boolean
   onConfirmedChange: (b: boolean) => void
   onConfirm: () => void
@@ -58,8 +80,10 @@ export default function ImportConfigDialog({
   files,
   mergeMode,
   onMergeModeChange,
-  pagesPerStudentPerPdf,
+  pagesPerStudentPerPdf: _pagesPerStudentPerPdf,
   onPagesPerStudentPerPdfChange,
+  perPdfPagesArray,
+  onPerPdfPagesArrayChange,
   pagesPerStudent,
   onPagesPerStudentChange,
   startPage,
@@ -67,16 +91,89 @@ export default function ImportConfigDialog({
   endPage,
   onEndPageChange,
   maxPage,
+  students,
+  absentSeatNumbers,
+  onAbsentSeatNumbersChange,
   confirmed,
   onConfirmedChange,
   onConfirm,
   onCancel
 }: ImportConfigDialogProps) {
   const isMultiPdf = files.length > 1
-  const totalPagesPerStudent =
-    isMultiPdf && mergeMode === 'interleave'
-      ? pagesPerStudentPerPdf * files.length
-      : pagesPerStudent
+  const isInterleave = isMultiPdf && mergeMode === 'interleave'
+
+  // 計算總頁數和每位學生頁數
+  const totalUsablePages = useMemo(() => {
+    return files.reduce((sum, f) => {
+      const effectiveEnd = Math.min(f.pageCount, endPage)
+      const effectiveStart = Math.max(1, startPage)
+      return sum + Math.max(0, effectiveEnd - effectiveStart + 1)
+    }, 0)
+  }, [files, startPage, endPage])
+
+  const effectivePagesPerStudent = useMemo(() => {
+    if (isInterleave) {
+      return perPdfPagesArray.reduce((sum, n) => sum + n, 0)
+    }
+    return pagesPerStudent
+  }, [isInterleave, perPdfPagesArray, pagesPerStudent])
+
+  const expectedStudentCount = effectivePagesPerStudent > 0
+    ? Math.floor(totalUsablePages / effectivePagesPerStudent)
+    : 0
+
+  const missingCount = Math.max(0, students.length - expectedStudentCount)
+  const excessCount = Math.max(0, expectedStudentCount - students.length)
+
+  // 交錯模式各 PDF 學生數一致性檢查
+  const perPdfStudentCounts = useMemo(() => {
+    if (!isInterleave) return []
+    return files.map((f, i) => {
+      const effectiveEnd = Math.min(f.pageCount, endPage)
+      const effectiveStart = Math.max(1, startPage)
+      const usable = Math.max(0, effectiveEnd - effectiveStart + 1)
+      const ppsp = perPdfPagesArray[i] ?? 1
+      return Math.floor(usable / ppsp)
+    })
+  }, [isInterleave, files, perPdfPagesArray, startPage, endPage])
+
+  const perPdfConsistent = perPdfStudentCounts.length > 0 &&
+    perPdfStudentCounts.every((c) => c === perPdfStudentCounts[0])
+
+  // 未交勾選邏輯
+  const sortedStudents = useMemo(
+    () => [...students].sort((a, b) => a.seatNumber - b.seatNumber),
+    [students]
+  )
+
+  const absentCountMatch = absentSeatNumbers.size === missingCount
+
+  const toggleAbsent = (seatNumber: number) => {
+    const next = new Set(absentSeatNumbers)
+    if (next.has(seatNumber)) {
+      next.delete(seatNumber)
+    } else {
+      if (next.size >= missingCount) return // 不能多勾
+      next.add(seatNumber)
+    }
+    onAbsentSeatNumbersChange(next)
+  }
+
+  // 確認按鈕可用條件
+  const canConfirm = confirmed &&
+    (missingCount === 0 || absentCountMatch) &&
+    excessCount === 0 &&
+    expectedStudentCount > 0 &&
+    (!isInterleave || perPdfConsistent)
+
+  // 同步舊的 pagesPerStudentPerPdf（向後兼容）
+  const handlePerPdfPageChange = (index: number, value: number) => {
+    const next = [...perPdfPagesArray]
+    next[index] = value
+    onPerPdfPagesArrayChange(next)
+    // 同步到舊的全域值（取第一個，保持向後兼容）
+    if (index === 0) onPagesPerStudentPerPdfChange(value)
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
@@ -147,25 +244,42 @@ export default function ImportConfigDialog({
 
           {/* 3. 每位學生頁數 */}
           <section>
-            {isMultiPdf && mergeMode === 'interleave' ? (
+            {isInterleave ? (
               <>
                 <h3 className="text-sm font-semibold text-gray-700 mb-1">
                   每份 PDF 中每位學生幾頁
                 </h3>
-                <p className="text-xs text-gray-500 mb-2">
-                  每一份 PDF 裡，屬於同一位學生的頁數。合併後每位學生共{' '}
-                  <strong>
-                    {pagesPerStudentPerPdf} × {files.length} = {totalPagesPerStudent} 頁
-                  </strong>
-                  。例如：考卷前 2 頁在 PDF1，後 2 頁在 PDF2，請填 2。
+                <p className="text-xs text-gray-500 mb-3">
+                  每一份 PDF 裡，屬於同一位學生的頁數（可各自不同）。
                 </p>
-                <NumericInput
-                  min={1}
-                  max={8}
-                  value={pagesPerStudentPerPdf}
-                  onChange={(v) => onPagesPerStudentPerPdfChange(typeof v === 'number' ? v : 1)}
-                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
+                <div className="space-y-2">
+                  {files.map((info, i) => (
+                    <div key={i} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2">
+                      <span className="text-xs text-gray-600 truncate flex-1" title={info.file.name}>
+                        {info.file.name}
+                        <span className="text-gray-400 ml-1">({info.pageCount}頁)</span>
+                      </span>
+                      <span className="text-xs text-gray-500 whitespace-nowrap">每位學生</span>
+                      <NumericInput
+                        min={1}
+                        max={8}
+                        value={perPdfPagesArray[i] ?? 1}
+                        onChange={(v) => handlePerPdfPageChange(i, typeof v === 'number' ? v : 1)}
+                        className="w-16 px-2 py-1 border border-gray-300 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-500"
+                      />
+                      <span className="text-xs text-gray-500">頁</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  合併後每位學生共{' '}
+                  <strong>{effectivePagesPerStudent} 頁</strong>
+                  {perPdfStudentCounts.length > 0 && (
+                    perPdfConsistent
+                      ? <span className="text-green-600 ml-2">（各 PDF 均為 {perPdfStudentCounts[0]} 人 ✓）</span>
+                      : <span className="text-red-600 ml-2">⚠ 各 PDF 學生數不一致：{perPdfStudentCounts.map((c, i) => `${files[i].file.name.slice(0, 10)}=${c}人`).join('、')}</span>
+                  )}
+                </p>
               </>
             ) : (
               <>
@@ -216,7 +330,71 @@ export default function ImportConfigDialog({
             </div>
           </section>
 
-          {/* 5. 確認勾選框 */}
+          {/* 5. 學生分配 */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-700 mb-1">學生分配</h3>
+            {expectedStudentCount > 0 && excessCount === 0 && missingCount === 0 && (
+              <p className="text-xs text-green-600 mb-2">
+                ✓ PDF 可分配 {expectedStudentCount} 人，與班級人數 {students.length} 人一致
+              </p>
+            )}
+            {excessCount > 0 && (
+              <p className="text-xs text-red-600 mb-2">
+                ⚠ PDF 可分配 {expectedStudentCount} 人，但班上只有 {students.length} 人，頁數多了 {excessCount} 人份，請檢查設定
+              </p>
+            )}
+            {missingCount > 0 && (
+              <>
+                <p className="text-xs text-amber-700 mb-2">
+                  班上 {students.length} 人，PDF 可分配 {expectedStudentCount} 人，有 <strong>{missingCount}</strong> 人未交
+                </p>
+                <p className="text-xs text-gray-500 mb-2">
+                  請勾選未交的學生（需勾選 {missingCount} 位）：
+                </p>
+                <div className="border border-gray-200 rounded-lg p-3 max-h-40 overflow-y-auto">
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                    {sortedStudents.map((s) => {
+                      const isChecked = absentSeatNumbers.has(s.seatNumber)
+                      const isFull = absentSeatNumbers.size >= missingCount
+                      const isDisabled = !isChecked && isFull
+                      return (
+                        <label
+                          key={s.id}
+                          className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-xs cursor-pointer transition-colors ${
+                            isChecked
+                              ? 'bg-red-50 text-red-700 border border-red-200'
+                              : isDisabled
+                                ? 'text-gray-300 cursor-not-allowed'
+                                : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            disabled={isDisabled}
+                            onChange={() => toggleAbsent(s.seatNumber)}
+                            className="w-3.5 h-3.5 accent-red-500"
+                          />
+                          <span className="font-medium">{s.seatNumber}</span>
+                          <span className="truncate">{s.name}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+                <p className={`text-xs mt-2 font-medium ${absentCountMatch ? 'text-green-600' : 'text-red-600'}`}>
+                  {absentCountMatch
+                    ? `✓ 已勾選 ${absentSeatNumbers.size} 位，符合`
+                    : `已勾選 ${absentSeatNumbers.size} / ${missingCount} 位，還需勾選 ${missingCount - absentSeatNumbers.size} 位`}
+                </p>
+              </>
+            )}
+            {expectedStudentCount === 0 && (
+              <p className="text-xs text-red-600">⚠ 依目前設定無法分配任何學生，請檢查頁數設定</p>
+            )}
+          </section>
+
+          {/* 6. 確認勾選框 */}
           <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border-2 border-gray-200 hover:border-green-400 transition-colors">
             <input
               type="checkbox"
@@ -240,7 +418,7 @@ export default function ImportConfigDialog({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={!confirmed}
+            disabled={!canConfirm}
             className="px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
           >
             開始匯入

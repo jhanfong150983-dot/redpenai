@@ -284,11 +284,13 @@ export default function UnifiedImportPage({
   >('concat')
   const [configPagesPerStudentPerPdf, setConfigPagesPerStudentPerPdf] =
     useState(1)
+  const [configPerPdfPagesArray, setConfigPerPdfPagesArray] = useState<number[]>([])
   const [configPagesPerStudent, setConfigPagesPerStudent] = useState(1)
   const [configStartPage, setConfigStartPage] = useState(1)
   const [configEndPage, setConfigEndPage] = useState(999)
   const [configMaxPage, setConfigMaxPage] = useState(999)
   const [configConfirmed, setConfigConfirmed] = useState(false)
+  const [configAbsentSeatNumbers, setConfigAbsentSeatNumbers] = useState<Set<number>>(new Set())
   const [isBatchProcessing, setIsBatchProcessing] = useState(false)
   const [batchProgress, setBatchProgress] = useState('')
 
@@ -637,7 +639,9 @@ export default function UnifiedImportPage({
         setConfigMergeMode('concat')
         setConfigPagesPerStudent(pagesPerStudent)
         setConfigPagesPerStudentPerPdf(1)
+        setConfigPerPdfPagesArray(infos.map(() => 1))
         setConfigConfirmed(false)
+        setConfigAbsentSeatNumbers(new Set())
         setPdfFilesInfo(infos)
         setShowImportConfig(true)
       } catch (e) {
@@ -678,8 +682,8 @@ export default function UnifiedImportPage({
       let effectivePagesPerStudent: number
 
       if (fileArray.length > 1 && configMergeMode === 'interleave') {
-        allBlobs = interleavePdfPages(allPdfPages, configPagesPerStudentPerPdf)
-        effectivePagesPerStudent = configPagesPerStudentPerPdf * fileArray.length
+        allBlobs = interleavePdfPages(allPdfPages, configPerPdfPagesArray)
+        effectivePagesPerStudent = configPerPdfPagesArray.reduce((s, n) => s + n, 0)
       } else {
         allBlobs = allPdfPages.flat()
         effectivePagesPerStudent = configPagesPerStudent
@@ -689,7 +693,6 @@ export default function UnifiedImportPage({
         throw new Error('PDF 頁數不足')
       }
 
-      // Ask about absent seats BEFORE preview so student tabs are correct
       const sortedStudents = [...students].sort(
         (a, b) => a.seatNumber - b.seatNumber,
       )
@@ -701,31 +704,10 @@ export default function UnifiedImportPage({
         throw new Error('PDF 頁數不足，無法分配給任何學生')
       }
 
-      let targetStudents = sortedStudents
-      if (totalStudentsNeeded < sortedStudents.length) {
-        const missingCount = sortedStudents.length - totalStudentsNeeded
-        const input = prompt(
-          `PDF 共 ${allBlobs.length} 頁，每位學生 ${effectivePagesPerStudent} 頁，` +
-            `預計 ${totalStudentsNeeded} 位學生的作業。\n` +
-            `班上共 ${sortedStudents.length} 位學生，少了 ${missingCount} 位。\n\n` +
-            `請輸入未交座號（用逗號分隔，例如：3, 5, 12）：`,
-        )
-        if (input === null) {
-          setIsBatchProcessing(false)
-          setBatchProgress('')
-          return
-        }
-        const absentSet = new Set(
-          input
-            .split(/[,\s，、]+/)
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0 && /^\d+$/.test(s))
-            .map((s) => Number.parseInt(s, 10)),
-        )
-        targetStudents = sortedStudents.filter(
-          (s) => !absentSet.has(s.seatNumber),
-        )
-      }
+      // 使用在 ImportConfigDialog 中已勾選的未交學生
+      const targetStudents = sortedStudents.filter(
+        (s) => !configAbsentSeatNumbers.has(s.seatNumber),
+      )
 
       // Open batch preview for rotation — student tabs now match correctly
       const urls = allBlobs.map((b) => URL.createObjectURL(b))
@@ -748,8 +730,9 @@ export default function UnifiedImportPage({
     configStartPage,
     configEndPage,
     configMergeMode,
-    configPagesPerStudentPerPdf,
+    configPerPdfPagesArray,
     configPagesPerStudent,
+    configAbsentSeatNumbers,
     students,
   ])
 
@@ -1775,6 +1758,8 @@ export default function UnifiedImportPage({
           onMergeModeChange={setConfigMergeMode}
           pagesPerStudentPerPdf={configPagesPerStudentPerPdf}
           onPagesPerStudentPerPdfChange={setConfigPagesPerStudentPerPdf}
+          perPdfPagesArray={configPerPdfPagesArray}
+          onPerPdfPagesArrayChange={setConfigPerPdfPagesArray}
           pagesPerStudent={configPagesPerStudent}
           onPagesPerStudentChange={setConfigPagesPerStudent}
           startPage={configStartPage}
@@ -1782,6 +1767,9 @@ export default function UnifiedImportPage({
           endPage={configEndPage}
           onEndPageChange={setConfigEndPage}
           maxPage={configMaxPage}
+          students={students.map(s => ({ id: s.id, seatNumber: s.seatNumber, name: s.name }))}
+          absentSeatNumbers={configAbsentSeatNumbers}
+          onAbsentSeatNumbersChange={setConfigAbsentSeatNumbers}
           confirmed={configConfirmed}
           onConfirmedChange={setConfigConfirmed}
           onConfirm={handleImportConfirm}

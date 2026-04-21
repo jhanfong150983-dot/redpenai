@@ -220,11 +220,13 @@ export default function AssignmentImport({
   const [isLoadingPreviews, setIsLoadingPreviews] = useState(false)
   const [configMergeMode, setConfigMergeMode] = useState<'concat' | 'interleave'>('concat')
   const [configPagesPerStudentPerPdf, setConfigPagesPerStudentPerPdf] = useState(1)
+  const [configPerPdfPagesArray, setConfigPerPdfPagesArray] = useState<number[]>([])
   const [configPagesPerStudent, setConfigPagesPerStudent] = useState(1)
   const [configStartPage, setConfigStartPage] = useState(1)
   const [configEndPage, setConfigEndPage] = useState(999)
   const [configMaxPage, setConfigMaxPage] = useState(999)
   const [configConfirmed, setConfigConfirmed] = useState(false)
+  const [configAbsentSeatNumbers, setConfigAbsentSeatNumbers] = useState<Set<number>>(new Set())
 
   const [pagesPerStudent, setPagesPerStudent] = useState(1)
   const [startSeat] = useState(1)
@@ -1236,6 +1238,8 @@ export default function AssignmentImport({
           onMergeModeChange={setConfigMergeMode}
           pagesPerStudentPerPdf={configPagesPerStudentPerPdf}
           onPagesPerStudentPerPdfChange={setConfigPagesPerStudentPerPdf}
+          perPdfPagesArray={configPerPdfPagesArray}
+          onPerPdfPagesArrayChange={setConfigPerPdfPagesArray}
           pagesPerStudent={configPagesPerStudent}
           onPagesPerStudentChange={setConfigPagesPerStudent}
           startPage={configStartPage}
@@ -1243,6 +1247,9 @@ export default function AssignmentImport({
           endPage={configEndPage}
           onEndPageChange={setConfigEndPage}
           maxPage={configMaxPage}
+          students={[]}
+          absentSeatNumbers={configAbsentSeatNumbers}
+          onAbsentSeatNumbersChange={setConfigAbsentSeatNumbers}
           confirmed={configConfirmed}
           onConfirmedChange={setConfigConfirmed}
           onConfirm={handleImportConfirm}
