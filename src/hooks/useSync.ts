@@ -507,9 +507,6 @@ export function useSync(options: UseSyncOptions = {}) {
       ])
 
     const lastSuccessfulSyncAt = readPersistedLastSyncTime()
-    const submissionPushWindowStart = lastSuccessfulSyncAt
-      ? lastSuccessfulSyncAt - SUBMISSION_PUSH_GUARD_MS
-      : 0
 
     console.log('🔄 [同步] 讀取刪除佇列:', {
       count: deleteQueue.length,
