@@ -67,6 +67,12 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
   const [isExtracting, setIsExtracting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // New answer key modal state
+  const [showNewModal, setShowNewModal] = useState(false)
+  const [newTitle, setNewTitle] = useState('')
+  const [newDomain, setNewDomain] = useState('')
+  const domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他']
+
   // ── Load data ──────────────────────────────────────────────────────────────
 
   const loadData = useCallback(async () => {
@@ -219,7 +225,8 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
     const blobs = orderedPages.map((p) => p.blob)
     await startInkSession()
     try {
-      const answerKey = await extractAnswerKeyFromImages(blobs, { domain: editingDomain || undefined })
+      const domain = editingDomain || (newDomain === '國語（測試中）' ? '國語' : newDomain) || undefined
+      const answerKey = await extractAnswerKeyFromImages(blobs, { domain })
       return { answerKey, imageBlobs: blobs, notice: null }
     } finally {
       closeInkSession()
@@ -245,23 +252,24 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
         }
       }
     } else {
-      // New — create a temporary assignment to hold the answer key
-      // Teacher will later reference this from grading page
+      // New — create an assignment to hold the answer key
       const firstClassroom = classrooms[0]
       if (!firstClassroom) {
         setError('請先建立班級')
         return
       }
-      const title = prompt('請輸入答案卷名稱：')
-      if (!title?.trim()) return
-      const domain = prompt('請選擇領域（國語/數學/社會/自然/英語/其他）：') || '其他'
+      if (!newTitle.trim()) {
+        setError('請輸入答案卷名稱')
+        return
+      }
+      const domainValue = newDomain === '國語（測試中）' ? '國語' : (newDomain || '其他')
 
       const newAssignment: Assignment = {
         id: generateId(),
         classroomId: firstClassroom.id,
-        title: title.trim(),
+        title: newTitle.trim(),
         totalPages: imageBlobs.length,
-        domain,
+        domain: domainValue,
         answerKey,
         updatedAt: Date.now(),
       }
@@ -349,7 +357,7 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
           <button
             type="button"
             disabled={isExtracting}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => { setNewTitle(''); setNewDomain(''); setShowNewModal(true) }}
             className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-green-700 active:scale-95 disabled:opacity-50"
           >
             {isExtracting ? (
@@ -450,6 +458,66 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* New Answer Key Modal — ask title + domain before file upload */}
+      {showNewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-gray-900">新增答案卷</h2>
+              <button type="button" onClick={() => setShowNewModal(false)} className="rounded-full p-2 hover:bg-gray-100">
+                <span className="text-gray-400 text-xl leading-none">&times;</span>
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">答案卷名稱</label>
+                <input
+                  type="text"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="例如：數習P.42-43"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">領域</label>
+                <select
+                  value={newDomain}
+                  onChange={(e) => setNewDomain(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none"
+                >
+                  <option value="">請選擇</option>
+                  {domainOptions.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setShowNewModal(false)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={!newTitle.trim() || !newDomain}
+                onClick={() => {
+                  setShowNewModal(false)
+                  fileInputRef.current?.click()
+                }}
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                上傳答案卷圖片
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
