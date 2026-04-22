@@ -111,6 +111,130 @@ export default function AssignmentList({
   const [isSavingAnswerKey, setIsSavingAnswerKey] = useState(false)
   const [answerKeyError, setAnswerKeyError] = useState<string | null>(null)
 
+  // ── 新增作業 Modal ──────────────────────────────────────────────────────
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [createTitle, setCreateTitle] = useState('')
+  const [createAnswerKeyFolder, setCreateAnswerKeyFolder] = useState('')
+  const [createSelectedAnswerKeyId, setCreateSelectedAnswerKeyId] = useState('')
+  const [createStrictness, setCreateStrictness] = useState<'strict' | 'standard' | 'lenient'>('standard')
+  const [createScoringMode, setCreateScoringMode] = useState<'scored' | 'unscored'>('scored')
+  const [createFractionRule, setCreateFractionRule] = useState<'require_simplified' | 'allow_equivalent'>('require_simplified')
+  const [createEnPunctuationCheck, setCreateEnPunctuationCheck] = useState(false)
+  const [createEnPunctuationDeduction, setCreateEnPunctuationDeduction] = useState(1)
+  const [createEnWordOrderCheck, setCreateEnWordOrderCheck] = useState(false)
+  const [createEnWordOrderDeduction, setCreateEnWordOrderDeduction] = useState(1)
+  const [isCreating, setIsCreating] = useState(false)
+
+  // 所有有答案卷的作業（跨班級，用於答案卷選擇器）
+  const [allAssignmentsWithAK, setAllAssignmentsWithAK] = useState<Assignment[]>([])
+
+  useEffect(() => {
+    db.assignments.toArray().then((all) => {
+      setAllAssignmentsWithAK(all.filter((a) => a.answerKey?.questions?.length))
+    })
+  }, [assignments])
+
+  // 答案卷的資料夾列表
+  const answerKeyFolders = useMemo(() => {
+    const folders = new Set<string>()
+    allAssignmentsWithAK.forEach((a) => { if (a.folder) folders.add(a.folder) })
+    return Array.from(folders).sort()
+  }, [allAssignmentsWithAK])
+
+  // 根據選中的資料夾過濾答案卷
+  const availableAnswerKeys = useMemo(() => {
+    let items = allAssignmentsWithAK
+    if (createAnswerKeyFolder) {
+      items = items.filter((a) => a.folder === createAnswerKeyFolder)
+    }
+    // 去重：同名+同domain 只取最新的
+    const seen = new Map<string, Assignment>()
+    for (const a of items) {
+      const key = `${a.title}::${a.domain || ''}`
+      const existing = seen.get(key)
+      if (!existing || (a.updatedAt ?? 0) > (existing.updatedAt ?? 0)) {
+        seen.set(key, a)
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => a.title.localeCompare(b.title, 'zh-Hant'))
+  }, [allAssignmentsWithAK, createAnswerKeyFolder])
+
+  // 選中的答案卷
+  const selectedAnswerKey = useMemo(() => {
+    if (!createSelectedAnswerKeyId) return null
+    return allAssignmentsWithAK.find((a) => a.id === createSelectedAnswerKeyId) ?? null
+  }, [allAssignmentsWithAK, createSelectedAnswerKeyId])
+
+  const selectedDomain = selectedAnswerKey?.domain || ''
+
+  // 建立作業
+  const handleCreateAssignment = async () => {
+    if (!createTitle.trim() || !selectedClassroomId) return
+    setIsCreating(true)
+    try {
+      const now = Date.now()
+      let answerKey: AnswerKey | undefined
+      let domain: string | undefined
+      let totalPages = 1
+
+      if (selectedAnswerKey?.answerKey) {
+        answerKey = structuredClone(selectedAnswerKey.answerKey)
+        domain = selectedAnswerKey.domain
+        totalPages = selectedAnswerKey.totalPages || 1
+        // 寫入批改設定到 answerKey（server 從這裡讀）
+        answerKey.strictness = createStrictness
+        if (domain === '數學') {
+          answerKey.fractionRule = createFractionRule
+        }
+        if (domain === '英語') {
+          answerKey.englishRules = {
+            ...(createEnPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: createEnPunctuationDeduction } } : {}),
+            ...(createEnWordOrderCheck ? { wordOrderCheck: { enabled: true, deductionPerError: createEnWordOrderDeduction } } : {}),
+          }
+        }
+      }
+
+      const newAssignment: Assignment = {
+        id: generateId(),
+        classroomId: selectedClassroomId,
+        title: createTitle.trim(),
+        totalPages,
+        domain,
+        answerKey,
+        scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
+        folder: selectedFolder !== '__uncategorized__' ? selectedFolder : undefined,
+        updatedAt: now,
+      }
+      await db.assignments.add(newAssignment)
+      requestSync()
+      // Reload
+      const [data, subs] = await Promise.all([
+        db.assignments.where('classroomId').anyOf(classrooms.map((c) => c.id)).toArray(),
+        db.submissions.toArray()
+      ])
+      const subCountMap = new Map<string, { uploaded: number; graded: number }>()
+      for (const sub of subs) {
+        if (sub.source === 'student_correction') continue
+        const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
+        entry.uploaded++
+        if (sub.status === 'graded' || sub.gradingResult) entry.graded++
+        subCountMap.set(sub.assignmentId, entry)
+      }
+      const classMap = new Map(classrooms.map((c) => [c.id, c]))
+      setAssignments(data.map((a) => ({
+        ...a,
+        classroom: classMap.get(a.classroomId),
+        uploadedCount: subCountMap.get(a.id)?.uploaded ?? 0,
+        gradedCount: subCountMap.get(a.id)?.graded ?? 0,
+      })))
+      setShowCreateModal(false)
+    } catch (err) {
+      console.error('建立作業失敗', err)
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
   const buildRubricRanges = (maxScore: number) => {
     const safeMax = Math.max(1, Math.round(maxScore))
     const excellentMin = Math.max(1, Math.ceil(safeMax * 0.9))
@@ -371,6 +495,26 @@ export default function AssignmentList({
         <div className={`${embedded ? 'mb-4 border-b border-slate-200 pb-3' : 'bg-white rounded-xl border border-slate-200 p-6 mb-6'}`}>
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-2xl font-semibold text-gray-900">作業批改</h1>
+            {selectedClassroomId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateTitle('')
+                  setCreateAnswerKeyFolder('')
+                  setCreateSelectedAnswerKeyId('')
+                  setCreateStrictness('standard')
+                  setCreateScoringMode('scored')
+                  setCreateFractionRule('require_simplified')
+                  setCreateEnPunctuationCheck(false)
+                  setCreateEnWordOrderCheck(false)
+                  setShowCreateModal(true)
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-all hover:bg-green-700 active:scale-95"
+              >
+                <Plus className="h-4 w-4" />
+                新增作業
+              </button>
+            )}
           </div>
         </div>
 
@@ -757,6 +901,137 @@ export default function AssignmentList({
                 className="px-4 py-1.5 rounded-lg text-xs bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 {isSavingAnswerKey ? '儲存中…' : '儲存標準答案'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 新增作業 Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowCreateModal(false)}>
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 sticky top-0 bg-white rounded-t-2xl z-10">
+              <h2 className="text-lg font-semibold text-gray-900">新增作業</h2>
+              <button type="button" onClick={() => setShowCreateModal(false)} className="rounded-full p-2 hover:bg-gray-100">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-5">
+              {/* 作業名稱 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">作業名稱</label>
+                <input type="text" value={createTitle} onChange={(e) => setCreateTitle(e.target.value)} placeholder="例如：數習P.42-43" autoFocus
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100" />
+              </div>
+
+              {/* 選擇答案卷 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">選擇答案卷</label>
+
+                {/* 答案卷資料夾 */}
+                <div className="mb-2">
+                  <label className="block text-xs text-gray-500 mb-1">答案卷資料夾</label>
+                  <select value={createAnswerKeyFolder} onChange={(e) => { setCreateAnswerKeyFolder(e.target.value); setCreateSelectedAnswerKeyId('') }}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
+                    <option value="">全部</option>
+                    {answerKeyFolders.map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </div>
+
+                {/* 答案卷選擇 */}
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">答案卷</label>
+                  <select value={createSelectedAnswerKeyId} onChange={(e) => setCreateSelectedAnswerKeyId(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
+                    <option value="">稍後再設定</option>
+                    {availableAnswerKeys.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.title}（{a.domain || '未設定領域'} · {a.answerKey?.questions?.length ?? 0} 題）
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* 批改設定 — 選完答案卷後才顯示 */}
+              {selectedAnswerKey && (
+                <div className="space-y-4 border-t border-gray-100 pt-4">
+                  <h3 className="text-sm font-semibold text-gray-700">批改設定</h3>
+
+                  {/* 嚴格度 */}
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">嚴格度</label>
+                    <select value={createStrictness} onChange={(e) => setCreateStrictness(e.target.value as 'strict' | 'standard' | 'lenient')}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
+                      <option value="strict">嚴格</option>
+                      <option value="standard">標準</option>
+                      <option value="lenient">寬鬆</option>
+                    </select>
+                  </div>
+
+                  {/* 計分模式 */}
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">計分</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" checked={createScoringMode === 'scored'} onChange={() => setCreateScoringMode('scored')} className="w-4 h-4 accent-green-600" />
+                        <span className="text-sm text-gray-700">計分</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" checked={createScoringMode === 'unscored'} onChange={() => setCreateScoringMode('unscored')} className="w-4 h-4 accent-green-600" />
+                        <span className="text-sm text-gray-700">不計分</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* 數學專用：分數規則 */}
+                  {selectedDomain === '數學' && (
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">分數規則</label>
+                      <select value={createFractionRule} onChange={(e) => setCreateFractionRule(e.target.value as 'require_simplified' | 'allow_equivalent')}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
+                        <option value="require_simplified">必須最簡分數</option>
+                        <option value="allow_equivalent">接受等值分數</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {/* 英語專用：標點和詞序 */}
+                  {selectedDomain === '英語' && (
+                    <div className="space-y-3">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={createEnPunctuationCheck} onChange={(e) => setCreateEnPunctuationCheck(e.target.checked)} className="w-4 h-4 accent-green-600" />
+                        <span className="text-sm text-gray-700">標點符號檢查</span>
+                        {createEnPunctuationCheck && (
+                          <span className="text-xs text-gray-500">
+                            每錯扣 <NumericInput min={1} max={5} value={createEnPunctuationDeduction} onChange={(v) => setCreateEnPunctuationDeduction(typeof v === 'number' ? v : 1)}
+                              className="inline-block w-12 px-1 py-0.5 border border-gray-300 rounded text-center text-xs" /> 分
+                          </span>
+                        )}
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={createEnWordOrderCheck} onChange={(e) => setCreateEnWordOrderCheck(e.target.checked)} className="w-4 h-4 accent-green-600" />
+                        <span className="text-sm text-gray-700">單字順序檢查</span>
+                        {createEnWordOrderCheck && (
+                          <span className="text-xs text-gray-500">
+                            每錯扣 <NumericInput min={1} max={5} value={createEnWordOrderDeduction} onChange={(v) => setCreateEnWordOrderDeduction(typeof v === 'number' ? v : 1)}
+                              className="inline-block w-12 px-1 py-0.5 border border-gray-300 rounded text-center text-xs" /> 分
+                          </span>
+                        )}
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 sticky bottom-0 bg-white rounded-b-2xl">
+              <button type="button" onClick={() => setShowCreateModal(false)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">取消</button>
+              <button type="button" disabled={!createTitle.trim() || isCreating} onClick={() => void handleCreateAssignment()}
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all active:scale-95">
+                {isCreating ? <Loader className="h-4 w-4 animate-spin" /> : '建立'}
               </button>
             </div>
           </div>
