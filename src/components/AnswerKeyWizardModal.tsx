@@ -554,7 +554,13 @@ export default function AnswerKeyWizardModal({
                     const cat = getEffectiveCategory(q)
                     const vocabWarn = hasVocabFillWarning(q, domain)
                     const multiFillWarn = hasMultiFillQuestions(q)
-                    const hasWarn = vocabWarn || multiFillWarn
+                    // Detect placeholder/missing answers that need teacher attention
+                    const PLACEHOLDER_ANSWERS = ['?', '？', '未知', 'unknown', 'N/A']
+                    const ans = (q.answer ?? '').trim()
+                    const ref = (q.referenceAnswer ?? '').trim()
+                    const answerMissing = (!ans || PLACEHOLDER_ANSWERS.includes(ans)) && (!ref || PLACEHOLDER_ANSWERS.includes(ref))
+                      && cat !== 'short_answer' && cat !== 'word_problem' && cat !== 'calculation' // these types may legitimately have no answer field
+                    const hasWarn = vocabWarn || multiFillWarn || answerMissing
                     const isSelected = idx === selectedIdx
                     return (
                       <button
@@ -563,8 +569,8 @@ export default function AnswerKeyWizardModal({
                         onClick={() => setSelectedIdx(idx)}
                         className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-start gap-2 ${
                           isSelected
-                            ? hasWarn ? 'bg-orange-100 text-orange-900' : 'bg-green-50 text-green-900'
-                            : hasWarn ? 'bg-orange-50 text-orange-800 hover:bg-orange-100' : 'hover:bg-gray-50 text-gray-700'
+                            ? answerMissing ? 'bg-red-100 text-red-900' : hasWarn ? 'bg-orange-100 text-orange-900' : 'bg-green-50 text-green-900'
+                            : answerMissing ? 'bg-red-50 text-red-800 hover:bg-red-100' : hasWarn ? 'bg-orange-50 text-orange-800 hover:bg-orange-100' : 'hover:bg-gray-50 text-gray-700'
                         }`}
                       >
                         <ChevronRight className={`w-3 h-3 mt-0.5 shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0'}`} />
@@ -579,8 +585,8 @@ export default function AnswerKeyWizardModal({
                               </span>
                             )}
                           </div>
-                          <div className={`text-[10px] truncate ${hasWarn ? 'text-orange-600' : 'text-gray-400'}`}>
-                            {hasWarn ? (vocabWarn ? '⚠ 請核對注音' : '⚠ 多項填入') : CATEGORY_LABELS[cat]}
+                          <div className={`text-[10px] truncate ${answerMissing ? 'text-red-600 font-semibold' : hasWarn ? 'text-orange-600' : 'text-gray-400'}`}>
+                            {answerMissing ? '❌ 缺少標準答案' : hasWarn ? (vocabWarn ? '⚠ 請核對注音' : '⚠ 多項填入') : CATEGORY_LABELS[cat]}
                           </div>
                         </div>
                       </button>
