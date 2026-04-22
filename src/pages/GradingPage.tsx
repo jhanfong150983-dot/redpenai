@@ -536,7 +536,7 @@ function GradingPipelineOverlay({
         </div>
 
         {/* Pipeline stages */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%', padding: '0 0.25rem', gap: '0.25rem' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', width: '100%', padding: '0 0.25rem', gap: '0.75rem' }}>
           <PipelineStage index={1} label="擷取學生答案" sublabel={aLabel} status={stageA} />
           <PipelineStage index={2} label="教師人工審查" sublabel={reviewLabel} status={stageReview} />
           <PipelineStage index={3} label="AI批改評分" sublabel={bLabel} status={stageB} />
