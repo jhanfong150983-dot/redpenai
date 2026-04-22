@@ -642,16 +642,23 @@ export function useSync(options: UseSyncOptions = {}) {
     
     console.log(`📤 [Sync Push] 準備上傳 ${assignmentPayload.length} 個作業:`, assignmentPayload.map(a => ({ id: a.id, title: a.title, hasAnswerKey: !!a.answerKey })))
 
+    // submissions push: 只送需要上傳圖片的（scanned→synced）或本地有批改結果的
+    // 已 synced/graded 且沒有新的本地批改 → 不需要重送（server 已有）
     const submissionPayload = submissions
       .filter((sub) => {
         if (sub.status === 'scanned') return false
+        // 沒有 imageUrl 代表還沒上傳過，需要送（會由單獨的 submission upload 處理，這裡只送 metadata）
+        // 有 gradingResult 且是本地批改的（imageBlob 或 imageBase64 存在）→ 需要送
+        // 已經在 server 上的（有 imageUrl，沒有本地新改動）→ 跳過
         if (!lastSuccessfulSyncAt) return true
-        // 只推送有變更的 submissions
-        const rank = Math.max(
-          toNumber(sub.updatedAt) ?? 0,
-          toNumber(sub.gradedAt) ?? 0
-        )
-        return rank >= lastSuccessfulSyncAt
+        // 本地有新批改
+        const localGradedAt = toNumber(sub.gradedAt) ?? 0
+        if (localGradedAt >= lastSuccessfulSyncAt) return true
+        // 狀態剛變更（例如從 synced 變成其他）
+        const localUpdatedAt = toNumber(sub.updatedAt) ?? 0
+        if (localUpdatedAt >= lastSuccessfulSyncAt && sub.status !== 'synced' && sub.status !== 'graded') return true
+        // 已經在 server 上的舊資料，不重送
+        return false
       })
       .map(({ imageBlob, ...rest }) => {
         // 只在本地新批改（gradedAt 在上次 sync 之後）時才帶 gradingResult，避免 payload 過大
