@@ -13,6 +13,7 @@ import {
   Settings
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
+import GradingSettingsPanel, { type GradingSettingsValues } from '@/components/GradingSettingsPanel'
 import { db, generateId } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import type {
@@ -251,6 +252,18 @@ export default function AssignmentList({
 
   const selectedDomain = selectedAnswerKey?.domain || ''
 
+  // Adapter: create modal settings ↔ GradingSettingsPanel
+  const createSettingsValues: GradingSettingsValues = {
+    strictness: createStrictness, scoringMode: createScoringMode, fractionRule: createFractionRule,
+    enPunctuationCheck: createEnPunctuationCheck, enPunctuationDeduction: createEnPunctuationDeduction,
+    enWordOrderCheck: createEnWordOrderCheck, enWordOrderDeduction: createEnWordOrderDeduction,
+  }
+  const handleCreateSettingsChange = (v: GradingSettingsValues) => {
+    setCreateStrictness(v.strictness); setCreateScoringMode(v.scoringMode); setCreateFractionRule(v.fractionRule)
+    setCreateEnPunctuationCheck(v.enPunctuationCheck); setCreateEnPunctuationDeduction(v.enPunctuationDeduction)
+    setCreateEnWordOrderCheck(v.enWordOrderCheck); setCreateEnWordOrderDeduction(v.enWordOrderDeduction)
+  }
+
   // ── 編輯設定 / 更換答案卷 Modal ──────────────────────────────────────────
   const [showSettingsModal, setShowSettingsModal] = useState(false)
   const [settingsAssignment, setSettingsAssignment] = useState<AssignmentWithMeta | null>(null)
@@ -296,6 +309,18 @@ export default function AssignmentList({
     }
     return Array.from(seen.values()).sort((a, b) => a.title.localeCompare(b.title, 'zh-Hant'))
   }, [allAssignmentsWithAK, settingsAnswerKeyFolder])
+
+  // Adapter: settings modal ↔ GradingSettingsPanel
+  const settingsSettingsValues: GradingSettingsValues = {
+    strictness: settingsStrictness, scoringMode: settingsScoringMode, fractionRule: settingsFractionRule,
+    enPunctuationCheck: settingsEnPunctuationCheck, enPunctuationDeduction: settingsEnPunctuationDeduction,
+    enWordOrderCheck: settingsEnWordOrderCheck, enWordOrderDeduction: settingsEnWordOrderDeduction,
+  }
+  const handleSettingsSettingsChange = (v: GradingSettingsValues) => {
+    setSettingsStrictness(v.strictness); setSettingsScoringMode(v.scoringMode); setSettingsFractionRule(v.fractionRule)
+    setSettingsEnPunctuationCheck(v.enPunctuationCheck); setSettingsEnPunctuationDeduction(v.enPunctuationDeduction)
+    setSettingsEnWordOrderCheck(v.enWordOrderCheck); setSettingsEnWordOrderDeduction(v.enWordOrderDeduction)
+  }
 
   // 建立作業
   const handleCreateAssignment = async () => {
@@ -1099,68 +1124,12 @@ export default function AssignmentList({
               </div>
 
               {/* 批改設定 */}
-              <div className="space-y-4 border-t border-gray-100 pt-4">
-                <h3 className="text-sm font-semibold text-gray-700">批改設定</h3>
-
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">嚴格度</label>
-                  <select value={settingsStrictness} onChange={(e) => setSettingsStrictness(e.target.value as 'strict' | 'standard' | 'lenient')}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
-                    <option value="strict">嚴格</option>
-                    <option value="standard">標準</option>
-                    <option value="lenient">寬鬆</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">計分</label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" checked={settingsScoringMode === 'scored'} onChange={() => setSettingsScoringMode('scored')} className="w-4 h-4 accent-green-600" />
-                      <span className="text-sm text-gray-700">計分</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="radio" checked={settingsScoringMode === 'unscored'} onChange={() => setSettingsScoringMode('unscored')} className="w-4 h-4 accent-green-600" />
-                      <span className="text-sm text-gray-700">不計分</span>
-                    </label>
-                  </div>
-                </div>
-
-                {(settingsSelectedNewAK?.domain || settingsAssignment.domain) === '數學' && (
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">分數規則</label>
-                    <select value={settingsFractionRule} onChange={(e) => setSettingsFractionRule(e.target.value as 'require_simplified' | 'allow_equivalent')}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
-                      <option value="require_simplified">必須最簡分數</option>
-                      <option value="allow_equivalent">接受等值分數</option>
-                    </select>
-                  </div>
-                )}
-
-                {(settingsSelectedNewAK?.domain || settingsAssignment.domain) === '英語' && (
-                  <div className="space-y-3">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={settingsEnPunctuationCheck} onChange={(e) => setSettingsEnPunctuationCheck(e.target.checked)} className="w-4 h-4 accent-green-600" />
-                      <span className="text-sm text-gray-700">標點符號檢查</span>
-                      {settingsEnPunctuationCheck && (
-                        <span className="text-xs text-gray-500">
-                          每錯扣 <NumericInput min={1} max={5} value={settingsEnPunctuationDeduction} onChange={(v) => setSettingsEnPunctuationDeduction(typeof v === 'number' ? v : 1)}
-                            className="inline-block w-12 px-1 py-0.5 border border-gray-300 rounded text-center text-xs" /> 分
-                        </span>
-                      )}
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={settingsEnWordOrderCheck} onChange={(e) => setSettingsEnWordOrderCheck(e.target.checked)} className="w-4 h-4 accent-green-600" />
-                      <span className="text-sm text-gray-700">單字順序檢查</span>
-                      {settingsEnWordOrderCheck && (
-                        <span className="text-xs text-gray-500">
-                          每錯扣 <NumericInput min={1} max={5} value={settingsEnWordOrderDeduction} onChange={(v) => setSettingsEnWordOrderDeduction(typeof v === 'number' ? v : 1)}
-                            className="inline-block w-12 px-1 py-0.5 border border-gray-300 rounded text-center text-xs" /> 分
-                        </span>
-                      )}
-                    </label>
-                  </div>
-                )}
+              <div className="border-t border-gray-100 pt-4">
+                <GradingSettingsPanel
+                  domain={settingsSelectedNewAK?.domain || settingsAssignment.domain || ''}
+                  values={settingsSettingsValues}
+                  onChange={handleSettingsSettingsChange}
+                />
               </div>
             </div>
 
@@ -1225,72 +1194,12 @@ export default function AssignmentList({
 
               {/* 批改設定 — 選完答案卷後才顯示 */}
               {selectedAnswerKey && (
-                <div className="space-y-4 border-t border-gray-100 pt-4">
-                  <h3 className="text-sm font-semibold text-gray-700">批改設定</h3>
-
-                  {/* 嚴格度 */}
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">嚴格度</label>
-                    <select value={createStrictness} onChange={(e) => setCreateStrictness(e.target.value as 'strict' | 'standard' | 'lenient')}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
-                      <option value="strict">嚴格</option>
-                      <option value="standard">標準</option>
-                      <option value="lenient">寬鬆</option>
-                    </select>
-                  </div>
-
-                  {/* 計分模式 */}
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">計分</label>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" checked={createScoringMode === 'scored'} onChange={() => setCreateScoringMode('scored')} className="w-4 h-4 accent-green-600" />
-                        <span className="text-sm text-gray-700">計分</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" checked={createScoringMode === 'unscored'} onChange={() => setCreateScoringMode('unscored')} className="w-4 h-4 accent-green-600" />
-                        <span className="text-sm text-gray-700">不計分</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* 數學專用：分數規則 */}
-                  {selectedDomain === '數學' && (
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">分數規則</label>
-                      <select value={createFractionRule} onChange={(e) => setCreateFractionRule(e.target.value as 'require_simplified' | 'allow_equivalent')}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
-                        <option value="require_simplified">必須最簡分數</option>
-                        <option value="allow_equivalent">接受等值分數</option>
-                      </select>
-                    </div>
-                  )}
-
-                  {/* 英語專用：標點和詞序 */}
-                  {selectedDomain === '英語' && (
-                    <div className="space-y-3">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={createEnPunctuationCheck} onChange={(e) => setCreateEnPunctuationCheck(e.target.checked)} className="w-4 h-4 accent-green-600" />
-                        <span className="text-sm text-gray-700">標點符號檢查</span>
-                        {createEnPunctuationCheck && (
-                          <span className="text-xs text-gray-500">
-                            每錯扣 <NumericInput min={1} max={5} value={createEnPunctuationDeduction} onChange={(v) => setCreateEnPunctuationDeduction(typeof v === 'number' ? v : 1)}
-                              className="inline-block w-12 px-1 py-0.5 border border-gray-300 rounded text-center text-xs" /> 分
-                          </span>
-                        )}
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="checkbox" checked={createEnWordOrderCheck} onChange={(e) => setCreateEnWordOrderCheck(e.target.checked)} className="w-4 h-4 accent-green-600" />
-                        <span className="text-sm text-gray-700">單字順序檢查</span>
-                        {createEnWordOrderCheck && (
-                          <span className="text-xs text-gray-500">
-                            每錯扣 <NumericInput min={1} max={5} value={createEnWordOrderDeduction} onChange={(v) => setCreateEnWordOrderDeduction(typeof v === 'number' ? v : 1)}
-                              className="inline-block w-12 px-1 py-0.5 border border-gray-300 rounded text-center text-xs" /> 分
-                          </span>
-                        )}
-                      </label>
-                    </div>
-                  )}
+                <div className="border-t border-gray-100 pt-4">
+                  <GradingSettingsPanel
+                    domain={selectedDomain}
+                    values={createSettingsValues}
+                    onChange={handleCreateSettingsChange}
+                  />
                 </div>
               )}
             </div>
