@@ -9,7 +9,8 @@ import {
   Users,
   Upload,
   Sparkles,
-  ClipboardCheck
+  ClipboardCheck,
+  Settings
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { db, generateId } from '@/lib/db'
@@ -125,6 +126,89 @@ export default function AssignmentList({
   const [createEnWordOrderDeduction, setCreateEnWordOrderDeduction] = useState(1)
   const [isCreating, setIsCreating] = useState(false)
 
+  // ── 編輯設定 / 更換答案卷 Modal（state 在 allAssignmentsWithAK 後面宣告）──
+
+  const handleSaveSettings = async () => {
+    if (!settingsAssignment) return
+    setIsSavingSettings(true)
+    try {
+      const now = Date.now()
+      const domain = settingsAssignment.domain || ''
+
+      // 如果選了新答案卷
+      if (settingsSelectedNewAK?.answerKey) {
+        const gradedCount = settingsAssignment.gradedCount ?? 0
+        if (gradedCount > 0) {
+          const ok = window.confirm(`此作業已有 ${gradedCount} 份批改結果，更換答案卷將清除所有批改。確定？`)
+          if (!ok) { setIsSavingSettings(false); return }
+          // 清除批改結果
+          const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
+          for (const sub of subs) {
+            if (sub.gradingResult || sub.score) {
+              await db.submissions.update(sub.id, {
+                gradingResult: undefined, score: undefined, aiScore: undefined,
+                gradedAt: undefined, status: 'scanned', updatedAt: now,
+              })
+            }
+          }
+        }
+        const newAK = structuredClone(settingsSelectedNewAK.answerKey)
+        newAK.strictness = settingsStrictness
+        if (settingsSelectedNewAK.domain === '數學') newAK.fractionRule = settingsFractionRule
+        if (settingsSelectedNewAK.domain === '英語') {
+          newAK.englishRules = {
+            ...(settingsEnPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: settingsEnPunctuationDeduction } } : {}),
+            ...(settingsEnWordOrderCheck ? { wordOrderCheck: { enabled: true, deductionPerError: settingsEnWordOrderDeduction } } : {}),
+          }
+        }
+        await db.assignments.update(settingsAssignment.id, {
+          answerKey: newAK, domain: settingsSelectedNewAK.domain,
+          totalPages: settingsSelectedNewAK.totalPages,
+          scoringMode: settingsScoringMode === 'unscored' ? 'unscored' : undefined,
+          updatedAt: now,
+        })
+      } else {
+        // 只更新批改設定（不換答案卷）
+        const updates: Partial<Assignment> = {
+          scoringMode: settingsScoringMode === 'unscored' ? 'unscored' : undefined,
+          updatedAt: now,
+        }
+        if (settingsAssignment.answerKey) {
+          const ak = structuredClone(settingsAssignment.answerKey)
+          ak.strictness = settingsStrictness
+          if (domain === '數學') ak.fractionRule = settingsFractionRule
+          if (domain === '英語') {
+            ak.englishRules = {
+              ...(settingsEnPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: settingsEnPunctuationDeduction } } : {}),
+              ...(settingsEnWordOrderCheck ? { wordOrderCheck: { enabled: true, deductionPerError: settingsEnWordOrderDeduction } } : {}),
+            }
+          }
+          updates.answerKey = ak
+        }
+        await db.assignments.update(settingsAssignment.id, updates)
+      }
+      requestSync()
+      // Reload
+      const data = await db.assignments.where('classroomId').anyOf(classrooms.map((c) => c.id)).toArray()
+      const subs = await db.submissions.toArray()
+      const subCountMap = new Map<string, { uploaded: number; graded: number }>()
+      for (const sub of subs) {
+        if (sub.source === 'student_correction') continue
+        const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
+        entry.uploaded++
+        if (sub.status === 'graded' || sub.gradingResult) entry.graded++
+        subCountMap.set(sub.assignmentId, entry)
+      }
+      const classMap = new Map(classrooms.map((c) => [c.id, c]))
+      setAssignments(data.map((a) => ({ ...a, classroom: classMap.get(a.classroomId), uploadedCount: subCountMap.get(a.id)?.uploaded ?? 0, gradedCount: subCountMap.get(a.id)?.graded ?? 0 })))
+      setShowSettingsModal(false)
+    } catch (err) {
+      console.error('儲存設定失敗', err)
+    } finally {
+      setIsSavingSettings(false)
+    }
+  }
+
   // 所有有答案卷的作業（跨班級，用於答案卷選擇器）
   const [allAssignmentsWithAK, setAllAssignmentsWithAK] = useState<Assignment[]>([])
 
@@ -166,6 +250,52 @@ export default function AssignmentList({
   }, [allAssignmentsWithAK, createSelectedAnswerKeyId])
 
   const selectedDomain = selectedAnswerKey?.domain || ''
+
+  // ── 編輯設定 / 更換答案卷 Modal ──────────────────────────────────────────
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [settingsAssignment, setSettingsAssignment] = useState<AssignmentWithMeta | null>(null)
+  const [settingsStrictness, setSettingsStrictness] = useState<'strict' | 'standard' | 'lenient'>('standard')
+  const [settingsScoringMode, setSettingsScoringMode] = useState<'scored' | 'unscored'>('scored')
+  const [settingsFractionRule, setSettingsFractionRule] = useState<'require_simplified' | 'allow_equivalent'>('require_simplified')
+  const [settingsEnPunctuationCheck, setSettingsEnPunctuationCheck] = useState(false)
+  const [settingsEnPunctuationDeduction, setSettingsEnPunctuationDeduction] = useState(1)
+  const [settingsEnWordOrderCheck, setSettingsEnWordOrderCheck] = useState(false)
+  const [settingsEnWordOrderDeduction, setSettingsEnWordOrderDeduction] = useState(1)
+  const [settingsAnswerKeyFolder, setSettingsAnswerKeyFolder] = useState('')
+  const [settingsSelectedAnswerKeyId, setSettingsSelectedAnswerKeyId] = useState('')
+  const [isSavingSettings, setIsSavingSettings] = useState(false)
+
+  const openSettingsModal = (assignment: AssignmentWithMeta) => {
+    setSettingsAssignment(assignment)
+    const ak = assignment.answerKey
+    setSettingsStrictness((ak?.strictness as 'strict' | 'standard' | 'lenient') || 'standard')
+    setSettingsScoringMode(assignment.scoringMode === 'unscored' ? 'unscored' : 'scored')
+    setSettingsFractionRule((ak?.fractionRule as 'require_simplified' | 'allow_equivalent') || 'require_simplified')
+    setSettingsEnPunctuationCheck(!!ak?.englishRules?.punctuationCheck?.enabled)
+    setSettingsEnPunctuationDeduction(ak?.englishRules?.punctuationCheck?.deductionPerError ?? 1)
+    setSettingsEnWordOrderCheck(!!ak?.englishRules?.wordOrderCheck?.enabled)
+    setSettingsEnWordOrderDeduction(ak?.englishRules?.wordOrderCheck?.deductionPerError ?? 1)
+    setSettingsAnswerKeyFolder('')
+    setSettingsSelectedAnswerKeyId('')
+    setShowSettingsModal(true)
+  }
+
+  const settingsSelectedNewAK = useMemo(() => {
+    if (!settingsSelectedAnswerKeyId) return null
+    return allAssignmentsWithAK.find((a) => a.id === settingsSelectedAnswerKeyId) ?? null
+  }, [allAssignmentsWithAK, settingsSelectedAnswerKeyId])
+
+  const settingsAvailableAKs = useMemo(() => {
+    let items = allAssignmentsWithAK
+    if (settingsAnswerKeyFolder) items = items.filter((a) => a.folder === settingsAnswerKeyFolder)
+    const seen = new Map<string, Assignment>()
+    for (const a of items) {
+      const key = `${a.title}::${a.domain || ''}`
+      const existing = seen.get(key)
+      if (!existing || (a.updatedAt ?? 0) > (existing.updatedAt ?? 0)) seen.set(key, a)
+    }
+    return Array.from(seen.values()).sort((a, b) => a.title.localeCompare(b.title, 'zh-Hant'))
+  }, [allAssignmentsWithAK, settingsAnswerKeyFolder])
 
   // 建立作業
   const handleCreateAssignment = async () => {
@@ -595,9 +725,19 @@ export default function AssignmentList({
               >
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <h3 className="mb-1 text-base font-semibold text-gray-900">
-                      {assignment.title}
-                    </h3>
+                    <div className="mb-1 flex items-center gap-2">
+                      <h3 className="text-base font-semibold text-gray-900">
+                        {assignment.title}
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => openSettingsModal(assignment)}
+                        className="rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                        title="批改設定 / 更換答案卷"
+                      >
+                        <Settings className="h-4 w-4" />
+                      </button>
+                    </div>
                     <p className="text-sm text-gray-600">
                       {assignment.classroom?.name || '未知班級'} · 共 {assignment.totalPages} 頁 ·
                       已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
@@ -906,6 +1046,136 @@ export default function AssignmentList({
           </div>
         </div>
       )}
+      {/* 批改設定 / 更換答案卷 Modal */}
+      {showSettingsModal && settingsAssignment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowSettingsModal(false)}>
+          <div className="w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 sticky top-0 bg-white rounded-t-2xl z-10">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">批改設定</h2>
+                <p className="text-xs text-gray-500">{settingsAssignment.title}</p>
+              </div>
+              <button type="button" onClick={() => setShowSettingsModal(false)} className="rounded-full p-2 hover:bg-gray-100">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-5">
+              {/* 目前答案卷資訊 */}
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                <p className="text-xs text-gray-500 mb-1">目前答案卷</p>
+                {settingsAssignment.answerKey ? (
+                  <p className="text-sm font-medium text-gray-900">
+                    {settingsAssignment.domain || '未設定領域'} · {settingsAssignment.answerKey.questions.length} 題 · 總分 {settingsAssignment.answerKey.totalScore}
+                  </p>
+                ) : (
+                  <p className="text-sm text-red-500">尚未設定答案卷</p>
+                )}
+              </div>
+
+              {/* 更換答案卷 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">更換答案卷（選填）</label>
+                <div className="space-y-2">
+                  <select value={settingsAnswerKeyFolder} onChange={(e) => { setSettingsAnswerKeyFolder(e.target.value); setSettingsSelectedAnswerKeyId('') }}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
+                    <option value="">全部資料夾</option>
+                    {answerKeyFolders.map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                  <select value={settingsSelectedAnswerKeyId} onChange={(e) => setSettingsSelectedAnswerKeyId(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
+                    <option value="">不更換</option>
+                    {settingsAvailableAKs.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.title}（{a.domain || '未設定'} · {a.answerKey?.questions?.length ?? 0} 題）
+                      </option>
+                    ))}
+                  </select>
+                  {settingsSelectedNewAK && (settingsAssignment.gradedCount ?? 0) > 0 && (
+                    <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      ⚠ 更換答案卷將清除 {settingsAssignment.gradedCount} 份批改結果，需重新批改
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* 批改設定 */}
+              <div className="space-y-4 border-t border-gray-100 pt-4">
+                <h3 className="text-sm font-semibold text-gray-700">批改設定</h3>
+
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">嚴格度</label>
+                  <select value={settingsStrictness} onChange={(e) => setSettingsStrictness(e.target.value as 'strict' | 'standard' | 'lenient')}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
+                    <option value="strict">嚴格</option>
+                    <option value="standard">標準</option>
+                    <option value="lenient">寬鬆</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">計分</label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked={settingsScoringMode === 'scored'} onChange={() => setSettingsScoringMode('scored')} className="w-4 h-4 accent-green-600" />
+                      <span className="text-sm text-gray-700">計分</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="radio" checked={settingsScoringMode === 'unscored'} onChange={() => setSettingsScoringMode('unscored')} className="w-4 h-4 accent-green-600" />
+                      <span className="text-sm text-gray-700">不計分</span>
+                    </label>
+                  </div>
+                </div>
+
+                {(settingsSelectedNewAK?.domain || settingsAssignment.domain) === '數學' && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">分數規則</label>
+                    <select value={settingsFractionRule} onChange={(e) => setSettingsFractionRule(e.target.value as 'require_simplified' | 'allow_equivalent')}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
+                      <option value="require_simplified">必須最簡分數</option>
+                      <option value="allow_equivalent">接受等值分數</option>
+                    </select>
+                  </div>
+                )}
+
+                {(settingsSelectedNewAK?.domain || settingsAssignment.domain) === '英語' && (
+                  <div className="space-y-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={settingsEnPunctuationCheck} onChange={(e) => setSettingsEnPunctuationCheck(e.target.checked)} className="w-4 h-4 accent-green-600" />
+                      <span className="text-sm text-gray-700">標點符號檢查</span>
+                      {settingsEnPunctuationCheck && (
+                        <span className="text-xs text-gray-500">
+                          每錯扣 <NumericInput min={1} max={5} value={settingsEnPunctuationDeduction} onChange={(v) => setSettingsEnPunctuationDeduction(typeof v === 'number' ? v : 1)}
+                            className="inline-block w-12 px-1 py-0.5 border border-gray-300 rounded text-center text-xs" /> 分
+                        </span>
+                      )}
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={settingsEnWordOrderCheck} onChange={(e) => setSettingsEnWordOrderCheck(e.target.checked)} className="w-4 h-4 accent-green-600" />
+                      <span className="text-sm text-gray-700">單字順序檢查</span>
+                      {settingsEnWordOrderCheck && (
+                        <span className="text-xs text-gray-500">
+                          每錯扣 <NumericInput min={1} max={5} value={settingsEnWordOrderDeduction} onChange={(v) => setSettingsEnWordOrderDeduction(typeof v === 'number' ? v : 1)}
+                            className="inline-block w-12 px-1 py-0.5 border border-gray-300 rounded text-center text-xs" /> 分
+                        </span>
+                      )}
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 sticky bottom-0 bg-white rounded-b-2xl">
+              <button type="button" onClick={() => setShowSettingsModal(false)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">取消</button>
+              <button type="button" disabled={isSavingSettings} onClick={() => void handleSaveSettings()}
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300 transition-all active:scale-95">
+                {isSavingSettings ? <Loader className="h-4 w-4 animate-spin" /> : '儲存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 新增作業 Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowCreateModal(false)}>
