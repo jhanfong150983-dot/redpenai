@@ -1959,16 +1959,35 @@ function sanitizeUnorderedCriteria(question: AnswerKeyQuestion): AnswerKeyQuesti
       }
     }
 
-    // Strip format requirements from any dimension
-    // Patterns: "使用因為...所以...格式", "以因為...所以...句式", etc.
-    const formatPattern = /[，,；;]?\s*(?:使用|以|用|須用|需用|必須使用)?[「『]?因為[.…]*所以[.…]*[」』]?(?:格式|句式|句型|結構|的方式|來表達|書寫)[，,；;]?\s*/g
-    const cleaned = criteria.replace(formatPattern, '').trim()
-    // Also handle "語句通順使用因為...所以...句式且表達通順" → "語句表達通順"
-    const formatPattern2 = /使用因為[.…]*所以[.…]*句式且?/g
-    const cleaned2 = cleaned.replace(formatPattern2, '').trim()
-    if (cleaned2 !== criteria) {
-      console.log(`[AnswerKey] strip format requirement: "${criteria}" → "${cleaned2}" (question ${question.id})`)
-      criteria = cleaned2 || '語句表達清楚通順'
+    // Strip ANY sentence-format requirements from criteria.
+    // AI often copies the question's guided format (因為...所以..., 先...再..., etc.)
+    // into the criteria as a grading requirement. But format ≠ grading standard.
+    // "語句通順" should mean "clear expression", not "must use specific sentence pattern".
+    const isFluentDim = nameLower.includes('通順') || nameLower.includes('語句') ||
+      nameLower.includes('表達') || nameLower.includes('文字')
+    if (isFluentDim) {
+      // If this is a fluency dimension, replace with clean generic criteria
+      // regardless of what AI wrote — format should never be a grading standard
+      const hasFormatReq = /(?:使用|以|用|須用|需用|必須).{0,20}(?:格式|句式|句型|結構)/.test(criteria) ||
+        /因為[.…]*所以/.test(criteria) || /先[.…]*再/.test(criteria)
+      if (hasFormatReq) {
+        console.log(`[AnswerKey] strip format from fluency dim: "${criteria}" → generic (question ${question.id})`)
+        criteria = '語句表達清楚通順'
+      }
+    } else {
+      // For non-fluency dimensions, strip format fragments but keep content criteria
+      const formatPatterns = [
+        /[，,；;]?\s*(?:使用|以|用|須用|需用|必須使用).{0,30}(?:格式|句式|句型|結構|的方式)[，,；;]?\s*/g,
+        /[，,；;]?\s*(?:使用|以|用)因為[.…]*所以[.…]*(?:句式|格式|來)?(?:且|並)?/g,
+      ]
+      let cleaned = criteria
+      for (const p of formatPatterns) {
+        cleaned = cleaned.replace(p, '').trim()
+      }
+      if (cleaned !== criteria) {
+        console.log(`[AnswerKey] strip format requirement: "${criteria}" → "${cleaned}" (question ${question.id})`)
+        criteria = cleaned || dim.criteria
+      }
     }
 
     return { ...dim, criteria }
