@@ -730,7 +730,12 @@ export function useSync(options: UseSyncOptions = {}) {
       }))
 
     const answerKeyTemplatesPayload = answerKeyTemplates
-      .filter((t) => t?.id && t?.answerKey)
+      .filter((t) => {
+        if (!t?.id || !t?.answerKey) return false
+        // 只推送有變更的 templates（避免每次 sync 都送全部的大 payload）
+        if (lastSuccessfulSyncAt && t.updatedAt && t.updatedAt < lastSuccessfulSyncAt) return false
+        return true
+      })
       .map((t) => ({
         id: t.id,
         name: t.name,
