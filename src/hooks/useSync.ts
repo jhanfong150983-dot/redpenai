@@ -647,15 +647,15 @@ export function useSync(options: UseSyncOptions = {}) {
     console.log(`📤 [Sync Push] 準備上傳 ${assignmentPayload.length} 個作業:`, assignmentPayload.map(a => ({ id: a.id, title: a.title, hasAnswerKey: !!a.answerKey })))
 
     const submissionPayload = submissions
-      .filter((sub) => sub.status !== 'scanned')
       .filter((sub) => {
+        if (sub.status === 'scanned') return false
         if (!lastSuccessfulSyncAt) return true
+        // 只推送有變更的 submissions
         const rank = Math.max(
           toNumber(sub.updatedAt) ?? 0,
-          toNumber(sub.gradedAt) ?? 0,
-          toNumber(sub.createdAt) ?? 0
+          toNumber(sub.gradedAt) ?? 0
         )
-        return rank >= submissionPushWindowStart
+        return rank >= lastSuccessfulSyncAt
       })
       .map(({ imageBlob, ...rest }) => {
         // 只在本地新批改（gradedAt 在上次 sync 之後）時才帶 gradingResult，避免 payload 過大
