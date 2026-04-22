@@ -597,7 +597,11 @@ export function useSync(options: UseSyncOptions = {}) {
     debugLog('📤 pushMetadata - 準備發送的 classrooms:', classroomPayload)
 
     const studentPayload = students
-      .filter((s) => s?.id && s?.classroomId && !deletedStudentIds.has(s.id))
+      .filter((s) => {
+        if (!s?.id || !s?.classroomId || deletedStudentIds.has(s.id)) return false
+        if (lastSuccessfulSyncAt && s.updatedAt && s.updatedAt < lastSuccessfulSyncAt) return false
+        return true
+      })
       .map((s) => ({
         id: s.id,
         classroomId: s.classroomId,
@@ -692,9 +696,11 @@ export function useSync(options: UseSyncOptions = {}) {
       }))
 
     const gradebookCustomColumnsPayload = gradebookCustomColumns
-      .filter(
-        (c) => c?.id && c?.classroomId && !deletedGradebookCustomColumnIds.has(c.id)
-      )
+      .filter((c) => {
+        if (!c?.id || !c?.classroomId || deletedGradebookCustomColumnIds.has(c.id)) return false
+        if (lastSuccessfulSyncAt && c.updatedAt && c.updatedAt < lastSuccessfulSyncAt) return false
+        return true
+      })
       .map((c) => ({
         id: c.id,
         classroomId: c.classroomId,
@@ -711,15 +717,12 @@ export function useSync(options: UseSyncOptions = {}) {
       }))
 
     const gradebookCustomScoresPayload = gradebookCustomScores
-      .filter(
-        (s) =>
-          s?.id &&
-          s?.classroomId &&
-          s?.columnId &&
-          s?.studentId &&
-          !deletedGradebookCustomScoreIds.has(s.id) &&
-          !deletedGradebookCustomColumnIds.has(s.columnId)
-      )
+      .filter((s) => {
+        if (!s?.id || !s?.classroomId || !s?.columnId || !s?.studentId) return false
+        if (deletedGradebookCustomScoreIds.has(s.id) || deletedGradebookCustomColumnIds.has(s.columnId)) return false
+        if (lastSuccessfulSyncAt && s.updatedAt && s.updatedAt < lastSuccessfulSyncAt) return false
+        return true
+      })
       .map((s) => ({
         id: s.id,
         classroomId: s.classroomId,
