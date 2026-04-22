@@ -2933,12 +2933,14 @@ export default function GradingPage({
 
     setIsSavingScore(true)
     try {
+      const now = Date.now()
       await db.submissions.update(id, {
         score: newTotal,
         aiScore: newTotal,
         scoreSource: 'ai',
         gradingResult: newGradingResult,
-        updatedAt: Date.now()
+        gradedAt: now,
+        updatedAt: now
       })
       requestSync()
 
