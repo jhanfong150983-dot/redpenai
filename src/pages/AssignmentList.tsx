@@ -124,6 +124,7 @@ export default function AssignmentList({
   const [createEnPunctuationDeduction, setCreateEnPunctuationDeduction] = useState(1)
   const [createEnWordOrderCheck, setCreateEnWordOrderCheck] = useState(false)
   const [createEnWordOrderDeduction, setCreateEnWordOrderDeduction] = useState(1)
+  const [createFolder, setCreateFolder] = useState('')
   const [isCreating, setIsCreating] = useState(false)
 
   // ── 編輯設定 / 更換答案卷 Modal（state 在 allAssignmentsWithAK 後面宣告）──
@@ -165,12 +166,14 @@ export default function AssignmentList({
           answerKey: newAK, domain: settingsSelectedNewAK.domain,
           totalPages: settingsSelectedNewAK.totalPages,
           scoringMode: settingsScoringMode === 'unscored' ? 'unscored' : undefined,
+          folder: settingsFolder || undefined,
           updatedAt: now,
         })
       } else {
         // 只更新批改設定（不換答案卷）
         const updates: Partial<Assignment> = {
           scoringMode: settingsScoringMode === 'unscored' ? 'unscored' : undefined,
+          folder: settingsFolder || undefined,
           updatedAt: now,
         }
         if (settingsAssignment.answerKey) {
@@ -275,6 +278,7 @@ export default function AssignmentList({
   const [settingsEnWordOrderDeduction, setSettingsEnWordOrderDeduction] = useState(1)
   const [settingsAnswerKeyFolder, setSettingsAnswerKeyFolder] = useState('')
   const [settingsSelectedAnswerKeyId, setSettingsSelectedAnswerKeyId] = useState('')
+  const [settingsFolder, setSettingsFolder] = useState('')
   const [isSavingSettings, setIsSavingSettings] = useState(false)
 
   const openSettingsModal = (assignment: AssignmentWithMeta) => {
@@ -289,6 +293,7 @@ export default function AssignmentList({
     setSettingsEnWordOrderDeduction(ak?.englishRules?.wordOrderCheck?.deductionPerError ?? 1)
     setSettingsAnswerKeyFolder('')
     setSettingsSelectedAnswerKeyId('')
+    setSettingsFolder(assignment.folder || '')
     setShowSettingsModal(true)
   }
 
@@ -356,7 +361,7 @@ export default function AssignmentList({
         domain,
         answerKey,
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
-        folder: selectedFolder !== '__uncategorized__' ? selectedFolder : undefined,
+        folder: createFolder || undefined,
         updatedAt: now,
       }
       await db.assignments.add(newAssignment)
@@ -661,6 +666,7 @@ export default function AssignmentList({
                   setCreateFractionRule('require_simplified')
                   setCreateEnPunctuationCheck(false)
                   setCreateEnWordOrderCheck(false)
+                  setCreateFolder(selectedFolder === '__all__' || selectedFolder === '__uncategorized__' ? '' : selectedFolder)
                   setShowCreateModal(true)
                 }}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-all hover:bg-green-700 active:scale-95"
@@ -1101,6 +1107,16 @@ export default function AssignmentList({
                 )}
               </div>
 
+              {/* 資料夾 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">資料夾</label>
+                <select value={settingsFolder} onChange={(e) => setSettingsFolder(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
+                  <option value="">未分類</option>
+                  {usedFolders.map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </div>
+
               {/* 更換答案卷 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">更換答案卷（選填）</label>
@@ -1165,6 +1181,16 @@ export default function AssignmentList({
                 <label className="block text-sm font-medium text-gray-700 mb-1">作業名稱</label>
                 <input type="text" value={createTitle} onChange={(e) => setCreateTitle(e.target.value)} placeholder="例如：數習P.42-43" autoFocus
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100" />
+              </div>
+
+              {/* 作業資料夾 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">資料夾</label>
+                <select value={createFolder} onChange={(e) => setCreateFolder(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
+                  <option value="">未分類</option>
+                  {usedFolders.map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
               </div>
 
               {/* 選擇答案卷 */}
