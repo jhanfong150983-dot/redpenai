@@ -491,6 +491,7 @@ export function useSync(options: UseSyncOptions = {}) {
       folders,
       gradebookCustomColumns,
       gradebookCustomScores,
+      answerKeyTemplates,
       deleteQueue
     ] =
       await Promise.all([
@@ -501,6 +502,7 @@ export function useSync(options: UseSyncOptions = {}) {
         db.folders.toArray(),
         db.gradebookCustomColumns.toArray(),
         db.gradebookCustomScores.toArray(),
+        db.answerKeyTemplates.toArray(),
         readDeleteQueue()
       ])
 
@@ -628,6 +630,7 @@ export function useSync(options: UseSyncOptions = {}) {
             return rest
           })
         } : undefined,
+        answerKeyTemplateId: a.answerKeyTemplateId ?? null,
         conceptTags: a.conceptTags,
         updatedAt: a.updatedAt
       }))
@@ -726,6 +729,27 @@ export function useSync(options: UseSyncOptions = {}) {
         updatedAt: s.updatedAt
       }))
 
+    const answerKeyTemplatesPayload = answerKeyTemplates
+      .filter((t) => t?.id && t?.answerKey)
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        domain: t.domain ?? null,
+        docType: t.docType ?? null,
+        folder: t.folder ?? null,
+        answerKey: t.answerKey ? {
+          ...t.answerKey,
+          questions: t.answerKey.questions?.map(q => {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { cropImageUrl, ...rest } = q
+            return rest
+          })
+        } : undefined,
+        questionCount: t.questionCount ?? t.answerKey?.questions?.length ?? 0,
+        totalScore: t.totalScore ?? t.answerKey?.totalScore ?? 0,
+        updatedAt: t.updatedAt
+      }))
+
     const pushController = new AbortController()
     const pushAbortTimer = setTimeout(() => pushController.abort(), 50_000)
     const response = await fetch(buildSyncUrl(), {
@@ -742,6 +766,7 @@ export function useSync(options: UseSyncOptions = {}) {
         folders: foldersPayload,
         gradebookCustomColumns: gradebookCustomColumnsPayload,
         gradebookCustomScores: gradebookCustomScoresPayload,
+        answerKeyTemplates: answerKeyTemplatesPayload,
         deleted: deletedPayload
       })
     }).finally(() => clearTimeout(pushAbortTimer))
@@ -801,6 +826,7 @@ export function useSync(options: UseSyncOptions = {}) {
     const gradebookCustomColumns = Array.isArray(data.gradebookCustomColumns)
       ? data.gradebookCustomColumns
       : []
+    const answerKeyTemplatesData = Array.isArray(data.answerKeyTemplates) ? data.answerKeyTemplates : []
     const gradebookCustomScores = Array.isArray(data.gradebookCustomScores)
       ? data.gradebookCustomScores
       : []
@@ -1087,6 +1113,7 @@ export function useSync(options: UseSyncOptions = {}) {
           gradeWeightPercent: a.gradeWeightPercent,
           updatedAt: a.updatedAt,
           answerKey: a.answerKey,
+          answerKeyTemplateId: a.answerKeyTemplateId,
           conceptTags: a.conceptTags,
           answerSheetImagePaths: a.answerSheetImagePaths
         }
@@ -1146,6 +1173,10 @@ export function useSync(options: UseSyncOptions = {}) {
           scoringMode: finalScoringMode,
           gradeWeightPercent: finalGradeWeightPercent,
           answerKey: localIsNewer ? (localData?.answerKey ?? a.answerKey ?? undefined) : (a.answerKey ?? undefined),
+          answerKeyTemplateId:
+            (a as Assignment & { answerKeyTemplateId?: string }).answerKeyTemplateId ??
+            (a as { answer_key_template_id?: string }).answer_key_template_id ??
+            localData?.answerKeyTemplateId,
           // conceptTags: 優先用雲端（若有），否則保留本地（避免 bulkPut 洗掉）
           conceptTags: (cloudConceptTags ?? localData?.conceptTags) as Assignment['conceptTags'] | undefined,
           // answerSheetImagePaths: 本地端特有欄位，永遠保留本地資料
@@ -1245,6 +1276,21 @@ export function useSync(options: UseSyncOptions = {}) {
           (f as { updatedAt?: unknown }).updatedAt ??
             (f as { updated_at?: unknown }).updated_at
         )
+      }))
+
+    // Normalize answer key templates from pull
+    const normalizedTemplates = answerKeyTemplatesData
+      .filter((t: any) => t?.id && t?.answerKey)
+      .map((t: any) => ({
+        id: t.id,
+        name: t.name ?? '',
+        domain: t.domain ?? undefined,
+        docType: t.docType ?? t.doc_type ?? undefined,
+        folder: t.folder ?? undefined,
+        answerKey: t.answerKey ?? t.answer_key,
+        questionCount: t.questionCount ?? t.question_count ?? t.answerKey?.questions?.length ?? 0,
+        totalScore: t.totalScore ?? t.total_score ?? t.answerKey?.totalScore ?? 0,
+        updatedAt: toMillis(t.updatedAt ?? t.updated_at),
       }))
 
     if (deletedClassroomIds.length > 0) {
@@ -1444,6 +1490,12 @@ export function useSync(options: UseSyncOptions = {}) {
       // 驗證本地資料夾是否真的保留
       const localFolders = await db.folders.toArray()
       debugLog('🔍 pullMetadata 後本地 folders:', localFolders)
+    }
+
+    // Answer key templates
+    if (normalizedTemplates.length > 0) {
+      await db.answerKeyTemplates.bulkPut(normalizedTemplates)
+      debugLog(`✅ 同步了 ${normalizedTemplates.length} 個答案卷模板`)
     }
 
     // 清理孤兒 assignment folders（所屬班級已被刪除）
