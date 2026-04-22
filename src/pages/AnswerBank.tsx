@@ -489,32 +489,19 @@ export default function AnswerBank(_props: AnswerBankProps) {
       {/* Content: folder structure */}
       <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
         <div className="space-y-6">
-          {/* Uncategorized */}
-          <section>
-            <div
-              onDragOver={(e) => handleDragOver(e, '__uncategorized__')}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => void handleDrop(e, '__uncategorized__')}
-              className={`transition-colors rounded-lg p-2 -m-2 ${dropTargetFolder === '__uncategorized__' ? 'bg-green-50/70' : ''}`}
-            >
-              {uncategorizedItems.length === 0 && orderedFolders.length === 0 ? (
-                <div className="py-12 text-center">
-                  <BookOpen className="mx-auto h-12 w-12 text-slate-300" />
-                  <p className="mt-4 text-sm font-medium text-slate-500">尚未建立任何答案卷</p>
-                  <button type="button" onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setNewDocType('worksheet'); setShowNewModal(true) }}
-                    className="mt-3 inline-flex items-center gap-2 rounded-lg border border-green-300 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-50">
-                    <FileUp className="h-4 w-4" />上傳答案卷圖片
-                  </button>
-                </div>
-              ) : uncategorizedItems.length === 0 ? (
-                <p className="text-sm text-gray-500 px-1">無未分類的答案卷。</p>
-              ) : (
-                <div className="space-y-2">{uncategorizedItems.map((item) => renderCard(item))}</div>
-              )}
+          {/* Empty state: no answer keys at all */}
+          {uncategorizedItems.length === 0 && orderedFolders.length === 0 && (
+            <div className="py-12 text-center">
+              <BookOpen className="mx-auto h-12 w-12 text-slate-300" />
+              <p className="mt-4 text-sm font-medium text-slate-500">尚未建立任何答案卷</p>
+              <button type="button" onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setNewDocType('worksheet'); setShowNewModal(true) }}
+                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-green-300 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-50">
+                <FileUp className="h-4 w-4" />上傳答案卷圖片
+              </button>
             </div>
-          </section>
+          )}
 
-          {/* Folders */}
+          {/* Folders first */}
           <section>
             <div className="space-y-3">
               {orderedFolders.map((folder) => {
@@ -583,6 +570,20 @@ export default function AnswerBank(_props: AnswerBankProps) {
               })}
             </div>
           </section>
+
+          {/* Uncategorized items below folders */}
+          {uncategorizedItems.length > 0 && (
+            <section>
+              <div
+                onDragOver={(e) => handleDragOver(e, '__uncategorized__')}
+                onDragLeave={handleDragLeave}
+                onDrop={(e) => void handleDrop(e, '__uncategorized__')}
+                className={`transition-colors rounded-lg p-2 -m-2 ${dropTargetFolder === '__uncategorized__' ? 'bg-green-50/70' : ''}`}
+              >
+                <div className="space-y-2">{uncategorizedItems.map((item) => renderCard(item))}</div>
+              </div>
+            </section>
+          )}
         </div>
       </div>
 
