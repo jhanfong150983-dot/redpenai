@@ -4,7 +4,7 @@ import {
   Folder, ChevronDown, ChevronRight, Edit2
 } from 'lucide-react'
 import { db, generateId } from '@/lib/db'
-import type { Assignment, AnswerKey, Classroom } from '@/lib/db'
+import type { AnswerKey, AnswerKeyTemplate } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages } from '@/lib/gemini'
@@ -59,8 +59,7 @@ function DomainBadge({ domain }: { domain: string }) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function AnswerBank(_props: AnswerBankProps) {
-  const [assignments, setAssignments] = useState<Assignment[]>([])
-  const [classrooms, setClassrooms] = useState<Classroom[]>([])
+  const [templates, setTemplates] = useState<AnswerKeyTemplate[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterDomain, setFilterDomain] = useState('')
@@ -112,14 +111,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   const loadData = useCallback(async () => {
     try {
-      const [allAssignments, allClassrooms, allFolders] = await Promise.all([
-        db.assignments.toArray(),
-        db.classrooms.toArray(),
+      const [allTemplates, allFolders] = await Promise.all([
+        db.answerKeyTemplates.toArray(),
         db.folders.where('type').equals('assignment').toArray(),
       ])
-      setAssignments(allAssignments)
-      setClassrooms(allClassrooms)
-      // Empty folders = folders in DB that might not have any assignments
+      setTemplates(allTemplates)
       const folderNames = allFolders.map((f) => f.name)
       setEmptyFolders(folderNames)
     } catch (err) {
@@ -131,22 +127,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   useEffect(() => { void loadData() }, [loadData])
 
-  // ── Items with answer keys ─────────────────────────────────────────────────
-
-  const classroomNameMap = useMemo(() => {
-    const map = new Map<string, string>()
-    classrooms.forEach((c) => map.set(c.id, c.name))
-    return map
-  }, [classrooms])
+  // ── Template items ──────────────────────────────────────────────────────────
 
   const answerKeyItems = useMemo(() => {
-    return assignments
-      .filter((a) => a.answerKey?.questions?.length)
-      .map((a) => ({
-        ...a,
-        classroomName: classroomNameMap.get(a.classroomId) || '未知班級',
-      }))
-  }, [assignments, classroomNameMap])
+    return templates.filter((t) => t.answerKey?.questions?.length)
+  }, [templates])
 
   // ── Folder computations ────────────────────────────────────────────────────
 
@@ -164,11 +149,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
   }, [folderOrder, usedFolders])
 
   const uncategorizedItems = useMemo(() => {
-    let items = answerKeyItems.filter((a) => !a.folder)
-    if (filterDomain) items = items.filter((a) => (a.domain || '其他') === filterDomain)
+    let items = answerKeyItems.filter((t) => !t.folder)
+    if (filterDomain) items = items.filter((t) => (t.domain || '其他') === filterDomain)
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase()
-      items = items.filter((a) => a.title.toLowerCase().includes(q))
+      items = items.filter((t) => t.name.toLowerCase().includes(q))
     }
     return items
   }, [answerKeyItems, filterDomain, searchQuery])
@@ -179,14 +164,14 @@ export default function AnswerBank(_props: AnswerBankProps) {
     for (const item of answerKeyItems) {
       if (!item.folder) continue
       if (filterDomain && (item.domain || '其他') !== filterDomain) continue
-      if (searchQuery.trim() && !item.title.toLowerCase().includes(searchQuery.trim().toLowerCase())) continue
+      if (searchQuery.trim() && !item.name.toLowerCase().includes(searchQuery.trim().toLowerCase())) continue
       map.get(item.folder)?.push(item)
     }
     return map
   }, [answerKeyItems, orderedFolders, filterDomain, searchQuery])
 
   const allDomains = useMemo(() => {
-    const domains = new Set(answerKeyItems.map((a) => a.domain || '其他'))
+    const domains = new Set(answerKeyItems.map((t) => t.domain || '其他'))
     return Array.from(domains).sort()
   }, [answerKeyItems])
 
@@ -219,13 +204,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const handleCreateFolder = async () => {
     const trimmed = newFolderName.trim()
     if (!trimmed) { setNewFolderError('請輸入資料夾名稱'); return }
-    // Use first classroom for folder binding (answer bank is cross-classroom but folders need a classroom)
-    const firstClassroom = classrooms[0]
-    if (!firstClassroom) { setNewFolderError('請先建立班級'); return }
-    const check = await checkFolderNameUnique(trimmed, 'assignment', firstClassroom.id)
+    const check = await checkFolderNameUnique(trimmed, 'assignment')
     if (!check.isUnique) { setNewFolderError(`此資料夾名稱已被${check.usedBy}使用`); return }
     try {
-      await db.folders.add({ id: generateId(), name: trimmed, type: 'assignment', classroomId: firstClassroom.id, updatedAt: Date.now() })
+      await db.folders.add({ id: generateId(), name: trimmed, type: 'assignment', updatedAt: Date.now() })
       setEmptyFolders((prev) => [...prev, trimmed])
       setExpandedFolders((prev) => [...prev, trimmed])
       requestSync()
@@ -241,15 +223,14 @@ export default function AnswerBank(_props: AnswerBankProps) {
     if (!oldName) return
     if (!newName) { setEditingFolderError('資料夾名稱不能為空'); return }
     if (newName === oldName) { setEditingFolderId(null); return }
-    const firstClassroom = classrooms[0]
-    const check = await checkFolderNameUnique(newName, 'assignment', firstClassroom?.id)
+    const check = await checkFolderNameUnique(newName, 'assignment')
     if (!check.isUnique) { setEditingFolderError(`此名稱已被${check.usedBy}使用`); return }
     setIsBusy(true)
     try {
       const folderRecord = await db.folders.filter((f) => f.type === 'assignment' && f.name === oldName).first()
       if (folderRecord) await db.folders.update(folderRecord.id, { name: newName, updatedAt: Date.now() })
-      const toUpdate = assignments.filter((a) => a.folder === oldName)
-      for (const a of toUpdate) await db.assignments.update(a.id, { folder: newName, updatedAt: Date.now() })
+      const toUpdate = templates.filter((t) => t.folder === oldName)
+      for (const t of toUpdate) await db.answerKeyTemplates.update(t.id, { folder: newName, updatedAt: Date.now() })
       requestSync()
       await loadData()
       setExpandedFolders((prev) => prev.includes(oldName) ? [...prev.filter((f) => f !== oldName), newName] : prev)
@@ -268,8 +249,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
     if (!window.confirm(msg)) return
     setIsBusy(true)
     try {
-      const toUpdate = assignments.filter((a) => a.folder === folderName)
-      for (const a of toUpdate) await db.assignments.update(a.id, { folder: undefined })
+      const toUpdate = templates.filter((t) => t.folder === folderName)
+      for (const t of toUpdate) await db.answerKeyTemplates.update(t.id, { folder: undefined })
       const folderRecord = await db.folders.filter((f) => f.type === 'assignment' && f.name === folderName).first()
       if (folderRecord) { await queueDeleteMany('folders', [folderRecord.id]); await db.folders.delete(folderRecord.id) }
       requestSync()
@@ -295,8 +276,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
     if (!draggedItemId) return
     const newFolder = targetFolder === '__uncategorized__' ? undefined : targetFolder
     try {
-      await db.assignments.update(draggedItemId, { folder: newFolder, updatedAt: Date.now() })
-      setAssignments((prev) => prev.map((a) => a.id === draggedItemId ? { ...a, folder: newFolder } : a))
+      await db.answerKeyTemplates.update(draggedItemId, { folder: newFolder, updatedAt: Date.now() })
+      setTemplates((prev) => prev.map((t) => t.id === draggedItemId ? { ...t, folder: newFolder } : t))
       requestSync()
       if (targetFolder !== '__uncategorized__') setExpandedFolders((prev) => prev.includes(targetFolder) ? prev : [...prev, targetFolder])
     } catch { setError('移動失敗') }
@@ -313,13 +294,13 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   // ── Title inline edit ──────────────────────────────────────────────────────
 
-  const startEditTitle = (a: Assignment) => { setEditingTitleId(a.id); setEditingTitleValue(a.title) }
+  const startEditTitle = (t: AnswerKeyTemplate) => { setEditingTitleId(t.id); setEditingTitleValue(t.name) }
   const saveEditTitle = async (id: string) => {
     const next = editingTitleValue.trim()
     if (!next) { setEditingTitleId(null); return }
     try {
-      await db.assignments.update(id, { title: next, updatedAt: Date.now() })
-      setAssignments((prev) => prev.map((a) => a.id === id ? { ...a, title: next } : a))
+      await db.answerKeyTemplates.update(id, { name: next, updatedAt: Date.now() })
+      setTemplates((prev) => prev.map((t) => t.id === id ? { ...t, name: next } : t))
       requestSync()
     } catch { /* ignore */ }
     setEditingTitleId(null); setEditingTitleValue('')
@@ -356,20 +337,25 @@ export default function AnswerBank(_props: AnswerBankProps) {
     } finally { closeInkSession() }
   }
 
-  const handleWizardSave = async (answerKey: AnswerKey, imageBlobs: Blob[]) => {
+  const handleWizardSave = async (answerKey: AnswerKey, _imageBlobs: Blob[]) => {
     if (editingAssignmentId) {
       const now = Date.now()
-      await db.assignments.update(editingAssignmentId, { answerKey, updatedAt: now })
+      await db.answerKeyTemplates.update(editingAssignmentId, { answerKey, updatedAt: now })
     } else {
-      const firstClassroom = classrooms[0]
-      if (!firstClassroom) { setError('請先建立班級'); return }
       if (!newTitle.trim()) { setError('請輸入答案卷名稱'); return }
       const domainValue = newDomain === '國語（測試中）' ? '國語' : (newDomain || '其他')
-      await db.assignments.add({
-        id: generateId(), classroomId: firstClassroom.id, title: newTitle.trim(),
-        totalPages: imageBlobs.length, domain: domainValue, folder: newFolder || undefined,
-        docType: newDocType, answerKey, updatedAt: Date.now(),
-      })
+      const template: AnswerKeyTemplate = {
+        id: generateId(),
+        name: newTitle.trim(),
+        domain: domainValue,
+        docType: newDocType,
+        folder: newFolder || undefined,
+        answerKey,
+        questionCount: answerKey.questions?.length ?? 0,
+        totalScore: answerKey.totalScore ?? 0,
+        updatedAt: Date.now(),
+      }
+      await db.answerKeyTemplates.add(template)
     }
     requestSync(); await loadData()
     setShowWizard(false); wizardPages.forEach((p) => URL.revokeObjectURL(p.url)); setWizardPages([])
@@ -379,63 +365,63 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   // ── Edit / Delete ──────────────────────────────────────────────────────────
 
-  const handleEdit = (a: Assignment) => {
-    setEditingAssignmentId(a.id); setEditingAnswerKey(a.answerKey!); setEditingDomain(a.domain || '')
+  const handleEdit = (t: AnswerKeyTemplate) => {
+    setEditingAssignmentId(t.id); setEditingAnswerKey(t.answerKey); setEditingDomain(t.domain || '')
     setWizardPages([]); setShowWizard(true)
   }
 
   const handleDelete = async (id: string) => {
-    const a = assignments.find((x) => x.id === id)
-    if (!a) return
-    if (!window.confirm(`確定要刪除「${a.title}」的答案卷？`)) return
+    const t = templates.find((x) => x.id === id)
+    if (!t) return
+    if (!window.confirm(`確定要刪除「${t.name}」的答案卷？\n\n已使用此答案卷的班級作業不受影響（它們有各自的副本）。`)) return
     try {
-      await db.assignments.update(id, { answerKey: undefined, updatedAt: Date.now() })
+      await db.answerKeyTemplates.delete(id)
       requestSync(); await loadData()
     } catch (err) { setError(err instanceof Error ? err.message : '刪除失敗') }
   }
 
   // ── Render answer key card ─────────────────────────────────────────────────
 
-  const renderCard = (a: typeof answerKeyItems[0]) => (
+  const renderCard = (t: AnswerKeyTemplate) => (
     <div
-      key={a.id}
-      draggable={editingTitleId !== a.id}
-      onDragStart={() => handleDragStart(a.id)}
-      onDragOver={(e) => { if (draggedItemId && draggedItemId !== a.id) { e.preventDefault(); setDragOverItemId(a.id) } }}
-      onDragLeave={() => { if (dragOverItemId === a.id) setDragOverItemId(null) }}
-      onDrop={(e) => { e.stopPropagation(); if (!draggedItemId || draggedItemId === a.id) return; handleDrop(e, a.folder || '__uncategorized__') }}
+      key={t.id}
+      draggable={editingTitleId !== t.id}
+      onDragStart={() => handleDragStart(t.id)}
+      onDragOver={(e) => { if (draggedItemId && draggedItemId !== t.id) { e.preventDefault(); setDragOverItemId(t.id) } }}
+      onDragLeave={() => { if (dragOverItemId === t.id) setDragOverItemId(null) }}
+      onDrop={(e) => { e.stopPropagation(); if (!draggedItemId || draggedItemId === t.id) return; handleDrop(e, t.folder || '__uncategorized__') }}
       onDragEnd={handleDragEnd}
       className={`flex items-center justify-between rounded-xl border bg-white px-4 py-3.5 transition-colors ${
-        dragOverItemId === a.id ? 'border-green-400 ring-1 ring-green-300' : 'border-slate-200'
-      } ${draggedItemId === a.id ? 'opacity-50 cursor-grabbing' : 'cursor-grab'}`}
+        dragOverItemId === t.id ? 'border-green-400 ring-1 ring-green-300' : 'border-slate-200'
+      } ${draggedItemId === t.id ? 'opacity-50 cursor-grabbing' : 'cursor-grab'}`}
     >
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          {editingTitleId === a.id ? (
+          {editingTitleId === t.id ? (
             <input autoFocus type="text" value={editingTitleValue}
               onChange={(e) => setEditingTitleValue(e.target.value)}
-              onBlur={() => void saveEditTitle(a.id)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void saveEditTitle(a.id); else if (e.key === 'Escape') setEditingTitleId(null) }}
+              onBlur={() => void saveEditTitle(t.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void saveEditTitle(t.id); else if (e.key === 'Escape') setEditingTitleId(null) }}
               className="px-2 py-1 border border-green-300 rounded text-sm w-full max-w-[220px] focus:outline-none focus:ring-2 focus:ring-green-500" />
           ) : (
             <>
-              <span className="text-sm font-semibold text-slate-900 truncate">{a.title}</span>
-              <button type="button" onClick={() => startEditTitle(a)} className="p-0.5 text-gray-400 hover:text-green-600" title="修改標題">
+              <span className="text-sm font-semibold text-slate-900 truncate">{t.name}</span>
+              <button type="button" onClick={() => startEditTitle(t)} className="p-0.5 text-gray-400 hover:text-green-600" title="修改標題">
                 <Edit2 className="w-3 h-3" />
               </button>
             </>
           )}
-          <DomainBadge domain={a.domain || '其他'} />
+          <DomainBadge domain={t.domain || '其他'} />
         </div>
         <p className="mt-0.5 text-xs text-slate-500">
-          {a.answerKey!.questions.length} 題 · 總分 {a.answerKey!.totalScore} · {a.classroomName}
+          {t.answerKey.questions.length} 題 · 總分 {t.answerKey.totalScore}
         </p>
       </div>
       <div className="flex items-center gap-1.5 ml-3">
-        <button type="button" onClick={() => handleEdit(a)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-blue-300 hover:text-blue-600" title="編輯答案卷">
+        <button type="button" onClick={() => handleEdit(t)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-blue-300 hover:text-blue-600" title="編輯答案卷">
           <Pencil className="h-4 w-4" />
         </button>
-        <button type="button" onClick={() => void handleDelete(a.id)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-red-300 hover:text-red-600" title="刪除答案卷">
+        <button type="button" onClick={() => void handleDelete(t.id)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-red-300 hover:text-red-600" title="刪除答案卷">
           <Trash2 className="h-4 w-4" />
         </button>
       </div>
