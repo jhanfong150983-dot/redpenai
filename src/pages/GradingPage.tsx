@@ -384,7 +384,7 @@ function rebuildBlobFromBase64(base64: string): Blob {
 
 // ─── Phase A/B 一致性審查類型 ─────────────────────────────────────────────────
 
-type GradingPhase = 'idle' | 'phase_a_running' | 'quality_check' | 'awaiting_review' | 'phase_b_running' | 'report_running'
+type GradingPhase = 'idle' | 'phase_a_running' | 'awaiting_review' | 'phase_b_running' | 'report_running'
 
 interface ConsistencyDecision {
   questionId: string
@@ -474,11 +474,10 @@ function PipelineStage({ index, label, sublabel, status }: PipelineStageProps) {
 
 
 interface GradingPipelineOverlayProps {
-  phase: 'phase_a_running' | 'quality_check' | 'phase_b_running' | 'report_running'
+  phase: 'phase_a_running' | 'phase_b_running' | 'report_running'
   phaseAProgress: { current: number; total: number }
   phaseBProgress: { current: number; total: number }
   phaseANeedsReviewCount: number
-  qualityCheckRetryCount: number
   gradingMessage: string
   stopRequested: boolean
   onStop: () => void
@@ -489,40 +488,31 @@ function GradingPipelineOverlay({
   phaseAProgress,
   phaseBProgress,
   phaseANeedsReviewCount,
-  qualityCheckRetryCount,
   gradingMessage,
   stopRequested,
   onStop,
 }: GradingPipelineOverlayProps) {
   const isPhaseA = phase === 'phase_a_running'
-  const isQualityCheck = phase === 'quality_check'
   const isReport = phase === 'report_running'
-  const isAfterQuality = !isPhaseA && !isQualityCheck
+  const isAfterPhaseA = !isPhaseA
 
   const stageA: PipelineStageStatus = isPhaseA ? 'active' : 'done'
-  const stageQC: PipelineStageStatus = isPhaseA ? 'pending' : isQualityCheck ? 'active' : 'done'
-  const stageReview: PipelineStageStatus = isAfterQuality ? 'done' : 'pending'
-  const stageB: PipelineStageStatus = isAfterQuality ? (isReport ? 'done' : 'active') : 'pending'
+  const stageReview: PipelineStageStatus = isAfterPhaseA ? 'done' : 'pending'
+  const stageB: PipelineStageStatus = isAfterPhaseA ? (isReport ? 'done' : 'active') : 'pending'
   const stageReport: PipelineStageStatus = isReport ? 'active' : 'pending'
 
   const aLabel = isPhaseA
     ? `${phaseAProgress.current}/${phaseAProgress.total}`
     : `${phaseAProgress.total}/${phaseAProgress.total}`
-  const bLabel = !isAfterQuality
+  const bLabel = !isAfterPhaseA
     ? `0/${phaseBProgress.total}`
     : isReport
       ? `${phaseBProgress.total}/${phaseBProgress.total}`
       : `${phaseBProgress.current}/${phaseBProgress.total}`
 
-  const qcLabel = isPhaseA
-    ? '等待中'
-    : isQualityCheck
-      ? (qualityCheckRetryCount > 0 ? `重跑 ${qualityCheckRetryCount} 份` : '檢查中...')
-      : (qualityCheckRetryCount > 0 ? `重跑 ${qualityCheckRetryCount} 份` : '通過')
-
   const reviewLabel = phaseANeedsReviewCount > 0
     ? `需審查 ${phaseANeedsReviewCount} 份`
-    : isPhaseA || isQualityCheck ? '統計中...' : '已確認'
+    : isPhaseA ? '統計中...' : '已確認'
 
   return (
     <>
@@ -548,10 +538,9 @@ function GradingPipelineOverlay({
         {/* Pipeline stages */}
         <div style={{ display: 'flex', alignItems: 'flex-start', width: '100%', padding: '0 0.25rem', gap: '0.25rem' }}>
           <PipelineStage index={1} label="擷取學生答案" sublabel={aLabel} status={stageA} />
-          <PipelineStage index={2} label="品質總檢查" sublabel={qcLabel} status={stageQC} />
-          <PipelineStage index={3} label="教師人工審查" sublabel={reviewLabel} status={stageReview} />
-          <PipelineStage index={4} label="AI批改評分" sublabel={bLabel} status={stageB} />
-          <PipelineStage index={5} label="生成作業報告" sublabel={isReport ? '生成中...' : '等待中'} status={stageReport} />
+          <PipelineStage index={2} label="教師人工審查" sublabel={reviewLabel} status={stageReview} />
+          <PipelineStage index={3} label="AI批改評分" sublabel={bLabel} status={stageB} />
+          <PipelineStage index={4} label="生成作業報告" sublabel={isReport ? '生成中...' : '等待中'} status={stageReport} />
         </div>
 
         {/* 人工審查提醒（Phase A 執行中且已有需審查題目） */}
@@ -1179,7 +1168,7 @@ export default function GradingPage({
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
   const [batchPhaseAEntries, setBatchPhaseAEntries] = useState<BatchPhaseAEntry[]>([])
   const [phaseANeedsReviewCount, setPhaseANeedsReviewCount] = useState(0)
-  const [qualityCheckRetryCount, setQualityCheckRetryCount] = useState(0)
+  // qualityCheckRetryCount removed — quality checks are now internal (server-side)
   const [postRetryWarnings, setPostRetryWarnings] = useState<Array<{ submissionId: string; studentLabel: string; unreadCount: number }>>([])
 
 
@@ -1406,7 +1395,7 @@ export default function GradingPage({
 
     if (phaseBRetryEntries.length > 0 && !stopRequestedRef.current) {
       console.log(`[PhaseB-QC] ${phaseBRetryEntries.length} submissions need retry (accessor incomplete)`)
-      setGradingMessage(`品質檢查：重新批改 ${phaseBRetryEntries.length} 份（accessor 回應不完整）...`)
+      setGradingMessage('品質檢測中...')
       let retrySuccess = 0
       for (const entry of phaseBRetryEntries) {
         try {
@@ -2375,6 +2364,13 @@ export default function GradingPage({
       setGradingPhase('phase_a_running')
       setPhaseANeedsReviewCount(0)
 
+      // 嘗試從 template 解析 answerKey（若 assignment 沒有直接帶）
+      if (!assignment?.answerKey && assignment?.answerKeyTemplateId) {
+        const template = await db.answerKeyTemplates.get(assignment.answerKeyTemplateId)
+        if (template?.answerKey) {
+          assignment.answerKey = template.answerKey
+        }
+      }
       if (!assignment?.answerKey) {
         alert('缺少答案卷，無法批改')
         setIsGrading(false)
@@ -2470,10 +2466,7 @@ export default function GradingPage({
           failedEntries: [],
         })
       } else {
-        // ── 品質總檢查（所有作業 Phase A 完成後） ─────────────────────────────
-        setGradingPhase('quality_check')
-        setGradingMessage('正在進行品質總檢查...')
-        setQualityCheckRetryCount(0)
+        // ── 品質總檢查（所有作業 Phase A 完成後，內部執行不外顯） ──────────────
 
         const CONSECUTIVE_BLANK_THRESHOLD = 3   // ≥3 題連續空白 → 重跑
         const MIN_SUBMISSIONS_FOR_TYPE = 3       // 至少 N 份才能建立主流類型
@@ -2728,8 +2721,7 @@ export default function GradingPage({
 
         // 重跑品質不通過的作業（最多一次）
         if (anomalousIndices.size > 0) {
-          setQualityCheckRetryCount(anomalousIndices.size)
-          setGradingMessage(`品質不通過，重新批改 ${anomalousIndices.size} 份...`)
+          setGradingMessage('品質檢測中...')
           const indicesToRetry = Array.from(anomalousIndices)
           await runWithConcurrency(
             indicesToRetry,
@@ -3435,12 +3427,11 @@ export default function GradingPage({
         )}
 
         {/* Grading pipeline overlay (下載圖片、Phase A、Phase B、生成報告 統一顯示遮罩) */}
-        {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'quality_check' || gradingPhase === 'phase_b_running' || gradingPhase === 'report_running') && (
+        {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'phase_b_running' || gradingPhase === 'report_running') && (
           <GradingPipelineOverlay
             phase={
               gradingPhase === 'phase_b_running' ? 'phase_b_running'
               : gradingPhase === 'report_running' ? 'report_running'
-              : gradingPhase === 'quality_check' ? 'quality_check'
               : 'phase_a_running'
             }
             phaseAProgress={
@@ -3458,7 +3449,6 @@ export default function GradingPage({
                   : { current: 0, total: batchPhaseAEntries.length }
             }
             phaseANeedsReviewCount={phaseANeedsReviewCount}
-            qualityCheckRetryCount={qualityCheckRetryCount}
             gradingMessage={isDownloading ? '正在下載學生作業圖片...' : gradingMessage}
             stopRequested={stopRequested}
             onStop={handleStopGrading}
