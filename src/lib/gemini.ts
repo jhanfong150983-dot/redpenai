@@ -3861,6 +3861,60 @@ const AK_ANSWER_REQUIRED = new Set([
   'multi_check_other', 'single_check', 'fill_variants'
 ])
 
+/**
+ * Merge two AnswerKey results question-by-question.
+ * Strategy: trust first run (stable), only override specific broken questions from retry.
+ * - First has good answer + bbox → keep first
+ * - First has "?" answer, retry has real answer → use retry's question
+ * - First has no bbox, retry has bbox → take retry's bbox, keep first's answer if valid
+ * - Both have "?" → keep first (both failed)
+ */
+function mergeAnswerKeyResults(first: AnswerKey, retry: AnswerKey): AnswerKey {
+  const retryById = new Map(retry.questions.map(q => [q.id, q]))
+  let mergedCount = 0
+
+  const mergedQuestions = first.questions.map(q1 => {
+    const q2 = retryById.get(q1.id)
+    if (!q2) return q1  // retry doesn't have this question → keep first
+
+    const ans1 = (q1.answer ?? '').trim()
+    const ref1 = (q1.referenceAnswer ?? '').trim()
+    const ans2 = (q2.answer ?? '').trim()
+    const ref2 = (q2.referenceAnswer ?? '').trim()
+    const PLACEHOLDERS = new Set(['?', '？', '未知', 'unknown', 'N/A', 'n/a'])
+    const isBadAnswer1 = (!ans1 || PLACEHOLDERS.has(ans1)) && (!ref1 || PLACEHOLDERS.has(ref1))
+    const isBadAnswer2 = (!ans2 || PLACEHOLDERS.has(ans2)) && (!ref2 || PLACEHOLDERS.has(ref2))
+    const hasBbox1 = !!(q1.answerBbox)
+    const hasBbox2 = !!(q2.answerBbox)
+
+    if (isBadAnswer1 && !isBadAnswer2) {
+      // First has bad answer, retry has good answer → use retry's question entirely
+      mergedCount++
+      console.log(`[AnswerKey merge] ${q1.id}: use retry (answer: "${ans1}"→"${ans2}")`)
+      return q2
+    }
+    if (!hasBbox1 && hasBbox2) {
+      // First has no bbox, retry has bbox → take retry's bbox, keep first's answer
+      mergedCount++
+      console.log(`[AnswerKey merge] ${q1.id}: take retry bbox (answer kept from first)`)
+      return { ...q1, answerBbox: q2.answerBbox }
+    }
+    // Default: keep first (stable)
+    return q1
+  })
+
+  if (mergedCount > 0) {
+    console.log(`[AnswerKey merge] ${mergedCount} questions improved from retry`)
+  }
+
+  return {
+    ...first,
+    questions: mergedQuestions,
+    // Use first's totalScore (should be same, but first is authoritative)
+    totalScore: first.totalScore
+  }
+}
+
 function checkAnswerKeyQuality(ak: AnswerKey, pageCount?: number): { shouldRetry: boolean; reasons: string[] } {
   const reasons: string[] = []
   const questions = ak?.questions ?? []
@@ -3968,10 +4022,8 @@ export async function extractAnswerKeyFromImage(
       const retryAk = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(retryText) as AnswerKey, opts?.domain)
       const retryQg = checkAnswerKeyQuality(retryAk, 1)
       console.log('[AnswerKey QG] retry result:', retryQg.reasons.length === 0 ? 'pass' : retryQg.reasons)
-      // Use retry if better (fewer issues or no critical issues)
-      if (!retryQg.shouldRetry || retryQg.reasons.length < qg.reasons.length) {
-        answerKey = retryAk
-      }
+      // Merge: keep first run's good questions, only override broken ones from retry
+      answerKey = mergeAnswerKeyResults(answerKey, retryAk)
     } catch (retryErr) {
       console.warn('[AnswerKey QG] retry failed:', retryErr)
     }
@@ -4139,14 +4191,13 @@ export async function extractAnswerKeyFromImages(
       }
       const retryQg = checkAnswerKeyQuality(retryResult, answerSheetImages.length)
       console.log('[AnswerKey QG] retry result:', retryQg.reasons.length === 0 ? 'pass' : retryQg.reasons)
-      if (!retryQg.shouldRetry || retryQg.reasons.length < qg.reasons.length) {
-        // Re-apply pageIndex
-        for (const q of retryResult.questions) {
-          const pageNum = parseInt(String(q.id ?? '').split('-')[0], 10)
-          if (pageNum >= 1) q.pageIndex = pageNum - 1
-        }
-        result = retryResult
+      // Re-apply pageIndex on retry result before merge
+      for (const q of retryResult.questions) {
+        const pageNum = parseInt(String(q.id ?? '').split('-')[0], 10)
+        if (pageNum >= 1) q.pageIndex = pageNum - 1
       }
+      // Merge: keep first run's good questions, only override broken ones from retry
+      result = mergeAnswerKeyResults(result, retryResult)
     } catch (retryErr) {
       console.warn('[AnswerKey QG] retry failed:', retryErr)
     }
