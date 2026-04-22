@@ -8,6 +8,7 @@ import {
   BarChart3,
   LayoutDashboard,
   FilePlus2,
+  BookOpen,
   FileText,
   SlidersHorizontal,
   ChevronDown
@@ -15,6 +16,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import ClassroomManagement from '@/pages/ClassroomManagement'
 import AssignmentSetup from '@/pages/AssignmentSetup'
+import AnswerBank from '@/pages/AnswerBank'
 import AssignmentList from '@/pages/AssignmentList'
 import GradingPage from '@/pages/GradingPage'
 import AssignmentImport from '@/pages/AssignmentImport'
@@ -55,6 +57,7 @@ type Page =
   | 'home'
   | 'classroom-management'
   | 'assignment-setup'
+  | 'answer-bank'
   | 'assignment-import-select'
   | 'assignment-scan'
   | 'grading-list'
@@ -1416,6 +1419,7 @@ function App() {
   const isNavItemActive = (key: string): boolean => {
     switch (key) {
       case 'overview': return currentPage === 'home'
+      case 'answer-bank': return currentPage === 'answer-bank'
       case 'assignment-setup': return currentPage === 'assignment-setup'
       case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'assignment-import', 'assignment-scan', 'unified-import', 'correction-select', 'correction'].includes(currentPage)
       case 'gradebook': return currentPage === 'gradebook'
@@ -1490,6 +1494,13 @@ function App() {
           description: '查看待辦與批改進度',
           icon: LayoutDashboard,
           onClick: openOverview
+        },
+        {
+          key: 'answer-bank',
+          label: '題庫',
+          description: '管理答案卷，可跨班級使用',
+          icon: BookOpen,
+          onClick: () => { if (!confirmLeaveGrading()) return; setCurrentPage('answer-bank') }
         },
         {
           key: 'assignment-setup',
@@ -1740,6 +1751,13 @@ function App() {
             <div className={`flex-1 overflow-y-scroll ${isStudent ? '' : 'px-4 py-4 md:px-6 md:py-5'}`}>
               {isStudent ? (
                 <StudentPortal onCaptureModeChange={setIsCameraCaptureMode} />
+              ) : currentPage === 'answer-bank' ? (
+                <AnswerBank
+                  embedded
+                  onBack={() => setCurrentPage('home')}
+                  inkBalance={auth.user.inkBalance ?? 0}
+                  onRequireInkTopUp={() => setCurrentPage('ink-topup')}
+                />
               ) : currentPage === 'assignment-setup' ? (
                 <AssignmentSetup
                   embedded
