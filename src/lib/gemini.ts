@@ -1608,13 +1608,19 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
     • 若答案卷標示了各項配分 → 依標示設定維度名稱和各維度 maxScore
     • 若未標示 → 預設兩維度：
       1.「選擇」— criteria: "有填入清單中任一有效項目即可"
-      2.「理由說明」— criteria 從題幹的說明要求推導（如「用因為...所以...說明影響，邏輯合理」）
-    ⚠️【任選題 criteria 鐵律】因為是「任選」，每一行的 criteria 絕對不可包含特定項目名稱！
+      2.「理由說明」— criteria: "說明所選項目的影響或理由，內容合理且與所選相符"
+    ⚠️【任選題 criteria 鐵律一】因為是「任選」，每一行的 criteria 絕對不可包含特定項目名稱！
       ❌ 錯誤 criteria: "勾選「鐵路」" ← 限定了特定答案，會導致選其他項目的學生被判錯
       ❌ 錯誤 criteria: "選擇電報並說明" ← 同上
       ✅ 正確 criteria: "有填入清單中任一有效項目即可" ← 不限定選哪個
       ✅ 正確 criteria: "說明所選建設對做生意的具體影響，邏輯合理" ← 不限定哪個建設
     → 具體的項目名稱只能出現在 referenceAnswer（作為參考示範），不可出現在 criteria
+    ⚠️【任選題 criteria 鐵律二】criteria 只評內容品質，不要求特定書寫格式！
+      題目中的「因為...所以...」「請用...說明」是引導學生作答的句式，不是評分標準。
+      ❌ 錯誤 criteria: "使用因為...所以...格式" ← 格式要求會在寬鬆模式下誤扣分
+      ❌ 錯誤 criteria: "必須包含因為和所以兩個關鍵字" ← 同上
+      ✅ 正確 criteria: "說明所選建設的影響，邏輯合理" ← 只看內容是否合理
+    → 學生用自己的方式表達合理理由即可給分，不強制特定句式
   - referenceAnswer: 填該行的參考答案示範（可包含具體項目名稱，因為只是範例）
   - answerBbox: 必須涵蓋整行（選擇欄 + 說明欄），不可只框說明欄
 
@@ -1628,14 +1634,14 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
       "referenceAnswer": "（鐵路）以前主要靠船運送貨物，因為鐵路建設縮短了運輸時間，所以做起生意更方便",
       "rubricsDimensions": [
         { "name": "選擇", "maxScore": 1, "criteria": "有填入清單中任一有效項目即可" },
-        { "name": "理由說明", "maxScore": 2, "criteria": "用因為...所以...說明所選建設對做生意的具體影響，邏輯合理" }
+        { "name": "理由說明", "maxScore": 2, "criteria": "說明所選建設對做生意的具體影響，邏輯合理" }
       ] }
     { "id": "8-2", "questionCategory": "short_answer", "maxScore": 3,
       "orderMode": "unordered", "unorderedGroupId": "8",
       "referenceAnswer": "（電報）因為電報建設讓資訊傳遞更快速，縮短等待時間，所以可以做更多生意",
       "rubricsDimensions": [
         { "name": "選擇", "maxScore": 1, "criteria": "有填入清單中任一有效項目即可" },
-        { "name": "理由說明", "maxScore": 2, "criteria": "用因為...所以...說明所選建設對做生意的具體影響，邏輯合理" }
+        { "name": "理由說明", "maxScore": 2, "criteria": "說明所選建設對做生意的具體影響，邏輯合理" }
       ] }
 
 ▸ 如果是「簡答題」（解釋、說明原因、比較異同）：
@@ -3809,11 +3815,15 @@ function checkAnswerKeyQuality(ak: AnswerKey, pageCount?: number): { shouldRetry
   const invalidCat = questions.filter(q => q.questionCategory && !AK_VALID_CATEGORIES.has(q.questionCategory)).length
   if (invalidCat > 0) reasons.push(`invalid_category(${invalidCat})`)
 
-  // Missing answers for required categories
+  // Missing or placeholder answers for required categories
+  // "?" is a common AI placeholder when it can't read the answer — treat as missing
+  const PLACEHOLDER_ANSWERS = new Set(['?', '？', '未知', 'unknown', 'N/A', 'n/a'])
   let missingAnswer = 0
   for (const q of questions) {
     if (!q.questionCategory || !AK_ANSWER_REQUIRED.has(q.questionCategory)) continue
-    if (!(q.answer ?? '').trim() && !(q.referenceAnswer ?? '').trim()) missingAnswer++
+    const ans = (q.answer ?? '').trim()
+    const ref = (q.referenceAnswer ?? '').trim()
+    if ((!ans || PLACEHOLDER_ANSWERS.has(ans)) && (!ref || PLACEHOLDER_ANSWERS.has(ref))) missingAnswer++
   }
   if (missingAnswer > 0) reasons.push(`missing_answer(${missingAnswer})`)
 
