@@ -1896,6 +1896,7 @@ function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: 
   const normalizedQuestions = questions.map((question) => {
     let q = ensureShortAnswerRubricsDimensions(question)
     q = normalizeChoiceAnswerSymbols(q)
+    q = sanitizeUnorderedCriteria(q)
     return q
   })
 
@@ -1930,6 +1931,50 @@ function normalizeChoiceAnswerSymbols(question: AnswerKeyQuestion): AnswerKeyQue
     return { ...question, answer: normalized }
   }
   return question
+}
+
+/**
+ * For unordered (任選) questions, sanitize rubricsDimensions criteria:
+ * 1. Remove specific answer content from criteria (names, items)
+ * 2. Strip format requirements (因為...所以...)
+ * Only applies to questions with orderMode="unordered" and rubricsDimensions.
+ */
+function sanitizeUnorderedCriteria(question: AnswerKeyQuestion): AnswerKeyQuestion {
+  if (question.orderMode !== 'unordered') return question
+  if (!Array.isArray(question.rubricsDimensions) || question.rubricsDimensions.length === 0) return question
+
+  const sanitized = question.rubricsDimensions.map((dim) => {
+    let criteria = dim.criteria ?? ''
+    const nameLower = (dim.name ?? '').toLowerCase()
+
+    // Dimension that looks like a "selection" dimension → force generic criteria
+    const isSelectionDim = nameLower.includes('選擇') || nameLower.includes('圈選') ||
+      nameLower.includes('勾選') || nameLower.includes('填寫人物') ||
+      nameLower.includes('填入') || nameLower.includes('選項')
+    if (isSelectionDim) {
+      // Check if criteria contains quoted specific content like 「XXX」or 『XXX』
+      if (/[「『].*[」』]/.test(criteria)) {
+        console.log(`[AnswerKey] sanitize criteria: "${criteria}" → generic (question ${question.id}, dim "${dim.name}")`)
+        criteria = '填入題目提供的任一有效選項即可'
+      }
+    }
+
+    // Strip format requirements from any dimension
+    // Patterns: "使用因為...所以...格式", "以因為...所以...句式", etc.
+    const formatPattern = /[，,；;]?\s*(?:使用|以|用|須用|需用|必須使用)?[「『]?因為[.…]*所以[.…]*[」』]?(?:格式|句式|句型|結構|的方式|來表達|書寫)[，,；;]?\s*/g
+    const cleaned = criteria.replace(formatPattern, '').trim()
+    // Also handle "語句通順使用因為...所以...句式且表達通順" → "語句表達通順"
+    const formatPattern2 = /使用因為[.…]*所以[.…]*句式且?/g
+    const cleaned2 = cleaned.replace(formatPattern2, '').trim()
+    if (cleaned2 !== criteria) {
+      console.log(`[AnswerKey] strip format requirement: "${criteria}" → "${cleaned2}" (question ${question.id})`)
+      criteria = cleaned2 || '語句表達清楚通順'
+    }
+
+    return { ...dim, criteria }
+  })
+
+  return { ...question, rubricsDimensions: sanitized }
 }
 
 function buildTagConceptsPrompt(
@@ -3855,7 +3900,7 @@ function checkAnswerKeyQuality(ak: AnswerKey, pageCount?: number): { shouldRetry
   if (dimMismatchCount > 0) reasons.push(`dim_score_mismatch(${dimMismatchCount})`)
 
   // shouldRetry if any critical issue (duplicate, missing id, score mismatch, no questions, too few, invalid category)
-  const criticalPatterns = ['no_questions', 'too_few_questions', 'duplicate_ids', 'missing_ids', 'score_mismatch', 'invalid_category']
+  const criticalPatterns = ['no_questions', 'too_few_questions', 'duplicate_ids', 'missing_ids', 'score_mismatch', 'invalid_category', 'missing_answer']
   const shouldRetry = reasons.some(r => criticalPatterns.some(p => r.startsWith(p)))
   return { shouldRetry, reasons }
 }
