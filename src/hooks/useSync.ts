@@ -121,7 +121,6 @@ const toNumber = (value: unknown): number | undefined => {
 
 const FOCUS_SYNC_COOLDOWN_MS = 60_000 // 任何 sync 完成後的冷卻期（60 秒）
 const LAST_SYNC_TIME_STORAGE_KEY = 'redpen-last-sync-at'
-const SUBMISSION_PUSH_GUARD_MS = 3_000
 
 function readPersistedLastSyncTime(): number | null {
   if (typeof window === 'undefined') return null
