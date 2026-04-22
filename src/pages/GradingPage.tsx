@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Trash2,
   CheckCircle2,
+  CheckSquare,
   Eye,
   ChevronRight,
   ChevronLeft,
@@ -2188,6 +2189,19 @@ export default function GradingPage({
     })
   }
 
+  const handleToggleSelectAll = () => {
+    if (selectedSubmissionIds.size > 0) {
+      // Has selections → clear all
+      setSelectedSubmissionIds(new Set())
+    } else {
+      // No selections → select all with images
+      const allWithImage = Array.from(submissions.values())
+        .filter((s) => hasSubmissionImage(s))
+        .map((s) => s.id)
+      setSelectedSubmissionIds(new Set(allWithImage))
+    }
+  }
+
   const handleGradeAll = async () => {
     if (inkSessionError) {
       alert(inkSessionError)
@@ -3394,6 +3408,14 @@ export default function GradingPage({
             >
               <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
               重新整理
+            </button>
+            <button
+              onClick={handleToggleSelectAll}
+              disabled={isBusy || !inkSessionReady || submissions.size === 0}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <CheckSquare className="w-5 h-5" />
+              {selectedSubmissionIds.size > 0 ? '取消全選' : '全選'}
             </button>
             <button
               onClick={handleGradeAll}
