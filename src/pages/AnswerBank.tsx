@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef, type ChangeEvent } from 'react'
 import {
-  ArrowLeft, Plus, Search, BookOpen, Pencil, Trash2, FileUp, Loader2,
+  Plus, Search, BookOpen, Pencil, Trash2, FileUp, Loader2,
   Folder, ChevronDown, ChevronRight, Edit2
 } from 'lucide-react'
 import { db, generateId } from '@/lib/db'
@@ -58,7 +58,7 @@ function DomainBadge({ domain }: { domain: string }) {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export default function AnswerBank({ onBack }: AnswerBankProps) {
+export default function AnswerBank(_props: AnswerBankProps) {
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -447,16 +447,11 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
   if (isLoading) return <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="bg-white p-0">
+      <div className="max-w-none mx-0 pt-0">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {onBack && <button type="button" onClick={onBack} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><ArrowLeft className="h-5 w-5" /></button>}
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">建立答案</h1>
-            <p className="text-sm text-slate-500">管理答案卷，可跨班級使用</p>
-          </div>
-        </div>
+      <div className="mb-4 border-b border-slate-200 pb-3 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-gray-900">建立答案</h1>
         <div className="flex items-center gap-2">
           <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />
           <button type="button" onClick={() => { setNewFolderName(''); setNewFolderError(''); setIsCreateFolderModalOpen(true) }}
@@ -689,6 +684,7 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
           onCancel={handleWizardCancel}
         />
       )}
+      </div>
     </div>
   )
 }
