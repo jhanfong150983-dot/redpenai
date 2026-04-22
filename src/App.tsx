@@ -1502,13 +1502,13 @@ function App() {
           icon: BookOpen,
           onClick: () => { if (!confirmLeaveGrading()) return; setCurrentPage('answer-bank') }
         },
-        {
-          key: 'assignment-setup',
-          label: '作業建立',
-          description: '建立作業題目與答案卷',
-          icon: FilePlus2,
-          onClick: openAssignmentSetup
-        },
+        // {
+        //   key: 'assignment-setup',
+        //   label: '作業建立',
+        //   description: '建立作業題目與答案卷',
+        //   icon: FilePlus2,
+        //   onClick: openAssignmentSetup
+        // },
         {
           key: 'grading-flow',
           label: '作業批改',
