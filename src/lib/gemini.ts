@@ -1532,31 +1532,67 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
 
   ⚠️ 符號對 ≠ 答案對，必須同時檢查符號和位置
 
-▸ 如果是「文物/圖片佐證題」（看圖選擇 + 判斷理由）：
-  識別特徵：
-  - 題目同時包含「圖片/文物/照片」展示 AND 「判斷的理由：___」空白欄
-  - 學生需先勾選哪個選項與歷史時期/事件有關，再說明理由
-  - 常見句式：「根據以下文物，蒐集相關資料，並說明與XX時期哪一項較有關係？」「在□裡打✓，並說明判斷的理由」
+▸ 如果是「圈選/勾選立場 + 說明理由題」（先選一個立場或選項，再說明選擇的理由）：
+  識別特徵（符合任一即為此類型）：
+  - 題目要求學生先圈選或勾選某一立場（如 支持/反對、贊成/不贊成、同意/不同意），再說明理由
+  - 題目同時包含「選項/勾選/圈選」AND「說明理由/判斷的理由：___」空白欄
+  - 常見句式：「我會（支持/反對）：因為...」「先圈選，再說明理由」
+    「在□裡打✓，並說明判斷的理由」「根據以下文物...並說明與XX哪一項較有關係？」
+
+  ⚠️ 擷取規則（最高優先）：
+  - 必須視為【1 題】（絕對不可拆成「圈選」和「理由」兩題）
+  - questionCategory: "short_answer"
+  - rubricsDimensions 依答案卷上的配分提示設定：
+    • 若答案卷明確標示各項配分（如「圈選1分，理由符合所選1分，語句通順1分，共3分」）→ 直接依標示設定維度名稱和各維度 maxScore
+    • 若答案卷未標示配分細項 → 使用以下預設三維度：
+      1.「圈選」— maxScore 依比例分配，criteria: "有圈選或勾選任一立場/選項即可，無對錯"
+      2.「理由符合所選」— maxScore 依比例分配，criteria: "說明的理由與所選立場/選項一致且合理"
+      3.「語句通順」— maxScore 依比例分配，criteria: "語句表達清楚通順"
+  - referenceAnswer 填「參考理由的品質標準」（從題幹推導），不限定選哪個立場
+  - ⚠️ 此題型包含「文物/圖片佐證題」（看圖勾選+判斷理由）：
+    此時「理由符合所選」的 criteria 應改為「能指出圖示中的具體文物或符號，並說明其與所選選項的關聯」
+    不得要求學生解釋所選概念的功能或歷史背景
+
+▸ 如果是「任選項目+逐項說明題」（從清單任選 N 項，表格或分行逐一說明）：
+  觸發條件（必須【同時】滿足以下三點，缺一則不適用此規則）：
+  ① 題幹明確出現「任選」「選出」「挑選」N 項（N ≥ 2）等字樣，且選項來自一組已知清單
+  ② 提供表格或分行格式（如「第一項/第二項」「項目一/項目二」或編號行），每行同時有「選了什麼」欄 + 「說明/理由」欄
+  ③ 說明欄的寬度明顯大於選擇欄（學生需要寫一句話以上的說明，而非只填代號或名詞）
+
+  ⚠️ 與 multi_fill 的區分（最重要）：
+  - multi_fill = 每格填 1-3 個字的代號/名詞，每格有唯一正確答案，精確匹配
+  - 本題型 = 每行需寫一句話以上的說明，任選無唯一正確答案，用 rubricsDimensions 評分
+  → 如果每格只需填短詞且有固定答案 → 不是本題型，請用 multi_fill
 
   擷取規則：
-  - 勾選部分：獨立一題，questionCategory: "single_check"（或 "single_choice"）
-  - 理由部分：獨立一題，questionCategory: "short_answer"，使用 rubricsDimensions
+  ❌ 禁止：把同一行的「選擇」和「說明」拆成兩題
+  ❌ 禁止：把所有行合併成一大題
+  ❌ 禁止：歸類為 multi_fill
+  ✅ 正確：每一行 = 獨立 1 題 short_answer
 
-  ⚠️【文物佐證題 rubricsDimensions 特別規則】
-  此類題型考驗「能否用可見文物連結到概念」，而非「能否解釋概念的功能/歷史」。
+  - questionCategory: "short_answer"
+  - orderMode: "unordered"，所有行共用同一 unorderedGroupId（因為任選，順序無關）
+  - rubricsDimensions（每行）：
+    • 若答案卷標示了各項配分 → 依標示設定
+    • 若未標示 → 預設兩維度：
+      1.「選擇」— criteria: "有填入清單中任一有效項目即可"
+      2.「理由說明」— criteria 從題幹的說明要求推導（如「用因為...所以...說明影響，邏輯合理」）
+  - referenceAnswer: 填該行的參考答案示範
+  - answerBbox: 必須涵蓋整行（選擇欄 + 說明欄），不可只框說明欄
 
-  rubricsDimensions 設定原則：
-  1. 維度「文物連結」（主要分數）：
-     - criteria：「能指出題目圖示中的具體文物或符號（如匾額、進士第、科舉象徵），並說明其與所選選項的關聯」
-     - ⚠️ 不得要求學生解釋所選概念的功能或歷史背景（如「科舉選拔官員」不是此維度的必要條件）
-     - 判斷標準：學生能寫出「[文物] → [概念]」的連結即為達標（例："科舉考試才有匾額" ✓）
-
-  2. 維度「說明完整性」（次要分數，若有配分才設）：
-     - criteria：「說明文字清楚，能讓讀者理解文物與選項的關係」
-     - ⚠️ 不得用此維度要求額外的歷史知識
-
-  referenceAnswer 填「文物連結的描述」，例：「圖片中的匾額（進士第）是科舉考試的象徵，故選科舉考試」
-  ❌ 禁止：referenceAnswer 或 criteria 出現「選拔人才/官員」「考試制度功能」等超出題目要求的知識點
+  範例：
+  題目：「任選兩項現代化建設，用因為...所以...說明對做生意的影響」
+  表格：第一項 [建設名稱] [因為...所以...]
+        第二項 [建設名稱] [因為...所以...]
+  → 輸出 2 題（假設此大題是第 8 題）：
+    { "id": "8-1", "questionCategory": "short_answer", "maxScore": 3,
+      "orderMode": "unordered", "unorderedGroupId": "8",
+      "referenceAnswer": "鐵路建設使貨物運輸更快速，縮短交貨時間，有助於擴大生意規模",
+      "rubricsDimensions": [
+        { "name": "選擇", "maxScore": 1, "criteria": "有填入任一有效的現代化建設項目" },
+        { "name": "理由說明", "maxScore": 2, "criteria": "用因為...所以...說明該建設對做生意的具體影響，邏輯合理" }
+      ] }
+    { "id": "8-2", ... 同結構 }
 
 ▸ 如果是「簡答題」（解釋、說明原因、比較異同）：
   - questionCategory: "short_answer"
@@ -1742,6 +1778,43 @@ function ensureShortAnswerRubricsDimensions(question: AnswerKeyQuestion): Answer
           : '結論與重點相符，表達完整清楚。'
       }
     ]
+  }
+
+  // ── Fix dimension score mismatch: ensure sum of dimension maxScore == question maxScore ──
+  if (normalizedDimensions.length >= 2 && maxScore > 0) {
+    const dimSum = normalizedDimensions.reduce((s, d) => s + d.maxScore, 0)
+    if (Math.abs(dimSum - maxScore) > 0.01) {
+      // Redistribute: preserve AI's relative proportions, scale to fit maxScore
+      if (dimSum > 0) {
+        // Proportional redistribution (round to integers)
+        let remaining = maxScore
+        for (let i = 0; i < normalizedDimensions.length; i++) {
+          if (i === normalizedDimensions.length - 1) {
+            // Last dimension gets the remainder to guarantee exact sum
+            normalizedDimensions[i] = { ...normalizedDimensions[i], maxScore: remaining }
+          } else {
+            const scaled = Math.round((normalizedDimensions[i].maxScore / dimSum) * maxScore)
+            normalizedDimensions[i] = { ...normalizedDimensions[i], maxScore: Math.max(scaled, 1) }
+            remaining -= normalizedDimensions[i].maxScore
+          }
+        }
+        // Safety: if remaining went negative due to rounding, clamp last to 0
+        if (normalizedDimensions[normalizedDimensions.length - 1].maxScore < 0) {
+          normalizedDimensions[normalizedDimensions.length - 1] = {
+            ...normalizedDimensions[normalizedDimensions.length - 1],
+            maxScore: 0
+          }
+        }
+      } else {
+        // All dimensions had 0 score — equal split
+        const perDim = Math.floor(maxScore / normalizedDimensions.length)
+        let remainder = maxScore - perDim * normalizedDimensions.length
+        normalizedDimensions = normalizedDimensions.map((d, i) => ({
+          ...d,
+          maxScore: perDim + (i < remainder ? 1 : 0)
+        }))
+      }
+    }
   }
 
   return {
@@ -3620,6 +3693,77 @@ async function gradeSubmissionWithPreparedImage(
   )
 }
 
+// ── Answer Key Quality Gate (client-side, mirrors server-side validateAnswerKeyQuality) ──
+const AK_VALID_CATEGORIES = new Set([
+  'fill_blank', 'single_choice', 'true_false', 'multi_check', 'multi_choice',
+  'multi_check_other', 'single_check', 'word_problem', 'calculation',
+  'short_answer', 'matching', 'map_fill', 'multi_fill', 'map_draw',
+  'diagram_draw', 'diagram_color', 'fill_variants'
+])
+const AK_ANSWER_REQUIRED = new Set([
+  'fill_blank', 'single_choice', 'true_false', 'multi_check', 'multi_choice',
+  'multi_check_other', 'single_check', 'fill_variants'
+])
+
+function checkAnswerKeyQuality(ak: AnswerKey, pageCount?: number): { shouldRetry: boolean; reasons: string[] } {
+  const reasons: string[] = []
+  const questions = ak?.questions ?? []
+
+  if (questions.length === 0) { reasons.push('no_questions'); return { shouldRetry: true, reasons } }
+  if (questions.length < 3) reasons.push('too_few_questions')
+
+  // Duplicate IDs
+  const idSet = new Set<string>()
+  let dupCount = 0
+  for (const q of questions) {
+    const id = (q.id ?? '').trim()
+    if (id && idSet.has(id)) dupCount++
+    if (id) idSet.add(id)
+  }
+  if (dupCount > 0) reasons.push(`duplicate_ids(${dupCount})`)
+
+  // Missing IDs
+  const missingId = questions.filter(q => !(q.id ?? '').trim()).length
+  if (missingId > 0) reasons.push(`missing_ids(${missingId})`)
+
+  // totalScore mismatch
+  const scoreSum = questions.reduce((s, q) => s + (typeof q.maxScore === 'number' ? q.maxScore : 0), 0)
+  if (typeof ak.totalScore === 'number' && Math.abs(ak.totalScore - scoreSum) > 1) {
+    reasons.push(`score_mismatch(total=${ak.totalScore},sum=${scoreSum})`)
+  }
+
+  // Invalid categories
+  const invalidCat = questions.filter(q => q.questionCategory && !AK_VALID_CATEGORIES.has(q.questionCategory)).length
+  if (invalidCat > 0) reasons.push(`invalid_category(${invalidCat})`)
+
+  // Missing answers for required categories
+  let missingAnswer = 0
+  for (const q of questions) {
+    if (!q.questionCategory || !AK_ANSWER_REQUIRED.has(q.questionCategory)) continue
+    if (!(q.answer ?? '').trim() && !(q.referenceAnswer ?? '').trim()) missingAnswer++
+  }
+  if (missingAnswer > 0) reasons.push(`missing_answer(${missingAnswer})`)
+
+  // Page-proportional check
+  if (pageCount && pageCount > 1 && questions.length / pageCount < 2) {
+    reasons.push(`too_few_per_page(${(questions.length / pageCount).toFixed(1)})`)
+  }
+
+  // rubricsDimensions score mismatch (dimension sum != maxScore)
+  let dimMismatchCount = 0
+  for (const q of questions) {
+    if (!Array.isArray(q.rubricsDimensions) || q.rubricsDimensions.length === 0) continue
+    const dimSum = q.rubricsDimensions.reduce((s: number, d: { maxScore?: number }) => s + (typeof d.maxScore === 'number' ? d.maxScore : 0), 0)
+    if (typeof q.maxScore === 'number' && Math.abs(dimSum - q.maxScore) > 0.5) dimMismatchCount++
+  }
+  if (dimMismatchCount > 0) reasons.push(`dim_score_mismatch(${dimMismatchCount})`)
+
+  // shouldRetry if any critical issue (duplicate, missing id, score mismatch, no questions, too few, invalid category)
+  const criticalPatterns = ['no_questions', 'too_few_questions', 'duplicate_ids', 'missing_ids', 'score_mismatch', 'invalid_category']
+  const shouldRetry = reasons.some(r => criticalPatterns.some(p => r.startsWith(p)))
+  return { shouldRetry, reasons }
+}
+
 /**
  * 從答案卷圖片中抽取 AnswerKey（給 AssignmentSetup 使用）
  */
@@ -3649,8 +3793,31 @@ export async function extractAnswerKeyFromImage(
     .trim()
 
   console.log('📥 [AnswerKey raw response]', text)
-  const answerKey = JSON.parse(text) as AnswerKey
-  return normalizeAnswerKeyShortAnswerDimensions(answerKey, opts?.domain)
+  let answerKey = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(text) as AnswerKey, opts?.domain)
+
+  // Quality gate + auto-retry (1 attempt)
+  const qg = checkAnswerKeyQuality(answerKey, 1)
+  if (qg.shouldRetry) {
+    console.warn('[AnswerKey QG] quality FAIL, retrying (1/1):', qg.reasons)
+    try {
+      const retryText = (await generateGeminiText(currentModelName, [
+        prompt,
+        { inlineData: { mimeType, data: imageBase64 } }
+      ], { routeKey: 'answer_key.extract' }))
+        .replace(/```json|```/g, '').trim()
+      const retryAk = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(retryText) as AnswerKey, opts?.domain)
+      const retryQg = checkAnswerKeyQuality(retryAk, 1)
+      console.log('[AnswerKey QG] retry result:', retryQg.reasons.length === 0 ? 'pass' : retryQg.reasons)
+      // Use retry if better (fewer issues or no critical issues)
+      if (!retryQg.shouldRetry || retryQg.reasons.length < qg.reasons.length) {
+        answerKey = retryAk
+      }
+    } catch (retryErr) {
+      console.warn('[AnswerKey QG] retry failed:', retryErr)
+    }
+  }
+
+  return answerKey
 }
 
 /**
@@ -3723,7 +3890,7 @@ export async function extractAnswerKeyFromImages(
     .trim()
 
   console.log('📥 [AnswerKey raw response]', text)
-  const result = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(text) as AnswerKey, opts?.domain)
+  let result = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(text) as AnswerKey, opts?.domain)
 
   // 像素 bbox 偵測：AI 有時對大面積題型（diagram_draw/diagram_color/word_problem）回傳像素座標而非 0-1 正規化
   // 任何 x/y/w/h > 2 即視為像素座標，清除 answerBbox 避免排序錯亂
@@ -3794,6 +3961,35 @@ export async function extractAnswerKeyFromImages(
   for (const q of result.questions) {
     const pageNum = parseInt(String(q.id ?? '').split('-')[0], 10)
     if (pageNum >= 1) q.pageIndex = pageNum - 1
+  }
+
+  // Quality gate + auto-retry (1 attempt)
+  const qg = checkAnswerKeyQuality(result, answerSheetImages.length)
+  if (qg.shouldRetry) {
+    console.warn('[AnswerKey QG] quality FAIL, retrying (1/1):', qg.reasons)
+    try {
+      const retryText = (await generateGeminiText(currentModelName, requestParts, {
+        routeKey: 'answer_key.extract'
+      })).replace(/```json|```/g, '').trim()
+      let retryResult = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(retryText) as AnswerKey, opts?.domain)
+      // Apply same pixel bbox cleanup
+      for (const q of retryResult.questions) {
+        const b = q.answerBbox
+        if (b && (b.x > 2 || b.y > 2 || b.w > 2 || b.h > 2)) q.answerBbox = undefined
+      }
+      const retryQg = checkAnswerKeyQuality(retryResult, answerSheetImages.length)
+      console.log('[AnswerKey QG] retry result:', retryQg.reasons.length === 0 ? 'pass' : retryQg.reasons)
+      if (!retryQg.shouldRetry || retryQg.reasons.length < qg.reasons.length) {
+        // Re-apply pageIndex
+        for (const q of retryResult.questions) {
+          const pageNum = parseInt(String(q.id ?? '').split('-')[0], 10)
+          if (pageNum >= 1) q.pageIndex = pageNum - 1
+        }
+        result = retryResult
+      }
+    } catch (retryErr) {
+      console.warn('[AnswerKey QG] retry failed:', retryErr)
+    }
   }
 
   console.log(`✅ 成功提取 ${result.questions.length} 題，總分 ${result.totalScore}`)
