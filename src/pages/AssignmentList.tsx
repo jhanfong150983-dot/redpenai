@@ -16,6 +16,7 @@ import { NumericInput } from '@/components/NumericInput'
 import GradingSettingsPanel, { type GradingSettingsValues } from '@/components/GradingSettingsPanel'
 import { db, generateId } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
+import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import type {
   AnswerKey,
   Assignment,
@@ -1153,13 +1154,55 @@ export default function AssignmentList({
               </div>
             </div>
 
-            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 sticky bottom-0 bg-white rounded-b-2xl">
-              <button type="button" onClick={() => setShowSettingsModal(false)}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">取消</button>
-              <button type="button" disabled={isSavingSettings} onClick={() => void handleSaveSettings()}
-                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300 transition-all active:scale-95">
-                {isSavingSettings ? <Loader className="h-4 w-4 animate-spin" /> : '儲存'}
+            <div className="flex items-center justify-between border-t border-gray-200 px-6 py-4 sticky bottom-0 bg-white rounded-b-2xl">
+              <button type="button" disabled={isSavingSettings}
+                onClick={async () => {
+                  if (!settingsAssignment) return
+                  const gradedCount = settingsAssignment.gradedCount ?? 0
+                  const uploadedCount = settingsAssignment.uploadedCount ?? 0
+                  const parts = []
+                  if (uploadedCount > 0) parts.push(`${uploadedCount} 份已上傳的作業`)
+                  if (gradedCount > 0) parts.push(`${gradedCount} 份批改結果`)
+                  const detail = parts.length > 0 ? `\n\n此作業包含 ${parts.join('、')}，刪除後無法復原。` : ''
+                  if (!window.confirm(`確定要刪除「${settingsAssignment.title}」？${detail}`)) return
+                  try {
+                    const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
+                    if (subs.length > 0) {
+                      await queueDeleteMany('submissions', subs.map((s) => s.id))
+                      for (const sub of subs) await db.submissions.delete(sub.id)
+                    }
+                    await queueDeleteMany('assignments', [settingsAssignment.id])
+                    await db.assignments.delete(settingsAssignment.id)
+                    requestSync()
+                    setShowSettingsModal(false)
+                    // Reload
+                    const data = await db.assignments.where('classroomId').anyOf(classrooms.map((c) => c.id)).toArray()
+                    const allSubs = await db.submissions.toArray()
+                    const subCountMap = new Map<string, { uploaded: number; graded: number }>()
+                    for (const sub of allSubs) {
+                      if (sub.source === 'student_correction') continue
+                      const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
+                      entry.uploaded++
+                      if (sub.status === 'graded' || sub.gradingResult) entry.graded++
+                      subCountMap.set(sub.assignmentId, entry)
+                    }
+                    const classMap = new Map(classrooms.map((c) => [c.id, c]))
+                    setAssignments(data.map((a) => ({ ...a, classroom: classMap.get(a.classroomId), uploadedCount: subCountMap.get(a.id)?.uploaded ?? 0, gradedCount: subCountMap.get(a.id)?.graded ?? 0 })))
+                  } catch (err) {
+                    console.error('刪除作業失敗', err)
+                  }
+                }}
+                className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors">
+                刪除作業
               </button>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setShowSettingsModal(false)}
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">取消</button>
+                <button type="button" disabled={isSavingSettings} onClick={() => void handleSaveSettings()}
+                  className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300 transition-all active:scale-95">
+                  {isSavingSettings ? <Loader className="h-4 w-4 animate-spin" /> : '儲存'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
