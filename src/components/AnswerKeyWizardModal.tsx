@@ -569,7 +569,16 @@ export default function AnswerKeyWizardModal({
                       >
                         <ChevronRight className={`w-3 h-3 mt-0.5 shrink-0 ${isSelected ? 'opacity-100' : 'opacity-0'}`} />
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">{q.id || `題 ${idx + 1}`}</div>
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-medium truncate">{q.id || `題 ${idx + 1}`}</span>
+                            {scoringMode !== 'unscored' && typeof q.maxScore === 'number' && (
+                              <span className={`shrink-0 text-[10px] tabular-nums ${
+                                q.maxScore <= 0 ? 'text-red-500 font-semibold' : 'text-gray-400'
+                              }`}>
+                                {q.maxScore}分
+                              </span>
+                            )}
+                          </div>
                           <div className={`text-[10px] truncate ${hasWarn ? 'text-orange-600' : 'text-gray-400'}`}>
                             {hasWarn ? (vocabWarn ? '⚠ 請核對注音' : '⚠ 多項填入') : CATEGORY_LABELS[cat]}
                           </div>
