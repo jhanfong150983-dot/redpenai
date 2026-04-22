@@ -19,6 +19,7 @@ import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import type {
   AnswerKey,
+  AnswerKeyTemplate,
   Assignment,
   Classroom,
   Folder as AssignmentFolder,
@@ -165,7 +166,7 @@ export default function AssignmentList({
         }
         await db.assignments.update(settingsAssignment.id, {
           answerKey: newAK, domain: settingsSelectedNewAK.domain,
-          totalPages: settingsSelectedNewAK.totalPages,
+          answerKeyTemplateId: settingsSelectedNewAK.id,
           scoringMode: settingsScoringMode === 'unscored' ? 'unscored' : undefined,
           folder: settingsFolder || undefined,
           updatedAt: now,
@@ -213,45 +214,36 @@ export default function AssignmentList({
     }
   }
 
-  // 所有有答案卷的作業（跨班級，用於答案卷選擇器）
-  const [allAssignmentsWithAK, setAllAssignmentsWithAK] = useState<Assignment[]>([])
+  // 所有答案卷模板（獨立表，跨班級）
+  const [allTemplates, setAllTemplates] = useState<AnswerKeyTemplate[]>([])
 
   useEffect(() => {
-    db.assignments.toArray().then((all) => {
-      setAllAssignmentsWithAK(all.filter((a) => a.answerKey?.questions?.length))
+    db.answerKeyTemplates.toArray().then((all) => {
+      setAllTemplates(all.filter((t) => t.answerKey?.questions?.length))
     })
   }, [assignments])
 
   // 答案卷的資料夾列表
   const answerKeyFolders = useMemo(() => {
     const folders = new Set<string>()
-    allAssignmentsWithAK.forEach((a) => { if (a.folder) folders.add(a.folder) })
+    allTemplates.forEach((t) => { if (t.folder) folders.add(t.folder) })
     return Array.from(folders).sort()
-  }, [allAssignmentsWithAK])
+  }, [allTemplates])
 
   // 根據選中的資料夾過濾答案卷
   const availableAnswerKeys = useMemo(() => {
-    let items = allAssignmentsWithAK
+    let items = allTemplates
     if (createAnswerKeyFolder) {
-      items = items.filter((a) => a.folder === createAnswerKeyFolder)
+      items = items.filter((t) => t.folder === createAnswerKeyFolder)
     }
-    // 去重：同名+同domain 只取最新的
-    const seen = new Map<string, Assignment>()
-    for (const a of items) {
-      const key = `${a.title}::${a.domain || ''}`
-      const existing = seen.get(key)
-      if (!existing || (a.updatedAt ?? 0) > (existing.updatedAt ?? 0)) {
-        seen.set(key, a)
-      }
-    }
-    return Array.from(seen.values()).sort((a, b) => a.title.localeCompare(b.title, 'zh-Hant'))
-  }, [allAssignmentsWithAK, createAnswerKeyFolder])
+    return items.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+  }, [allTemplates, createAnswerKeyFolder])
 
-  // 選中的答案卷
+  // 選中的答案卷模板
   const selectedAnswerKey = useMemo(() => {
     if (!createSelectedAnswerKeyId) return null
-    return allAssignmentsWithAK.find((a) => a.id === createSelectedAnswerKeyId) ?? null
-  }, [allAssignmentsWithAK, createSelectedAnswerKeyId])
+    return allTemplates.find((t) => t.id === createSelectedAnswerKeyId) ?? null
+  }, [allTemplates, createSelectedAnswerKeyId])
 
   const selectedDomain = selectedAnswerKey?.domain || ''
 
@@ -300,20 +292,14 @@ export default function AssignmentList({
 
   const settingsSelectedNewAK = useMemo(() => {
     if (!settingsSelectedAnswerKeyId) return null
-    return allAssignmentsWithAK.find((a) => a.id === settingsSelectedAnswerKeyId) ?? null
-  }, [allAssignmentsWithAK, settingsSelectedAnswerKeyId])
+    return allTemplates.find((t) => t.id === settingsSelectedAnswerKeyId) ?? null
+  }, [allTemplates, settingsSelectedAnswerKeyId])
 
   const settingsAvailableAKs = useMemo(() => {
-    let items = allAssignmentsWithAK
-    if (settingsAnswerKeyFolder) items = items.filter((a) => a.folder === settingsAnswerKeyFolder)
-    const seen = new Map<string, Assignment>()
-    for (const a of items) {
-      const key = `${a.title}::${a.domain || ''}`
-      const existing = seen.get(key)
-      if (!existing || (a.updatedAt ?? 0) > (existing.updatedAt ?? 0)) seen.set(key, a)
-    }
-    return Array.from(seen.values()).sort((a, b) => a.title.localeCompare(b.title, 'zh-Hant'))
-  }, [allAssignmentsWithAK, settingsAnswerKeyFolder])
+    let items = allTemplates
+    if (settingsAnswerKeyFolder) items = items.filter((t) => t.folder === settingsAnswerKeyFolder)
+    return items.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+  }, [allTemplates, settingsAnswerKeyFolder])
 
   // Adapter: settings modal ↔ GradingSettingsPanel
   const settingsSettingsValues: GradingSettingsValues = {
@@ -340,7 +326,6 @@ export default function AssignmentList({
       if (selectedAnswerKey?.answerKey) {
         answerKey = structuredClone(selectedAnswerKey.answerKey)
         domain = selectedAnswerKey.domain
-        totalPages = selectedAnswerKey.totalPages || 1
         // 寫入批改設定到 answerKey（server 從這裡讀）
         answerKey.strictness = createStrictness
         if (domain === '數學') {
@@ -361,6 +346,7 @@ export default function AssignmentList({
         totalPages,
         domain,
         answerKey,
+        answerKeyTemplateId: selectedAnswerKey?.id || undefined,
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
         folder: createFolder || undefined,
         updatedAt: now,
@@ -1130,9 +1116,9 @@ export default function AssignmentList({
                   <select value={settingsSelectedAnswerKeyId} onChange={(e) => setSettingsSelectedAnswerKeyId(e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
                     <option value="">不更換</option>
-                    {settingsAvailableAKs.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.title}（{a.domain || '未設定'} · {a.answerKey?.questions?.length ?? 0} 題）
+                    {settingsAvailableAKs.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}（{t.domain || '未設定'} · {t.answerKey?.questions?.length ?? 0} 題）
                       </option>
                     ))}
                   </select>
@@ -1256,9 +1242,9 @@ export default function AssignmentList({
                   <select value={createSelectedAnswerKeyId} onChange={(e) => setCreateSelectedAnswerKeyId(e.target.value)}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
                     <option value="">稍後再設定</option>
-                    {availableAnswerKeys.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.title}（{a.domain || '未設定領域'} · {a.answerKey?.questions?.length ?? 0} 題）
+                    {availableAnswerKeys.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}（{t.domain || '未設定領域'} · {t.answerKey?.questions?.length ?? 0} 題）
                       </option>
                     ))}
                   </select>
