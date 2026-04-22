@@ -769,6 +769,7 @@ export function useSync(options: UseSyncOptions = {}) {
         } : undefined,
         questionCount: t.questionCount ?? t.answerKey?.questions?.length ?? 0,
         totalScore: t.totalScore ?? t.answerKey?.totalScore ?? 0,
+        shareCode: t.shareCode ?? undefined,
         updatedAt: t.updatedAt
       }))
 
@@ -1312,6 +1313,7 @@ export function useSync(options: UseSyncOptions = {}) {
         answerKey: t.answerKey ?? t.answer_key,
         questionCount: t.questionCount ?? t.question_count ?? t.answerKey?.questions?.length ?? 0,
         totalScore: t.totalScore ?? t.total_score ?? t.answerKey?.totalScore ?? 0,
+        shareCode: t.shareCode ?? t.share_code ?? undefined,
         updatedAt: toMillis(t.updatedAt ?? t.updated_at),
       }))
 

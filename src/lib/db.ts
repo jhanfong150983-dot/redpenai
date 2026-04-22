@@ -222,6 +222,7 @@ export interface AnswerKeyTemplate {
   answerKey: AnswerKey
   questionCount?: number
   totalScore?: number
+  shareCode?: string
   updatedAt?: number
 }
 

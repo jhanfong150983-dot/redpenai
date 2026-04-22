@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef, type ChangeEvent } from 'react'
 import {
   Plus, Search, BookOpen, Pencil, Trash2, FileUp, Loader2,
-  Folder, ChevronDown, ChevronRight, Edit2
+  Folder, ChevronDown, ChevronRight, Edit2, Download, Copy
 } from 'lucide-react'
 import { db, generateId } from '@/lib/db'
 import type { AnswerKey, AnswerKeyTemplate, Assignment, Classroom } from '@/lib/db'
@@ -107,6 +107,56 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const [newFolder, setNewFolder] = useState('')
   const [newDocType, setNewDocType] = useState<'worksheet' | 'exam'>('worksheet')
   const domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他']
+
+  // 匯入短碼
+  const [showImportModal, setShowImportModal] = useState(false)
+  const [importCode, setImportCode] = useState('')
+  const [importError, setImportError] = useState('')
+  const [isImporting, setIsImporting] = useState(false)
+
+  const handleImportByCode = async () => {
+    const code = importCode.trim().toUpperCase()
+    if (!code) { setImportError('請輸入分享碼'); return }
+    setIsImporting(true); setImportError('')
+    try {
+      const res = await fetch('/api/data/import-template', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ shareCode: code })
+      })
+      const data = await res.json()
+      if (!res.ok) { setImportError(data?.error || '匯入失敗'); return }
+      // 寫入本地 IndexedDB
+      const t = data.template
+      await db.answerKeyTemplates.put({
+        id: t.id,
+        name: t.name,
+        domain: t.domain ?? undefined,
+        answerKey: t.answerKey ?? (await db.answerKeyTemplates.get(t.id))?.answerKey ?? { questions: [], totalScore: 0 },
+        questionCount: t.questionCount,
+        totalScore: t.totalScore,
+        shareCode: t.shareCode,
+        updatedAt: Date.now(),
+      })
+      requestSync(); await loadData()
+      setShowImportModal(false); setImportCode('')
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : '匯入失敗')
+    } finally { setIsImporting(false) }
+  }
+
+  // 複製短碼
+  const copyShareCode = (code: string) => {
+    navigator.clipboard.writeText(code).then(() => {
+      // 簡單的 toast 效果
+      const el = document.createElement('div')
+      el.textContent = '已複製分享碼'
+      el.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm z-50'
+      document.body.appendChild(el)
+      setTimeout(() => el.remove(), 2000)
+    })
+  }
 
   // ── Load data ──────────────────────────────────────────────────────────────
 
@@ -472,6 +522,15 @@ export default function AnswerBank(_props: AnswerBankProps) {
         </div>
         <p className="mt-0.5 text-xs text-slate-500">
           {t.answerKey.questions.length} 題 · 總分 {t.answerKey.totalScore}
+          {t.shareCode && (
+            <span className="ml-2 inline-flex items-center gap-1">
+              · 分享碼：<span className="font-mono font-medium text-slate-700">{t.shareCode}</span>
+              <button type="button" onClick={(e) => { e.stopPropagation(); copyShareCode(t.shareCode!) }}
+                className="p-0.5 text-slate-400 hover:text-green-600" title="複製分享碼">
+                <Copy className="w-3 h-3" />
+              </button>
+            </span>
+          )}
         </p>
       </div>
       <div className="flex items-center gap-1.5 ml-3">
@@ -497,6 +556,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
         <h1 className="text-2xl font-semibold text-gray-900">建立答案</h1>
         <div className="flex items-center gap-2">
           <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />
+          <button type="button" onClick={() => { setImportCode(''); setImportError(''); setShowImportModal(true) }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+            <Download className="w-4 h-4" />匯入短碼
+          </button>
           <button type="button" onClick={() => { setNewFolderName(''); setNewFolderError(''); setIsCreateFolderModalOpen(true) }}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
             <Plus className="w-4 h-4" />建立資料夾
@@ -710,6 +773,35 @@ export default function AnswerBank(_props: AnswerBankProps) {
                 onClick={() => { setShowNewModal(false); fileInputRef.current?.click() }}
                 className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
                 上傳答案卷圖片
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 匯入短碼 Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <h2 className="text-base font-semibold text-gray-900">匯入答案卷</h2>
+              <button type="button" onClick={() => setShowImportModal(false)} className="rounded-full p-2 hover:bg-gray-100">
+                <span className="text-gray-400 text-xl leading-none">&times;</span>
+              </button>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-xs text-gray-500 mb-3">輸入其他老師分享的短碼，即可匯入答案卷到你的答案庫。</p>
+              <input type="text" value={importCode} onChange={(e) => { setImportCode(e.target.value.toUpperCase()); setImportError('') }}
+                placeholder="例如：AK-3F8X2A" autoFocus
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleImportByCode() }}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono text-center tracking-widest focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100" />
+              {importError && <p className="mt-2 text-xs text-red-600">{importError}</p>}
+            </div>
+            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-3">
+              <button type="button" onClick={() => setShowImportModal(false)} className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">取消</button>
+              <button type="button" disabled={!importCode.trim() || isImporting} onClick={() => void handleImportByCode()}
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300 transition-all active:scale-95">
+                {isImporting ? '匯入中...' : '匯入'}
               </button>
             </div>
           </div>
