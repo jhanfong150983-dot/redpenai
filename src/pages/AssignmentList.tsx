@@ -55,7 +55,7 @@ export default function AssignmentList({
   canUseCorrection = true,
   embedded = false,
   initialClassroomId,
-  initialFolder = '__uncategorized__',
+  initialFolder = '__all__',
   onClassroomChange,
   onFolderChange
 }: AssignmentListProps) {
@@ -65,7 +65,7 @@ export default function AssignmentList({
   const [isLoading, setIsLoading] = useState(true)
   const [selectedClassroomId, setSelectedClassroomId] = useState(initialClassroomId || '')
   const [selectedFolder, setSelectedFolder] = useState(
-    initialFolder || '__uncategorized__'
+    initialFolder || '__all__'
   )
 
   const classAssignments = useMemo(() => {
@@ -90,12 +90,11 @@ export default function AssignmentList({
 
   const filteredAssignments = useMemo(() => {
     if (!selectedClassroomId) return classAssignments
-    return classAssignments.filter((assignment) => {
-      if (selectedFolder === '__uncategorized__') {
-        return !assignment.folder
-      }
-      return assignment.folder === selectedFolder
-    })
+    if (selectedFolder === '__all__') return classAssignments
+    if (selectedFolder === '__uncategorized__') {
+      return classAssignments.filter((a) => !a.folder)
+    }
+    return classAssignments.filter((a) => a.folder === selectedFolder)
   }, [classAssignments, selectedClassroomId, selectedFolder])
 
   const rubricLabels: Rubric['levels'][number]['label'][] = [
@@ -611,8 +610,8 @@ export default function AssignmentList({
 
   useEffect(() => {
     if (selectedFolder === '__uncategorized__') return
-    if (!usedFolders.includes(selectedFolder)) {
-      setSelectedFolder('__uncategorized__')
+    if (selectedFolder !== '__all__' && selectedFolder !== '__uncategorized__' && !usedFolders.includes(selectedFolder)) {
+      setSelectedFolder('__all__')
     }
   }, [selectedFolder, usedFolders])
 
@@ -703,8 +702,8 @@ export default function AssignmentList({
                   onChange={(e) => setSelectedFolder(e.target.value)}
                   className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
                 >
-                  <option value="__uncategorized__">
-                    全部 ({classAssignments.filter((a) => !a.folder).length})
+                  <option value="__all__">
+                    全部 ({classAssignments.length})
                   </option>
                   {usedFolders.map((folder) => {
                     const count = classAssignments.filter((a) => a.folder === folder).length
@@ -714,6 +713,11 @@ export default function AssignmentList({
                       </option>
                     )
                   })}
+                  {classAssignments.some((a) => !a.folder) && (
+                    <option value="__uncategorized__">
+                      未分類 ({classAssignments.filter((a) => !a.folder).length})
+                    </option>
+                  )}
                 </select>
               </div>
             </div>
