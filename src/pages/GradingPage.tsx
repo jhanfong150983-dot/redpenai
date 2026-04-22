@@ -2509,13 +2509,17 @@ export default function GradingPage({
         }
 
         // 條件一：連續空白/無法辨識 ≥ CONSECUTIVE_BLANK_THRESHOLD 題
+        // 只計算「AI1 blank 但 AI2 不是 blank」的不一致空白（可能 bbox 問題）
+        // 兩邊都 blank 的跳過（學生真的沒寫，白卷不需要 retry）
         for (let i = 0; i < entries.length; i++) {
           const results = entries[i].phaseAResult.questionResults
           let consecutive = 0
           let maxConsecutive = 0
           for (const qr of results) {
-            const status = qr.readAnswer1?.status
-            if (status === 'blank' || status === 'unreadable') {
+            const s1 = qr.readAnswer1?.status
+            const s2 = qr.readAnswer2?.status
+            const bothBlank = (s1 === 'blank' || s1 === 'unreadable') && (s2 === 'blank' || s2 === 'unreadable')
+            if ((s1 === 'blank' || s1 === 'unreadable') && !bothBlank) {
               consecutive++
               if (consecutive > maxConsecutive) maxConsecutive = consecutive
               if (consecutive >= CONSECUTIVE_BLANK_THRESHOLD) {
@@ -2797,18 +2801,27 @@ export default function GradingPage({
         }
 
         // 品質檢查後的二次問題偵測：如果重跑後仍有大量未讀取的題目，標記為失敗
-        // 這些 submissions 會從批次中移除，在 Phase B 結果摘要中顯示為失敗
+        // 但需要區分「學生真的沒寫（白卷）」和「bbox 定位問題導致的假空白」：
+        // - AI1 和 AI2 都讀到 blank → 學生真的沒寫，應該正常進入 Phase B 得 0 分
+        // - AI1 讀到內容但 AI2 blank（或反過來）→ 不一致，可能是定位問題
         const phaseAQualityFails: Array<{ submissionId: string; studentLabel: string; unreadCount: number }> = []
         for (const entry of entries) {
-          const blankOrUnreadable = entry.phaseAResult.questionResults.filter(
-            (qr) => qr.readAnswer1?.status === 'blank' || qr.readAnswer1?.status === 'unreadable'
-          )
+          // 只計算「不一致的空白」（一邊讀到東西，另一邊空白 → bbox 問題）
+          // 兩邊都 blank 的不算（真的沒寫）
+          const suspiciousBlanks = entry.phaseAResult.questionResults.filter((qr) => {
+            const s1 = qr.readAnswer1?.status
+            const s2 = qr.readAnswer2?.status
+            // 兩邊都 blank → 真的沒寫，不算異常
+            if ((s1 === 'blank' || s1 === 'unreadable') && (s2 === 'blank' || s2 === 'unreadable')) return false
+            // 只有一邊 blank/unreadable → 可能 bbox 問題
+            return s1 === 'blank' || s1 === 'unreadable'
+          })
           const totalQuestions = entry.phaseAResult.questionResults.length
-          // 超過 30% 的題目無法讀取 → 可能是 bbox 定位問題
-          if (totalQuestions > 0 && blankOrUnreadable.length > totalQuestions * 0.3) {
+          // 超過 30% 的題目出現「不一致空白」→ 可能是 bbox 定位問題
+          if (totalQuestions > 0 && suspiciousBlanks.length > totalQuestions * 0.3) {
             const student = students.find((s) => s.id === entry.studentId)
             const studentLabel = student ? `${student.seatNumber}號 ${student.name}` : entry.studentId
-            phaseAQualityFails.push({ submissionId: entry.submissionId, studentLabel, unreadCount: blankOrUnreadable.length })
+            phaseAQualityFails.push({ submissionId: entry.submissionId, studentLabel, unreadCount: suspiciousBlanks.length })
           }
         }
         setPostRetryWarnings(phaseAQualityFails)
