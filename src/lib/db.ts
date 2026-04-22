@@ -202,10 +202,26 @@ export interface Assignment {
 
   scoringMode?: 'scored' | 'unscored' // 不計分：批改只顯示✓✗△，不納入成績統計
   docType?: 'worksheet' | 'exam' // 作業形式：習作 / 考卷（影響答案卷排序策略）
-  answerKey?: AnswerKey
+  answerKey?: AnswerKey // 向後兼容：舊資料直接存答案卷
+  answerKeyTemplateId?: string // 新架構：引用獨立的答案卷模板
   conceptTags?: Record<string, { code: string; label: string }> // 108課綱概念標記（questionId → concept）
   // Supabase Storage 路徑，answer-sheets/{id}/page-{i}.webp（各頁壓縮圖，用於 wizard 預覽）
   answerSheetImagePaths?: string[]
+  updatedAt?: number
+}
+
+/**
+ * 答案卷模板（獨立於班級作業，可跨班共用）
+ */
+export interface AnswerKeyTemplate {
+  id: string
+  name: string
+  domain?: string
+  docType?: 'worksheet' | 'exam'
+  folder?: string
+  answerKey: AnswerKey
+  questionCount?: number
+  totalScore?: number
   updatedAt?: number
 }
 
@@ -408,6 +424,7 @@ class RedPenDatabase extends Dexie {
   domainDiagnosisCache!: EntityTable<DomainDiagnosisCache, 'cacheKey'>
   gradebookCustomColumns!: EntityTable<GradebookCustomColumn, 'id'>
   gradebookCustomScores!: EntityTable<GradebookCustomScore, 'id'>
+  answerKeyTemplates!: EntityTable<AnswerKeyTemplate, 'id'>
 
   constructor() {
     super('RedPenDB')
@@ -772,6 +789,26 @@ class RedPenDatabase extends Dexie {
         '&id, classroomId, columnId, studentId, [columnId+studentId], [classroomId+studentId], updatedAt'
     })
 
+    // version 11: add answerKeyTemplates table (independent answer key storage)
+    this.version(11).stores({
+      classrooms: '&id, name, folder',
+      students: '&id, classroomId, seatNumber, name',
+      assignments: '&id, classroomId, title, folder',
+      submissions:
+        '&id, assignmentId, studentId, status, createdAt, [assignmentId+studentId]',
+      syncQueue: '++id, tableName, recordId, createdAt',
+      answerExtractionCorrections:
+        '++id, assignmentId, studentId, submissionId, questionId, createdAt',
+      folders: '&id, name, type, classroomId, [type+classroomId], [type+classroomId+name]',
+      teacherSummaryCache: '&cacheKey, assignmentId, updatedAt',
+      domainDiagnosisCache: '&cacheKey, domain, startDate, endDate, updatedAt',
+      gradebookCustomColumns:
+        '&id, classroomId, [classroomId+sortOrder], updatedAt',
+      gradebookCustomScores:
+        '&id, classroomId, columnId, studentId, [columnId+studentId], [classroomId+studentId], updatedAt',
+      answerKeyTemplates: '&id, name, domain, folder, updatedAt'
+    })
+
     const setUpdatedAt = (value: unknown) => {
       if (typeof value === 'number' && Number.isFinite(value)) return value
       return Date.now()
@@ -873,6 +910,19 @@ export function generateId(): string {
 
 export function getCurrentTimestamp(): number {
   return Date.now()
+}
+
+/**
+ * 解析 assignment 的 answerKey：優先從 answerKeyTemplateId 讀取，fallback 到 inline answerKey
+ */
+export async function resolveAnswerKey(assignment: Assignment): Promise<AnswerKey | undefined> {
+  // 優先用 templateId
+  if (assignment.answerKeyTemplateId) {
+    const template = await db.answerKeyTemplates.get(assignment.answerKeyTemplateId)
+    if (template?.answerKey) return template.answerKey
+  }
+  // Fallback: inline answerKey（舊資料向後兼容）
+  return assignment.answerKey
 }
 
 /**
