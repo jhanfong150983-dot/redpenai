@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef, type ChangeEvent } from 'react'
-import { ArrowLeft, Plus, Search, BookOpen, Pencil, Trash2, FileUp, Loader2 } from 'lucide-react'
+import { ArrowLeft, Plus, Search, BookOpen, Pencil, Trash2, FileUp, Loader2, FolderPlus, Folder } from 'lucide-react'
 import { db, generateId } from '@/lib/db'
 import type { Assignment, AnswerKey, Classroom } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
@@ -15,6 +15,7 @@ interface AnswerBankItem {
   id: string // source assignment ID
   title: string
   domain: string
+  folder?: string
   questionCount: number
   totalScore: number
   answerKey: AnswerKey
@@ -67,10 +68,16 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
   const [isExtracting, setIsExtracting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Folder state
+  const [selectedFolder, setSelectedFolder] = useState('')
+  const [showCreateFolder, setShowCreateFolder] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+
   // New answer key modal state
   const [showNewModal, setShowNewModal] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newDomain, setNewDomain] = useState('')
+  const [newFolder, setNewFolder] = useState('')
   const domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他']
 
   // ── Load data ──────────────────────────────────────────────────────────────
@@ -124,12 +131,14 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
           existing.questionCount = a.answerKey!.questions.length
           existing.totalScore = a.answerKey!.totalScore
           existing.updatedAt = a.updatedAt
+          existing.folder = a.folder
         }
       } else {
         groupMap.set(key, {
           id: a.id,
           title: a.title,
           domain: a.domain || '其他',
+          folder: a.folder,
           questionCount: a.answerKey!.questions.length,
           totalScore: a.answerKey!.totalScore,
           answerKey: a.answerKey!,
@@ -145,8 +154,28 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
 
   // ── Filter ─────────────────────────────────────────────────────────────────
 
+  // 所有資料夾（從有答案卷的作業中提取）
+  const allFolders = useMemo(() => {
+    const folders = new Set<string>()
+    bankItems.forEach((item) => { if (item.folder) folders.add(item.folder) })
+    return Array.from(folders).sort()
+  }, [bankItems])
+
+  // 根據選中的領域，只顯示包含該領域答案卷的資料夾
+  const visibleFolders = useMemo(() => {
+    if (!filterDomain) return allFolders
+    const folders = new Set<string>()
+    bankItems.forEach((item) => {
+      if (item.domain === filterDomain && item.folder) folders.add(item.folder)
+    })
+    return Array.from(folders).sort()
+  }, [bankItems, filterDomain, allFolders])
+
   const filteredItems = useMemo(() => {
     let items = bankItems
+    if (selectedFolder) {
+      items = items.filter((item) => item.folder === selectedFolder)
+    }
     if (filterDomain) {
       items = items.filter((item) => item.domain === filterDomain)
     }
@@ -155,12 +184,16 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
       items = items.filter((item) => item.title.toLowerCase().includes(q))
     }
     return items
-  }, [bankItems, filterDomain, searchQuery])
+  }, [bankItems, selectedFolder, filterDomain, searchQuery])
 
   const allDomains = useMemo(() => {
-    const domains = new Set(bankItems.map((item) => item.domain))
+    let items = bankItems
+    if (selectedFolder) {
+      items = items.filter((item) => item.folder === selectedFolder)
+    }
+    const domains = new Set(items.map((item) => item.domain))
     return Array.from(domains).sort()
-  }, [bankItems])
+  }, [bankItems, selectedFolder])
 
   // ── File upload → wizard ───────────────────────────────────────────────────
 
@@ -270,6 +303,7 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
         title: newTitle.trim(),
         totalPages: imageBlobs.length,
         domain: domainValue,
+        folder: newFolder || undefined,
         answerKey,
         updatedAt: Date.now(),
       }
@@ -340,7 +374,7 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
             </button>
           )}
           <div>
-            <h1 className="text-xl font-bold text-slate-900">題庫</h1>
+            <h1 className="text-xl font-bold text-slate-900">建立答案</h1>
             <p className="text-sm text-slate-500">管理答案卷，可跨班級使用</p>
           </div>
         </div>
@@ -357,7 +391,7 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
           <button
             type="button"
             disabled={isExtracting}
-            onClick={() => { setNewTitle(''); setNewDomain(''); setShowNewModal(true) }}
+            onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(selectedFolder); setShowNewModal(true) }}
             className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-green-700 active:scale-95 disabled:opacity-50"
           >
             {isExtracting ? (
@@ -383,6 +417,16 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
           />
         </div>
         <select
+          value={selectedFolder}
+          onChange={(e) => setSelectedFolder(e.target.value)}
+          className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-green-400 focus:outline-none"
+        >
+          <option value="">全部資料夾</option>
+          {visibleFolders.map((f) => (
+            <option key={f} value={f}>{f}</option>
+          ))}
+        </select>
+        <select
           value={filterDomain}
           onChange={(e) => setFilterDomain(e.target.value)}
           className="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-green-400 focus:outline-none"
@@ -392,7 +436,60 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
             <option key={d} value={d}>{d}</option>
           ))}
         </select>
+        <button
+          type="button"
+          onClick={() => { setNewFolderName(''); setShowCreateFolder(true) }}
+          className="rounded-lg border border-slate-200 p-2 text-slate-500 transition-colors hover:border-green-300 hover:text-green-600"
+          title="新增資料夾"
+        >
+          <FolderPlus className="h-4 w-4" />
+        </button>
       </div>
+
+      {/* Create folder modal */}
+      {showCreateFolder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <h2 className="text-base font-semibold text-gray-900">新增資料夾</h2>
+              <button type="button" onClick={() => setShowCreateFolder(false)} className="rounded-full p-2 hover:bg-gray-100">
+                <span className="text-gray-400 text-xl leading-none">&times;</span>
+              </button>
+            </div>
+            <div className="px-6 py-4">
+              <input
+                type="text"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="例如：段考、小考、作業"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newFolderName.trim()) {
+                    setSelectedFolder(newFolderName.trim())
+                    setShowCreateFolder(false)
+                  }
+                }}
+              />
+              <p className="mt-2 text-xs text-slate-500">建立後，新增答案卷時可選擇此資料夾</p>
+            </div>
+            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-3">
+              <button type="button" onClick={() => setShowCreateFolder(false)} className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">取消</button>
+              <button
+                type="button"
+                disabled={!newFolderName.trim()}
+                onClick={() => {
+                  setSelectedFolder(newFolderName.trim())
+                  setShowCreateFolder(false)
+                }}
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300"
+              >
+                建立
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -431,6 +528,11 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-semibold text-slate-900 truncate">{item.title}</h3>
                   <DomainBadge domain={item.domain} />
+                  {item.folder && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-slate-500 bg-slate-100">
+                      <Folder className="h-3 w-3" />{item.folder}
+                    </span>
+                  )}
                 </div>
                 <p className="mt-1 text-xs text-slate-500">
                   {item.questionCount} 題 · 總分 {item.totalScore} · {item.classroomNames.join('、')}
@@ -493,6 +595,19 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
                   <option value="">請選擇</option>
                   {domainOptions.map((d) => (
                     <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">資料夾（選填）</label>
+                <select
+                  value={newFolder}
+                  onChange={(e) => setNewFolder(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none"
+                >
+                  <option value="">不分類</option>
+                  {allFolders.map((f) => (
+                    <option key={f} value={f}>{f}</option>
                   ))}
                 </select>
               </div>

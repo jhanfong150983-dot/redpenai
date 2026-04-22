@@ -1497,7 +1497,7 @@ function App() {
         },
         {
           key: 'answer-bank',
-          label: '題庫',
+          label: '建立答案',
           description: '管理答案卷，可跨班級使用',
           icon: BookOpen,
           onClick: () => { if (!confirmLeaveGrading()) return; setCurrentPage('answer-bank') }
