@@ -29,7 +29,7 @@ type Bbox = { x: number; y: number; w: number; h: number }
 type OpenCorrectionItem = NonNullable<StudentAssignmentItem['openCorrections']>[number]
 
 const CORRECTION_POLL_INTERVAL_MS = 30000
-const STUDENT_SUBMIT_TIMEOUT_MS = 180_000
+const STUDENT_SUBMIT_TIMEOUT_MS = 300_000 // 5 分鐘（同步批改需要等 AI 回應）
 const CORRECTION_IMAGE_TARGET_BYTES = 120_000
 const CORRECTION_IMAGE_MIN_TARGET_BYTES = 45_000
 const CORRECTION_MERGE_TARGET_BYTES = 120_000
@@ -635,15 +635,27 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     [overview]
   )
 
+  // 頁面可見度變化時重新載入（取代 30 秒輪詢，大幅降低流量）
   useEffect(() => {
-    if (tab !== 'correction' || cameraMode !== null || isSubmitting) {
-      return
+    if (tab !== 'correction' || cameraMode !== null || isSubmitting) return
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void loadOverview(selectedClassroomKey, { silent: true })
+      }
     }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [tab, cameraMode, isSubmitting, loadOverview, selectedClassroomKey])
 
-    let disposed = false
-    let timeoutId: ReturnType<typeof setTimeout> | null = null
+  // [LEGACY] 以下輪詢邏輯保留作為參考但不再執行
+  useEffect(() => {
+    // 已改為同步批改 + visibility change 觸發，不再輪詢
+    return
+    // eslint-disable-next-line no-unreachable
 
     const CORRECTION_ACTIVE = ['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed']
+    let disposed = false
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
 
     const tick = async () => {
       const payload = await loadOverview(selectedClassroomKey, { silent: true })
@@ -1234,28 +1246,19 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           data?.correctionResult && typeof data.correctionResult === 'object'
             ? data.correctionResult
             : null
-        if (correctionResult?.gradingPending) {
-          const pos = Number(correctionResult.queuePosition) || 1
-          setMessage(`訂正已送出！AI 批改中，排隊第 ${pos} 位，批改完成後會自動更新。`)
+        if (correctionResult?.gradingFailed) {
+          setMessage(correctionResult.errorMessage || '批改失敗，請重新送出訂正。')
+        } else if (correctionResult?.allDisputed) {
+          setMessage('所有題目已申訴，等待老師審閱。')
+        } else if (correctionResult?.passed) {
+          setMessage('訂正完成，全部答對！')
+        } else if (correctionResult?.wrongCount > 0) {
+          setMessage(`仍有 ${correctionResult.wrongCount} 題需訂正，請再次檢查。`)
         } else {
-          const resultStatus = String(correctionResult?.status || '')
-          const attemptCount = Number(correctionResult?.correctionAttemptCount) || 0
-          const attemptLimit = Number(correctionResult?.correctionAttemptLimit) || 0
-          const wrongCount = Number(correctionResult?.wrongQuestionCount) || 0
-          const remaining = Math.max(0, attemptLimit - attemptCount)
-
-          if (resultStatus === 'correction_passed') {
-            setMessage('訂正完成，全部答對。')
-          } else if (resultStatus === 'correction_failed') {
-            setMessage(
-              `仍有 ${wrongCount} 題需訂正，且已達上限，請老師解鎖後再嘗試。`
-            )
-          } else if (resultStatus === 'correction_required' || resultStatus === 'correction_in_progress') {
-            setMessage(`仍有 ${wrongCount} 題需訂正，剩餘 ${remaining} 次機會。`)
-          } else {
-            setMessage('訂正作業已送出，AI 批改完成。')
-          }
+          setMessage('訂正作業已送出，AI 批改完成。')
         }
+        // 重新載入 overview 以更新狀態（同步批改已完成，不需輪詢）
+        void loadOverview(selectedClassroomKey, { silent: true })
       }
       if (mode === 'upload') {
         setUploadDrafts((prev) => {
