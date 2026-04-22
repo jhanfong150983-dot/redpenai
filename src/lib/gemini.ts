@@ -1573,11 +1573,17 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   - questionCategory: "short_answer"
   - orderMode: "unordered"，所有行共用同一 unorderedGroupId（因為任選，順序無關）
   - rubricsDimensions（每行）：
-    • 若答案卷標示了各項配分 → 依標示設定
+    • 若答案卷標示了各項配分 → 依標示設定維度名稱和各維度 maxScore
     • 若未標示 → 預設兩維度：
       1.「選擇」— criteria: "有填入清單中任一有效項目即可"
       2.「理由說明」— criteria 從題幹的說明要求推導（如「用因為...所以...說明影響，邏輯合理」）
-  - referenceAnswer: 填該行的參考答案示範
+    ⚠️【任選題 criteria 鐵律】因為是「任選」，每一行的 criteria 絕對不可包含特定項目名稱！
+      ❌ 錯誤 criteria: "勾選「鐵路」" ← 限定了特定答案，會導致選其他項目的學生被判錯
+      ❌ 錯誤 criteria: "選擇電報並說明" ← 同上
+      ✅ 正確 criteria: "有填入清單中任一有效項目即可" ← 不限定選哪個
+      ✅ 正確 criteria: "說明所選建設對做生意的具體影響，邏輯合理" ← 不限定哪個建設
+    → 具體的項目名稱只能出現在 referenceAnswer（作為參考示範），不可出現在 criteria
+  - referenceAnswer: 填該行的參考答案示範（可包含具體項目名稱，因為只是範例）
   - answerBbox: 必須涵蓋整行（選擇欄 + 說明欄），不可只框說明欄
 
   範例：
@@ -1587,12 +1593,18 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
   → 輸出 2 題（假設此大題是第 8 題）：
     { "id": "8-1", "questionCategory": "short_answer", "maxScore": 3,
       "orderMode": "unordered", "unorderedGroupId": "8",
-      "referenceAnswer": "鐵路建設使貨物運輸更快速，縮短交貨時間，有助於擴大生意規模",
+      "referenceAnswer": "（鐵路）以前主要靠船運送貨物，因為鐵路建設縮短了運輸時間，所以做起生意更方便",
       "rubricsDimensions": [
-        { "name": "選擇", "maxScore": 1, "criteria": "有填入任一有效的現代化建設項目" },
-        { "name": "理由說明", "maxScore": 2, "criteria": "用因為...所以...說明該建設對做生意的具體影響，邏輯合理" }
+        { "name": "選擇", "maxScore": 1, "criteria": "有填入清單中任一有效項目即可" },
+        { "name": "理由說明", "maxScore": 2, "criteria": "用因為...所以...說明所選建設對做生意的具體影響，邏輯合理" }
       ] }
-    { "id": "8-2", ... 同結構 }
+    { "id": "8-2", "questionCategory": "short_answer", "maxScore": 3,
+      "orderMode": "unordered", "unorderedGroupId": "8",
+      "referenceAnswer": "（電報）因為電報建設讓資訊傳遞更快速，縮短等待時間，所以可以做更多生意",
+      "rubricsDimensions": [
+        { "name": "選擇", "maxScore": 1, "criteria": "有填入清單中任一有效項目即可" },
+        { "name": "理由說明", "maxScore": 2, "criteria": "用因為...所以...說明所選建設對做生意的具體影響，邏輯合理" }
+      ] }
 
 ▸ 如果是「簡答題」（解釋、說明原因、比較異同）：
   - questionCategory: "short_answer"
@@ -1830,14 +1842,43 @@ function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: 
   const questions = Array.isArray(answerKey?.questions) ? answerKey.questions : []
   if (questions.length === 0) return answerKey
 
-  const normalizedQuestions = questions.map((question) =>
-    ensureShortAnswerRubricsDimensions(question)
-  )
+  const normalizedQuestions = questions.map((question) => {
+    let q = ensureShortAnswerRubricsDimensions(question)
+    q = normalizeChoiceAnswerSymbols(q)
+    return q
+  })
 
   return {
     ...answerKey,
     questions: normalizedQuestions
   }
+}
+
+/**
+ * Fix common OCR misreads in choice-type answers:
+ * - ▽/▼/∇/▿ → D (handwritten D misread as triangle)
+ * - Ⅴ/ⅴ/∨ → V (but could also be a checkmark — only fix in choice context)
+ * Only applies to single_choice, multi_choice, multi_fill, multi_check, single_check
+ */
+function normalizeChoiceAnswerSymbols(question: AnswerKeyQuestion): AnswerKeyQuestion {
+  const choiceTypes = new Set(['single_choice', 'multi_choice', 'multi_fill', 'multi_check', 'single_check'])
+  if (!question.questionCategory || !choiceTypes.has(question.questionCategory)) return question
+  if (typeof question.answer !== 'string' || !question.answer.trim()) return question
+
+  // Only normalize if answer looks like it should contain A-D letters
+  // (i.e., other tokens in the answer are A-Z letters)
+  const tokens = question.answer.split(/[,、，;\s]+/).map(t => t.trim()).filter(Boolean)
+  const hasLetterTokens = tokens.some(t => /^[A-Ca-c]$/i.test(t))
+
+  if (!hasLetterTokens) return question
+
+  // Replace triangle-like symbols with D (common handwriting misread)
+  const normalized = question.answer.replace(/[▽▼∇▿◁△⊿]/g, 'D')
+  if (normalized !== question.answer) {
+    console.log(`[AnswerKey] normalized answer symbol: "${question.answer}" → "${normalized}" (question ${question.id})`)
+    return { ...question, answer: normalized }
+  }
+  return question
 }
 
 function buildTagConceptsPrompt(
