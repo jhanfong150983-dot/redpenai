@@ -608,7 +608,12 @@ export function useSync(options: UseSyncOptions = {}) {
       }))
 
     const assignmentPayload = assignments
-      .filter((a) => a?.id && a?.classroomId && !deletedAssignmentIds.has(a.id))
+      .filter((a) => {
+        if (!a?.id || !a?.classroomId || deletedAssignmentIds.has(a.id)) return false
+        // 只推送有變更的 assignments（避免每次都送全部帶 answerKey 的大 payload）
+        if (lastSuccessfulSyncAt && a.updatedAt && a.updatedAt < lastSuccessfulSyncAt) return false
+        return true
+      })
       .map((a) => ({
         id: a.id,
         classroomId: a.classroomId,
