@@ -477,6 +477,8 @@ export function useSync(options: UseSyncOptions = {}) {
     }
   }
 
+  const pushStartedAtRef = useRef<number>(0)
+
   /**
    * 上傳本機資料到雲端
    */
@@ -506,6 +508,9 @@ export function useSync(options: UseSyncOptions = {}) {
       ])
 
     const lastSuccessfulSyncAt = readPersistedLastSyncTime()
+    // 記錄 push 開始時間 — persistLastSyncTime 使用此值而非 completedAt
+    // 確保 push 執行期間新建的資料不會被下次過濾掉
+    pushStartedAtRef.current = Date.now()
 
     console.log('🔄 [同步] 讀取刪除佇列:', {
       count: deleteQueue.length,
@@ -592,12 +597,9 @@ export function useSync(options: UseSyncOptions = {}) {
 
     debugLog('📤 pushMetadata - 準備發送的 classrooms:', classroomPayload)
 
+    // students 全送（每筆很小），避免因 lastSync 時間差導致新學生被跳過
     const studentPayload = students
-      .filter((s) => {
-        if (!s?.id || !s?.classroomId || deletedStudentIds.has(s.id)) return false
-        if (lastSuccessfulSyncAt && s.updatedAt && s.updatedAt < lastSuccessfulSyncAt) return false
-        return true
-      })
+      .filter((s) => s?.id && s?.classroomId && !deletedStudentIds.has(s.id))
       .map((s) => ({
         id: s.id,
         classroomId: s.classroomId,
@@ -607,13 +609,9 @@ export function useSync(options: UseSyncOptions = {}) {
         updatedAt: s.updatedAt
       }))
 
+    // assignments 全送（數量少、payload 小），避免因 lastSync 時間差導致新建作業被跳過
     const assignmentPayload = assignments
-      .filter((a) => {
-        if (!a?.id || !a?.classroomId || deletedAssignmentIds.has(a.id)) return false
-        // 只推送有變更的 assignments（避免每次都送全部帶 answerKey 的大 payload）
-        if (lastSuccessfulSyncAt && a.updatedAt && a.updatedAt < lastSuccessfulSyncAt) return false
-        return true
-      })
+      .filter((a) => a?.id && a?.classroomId && !deletedAssignmentIds.has(a.id))
       .map((a) => ({
         id: a.id,
         classroomId: a.classroomId,
@@ -705,11 +703,7 @@ export function useSync(options: UseSyncOptions = {}) {
       }))
 
     const gradebookCustomColumnsPayload = gradebookCustomColumns
-      .filter((c) => {
-        if (!c?.id || !c?.classroomId || deletedGradebookCustomColumnIds.has(c.id)) return false
-        if (lastSuccessfulSyncAt && c.updatedAt && c.updatedAt < lastSuccessfulSyncAt) return false
-        return true
-      })
+      .filter((c) => c?.id && c?.classroomId && !deletedGradebookCustomColumnIds.has(c.id))
       .map((c) => ({
         id: c.id,
         classroomId: c.classroomId,
@@ -726,12 +720,10 @@ export function useSync(options: UseSyncOptions = {}) {
       }))
 
     const gradebookCustomScoresPayload = gradebookCustomScores
-      .filter((s) => {
-        if (!s?.id || !s?.classroomId || !s?.columnId || !s?.studentId) return false
-        if (deletedGradebookCustomScoreIds.has(s.id) || deletedGradebookCustomColumnIds.has(s.columnId)) return false
-        if (lastSuccessfulSyncAt && s.updatedAt && s.updatedAt < lastSuccessfulSyncAt) return false
-        return true
-      })
+      .filter((s) =>
+        s?.id && s?.classroomId && s?.columnId && s?.studentId &&
+        !deletedGradebookCustomScoreIds.has(s.id) && !deletedGradebookCustomColumnIds.has(s.columnId)
+      )
       .map((s) => ({
         id: s.id,
         classroomId: s.classroomId,
@@ -1675,7 +1667,9 @@ export function useSync(options: UseSyncOptions = {}) {
 
       const remainingCount = await updatePendingCount()
       const completedAt = Date.now()
-      persistLastSyncTime(completedAt)
+      // 用 push 開始時間（而非完成時間）記錄 lastSync
+      // 確保 push 執行期間新建的資料（updatedAt 在 pushStartedAt 之後）下次不會被過濾掉
+      persistLastSyncTime(pushStartedAtRef.current || completedAt)
 
       lastFocusSyncRef.current = Date.now() // 重設 focus 冷卻，避免 sync 剛完成就再觸發
       setStatus((prev) => ({
