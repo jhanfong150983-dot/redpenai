@@ -657,7 +657,12 @@ export function useSync(options: UseSyncOptions = {}) {
         )
         return rank >= submissionPushWindowStart
       })
-      .map(({ imageBlob, ...rest }) => ({
+      .map(({ imageBlob, ...rest }) => {
+        // 只在本地新批改（gradedAt 在上次 sync 之後）時才帶 gradingResult，避免 payload 過大
+        const isRecentlyGraded = rest.status === 'graded' && rest.gradingResult &&
+          (!lastSuccessfulSyncAt || (toNumber(rest.gradedAt) ?? 0) >= lastSuccessfulSyncAt ||
+           (toNumber(rest.updatedAt) ?? 0) >= lastSuccessfulSyncAt)
+        return {
         id: rest.id,
         assignmentId: rest.assignmentId,
         studentId: rest.studentId,
@@ -672,7 +677,7 @@ export function useSync(options: UseSyncOptions = {}) {
         aiScore: rest.aiScore,
         scoreSource: rest.scoreSource,
         feedback: rest.feedback,
-        gradingResult: rest.gradingResult,
+        gradingResult: isRecentlyGraded ? rest.gradingResult : undefined,
         // gradedAt: 已批改且有 gradingResult 的 submission 用 Date.now()
         // 確保 push 不被 server 判 stale（pull 可能把本地 gradedAt 覆蓋成舊值）
         gradedAt: (rest.status === 'graded' && rest.gradingResult) ? Date.now() : rest.gradedAt,
@@ -683,7 +688,8 @@ export function useSync(options: UseSyncOptions = {}) {
         parentSubmissionId: rest.parentSubmissionId,
         actorUserId: rest.actorUserId,
         updatedAt: rest.updatedAt
-      }))
+      }})
+
 
     const foldersPayload = folders
       .filter((f) => f?.id && f?.name)
