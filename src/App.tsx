@@ -7,7 +7,7 @@ import {
   Crown,
   BarChart3,
   LayoutDashboard,
-  FilePlus2,
+  // FilePlus2,
   BookOpen,
   FileText,
   SlidersHorizontal,
