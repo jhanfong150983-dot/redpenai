@@ -105,6 +105,7 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
   const [newTitle, setNewTitle] = useState('')
   const [newDomain, setNewDomain] = useState('')
   const [newFolder, setNewFolder] = useState('')
+  const [newDocType, setNewDocType] = useState<'worksheet' | 'exam'>('worksheet')
   const domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他']
 
   // ── Load data ──────────────────────────────────────────────────────────────
@@ -350,7 +351,7 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
     await startInkSession()
     try {
       const domain = editingDomain || undefined
-      const answerKey = await extractAnswerKeyFromImages(blobs, { domain })
+      const answerKey = await extractAnswerKeyFromImages(blobs, { domain, docType: editingAssignmentId ? undefined : newDocType })
       return { answerKey, imageBlobs: blobs, notice: null }
     } finally { closeInkSession() }
   }
@@ -367,7 +368,7 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
       await db.assignments.add({
         id: generateId(), classroomId: firstClassroom.id, title: newTitle.trim(),
         totalPages: imageBlobs.length, domain: domainValue, folder: newFolder || undefined,
-        answerKey, updatedAt: Date.now(),
+        docType: newDocType, answerKey, updatedAt: Date.now(),
       })
     }
     requestSync(); await loadData()
@@ -463,7 +464,7 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
             <Plus className="w-4 h-4" />建立資料夾
           </button>
           <button type="button" disabled={isExtracting}
-            onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setShowNewModal(true) }}
+            onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setNewDocType('worksheet'); setShowNewModal(true) }}
             className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 active:scale-95 disabled:opacity-50">
             {isExtracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}新增答案卷
           </button>
@@ -505,7 +506,7 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
                 <div className="py-12 text-center">
                   <BookOpen className="mx-auto h-12 w-12 text-slate-300" />
                   <p className="mt-4 text-sm font-medium text-slate-500">尚未建立任何答案卷</p>
-                  <button type="button" onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setShowNewModal(true) }}
+                  <button type="button" onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setNewDocType('worksheet'); setShowNewModal(true) }}
                     className="mt-3 inline-flex items-center gap-2 rounded-lg border border-green-300 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-50">
                     <FileUp className="h-4 w-4" />上傳答案卷圖片
                   </button>
@@ -640,6 +641,20 @@ export default function AnswerBank({ onBack }: AnswerBankProps) {
                   <option value="">請選擇</option>
                   {domainOptions.map((d) => <option key={d} value={d}>{d}</option>)}
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">類型</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" checked={newDocType === 'worksheet'} onChange={() => setNewDocType('worksheet')} className="w-4 h-4 accent-green-600" />
+                    <span className="text-sm text-gray-700">習作</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" checked={newDocType === 'exam'} onChange={() => setNewDocType('exam')} className="w-4 h-4 accent-green-600" />
+                    <span className="text-sm text-gray-700">考卷</span>
+                  </label>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">影響 AI 解析時的題號排序策略</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">資料夾（選填）</label>
