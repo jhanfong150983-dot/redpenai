@@ -72,7 +72,7 @@ interface PageItem {
   rotation: number
 }
 
-function SortablePageCard({ item, onRotate }: { item: PageItem; onRotate: (id: string) => void }) {
+function SortablePageCard({ item, onRotate, onDelete, canDelete }: { item: PageItem; onRotate: (id: string) => void; onDelete: (id: string) => void; canDelete: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   return (
     <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 50 : undefined, opacity: isDragging ? 0.8 : 1 }} className={`relative group h-full ${isDragging ? 'shadow-2xl' : ''}`}>
@@ -88,6 +88,11 @@ function SortablePageCard({ item, onRotate }: { item: PageItem; onRotate: (id: s
       <button type="button" onClick={(e) => { e.stopPropagation(); onRotate(item.id) }} className="absolute top-9 right-1 p-1.5 rounded-full bg-white/90 border border-gray-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-100" title="旋轉 90°">
         <RotateCw className="w-3.5 h-3.5 text-gray-600" />
       </button>
+      {canDelete && (
+        <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(item.id) }} className="absolute top-9 left-1 p-1.5 rounded-full bg-white/90 border border-red-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50" title="刪除此頁">
+          <Trash2 className="w-3.5 h-3.5 text-red-500" />
+        </button>
+      )}
     </div>
   )
 }
@@ -196,6 +201,13 @@ export default function AnswerKeyWizardModal({
 
   const handleRotateAll = useCallback(() => {
     setItems((prev) => prev.map((item) => ({ ...item, rotation: (item.rotation + 90) % 360 })))
+  }, [])
+
+  const handleDeletePage = useCallback((id: string) => {
+    setItems((prev) => {
+      if (prev.length <= 1) return prev
+      return prev.filter((item) => item.id !== id)
+    })
   }, [])
 
   // ── step 1 → extraction ──
@@ -505,7 +517,7 @@ export default function AnswerKeyWizardModal({
                       style={{ gridTemplateColumns: `repeat(${Math.min(items.length, 2)}, minmax(0, 1fr))` }}
                     >
                       {items.map((item) => (
-                        <SortablePageCard key={item.id} item={item} onRotate={handleRotateOne} />
+                        <SortablePageCard key={item.id} item={item} onRotate={handleRotateOne} onDelete={handleDeletePage} canDelete={items.length > 1} />
                       ))}
                     </div>
                   </SortableContext>
@@ -842,6 +854,9 @@ export default function AnswerKeyWizardModal({
         <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-200 bg-gray-50 shrink-0">
           {step === 'page_order' && (
             <>
+              {items.length < initialPages.length && (
+                <span className="text-xs text-gray-500 mr-auto">已移除 {initialPages.length - items.length} 頁，剩餘 {items.length} 頁</span>
+              )}
               <button type="button" onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">取消</button>
               <button type="button" onClick={handleConfirmOrder} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700">
                 <Check className="w-4 h-4" /> 確認順序，送出解析
