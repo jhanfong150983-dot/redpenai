@@ -432,6 +432,31 @@ export default function AnswerBank(_props: AnswerBankProps) {
     } finally { setIsSyncing(false) }
   }
 
+  // 上傳 answerKey 每題的 cropImageUrl 到 Supabase Storage，回寫 cropImagePath
+  const uploadAnswerCrops = async (templateId: string, ak: AnswerKey) => {
+    const questionsWithCrop = (ak.questions || []).filter(q => q.cropImageUrl)
+    if (questionsWithCrop.length === 0) return
+    try {
+      const crops = questionsWithCrop.map(q => ({ questionId: q.id, imageBase64: q.cropImageUrl! }))
+      const res = await fetch('/api/storage/download', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'upload_crops', assignmentId: templateId, crops }),
+      })
+      if (!res.ok) { console.warn('⚠️ 答案截圖上傳失敗'); return }
+      const { paths } = await res.json() as { paths: Record<string, string> }
+      if (!paths || Object.keys(paths).length === 0) return
+      const updatedQuestions = ak.questions.map(q => {
+        const p = paths[q.id]
+        return p ? { ...q, cropImagePath: p } : q
+      })
+      await db.answerKeyTemplates.update(templateId, {
+        answerKey: { ...ak, questions: updatedQuestions }, updatedAt: Date.now()
+      })
+      console.log(`✅ 答案截圖已上傳 ${Object.keys(paths).length}/${questionsWithCrop.length} 題`)
+    } catch (err) { console.warn('⚠️ 答案截圖上傳例外', err) }
+  }
+
   const handleWizardSave = async (answerKey: AnswerKey, _imageBlobs: Blob[]) => {
     if (editingAssignmentId) {
       // 檢查有沒有班級作業引用了這份答案卷
@@ -448,11 +473,14 @@ export default function AnswerBank(_props: AnswerBankProps) {
       // 沒有引用 → 直接更新 template
       const now = Date.now()
       await db.answerKeyTemplates.update(editingAssignmentId, { answerKey, updatedAt: now })
+      // 非同步上傳裁切圖
+      uploadAnswerCrops(editingAssignmentId, answerKey)
     } else {
       if (!newTitle.trim()) { setError('請輸入答案卷名稱'); return }
       const domainValue = newDomain === '國語（測試中）' ? '國語' : (newDomain || '其他')
+      const templateId = generateId()
       const template: AnswerKeyTemplate = {
-        id: generateId(),
+        id: templateId,
         name: newTitle.trim(),
         domain: domainValue,
         docType: newDocType,
@@ -463,6 +491,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
         updatedAt: Date.now(),
       }
       await db.answerKeyTemplates.add(template)
+      // 非同步上傳裁切圖
+      uploadAnswerCrops(templateId, answerKey)
     }
     requestSync(); await loadData()
     setShowWizard(false); wizardPages.forEach((p) => URL.revokeObjectURL(p.url)); setWizardPages([])
