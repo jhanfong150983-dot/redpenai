@@ -289,6 +289,8 @@ export default function UnifiedImportPage({
   const [configStartPage, setConfigStartPage] = useState(1)
   const [configEndPage, setConfigEndPage] = useState(999)
   const [configMaxPage, setConfigMaxPage] = useState(999)
+  const [configPerPdfPageRanges, setConfigPerPdfPageRanges] = useState<Array<{ startPage: number; endPage: number }>>([])
+
   const [configConfirmed, setConfigConfirmed] = useState(false)
   const [configAbsentSeatNumbers, setConfigAbsentSeatNumbers] = useState<Set<number>>(new Set())
   const [isBatchProcessing, setIsBatchProcessing] = useState(false)
@@ -651,6 +653,7 @@ export default function UnifiedImportPage({
         setConfigPagesPerStudent(pagesPerStudent)
         setConfigPagesPerStudentPerPdf(1)
         setConfigPerPdfPagesArray(infos.map(() => 1))
+        setConfigPerPdfPageRanges(infos.map((info) => ({ startPage: 1, endPage: info.pageCount })))
         setConfigConfirmed(false)
         setConfigAbsentSeatNumbers(new Set())
         setPdfFilesInfo(infos)
@@ -698,7 +701,11 @@ export default function UnifiedImportPage({
             setBatchProgress(`正在轉換 PDF（${fi + 1}/${totalFiles}）：${file.name} — 第 ${current}/${total} 頁`)
           }
         })
-        const filtered = blobs.slice(configStartPage - 1, configEndPage)
+        // Use per-PDF page range if available, otherwise global
+        const pdfRange = configPerPdfPageRanges[fi]
+        const effectiveStart = pdfRange ? Math.max(1, pdfRange.startPage) : configStartPage
+        const effectiveEnd = pdfRange ? Math.min(blobs.length, pdfRange.endPage) : configEndPage
+        const filtered = blobs.slice(effectiveStart - 1, effectiveEnd)
         allPdfPages.push(filtered)
       }
 
@@ -1794,6 +1801,8 @@ export default function UnifiedImportPage({
           endPage={configEndPage}
           onEndPageChange={setConfigEndPage}
           maxPage={configMaxPage}
+          perPdfPageRanges={configPerPdfPageRanges.length > 0 ? configPerPdfPageRanges : undefined}
+          onPerPdfPageRangesChange={setConfigPerPdfPageRanges}
           students={students.map(s => ({ id: s.id, seatNumber: s.seatNumber, name: s.name }))}
           absentSeatNumbers={configAbsentSeatNumbers}
           onAbsentSeatNumbersChange={setConfigAbsentSeatNumbers}

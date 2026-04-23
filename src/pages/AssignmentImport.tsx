@@ -225,6 +225,7 @@ export default function AssignmentImport({
   const [configStartPage, setConfigStartPage] = useState(1)
   const [configEndPage, setConfigEndPage] = useState(999)
   const [configMaxPage, setConfigMaxPage] = useState(999)
+  const [configPerPdfPageRanges, setConfigPerPdfPageRanges] = useState<Array<{ startPage: number; endPage: number }>>([])
   const [configConfirmed, setConfigConfirmed] = useState(false)
   const [configAbsentSeatNumbers, setConfigAbsentSeatNumbers] = useState<Set<number>>(new Set())
 
@@ -456,6 +457,7 @@ export default function AssignmentImport({
       setConfigPagesPerStudent(pagesPerStudent)
       setConfigPagesPerStudentPerPdf(1)
       setConfigConfirmed(false)
+      setConfigPerPdfPageRanges(infos.map((info) => ({ startPage: 1, endPage: info.pageCount })))
       setPdfFilesInfo(infos)
       setShowImportConfig(true)
     } catch (e) {
@@ -490,11 +492,15 @@ export default function AssignmentImport({
 
       // 轉換所有 PDF 並套用頁數範圍
       const allPdfPages: Blob[][] = []
-      for (const file of fileArray) {
+      for (let fi = 0; fi < fileArray.length; fi++) {
+        const file = fileArray[fi]
         console.log(`處理: ${file.name}`)
         // eslint-disable-next-line no-await-in-loop
         const blobs = await convertPdfToImages(file)
-        const filtered = blobs.slice(configStartPage - 1, configEndPage)
+        const pdfRange = configPerPdfPageRanges[fi]
+        const effectiveStart = pdfRange ? Math.max(1, pdfRange.startPage) : configStartPage
+        const effectiveEnd = pdfRange ? Math.min(blobs.length, pdfRange.endPage) : configEndPage
+        const filtered = blobs.slice(effectiveStart - 1, effectiveEnd)
         allPdfPages.push(filtered)
       }
 
@@ -1247,6 +1253,8 @@ export default function AssignmentImport({
           endPage={configEndPage}
           onEndPageChange={setConfigEndPage}
           maxPage={configMaxPage}
+          perPdfPageRanges={configPerPdfPageRanges.length > 0 ? configPerPdfPageRanges : undefined}
+          onPerPdfPageRangesChange={setConfigPerPdfPageRanges}
           students={[]}
           absentSeatNumbers={configAbsentSeatNumbers}
           onAbsentSeatNumbersChange={setConfigAbsentSeatNumbers}
