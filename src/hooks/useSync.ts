@@ -892,7 +892,7 @@ export function useSync(options: UseSyncOptions = {}) {
     debugLog(`📦 pullMetadata: 本地現有 ${existingSubmissions.length} 筆 submissions`)
 
     // 保留本地圖片數據（Blob 和 Base64）與 gradingResult（伺服器同步不再回傳）
-    // 也保留 status 和 gradedAt，避免 pull 在 push 完成前蓋掉本地已批改的狀態
+    // 也保留 status、gradedAt、score、aiScore、scoreSource，避免 pull 覆蓋本地已批改的資料
     const imageDataMap = new Map(
       existingSubmissions.map((sub) => [
         sub.id,
@@ -906,7 +906,10 @@ export function useSync(options: UseSyncOptions = {}) {
           thumbnailUrl: sub.thumbnailUrl,
           gradingResult: sub.gradingResult,
           status: sub.status,
-          gradedAt: sub.gradedAt
+          gradedAt: sub.gradedAt,
+          score: sub.score,
+          aiScore: sub.aiScore,
+          scoreSource: sub.scoreSource
         }
       ])
     )
@@ -991,7 +994,19 @@ export function useSync(options: UseSyncOptions = {}) {
           (sub as Submission & { gradingResult?: unknown }).gradingResult ??
           (sub as { grading_result?: unknown }).grading_result ??
           undefined
-        const mergedScore = localIsNewerGrade ? (localImageData?.gradingResult?.totalScore ?? sub.score) : sub.score
+        // score merge：server 有值用 server，沒有則保留本地（避免 pull 把本地分數洗掉）
+        const serverScore = sub.score
+        const serverAiScore = (sub as Submission & { aiScore?: number }).aiScore ?? (sub as { ai_score?: number }).ai_score
+        const serverScoreSource = (sub as Submission & { scoreSource?: string }).scoreSource ?? (sub as { score_source?: string }).score_source
+        const mergedScore = localIsNewerGrade
+          ? (localImageData?.gradingResult?.totalScore ?? serverScore ?? localImageData?.score)
+          : (serverScore ?? localImageData?.score)
+        const mergedAiScore = localIsNewerGrade
+          ? (mergedScore ?? undefined)
+          : (serverAiScore ?? localImageData?.aiScore)
+        const mergedScoreSource = localIsNewerGrade
+          ? (localImageData?.scoreSource ?? serverScoreSource)
+          : (serverScoreSource ?? localImageData?.scoreSource)
         const mergedGradingResult = localIsNewerGrade
           ? (localImageData?.gradingResult ?? serverGradingResult)
           : (localImageData?.gradingResult ?? serverGradingResult)
@@ -1003,13 +1018,8 @@ export function useSync(options: UseSyncOptions = {}) {
           status: finalStatus,
           createdAt,
           score: mergedScore,
-          aiScore: localIsNewerGrade
-            ? (mergedScore ?? undefined)
-            : ((sub as Submission & { aiScore?: number }).aiScore ?? (sub as { ai_score?: number }).ai_score ?? undefined),
-          scoreSource: (
-            (sub as Submission & { scoreSource?: string }).scoreSource ??
-            (sub as { score_source?: string }).score_source
-          ) as 'ai' | 'manual' | undefined,
+          aiScore: mergedAiScore,
+          scoreSource: mergedScoreSource as 'ai' | 'manual' | undefined,
           feedback: sub.feedback,
           // 伺服器同步不再回傳 gradingResult，優先保留本地已有的批改結果
           gradingResult: mergedGradingResult,
