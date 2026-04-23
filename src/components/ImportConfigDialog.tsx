@@ -67,6 +67,9 @@ export interface ImportConfigDialogProps {
   endPage: number
   onEndPageChange: (n: number) => void
   maxPage: number
+  // Per-PDF page ranges (optional — if provided, overrides global startPage/endPage)
+  perPdfPageRanges?: Array<{ startPage: number; endPage: number }>
+  onPerPdfPageRangesChange?: (ranges: Array<{ startPage: number; endPage: number }>) => void
   students: StudentInfo[]
   absentSeatNumbers: Set<number>
   onAbsentSeatNumbersChange: (s: Set<number>) => void
@@ -91,6 +94,8 @@ export default function ImportConfigDialog({
   endPage,
   onEndPageChange,
   maxPage,
+  perPdfPageRanges,
+  onPerPdfPageRangesChange,
   students,
   absentSeatNumbers,
   onAbsentSeatNumbersChange,
@@ -102,14 +107,28 @@ export default function ImportConfigDialog({
   const isMultiPdf = files.length > 1
   const isInterleave = isMultiPdf && mergeMode === 'interleave'
 
+  // Helper: get effective page range for each PDF
+  const getEffectiveRange = (i: number) => {
+    if (perPdfPageRanges && perPdfPageRanges[i]) {
+      return {
+        start: Math.max(1, perPdfPageRanges[i].startPage),
+        end: Math.min(files[i].pageCount, perPdfPageRanges[i].endPage)
+      }
+    }
+    return {
+      start: Math.max(1, startPage),
+      end: Math.min(files[i].pageCount, endPage)
+    }
+  }
+
   // 計算總頁數和每位學生頁數
   const totalUsablePages = useMemo(() => {
-    return files.reduce((sum, f) => {
-      const effectiveEnd = Math.min(f.pageCount, endPage)
-      const effectiveStart = Math.max(1, startPage)
-      return sum + Math.max(0, effectiveEnd - effectiveStart + 1)
+    return files.reduce((sum, _f, i) => {
+      const { start, end } = getEffectiveRange(i)
+      return sum + Math.max(0, end - start + 1)
     }, 0)
-  }, [files, startPage, endPage])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, startPage, endPage, perPdfPageRanges])
 
   const effectivePagesPerStudent = useMemo(() => {
     if (isInterleave) {
@@ -128,14 +147,14 @@ export default function ImportConfigDialog({
   // 交錯模式各 PDF 學生數一致性檢查
   const perPdfStudentCounts = useMemo(() => {
     if (!isInterleave) return []
-    return files.map((f, i) => {
-      const effectiveEnd = Math.min(f.pageCount, endPage)
-      const effectiveStart = Math.max(1, startPage)
-      const usable = Math.max(0, effectiveEnd - effectiveStart + 1)
+    return files.map((_f, i) => {
+      const { start, end } = getEffectiveRange(i)
+      const usable = Math.max(0, end - start + 1)
       const ppsp = perPdfPagesArray[i] ?? 1
       return Math.floor(usable / ppsp)
     })
-  }, [isInterleave, files, perPdfPagesArray, startPage, endPage])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInterleave, files, perPdfPagesArray, startPage, endPage, perPdfPageRanges])
 
   const perPdfConsistent = perPdfStudentCounts.length > 0 &&
     perPdfStudentCounts.every((c) => c === perPdfStudentCounts[0])
@@ -258,23 +277,57 @@ export default function ImportConfigDialog({
                   每一份 PDF 裡，屬於同一位學生的頁數（可各自不同）。
                 </p>
                 <div className="space-y-2">
-                  {files.map((info, i) => (
-                    <div key={i} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2">
-                      <span className="text-xs text-gray-600 truncate flex-1" title={info.file.name}>
-                        {info.file.name}
-                        <span className="text-gray-400 ml-1">({info.pageCount}頁)</span>
-                      </span>
-                      <span className="text-xs text-gray-500 whitespace-nowrap">每位學生</span>
-                      <NumericInput
-                        min={1}
-                        max={8}
-                        value={perPdfPagesArray[i] ?? 1}
-                        onChange={(v) => handlePerPdfPageChange(i, typeof v === 'number' ? v : 1)}
-                        className="w-16 px-2 py-1 border border-gray-300 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-500"
-                      />
-                      <span className="text-xs text-gray-500">頁</span>
-                    </div>
-                  ))}
+                  {files.map((info, i) => {
+                    const range = perPdfPageRanges?.[i] ?? { startPage: 1, endPage: info.pageCount }
+                    return (
+                      <div key={i} className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-2">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-gray-600 truncate flex-1" title={info.file.name}>
+                            {info.file.name}
+                            <span className="text-gray-400 ml-1">({info.pageCount}頁)</span>
+                          </span>
+                          <span className="text-xs text-gray-500 whitespace-nowrap">每位學生</span>
+                          <NumericInput
+                            min={1}
+                            max={8}
+                            value={perPdfPagesArray[i] ?? 1}
+                            onChange={(v) => handlePerPdfPageChange(i, typeof v === 'number' ? v : 1)}
+                            className="w-14 px-2 py-1 border border-gray-300 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-500"
+                          />
+                          <span className="text-xs text-gray-500">頁</span>
+                        </div>
+                        <div className="flex items-center gap-2 pl-1">
+                          <span className="text-[11px] text-gray-400">使用第</span>
+                          <NumericInput
+                            min={1}
+                            max={info.pageCount}
+                            value={range.startPage}
+                            onChange={(v) => {
+                              if (!onPerPdfPageRangesChange) return
+                              const newRanges = [...(perPdfPageRanges || files.map((f) => ({ startPage: 1, endPage: f.pageCount })))]
+                              newRanges[i] = { ...newRanges[i], startPage: typeof v === 'number' ? v : 1 }
+                              onPerPdfPageRangesChange(newRanges)
+                            }}
+                            className="w-14 px-1.5 py-0.5 border border-gray-300 rounded text-xs text-center focus:outline-none focus:ring-2 focus:ring-green-500"
+                          />
+                          <span className="text-[11px] text-gray-400">~</span>
+                          <NumericInput
+                            min={1}
+                            max={info.pageCount}
+                            value={range.endPage}
+                            onChange={(v) => {
+                              if (!onPerPdfPageRangesChange) return
+                              const newRanges = [...(perPdfPageRanges || files.map((f) => ({ startPage: 1, endPage: f.pageCount })))]
+                              newRanges[i] = { ...newRanges[i], endPage: typeof v === 'number' ? v : info.pageCount }
+                              onPerPdfPageRangesChange(newRanges)
+                            }}
+                            className="w-14 px-1.5 py-0.5 border border-gray-300 rounded text-xs text-center focus:outline-none focus:ring-2 focus:ring-green-500"
+                          />
+                          <span className="text-[11px] text-gray-400">頁（共 {info.pageCount} 頁）</span>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
                 <p className="text-xs text-gray-500 mt-2">
                   合併後每位學生共{' '}
@@ -303,37 +356,39 @@ export default function ImportConfigDialog({
             )}
           </section>
 
-          {/* 4. 頁數範圍 */}
-          <section>
-            <h3 className="text-sm font-semibold text-gray-700 mb-1">使用頁數範圍</h3>
-            <p className="text-xs text-gray-500 mb-2">
-              若掃描檔前後有多餘空白頁，可縮小此範圍，只匯入指定頁碼內的頁面（每份 PDF 各自套用）。
-            </p>
-            <div className="flex items-end gap-3">
-              <div>
-                <label className="block text-xs text-gray-600 mb-1">開始頁</label>
-                <NumericInput
-                  min={1}
-                  max={maxPage}
-                  value={startPage}
-                  onChange={(v) => onStartPageChange(typeof v === 'number' ? v : 1)}
-                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
+          {/* 4. 頁數範圍（非交錯模式才顯示獨立區塊，交錯模式已整合到上方每份 PDF 行內） */}
+          {!isInterleave && (
+            <section>
+              <h3 className="text-sm font-semibold text-gray-700 mb-1">使用頁數範圍</h3>
+              <p className="text-xs text-gray-500 mb-2">
+                若掃描檔前後有多餘空白頁，可縮小此範圍，只匯入指定頁碼內的頁面。
+              </p>
+              <div className="flex items-end gap-3">
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">開始頁</label>
+                  <NumericInput
+                    min={1}
+                    max={maxPage}
+                    value={startPage}
+                    onChange={(v) => onStartPageChange(typeof v === 'number' ? v : 1)}
+                    className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                <span className="text-gray-400 pb-2">~</span>
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1">結束頁</label>
+                  <NumericInput
+                    min={1}
+                    max={maxPage}
+                    value={endPage}
+                    onChange={(v) => onEndPageChange(typeof v === 'number' ? v : maxPage)}
+                    className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+                <span className="text-xs text-gray-400 pb-2">（最多 {maxPage} 頁）</span>
               </div>
-              <span className="text-gray-400 pb-2">~</span>
-              <div>
-                <label className="block text-xs text-gray-600 mb-1">結束頁</label>
-                <NumericInput
-                  min={1}
-                  max={maxPage}
-                  value={endPage}
-                  onChange={(v) => onEndPageChange(typeof v === 'number' ? v : maxPage)}
-                  className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-              <span className="text-xs text-gray-400 pb-2">（最多 {maxPage} 頁）</span>
-            </div>
-          </section>
+            </section>
+          )}
 
           {/* 5. 學生分配 */}
           <section>
