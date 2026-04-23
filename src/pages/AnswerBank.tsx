@@ -403,8 +403,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
     try {
       const now = Date.now()
       await db.answerKeyTemplates.update(editingAssignmentId, { answerKey: syncPendingAnswerKey, updatedAt: now })
+      console.log(`[sync-confirm] choice=${syncChoice} linkedAssignments=${syncLinkedAssignments.length} templateId=${editingAssignmentId}`)
       if (syncChoice === 'sync_all' && syncLinkedAssignments.length > 0) {
         for (const a of syncLinkedAssignments) {
+          console.log(`[sync-confirm] updating assignment ${a.id} "${a.title}"`);
           const newAK = structuredClone(syncPendingAnswerKey)
           // 保留作業自身的批改設定
           if (a.answerKey?.strictness) newAK.strictness = a.answerKey.strictness
@@ -413,6 +415,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
           await db.assignments.update(a.id, { answerKey: newAK, updatedAt: now })
           // 清除已批改的結果
           const subs = await db.submissions.where('assignmentId').equals(a.id).toArray()
+          const gradedSubs = subs.filter(s => s.gradingResult || s.score)
+          console.log(`[sync-confirm] assignment ${a.id}: ${subs.length} subs, ${gradedSubs.length} graded → clearing`)
           for (const sub of subs) {
             if (sub.gradingResult || sub.score) {
               await db.submissions.update(sub.id, {
