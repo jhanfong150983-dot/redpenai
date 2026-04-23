@@ -413,7 +413,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
           if (a.answerKey?.fractionRule) newAK.fractionRule = a.answerKey.fractionRule
           if (a.answerKey?.englishRules) newAK.englishRules = a.answerKey.englishRules
           await db.assignments.update(a.id, { answerKey: newAK, updatedAt: now })
-          // 清除已批改的結果 — 本地 + 直接呼叫 Supabase（不依賴 sync push）
+          // 清除已批改的結果 — 本地 + 直接呼叫 server API
           const subs = await db.submissions.where('assignmentId').equals(a.id).toArray()
           const gradedSubs = subs.filter(s => s.gradingResult || s.score)
           console.log(`[sync-confirm] assignment ${a.id}: ${subs.length} subs, ${gradedSubs.length} graded → clearing`)
@@ -428,6 +428,15 @@ export default function AnswerBank(_props: AnswerBankProps) {
                 status: 'synced', updatedAt: now,
               })
             }
+          }
+          // Server 端直接清除（不依賴 sync push）
+          if (gradedSubs.length > 0) {
+            await fetch('/api/data/clear-grading', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ assignmentId: a.id })
+            }).catch(err => console.warn('清除 server 成績失敗:', err))
           }
         }
       }
