@@ -178,6 +178,14 @@ function formatDisplayQuestionId(questionId?: string | null) {
   return questionId.startsWith('#') ? questionId.slice(1) : questionId
 }
 
+/** 判斷該份批改結果是否需要老師複核（相容舊資料） */
+function isSubmissionNeedsReview(gradingResult?: { needsReview?: boolean; details?: Array<{ studentAnswer?: string }> }): boolean {
+  if (!gradingResult) return false
+  if (gradingResult.needsReview) return true
+  const details = gradingResult.details ?? []
+  return details.some((d) => d.studentAnswer === '未作答' || d.studentAnswer === '無法辨識')
+}
+
 function toUserFriendlyReviewReason(rawReason: string) {
   const raw = (rawReason || '').trim()
   if (!raw) return ''
@@ -1166,7 +1174,6 @@ export default function GradingPage({
   const [gradingProgress, setGradingProgress] = useState({ current: 0, total: 0 })
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 })
   const [error, setError] = useState<string | null>(null)
-  const [activeTag, setActiveTag] = useState<string | null>(null)
   const [inkSessionReady, setInkSessionReady] = useState(false)
   const [inkSessionError, setInkSessionError] = useState<string | null>(null)
   const [isClosingSession, setIsClosingSession] = useState(false)
@@ -1246,7 +1253,7 @@ export default function GradingPage({
   
   // 🆕 計算待複核數量
   const needsReviewCount = useMemo(() => {
-    return Array.from(submissions.values()).filter(s => s.gradingResult?.needsReview).length
+    return Array.from(submissions.values()).filter(s => isSubmissionNeedsReview(s.gradingResult)).length
   }, [submissions])
 
   // 🆕 獲取所有待複核的學生（按座號排序）
@@ -1254,7 +1261,7 @@ export default function GradingPage({
     return students
       .filter(student => {
         const sub = submissions.get(student.id)
-        return sub?.gradingResult?.needsReview
+        return isSubmissionNeedsReview(sub?.gradingResult)
       })
       .sort((a, b) => a.seatNumber - b.seatNumber)
   }, [students, submissions])
@@ -3182,8 +3189,11 @@ export default function GradingPage({
       if (details.some((detail: any) => Number(detail?.confidence) < 80)) {
         derived.add('信心偏低')
       }
-      if (details.some((detail: any) => detail?.studentAnswer === 'AI無法辨識')) {
+      if (details.some((detail: any) => detail?.studentAnswer === 'AI無法辨識' || detail?.studentAnswer === '無法辨識')) {
         derived.add('有題目無法辨識')
+      }
+      if (details.some((detail: any) => detail?.studentAnswer === '未作答')) {
+        derived.add('有題目辨識為未作答')
       }
       return Array.from(derived)
     },
@@ -3194,57 +3204,6 @@ export default function GradingPage({
     return formatDisplayQuestionId(questionId)
   }
 
-  // 錯誤類型 -> 標籤
-  const classifyMistakeToTag = (reason: string): string => {
-  const text = (reason || '').toLowerCase().trim()
-  const rules: Array<{ label: string; keywords: string[] }> = [
-    { label: '未作答', keywords: ['未作答', '未填寫'] },
-    { label: '未依題目指示', keywords: ['未依題目指示', '未依題目要求'] },
-    { label: '題目看不懂', keywords: ['審題不清', '未依題意', '未根據題意', '未能根據'] },
-    { label: '答案不完整', keywords: ['答案不完整', '不完整', '未寫出', '空白'] },
-    { label: '用字錯誤', keywords: ['用字錯誤'] },
-    { label: '計算失誤', keywords: ['計算', '算錯', '算式', '符號'] },
-    { label: '圖表失誤', keywords: ['圖表', '圖形', '表格', '圖示'] },
-    {
-      label: '概念不清',
-      keywords: ['概念', '概念不清', '不夠精確', '不清楚', '不夠清楚', '弄反', '未能辨識', '無法辨識', '未能正確辨識', '不理解', '錯誤理解', '不熟悉', '不夠熟悉', '未能精準', '不夠精準', '混淆', '搞混', '不準確', '不精確', '判斷錯誤', '誤認為', '未能正確識別', '認知錯誤', '無法正確']
-    },
-    { label: '答案錯誤', keywords: ['標準答案為', '正確答案為', '誤選', '誤答', '誤把', '誤將', '答錯', '判錯', '誤判', '誤認', '誤寫', '誤以'] }
-  ]
-
-  for (const rule of rules) {
-    if (rule.keywords.some((k) => text.includes(k.toLowerCase()))) return rule.label
-  }
-  return '其他'
-}
-
-
-  const getFeedbackTags = (submission: Submission) => {
-    const mistakes = submission.gradingResult?.mistakes
-    if (mistakes && mistakes.length > 0) {
-      const tags = new Set<string>()
-      mistakes.forEach((m) => tags.add(classifyMistakeToTag(m.reason)))
-      return Array.from(tags)
-    }
-
-    if (typeof submission.feedback === 'string') {
-      return submission.feedback.split('; ').filter((s) => s.trim() !== '')
-    }
-    if (Array.isArray(submission.feedback)) return submission.feedback
-    return []
-  }
-
-  const tagCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-    submissions.forEach((sub) => {
-      if (sub.status !== 'graded') return
-      const tags = getFeedbackTags(sub)
-      tags.forEach((t) => {
-        counts.set(t, (counts.get(t) ?? 0) + 1)
-      })
-    })
-    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1])
-  }, [submissions])
 
   const sortedStudents = useMemo(() => {
     return [...students].sort((a, b) => a.seatNumber - b.seatNumber)
@@ -3653,36 +3612,6 @@ export default function GradingPage({
           />
         )}
 
-        {/* 標籤篩選 */}
-        {tagCounts.length > 0 && (
-          <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 flex flex-wrap items-center gap-2">
-            <span className="text-sm text-gray-600 mr-2">依標籤篩選：</span>
-            {tagCounts.map(([tag, count]) => {
-              const active = activeTag === tag
-              return (
-                <button
-                  key={tag}
-                  onClick={() => setActiveTag(active ? null : tag)}
-                  className={`px-3 py-1 rounded-full text-sm border transition-colors ${
-                    active
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
-                  }`}
-                >
-                  {tag} · {count}
-                </button>
-              )
-            })}
-            {activeTag && (
-              <button
-                onClick={() => setActiveTag(null)}
-                className="ml-auto text-sm text-blue-600 hover:underline"
-              >
-                清除篩選
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Grid */}
         {isBatchMode && studentsByClassroom ? (
@@ -3698,7 +3627,6 @@ export default function GradingPage({
                     const submission = submissions.get(student.id)
                     const status = submission?.status ?? 'missing'
                     const sourceVisual = getSubmissionSourceVisual(submission)
-                    const tags = submission ? getFeedbackTags(submission) : []
                     const gradingResult = submission?.gradingResult
                     const isUnscoredAssignment = assignment?.scoringMode === 'unscored'
                     const maxScore = gradingResult ? getSubmissionMaxScore(gradingResult) : null
@@ -3708,7 +3636,7 @@ export default function GradingPage({
                     const isLowScore = isUnscoredAssignment
                       ? (correctSummary ? correctSummary.ratio < 0.8 : true)
                       : (typeof maxScore === 'number' && maxScore > 0 ? scoreValue < maxScore * 0.8 : scoreValue < 60)
-                    const needsReview = !!gradingResult?.needsReview
+                    const needsReview = isSubmissionNeedsReview(gradingResult)
                     const isSelected = selectedSubmissionIds.has(submission?.id ?? '')
                     return (
                       <div key={student.id} className="relative">
@@ -3752,13 +3680,6 @@ export default function GradingPage({
                           <div className="px-2 py-2 text-left">
                             <p className="text-sm font-semibold text-gray-900">{student.seatNumber} {student.name}</p>
                             {status !== 'missing' && <p className={`text-[11px] font-medium ${sourceVisual.textClass}`}>{sourceVisual.label}</p>}
-                            {status === 'graded' && tags.length > 0 && (
-                              <div className="flex flex-wrap gap-1 mt-2">
-                                {tags.slice(0, 2).map((tag, index) => (
-                                  <span key={index} className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">{tag}</span>
-                                ))}
-                              </div>
-                            )}
                           </div>
                         </button>
                       </div>
@@ -3774,7 +3695,6 @@ export default function GradingPage({
             const submission = submissions.get(student.id)
             const status = submission?.status ?? 'missing'
             const sourceVisual = getSubmissionSourceVisual(submission)
-            const tags = submission ? getFeedbackTags(submission) : []
             const gradingResult = submission?.gradingResult
             const isUnscoredAssignment = assignment?.scoringMode === 'unscored'
             const maxScore = gradingResult ? getSubmissionMaxScore(gradingResult) : null
@@ -3793,7 +3713,7 @@ export default function GradingPage({
               : !!gradingResult && typeof gradingResult.totalScore === 'number'
             const showResultBadge =
               hasGradingResult && (status === 'graded' || status === 'synced')
-            const needsReview = showResultBadge && !!gradingResult?.needsReview
+            const needsReview = showResultBadge && isSubmissionNeedsReview(gradingResult)
             const resultBadgeText = isUnscoredAssignment
               ? (correctSummary ? `${correctSummary.correct}/${correctSummary.total}` : '')
               : `${scoreValue} 分`
@@ -3814,10 +3734,6 @@ export default function GradingPage({
                     : null
                   : null
               : null
-
-            if (activeTag && !tags.includes(activeTag)) {
-              return null
-            }
 
             return (
               <div
@@ -3920,18 +3836,6 @@ export default function GradingPage({
                       {sourceVisual.label}
                     </p>
                   )}
-                  {status === 'graded' && tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {tags.slice(0, 2).map((tag, index) => (
-                        <span
-                          key={index}
-                          className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
                   {status === 'missing' && !manuallyGradedStudentIds.has(student.id) && (
                     <div className="flex items-center justify-between mt-1">
                       <p className="text-xs text-gray-500">尚未繳交</p>
@@ -3992,7 +3896,7 @@ export default function GradingPage({
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-rose-600">
-                {Array.from(submissions.values()).filter((s) => s.gradingResult?.needsReview).length}
+                {Array.from(submissions.values()).filter((s) => isSubmissionNeedsReview(s.gradingResult)).length}
               </p>
               <p className="text-sm text-rose-600 font-semibold">需複核</p>
             </div>
@@ -4141,7 +4045,7 @@ export default function GradingPage({
 
               <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
                 {/* 🆕 需複核警示 */}
-                {selectedSubmission.submission.gradingResult?.needsReview && (
+                {isSubmissionNeedsReview(selectedSubmission.submission.gradingResult) && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
