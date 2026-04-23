@@ -102,6 +102,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const hideRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [loadKey, setLoadKey] = useState(0)
+  const hasPushedScoresRef = useRef(false)
 
   // sync 完成後重新載入資料
   useEffect(() => {
@@ -301,6 +302,26 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
         setAssignmentFolders(folders)
         setSubmissions(subs)
         setCustomColumns(seeded.columns)
+
+        // 補推：進入頁面時一次性把本地有分數的 submissions 推到 Supabase（確保不漏）
+        const gradedSubs = subs.filter((s) => s.status === 'graded' && s.score != null)
+        if (gradedSubs.length > 0 && !hasPushedScoresRef.current) {
+          hasPushedScoresRef.current = true
+          fetch('/api/data/save-grading', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              submissions: gradedSubs.map((s) => ({
+                id: s.id,
+                score: s.score,
+                aiScore: s.aiScore ?? s.score,
+                scoreSource: s.scoreSource ?? 'ai',
+                gradedAt: s.gradedAt ?? Date.now(),
+              }))
+            })
+          }).catch(() => {/* non-fatal */})
+        }
       } catch (e) {
         console.error(e)
         setError(e instanceof Error ? e.message : '載入成績資料失敗')
