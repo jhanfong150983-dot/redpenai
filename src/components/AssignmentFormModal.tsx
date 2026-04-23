@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { X, Loader, BookOpen, Settings, Trash2 } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { X, Loader, BookOpen, Settings, Trash2, Search, Folder, Check } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -25,6 +25,7 @@ interface AnswerKeyOption {
   id: string
   name: string
   domain?: string
+  folder?: string
   answerKey?: { questions: unknown[]; totalScore?: number }
 }
 
@@ -134,14 +135,37 @@ export default function AssignmentFormModal({
 }: AssignmentFormModalProps) {
   const [activeTab, setActiveTab] = useState<'basic' | 'rules'>('basic')
   const [title, setTitle] = useState(initialTitle)
-  const [folder, setFolder] = useState(initialFolder)
+  const [folder] = useState(initialFolder)
   const [selectedAnswerKeyId, setSelectedAnswerKeyId] = useState('')
   const [settings, setSettings] = useState<GradingSettings>({ ...DEFAULT_SETTINGS, ...initialSettings })
+  const [akSearch, setAkSearch] = useState('')
 
   const selectedAK = answerKeys.find((ak) => ak.id === selectedAnswerKeyId)
   const domain = selectedAK?.domain || initialDomain || ''
 
-  const filteredAnswerKeys = answerKeys
+  void folders // kept for future use (folder picker)
+
+  // Group answer keys by folder, with search filtering
+  const groupedAnswerKeys = useMemo(() => {
+    const searchLower = akSearch.toLowerCase().trim()
+    const filtered = searchLower
+      ? answerKeys.filter((ak) =>
+          ak.name.toLowerCase().includes(searchLower) ||
+          (ak.domain || '').toLowerCase().includes(searchLower)
+        )
+      : answerKeys
+
+    const groups = new Map<string, AnswerKeyOption[]>()
+    for (const ak of filtered) {
+      // Use a folder field if available, otherwise group by domain
+      const grpKey = (ak as { folder?: string }).folder || ak.domain || '未分類'
+      if (!groups.has(grpKey)) groups.set(grpKey, [])
+      groups.get(grpKey)!.push(ak)
+    }
+    return Array.from(groups.entries())
+      .map(([folder, items]) => ({ folder, items: items.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant')) }))
+      .sort((a, b) => a.folder.localeCompare(b.folder, 'zh-Hant'))
+  }, [answerKeys, akSearch])
 
   const updateSetting = <K extends keyof GradingSettings>(key: K, value: GradingSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }))
@@ -229,19 +253,6 @@ export default function AssignmentFormModal({
                 />
               </div>
 
-              {/* 資料夾 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">資料夾</label>
-                <select
-                  value={folder}
-                  onChange={(e) => setFolder(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-green-400 focus:outline-none"
-                >
-                  <option value="">未分類</option>
-                  {folders.map((f) => <option key={f} value={f}>{f}</option>)}
-                </select>
-              </div>
-
               {/* 目前答案卷（編輯模式） */}
               {mode === 'edit' && initialAnswerKeyInfo && (
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
@@ -252,23 +263,77 @@ export default function AssignmentFormModal({
                 </div>
               )}
 
-              {/* 選擇/更換答案卷 */}
+              {/* 選擇/更換答案卷（卡片式，按資料夾分群） */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   {mode === 'create' ? '選擇答案卷' : '更換答案卷（選填）'}
                 </label>
-                <select
-                  value={selectedAnswerKeyId}
-                  onChange={(e) => setSelectedAnswerKeyId(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-green-400 focus:outline-none"
-                >
-                  <option value="">{mode === 'create' ? '稍後再設定' : '不更換'}</option>
-                  {filteredAnswerKeys.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}（{t.domain || '未設定領域'} · {t.answerKey?.questions?.length ?? 0} 題）
-                    </option>
+                {/* 搜尋框 */}
+                <div className="relative mb-2">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={akSearch}
+                    onChange={(e) => setAkSearch(e.target.value)}
+                    placeholder="搜尋答案卷..."
+                    className="w-full rounded-xl border border-gray-300 pl-9 pr-4 py-2 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
+                  />
+                </div>
+                {/* 答案卷列表（按資料夾分群） */}
+                <div className="rounded-xl border border-gray-200 max-h-52 overflow-y-auto">
+                  {mode === 'edit' && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAnswerKeyId('')}
+                      className={`w-full text-left px-4 py-2.5 text-sm border-b border-gray-100 transition-colors ${
+                        !selectedAnswerKeyId ? 'bg-green-50 text-green-700 font-medium' : 'hover:bg-gray-50 text-gray-600'
+                      }`}
+                    >
+                      不更換
+                    </button>
+                  )}
+                  {groupedAnswerKeys.length === 0 && (
+                    <div className="px-4 py-6 text-center text-sm text-gray-400">
+                      {akSearch ? '找不到符合的答案卷' : '尚無答案卷'}
+                    </div>
+                  )}
+                  {groupedAnswerKeys.map(({ folder: grpFolder, items }) => (
+                    <div key={grpFolder}>
+                      <div className="flex items-center gap-1.5 px-4 py-1.5 bg-gray-50 border-b border-gray-100 sticky top-0">
+                        <Folder className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{grpFolder}</span>
+                      </div>
+                      {items.map((ak) => {
+                        const isSelected = selectedAnswerKeyId === ak.id
+                        return (
+                          <button
+                            key={ak.id}
+                            type="button"
+                            onClick={() => setSelectedAnswerKeyId(isSelected ? '' : ak.id)}
+                            className={`w-full text-left px-4 py-2.5 border-b border-gray-50 transition-colors flex items-center gap-3 ${
+                              isSelected ? 'bg-green-50' : 'hover:bg-gray-50'
+                            }`}
+                          >
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                              isSelected ? 'border-green-500 bg-green-500' : 'border-gray-300'
+                            }`}>
+                              {isSelected && <Check className="w-3 h-3 text-white" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className={`text-sm truncate ${isSelected ? 'text-green-800 font-medium' : 'text-gray-800'}`}>
+                                {ak.name}
+                              </div>
+                              <div className="text-[11px] text-gray-400">
+                                {ak.domain || '未設定領域'} · {ak.answerKey?.questions?.length ?? 0} 題
+                                {ak.answerKey?.totalScore ? ` · ${ak.answerKey.totalScore} 分` : ''}
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
                   ))}
-                </select>
+                </div>
                 {mode === 'edit' && selectedAK && gradedCount > 0 && (
                   <p className="mt-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                     ⚠ 更換答案卷將清除 {gradedCount} 份批改結果，需重新批改

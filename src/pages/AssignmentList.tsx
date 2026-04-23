@@ -10,7 +10,9 @@ import {
   Upload,
   Sparkles,
   ClipboardCheck,
-  Settings
+  Settings,
+  CheckSquare,
+  Layers
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { type GradingSettingsValues } from '@/components/GradingSettingsPanel'
@@ -29,12 +31,15 @@ import type {
   Rubric
 } from '@/lib/db'
 
+type ViewMode = 'class' | 'cross-class'
+
 interface AssignmentListProps {
   onBack?: () => void
   onSelectAssignment?: (assignmentId: string) => void
   onSelectScanImport?: (assignmentId: string) => void
   onSelectBatchImport?: (assignmentId: string) => void
   onSelectCorrection?: (assignmentId: string) => void
+  onStartBatchGrading?: (assignmentIds: string[]) => void
   canUseCorrection?: boolean
   embedded?: boolean
   initialClassroomId?: string
@@ -55,6 +60,7 @@ export default function AssignmentList({
   onSelectAssignment,
   onSelectScanImport,
   onSelectCorrection,
+  onStartBatchGrading,
   canUseCorrection = true,
   embedded = false,
   initialClassroomId,
@@ -70,6 +76,11 @@ export default function AssignmentList({
   const [selectedFolder, setSelectedFolder] = useState(
     initialFolder || '__all__'
   )
+
+  // ── 跨班級模式 ──────────────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<ViewMode>('class')
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set())
 
   const classAssignments = useMemo(() => {
     if (!selectedClassroomId) return assignments
@@ -226,6 +237,69 @@ export default function AssignmentList({
       setAllTemplates(all.filter((t) => t.answerKey?.questions?.length))
     })
   }, [assignments])
+
+  // ── 跨班級模式：依答案卷模板分組 ──
+  const crossClassTemplates = useMemo(() => {
+    const templateMap = new Map<string, AssignmentWithMeta[]>()
+    for (const a of assignments) {
+      if (!a.answerKeyTemplateId) continue
+      const list = templateMap.get(a.answerKeyTemplateId) ?? []
+      list.push(a)
+      templateMap.set(a.answerKeyTemplateId, list)
+    }
+    return templateMap
+  }, [assignments])
+
+  const crossClassTemplateOptions = useMemo(() => {
+    return allTemplates
+      .filter((t) => crossClassTemplates.has(t.id))
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        domain: t.domain,
+        classCount: crossClassTemplates.get(t.id)?.length ?? 0
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+  }, [allTemplates, crossClassTemplates])
+
+  const crossClassAssignments = useMemo(() => {
+    if (!selectedTemplateId) return []
+    return (crossClassTemplates.get(selectedTemplateId) ?? [])
+      .sort((a, b) => (a.classroom?.name ?? '').localeCompare(b.classroom?.name ?? '', 'zh-Hant'))
+  }, [crossClassTemplates, selectedTemplateId])
+
+  useEffect(() => {
+    if (viewMode === 'cross-class' && !selectedTemplateId && crossClassTemplateOptions.length > 0) {
+      setSelectedTemplateId(crossClassTemplateOptions[0].id)
+    }
+  }, [viewMode, selectedTemplateId, crossClassTemplateOptions])
+
+  useEffect(() => {
+    setBatchSelectedIds(new Set())
+  }, [viewMode, selectedTemplateId])
+
+  const batchToggle = (id: string) => {
+    setBatchSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const batchSelectableIds = useMemo(() => {
+    return crossClassAssignments
+      .filter((a) => (a.uploadedCount ?? 0) > 0 && a.answerKey)
+      .map((a) => a.id)
+  }, [crossClassAssignments])
+
+  const batchToggleAll = () => {
+    if (batchSelectedIds.size === batchSelectableIds.length) {
+      setBatchSelectedIds(new Set())
+    } else {
+      setBatchSelectedIds(new Set(batchSelectableIds))
+    }
+  }
 
   // 答案卷的資料夾列表
   const answerKeyFolders = useMemo(() => {
@@ -729,7 +803,7 @@ export default function AssignmentList({
         <div className={`${embedded ? 'mb-4 border-b border-slate-200 pb-3' : 'bg-white rounded-xl border border-slate-200 p-6 mb-6'}`}>
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-2xl font-semibold text-gray-900">作業批改</h1>
-            {selectedClassroomId && (
+            {viewMode === 'class' && selectedClassroomId && (
               <button
                 type="button"
                 onClick={() => {
@@ -753,7 +827,32 @@ export default function AssignmentList({
           </div>
         </div>
 
+        {/* 模式切換 tab */}
         {classrooms.length > 0 && (
+          <div className="mb-4 flex gap-1 rounded-lg bg-slate-100 p-1">
+            <button
+              onClick={() => setViewMode('class')}
+              className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                viewMode === 'class' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Users className="mr-1.5 inline h-4 w-4" />
+              班級模式
+            </button>
+            <button
+              onClick={() => setViewMode('cross-class')}
+              className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                viewMode === 'cross-class' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <Layers className="mr-1.5 inline h-4 w-4" />
+              跨班級模式
+            </button>
+          </div>
+        )}
+
+        {/* 班級模式：選擇班級 + 資料夾 */}
+        {viewMode === 'class' && classrooms.length > 0 && (
           <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
@@ -805,8 +904,167 @@ export default function AssignmentList({
           </div>
         )}
 
-        {/* 作業列表 */}
-        {assignments.length === 0 ? (
+        {/* 跨班級模式：選擇答案卷 + 批次批改按鈕 */}
+        {viewMode === 'cross-class' && classrooms.length > 0 && (
+          <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+            <div className="flex items-end gap-4">
+              <div className="flex-1">
+                <label className="mb-2 block text-sm font-medium text-gray-700">
+                  <BookOpen className="mr-1 inline h-4 w-4" />
+                  選擇答案卷
+                </label>
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
+                >
+                  {crossClassTemplateOptions.length === 0 && (
+                    <option value="">尚無可用的答案卷</option>
+                  )}
+                  {crossClassTemplateOptions.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} · {t.domain || '未分類'} · {t.classCount} 個班
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={batchToggleAll}
+                  disabled={batchSelectableIds.length === 0}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <CheckSquare className="h-4 w-4" />
+                  {batchSelectedIds.size === batchSelectableIds.length && batchSelectableIds.length > 0 ? '取消全選' : '全選'}
+                </button>
+                <button
+                  onClick={() => {
+                    if (batchSelectedIds.size === 0) return
+                    const ids = Array.from(batchSelectedIds)
+                    const total = ids.reduce((sum, id) => {
+                      const a = assignments.find((x) => x.id === id)
+                      return sum + (a?.uploadedCount ?? 0)
+                    }, 0)
+                    if (!window.confirm(`即將批次批改 ${ids.length} 個班級，共 ${total} 份作業。確定開始？`)) return
+                    onStartBatchGrading?.(ids)
+                  }}
+                  disabled={batchSelectedIds.size === 0}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-green-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  批次批改{batchSelectedIds.size > 0 ? ` (${batchSelectedIds.size})` : ''}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 跨班級模式：班級卡片列表 */}
+        {viewMode === 'cross-class' && (
+          <div>
+            {crossClassTemplateOptions.length === 0 ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+                <Layers className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">尚無跨班級答案卷</h3>
+                <p className="text-gray-600">請先在「建立答案」建立答案卷，並在班級模式下建立使用該答案卷的作業。</p>
+              </div>
+            ) : crossClassAssignments.length === 0 ? (
+              <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+                <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">請選擇答案卷</h3>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {crossClassAssignments.map((assignment) => {
+                  const hasSubmissions = (assignment.uploadedCount ?? 0) > 0
+                  const hasAnswerKey = !!assignment.answerKey
+                  const canSelect = hasSubmissions && hasAnswerKey
+                  return (
+                    <div
+                      key={assignment.id}
+                      className={`w-full rounded-xl border bg-white px-4 py-4 text-left transition-colors ${
+                        canSelect ? 'border-slate-200 hover:border-slate-300' : 'border-slate-100 bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        {/* Checkbox */}
+                        <div className="flex-shrink-0">
+                          <input
+                            type="checkbox"
+                            checked={batchSelectedIds.has(assignment.id)}
+                            onChange={() => batchToggle(assignment.id)}
+                            disabled={!canSelect}
+                            className="h-5 w-5 cursor-pointer accent-green-600 disabled:cursor-not-allowed disabled:opacity-30"
+                          />
+                        </div>
+
+                        {/* 內容 */}
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex items-center gap-2">
+                            <h3 className="text-base font-semibold text-gray-900">
+                              {assignment.classroom?.name || '未知班級'}
+                            </h3>
+                            {!hasSubmissions && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                                尚未匯入
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600">
+                            {assignment.title} · 已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
+                          </p>
+                        </div>
+
+                        {/* 操作按鈕 */}
+                        <div className="flex items-center gap-2 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => onSelectScanImport?.(assignment.id)}
+                            className="inline-flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                          >
+                            <Upload className="h-4 w-4" />
+                            <span>匯入</span>
+                          </button>
+                          <span className="px-0.5 text-slate-300">›</span>
+                          <button
+                            type="button"
+                            onClick={() => onSelectAssignment?.(assignment.id)}
+                            disabled={!hasAnswerKey || !hasSubmissions}
+                            className={`inline-flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
+                              !hasAnswerKey || !hasSubmissions
+                                ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <Sparkles className="h-4 w-4" />
+                            <span>AI批改</span>
+                          </button>
+                          <span className="px-0.5 text-slate-300">›</span>
+                          <button
+                            type="button"
+                            onClick={() => onSelectCorrection?.(assignment.id)}
+                            disabled={!canUseCorrection || (assignment.gradedCount ?? 0) < 1}
+                            className={`inline-flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
+                              !canUseCorrection || (assignment.gradedCount ?? 0) < 1
+                                ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                            }`}
+                          >
+                            <ClipboardCheck className="h-4 w-4" />
+                            <span>訂正</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 班級模式：作業列表 */}
+        {viewMode === 'class' && (assignments.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
@@ -907,7 +1165,7 @@ export default function AssignmentList({
               </div>
             ))}
           </div>
-        )}
+        ))}
       </div>
 
       {/* 編輯標準答案對話框 */}
@@ -1210,7 +1468,7 @@ export default function AssignmentList({
         isSubmitting={isCreating}
         folders={usedFolders}
 
-        answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined }))}
+        answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, folder: t.folder, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined }))}
       />
 
       {/* 批改設定 Modal（統一元件） */}
@@ -1277,7 +1535,7 @@ export default function AssignmentList({
           gradedCount={settingsAssignment.gradedCount ?? 0}
           folders={usedFolders}
   
-          answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined }))}
+          answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, folder: t.folder, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined }))}
         />
       )}
     </div>
