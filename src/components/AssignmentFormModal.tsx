@@ -1,0 +1,476 @@
+import { useState } from 'react'
+import { X, Loader, BookOpen, Settings, Trash2 } from 'lucide-react'
+import { NumericInput } from '@/components/NumericInput'
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+export interface GradingSettings {
+  strictness: 'strict' | 'standard' | 'lenient'
+  scoringMode: 'scored' | 'unscored'
+  fractionRule: 'require_simplified' | 'allow_equivalent'
+  enPunctuationCheck: boolean
+  enPunctuationDeduction: number
+  enWordOrderCheck: boolean
+  enWordOrderDeduction: number
+}
+
+export interface AssignmentFormData {
+  title: string
+  folder: string
+  answerKeyFolder: string
+  selectedAnswerKeyId: string
+  settings: GradingSettings
+}
+
+interface AnswerKeyOption {
+  id: string
+  name: string
+  domain?: string
+  answerKey?: { questions: unknown[]; totalScore?: number }
+}
+
+interface AssignmentFormModalProps {
+  mode: 'create' | 'edit'
+  open: boolean
+  onClose: () => void
+  onSubmit: (data: AssignmentFormData) => Promise<void>
+  onDelete?: () => void
+  // Initial values
+  initialTitle?: string
+  initialFolder?: string
+  initialDomain?: string
+  initialAnswerKeyInfo?: { domain: string; questionCount: number; totalScore: number } | null
+  // Options
+  folders: string[]
+  answerKeyFolders: string[]
+  answerKeys: AnswerKeyOption[]
+  // Current state
+  isSubmitting?: boolean
+  editAssignmentTitle?: string
+  gradedCount?: number
+}
+
+const DEFAULT_SETTINGS: GradingSettings = {
+  strictness: 'standard',
+  scoringMode: 'scored',
+  fractionRule: 'require_simplified',
+  enPunctuationCheck: false,
+  enPunctuationDeduction: 1,
+  enWordOrderCheck: false,
+  enWordOrderDeduction: 1,
+}
+
+// ── Strictness Card ────────────────────────────────────────────────────────
+
+function StrictnessCard({
+  value, selected, onClick
+}: {
+  value: 'strict' | 'standard' | 'lenient'
+  selected: boolean
+  onClick: () => void
+}) {
+  const config = {
+    strict: {
+      icon: '🔒',
+      label: '嚴格',
+      desc: '每個維度嚴格評分，逐項加總',
+    },
+    standard: {
+      icon: '⚖️',
+      label: '標準',
+      desc: '接受同義詞和小差異，拒絕錯誤意思',
+      badge: '預設',
+    },
+    lenient: {
+      icon: '🌱',
+      label: '寬鬆',
+      desc: '核心概念對就給滿分，不扣細節分',
+    },
+  }[value]
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex-1 rounded-xl border-2 p-3 text-left transition-all ${
+        selected
+          ? 'border-green-500 bg-green-50 shadow-sm'
+          : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+      }`}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-lg">{config.icon}</span>
+        <span className={`text-sm font-semibold ${selected ? 'text-green-700' : 'text-gray-700'}`}>
+          {config.label}
+        </span>
+        {config.badge && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
+            {config.badge}
+          </span>
+        )}
+      </div>
+      <p className="text-[11px] text-gray-500 leading-tight">{config.desc}</p>
+    </button>
+  )
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────
+
+export default function AssignmentFormModal({
+  mode,
+  open,
+  onClose,
+  onSubmit,
+  onDelete,
+  initialTitle = '',
+  initialFolder = '',
+  initialDomain,
+  initialAnswerKeyInfo,
+  folders,
+  answerKeyFolders,
+  answerKeys,
+  isSubmitting = false,
+  editAssignmentTitle,
+  gradedCount = 0,
+}: AssignmentFormModalProps) {
+  const [activeTab, setActiveTab] = useState<'basic' | 'rules'>('basic')
+  const [title, setTitle] = useState(initialTitle)
+  const [folder, setFolder] = useState(initialFolder)
+  const [answerKeyFolder, setAnswerKeyFolder] = useState('')
+  const [selectedAnswerKeyId, setSelectedAnswerKeyId] = useState('')
+  const [settings, setSettings] = useState<GradingSettings>(DEFAULT_SETTINGS)
+
+  const selectedAK = answerKeys.find((ak) => ak.id === selectedAnswerKeyId)
+  const domain = selectedAK?.domain || initialDomain || ''
+
+  const filteredAnswerKeys = answerKeys
+
+  const updateSetting = <K extends keyof GradingSettings>(key: K, value: GradingSettings[K]) => {
+    setSettings((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const handleSubmit = async () => {
+    await onSubmit({
+      title,
+      folder,
+      answerKeyFolder,
+      selectedAnswerKeyId,
+      settings,
+    })
+  }
+
+  if (!open) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl max-h-[88vh] flex flex-col rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* ── Header ────────────────────────────────────── */}
+        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 shrink-0">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">
+              {mode === 'create' ? '新增作業' : '作業設定'}
+            </h2>
+            {mode === 'edit' && editAssignmentTitle && (
+              <p className="text-xs text-gray-500 mt-0.5">{editAssignmentTitle}</p>
+            )}
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full p-2 hover:bg-gray-100">
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
+        {/* ── Tabs ──────────────────────────────────────── */}
+        <div className="flex border-b border-gray-200 px-6 shrink-0">
+          <button
+            type="button"
+            onClick={() => setActiveTab('basic')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'basic'
+                ? 'border-green-500 text-green-700'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            基本資訊
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('rules')}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'rules'
+                ? 'border-green-500 text-green-700'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            <Settings className="w-4 h-4" />
+            批改規則
+          </button>
+        </div>
+
+        {/* ── Content ───────────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+
+          {/* ── Tab: 基本資訊 ─── */}
+          {activeTab === 'basic' && (
+            <div className="space-y-5">
+              {/* 作業標題 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">作業標題</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="例如：114學年社會期中考"
+                  autoFocus={mode === 'create'}
+                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
+                />
+              </div>
+
+              {/* 資料夾 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">資料夾</label>
+                <select
+                  value={folder}
+                  onChange={(e) => setFolder(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-green-400 focus:outline-none"
+                >
+                  <option value="">未分類</option>
+                  {folders.map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </div>
+
+              {/* 目前答案卷（編輯模式） */}
+              {mode === 'edit' && initialAnswerKeyInfo && (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                  <p className="text-xs text-gray-500 mb-1">目前答案卷</p>
+                  <p className="text-sm font-medium text-gray-900">
+                    {initialAnswerKeyInfo.domain || '未設定領域'} · {initialAnswerKeyInfo.questionCount} 題 · 總分 {initialAnswerKeyInfo.totalScore}
+                  </p>
+                </div>
+              )}
+
+              {/* 選擇/更換答案卷 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                  {mode === 'create' ? '選擇答案卷' : '更換答案卷（選填）'}
+                </label>
+                <div className="space-y-2">
+                  <select
+                    value={answerKeyFolder}
+                    onChange={(e) => { setAnswerKeyFolder(e.target.value); setSelectedAnswerKeyId('') }}
+                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-green-400 focus:outline-none"
+                  >
+                    <option value="">{mode === 'create' ? '全部' : '全部資料夾'}</option>
+                    {answerKeyFolders.map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                  <select
+                    value={selectedAnswerKeyId}
+                    onChange={(e) => setSelectedAnswerKeyId(e.target.value)}
+                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-green-400 focus:outline-none"
+                  >
+                    <option value="">{mode === 'create' ? '稍後再設定' : '不更換'}</option>
+                    {filteredAnswerKeys.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}（{t.domain || '未設定領域'} · {t.answerKey?.questions?.length ?? 0} 題）
+                      </option>
+                    ))}
+                  </select>
+                  {mode === 'edit' && selectedAK && gradedCount > 0 && (
+                    <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                      ⚠ 更換答案卷將清除 {gradedCount} 份批改結果，需重新批改
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Tab: 批改規則 ─── */}
+          {activeTab === 'rules' && (
+            <div className="space-y-6">
+
+              {/* 計分方式 */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">計分方式</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => updateSetting('scoringMode', 'scored')}
+                    className={`rounded-xl border-2 p-4 text-left transition-all ${
+                      settings.scoringMode === 'scored'
+                        ? 'border-green-500 bg-green-50'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="text-sm font-semibold text-gray-800 mb-1">✓ 計分</div>
+                    <p className="text-[11px] text-gray-500">顯示每題分數和總分</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateSetting('scoringMode', 'unscored')}
+                    className={`rounded-xl border-2 p-4 text-left transition-all ${
+                      settings.scoringMode === 'unscored'
+                        ? 'border-green-500 bg-green-50'
+                        : 'border-gray-200 bg-white hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="text-sm font-semibold text-gray-800 mb-1">✗ 不計分</div>
+                    <p className="text-[11px] text-gray-500">只顯示 ✓ / ✗ / △</p>
+                  </button>
+                </div>
+              </div>
+
+              {/* 問答題嚴謹度 */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">問答題嚴謹度</h3>
+                <div className="flex gap-3">
+                  <StrictnessCard value="strict" selected={settings.strictness === 'strict'} onClick={() => updateSetting('strictness', 'strict')} />
+                  <StrictnessCard value="standard" selected={settings.strictness === 'standard'} onClick={() => updateSetting('strictness', 'standard')} />
+                  <StrictnessCard value="lenient" selected={settings.strictness === 'lenient'} onClick={() => updateSetting('strictness', 'lenient')} />
+                </div>
+              </div>
+
+              {/* 領域專屬規則 */}
+              {domain === '數學' && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">數學專屬規則</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => updateSetting('fractionRule', 'require_simplified')}
+                      className={`rounded-xl border-2 p-3 text-left transition-all ${
+                        settings.fractionRule === 'require_simplified'
+                          ? 'border-green-500 bg-green-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="text-sm font-semibold text-gray-800">必須最簡分數</div>
+                      <p className="text-[11px] text-gray-500 mt-0.5">2/4 判錯，必須寫 1/2</p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateSetting('fractionRule', 'allow_equivalent')}
+                      className={`rounded-xl border-2 p-3 text-left transition-all ${
+                        settings.fractionRule === 'allow_equivalent'
+                          ? 'border-green-500 bg-green-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="text-sm font-semibold text-gray-800">接受等值分數</div>
+                      <p className="text-[11px] text-gray-500 mt-0.5">2/4 = 1/2 都算對</p>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {domain === '英語' && (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">英語專屬規則</h3>
+                  <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.enPunctuationCheck}
+                        onChange={(e) => updateSetting('enPunctuationCheck', e.target.checked)}
+                        className="w-4 h-4 accent-green-600 shrink-0"
+                      />
+                      <div className="flex-1">
+                        <span className="text-sm text-gray-700">標點符號檢查</span>
+                        {settings.enPunctuationCheck && (
+                          <span className="text-xs text-gray-500 ml-2">
+                            每錯扣{' '}
+                            <NumericInput
+                              min={1} max={5}
+                              value={settings.enPunctuationDeduction}
+                              onChange={(v) => updateSetting('enPunctuationDeduction', typeof v === 'number' ? v : 1)}
+                              className="inline-block w-12 px-1 py-0.5 border border-gray-300 rounded text-center text-xs"
+                            />{' '}分
+                          </span>
+                        )}
+                      </div>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={settings.enWordOrderCheck}
+                        onChange={(e) => updateSetting('enWordOrderCheck', e.target.checked)}
+                        className="w-4 h-4 accent-green-600 shrink-0"
+                      />
+                      <div className="flex-1">
+                        <span className="text-sm text-gray-700">單字順序 / 缺漏檢查</span>
+                        {settings.enWordOrderCheck && (
+                          <span className="text-xs text-gray-500 ml-2">
+                            每錯扣{' '}
+                            <NumericInput
+                              min={1} max={5}
+                              value={settings.enWordOrderDeduction}
+                              onChange={(v) => updateSetting('enWordOrderDeduction', typeof v === 'number' ? v : 1)}
+                              className="inline-block w-12 px-1 py-0.5 border border-gray-300 rounded text-center text-xs"
+                            />{' '}分
+                          </span>
+                        )}
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* 沒有領域時的提示 */}
+              {!domain && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700">
+                  選擇答案卷後，會根據領域顯示專屬批改規則
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── Footer ───────────────────────────────────── */}
+        <div className="flex items-center justify-between border-t border-gray-200 px-6 py-4 shrink-0">
+          <div>
+            {mode === 'edit' && onDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={isSubmitting}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+                刪除作業
+              </button>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              disabled={!title.trim() || isSubmitting}
+              onClick={() => void handleSubmit()}
+              className="rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-all active:scale-95"
+            >
+              {isSubmitting ? (
+                <Loader className="h-4 w-4 animate-spin" />
+              ) : mode === 'create' ? (
+                '建立作業'
+              ) : (
+                '儲存設定'
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
