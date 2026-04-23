@@ -1476,10 +1476,15 @@ export default function GradingPage({
           })
           const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain)
           const totalScore = typeof gradingResult.totalScore === 'number' ? gradingResult.totalScore : 0
+          const retryGradedAt = Date.now()
           await db.submissions.update(entry.submissionId, {
             status: 'graded', score: totalScore, aiScore: totalScore, scoreSource: 'ai',
-            gradingResult, gradedAt: Date.now(), updatedAt: Date.now(),
+            gradingResult, gradedAt: retryGradedAt, updatedAt: retryGradedAt,
           })
+          fetch('/api/data/save-grading', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ submissions: [{ id: entry.submissionId, score: totalScore, aiScore: totalScore, scoreSource: 'ai', gradingResult, gradedAt: retryGradedAt }] })
+          }).catch(() => {})
           setSubmissions((prev) => {
             const next = new Map(prev)
             const sub = Array.from(prev.values()).find((s) => s.id === entry.submissionId)
@@ -3007,6 +3012,10 @@ export default function GradingPage({
         gradedAt: now,
         updatedAt: now
       })
+      fetch('/api/data/save-grading', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ submissions: [{ id, score: newTotal, aiScore: newTotal, scoreSource: 'ai', gradingResult: newGradingResult, gradedAt: now }] })
+      }).catch(() => {})
       requestSync()
 
       const updated = await db.submissions.get(id)
@@ -4017,11 +4026,19 @@ export default function GradingPage({
                             reviewReasons: []
                           }
                           const totalScore = typeof newGradingResult.totalScore === 'number' ? newGradingResult.totalScore : undefined
+                          const confirmNow = Date.now()
                           await db.submissions.update(id, {
                             gradingResult: newGradingResult,
                             ...(totalScore !== undefined ? { score: totalScore, aiScore: totalScore, scoreSource: 'ai' as const } : {}),
-                            updatedAt: Date.now()
+                            gradedAt: confirmNow,
+                            updatedAt: confirmNow
                           })
+                          if (totalScore !== undefined) {
+                            fetch('/api/data/save-grading', {
+                              method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+                              body: JSON.stringify({ submissions: [{ id, score: totalScore, aiScore: totalScore, scoreSource: 'ai', gradingResult: newGradingResult, gradedAt: confirmNow }] })
+                            }).catch(() => {})
+                          }
                           requestSync()
 
                           const updated = await db.submissions.get(id)

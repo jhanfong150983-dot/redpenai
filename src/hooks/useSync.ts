@@ -640,32 +640,18 @@ export function useSync(options: UseSyncOptions = {}) {
     
     console.log(`📤 [Sync Push] 準備上傳 ${assignmentPayload.length} 個作業:`, assignmentPayload.map(a => ({ id: a.id, title: a.title, hasAnswerKey: !!a.answerKey })))
 
-    // submissions push: 只送需要上傳圖片的（scanned→synced）或本地有批改結果的
-    // 已 synced/graded 且沒有新的本地批改 → 不需要重送（server 已有）
+    // submissions push: 只送結構性 metadata（不送批改資料）
+    // 批改分數/結果由 save-grading API 直接寫入 Supabase，不經過 sync
     const submissionPayload = submissions
       .filter((sub) => {
         if (sub.status === 'scanned') return false
-        // 沒有 imageUrl 代表還沒上傳過，需要送（會由單獨的 submission upload 處理，這裡只送 metadata）
-        // 有 gradingResult 且是本地批改的（imageBlob 或 imageBase64 存在）→ 需要送
-        // 已經在 server 上的（有 imageUrl，沒有本地新改動）→ 跳過
         if (!lastSuccessfulSyncAt) return true
-        // 本地有新批改
-        const localGradedAt = toNumber(sub.gradedAt) ?? 0
-        if (localGradedAt >= lastSuccessfulSyncAt) return true
-        // 狀態剛變更（例如從 synced 變成其他）
         const localUpdatedAt = toNumber(sub.updatedAt) ?? 0
-        if (localUpdatedAt >= lastSuccessfulSyncAt && sub.status !== 'synced' && sub.status !== 'graded') return true
-        // 已經在 server 上的舊資料，不重送
+        if (localUpdatedAt >= lastSuccessfulSyncAt) return true
         return false
       })
-      .map(({ imageBlob, ...rest }) => {
-        // 只在本地新批改（gradedAt 在上次 sync 之後）時才帶 gradingResult，避免 payload 過大
-        // 特殊情況：gradingResult === null 代表被清除（答案卷更換），需要送 null 到 server
-        const isCleared = rest.gradingResult === null
-        const isRecentlyGraded = !isCleared && rest.status === 'graded' && rest.gradingResult &&
-          (!lastSuccessfulSyncAt || (toNumber(rest.gradedAt) ?? 0) >= lastSuccessfulSyncAt ||
-           (toNumber(rest.updatedAt) ?? 0) >= lastSuccessfulSyncAt)
-        return {
+      .map(({ imageBlob, imageBase64, thumbnailBlob, thumbnailBase64, gradingResult, ...rest }) => ({
+        // 結構性欄位（sync 負責）
         id: rest.id,
         assignmentId: rest.assignmentId,
         studentId: rest.studentId,
@@ -676,22 +662,15 @@ export function useSync(options: UseSyncOptions = {}) {
           rest.thumbUrl ||
           rest.thumbnailUrl ||
           `submissions/thumbs/${rest.id}.webp`,
-        score: isCleared ? null : rest.score,
-        aiScore: isCleared ? null : rest.aiScore,
-        scoreSource: isCleared ? null : rest.scoreSource,
-        feedback: isCleared ? null : rest.feedback,
-        gradingResult: isCleared ? null : isRecentlyGraded ? rest.gradingResult : undefined,
-        // gradedAt: 已批改且有 gradingResult 的 submission 用 Date.now()
-        // 確保 push 不被 server 判 stale（pull 可能把本地 gradedAt 覆蓋成舊值）
-        gradedAt: (rest.status === 'graded' && rest.gradingResult) ? Date.now() : rest.gradedAt,
         correctionCount: rest.correctionCount,
         source: rest.source,
-        // submissions.round 在後端為 NOT NULL；舊本地資料可能缺值，統一補 0
         round: toNumber(rest.round) ?? 0,
         parentSubmissionId: rest.parentSubmissionId,
         actorUserId: rest.actorUserId,
         updatedAt: rest.updatedAt
-      }})
+        // 不送: score, aiScore, scoreSource, feedback, gradingResult, gradedAt
+        // 這些由 save-grading API 負責
+      }))
 
 
     const foldersPayload = folders
@@ -891,8 +870,9 @@ export function useSync(options: UseSyncOptions = {}) {
     debugLog(`📦 pullMetadata: 從雲端拉取 ${submissions.length} 筆 submissions`)
     debugLog(`📦 pullMetadata: 本地現有 ${existingSubmissions.length} 筆 submissions`)
 
-    // 保留本地圖片數據（Blob 和 Base64）與 gradingResult（伺服器同步不再回傳）
-    // 也保留 status、gradedAt、score、aiScore、scoreSource，避免 pull 覆蓋本地已批改的資料
+    // 保留本地資料，避免 pull 覆蓋
+    // 圖片：imageBlob, imageBase64（server 不存）
+    // 批改：score, aiScore, scoreSource, gradingResult, gradedAt, feedback, status（由 save-grading API 負責同步）
     const imageDataMap = new Map(
       existingSubmissions.map((sub) => [
         sub.id,
@@ -904,12 +884,14 @@ export function useSync(options: UseSyncOptions = {}) {
           thumbnailBlob: sub.thumbnailBlob,
           thumbnailBase64: sub.thumbnailBase64,
           thumbnailUrl: sub.thumbnailUrl,
+          // 批改欄位（本地優先，sync 不碰）
           gradingResult: sub.gradingResult,
           status: sub.status,
           gradedAt: sub.gradedAt,
           score: sub.score,
           aiScore: sub.aiScore,
-          scoreSource: sub.scoreSource
+          scoreSource: sub.scoreSource,
+          feedback: sub.feedback
         }
       ])
     )
@@ -946,70 +928,46 @@ export function useSync(options: UseSyncOptions = {}) {
           typeof sub.createdAt === 'number' && Number.isFinite(sub.createdAt)
             ? sub.createdAt
             : Date.now()
-        const serverGradedAt =
-          typeof sub.gradedAt === 'number' && Number.isFinite(sub.gradedAt)
-            ? sub.gradedAt
-            : undefined
 
-        // 從本地恢復圖片數據
-        const localImageData = imageDataMap.get(sub.id)
+        // 從本地恢復圖片 + 批改數據
+        const local = imageDataMap.get(sub.id)
 
-        // Pull 與 Push 並行時，Pull 可能先從 Supabase 拿回舊的 status='synced'，
-        // 在 Push 尚未寫入前就蓋掉本地的 status='graded' 和 gradedAt。
-        // 修正：若本地是 'graded' 而 server 尚未確認，保留本地的 status 與 gradedAt。
+        // ── 結構性欄位：以 server 為主 ──
         const serverStatus = (sub.status || 'synced') as string
-        const localStatus = localImageData?.status
-        const finalStatus = (localStatus === 'graded' && serverStatus !== 'graded')
-          ? 'graded'
-          : serverStatus
-        // gradedAt 取較大值（本地 vs server），避免 pull 覆蓋本地剛批改的新值
-        const localGradedAt = localStatus === 'graded' ? localImageData?.gradedAt : undefined
-        const gradedAt = (typeof serverGradedAt === 'number' && typeof localGradedAt === 'number')
-          ? Math.max(serverGradedAt, localGradedAt)
-          : serverGradedAt ?? localGradedAt
         const imageUrl =
           (sub as Submission & { imageUrl?: string }).imageUrl ??
           (sub as { image_url?: string }).image_url ??
-          localImageData?.imageUrl
+          local?.imageUrl
         const thumbUrl =
           (sub as Submission & { thumbUrl?: string }).thumbUrl ??
           (sub as { thumb_url?: string }).thumb_url ??
           (sub as Submission & { thumbnailUrl?: string }).thumbnailUrl ??
           (sub as { thumbnail_url?: string }).thumbnail_url ??
-          localImageData?.thumbUrl ??
-          localImageData?.thumbnailUrl
+          local?.thumbUrl ??
+          local?.thumbnailUrl
 
-        if (localImageData && (localImageData.imageBlob || localImageData.imageBase64)) {
-          debugLog(`🔄 恢復圖片數據: ${sub.id}`, {
-            hasBlob: !!localImageData.imageBlob,
-            hasBase64: !!localImageData.imageBase64,
-            base64Length: localImageData.imageBase64?.length
-          })
-        }
-
-        // 本地批改較新時，保留本地的 score/gradingResult（避免 pull 覆蓋新批改結果）
-        const localIsNewerGrade = typeof localGradedAt === 'number' && typeof serverGradedAt === 'number' && localGradedAt > serverGradedAt
-        // Server 回傳的欄位可能是 snake_case (grading_result) 或 camelCase (gradingResult)
+        // ── 批改欄位：本地優先，server 僅作新裝置 fallback ──
+        // 規則：本地有值 → 用本地（sync 不碰批改）
+        //       本地無值 → 用 server（新裝置首次 pull）
         const serverGradingResult =
           (sub as Submission & { gradingResult?: unknown }).gradingResult ??
           (sub as { grading_result?: unknown }).grading_result ??
           undefined
-        // score merge：server 有值用 server，沒有則保留本地（避免 pull 把本地分數洗掉）
         const serverScore = sub.score
         const serverAiScore = (sub as Submission & { aiScore?: number }).aiScore ?? (sub as { ai_score?: number }).ai_score
         const serverScoreSource = (sub as Submission & { scoreSource?: string }).scoreSource ?? (sub as { score_source?: string }).score_source
-        const mergedScore = localIsNewerGrade
-          ? (localImageData?.gradingResult?.totalScore ?? serverScore ?? localImageData?.score)
-          : (serverScore ?? localImageData?.score)
-        const mergedAiScore = localIsNewerGrade
-          ? (mergedScore ?? undefined)
-          : (serverAiScore ?? localImageData?.aiScore)
-        const mergedScoreSource = localIsNewerGrade
-          ? (localImageData?.scoreSource ?? serverScoreSource)
-          : (serverScoreSource ?? localImageData?.scoreSource)
-        const mergedGradingResult = localIsNewerGrade
-          ? (localImageData?.gradingResult ?? serverGradingResult)
-          : (localImageData?.gradingResult ?? serverGradingResult)
+        const serverGradedAt =
+          typeof sub.gradedAt === 'number' && Number.isFinite(sub.gradedAt)
+            ? sub.gradedAt
+            : undefined
+
+        const gradingResult = local?.gradingResult ?? serverGradingResult
+        const score = local?.score ?? serverScore
+        const aiScore = local?.aiScore ?? serverAiScore
+        const scoreSource = local?.scoreSource ?? serverScoreSource
+        const gradedAt = local?.gradedAt ?? serverGradedAt
+        // status：本地是 graded 就保持 graded（不被 server 的 synced 覆蓋）
+        const finalStatus = (local?.status === 'graded') ? 'graded' : serverStatus
 
         return {
           id: sub.id,
@@ -1017,15 +975,15 @@ export function useSync(options: UseSyncOptions = {}) {
           studentId: studentId!,
           status: finalStatus,
           createdAt,
-          score: mergedScore,
-          aiScore: mergedAiScore,
-          scoreSource: mergedScoreSource as 'ai' | 'manual' | undefined,
-          feedback: sub.feedback,
-          // 伺服器同步不再回傳 gradingResult，優先保留本地已有的批改結果
-          gradingResult: mergedGradingResult,
-          // 雲端同步的錯題數量（本地有 gradingResult 時不需要，但保留作為跨裝置 fallback）
-          mistakesCount: (sub as Submission & { mistakesCount?: number }).mistakesCount,
+          // 批改欄位（本地優先）
+          score,
+          aiScore,
+          scoreSource: scoreSource as 'ai' | 'manual' | undefined,
+          feedback: local?.feedback ?? sub.feedback,
+          gradingResult,
           gradedAt,
+          mistakesCount: (sub as Submission & { mistakesCount?: number }).mistakesCount,
+          // 結構性欄位（server 為主）
           correctionCount: sub.correctionCount,
           source:
             (sub as Submission & { source?: string }).source ??
@@ -1046,18 +1004,16 @@ export function useSync(options: UseSyncOptions = {}) {
             undefined,
           imageUrl: imageUrl || undefined,
           thumbUrl,
-          imageBlob: localImageData?.imageBlob,       // 保留本地 Blob
-          imageBase64: localImageData?.imageBase64,   // 保留本地 Base64
-          thumbnailBlob: localImageData?.thumbnailBlob,
-          thumbnailBase64: localImageData?.thumbnailBase64,
+          // 本地圖片資料（永遠保留）
+          imageBlob: local?.imageBlob,
+          imageBase64: local?.imageBase64,
+          thumbnailBlob: local?.thumbnailBlob,
+          thumbnailBase64: local?.thumbnailBase64,
           thumbnailUrl:
             (sub as Submission & { thumbnailUrl?: string }).thumbnailUrl ??
             (sub as { thumbnail_url?: string }).thumbnail_url ??
-            localImageData?.thumbnailUrl,
-          // updatedAt: 本地批改較新時用 Date.now() 確保 push 不被判 stale
-          updatedAt: localIsNewerGrade
-            ? Date.now()
-            : (toMillis(sub.updatedAt ?? (sub as { updated_at?: unknown }).updated_at) || undefined)
+            local?.thumbnailUrl,
+          updatedAt: toMillis(sub.updatedAt ?? (sub as { updated_at?: unknown }).updated_at) || undefined
         }
       })
 
