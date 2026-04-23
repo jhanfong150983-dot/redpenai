@@ -17,7 +17,6 @@ export interface GradingSettings {
 export interface AssignmentFormData {
   title: string
   folder: string
-  answerKeyFolder: string
   selectedAnswerKeyId: string
   settings: GradingSettings
 }
@@ -43,7 +42,6 @@ interface AssignmentFormModalProps {
   initialAnswerKeyInfo?: { domain: string; questionCount: number; totalScore: number } | null
   // Options
   folders: string[]
-  answerKeyFolders: string[]
   answerKeys: AnswerKeyOption[]
   // Current state
   isSubmitting?: boolean
@@ -129,7 +127,6 @@ export default function AssignmentFormModal({
   initialSettings,
   initialAnswerKeyInfo,
   folders,
-  answerKeyFolders,
   answerKeys,
   isSubmitting = false,
   editAssignmentTitle,
@@ -138,7 +135,6 @@ export default function AssignmentFormModal({
   const [activeTab, setActiveTab] = useState<'basic' | 'rules'>('basic')
   const [title, setTitle] = useState(initialTitle)
   const [folder, setFolder] = useState(initialFolder)
-  const [answerKeyFolder, setAnswerKeyFolder] = useState('')
   const [selectedAnswerKeyId, setSelectedAnswerKeyId] = useState('')
   const [settings, setSettings] = useState<GradingSettings>({ ...DEFAULT_SETTINGS, ...initialSettings })
 
@@ -155,7 +151,6 @@ export default function AssignmentFormModal({
     await onSubmit({
       title,
       folder,
-      answerKeyFolder,
       selectedAnswerKeyId,
       settings,
     })
@@ -262,33 +257,23 @@ export default function AssignmentFormModal({
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
                   {mode === 'create' ? '選擇答案卷' : '更換答案卷（選填）'}
                 </label>
-                <div className="space-y-2">
-                  <select
-                    value={answerKeyFolder}
-                    onChange={(e) => { setAnswerKeyFolder(e.target.value); setSelectedAnswerKeyId('') }}
-                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-green-400 focus:outline-none"
-                  >
-                    <option value="">{mode === 'create' ? '全部' : '全部資料夾'}</option>
-                    {answerKeyFolders.map((f) => <option key={f} value={f}>{f}</option>)}
-                  </select>
-                  <select
-                    value={selectedAnswerKeyId}
-                    onChange={(e) => setSelectedAnswerKeyId(e.target.value)}
-                    className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-green-400 focus:outline-none"
-                  >
-                    <option value="">{mode === 'create' ? '稍後再設定' : '不更換'}</option>
-                    {filteredAnswerKeys.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}（{t.domain || '未設定領域'} · {t.answerKey?.questions?.length ?? 0} 題）
-                      </option>
-                    ))}
-                  </select>
-                  {mode === 'edit' && selectedAK && gradedCount > 0 && (
-                    <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                      ⚠ 更換答案卷將清除 {gradedCount} 份批改結果，需重新批改
-                    </p>
-                  )}
-                </div>
+                <select
+                  value={selectedAnswerKeyId}
+                  onChange={(e) => setSelectedAnswerKeyId(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-green-400 focus:outline-none"
+                >
+                  <option value="">{mode === 'create' ? '稍後再設定' : '不更換'}</option>
+                  {filteredAnswerKeys.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}（{t.domain || '未設定領域'} · {t.answerKey?.questions?.length ?? 0} 題）
+                    </option>
+                  ))}
+                </select>
+                {mode === 'edit' && selectedAK && gradedCount > 0 && (
+                  <p className="mt-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                    ⚠ 更換答案卷將清除 {gradedCount} 份批改結果，需重新批改
+                  </p>
+                )}
               </div>
             </div>
           )}

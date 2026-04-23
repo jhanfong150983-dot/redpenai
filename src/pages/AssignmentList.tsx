@@ -321,7 +321,7 @@ export default function AssignmentList({
   // Suppress unused warnings for legacy code (will clean up later)
   void handleSaveSettings; void availableAnswerKeys; void selectedDomain
   void createSettingsValues; void handleCreateSettingsChange; void settingsAvailableAKs
-  void settingsSettingsValues; void handleSettingsSettingsChange
+  void settingsSettingsValues; void handleSettingsSettingsChange; void answerKeyFolders
 
   const handleSaveSettingsFromModal = async (data: AssignmentFormData) => {
     if (!settingsAssignment) return
@@ -1209,7 +1209,7 @@ export default function AssignmentList({
         }}
         isSubmitting={isCreating}
         folders={usedFolders}
-        answerKeyFolders={answerKeyFolders}
+
         answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined }))}
       />
 
@@ -1276,7 +1276,7 @@ export default function AssignmentList({
           } : null}
           gradedCount={settingsAssignment.gradedCount ?? 0}
           folders={usedFolders}
-          answerKeyFolders={answerKeyFolders}
+  
           answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined }))}
         />
       )}
