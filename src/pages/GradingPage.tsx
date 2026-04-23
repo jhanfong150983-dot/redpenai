@@ -2062,7 +2062,7 @@ export default function GradingPage({
       setError(err instanceof Error ? err.message : '載入失敗')
       setIsLoading(false)
     }
-  }, [assignmentId, fetchCorrectionStatusByStudentId])
+  }, [assignmentId, isBatchMode, batchAssignmentIds, fetchCorrectionStatusByStudentId])
 
   const syncAndReload = useCallback(async (timeoutMs = 15000) => {
     requestSync(true)
