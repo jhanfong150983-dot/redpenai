@@ -39,6 +39,7 @@ interface AssignmentFormModalProps {
   initialTitle?: string
   initialFolder?: string
   initialDomain?: string
+  initialSettings?: Partial<GradingSettings>
   initialAnswerKeyInfo?: { domain: string; questionCount: number; totalScore: number } | null
   // Options
   folders: string[]
@@ -125,6 +126,7 @@ export default function AssignmentFormModal({
   initialTitle = '',
   initialFolder = '',
   initialDomain,
+  initialSettings,
   initialAnswerKeyInfo,
   folders,
   answerKeyFolders,
@@ -138,7 +140,7 @@ export default function AssignmentFormModal({
   const [folder, setFolder] = useState(initialFolder)
   const [answerKeyFolder, setAnswerKeyFolder] = useState('')
   const [selectedAnswerKeyId, setSelectedAnswerKeyId] = useState('')
-  const [settings, setSettings] = useState<GradingSettings>(DEFAULT_SETTINGS)
+  const [settings, setSettings] = useState<GradingSettings>({ ...DEFAULT_SETTINGS, ...initialSettings })
 
   const selectedAK = answerKeys.find((ak) => ak.id === selectedAnswerKeyId)
   const domain = selectedAK?.domain || initialDomain || ''
