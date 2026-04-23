@@ -982,13 +982,11 @@ export default function AssignmentList({
                   return (
                     <div
                       key={assignment.id}
-                      className={`w-full rounded-xl border bg-white px-4 py-4 text-left transition-colors ${
-                        canSelect ? 'border-slate-200 hover:border-slate-300' : 'border-slate-100 bg-slate-50'
-                      }`}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-4 text-left transition-colors hover:border-slate-300"
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-between gap-4">
                         {/* Checkbox */}
-                        <div className="flex-shrink-0">
+                        <div className="flex-shrink-0 self-center">
                           <input
                             type="checkbox"
                             checked={batchSelectedIds.has(assignment.id)}
@@ -998,12 +996,19 @@ export default function AssignmentList({
                           />
                         </div>
 
-                        {/* 內容 */}
                         <div className="min-w-0 flex-1">
                           <div className="mb-1 flex items-center gap-2">
                             <h3 className="text-base font-semibold text-gray-900">
                               {assignment.classroom?.name || '未知班級'}
                             </h3>
+                            <button
+                              type="button"
+                              onClick={() => openSettingsModal(assignment)}
+                              className="rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+                              title="批改設定 / 更換答案卷"
+                            >
+                              <Settings className="h-4 w-4" />
+                            </button>
                             {!hasSubmissions && (
                               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                                 尚未匯入
@@ -1011,48 +1016,59 @@ export default function AssignmentList({
                             )}
                           </div>
                           <p className="text-sm text-gray-600">
-                            {assignment.title} · 已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
+                            {assignment.title} · 共 {assignment.totalPages} 頁 ·
+                            已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
                           </p>
+                          {!assignment.answerKey && (
+                            <p className="mt-1 text-xs text-red-500">
+                              尚未設定標準答案，AI 批改將無法使用。
+                            </p>
+                          )}
                         </div>
 
-                        {/* 操作按鈕 */}
-                        <div className="flex items-center gap-2 whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => onSelectScanImport?.(assignment.id)}
-                            className="inline-flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                          >
-                            <Upload className="h-4 w-4" />
-                            <span>匯入</span>
-                          </button>
-                          <span className="px-0.5 text-slate-300">›</span>
-                          <button
-                            type="button"
-                            onClick={() => onSelectAssignment?.(assignment.id)}
-                            disabled={!hasAnswerKey || !hasSubmissions}
-                            className={`inline-flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
-                              !hasAnswerKey || !hasSubmissions
-                                ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <Sparkles className="h-4 w-4" />
-                            <span>AI批改</span>
-                          </button>
-                          <span className="px-0.5 text-slate-300">›</span>
-                          <button
-                            type="button"
-                            onClick={() => onSelectCorrection?.(assignment.id)}
-                            disabled={!canUseCorrection || (assignment.gradedCount ?? 0) < 1}
-                            className={`inline-flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
-                              !canUseCorrection || (assignment.gradedCount ?? 0) < 1
-                                ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                                : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <ClipboardCheck className="h-4 w-4" />
-                            <span>訂正</span>
-                          </button>
+                        <div className="max-w-[58vw] self-center overflow-x-auto">
+                          <div className="flex items-center justify-end gap-2 whitespace-nowrap pb-1">
+                            <button
+                              type="button"
+                              onClick={() => onSelectScanImport?.(assignment.id)}
+                              className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+                            >
+                              <Upload className="h-4 w-4" />
+                              <span className="text-center leading-tight">匯入作業</span>
+                            </button>
+
+                            <span className="px-1 text-slate-300">›</span>
+
+                            <button
+                              type="button"
+                              onClick={() => onSelectAssignment?.(assignment.id)}
+                              disabled={!hasAnswerKey || !hasSubmissions}
+                              className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
+                                !hasAnswerKey || !hasSubmissions
+                                  ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                              }`}
+                            >
+                              <Sparkles className="h-4 w-4" />
+                              <span className="text-center leading-tight">AI批改</span>
+                            </button>
+
+                            <span className="px-1 text-slate-300">›</span>
+
+                            <button
+                              type="button"
+                              onClick={() => onSelectCorrection?.(assignment.id)}
+                              disabled={!canUseCorrection || (assignment.gradedCount ?? 0) < 1}
+                              className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
+                                !canUseCorrection || (assignment.gradedCount ?? 0) < 1
+                                  ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                              }`}
+                            >
+                              <ClipboardCheck className="h-4 w-4" />
+                              <span className="text-center leading-tight">訂正作業</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
