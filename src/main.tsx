@@ -11,8 +11,14 @@ if (import.meta.env.PROD) {
   // 正式環境才註冊 Service Worker，避免開發環境被舊快取干擾
   const updateSW = registerSW({
     onNeedRefresh() {
-      console.log('🔄 發現新版本,準備更新...')
-      // 自動更新 (autoUpdate 模式)
+      console.log('🔄 發現新版本，自動更新...')
+      void updateSW(true) // 立即啟用新 SW
+    },
+    onRegisteredSW(_url, registration) {
+      // 每次載入頁面時檢查新版本
+      if (registration) {
+        void registration.update()
+      }
     },
     onOfflineReady() {
       console.log('✅ 應用已可離線使用')
@@ -24,6 +30,15 @@ if (import.meta.env.PROD) {
   })
 
   window.__SW_UPDATE__ = updateSW
+
+  // SW 控制權切換時自動重新載入，確保載入最新程式碼
+  let refreshing = false
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true
+      window.location.reload()
+    }
+  })
 } else if ('serviceWorker' in navigator) {
   // 開發環境主動移除既有 SW，確保不會載入舊版 UI
   navigator.serviceWorker
