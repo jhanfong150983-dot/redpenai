@@ -292,36 +292,66 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
         const seeded = await maybeSeedInitialWeights(sortedAssignments, mergedColumns)
         const assignmentIds = seeded.assignments.map((a) => a.id)
-        const subs =
+        let subs =
           assignmentIds.length > 0
             ? await db.submissions.where('assignmentId').anyOf(assignmentIds).toArray()
             : []
+
+        // 直接從 Supabase 取最新分數，覆蓋本地可能過時的值
+        try {
+          const scoreRes = await fetch(`/api/data/get-gradebook-scores?classroomId=${encodeURIComponent(selectedClassroomId)}`, {
+            credentials: 'include'
+          })
+          if (scoreRes.ok) {
+            const { scores } = await scoreRes.json() as { scores: Array<{
+              id: string; assignment_id: string; student_id: string;
+              score: number | null; ai_score: number | null;
+              score_source: string | null; graded_at: number | null; status: string;
+            }> }
+            const scoreMap = new Map(scores.map((s) => [s.id, s]))
+            subs = subs.map((sub) => {
+              const remote = scoreMap.get(sub.id)
+              if (!remote) return sub
+              const remoteScore = remote.score != null ? Number(remote.score) : undefined
+              const remoteAiScore = remote.ai_score != null ? Number(remote.ai_score) : undefined
+              return {
+                ...sub,
+                score: remoteScore ?? sub.score,
+                aiScore: remoteAiScore ?? sub.aiScore,
+                scoreSource: (remote.score_source ?? sub.scoreSource) as 'ai' | 'manual' | undefined,
+                status: remote.status === 'graded' ? 'graded' as const : sub.status,
+                gradedAt: remote.graded_at ?? sub.gradedAt,
+              }
+            })
+          }
+        } catch { /* 離線時用本地資料 */ }
+
+        // 補推：把本地有分數但 Supabase 可能沒有的推上去
+        if (!hasPushedScoresRef.current) {
+          hasPushedScoresRef.current = true
+          const gradedSubs = subs.filter((s) => s.status === 'graded' && s.score != null)
+          if (gradedSubs.length > 0) {
+            fetch('/api/data/save-grading', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                submissions: gradedSubs.map((s) => ({
+                  id: s.id, score: s.score,
+                  aiScore: s.aiScore ?? s.score,
+                  scoreSource: s.scoreSource ?? 'ai',
+                  gradedAt: s.gradedAt ?? Date.now(),
+                }))
+              })
+            }).catch(() => {})
+          }
+        }
 
         setAssignments(seeded.assignments)
         setStudents(sortedStudents)
         setAssignmentFolders(folders)
         setSubmissions(subs)
         setCustomColumns(seeded.columns)
-
-        // 補推：進入頁面時一次性把本地有分數的 submissions 推到 Supabase（確保不漏）
-        const gradedSubs = subs.filter((s) => s.status === 'graded' && s.score != null)
-        if (gradedSubs.length > 0 && !hasPushedScoresRef.current) {
-          hasPushedScoresRef.current = true
-          fetch('/api/data/save-grading', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              submissions: gradedSubs.map((s) => ({
-                id: s.id,
-                score: s.score,
-                aiScore: s.aiScore ?? s.score,
-                scoreSource: s.scoreSource ?? 'ai',
-                gradedAt: s.gradedAt ?? Date.now(),
-              }))
-            })
-          }).catch(() => {/* non-fatal */})
-        }
       } catch (e) {
         console.error(e)
         setError(e instanceof Error ? e.message : '載入成績資料失敗')
