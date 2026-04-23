@@ -646,17 +646,53 @@ function ConsistencyQuestionCard({
 
   const isCalcType = questionResult.questionType === 'calculation' || questionResult.questionType === 'word_problem'
 
-  const formatAnswer = (r: { status: string; studentAnswer: string }) => {
-    if (r.status === 'read') {
-      if (isCalcType) {
-        const final = extractFinalAnswer(r.studentAnswer)
-        if (final) return `「${final}」`
-      }
-      return `「${r.studentAnswer || '空白'}」`
+  const getAnswerText = (r: { status: string; studentAnswer: string }): string | null => {
+    if (r.status !== 'read') return null
+    if (isCalcType) {
+      const final = extractFinalAnswer(r.studentAnswer)
+      if (final) return final
     }
+    return r.studentAnswer || '空白'
+  }
+
+  const formatAnswer = (r: { status: string; studentAnswer: string }) => {
+    const text = getAnswerText(r)
+    if (text !== null) return `「${text}」`
     if (r.status === 'blank') return '（空白）'
     if (r.status === 'unreadable') return '（無法截取）'
     return `（${r.status}）`
+  }
+
+  // Diff highlighting: compare two strings character by character and return JSX with colored spans
+  const renderDiffHighlight = (text: string, otherText: string | null): React.ReactNode => {
+    if (!otherText || text === otherText) return `「${text}」`
+    // Simple char-level diff: walk both strings, highlight mismatches
+    const parts: React.ReactNode[] = ['「']
+    let i = 0
+    while (i < text.length) {
+      // Find next diff region
+      if (i < otherText.length && text[i] === otherText[i]) {
+        // Same char — collect consecutive same chars
+        let end = i
+        while (end < text.length && end < otherText.length && text[end] === otherText[end]) end++
+        parts.push(<span key={`s${i}`}>{text.slice(i, end)}</span>)
+        i = end
+      } else {
+        // Different — collect consecutive different chars
+        let end = i
+        while (end < text.length && (end >= otherText.length || text[end] !== otherText[end])) end++
+        parts.push(
+          <span key={`d${i}`} className="bg-yellow-200 text-red-700 font-bold rounded px-0.5">{text.slice(i, end)}</span>
+        )
+        i = end
+      }
+    }
+    parts.push('」')
+    // If other text is longer, show trailing extra
+    if (otherText.length > text.length) {
+      parts.push(<span key="extra" className="text-gray-400 text-[9px] ml-1">（對方多 {otherText.length - text.length} 字）</span>)
+    }
+    return <>{parts}</>
   }
 
   // 切換到人工輸入時，以讀取1為預填基底（方便修改）
@@ -826,7 +862,13 @@ function ConsistencyQuestionCard({
           }`}
         >
           <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read1' ? 'text-purple-700' : 'text-gray-500'}`}>{isCalcType ? 'AI 讀取 1（最終答案）' : 'AI 細節讀取（裁切圖）'}</span>
-          <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read1' ? 'text-purple-900' : 'text-gray-800'}`}>{formatAnswer(readAnswer1)}</span>
+          <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read1' ? 'text-purple-900' : 'text-gray-800'}`}>
+            {(() => {
+              const t1 = getAnswerText(readAnswer1)
+              const t2 = getAnswerText(readAnswer2)
+              return t1 !== null && t2 !== null && t1 !== t2 ? renderDiffHighlight(t1, t2) : formatAnswer(readAnswer1)
+            })()}
+          </span>
         </button>
 
         {/* AI2 全局讀取 */}
@@ -841,7 +883,13 @@ function ConsistencyQuestionCard({
           }`}
         >
           <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read2' ? 'text-purple-700' : 'text-gray-500'}`}>{isCalcType ? 'AI 讀取 2（最終答案）' : 'AI 全局讀取（全圖）'}</span>
-          <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read2' ? 'text-purple-900' : 'text-gray-800'}`}>{formatAnswer(readAnswer2)}</span>
+          <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read2' ? 'text-purple-900' : 'text-gray-800'}`}>
+            {(() => {
+              const t1 = getAnswerText(readAnswer1)
+              const t2 = getAnswerText(readAnswer2)
+              return t1 !== null && t2 !== null && t1 !== t2 ? renderDiffHighlight(t2, t1) : formatAnswer(readAnswer2)
+            })()}
+          </span>
         </button>
 
         {/* 空白 */}
