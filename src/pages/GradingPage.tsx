@@ -1162,6 +1162,7 @@ export default function GradingPage({
   const [submissions, setSubmissions] = useState<Map<string, Submission>>(new Map())
 
   // ── 批次模式：多班級資料 ──
+  const [batchTemplateName, setBatchTemplateName] = useState('')
   const [batchClassrooms, setBatchClassrooms] = useState<Map<string, Classroom>>(new Map())
   const [_batchAssignments, setBatchAssignments] = useState<Map<string, Assignment>>(new Map())
   // submissionClassroomMap: studentId → classroomId（用於分組顯示）
@@ -1880,6 +1881,14 @@ export default function GradingPage({
         const assignmentMap = new Map<string, Assignment>()
         for (const a of validAssignments) assignmentMap.set(a.id, a)
         setBatchAssignments(assignmentMap)
+        // 取答案卷模板名稱
+        const templateId = assignmentData.answerKeyTemplateId
+        if (templateId) {
+          const template = await db.answerKeyTemplates.get(templateId)
+          setBatchTemplateName(template?.name || assignmentData.title)
+        } else {
+          setBatchTemplateName(assignmentData.title)
+        }
       }
 
       const classroomData = classroomMap.get(assignmentData.classroomId)
@@ -3501,7 +3510,7 @@ export default function GradingPage({
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold text-gray-900">
-              {isBatchMode ? `批次批改：${assignment?.title}` : assignment?.title}
+              {isBatchMode ? `批次批改：${batchTemplateName || assignment?.title}` : assignment?.title}
             </h1>
             <p className="mt-1 text-sm text-gray-600">
               {isBatchMode
