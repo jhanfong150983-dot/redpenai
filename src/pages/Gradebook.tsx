@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { AlertTriangle, Download, Info, Plus, RotateCcw, X } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
-import { requestSync } from '@/lib/sync-events'
+import { requestSync, SYNC_COMPLETE_EVENT_NAME, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
 import type {
   Assignment,
@@ -100,6 +100,15 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     x: number; y: number; submissionId: string; aiScore: number | null
   } | null>(null)
   const hideRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const [loadKey, setLoadKey] = useState(0)
+
+  // sync 完成後重新載入資料
+  useEffect(() => {
+    const handler = () => setLoadKey((k) => k + 1)
+    window.addEventListener(SYNC_COMPLETE_EVENT_NAME, handler)
+    return () => window.removeEventListener(SYNC_COMPLETE_EVENT_NAME, handler)
+  }, [])
 
   const hasClassrooms = classrooms.length > 0
 
@@ -210,7 +219,11 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
         setIsLoading(false)
       }
     }
-    void loadClassrooms()
+    // 進入頁面時先同步再載入，確保 AI 批改分數是最新的
+    requestSync(true)
+    waitForSync(10000).catch(() => {}).finally(() => {
+      void loadClassrooms()
+    })
   }, [])
 
   useEffect(() => {
@@ -296,7 +309,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
       }
     }
     void load()
-  }, [selectedClassroomId, maybeSeedInitialWeights])
+  }, [selectedClassroomId, maybeSeedInitialWeights, loadKey])
 
   useEffect(() => {
     if (selectedClassroomId) {
