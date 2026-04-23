@@ -413,10 +413,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
           if (a.answerKey?.fractionRule) newAK.fractionRule = a.answerKey.fractionRule
           if (a.answerKey?.englishRules) newAK.englishRules = a.answerKey.englishRules
           await db.assignments.update(a.id, { answerKey: newAK, updatedAt: now })
-          // 清除已批改的結果
+          // 清除已批改的結果 — 本地 + 直接呼叫 Supabase（不依賴 sync push）
           const subs = await db.submissions.where('assignmentId').equals(a.id).toArray()
           const gradedSubs = subs.filter(s => s.gradingResult || s.score)
           console.log(`[sync-confirm] assignment ${a.id}: ${subs.length} subs, ${gradedSubs.length} graded → clearing`)
+          // 本地清除
           for (const sub of subs) {
             if (sub.gradingResult || sub.score) {
               await db.submissions.update(sub.id, {
@@ -424,7 +425,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
                 score: null as unknown as undefined,
                 aiScore: null as unknown as undefined,
                 gradedAt: null as unknown as undefined,
-                status: 'scanned', updatedAt: now,
+                status: 'synced', updatedAt: now,
               })
             }
           }
