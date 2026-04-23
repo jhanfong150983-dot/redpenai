@@ -289,6 +289,7 @@ function toUserFriendlyBatchFailureReason(rawMessage: string): string {
 
 interface GradingPageProps {
   assignmentId: string
+  batchAssignmentIds?: string[]
   onBack?: () => void
   onRequireInkTopUp?: () => void
   onGradingPhaseChange?: (phase: GradingPhase) => void
@@ -1136,11 +1137,13 @@ function BatchConsistencyReviewSection({
 
 export default function GradingPage({
   assignmentId,
+  batchAssignmentIds,
   onBack,
   onRequireInkTopUp,
   onGradingPhaseChange,
   embedded = false
 }: GradingPageProps) {
+  const isBatchMode = !!(batchAssignmentIds && batchAssignmentIds.length > 1)
   const PREVIEW_LENS_SIZE = 140
   const PREVIEW_ZOOM_SCALE = 2.3
   const PREVIEW_ZOOM_PANEL_SIZE = 250
@@ -1149,6 +1152,12 @@ export default function GradingPage({
   const [classroom, setClassroom] = useState<Classroom | null>(null)
   const [students, setStudents] = useState<Student[]>([])
   const [submissions, setSubmissions] = useState<Map<string, Submission>>(new Map())
+
+  // ── 批次模式：多班級資料 ──
+  const [batchClassrooms, setBatchClassrooms] = useState<Map<string, Classroom>>(new Map())
+  const [_batchAssignments, setBatchAssignments] = useState<Map<string, Assignment>>(new Map())
+  // submissionClassroomMap: studentId → classroomId（用於分組顯示）
+  const [submissionClassroomMap, setSubmissionClassroomMap] = useState<Map<string, string>>(new Map())
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isGrading, setIsGrading] = useState(false)
@@ -1842,21 +1851,53 @@ export default function GradingPage({
     setIsLoading(true)
     setError(null)
     try {
-      const assignmentData = await db.assignments.get(assignmentId)
-      if (!assignmentData) throw new Error('找不到作業')
+      const allAssignmentIds = isBatchMode ? batchAssignmentIds! : [assignmentId]
+
+      // 載入所有 assignments
+      const allAssignmentsData = await Promise.all(allAssignmentIds.map((id) => db.assignments.get(id)))
+      const validAssignments = allAssignmentsData.filter((a): a is Assignment => !!a)
+      if (validAssignments.length === 0) throw new Error('找不到作業')
+
+      // 主 assignment（用於 answerKey）
+      const assignmentData = validAssignments[0]
       setAssignment(assignmentData)
 
-      const classroomData = await db.classrooms.get(assignmentData.classroomId)
+      // 載入所有相關班級和學生
+      const classroomIds = [...new Set(validAssignments.map((a) => a.classroomId))]
+      const allClassrooms = await Promise.all(classroomIds.map((id) => db.classrooms.get(id)))
+      const classroomMap = new Map<string, Classroom>()
+      for (const c of allClassrooms) { if (c) classroomMap.set(c.id, c) }
+
+      if (isBatchMode) {
+        setBatchClassrooms(classroomMap)
+        const assignmentMap = new Map<string, Assignment>()
+        for (const a of validAssignments) assignmentMap.set(a.id, a)
+        setBatchAssignments(assignmentMap)
+      }
+
+      const classroomData = classroomMap.get(assignmentData.classroomId)
       if (!classroomData) throw new Error('找不到班級')
       setClassroom(classroomData)
 
-      const studentsData = await db.students
-        .where('classroomId')
-        .equals(assignmentData.classroomId)
-        .sortBy('seatNumber')
-      setStudents(studentsData)
+      // 載入所有班級的學生
+      const allStudents: Student[] = []
+      for (const cid of classroomIds) {
+        const stu = await db.students.where('classroomId').equals(cid).sortBy('seatNumber')
+        allStudents.push(...stu)
+      }
+      setStudents(allStudents)
 
-      const submissionsData = await db.submissions.where('assignmentId').equals(assignmentId).toArray()
+      // 建立 studentId → classroomId 映射（batch mode 用於分組）
+      if (isBatchMode) {
+        const scMap = new Map<string, string>()
+        for (const s of allStudents) scMap.set(s.id, s.classroomId)
+        setSubmissionClassroomMap(scMap)
+      }
+
+      // 載入所有 submissions
+      const submissionsData = isBatchMode
+        ? await db.submissions.where('assignmentId').anyOf(allAssignmentIds).toArray()
+        : await db.submissions.where('assignmentId').equals(assignmentId).toArray()
       const map = new Map<string, Submission>()
 
       for (const sub of submissionsData) {
@@ -3209,6 +3250,21 @@ export default function GradingPage({
     return [...students].sort((a, b) => a.seatNumber - b.seatNumber)
   }, [students])
 
+  // batch mode: 按班級分組的學生列表
+  const studentsByClassroom = useMemo(() => {
+    if (!isBatchMode) return null
+    const groups = new Map<string, { classroom: Classroom; students: Student[] }>()
+    for (const s of sortedStudents) {
+      const cid = submissionClassroomMap.get(s.id) || s.classroomId
+      if (!groups.has(cid)) {
+        const c = batchClassrooms.get(cid)
+        if (c) groups.set(cid, { classroom: c, students: [] })
+      }
+      groups.get(cid)?.students.push(s)
+    }
+    return Array.from(groups.values())
+  }, [isBatchMode, sortedStudents, submissionClassroomMap, batchClassrooms])
+
   const selectedReviewReasons = selectedSubmission
     ? getDisplayReviewReasons(selectedSubmission.submission)
     : []
@@ -3485,9 +3541,13 @@ export default function GradingPage({
         {/* Header */}
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
           <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-semibold text-gray-900">{assignment?.title}</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">
+              {isBatchMode ? `批次批改：${assignment?.title}` : assignment?.title}
+            </h1>
             <p className="mt-1 text-sm text-gray-600">
-              {classroom?.name} · {students.length} 位學生
+              {isBatchMode
+                ? `${batchClassrooms.size} 個班級 · ${students.length} 位學生`
+                : `${classroom?.name} · ${students.length} 位學生`}
             </p>
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
@@ -3625,6 +3685,90 @@ export default function GradingPage({
         )}
 
         {/* Grid */}
+        {isBatchMode && studentsByClassroom ? (
+          // 批次模式：按班級分組顯示
+          <div className="space-y-6">
+            {studentsByClassroom.map(({ classroom: groupClassroom, students: groupStudents }) => (
+              <div key={groupClassroom.id}>
+                <h3 className="mb-3 text-sm font-semibold text-slate-500 border-b border-slate-200 pb-2">
+                  {groupClassroom.name} ({groupStudents.filter((s) => submissions.get(s.id)?.status === 'graded').length}/{groupStudents.length} 批改)
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                  {groupStudents.map((student) => {
+                    const submission = submissions.get(student.id)
+                    const status = submission?.status ?? 'missing'
+                    const sourceVisual = getSubmissionSourceVisual(submission)
+                    const tags = submission ? getFeedbackTags(submission) : []
+                    const gradingResult = submission?.gradingResult
+                    const isUnscoredAssignment = assignment?.scoringMode === 'unscored'
+                    const maxScore = gradingResult ? getSubmissionMaxScore(gradingResult) : null
+                    const scoreValueRaw = Number(gradingResult?.totalScore)
+                    const scoreValue = Number.isFinite(scoreValueRaw) ? scoreValueRaw : 0
+                    const correctSummary = gradingResult ? getSubmissionCorrectSummary(gradingResult) : null
+                    const isLowScore = isUnscoredAssignment
+                      ? (correctSummary ? correctSummary.ratio < 0.8 : true)
+                      : (typeof maxScore === 'number' && maxScore > 0 ? scoreValue < maxScore * 0.8 : scoreValue < 60)
+                    const needsReview = !!gradingResult?.needsReview
+                    const isSelected = selectedSubmissionIds.has(submission?.id ?? '')
+                    return (
+                      <div key={student.id} className="relative">
+                        {/* 勾選框 */}
+                        {submission && hasSubmissionImage(submission) && (
+                          <div className="absolute top-2 left-2 z-10" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 cursor-pointer accent-green-600"
+                              checked={isSelected}
+                              onChange={() => toggleSubmissionSelection(submission.id)}
+                            />
+                          </div>
+                        )}
+                        <button
+                          onClick={() => {
+                            if (!submission || status === 'missing') return
+                            setSelectedSubmission({ submission, student })
+                          }}
+                          className={`w-full rounded-xl border-2 p-0 overflow-hidden transition-all ${
+                            selectedSubmission?.submission.id === submission?.id ? 'border-blue-500 ring-2 ring-blue-200' :
+                            needsReview ? 'border-amber-400 ring-1 ring-amber-200' :
+                            status === 'graded' ? 'border-green-300' :
+                            status === 'missing' ? 'border-dashed border-gray-200' :
+                            'border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
+                          <div className="relative aspect-[3/4] bg-gray-100">
+                            <SubmissionThumbnail submission={submission} />
+                            {status === 'graded' && (
+                              <div className={`absolute top-1 right-1 rounded-full px-2 py-0.5 text-xs font-bold text-white shadow ${
+                                isLowScore ? 'bg-red-500' : 'bg-green-500'
+                              }`}>
+                                {isUnscoredAssignment && correctSummary ? `${correctSummary.correct}/${correctSummary.total}` : `${scoreValue}分`}
+                              </div>
+                            )}
+                            {needsReview && (
+                              <div className="absolute top-1 left-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white shadow">複核</div>
+                            )}
+                          </div>
+                          <div className="px-2 py-2 text-left">
+                            <p className="text-sm font-semibold text-gray-900">{student.seatNumber} {student.name}</p>
+                            {status !== 'missing' && <p className={`text-[11px] font-medium ${sourceVisual.textClass}`}>{sourceVisual.label}</p>}
+                            {status === 'graded' && tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                {tags.slice(0, 2).map((tag, index) => (
+                                  <span key={index} className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs">{tag}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
           {sortedStudents.map((student) => {
             const submission = submissions.get(student.id)
@@ -3809,6 +3953,7 @@ export default function GradingPage({
             )
           })}
         </div>
+        )}
 
         {/* Stats */}
         <div className="mt-6 bg-white rounded-xl border border-slate-200 p-6">

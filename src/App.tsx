@@ -62,6 +62,7 @@ type Page =
   | 'assignment-scan'
   | 'grading-list'
   | 'grading'
+  | 'batch-grading'
   | 'gradebook'
   | 'assignment-import'
   | 'unified-import'
@@ -204,6 +205,7 @@ function App() {
   const [currentPage, setCurrentPage] = useState<Page>('home')
   const [gradingPagePhase, setGradingPagePhase] = useState<string>('idle')
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>('')
+  const [batchAssignmentIds, setBatchAssignmentIds] = useState<string[]>([])
   const [gradingSelectedClassroomId, setGradingSelectedClassroomId] = useState<string>('')
   const [gradingSelectedFolder, setGradingSelectedFolder] = useState<string>('')
   const [importSelectedClassroomId, setImportSelectedClassroomId] = useState<string>('')
@@ -1431,7 +1433,7 @@ function App() {
   }
 
   const confirmLeaveGrading = () => {
-    if (currentPage !== 'grading' || gradingPagePhase !== 'awaiting_review') return true
+    if ((currentPage !== 'grading' && currentPage !== 'batch-grading') || gradingPagePhase !== 'awaiting_review') return true
     return window.confirm(
       '一致性審查尚未提交批改。\n\nPhase A 已完成並產生費用，離開後本次費用仍會結算。\n\n確定要離開批改頁面嗎？'
     )
@@ -1830,7 +1832,21 @@ function App() {
                     setSelectedAssignmentId(assignmentId)
                     setCurrentPage('correction')
                   }}
+                  onStartBatchGrading={(ids) => {
+                    if (!ensureInkNonNegative()) return
+                    setBatchAssignmentIds(ids)
+                    setCurrentPage('batch-grading')
+                  }}
                   canUseCorrection={canAccessTracking}
+                />
+              ) : currentPage === 'batch-grading' && batchAssignmentIds.length > 0 ? (
+                <GradingPage
+                  embedded
+                  assignmentId={batchAssignmentIds[0]}
+                  batchAssignmentIds={batchAssignmentIds}
+                  onBack={() => { setBatchAssignmentIds([]); setCurrentPage('grading-list') }}
+                  onRequireInkTopUp={() => setCurrentPage('ink-topup')}
+                  onGradingPhaseChange={setGradingPagePhase}
                 />
               ) : currentPage === 'grading' && selectedAssignmentId ? (
                 <GradingPage
@@ -1864,6 +1880,11 @@ function App() {
                     if (!canAccessTracking) return
                     setSelectedAssignmentId(assignmentId)
                     setCurrentPage('correction')
+                  }}
+                  onStartBatchGrading={(ids) => {
+                    if (!ensureInkNonNegative()) return
+                    setBatchAssignmentIds(ids)
+                    setCurrentPage('batch-grading')
                   }}
                   canUseCorrection={canAccessTracking}
                 />
