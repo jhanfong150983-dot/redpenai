@@ -1366,15 +1366,32 @@ export default function GradingPage({
           }
         }
 
+        const gradedAtMs = Date.now()
         await db.submissions.update(entry.submissionId, {
           status: 'graded',
           score: totalScore,
           aiScore: totalScore,
           scoreSource: 'ai',
           gradingResult,
-          gradedAt: Date.now(),
-          updatedAt: Date.now(),
+          gradedAt: gradedAtMs,
+          updatedAt: gradedAtMs,
         })
+        // 直接寫入 Supabase（不依賴 sync push）
+        fetch('/api/data/save-grading', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            submissions: [{
+              id: entry.submissionId,
+              score: totalScore,
+              aiScore: totalScore,
+              scoreSource: 'ai',
+              gradingResult,
+              gradedAt: gradedAtMs,
+            }]
+          })
+        }).catch(() => {/* non-fatal, sync will retry */})
         // Fire-and-forget: update forensic log with teacher decisions + Phase B results
         const gradedAt = new Date().toISOString()
         const forensicUpdates = entry.phaseAResult.questionResults.map((qr) => {

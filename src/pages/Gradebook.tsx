@@ -617,6 +617,15 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
       aiScore: originalAiScore ?? undefined
     }
     void db.submissions.update(submissionId, dbUpdate)
+    // 直接寫入 Supabase
+    fetch('/api/data/save-grading', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        submissions: [{ id: submissionId, score: newScore, aiScore: originalAiScore, scoreSource: 'manual', gradedAt: now }]
+      })
+    }).catch(() => {/* non-fatal */})
     requestSync()
   }
 
