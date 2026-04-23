@@ -1,9 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { ImageIcon } from 'lucide-react'
-
-// Caches blob → ObjectURL so parent re-renders don't recreate the URL every time.
-// Without this, every state update (grading progress, thumbnail prefetch) causes
-// all thumbnail images to flicker as the browser reloads a freshly-created URL.
 
 export interface SubmissionThumbnailData {
   id?: string
@@ -19,48 +15,38 @@ export interface SubmissionThumbnailData {
 
 // Cache: submissionId → fetched ObjectURL (avoid re-fetching on every render)
 const fetchedUrlCache = new Map<string, string>()
+// Cache: Blob reference → ObjectURL (avoid recreating URL for same blob)
+const blobUrlCache = new WeakMap<Blob, string>()
 
-export default function SubmissionThumbnail({ submission }: {
+function SubmissionThumbnailInner({ submission }: {
   submission?: SubmissionThumbnailData | null
 }) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [fetchedUrl, setFetchedUrl] = useState<string | null>(null)
 
-  // Determine the blob to use (thumbnail preferred, fall back to full image)
-  const activeBlob = submission?.thumbnailBlob && submission.thumbnailBlob.size > 0
+  // 只用縮圖，不 fallback 到原圖（原圖幾 MB，渲染會 lag）
+  const thumbBlob = submission?.thumbnailBlob && submission.thumbnailBlob.size > 0
     ? submission.thumbnailBlob
-    : submission?.imageBlob && submission.imageBlob.size > 0
-      ? submission.imageBlob
-      : null
+    : null
 
-  // Stable base64 string (no URL creation needed)
-  const base64Url = submission?.thumbnailBase64 || submission?.imageBase64 || null
+  const base64Url = submission?.thumbnailBase64 || null
 
-  useEffect(() => {
-    if (!activeBlob) {
-      setBlobUrl(null)
-      return
-    }
-    let url: string
-    try {
-      url = URL.createObjectURL(activeBlob)
-    } catch {
-      setBlobUrl(null)
-      return
-    }
-    setBlobUrl(url)
-    return () => { URL.revokeObjectURL(url) }
-  }, [activeBlob])
+  // Blob → ObjectURL（用 WeakMap cache，避免重複建立）
+  const blobUrl = thumbBlob ? (() => {
+    const cached = blobUrlCache.get(thumbBlob)
+    if (cached) return cached
+    const url = URL.createObjectURL(thumbBlob)
+    blobUrlCache.set(thumbBlob, url)
+    return url
+  })() : null
 
   // Fallback: fetch thumbnail from Storage API when no local data available
   const subId = submission?.id
   const storagePath = submission?.thumbUrl || submission?.thumbnailUrl || submission?.imageUrl || null
-  const needsFetch = !base64Url && !activeBlob && !!subId && !!storagePath
+  const needsFetch = !base64Url && !thumbBlob && !!subId && !!storagePath
 
   useEffect(() => {
     if (!needsFetch || !subId) return
 
-    // Check cache first
     const cached = fetchedUrlCache.get(subId)
     if (cached) {
       setFetchedUrl(cached)
@@ -81,7 +67,7 @@ export default function SubmissionThumbnail({ submission }: {
         fetchedUrlCache.set(subId, url)
         setFetchedUrl(url)
       } catch {
-        // Silent fail — placeholder icon will show
+        // Silent fail
       }
     }
     fetchThumb()
@@ -117,3 +103,17 @@ export default function SubmissionThumbnail({ submission }: {
     </>
   )
 }
+
+// React.memo: 只在 submission reference 變化時 re-render
+const SubmissionThumbnail = memo(SubmissionThumbnailInner, (prev, next) => {
+  const a = prev.submission
+  const b = next.submission
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.id === b.id
+    && a.status === b.status
+    && a.thumbnailBlob === b.thumbnailBlob
+    && a.thumbnailBase64 === b.thumbnailBase64
+})
+
+export default SubmissionThumbnail

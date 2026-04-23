@@ -280,3 +280,28 @@ export async function compressToTargetBytes(
   console.warn(`[compressToTargetBytes] 仍超過目標: ${(out.size / 1024).toFixed(0)}KB > ${(targetBytes / 1024).toFixed(0)}KB`)
   return out
 }
+
+/**
+ * 從 Blob 產生小縮圖（用於卡片列表，避免渲染原圖導致 lag）
+ * @param blob 原始圖片 Blob
+ * @param maxWidth 縮圖最大寬度（預設 200px）
+ * @returns 縮圖 Blob（通常 10-30KB）
+ */
+export async function generateThumbnail(blob: Blob, maxWidth = 200): Promise<Blob> {
+  const bmp = await createImageBitmap(blob)
+  const scale = Math.min(1, maxWidth / bmp.width)
+  const w = Math.round(bmp.width * scale)
+  const h = Math.round(bmp.height * scale)
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('canvas 2d context 不可用')
+  ctx.drawImage(bmp, 0, 0, w, h)
+  bmp.close()
+  const format = getWebPSupportSync() ? 'image/webp' : 'image/jpeg'
+  const thumb = await safeToBlobWithFallback(canvas, { format, quality: 0.6 })
+  canvas.width = 0
+  canvas.height = 0
+  return thumb
+}

@@ -1963,24 +1963,35 @@ export default function GradingPage({
         }
       }
 
-      // 背景預取縮圖（給雲端同步但本地無縮圖的作業，下次 render 就能立即顯示）
+      // 背景生成/預取縮圖（避免卡片渲染原圖導致滑動 lag）
       const needsThumbnail = submissionsData.filter(
         (s) => s.source !== 'student_correction' && s.id && !s.thumbnailBlob && !s.thumbnailBase64
       )
       if (needsThumbnail.length > 0) {
         void (async () => {
+          const { generateThumbnail } = await import('@/lib/imageCompression')
           const CONCURRENCY = 3
           for (let i = 0; i < needsThumbnail.length; i += CONCURRENCY) {
             const batch = needsThumbnail.slice(i, i + CONCURRENCY)
             await Promise.all(batch.map(async (sub) => {
               try {
-                const params = new URLSearchParams({ submissionId: sub.id, thumb: 'true' })
-                const resp = await fetch(buildApiUrl(`/api/storage/download?${params.toString()}`), { credentials: 'include' })
-                if (!resp.ok) return
-                const blob = await resp.blob()
-                if (blob.size === 0) return
+                // 優先從本地 imageBlob 生成縮圖（不需網路）
+                const sourceBlob = sub.imageBlob && sub.imageBlob.size > 0 ? sub.imageBlob : null
+                let thumbBlob: Blob | null = null
+                if (sourceBlob) {
+                  thumbBlob = await generateThumbnail(sourceBlob, 200)
+                } else {
+                  // 本地沒有原圖，從 Storage API 下載縮圖
+                  const params = new URLSearchParams({ submissionId: sub.id, thumb: 'true' })
+                  const resp = await fetch(buildApiUrl(`/api/storage/download?${params.toString()}`), { credentials: 'include' })
+                  if (!resp.ok) return
+                  const blob = await resp.blob()
+                  if (blob.size === 0) return
+                  thumbBlob = blob
+                }
+                if (!thumbBlob) return
                 if (avoidBlobStorage) {
-                  const base64 = await blobToBase64(blob)
+                  const base64 = await blobToBase64(thumbBlob)
                   await db.submissions.update(sub.id, { thumbnailBase64: base64 })
                   setSubmissions((prev) => {
                     const next = new Map(prev)
@@ -1989,16 +2000,16 @@ export default function GradingPage({
                     return next
                   })
                 } else {
-                  await db.submissions.update(sub.id, { thumbnailBlob: blob })
+                  await db.submissions.update(sub.id, { thumbnailBlob: thumbBlob })
                   setSubmissions((prev) => {
                     const next = new Map(prev)
                     const existing = next.get(sub.studentId)
-                    if (existing) next.set(sub.studentId, { ...existing, thumbnailBlob: blob })
+                    if (existing) next.set(sub.studentId, { ...existing, thumbnailBlob: thumbBlob })
                     return next
                   })
                 }
               } catch {
-                // 縮圖預取失敗，不影響主流程
+                // 縮圖生成/預取失敗，不影響主流程
               }
             }))
           }
