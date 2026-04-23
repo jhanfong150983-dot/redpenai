@@ -420,8 +420,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
           for (const sub of subs) {
             if (sub.gradingResult || sub.score) {
               await db.submissions.update(sub.id, {
-                gradingResult: undefined, score: undefined, aiScore: undefined,
-                gradedAt: undefined, status: 'scanned', updatedAt: now,
+                gradingResult: null as unknown as undefined,
+                score: null as unknown as undefined,
+                aiScore: null as unknown as undefined,
+                gradedAt: null as unknown as undefined,
+                status: 'scanned', updatedAt: now,
               })
             }
           }

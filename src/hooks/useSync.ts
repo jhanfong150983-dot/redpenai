@@ -660,7 +660,9 @@ export function useSync(options: UseSyncOptions = {}) {
       })
       .map(({ imageBlob, ...rest }) => {
         // 只在本地新批改（gradedAt 在上次 sync 之後）時才帶 gradingResult，避免 payload 過大
-        const isRecentlyGraded = rest.status === 'graded' && rest.gradingResult &&
+        // 特殊情況：gradingResult === null 代表被清除（答案卷更換），需要送 null 到 server
+        const isCleared = rest.gradingResult === null
+        const isRecentlyGraded = !isCleared && rest.status === 'graded' && rest.gradingResult &&
           (!lastSuccessfulSyncAt || (toNumber(rest.gradedAt) ?? 0) >= lastSuccessfulSyncAt ||
            (toNumber(rest.updatedAt) ?? 0) >= lastSuccessfulSyncAt)
         return {
@@ -674,11 +676,11 @@ export function useSync(options: UseSyncOptions = {}) {
           rest.thumbUrl ||
           rest.thumbnailUrl ||
           `submissions/thumbs/${rest.id}.webp`,
-        score: rest.score,
-        aiScore: rest.aiScore,
-        scoreSource: rest.scoreSource,
-        feedback: rest.feedback,
-        gradingResult: isRecentlyGraded ? rest.gradingResult : undefined,
+        score: isCleared ? null : rest.score,
+        aiScore: isCleared ? null : rest.aiScore,
+        scoreSource: isCleared ? null : rest.scoreSource,
+        feedback: isCleared ? null : rest.feedback,
+        gradingResult: isCleared ? null : isRecentlyGraded ? rest.gradingResult : undefined,
         // gradedAt: 已批改且有 gradingResult 的 submission 用 Date.now()
         // 確保 push 不被 server 判 stale（pull 可能把本地 gradedAt 覆蓋成舊值）
         gradedAt: (rest.status === 'graded' && rest.gradingResult) ? Date.now() : rest.gradedAt,
