@@ -407,7 +407,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       if (syncChoice === 'sync_all' && syncLinkedAssignments.length > 0) {
         for (const a of syncLinkedAssignments) {
           console.log(`[sync-confirm] updating assignment ${a.id} "${a.title}"`);
-          const newAK = structuredClone(syncPendingAnswerKey)
+          const newAK = JSON.parse(JSON.stringify(syncPendingAnswerKey))
           // 保留作業自身的批改設定
           if (a.answerKey?.strictness) newAK.strictness = a.answerKey.strictness
           if (a.answerKey?.fractionRule) newAK.fractionRule = a.answerKey.fractionRule

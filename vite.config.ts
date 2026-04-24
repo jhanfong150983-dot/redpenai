@@ -219,6 +219,10 @@ export default defineConfig({
       }
     })
   ],
+  build: {
+    // 降級編譯：支援舊版 WebView（Android Chrome 70+）
+    target: 'es2015',
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

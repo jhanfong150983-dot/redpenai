@@ -170,7 +170,7 @@ export default function AssignmentList({
             }
           }
         }
-        const newAK = structuredClone(settingsSelectedNewAK.answerKey)
+        const newAK = JSON.parse(JSON.stringify(settingsSelectedNewAK.answerKey))
         newAK.strictness = settingsStrictness
         if (settingsSelectedNewAK.domain === '數學') newAK.fractionRule = settingsFractionRule
         if (settingsSelectedNewAK.domain === '英語') {
@@ -194,7 +194,7 @@ export default function AssignmentList({
           updatedAt: now,
         }
         if (settingsAssignment.answerKey) {
-          const ak = structuredClone(settingsAssignment.answerKey)
+          const ak = JSON.parse(JSON.stringify(settingsAssignment.answerKey))
           ak.strictness = settingsStrictness
           if (domain === '數學') ak.fractionRule = settingsFractionRule
           if (domain === '英語') {
@@ -421,7 +421,7 @@ export default function AssignmentList({
             }
           }
         }
-        const newAK = structuredClone(akTemplate.answerKey)
+        const newAK = JSON.parse(JSON.stringify(akTemplate.answerKey))
         newAK.strictness = data.settings.strictness
         if (akTemplate.domain === '數學') newAK.fractionRule = data.settings.fractionRule
         if (akTemplate.domain === '英語') {
@@ -443,7 +443,7 @@ export default function AssignmentList({
           folder: data.folder || undefined, updatedAt: now,
         }
         if (settingsAssignment.answerKey) {
-          const ak = structuredClone(settingsAssignment.answerKey)
+          const ak = JSON.parse(JSON.stringify(settingsAssignment.answerKey))
           ak.strictness = data.settings.strictness
           if (domain === '數學') ak.fractionRule = data.settings.fractionRule
           if (domain === '英語') {
@@ -485,7 +485,7 @@ export default function AssignmentList({
       let totalPages = 1
 
       if (selectedAnswerKey?.answerKey) {
-        answerKey = structuredClone(selectedAnswerKey.answerKey)
+        answerKey = JSON.parse(JSON.stringify(selectedAnswerKey.answerKey))
         domain = selectedAnswerKey.domain
         // 寫入批改設定到 answerKey（server 從這裡讀）
         answerKey.strictness = createStrictness
@@ -1444,7 +1444,7 @@ export default function AssignmentList({
             let answerKey: AnswerKey | undefined
             let domain: string | undefined
             if (akTemplate?.answerKey) {
-              answerKey = structuredClone(akTemplate.answerKey)
+              answerKey = JSON.parse(JSON.stringify(akTemplate.answerKey))
               domain = akTemplate.domain
               answerKey.strictness = data.settings.strictness
               if (domain === '數學') answerKey.fractionRule = data.settings.fractionRule
