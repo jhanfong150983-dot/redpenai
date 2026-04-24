@@ -4331,7 +4331,8 @@ export async function gradePhaseA(
   domain?: string,
   assignmentId?: string,
   classifyCorrections?: ClassifyCorrection[],
-  answerSheetMode?: 'with_questions' | 'answer_only'
+  answerSheetMode?: 'with_questions' | 'answer_only',
+  submissionId?: string
 ): Promise<PhaseAResult> {
   const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
@@ -4348,6 +4349,7 @@ export async function gradePhaseA(
     answerKey: JSON.stringify(normalizedAnswerKey),
     ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
     ...(assignmentId ? { assignmentId } : {}),
+    ...(submissionId ? { submissionId } : {}),
     ...(classifyCorrections && classifyCorrections.length > 0 ? { classifyCorrections } : {}),
     ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
   })
@@ -4405,7 +4407,8 @@ export async function gradePhaseB(
   finalAnswers: FinalAnswer[],
   domain?: string,
   assignmentId?: string,
-  answerSheetMode?: 'with_questions' | 'answer_only'
+  answerSheetMode?: 'with_questions' | 'answer_only',
+  submissionId?: string
 ): Promise<GradingResult> {
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
 
@@ -4432,6 +4435,7 @@ export async function gradePhaseB(
     finalAnswers,
     ...(domain ? { domain } : {}),
     ...(assignmentId ? { assignmentId } : {}),
+    ...(submissionId ? { submissionId } : {}),
     ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
   })
 

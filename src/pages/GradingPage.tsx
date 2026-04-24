@@ -521,7 +521,7 @@ function GradingPipelineOverlay({
       : `${phaseBProgress.current}/${phaseBProgress.total}`
 
   const reviewLabel = phaseANeedsReviewCount > 0
-    ? `需審查 ${phaseANeedsReviewCount} 份`
+    ? `需審查 ${phaseANeedsReviewCount} 題`
     : isPhaseA ? '統計中...' : '已確認'
 
   return (
@@ -554,19 +554,33 @@ function GradingPipelineOverlay({
         </div>
 
         {/* 人工審查提醒（Phase A 執行中且已有需審查題目） */}
-        {isPhaseA && phaseANeedsReviewCount > 0 && (
-          <div style={{
-            background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '0.75rem',
-            padding: '0.6rem 1rem', textAlign: 'center', width: '100%',
-          }}>
-            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#92400e' }}>
-              ⚠️ 已發現 {phaseANeedsReviewCount} 份需要人工審查
+        {isPhaseA && phaseANeedsReviewCount > 0 && (() => {
+          const count = phaseANeedsReviewCount
+          const level = count >= 20 ? 'high' : count >= 5 ? 'medium' : 'low'
+          const colors = {
+            low:    { bg: '#fffbeb', border: '#fcd34d', title: '#92400e', sub: '#b45309' },
+            medium: { bg: '#fff7ed', border: '#fb923c', title: '#c2410c', sub: '#ea580c' },
+            high:   { bg: '#fef2f2', border: '#f87171', title: '#991b1b', sub: '#dc2626' },
+          }[level]
+          const tips = {
+            low:    '擷取完成後請回來確認答案，再開始 AI 批改',
+            medium: '數量偏多，建議提醒學生書寫工整以減少人工審查喔～',
+            high:   '數量較多！強烈建議要求學生字跡工整，可大幅減少人工審查 ><',
+          }[level]
+          return (
+            <div style={{
+              background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: '0.75rem',
+              padding: '0.6rem 1rem', textAlign: 'center', width: '100%',
+            }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: colors.title }}>
+                ⚠️ 已發現 {count} 題需要人工審查
+              </div>
+              <div style={{ fontSize: '0.72rem', color: colors.sub, marginTop: '0.2rem' }}>
+                {tips}
+              </div>
             </div>
-            <div style={{ fontSize: '0.72rem', color: '#b45309', marginTop: '0.2rem' }}>
-              擷取完成後請回來確認答案，再開始 AI 批改
-            </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Stop button（報告生成中不提供停止，批改已完成） */}
         <button
@@ -1342,7 +1356,7 @@ export default function GradingPage({
             finalAnswerSource: src === 'blank' ? 'manual' : src,
           }
         })
-        const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode)
+        const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode, entry.submissionId)
         return { entry, gradingResult }
       },
       async (_i, result, err) => {
@@ -1491,7 +1505,7 @@ export default function GradingPage({
               finalAnswerSource: src === 'blank' ? 'manual' : src,
             }
           })
-          const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode)
+          const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode, entry.submissionId)
           const totalScore = typeof gradingResult.totalScore === 'number' ? gradingResult.totalScore : 0
           const retryGradedAt = Date.now()
           await db.submissions.update(entry.submissionId, {
@@ -2547,7 +2561,8 @@ export default function GradingPage({
             assignment.domain,
             assignment.id,
             undefined,
-            assignment.answerSheetMode
+            assignment.answerSheetMode,
+            sub.id
           )
           return { sub, phaseAResult }
         },
@@ -2561,11 +2576,11 @@ export default function GradingPage({
           const { sub, phaseAResult } = result
           const student = students.find((s) => s.id === sub.studentId)
           if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
-          // 即時統計需審查題數
-          const submissionNeedsReview = phaseAResult.questionResults.some(
+          // 即時統計需審查「題數」
+          const reviewQuestionCount = phaseAResult.questionResults.filter(
             (qr) => qr.arbiterResult ? qr.arbiterResult.arbiterStatus === 'needs_review' : qr.consistencyStatus !== 'stable'
-          )
-          if (submissionNeedsReview) setPhaseANeedsReviewCount((prev) => prev + 1)
+          ).length
+          if (reviewQuestionCount > 0) setPhaseANeedsReviewCount((prev) => prev + reviewQuestionCount)
           const decisions = new Map<string, ConsistencyDecision>()
           for (const qr of phaseAResult.questionResults) {
             const arbiter = qr.arbiterResult
@@ -2916,7 +2931,7 @@ export default function GradingPage({
                   }
                 }
               }
-              const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id, corrections, assignment.answerSheetMode)
+              const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id, corrections, assignment.answerSheetMode, sub.id)
               return { idx, phaseAResult }
             },
             (_i, result, err) => {
