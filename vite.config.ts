@@ -131,7 +131,7 @@ export default defineConfig({
 
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-        globIgnores: ['**/intro-video.mp4'],
+        globIgnores: ['**/intro-video.mp4', '**/sw-fix.js'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         cleanupOutdatedCaches: true,
         sourcemap: false,
