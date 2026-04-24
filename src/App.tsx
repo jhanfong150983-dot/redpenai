@@ -402,20 +402,7 @@ function App() {
       const redirectUrl = buildApiUrl(
         `/api/auth/1campus?code=${encodeURIComponent(code)}&dsns=${encodeURIComponent(dsns)}`
       )
-      // WebView 的 Service Worker 可能攔截 /api/ 導航並吃掉 302 redirect，
-      // 導致白屏且伺服器完全收不到請求。先移除 SW 再導向，確保請求直達網路。
-      const doRedirect = () => window.location.replace(redirectUrl)
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then((regs) => {
-          if (regs.length > 0) {
-            Promise.all(regs.map((r) => r.unregister())).then(doRedirect).catch(doRedirect)
-          } else {
-            doRedirect()
-          }
-        }).catch(doRedirect)
-      } else {
-        doRedirect()
-      }
+      window.location.replace(redirectUrl)
       return
     }
 

@@ -31,17 +31,6 @@
       ]
     }
   ],
-  "redirects": [
-    {
-      "source": "/",
-      "has": [
-        { "type": "query", "key": "code" },
-        { "type": "query", "key": "dsns" }
-      ],
-      "destination": "/api/auth/1campus",
-      "permanent": false
-    }
-  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
