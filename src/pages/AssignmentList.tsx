@@ -485,19 +485,20 @@ export default function AssignmentList({
       let totalPages = 1
 
       if (selectedAnswerKey?.answerKey) {
-        answerKey = JSON.parse(JSON.stringify(selectedAnswerKey.answerKey))
+        const cloned: AnswerKey = JSON.parse(JSON.stringify(selectedAnswerKey.answerKey))
         domain = selectedAnswerKey.domain
         // 寫入批改設定到 answerKey（server 從這裡讀）
-        answerKey.strictness = createStrictness
+        cloned.strictness = createStrictness
         if (domain === '數學') {
-          answerKey.fractionRule = createFractionRule
+          cloned.fractionRule = createFractionRule
         }
         if (domain === '英語') {
-          answerKey.englishRules = {
+          cloned.englishRules = {
             ...(createEnPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: createEnPunctuationDeduction } } : {}),
             ...(createEnWordOrderCheck ? { wordOrderCheck: { enabled: true, deductionPerError: createEnWordOrderDeduction } } : {}),
           }
         }
+        answerKey = cloned
       }
 
       const newAssignment: Assignment = {
@@ -1444,16 +1445,17 @@ export default function AssignmentList({
             let answerKey: AnswerKey | undefined
             let domain: string | undefined
             if (akTemplate?.answerKey) {
-              answerKey = JSON.parse(JSON.stringify(akTemplate.answerKey))
+              const cloned: AnswerKey = JSON.parse(JSON.stringify(akTemplate.answerKey))
               domain = akTemplate.domain
-              answerKey.strictness = data.settings.strictness
-              if (domain === '數學') answerKey.fractionRule = data.settings.fractionRule
+              cloned.strictness = data.settings.strictness
+              if (domain === '數學') cloned.fractionRule = data.settings.fractionRule
               if (domain === '英語') {
-                answerKey.englishRules = {
+                cloned.englishRules = {
                   ...(data.settings.enPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: data.settings.enPunctuationDeduction } } : {}),
                   ...(data.settings.enWordOrderCheck ? { wordOrderCheck: { enabled: true, deductionPerError: data.settings.enWordOrderDeduction } } : {}),
                 }
               }
+              answerKey = cloned
             }
             const newAssignment: Assignment = {
               id: generateId(), classroomId: selectedClassroomId, title: data.title.trim(),
