@@ -138,8 +138,10 @@ export default defineConfig({
 
         runtimeCaching: [
           // HTML pages - Network First with offline fallback
+          // 排除 /api/ 路徑：SSO redirect（/api/auth/1campus）在某些 WebView 中
+          // 會被 SW 的 NetworkFirst handler 吃掉 302 redirect，導致白屏
           {
-            urlPattern: ({ request }) => request.mode === 'navigate',
+            urlPattern: ({ request, url }) => request.mode === 'navigate' && !url.pathname.startsWith('/api/'),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'pages-cache',
