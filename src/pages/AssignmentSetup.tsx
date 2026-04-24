@@ -162,6 +162,11 @@ export default function AssignmentSetup({
   const [createAnswerDocType, setCreateAnswerDocType] = useState<'worksheet' | 'exam'>('worksheet')
   const [editAnswerDocType, setEditAnswerDocType] = useState<'worksheet' | 'exam'>('worksheet')
 
+  // 答案卷模式（帶題目 / 純答案卷）
+  const [createAnswerSheetMode, setCreateAnswerSheetMode] = useState<'with_questions' | 'answer_only'>('with_questions')
+  // 題本圖 Blob 暫存（純答案卷模式下老師上傳的題本圖）
+  const [questionBookletBlobs, setQuestionBookletBlobs] = useState<Blob[]>([])
+
   // 答案卷 Wizard 狀態（建立流程）
   const [showCreateWizard, setShowCreateWizard] = useState(false)
   const [createWizardPages, setCreateWizardPages] = useState<Array<{ index: number; url: string; blob: Blob }>>([])
@@ -558,6 +563,8 @@ export default function AssignmentSetup({
     setAnswerKey(null)
     setAnswerKeyFile([])
     setAnswerSheetImages([])
+    setCreateAnswerSheetMode('with_questions')
+    setQuestionBookletBlobs([])
     setPendingConceptTags(null)
     setAnswerKeyError(null)
     setAnswerKeyNotice(null)
@@ -1242,6 +1249,7 @@ export default function AssignmentSetup({
         gradeWeightPercent: 0,
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
         docType: createAnswerDocType,
+        answerSheetMode: createAnswerSheetMode,
         answerKey: answerKey ? {
           ...answerKey,
           strictness: createStrictness || 'standard',
@@ -1265,6 +1273,9 @@ export default function AssignmentSetup({
       // 非同步上傳答案卷圖片和答案截圖（不阻塞建立流程）
       if (answerSheetImages.length > 0) {
         uploadAnswerSheetImages(assignment.id, answerSheetImages)
+      }
+      if (questionBookletBlobs.length > 0) {
+        uploadQuestionBookletImages(assignment.id, questionBookletBlobs)
       }
       if (assignment.answerKey) {
         uploadAnswerCrops(assignment.id, assignment.answerKey)
@@ -1474,6 +1485,37 @@ export default function AssignmentSetup({
       ))
     } catch (err) {
       console.warn('⚠️ 答案卷圖片上傳例外', err)
+    }
+  }
+
+  // 上傳題本圖到 Supabase Storage（純答案卷模式，用於 Explain 讀取題目）
+  const uploadQuestionBookletImages = async (assignmentId: string, blobs: Blob[]) => {
+    try {
+      const imagesBase64: string[] = await Promise.all(
+        blobs.map(blob => new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = reject
+          reader.readAsDataURL(blob)
+        }))
+      )
+      const res = await fetch('/api/storage/download', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignmentId, imagesBase64, storagePrefix: 'question-booklets' }),
+      })
+      if (!res.ok) {
+        console.warn('⚠️ 題本圖片上傳失敗', await res.text())
+        return
+      }
+      const { paths } = await res.json() as { paths: string[] }
+      await db.assignments.update(assignmentId, { questionBookletImagePaths: paths })
+      setAssignments(prev => prev.map(a =>
+        a.id === assignmentId ? { ...a, questionBookletImagePaths: paths } : a
+      ))
+    } catch (err) {
+      console.warn('⚠️ 題本圖片上傳例外', err)
     }
   }
 
@@ -2320,6 +2362,7 @@ export default function AssignmentSetup({
     setCreateFixedPerScore(ak.fixedPerScore ?? 5)
     setCreateFixedTotal(ak.fixedTotal ?? 100)
     setCreateAnswerDocType(assignment.docType ?? 'worksheet')
+    setCreateAnswerSheetMode(assignment.answerSheetMode ?? 'with_questions')
     setAnswerKey(normalizedAk)
     setIsCreateModalOpen(true)
     // 非同步下載已存在的答案卷圖片（若有）
@@ -3071,7 +3114,54 @@ export default function AssignmentSetup({
                       <option value="exam">考卷</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">答案卷模式</label>
+                    <select
+                      value={createAnswerSheetMode}
+                      onChange={(e) => setCreateAnswerSheetMode(e.target.value as 'with_questions' | 'answer_only')}
+                      disabled={isSubmitting || isExtractingAnswerKey || modalMode === 'edit'}
+                      className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all ${
+                        modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'
+                      }`}
+                    >
+                      <option value="with_questions">帶題目</option>
+                      <option value="answer_only">純答案卷（題本分開）</option>
+                    </select>
+                    {modalMode === 'edit' && <p className="mt-1 text-xs text-slate-400">答案卷模式在建立後無法更改</p>}
+                  </div>
                 </div>
+
+              {/* 題本上傳（純答案卷模式） */}
+              {createAnswerSheetMode === 'answer_only' && modalMode === 'create' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    上傳題本 <span className="text-xs text-slate-400">（學生看到的題目頁面，用於錯誤解說）</span>
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    multiple
+                    onChange={async (e) => {
+                      const files = Array.from(e.target.files || [])
+                      if (files.length === 0) return
+                      const blobs: Blob[] = []
+                      for (const file of files) {
+                        if (file.type === 'application/pdf') {
+                          const pages = await convertPdfToImages(file)
+                          blobs.push(...pages)
+                        } else {
+                          blobs.push(file)
+                        }
+                      }
+                      setQuestionBookletBlobs(blobs)
+                    }}
+                    className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                  />
+                  {questionBookletBlobs.length > 0 && (
+                    <p className="mt-1 text-xs text-green-600">已選取 {questionBookletBlobs.length} 頁題本圖</p>
+                  )}
+                </div>
+              )}
 
               {/* 計分設定 — 橫向排列 */}
               <div>

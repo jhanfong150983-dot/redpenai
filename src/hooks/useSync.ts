@@ -1098,7 +1098,9 @@ export function useSync(options: UseSyncOptions = {}) {
           answerKey: a.answerKey,
           answerKeyTemplateId: a.answerKeyTemplateId,
           conceptTags: a.conceptTags,
-          answerSheetImagePaths: a.answerSheetImagePaths
+          answerSheetImagePaths: a.answerSheetImagePaths,
+          answerSheetMode: a.answerSheetMode,
+          questionBookletImagePaths: a.questionBookletImagePaths
         }
       ])
     )
@@ -1162,8 +1164,10 @@ export function useSync(options: UseSyncOptions = {}) {
             localData?.answerKeyTemplateId,
           // conceptTags: 優先用雲端（若有），否則保留本地（避免 bulkPut 洗掉）
           conceptTags: (cloudConceptTags ?? localData?.conceptTags) as Assignment['conceptTags'] | undefined,
-          // answerSheetImagePaths: 本地端特有欄位，永遠保留本地資料
+          // answerSheetImagePaths / questionBookletImagePaths: 本地端特有欄位，永遠保留本地資料
           answerSheetImagePaths: localData?.answerSheetImagePaths,
+          answerSheetMode: (a as any).answerSheetMode ?? (a as any).answer_sheet_mode ?? localData?.answerSheetMode,
+          questionBookletImagePaths: localData?.questionBookletImagePaths,
           updatedAt: localIsNewer ? localUpdatedAt : cloudUpdatedAt
         }
       })

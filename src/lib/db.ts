@@ -202,11 +202,14 @@ export interface Assignment {
 
   scoringMode?: 'scored' | 'unscored' // 不計分：批改只顯示✓✗△，不納入成績統計
   docType?: 'worksheet' | 'exam' // 作業形式：習作 / 考卷（影響答案卷排序策略）
+  answerSheetMode?: 'with_questions' | 'answer_only' // 答案卷模式：帶題目 / 純答案卷（題目在另一本題本）
   answerKey?: AnswerKey // 向後兼容：舊資料直接存答案卷
   answerKeyTemplateId?: string // 新架構：引用獨立的答案卷模板
   conceptTags?: Record<string, { code: string; label: string }> // 108課綱概念標記（questionId → concept）
   // Supabase Storage 路徑，answer-sheets/{id}/page-{i}.webp（各頁壓縮圖，用於 wizard 預覽）
   answerSheetImagePaths?: string[]
+  // 題本圖 Supabase Storage 路徑，question-booklets/{id}/page-{i}.webp（純答案卷模式下，老師上傳的題本）
+  questionBookletImagePaths?: string[]
   updatedAt?: number
 }
 
@@ -218,6 +221,7 @@ export interface AnswerKeyTemplate {
   name: string
   domain?: string
   docType?: 'worksheet' | 'exam'
+  answerSheetMode?: 'with_questions' | 'answer_only'
   folder?: string
   answerKey: AnswerKey
   questionCount?: number

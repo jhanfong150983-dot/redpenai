@@ -4330,7 +4330,8 @@ export async function gradePhaseA(
   pageBreaks?: number[],
   domain?: string,
   assignmentId?: string,
-  classifyCorrections?: ClassifyCorrection[]
+  classifyCorrections?: ClassifyCorrection[],
+  answerSheetMode?: 'with_questions' | 'answer_only'
 ): Promise<PhaseAResult> {
   const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
@@ -4347,7 +4348,8 @@ export async function gradePhaseA(
     answerKey: JSON.stringify(normalizedAnswerKey),
     ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
     ...(assignmentId ? { assignmentId } : {}),
-    ...(classifyCorrections && classifyCorrections.length > 0 ? { classifyCorrections } : {})
+    ...(classifyCorrections && classifyCorrections.length > 0 ? { classifyCorrections } : {}),
+    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
   })
 
   let response = await fetch(geminiProxyUrl, {
@@ -4401,7 +4403,9 @@ export async function gradePhaseB(
   submissionImageBlob: Blob,
   phaseAResult: PhaseAResult,
   finalAnswers: FinalAnswer[],
-  domain?: string
+  domain?: string,
+  assignmentId?: string,
+  answerSheetMode?: 'with_questions' | 'answer_only'
 ): Promise<GradingResult> {
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
 
@@ -4426,7 +4430,9 @@ export async function gradePhaseB(
     routeKey: 'grading.phase_b',
     phaseAResult: phaseAForServer,
     finalAnswers,
-    ...(domain ? { domain } : {})
+    ...(domain ? { domain } : {}),
+    ...(assignmentId ? { assignmentId } : {}),
+    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
   })
 
   let response = await fetch(geminiProxyUrl, {

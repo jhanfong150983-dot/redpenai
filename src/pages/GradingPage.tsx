@@ -1342,7 +1342,7 @@ export default function GradingPage({
             finalAnswerSource: src === 'blank' ? 'manual' : src,
           }
         })
-        const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain)
+        const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode)
         return { entry, gradingResult }
       },
       async (_i, result, err) => {
@@ -1491,7 +1491,7 @@ export default function GradingPage({
               finalAnswerSource: src === 'blank' ? 'manual' : src,
             }
           })
-          const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain)
+          const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode)
           const totalScore = typeof gradingResult.totalScore === 'number' ? gradingResult.totalScore : 0
           const retryGradedAt = Date.now()
           await db.submissions.update(entry.submissionId, {
@@ -2545,7 +2545,9 @@ export default function GradingPage({
             assignment.answerKey!,
             sub.pageBreaks,
             assignment.domain,
-            assignment.id
+            assignment.id,
+            undefined,
+            assignment.answerSheetMode
           )
           return { sub, phaseAResult }
         },
@@ -2914,7 +2916,7 @@ export default function GradingPage({
                   }
                 }
               }
-              const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id, corrections)
+              const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id, corrections, assignment.answerSheetMode)
               return { idx, phaseAResult }
             },
             (_i, result, err) => {
