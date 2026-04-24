@@ -32,13 +32,16 @@ if (import.meta.env.PROD) {
   window.__SW_UPDATE__ = updateSW
 
   // SW 控制權切換時自動重新載入，確保載入最新程式碼
-  let refreshing = false
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!refreshing) {
-      refreshing = true
-      window.location.reload()
-    }
-  })
+  // 需檢查 navigator.serviceWorker 是否存在（WebView 可能不支援 SW）
+  if ('serviceWorker' in navigator) {
+    let refreshing = false
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true
+        window.location.reload()
+      }
+    })
+  }
 } else if ('serviceWorker' in navigator) {
   // 開發環境主動移除既有 SW，確保不會載入舊版 UI
   navigator.serviceWorker
