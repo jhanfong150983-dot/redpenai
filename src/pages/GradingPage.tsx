@@ -2647,21 +2647,11 @@ export default function GradingPage({
         const MIN_SUBMISSIONS_FOR_TYPE = 3       // 至少 N 份才能建立主流類型
         const DOMINANT_TYPE_RATIO = 0.6          // ≥60% 同意才算確立主流
 
-        // 答案類型分類（三種，邊界明確）
-        type AnswerType = 'numeric' | 'chinese_text' | 'blank'
-        const classifyAnswerType = (status: string, answer: string): AnswerType => {
-          if (status === 'blank' || status === 'unreadable' || !answer.trim()) return 'blank'
-          if (/\d/.test(answer)) return 'numeric'
-          return 'chinese_text'
-        }
-
         const anomalousIndices = new Set<number>()
         // 收集每份被標記作業的詳細原因，結束後 POST 到後端
         const flagDetails = new Map<number, {
           conditions: string[]
           consecutiveBlankMax?: number
-          typeMismatchCount?: number
-          typeMismatchDetails?: Array<{ questionId: string; expected: string; got: string }>
           abcdMismatchDetails?: Array<{ questionId: string; got: string }>
         }>()
         const getFlag = (i: number) => {
@@ -2829,8 +2819,6 @@ export default function GradingPage({
             conditions: detail.conditions,
             detail: {
               consecutiveBlankMax: detail.consecutiveBlankMax,
-              typeMismatchCount: detail.typeMismatchCount,
-              typeMismatchDetails: detail.typeMismatchDetails,
               abcdMismatchDetails: detail.abcdMismatchDetails,
               neighborMatchDetails: (detail as any).neighborMatchDetails,
             }
@@ -2880,12 +2868,7 @@ export default function GradingPage({
                     }
                   }
                 }
-                // answer_type_mismatch → type_mismatch
-                if (flag.typeMismatchDetails) {
-                  for (const m of flag.typeMismatchDetails) {
-                    corrections.push({ questionId: m.questionId, type: 'type_mismatch' })
-                  }
-                }
+                // answer_type_mismatch 已移除（AI3 一致性判官攔截）
               }
               const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id, corrections, assignment.answerSheetMode, sub.id)
               return { idx, phaseAResult }
