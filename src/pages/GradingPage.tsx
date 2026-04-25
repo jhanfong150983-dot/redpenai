@@ -671,12 +671,19 @@ function ConsistencyQuestionCard({
 
   const isCalcType = questionResult.questionType === 'calculation' || questionResult.questionType === 'word_problem'
 
+  // 計算題：最終答案不同 → 只顯示最終答案；最終答案相同 → 顯示完整步驟
+  const calcFinal1 = isCalcType ? extractFinalAnswer(readAnswer1.studentAnswer) : null
+  const calcFinal2 = isCalcType ? extractFinalAnswer(readAnswer2.studentAnswer) : null
+  const calcFinalsSame = isCalcType && calcFinal1 && calcFinal2 && calcFinal1 === calcFinal2
+
   const getAnswerText = (r: { status: string; studentAnswer: string }): string | null => {
     if (r.status !== 'read') return null
-    if (isCalcType) {
+    if (isCalcType && !calcFinalsSame) {
+      // 最終答案不同 → 只顯示最終答案，讓老師快速選
       const final = extractFinalAnswer(r.studentAnswer)
       if (final) return final
     }
+    // 最終答案相同或非計算題 → 顯示完整內容
     return r.studentAnswer || '空白'
   }
 
@@ -886,7 +893,7 @@ function ConsistencyQuestionCard({
               : 'border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50/40'
           }`}
         >
-          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read1' ? 'text-purple-700' : 'text-gray-500'}`}>{isCalcType ? 'AI 讀取 1（最終答案）' : 'AI 細節讀取（裁切圖）'}</span>
+          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read1' ? 'text-purple-700' : 'text-gray-500'}`}>{isCalcType ? (calcFinalsSame ? 'AI1 完整算式' : 'AI1 最終答案') : 'AI1 客觀抄寫'}</span>
           <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read1' ? 'text-purple-900' : 'text-gray-800'}`}>
             {(() => {
               const t1 = getAnswerText(readAnswer1)
@@ -907,7 +914,7 @@ function ConsistencyQuestionCard({
               : 'border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50/40'
           }`}
         >
-          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read2' ? 'text-purple-700' : 'text-gray-500'}`}>{isCalcType ? 'AI 讀取 2（最終答案）' : 'AI 全局讀取（全圖）'}</span>
+          <span className={`font-semibold text-[11px] ${decision?.source === 'ai_read2' ? 'text-purple-700' : 'text-gray-500'}`}>{isCalcType ? (calcFinalsSame ? 'AI2 完整算式' : 'AI2 最終答案') : 'AI2 校對審查'}</span>
           <span className={`font-medium break-all leading-snug ${decision?.source === 'ai_read2' ? 'text-purple-900' : 'text-gray-800'}`}>
             {(() => {
               const t1 = getAnswerText(readAnswer1)
