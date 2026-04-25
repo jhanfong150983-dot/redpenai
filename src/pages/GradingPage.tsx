@@ -3870,6 +3870,7 @@ export default function GradingPage({
                       {sourceVisual.label}
                     </p>
                   )}
+                  {submission?.id && <p className="text-[9px] text-gray-300 font-mono cursor-pointer hover:text-gray-500 truncate" title={submission.id} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(submission.id) }}>{submission.id.slice(-8)}</p>}
                   {status === 'missing' && !manuallyGradedStudentIds.has(student.id) && (
                     <div className="flex items-center justify-between mt-1">
                       <p className="text-xs text-gray-500">尚未繳交</p>
