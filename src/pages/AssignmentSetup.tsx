@@ -2476,7 +2476,7 @@ export default function AssignmentSetup({
             setEditingAnswerAssignment(assignment)
             setEditingClassroomId(assignment.classroomId)
             setEditingDomain(assignment.domain ?? '')
-            setEditAnswerDocType((assignment as Record<string, unknown>).answerDocType === 'exam' ? 'exam' : 'worksheet')
+            setEditAnswerDocType((assignment as unknown as Record<string, unknown>).answerDocType === 'exam' ? 'exam' : 'worksheet')
             const input = document.createElement('input')
             input.type = 'file'
             input.accept = '.pdf,.jpg,.jpeg,.png,.webp'
