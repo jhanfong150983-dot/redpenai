@@ -2472,6 +2472,25 @@ export default function AssignmentSetup({
         </button>
         <button
           type="button"
+          onClick={() => {
+            setEditingAnswerAssignment(assignment)
+            setEditingClassroomId(assignment.classroomId)
+            setEditingDomain(assignment.domain ?? '')
+            setEditAnswerDocType(assignment.answerDocType === 'exam' ? 'exam' : 'worksheet')
+            const input = document.createElement('input')
+            input.type = 'file'
+            input.accept = '.pdf,.jpg,.jpeg,.png,.webp'
+            input.multiple = true
+            input.onchange = (e) => handleEditAnswerKeyFileChange(e as unknown as ChangeEvent<HTMLInputElement>)
+            input.click()
+          }}
+          className="p-1.5 rounded-full bg-white border border-gray-200 text-blue-600 hover:bg-blue-50"
+          title="重新上傳答案卷"
+        >
+          <RefreshCw className="w-4 h-4" />
+        </button>
+        <button
+          type="button"
           onClick={(e) => {
             if (!canCreateAssignment) {
               handleRequireInkTopUp()
