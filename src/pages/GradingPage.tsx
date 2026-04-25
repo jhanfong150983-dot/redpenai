@@ -1104,6 +1104,13 @@ function BatchConsistencyReviewSection({
                       {student?.seatNumber ?? '?'}
                     </span>
                     {student?.name ?? entry.studentId}
+                    <span
+                      className="text-[10px] text-gray-300 font-mono cursor-pointer hover:text-gray-500"
+                      title={entry.submissionId}
+                      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(entry.submissionId) }}
+                    >
+                      {entry.submissionId.slice(-8)}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
