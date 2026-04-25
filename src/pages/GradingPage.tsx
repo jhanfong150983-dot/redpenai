@@ -3713,6 +3713,7 @@ export default function GradingPage({
                           <div className="px-2 py-2 text-left">
                             <p className="text-sm font-semibold text-gray-900">{student.seatNumber} {student.name}</p>
                             {status !== 'missing' && <p className={`text-[11px] font-medium ${sourceVisual.textClass}`}>{sourceVisual.label}</p>}
+                            {submission?.id && <p className="text-[9px] text-gray-300 font-mono cursor-pointer hover:text-gray-500 truncate" title={submission.id} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(submission.id) }}>{submission.id.slice(-8)}</p>}
                           </div>
                         </button>
                       </div>
