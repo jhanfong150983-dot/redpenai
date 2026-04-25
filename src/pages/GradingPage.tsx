@@ -2697,58 +2697,8 @@ export default function GradingPage({
           }
         }
 
-        // 條件二：fill_blank 答案類型主流不符（含 blank 視為類型之一）
-        // 三種類型：numeric（含數字）、chinese_text（純漢字）、blank
-        // 每題需 ≥60% 同意才確立主流；任一題不符即觸發重跑
-        if (entries.length >= MIN_SUBMISSIONS_FOR_TYPE) {
-          // 第一輪：統計每題各類型的數量
-          const typeCountsByQuestion = new Map<string, Record<AnswerType, number>>()
-          for (const entry of entries) {
-            for (const qr of entry.phaseAResult.questionResults) {
-              if (qr.questionType !== 'fill_blank') continue
-              const t = classifyAnswerType(qr.readAnswer1?.status ?? '', qr.readAnswer1?.studentAnswer ?? '')
-              if (!typeCountsByQuestion.has(qr.questionId)) {
-                typeCountsByQuestion.set(qr.questionId, { numeric: 0, chinese_text: 0, blank: 0 })
-              }
-              typeCountsByQuestion.get(qr.questionId)![t]++
-            }
-          }
-
-          // 確立每題的主流類型（≥60% 才算）
-          const dominantTypeByQuestion = new Map<string, AnswerType>()
-          for (const [qId, counts] of typeCountsByQuestion) {
-            const total = counts.numeric + counts.chinese_text + counts.blank
-            if (total < MIN_SUBMISSIONS_FOR_TYPE) continue
-            for (const t of ['numeric', 'chinese_text', 'blank'] as AnswerType[]) {
-              if (counts[t] / total >= DOMINANT_TYPE_RATIO) {
-                dominantTypeByQuestion.set(qId, t)
-                break
-              }
-            }
-          }
-
-          // 第二輪：找出任一 fill_blank 題類型不符的作業
-          for (let i = 0; i < entries.length; i++) {
-            if (anomalousIndices.has(i)) continue
-            const mismatchDetails: Array<{ questionId: string; expected: string; got: string }> = []
-            for (const qr of entries[i].phaseAResult.questionResults) {
-              if (qr.questionType !== 'fill_blank') continue
-              const dominant = dominantTypeByQuestion.get(qr.questionId)
-              if (!dominant) continue  // 該題未確立主流，跳過
-              const got = classifyAnswerType(qr.readAnswer1?.status ?? '', qr.readAnswer1?.studentAnswer ?? '')
-              if (got !== dominant) {
-                mismatchDetails.push({ questionId: qr.questionId, expected: dominant, got })
-              }
-            }
-            if (mismatchDetails.length >= 1) {
-              anomalousIndices.add(i)
-              const f = getFlag(i)
-              f.conditions.push('answer_type_mismatch')
-              f.typeMismatchCount = mismatchDetails.length
-              f.typeMismatchDetails = mismatchDetails
-            }
-          }
-        }
+        // 條件二（已移除）：fill_blank 答案類型主流不符
+        // AI1/AI2 角色分化 + AI3 一致性判官已能攔截此類問題，不再需要跨作業比對重跑
 
         // 條件三：是非題主流（O/X）但個別作業被讀成 ABCD
         // 若某題 ≥60% 非空白答案是 O/X 類型，標記任何被讀成 A/B/C/D 的作業
