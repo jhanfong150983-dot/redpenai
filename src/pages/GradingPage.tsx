@@ -488,6 +488,7 @@ interface GradingPipelineOverlayProps {
   phaseAProgress: { current: number; total: number }
   phaseBProgress: { current: number; total: number }
   phaseANeedsReviewCount: number
+  phaseATotalQuestionCount: number
   gradingMessage: string
   stopRequested: boolean
   onStop: () => void
@@ -498,6 +499,7 @@ function GradingPipelineOverlay({
   phaseAProgress,
   phaseBProgress,
   phaseANeedsReviewCount,
+  phaseATotalQuestionCount,
   gradingMessage,
   stopRequested,
   onStop,
@@ -521,7 +523,7 @@ function GradingPipelineOverlay({
       : `${phaseBProgress.current}/${phaseBProgress.total}`
 
   const reviewLabel = phaseANeedsReviewCount > 0
-    ? `需審查 ${phaseANeedsReviewCount} 題`
+    ? `需審查 ${phaseANeedsReviewCount}/${phaseATotalQuestionCount} 題`
     : isPhaseA ? '統計中...' : '已確認'
 
   return (
@@ -1003,43 +1005,36 @@ function BatchConsistencyReviewSection({
     return q.consistencyStatus !== 'stable'  // legacy fallback
   }
 
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set(
-    // Auto-expand students who have review questions
-    entries
-      .filter(e => e.phaseAResult.questionResults.some(q => isNeedsReview(q)))
-      .map(e => e.studentId)
-  ))
+  // 按題號分組：收集所有需審查的 (題號, 學生) 組合
+  const reviewByQuestion = new Map<string, Array<{ entry: BatchPhaseAEntry; questionResult: PhaseAQuestionResult }>>()
+  for (const entry of entries) {
+    for (const q of entry.phaseAResult.questionResults) {
+      if (!isNeedsReview(q)) continue
+      if (!reviewByQuestion.has(q.questionId)) reviewByQuestion.set(q.questionId, [])
+      reviewByQuestion.get(q.questionId)!.push({ entry, questionResult: q })
+    }
+  }
+  // 排序題號（自然排序）
+  const sortedQuestionIds = Array.from(reviewByQuestion.keys()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 
-  const toggleExpand = (studentId: string) => {
-    setExpandedIds(prev => {
+  const [expandedQIds, setExpandedQIds] = useState<Set<string>>(new Set(sortedQuestionIds))
+  const toggleExpand = (qId: string) => {
+    setExpandedQIds(prev => {
       const next = new Set(prev)
-      if (next.has(studentId)) next.delete(studentId)
-      else next.add(studentId)
+      if (next.has(qId)) next.delete(qId)
+      else next.add(qId)
       return next
     })
   }
 
+  const totalReviewItems = Array.from(reviewByQuestion.values()).reduce((sum, items) => sum + items.length, 0)
+  const confirmedReviewItems = Array.from(reviewByQuestion.values()).reduce((sum, items) =>
+    sum + items.filter(({ entry, questionResult: q }) => entry.decisions.get(q.questionId)?.confirmed).length, 0)
+  const allConfirmed = confirmedReviewItems >= totalReviewItems
+
   const allStableEntries = entries.filter(e =>
     e.phaseAResult.questionResults.every(q => !isNeedsReview(q))
   )
-  const needsReviewEntries = entries.filter(e =>
-    e.phaseAResult.questionResults.some(q => isNeedsReview(q))
-  )
-  // Sort: unstable first, then diff
-  const sortedNeedsReview = [...needsReviewEntries].sort((a, b) => {
-    const aHasUnstable = a.phaseAResult.questionResults.some(q => q.consistencyStatus === 'unstable')
-    const bHasUnstable = b.phaseAResult.questionResults.some(q => q.consistencyStatus === 'unstable')
-    if (aHasUnstable && !bHasUnstable) return -1
-    if (!aHasUnstable && bHasUnstable) return 1
-    return 0
-  })
-
-  // A student is confirmed when all their needs_review questions are decided
-  const confirmedStudentCount = entries.filter(e => {
-    const reviewQs = e.phaseAResult.questionResults.filter(q => isNeedsReview(q))
-    return reviewQs.every(q => e.decisions.get(q.questionId)?.confirmed)
-  }).length
-  const allConfirmed = confirmedStudentCount >= entries.length
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
@@ -1048,14 +1043,18 @@ function BatchConsistencyReviewSection({
         <div>
           <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4 text-orange-500" />
-            一致性審查
+            人工審查
           </h2>
-          <p className="text-xs text-gray-500 mt-0.5">確認所有學生的答案後，才能開始正式批改</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {sortedQuestionIds.length > 0
+              ? `${sortedQuestionIds.length} 題需要確認，共 ${totalReviewItems} 筆（${entries.length} 位學生 × 各題）`
+              : '所有答案已自動確認'}
+          </p>
         </div>
         <span className={`text-sm font-semibold px-3 py-1.5 rounded-full ${
           allConfirmed ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
         }`}>
-          已確認 {confirmedStudentCount}/{entries.length} 位學生
+          已確認 {confirmedReviewItems}/{totalReviewItems} 筆
         </span>
       </div>
 
@@ -1069,74 +1068,65 @@ function BatchConsistencyReviewSection({
         </div>
       )}
 
-      {/* Students needing review */}
-      {sortedNeedsReview.length > 0 && (
+      {/* Questions needing review — grouped by question ID */}
+      {sortedQuestionIds.length > 0 && (
         <div className="space-y-2">
-          {sortedNeedsReview.map(entry => {
-            const student = allStudents.find(s => s.id === entry.studentId)
-            const reviewQs = entry.phaseAResult.questionResults.filter(q => isNeedsReview(q))
-            const confirmedCount = reviewQs.filter(q => entry.decisions.get(q.questionId)?.confirmed).length
-            const hasUnstable = reviewQs.some(q => q.consistencyStatus === 'unstable')
-            const isExpanded = expandedIds.has(entry.studentId)
-            const isFullyConfirmed = confirmedCount >= reviewQs.length
+          {sortedQuestionIds.map(qId => {
+            const items = reviewByQuestion.get(qId)!
+            const confirmedCount = items.filter(({ entry, questionResult: q }) => entry.decisions.get(q.questionId)?.confirmed).length
+            const isExpanded = expandedQIds.has(qId)
+            const isFullyConfirmed = confirmedCount >= items.length
+            const questionType = items[0]?.questionResult.questionType ?? ''
 
             return (
               <div
-                key={entry.studentId}
+                key={qId}
                 className={`rounded-lg border ${
-                  isFullyConfirmed
-                    ? 'border-green-200 bg-green-50'
-                    : hasUnstable
-                    ? 'border-red-200 bg-red-50'
-                    : 'border-orange-200 bg-orange-50'
+                  isFullyConfirmed ? 'border-green-200 bg-green-50' : 'border-orange-200 bg-orange-50'
                 }`}
               >
-                {/* Student header row */}
+                {/* Question header row */}
                 <button
-                  onClick={() => toggleExpand(entry.studentId)}
+                  onClick={() => toggleExpand(qId)}
                   disabled={isPhaseBRunning}
                   className="w-full flex items-center justify-between px-4 py-2.5 text-left disabled:cursor-not-allowed"
                 >
                   <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-                    <span className={`inline-flex min-w-[24px] items-center justify-center rounded-md border px-1.5 py-0.5 text-xs font-semibold ${
-                      hasUnstable ? 'border-red-200 bg-red-100 text-red-700' : 'border-orange-200 bg-orange-100 text-orange-700'
-                    }`}>
-                      {student?.seatNumber ?? '?'}
+                    <span className="inline-flex min-w-[24px] items-center justify-center rounded-md border border-orange-200 bg-orange-100 text-orange-700 px-1.5 py-0.5 text-xs font-semibold">
+                      {qId}
                     </span>
-                    {student?.name ?? entry.studentId}
-                    <span
-                      className="text-[10px] text-gray-300 font-mono cursor-pointer hover:text-gray-500"
-                      title={entry.submissionId}
-                      onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(entry.submissionId) }}
-                    >
-                      {entry.submissionId.slice(-8)}
-                    </span>
+                    <span className="text-xs text-gray-500">{questionType}</span>
+                    <span className="text-xs text-gray-400">({items.length} 位學生)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                      isFullyConfirmed
-                        ? 'bg-green-200 text-green-800'
-                        : 'bg-white/60 text-gray-600'
+                      isFullyConfirmed ? 'bg-green-200 text-green-800' : 'bg-white/60 text-gray-600'
                     }`}>
-                      {isFullyConfirmed ? '已確認' : `${confirmedCount}/${reviewQs.length} 題`}
+                      {isFullyConfirmed ? '已確認' : `${confirmedCount}/${items.length}`}
                     </span>
                     <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
                   </div>
                 </button>
 
-                {/* Question cards */}
+                {/* Student cards for this question */}
                 {isExpanded && (
                   <div className="px-4 pb-3 space-y-2">
-                    {reviewQs.map(q => (
-                      <ConsistencyQuestionCard
-                        key={q.questionId}
-                        studentId={entry.studentId}
-                        questionResult={q}
-                        decision={entry.decisions.get(q.questionId)}
-                        onDecision={(qId, update) => onDecision(entry.studentId, qId, update)}
-                        disabled={isPhaseBRunning}
-                      />
-                    ))}
+                    {items.map(({ entry, questionResult: q }) => {
+                      const student = allStudents.find(s => s.id === entry.studentId)
+                      const studentLabel = student ? `${student.seatNumber}號 ${student.name}` : entry.studentId
+                      return (
+                        <div key={entry.studentId} className="border-l-2 border-orange-300 pl-2">
+                          <div className="text-xs text-gray-500 mb-1 font-medium">{studentLabel}</div>
+                          <ConsistencyQuestionCard
+                            studentId={entry.studentId}
+                            questionResult={q}
+                            decision={entry.decisions.get(q.questionId)}
+                            onDecision={(questionId, update) => onDecision(entry.studentId, questionId, update)}
+                            disabled={isPhaseBRunning}
+                          />
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -1156,7 +1146,7 @@ function BatchConsistencyReviewSection({
           ? `正式批改中...（${entries.length} 位學生）`
           : allConfirmed
           ? `開始正式批改（${entries.length} 位學生）`
-          : `尚有 ${entries.length - confirmedStudentCount} 位學生未確認`}
+          : `尚有 ${totalReviewItems - confirmedReviewItems} 筆未確認`}
       </button>
     </div>
   )
@@ -1255,6 +1245,7 @@ export default function GradingPage({
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
   const [batchPhaseAEntries, setBatchPhaseAEntries] = useState<BatchPhaseAEntry[]>([])
   const [phaseANeedsReviewCount, setPhaseANeedsReviewCount] = useState(0)
+  const [phaseATotalQuestionCount, setPhaseATotalQuestionCount] = useState(0)
   // qualityCheckRetryCount removed — quality checks are now internal (server-side)
   const [postRetryWarnings, setPostRetryWarnings] = useState<Array<{ submissionId: string; studentLabel: string; unreadCount: number }>>([])
 
@@ -2588,6 +2579,7 @@ export default function GradingPage({
             (qr) => qr.arbiterResult ? qr.arbiterResult.arbiterStatus === 'needs_review' : qr.consistencyStatus !== 'stable'
           ).length
           if (reviewQuestionCount > 0) setPhaseANeedsReviewCount((prev) => prev + reviewQuestionCount)
+          setPhaseATotalQuestionCount((prev) => prev + phaseAResult.questionResults.length)
           const decisions = new Map<string, ConsistencyDecision>()
           for (const qr of phaseAResult.questionResults) {
             const arbiter = qr.arbiterResult
@@ -3573,6 +3565,7 @@ export default function GradingPage({
                   : { current: 0, total: batchPhaseAEntries.length }
             }
             phaseANeedsReviewCount={phaseANeedsReviewCount}
+            phaseATotalQuestionCount={phaseATotalQuestionCount}
             gradingMessage={isDownloading ? '正在下載學生作業圖片...' : gradingMessage}
             stopRequested={stopRequested}
             onStop={handleStopGrading}
