@@ -1610,7 +1610,7 @@ export default function GradingPage({
   // ─── 監聽 Accessor 全部完成 → 生成報告 ──────────────────────────────────
   useEffect(() => {
     if (phaseBTotalCount === 0) return
-    if (phaseBScoredCount >= phaseBTotalCount && gradingPhase === 'awaiting_review') {
+    if (phaseBScoredCount >= phaseBTotalCount && (gradingPhase === 'awaiting_review' || gradingPhase === 'phase_b_running')) {
       console.log('✅ 全部學生 Accessor 完成，進入報告階段')
       setGradingPhase('report_running')
     }
@@ -3704,9 +3704,11 @@ export default function GradingPage({
               )
             }}
             onAllDone={() => {
-              console.log('✅ 全部審查完成')
-              // 如果背景 Accessor 全完成了，直接進報告
-              // 否則等 useEffect 監聽 phaseBScoredCount 變化
+              console.log('✅ 全部審查完成，切換到 loading 等待 Accessor')
+              // 切到 loading 遮罩等待剩餘 Accessor 完成
+              setGradingPhase('phase_b_running')
+              setGradingMessage('AI 批改評分中...')
+              setIsGrading(true)
             }}
             phaseBScoredCount={phaseBScoredCount}
             phaseBTotalCount={phaseBTotalCount}
