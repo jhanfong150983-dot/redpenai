@@ -1562,8 +1562,8 @@ export default function GradingPage({
       }
     }
 
-    // 同步等待作業報告生成
-    if (successCount > 0 && !stopRequestedRef.current) {
+    // 同步等待作業報告生成（只在前台模式執行，背景模式跳過）
+    if (successCount > 0 && !stopRequestedRef.current && !background) {
       setGradingPhase('report_running')
       setGradingMessage('正在生成作業學情報告...')
       try {
@@ -3743,8 +3743,17 @@ export default function GradingPage({
                 }
                 setTimeout(check, 1000)
               })
-              // 完成 → 清理
-              console.log('✅ 全部 Accessor 完成')
+              // 完成 → 生成報告 → 清理
+              console.log('✅ 全部 Accessor 完成，生成報告')
+              setGradingMessage('正在生成作業學情報告...')
+              try {
+                await fetch('/api/data/refresh-assignment-summary', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({ assignmentId: assignment?.id })
+                })
+              } catch { /* 報告失敗不影響批改 */ }
               setBatchPhaseAEntries([])
               setGradingPhase('idle')
               setIsGrading(false)
