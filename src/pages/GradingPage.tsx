@@ -523,10 +523,10 @@ function GradingPipelineOverlay({
     ? `${aPercent}%`
     : '100%'
   const bLabel = !isAfterPhaseA
-    ? `0/${phaseBProgress.total}`
+    ? (phaseBProgress.total > 0 ? `${phaseBProgress.current}/${phaseBProgress.total}` : '批改中...')
     : isReport
       ? `${phaseBProgress.total}/${phaseBProgress.total}`
-      : `${phaseBProgress.current}/${phaseBProgress.total}`
+      : (phaseBProgress.total > 0 ? `${phaseBProgress.current}/${phaseBProgress.total}` : '批改中...')
 
   const reviewLabel = phaseANeedsReviewCount > 0
     ? `需審查 ${phaseANeedsReviewCount}/${phaseATotalQuestionCount} 題`
