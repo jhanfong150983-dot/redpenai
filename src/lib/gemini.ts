@@ -210,12 +210,16 @@ type GeminiRouteKey =
 // ─── Phase A/B 公開類型 ────────────────────────────────────────────────────────
 
 export interface ArbiterResult {
-  arbiterStatus: 'arbitrated_agree' | 'arbitrated_pick_1' | 'arbitrated_pick_2' | 'needs_review'
-  finalAnswer?: string   // AI1 or AI2 value; undefined when needs_review
-  forensicMode?: 'agree_review' | 'disagree_review'
-  agreementSupport?: 'strong' | 'weak' | 'unsupported'   // agree_review 題才有
-  ai1Support?: 'strong' | 'weak' | 'unsupported'         // disagree_review 題才有
-  ai2Support?: 'strong' | 'weak' | 'unsupported'         // disagree_review 題才有
+  arbiterStatus: 'arbitrated_agree' | 'needs_review'
+  finalAnswer?: string   // AI1 answer when consistent; undefined when needs_review
+  // 新 AI3 一致性判官欄位
+  consistent?: boolean
+  reason?: string
+  // 舊 AI3 鑑識欄位（向後相容）
+  forensicMode?: string
+  agreementSupport?: string
+  ai1Support?: string
+  ai2Support?: string
 }
 
 export interface PhaseAQuestionResult {

@@ -2709,10 +2709,7 @@ export default function GradingPage({
             const arbiter = qr.arbiterResult
             if (arbiter && arbiter.arbiterStatus !== 'needs_review') {
               // 3-AI arch: auto-confirm arbitrated questions
-              const source =
-                arbiter.arbiterStatus === 'arbitrated_pick_1' ? 'ai_read1'
-                : arbiter.arbiterStatus === 'arbitrated_pick_2' ? 'ai_read2'
-                : 'ai_arbiter'  // arbitrated_agree
+              const source = 'ai_arbiter'  // 一致性判官：一律用 AI1 答案
               // calculation/word_problem：用完整步驟文字（readAnswer1），不用 arbiter 的短答案
               // 否則 accessor 只看到最終答案，會誤判「未列出計算算式」
               const isCalcType = qr.questionType === 'calculation' || qr.questionType === 'word_problem'
@@ -2997,7 +2994,7 @@ export default function GradingPage({
               for (const qr of phaseAResult.questionResults) {
                 const arbiter = qr.arbiterResult
                 if (arbiter && arbiter.arbiterStatus !== 'needs_review') {
-                  const source = arbiter.arbiterStatus === 'arbitrated_pick_1' ? 'ai_read1' : arbiter.arbiterStatus === 'arbitrated_pick_2' ? 'ai_read2' : 'ai_arbiter'
+                  const source = 'ai_arbiter'  // 一致性判官：一律用 AI1 答案
                   const isCalcType = qr.questionType === 'calculation' || qr.questionType === 'word_problem'
                   const fullAnswer = isCalcType ? qr.readAnswer1.studentAnswer : (arbiter.finalAnswer ?? qr.readAnswer1.studentAnswer)
                   decisions.set(qr.questionId, { questionId: qr.questionId, source, finalAnswer: fullAnswer, confirmed: true })
@@ -3059,9 +3056,9 @@ export default function GradingPage({
               ai1Status: qr.readAnswer1?.status ?? null,
               ai2Answer: qr.readAnswer2?.studentAnswer ?? null,
               ai2Status: qr.readAnswer2?.status ?? null,
-              consistencyStatus: qr.consistencyStatus ?? null,
-              forensicMode: arbiter?.forensicMode ?? null,
-              agreementSupport: arbiter?.agreementSupport ?? null,
+              consistencyStatus: arbiter?.consistent === true ? 'stable' : arbiter?.consistent === false ? 'diff' : (qr.consistencyStatus ?? null),
+              forensicMode: arbiter?.consistent !== undefined ? (arbiter.consistent ? 'consistent' : 'inconsistent') : (arbiter?.forensicMode ?? null),
+              agreementSupport: arbiter?.reason ?? arbiter?.agreementSupport ?? null,
               ai1Support: arbiter?.ai1Support ?? null,
               ai2Support: arbiter?.ai2Support ?? null,
               systemDecision: arbiter?.arbiterStatus ?? 'needs_review',
