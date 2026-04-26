@@ -4479,7 +4479,10 @@ export async function gradeWithBboxOverrides(
     })
   })
   if (!response.ok) throw new Error(`gradeWithBboxOverrides failed: ${response.status}`)
-  const parsed = JSON.parse(await response.text()) as PhaseAResult
+  const data = await response.json()
+  const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) throw new Error('Phase Read: empty response text')
+  const parsed = JSON.parse(text) as PhaseAResult
   if (!parsed?.phaseAComplete) throw new Error('Phase Read: unexpected response format')
   return parsed
 }
