@@ -2627,8 +2627,15 @@ export default function GradingPage({
         const overrides: BboxOverride[] = []
         for (const br of entry.bboxResults) {
           const med = medianBbox.get(br.questionId)
-          if (!med || !br.answerBbox) {
+          if (!med) {
+            // 中位數不存在（題目不足 5 份），保持原值
             overrides.push({ questionId: br.questionId, answerBbox: br.answerBbox, readBbox: br.readBbox })
+            continue
+          }
+          if (!br.answerBbox) {
+            // bbox 被拒（如像素座標）→ 用中位數覆蓋，省掉 retry
+            overrides.push({ questionId: br.questionId, answerBbox: med, readBbox: null, corrected: true })
+            totalCorrected++
             continue
           }
           const xDiff = Math.abs(br.answerBbox.x - med.x)
