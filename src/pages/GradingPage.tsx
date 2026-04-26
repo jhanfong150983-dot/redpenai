@@ -1041,12 +1041,16 @@ function BatchConsistencyReviewSection({
     ? currentReviewQs.every(q => currentEntry.decisions.get(q.questionId)?.confirmed)
     : false
 
+  const reviewSectionRef = useRef<HTMLDivElement>(null)
+
   const handleConfirmAndNext = () => {
     if (!currentEntry) return
     setConfirmedStudentIds(prev => new Set([...prev, currentEntry.studentId]))
     onStudentConfirmed(currentEntry)
     if (currentReviewIdx < needsReviewEntries.length - 1) {
       setCurrentReviewIdx(prev => prev + 1)
+      // 切換學生後滾到審查區塊頂部，從第一題開始看
+      setTimeout(() => reviewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
     } else {
       // 全部審查完
       onAllDone()
@@ -1056,7 +1060,7 @@ function BatchConsistencyReviewSection({
   const allDone = confirmedStudentIds.size >= needsReviewEntries.length
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+    <div ref={reviewSectionRef} className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
       {/* Header + 背景進度 */}
       <div className="flex items-center justify-between">
         <div>
