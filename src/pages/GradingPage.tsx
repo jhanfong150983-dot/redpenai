@@ -3678,11 +3678,9 @@ export default function GradingPage({
                   : { current: gradingProgress.total, total: gradingProgress.total }
             }
             phaseBProgress={
-              gradingPhase === 'phase_b_running'
-                ? gradingProgress
-                : gradingPhase === 'report_running'
-                  ? { current: batchPhaseAEntries.length, total: batchPhaseAEntries.length }
-                  : { current: 0, total: batchPhaseAEntries.length }
+              gradingPhase === 'phase_b_running' || gradingPhase === 'report_running'
+                ? { current: phaseBScoredCount, total: phaseBTotalCount || batchPhaseAEntries.length }
+                : { current: 0, total: batchPhaseAEntries.length }
             }
             phaseANeedsReviewCount={phaseANeedsReviewCount}
             phaseATotalQuestionCount={phaseATotalQuestionCount}
