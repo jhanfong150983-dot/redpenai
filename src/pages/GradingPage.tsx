@@ -3720,12 +3720,45 @@ export default function GradingPage({
                 console.error('Student Accessor failed:', err)
               )
             }}
-            onAllDone={() => {
-              console.log('✅ 全部審查完成，切換到 loading 等待 Accessor')
-              // 切到 loading 遮罩等待剩餘 Accessor 完成
+            onAllDone={async () => {
+              console.log('✅ 全部審查完成，等待 Accessor 完成')
               setGradingPhase('phase_b_running')
               setGradingMessage('AI 批改評分中...')
               setIsGrading(true)
+              // 輪詢等待所有背景 Accessor 完成
+              await new Promise<void>((resolve) => {
+                const check = () => {
+                  // 直接讀 state ref 而非閉包值
+                  setPhaseBScoredCount(prev => {
+                    setPhaseBTotalCount(total => {
+                      if (total > 0 && prev >= total) {
+                        resolve()
+                      } else {
+                        setTimeout(check, 1000)
+                      }
+                      return total
+                    })
+                    return prev
+                  })
+                }
+                setTimeout(check, 1000)
+              })
+              // 完成 → 清理
+              console.log('✅ 全部 Accessor 完成')
+              setBatchPhaseAEntries([])
+              setGradingPhase('idle')
+              setIsGrading(false)
+              setGradingProgress({ current: 0, total: 0 })
+              setGradeResultNotice({
+                stopped: false,
+                successCount: phaseBTotalCount,
+                failCount: 0,
+                totalCount: phaseBTotalCount,
+                failReasons: [],
+                failedEntries: [],
+              })
+              setPhaseBScoredCount(0)
+              setPhaseBTotalCount(0)
             }}
             phaseBScoredCount={phaseBScoredCount}
             phaseBTotalCount={phaseBTotalCount}
