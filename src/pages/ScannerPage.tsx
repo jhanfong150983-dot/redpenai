@@ -275,7 +275,15 @@ export default function ScannerPage({
 
       console.log(`✅ 最終大小: ${(finalBlob.size / 1024).toFixed(2)} KB`)
 
-      // 3. 暫存圖片
+      // 3. 透視校正
+      try {
+        const { correctPerspective } = await import('../lib/perspectiveCorrection')
+        finalBlob = await correctPerspective(finalBlob)
+      } catch (err) {
+        console.warn('[ScannerPage] capture perspective correction failed, using original:', err)
+      }
+
+      // 4. 暫存圖片
       await storeImage(finalBlob)
 
     } catch (err) {
@@ -308,7 +316,18 @@ export default function ScannerPage({
         // 處理圖片文件
         console.log('🖼️ 處理圖片文件...', { fileName: file.name, fileSize: file.size, fileType: file.type })
 
-        // 讀取圖片並壓縮
+        // 先用原始解析度做透視校正（精度較高），再壓縮
+        imageBlob = file
+
+        // 透視校正（用原始高解析度）
+        try {
+          const { correctPerspective } = await import('../lib/perspectiveCorrection')
+          imageBlob = await correctPerspective(imageBlob)
+        } catch (err) {
+          console.warn('[ScannerPage] perspective correction failed, using original:', err)
+        }
+
+        // 壓縮圖片
         const reader = new FileReader()
         const dataUrl = await new Promise<string>((resolve, reject) => {
           reader.onload = (e) => {
@@ -319,22 +338,17 @@ export default function ScannerPage({
             }
           }
           reader.onerror = reject
-          reader.readAsDataURL(file)
+          reader.readAsDataURL(imageBlob)
         })
 
-        console.log('✅ 圖片讀取完成，開始壓縮...')
-
-        // 壓縮圖片
         const compressedImageBlob = await compressImage(dataUrl, {
           maxWidth: 1024,
           quality: 0.8
-          // format 會根據瀏覽器自動選擇（Safari 用 JPEG，其他用 WebP）
         })
 
-        // 如果壓縮後反而變大，使用原始檔案
-        if (compressedImageBlob.size > file.size) {
-          console.log(`⚠️ 壓縮後反而變大 (${(compressedImageBlob.size / 1024).toFixed(2)} KB > ${(file.size / 1024).toFixed(2)} KB)，使用原始檔案`)
-          imageBlob = file
+        // 如果壓縮後反而變大，使用校正後的圖片
+        if (compressedImageBlob.size > imageBlob.size) {
+          console.log(`⚠️ 壓縮後反而變大，使用校正後的圖片`)
         } else {
           imageBlob = compressedImageBlob
         }
@@ -358,14 +372,15 @@ export default function ScannerPage({
         throw new Error('不支援的文件格式，請上傳圖片或 PDF 文件')
       }
 
-      // 透視校正：上傳時立刻校正
-      try {
-        const { correctPerspective } = await import('../lib/perspectiveCorrection')
-        imageBlob = await correctPerspective(imageBlob)
-      } catch (err) {
-        console.warn('[ScannerPage] perspective correction failed, using original:', err)
+      // 暫存圖片（圖片路徑已在上方做過透視校正，PDF 路徑在這裡做）
+      if (fileType === 'pdf') {
+        try {
+          const { correctPerspective } = await import('../lib/perspectiveCorrection')
+          imageBlob = await correctPerspective(imageBlob)
+        } catch (err) {
+          console.warn('[ScannerPage] perspective correction failed, using original:', err)
+        }
       }
-
       // 暫存圖片
       await storeImage(imageBlob)
 
