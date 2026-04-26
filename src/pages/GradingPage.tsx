@@ -1002,15 +1002,20 @@ function BatchConsistencyReviewSection({
   entries,
   allStudents,
   onDecision,
-  onStartPhaseB,
-  isPhaseBRunning = false,
+  onStudentConfirmed,
+  onAllDone,
+  phaseBScoredCount = 0,
+  phaseBTotalCount = 0,
 }: {
   entries: BatchPhaseAEntry[]
   allStudents: Student[]
   onDecision: (studentId: string, questionId: string, update: Partial<ConsistencyDecision>) => void
-  onStartPhaseB: () => void
-  isPhaseBRunning?: boolean
+  onStudentConfirmed: (entry: BatchPhaseAEntry) => void
+  onAllDone: () => void
+  phaseBScoredCount?: number
+  phaseBTotalCount?: number
 }) {
+  // isPhaseBRunning 不再使用（Accessor 在背景跑）
   // Helper: determine if a question needs human review
   // New architecture: use arbiterResult.arbiterStatus; fall back to consistencyStatus for old data
   const isNeedsReview = (q: PhaseAQuestionResult) => {
@@ -1018,40 +1023,41 @@ function BatchConsistencyReviewSection({
     return q.consistencyStatus !== 'stable'  // legacy fallback
   }
 
-  // 按題號分組：收集所有需審查的 (題號, 學生) 組合
-  const reviewByQuestion = new Map<string, Array<{ entry: BatchPhaseAEntry; questionResult: PhaseAQuestionResult }>>()
-  for (const entry of entries) {
-    for (const q of entry.phaseAResult.questionResults) {
-      if (!isNeedsReview(q)) continue
-      if (!reviewByQuestion.has(q.questionId)) reviewByQuestion.set(q.questionId, [])
-      reviewByQuestion.get(q.questionId)!.push({ entry, questionResult: q })
+  // 按學生分組：只收集需審查的學生
+  const needsReviewEntries = entries.filter(e =>
+    e.phaseAResult.questionResults.some(q => isNeedsReview(q))
+  )
+  const stableCount = entries.length - needsReviewEntries.length
+
+  // 一次一個學生：追蹤目前審查到第幾個
+  const [currentReviewIdx, setCurrentReviewIdx] = useState(0)
+  const [confirmedStudentIds, setConfirmedStudentIds] = useState<Set<string>>(new Set())
+
+  const currentEntry = needsReviewEntries[currentReviewIdx]
+  const currentReviewQs = currentEntry
+    ? currentEntry.phaseAResult.questionResults.filter(q => isNeedsReview(q))
+    : []
+  const currentAllConfirmed = currentEntry
+    ? currentReviewQs.every(q => currentEntry.decisions.get(q.questionId)?.confirmed)
+    : false
+
+  const handleConfirmAndNext = () => {
+    if (!currentEntry) return
+    setConfirmedStudentIds(prev => new Set([...prev, currentEntry.studentId]))
+    onStudentConfirmed(currentEntry)
+    if (currentReviewIdx < needsReviewEntries.length - 1) {
+      setCurrentReviewIdx(prev => prev + 1)
+    } else {
+      // 全部審查完
+      onAllDone()
     }
   }
-  // 排序題號（自然排序）
-  const sortedQuestionIds = Array.from(reviewByQuestion.keys()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 
-  const [expandedQIds, setExpandedQIds] = useState<Set<string>>(new Set(sortedQuestionIds))
-  const toggleExpand = (qId: string) => {
-    setExpandedQIds(prev => {
-      const next = new Set(prev)
-      if (next.has(qId)) next.delete(qId)
-      else next.add(qId)
-      return next
-    })
-  }
-
-  const totalReviewItems = Array.from(reviewByQuestion.values()).reduce((sum, items) => sum + items.length, 0)
-  const confirmedReviewItems = Array.from(reviewByQuestion.values()).reduce((sum, items) =>
-    sum + items.filter(({ entry, questionResult: q }) => entry.decisions.get(q.questionId)?.confirmed).length, 0)
-  const allConfirmed = confirmedReviewItems >= totalReviewItems
-
-  const allStableEntries = entries.filter(e =>
-    e.phaseAResult.questionResults.every(q => !isNeedsReview(q))
-  )
+  const allDone = confirmedStudentIds.size >= needsReviewEntries.length
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
-      {/* Header */}
+      {/* Header + 背景進度 */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
@@ -1059,108 +1065,85 @@ function BatchConsistencyReviewSection({
             人工審查
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            {sortedQuestionIds.length > 0
-              ? `${sortedQuestionIds.length} 題需要確認，共 ${totalReviewItems} 筆（${entries.length} 位學生 × 各題）`
+            {needsReviewEntries.length > 0
+              ? `${needsReviewEntries.length} 位學生需要確認`
               : '所有答案已自動確認'}
           </p>
         </div>
-        <span className={`text-sm font-semibold px-3 py-1.5 rounded-full ${
-          allConfirmed ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-        }`}>
-          已確認 {confirmedReviewItems}/{totalReviewItems} 筆
+        <span className="text-sm font-semibold px-3 py-1.5 rounded-full bg-blue-100 text-blue-700">
+          評分進度 {phaseBScoredCount}/{phaseBTotalCount}
         </span>
       </div>
 
-      {/* All-stable students */}
-      {allStableEntries.length > 0 && (
+      {/* 穩定學生 */}
+      {stableCount > 0 && (
         <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-2.5 text-sm text-green-700 flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 shrink-0 text-green-500" />
+          <span><strong>{stableCount} 位</strong>同學答案一致，自動評分中</span>
+        </div>
+      )}
+
+      {/* 當前審查的學生 — 一次一個 */}
+      {currentEntry && !allDone && (() => {
+        const student = allStudents.find(s => s.id === currentEntry.studentId)
+
+        return (
+          <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex min-w-[28px] items-center justify-center rounded-md border border-orange-300 bg-orange-200 text-orange-800 px-2 py-1 text-sm font-bold">
+                  {student?.seatNumber ?? '?'}
+                </span>
+                <span className="text-sm font-bold text-gray-900">{student?.name ?? currentEntry.studentId}</span>
+                <span className="text-xs text-gray-400">({currentReviewQs.length} 題待確認)</span>
+              </div>
+              <span className="text-xs text-gray-500">
+                {currentReviewIdx + 1}/{needsReviewEntries.length}
+              </span>
+            </div>
+
+            {/* 這個學生的所有待審查題目 */}
+            <div className="space-y-2">
+              {currentReviewQs.map(q => (
+                <ConsistencyQuestionCard
+                  key={q.questionId}
+                  studentId={currentEntry.studentId}
+                  questionResult={q}
+                  decision={currentEntry.decisions.get(q.questionId)}
+                  onDecision={(questionId, update) => onDecision(currentEntry.studentId, questionId, update)}
+                  disabled={false}
+                />
+              ))}
+            </div>
+
+            {/* 確認送出按鈕 */}
+            <button
+              onClick={handleConfirmAndNext}
+              disabled={!currentAllConfirmed}
+              className="w-full py-2.5 rounded-xl bg-purple-600 text-white font-bold text-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            >
+              {currentAllConfirmed
+                ? currentReviewIdx < needsReviewEntries.length - 1
+                  ? `確認送出 → 下一位（${currentReviewIdx + 2}/${needsReviewEntries.length}）`
+                  : '確認送出（最後一位）'
+                : `請先選擇所有題目的答案`}
+            </button>
+          </div>
+        )
+      })()}
+
+      {/* 全部審查完 */}
+      {allDone && (
+        <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-green-500" />
           <span>
-            <strong>{allStableEntries.length} 位</strong>同學答案完全一致，已自動確認
+            <strong>全部審查完成！</strong>
+            {phaseBScoredCount < phaseBTotalCount
+              ? ` 等待最後 ${phaseBTotalCount - phaseBScoredCount} 位學生評分完成...`
+              : ' 所有學生評分完成！'}
           </span>
         </div>
       )}
-
-      {/* Questions needing review — grouped by question ID */}
-      {sortedQuestionIds.length > 0 && (
-        <div className="space-y-2">
-          {sortedQuestionIds.map(qId => {
-            const items = reviewByQuestion.get(qId)!
-            const confirmedCount = items.filter(({ entry, questionResult: q }) => entry.decisions.get(q.questionId)?.confirmed).length
-            const isExpanded = expandedQIds.has(qId)
-            const isFullyConfirmed = confirmedCount >= items.length
-            const questionType = items[0]?.questionResult.questionType ?? ''
-
-            return (
-              <div
-                key={qId}
-                className={`rounded-lg border ${
-                  isFullyConfirmed ? 'border-green-200 bg-green-50' : 'border-orange-200 bg-orange-50'
-                }`}
-              >
-                {/* Question header row */}
-                <button
-                  onClick={() => toggleExpand(qId)}
-                  disabled={isPhaseBRunning}
-                  className="w-full flex items-center justify-between px-4 py-2.5 text-left disabled:cursor-not-allowed"
-                >
-                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-                    <span className="inline-flex min-w-[24px] items-center justify-center rounded-md border border-orange-200 bg-orange-100 text-orange-700 px-1.5 py-0.5 text-xs font-semibold">
-                      {qId}
-                    </span>
-                    <span className="text-xs text-gray-500">{questionType}</span>
-                    <span className="text-xs text-gray-400">({items.length} 位學生)</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                      isFullyConfirmed ? 'bg-green-200 text-green-800' : 'bg-white/60 text-gray-600'
-                    }`}>
-                      {isFullyConfirmed ? '已確認' : `${confirmedCount}/${items.length}`}
-                    </span>
-                    <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                  </div>
-                </button>
-
-                {/* Student cards for this question */}
-                {isExpanded && (
-                  <div className="px-4 pb-3 space-y-2">
-                    {items.map(({ entry, questionResult: q }) => {
-                      const student = allStudents.find(s => s.id === entry.studentId)
-                      const studentLabel = student ? `${student.seatNumber}號 ${student.name}` : entry.studentId
-                      return (
-                        <div key={entry.studentId} className="border-l-2 border-orange-300 pl-2">
-                          <div className="text-xs text-gray-500 mb-1 font-medium">{studentLabel}</div>
-                          <ConsistencyQuestionCard
-                            studentId={entry.studentId}
-                            questionResult={q}
-                            decision={entry.decisions.get(q.questionId)}
-                            onDecision={(questionId, update) => onDecision(entry.studentId, questionId, update)}
-                            disabled={isPhaseBRunning}
-                          />
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Start Phase B button */}
-      <button
-        onClick={onStartPhaseB}
-        disabled={!allConfirmed || isPhaseBRunning}
-        className="w-full py-3 rounded-xl bg-purple-600 text-white font-bold text-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-      >
-        <Sparkles className="w-4 h-4" />
-        {isPhaseBRunning
-          ? `正式批改中...（${entries.length} 位學生）`
-          : allConfirmed
-          ? `開始正式批改（${entries.length} 位學生）`
-          : `尚有 ${totalReviewItems - confirmedReviewItems} 筆未確認`}
-      </button>
     </div>
   )
 }
@@ -1335,15 +1318,22 @@ export default function GradingPage({
   }, [needsReviewStudents, selectedSubmission, submissions])
 
   // ─── Batch Phase B: 正式批改（全班）────────────────────────────────────────
-  const executeBatchPhaseB = useCallback(async (entriesToProcess?: BatchPhaseAEntry[]) => {
+  // phaseBScoredCount: 背景 Accessor 已完成的學生數（用於進度追蹤）
+  const [phaseBScoredCount, setPhaseBScoredCount] = useState(0)
+  const [phaseBTotalCount, setPhaseBTotalCount] = useState(0)
+
+  const executeBatchPhaseB = useCallback(async (entriesToProcess?: BatchPhaseAEntry[], background = false) => {
     const entries = entriesToProcess ?? batchPhaseAEntries
     if (entries.length === 0) return
 
-    setGradingPhase('phase_b_running')
-    setGradingMessage('AI 批改評分中...')
-    setIsGrading(true)
-    setGradingStartTime(Date.now())
-    setGradingProgress({ current: 0, total: entries.length })
+    if (!background) {
+      setGradingPhase('phase_b_running')
+      setGradingMessage('AI 批改評分中...')
+      setIsGrading(true)
+      setGradingStartTime(Date.now())
+      setGradingProgress({ current: 0, total: entries.length })
+    }
+    setPhaseBTotalCount(prev => prev + entries.length)
     setCompletedReviewCount(0)
 
     let successCount = 0
@@ -1372,7 +1362,8 @@ export default function GradingPage({
       },
       async (_i, result, err) => {
         completedB++
-        setGradingProgress({ current: completedB, total: entries.length })
+        setPhaseBScoredCount(prev => prev + 1)
+        if (!background) setGradingProgress({ current: completedB, total: entries.length })
         if (err || !result) {
           console.error(`Phase B failed for ${entries[_i]?.submissionId}:`, err)
           failCount++
@@ -1612,20 +1603,14 @@ export default function GradingPage({
     setGradingProgress({ current: 0, total: 0 })
   }, [batchPhaseAEntries, students])
 
-  // ─── 自動跳過審查：若所有學生的所有題目都 stable，直接進 Phase B ──────────
+  // ─── 監聽 Accessor 全部完成 → 生成報告 ──────────────────────────────────
   useEffect(() => {
-    if (gradingPhase !== 'awaiting_review') return
-    if (batchPhaseAEntries.length === 0) return
-    const allStable = batchPhaseAEntries.every(e =>
-      e.phaseAResult.questionResults.every(q =>
-        q.arbiterResult ? q.arbiterResult.arbiterStatus !== 'needs_review' : q.consistencyStatus === 'stable'
-      )
-    )
-    if (allStable) {
-      console.log('✅ 所有題目一致性穩定，自動跳過審查直接進入正式批改')
-      void executeBatchPhaseB()
+    if (phaseBTotalCount === 0) return
+    if (phaseBScoredCount >= phaseBTotalCount && gradingPhase === 'awaiting_review') {
+      console.log('✅ 全部學生 Accessor 完成，進入報告階段')
+      setGradingPhase('report_running')
     }
-  }, [gradingPhase, batchPhaseAEntries, executeBatchPhaseB])
+  }, [phaseBScoredCount, phaseBTotalCount, gradingPhase])
 
   // ─── Batch Decision: 老師對單題的決策 ────────────────────────────────────
   const handleBatchDecision = useCallback(
@@ -3045,7 +3030,29 @@ export default function GradingPage({
           ? entries.filter((e) => !qualityFailIds.has(e.submissionId))
           : entries
         setBatchPhaseAEntries(validEntries)
-        setGradingPhase('awaiting_review')
+
+        // ── 穩定學生立刻送 Accessor（背景） ──
+        const isNeedsReview = (e: BatchPhaseAEntry) =>
+          e.phaseAResult.questionResults.some(qr =>
+            qr.arbiterResult?.arbiterStatus === 'needs_review'
+          )
+        const stableEntries = validEntries.filter(e => !isNeedsReview(e))
+        const reviewEntries = validEntries.filter(e => isNeedsReview(e))
+
+        if (stableEntries.length > 0) {
+          console.log(`🚀 ${stableEntries.length} 位穩定學生立刻送 Accessor（背景）`)
+          executeBatchPhaseB(stableEntries, true).catch(err =>
+            console.error('Background Accessor failed:', err)
+          )
+        }
+
+        if (reviewEntries.length === 0) {
+          // 全部穩定，不需審查，等 Accessor 完成
+          console.log('✅ 全部穩定，等待 Accessor 完成')
+          // executeBatchPhaseB 已在上面觸發，gradingPhase 會被它設成 phase_b_running
+        } else {
+          setGradingPhase('awaiting_review')
+        }
         // Fire-and-forget: write Phase A forensic data to Supabase for calibration
         const forensicRows = entries.flatMap((entry) =>
           entry.phaseAResult.questionResults.map((qr) => {
@@ -3692,8 +3699,19 @@ export default function GradingPage({
             entries={batchPhaseAEntries}
             allStudents={students}
             onDecision={handleBatchDecision}
-            onStartPhaseB={() => { void executeBatchPhaseB() }}
-            isPhaseBRunning={false}
+            onStudentConfirmed={(entry) => {
+              console.log(`✅ 學生 ${entry.studentId} 確認完成，送 Accessor`)
+              executeBatchPhaseB([entry], true).catch(err =>
+                console.error('Student Accessor failed:', err)
+              )
+            }}
+            onAllDone={() => {
+              console.log('✅ 全部審查完成')
+              // 如果背景 Accessor 全完成了，直接進報告
+              // 否則等 useEffect 監聽 phaseBScoredCount 變化
+            }}
+            phaseBScoredCount={phaseBScoredCount}
+            phaseBTotalCount={phaseBTotalCount}
           />
         )}
 
