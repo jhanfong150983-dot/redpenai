@@ -4427,7 +4427,10 @@ export async function gradeClassifyOnly(
     })
   })
   if (!response.ok) throw new Error(`classifyOnly failed: ${response.status}`)
-  return JSON.parse(await response.text())
+  const raw = JSON.parse(await response.text())
+  // Server 包在 candidates 結構裡，需要解出實際內容
+  const text = raw?.candidates?.[0]?.content?.parts?.[0]?.text
+  return text ? JSON.parse(text) : raw
 }
 
 // ─── Phase Read：帶校正 bbox 跑 Read + AI3 ─────────────────────────────────

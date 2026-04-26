@@ -2577,8 +2577,11 @@ export default function GradingPage({
         (i, result, err) => {
           completedClassify++
           setGradingProgress({ current: completedClassify, total: toGrade.length })
-          if (stopRequestedRef.current || !result) {
+          if (stopRequestedRef.current) return
+          if (!result || err) {
             if (err) console.error(`Classify failed for ${toGrade[i].id}:`, err)
+            // 失敗也要 push（空 bbox），確保 idx 對得上
+            allBboxResults.push({ idx: i, sub: toGrade[i], bboxResults: [] })
             return
           }
           allBboxResults.push({ idx: i, ...result })
