@@ -1607,12 +1607,29 @@ export default function GradingPage({
     // 背景模式：只累加 phaseBScoredCount（已在上面做了），不動 UI 狀態
   }, [batchPhaseAEntries, students])
 
-  // ─── 監聽 Accessor 全部完成 → 生成報告 ──────────────────────────────────
+  // ─── 監聯 Accessor 全部完成 → 完成批改 ──────────────────────────────────
   useEffect(() => {
     if (phaseBTotalCount === 0) return
     if (phaseBScoredCount >= phaseBTotalCount && (gradingPhase === 'awaiting_review' || gradingPhase === 'phase_b_running')) {
-      console.log('✅ 全部學生 Accessor 完成，進入報告階段')
-      setGradingPhase('report_running')
+      console.log('✅ 全部學生 Accessor 完成，結束批改')
+      // 清理狀態
+      setBatchPhaseAEntries([])
+      setGradingPhase('idle')
+      setIsGrading(false)
+      setCurrentGradingStudent('')
+      setGradingProgress({ current: 0, total: 0 })
+      setPhaseBScoredCount(0)
+      setPhaseBTotalCount(0)
+      setPhaseANeedsReviewCount(0)
+      setPhaseATotalQuestionCount(0)
+      setGradeResultNotice({
+        stopped: false,
+        successCount: phaseBScoredCount,
+        failCount: 0,
+        totalCount: phaseBTotalCount,
+        failReasons: [],
+        failedEntries: [],
+      })
     }
   }, [phaseBScoredCount, phaseBTotalCount, gradingPhase])
 
