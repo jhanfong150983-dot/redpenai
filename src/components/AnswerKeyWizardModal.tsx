@@ -223,6 +223,19 @@ export default function AnswerKeyWizardModal({
         const orig = initialPages.find((p) => p.index === item.originalIndex)!
         return { index: newIdx, url: orig.url, blob: orig.blob }
       })
+
+      // 透視校正：每頁答案卷照片獨立校正
+      setLoadingMsg('校正圖片角度…')
+      try {
+        const { correctPerspective } = await import('../lib/perspectiveCorrection')
+        for (const item of orderedBlobs) {
+          item.blob = await correctPerspective(item.blob)
+          item.url = URL.createObjectURL(item.blob)
+        }
+      } catch (err) {
+        console.warn('[AnswerKeyWizard] perspective correction failed, using originals:', err)
+      }
+
       const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setLoadingMsg)
       setEditingKey(answerKey)
       setImageBlobs(blobs)

@@ -113,7 +113,7 @@ function buildDraftSignature(files: File[]) {
   return files.map((file) => `${file.name}:${file.size}:${file.lastModified}`).join('|')
 }
 
-async function mergeImagesVertically(files: File[]): Promise<Blob> {
+async function mergeImagesVertically(files: (File | Blob)[]): Promise<Blob> {
   if (files.length === 1) return files[0]
 
   const bitmaps = await Promise.all(files.map((file) => createImageBitmap(file)))
@@ -844,14 +844,22 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     }
   }, [correctionAssignmentId, correctionItems])
 
+  const activeAssignments = useMemo(
+    () =>
+      (overview?.assignments || []).filter(
+        (item) => !['graded', 'correction_passed'].includes(item.status)
+      ),
+    [overview]
+  )
+
   const overviewSummary = useMemo(() => {
-    const list = overview?.assignments || []
-    const total = list.length
-    const canUploadCount = list.filter((item) => item.canUpload).length
-    const correctionCount = list.filter((item) =>
+    const allList = overview?.assignments || []
+    const total = allList.length
+    const canUploadCount = allList.filter((item) => item.canUpload).length
+    const correctionCount = allList.filter((item) =>
       ['correction_required', 'correction_in_progress'].includes(item.status)
     ).length
-    const completedCount = list.filter((item) =>
+    const completedCount = allList.filter((item) =>
       ['graded', 'correction_passed'].includes(item.status)
     ).length
     return {
@@ -1083,9 +1091,20 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         }
       }
 
+      // 透視校正：每張照片獨立校正，再合併（upload 模式才校正，correction 不需要）
+      let filesToMerge: (File | Blob)[] = mergedFiles
+      if (mode === 'upload' && mergedFiles.length > 0) {
+        try {
+          const { correctPerspectiveMultiple } = await import('../lib/perspectiveCorrection')
+          filesToMerge = await correctPerspectiveMultiple(mergedFiles)
+        } catch (err) {
+          console.warn('[StudentPortal] perspective correction failed, using originals:', err)
+        }
+      }
+
       const mergeTarget = mode === 'correction' ? CORRECTION_MERGE_TARGET_BYTES : 2_000_000
       const mergeMaxWidth = mode === 'correction' ? 1200 : 2000
-      const merged = await mergeImagesVertically(mergedFiles)
+      const merged = await mergeImagesVertically(filesToMerge)
       const compressed = await compressToTargetBytes(merged, mergeTarget, { maxWidth: mergeMaxWidth })
       const imageDataUrl = await blobToBase64(compressed)
 
@@ -1322,20 +1341,20 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               </div>
             </div>
 
-            {(overview?.assignments || []).length === 0 ? (
+            {activeAssignments.length === 0 ? (
               <div className="bg-slate-50/60 px-4 py-8 text-center">
                 <p className="text-sm text-slate-600">
-                  目前沒有可顯示的作業，請稍後再整理一次。
+                  所有作業都已完成，目前沒有待處理的項目 🎉
                 </p>
               </div>
             ) : (
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-base font-semibold text-slate-900">作業清單</h3>
-                  <span className="text-xs text-slate-500">依教師設定顯示</span>
+                  <h3 className="text-base font-semibold text-slate-900">待處理作業</h3>
+                  <span className="text-xs text-slate-500">已完成的作業不會顯示在此</span>
                 </div>
                 <div className="divide-y divide-slate-200/80">
-                  {(overview?.assignments || []).map((item) => {
+                  {activeAssignments.map((item) => {
                     const statusStyle = getStatusStyle(item.status)
                     return (
                       <div key={item.id} className="py-3">

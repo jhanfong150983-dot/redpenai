@@ -358,6 +358,14 @@ export default function ScannerPage({
         throw new Error('不支援的文件格式，請上傳圖片或 PDF 文件')
       }
 
+      // 透視校正：上傳時立刻校正
+      try {
+        const { correctPerspective } = await import('../lib/perspectiveCorrection')
+        imageBlob = await correctPerspective(imageBlob)
+      } catch (err) {
+        console.warn('[ScannerPage] perspective correction failed, using original:', err)
+      }
+
       // 暫存圖片
       await storeImage(imageBlob)
 

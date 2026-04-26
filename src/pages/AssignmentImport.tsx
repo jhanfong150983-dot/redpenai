@@ -758,9 +758,18 @@ export default function AssignmentImport({
 
         if (pageBlobs.length === 0) continue
 
-        const mergeResult = pageBlobs.length === 1
-          ? { blob: pageBlobs[0], pageBreaks: [] as number[] }
-          : await mergePageBlobs(pageBlobs)
+        // 透視校正：每頁獨立校正，再合併
+        let correctedBlobs = pageBlobs
+        try {
+          const { correctPerspectiveMultiple } = await import('../lib/perspectiveCorrection')
+          correctedBlobs = await correctPerspectiveMultiple(pageBlobs)
+        } catch (err) {
+          console.warn('[AssignmentImport] perspective correction failed, using originals:', err)
+        }
+
+        const mergeResult = correctedBlobs.length === 1
+          ? { blob: correctedBlobs[0], pageBreaks: [] as number[] }
+          : await mergePageBlobs(correctedBlobs)
         let imageBlob = mergeResult.blob
         const pageBreaks = mergeResult.pageBreaks
 
