@@ -635,6 +635,7 @@ export function useSync(options: UseSyncOptions = {}) {
         } : undefined,
         answerKeyTemplateId: a.answerKeyTemplateId ?? null,
         conceptTags: a.conceptTags,
+        studentUploadEnabled: a.studentUploadEnabled,
         updatedAt: a.updatedAt
       }))
     
@@ -743,6 +744,7 @@ export function useSync(options: UseSyncOptions = {}) {
         questionCount: t.questionCount ?? t.answerKey?.questions?.length ?? 0,
         totalScore: t.totalScore ?? t.answerKey?.totalScore ?? 0,
         shareCode: t.shareCode ?? undefined,
+        pageOrientations: t.pageOrientations ?? undefined,
         updatedAt: t.updatedAt
       }))
 
@@ -1168,6 +1170,7 @@ export function useSync(options: UseSyncOptions = {}) {
           answerSheetImagePaths: localData?.answerSheetImagePaths,
           answerSheetMode: (a as any).answerSheetMode ?? (a as any).answer_sheet_mode ?? localData?.answerSheetMode,
           questionBookletImagePaths: localData?.questionBookletImagePaths,
+          studentUploadEnabled: (a as any).studentUploadEnabled ?? (a as any).student_upload_enabled ?? localData?.studentUploadEnabled,
           updatedAt: localIsNewer ? localUpdatedAt : cloudUpdatedAt
         }
       })
@@ -1278,6 +1281,7 @@ export function useSync(options: UseSyncOptions = {}) {
         questionCount: t.questionCount ?? t.question_count ?? t.answerKey?.questions?.length ?? 0,
         totalScore: t.totalScore ?? t.total_score ?? t.answerKey?.totalScore ?? 0,
         shareCode: t.shareCode ?? t.share_code ?? undefined,
+        pageOrientations: t.pageOrientations ?? t.page_orientations ?? undefined,
         updatedAt: toMillis(t.updatedAt ?? t.updated_at),
       }))
 
