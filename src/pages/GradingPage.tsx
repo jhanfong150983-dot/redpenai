@@ -2542,8 +2542,10 @@ export default function GradingPage({
 
       // ── Phase Bbox：多輪 Classify → 中位數校正 ─────────────────────────────
       // 確保至少 MIN_CLASSIFY_SAMPLES 筆 bbox 資料，讓中位數更穩定
+      // 同一張圖多次跑有相關性，超過 MAX_CLASSIFY_ROUNDS 輪效益遞減
       const MIN_CLASSIFY_SAMPLES = 15
-      const classifyRounds = Math.max(1, Math.ceil(MIN_CLASSIFY_SAMPLES / toGrade.length))
+      const MAX_CLASSIFY_ROUNDS = 5
+      const classifyRounds = Math.min(MAX_CLASSIFY_ROUNDS, Math.max(1, Math.ceil(MIN_CLASSIFY_SAMPLES / toGrade.length)))
       setGradingMessage(`定位答案中...（${classifyRounds > 1 ? `${classifyRounds} 輪` : ''}）`)
 
       // 展開成多輪任務：每個學生跑 classifyRounds 次
