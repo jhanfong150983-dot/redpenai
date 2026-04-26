@@ -1345,7 +1345,7 @@ export default function GradingPage({
 
     await runWithConcurrency(
       entries,
-      7,
+      5,  // Phase B 每人 1 request（Accessor+Explain server 端串連）
       300,
       async (entry) => {
         if (stopRequestedRef.current) return null
@@ -2643,7 +2643,7 @@ export default function GradingPage({
 
       await runWithConcurrency(
         toGrade,
-        5,
+        3,  // Phase Read 每人同時呼叫 AI1+AI2（2 requests），併發 3 = 同時 6 requests，避免 Gemini 504
         300,
         async (sub, idx) => {
           if (stopRequestedRef.current) return null
@@ -2941,7 +2941,7 @@ export default function GradingPage({
           const indicesToRetry = Array.from(anomalousIndices)
           await runWithConcurrency(
             indicesToRetry,
-            5,
+            3,  // Phase Read 併發限制（同 Phase Read 主流程）
             300,
             async (idx) => {
               if (stopRequestedRef.current) return null
