@@ -1239,6 +1239,7 @@ export default function GradingPage({
 
   // Phase A/B 批次一致性審查
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
+  const backgroundPhaseBPromises = useRef<Promise<void>[]>([])
   const [batchPhaseAEntries, setBatchPhaseAEntries] = useState<BatchPhaseAEntry[]>([])
   const [phaseANeedsReviewCount, setPhaseANeedsReviewCount] = useState(0)
   const [phaseATotalQuestionCount, setPhaseATotalQuestionCount] = useState(0)
@@ -1607,30 +1608,9 @@ export default function GradingPage({
     // 背景模式：只累加 phaseBScoredCount（已在上面做了），不動 UI 狀態
   }, [batchPhaseAEntries, students])
 
-  // ─── 監聯 Accessor 全部完成 → 完成批改 ──────────────────────────────────
+  // ─── Accessor 完成監聽（已改為 Promise.all，useEffect 不再需要） ──────────
+  // 完成判定和清理在 onAllDone 和 executeBatchPhaseB(前台) 中處理
   useEffect(() => {
-    if (phaseBTotalCount === 0) return
-    if (phaseBScoredCount >= phaseBTotalCount && (gradingPhase === 'awaiting_review' || gradingPhase === 'phase_b_running')) {
-      console.log('✅ 全部學生 Accessor 完成，結束批改')
-      // 清理狀態
-      setBatchPhaseAEntries([])
-      setGradingPhase('idle')
-      setIsGrading(false)
-      setCurrentGradingStudent('')
-      setGradingProgress({ current: 0, total: 0 })
-      setPhaseBScoredCount(0)
-      setPhaseBTotalCount(0)
-      setPhaseANeedsReviewCount(0)
-      setPhaseATotalQuestionCount(0)
-      setGradeResultNotice({
-        stopped: false,
-        successCount: phaseBScoredCount,
-        failCount: 0,
-        totalCount: phaseBTotalCount,
-        failReasons: [],
-        failedEntries: [],
-      })
-    }
   }, [phaseBScoredCount, phaseBTotalCount, gradingPhase])
 
   // ─── Batch Decision: 老師對單題的決策 ────────────────────────────────────
@@ -3060,10 +3040,13 @@ export default function GradingPage({
           void executeBatchPhaseB(validEntries)
         } else {
           // 穩定學生背景先跑 Accessor
+          backgroundPhaseBPromises.current = []
           if (stableEntries.length > 0) {
             console.log(`🚀 ${stableEntries.length} 位穩定學生送 Accessor（背景）`)
-            executeBatchPhaseB(stableEntries, true).catch(err =>
-              console.error('Background Accessor failed:', err)
+            backgroundPhaseBPromises.current.push(
+              executeBatchPhaseB(stableEntries, true).catch(err =>
+                console.error('Background Accessor failed:', err)
+              )
             )
           }
           setGradingPhase('awaiting_review')
@@ -3716,34 +3699,20 @@ export default function GradingPage({
             onDecision={handleBatchDecision}
             onStudentConfirmed={(entry) => {
               console.log(`✅ 學生 ${entry.studentId} 確認完成，送 Accessor`)
-              executeBatchPhaseB([entry], true).catch(err =>
-                console.error('Student Accessor failed:', err)
+              backgroundPhaseBPromises.current.push(
+                executeBatchPhaseB([entry], true).catch(err =>
+                  console.error('Student Accessor failed:', err)
+                )
               )
             }}
             onAllDone={async () => {
-              console.log('✅ 全部審查完成，等待 Accessor 完成')
+              console.log('✅ 全部審查完成，等待背景 Accessor')
               setGradingPhase('phase_b_running')
               setGradingMessage('AI 批改評分中...')
               setIsGrading(true)
-              // 輪詢等待所有背景 Accessor 完成
-              await new Promise<void>((resolve) => {
-                const check = () => {
-                  // 直接讀 state ref 而非閉包值
-                  setPhaseBScoredCount(prev => {
-                    setPhaseBTotalCount(total => {
-                      if (total > 0 && prev >= total) {
-                        resolve()
-                      } else {
-                        setTimeout(check, 1000)
-                      }
-                      return total
-                    })
-                    return prev
-                  })
-                }
-                setTimeout(check, 1000)
-              })
-              // 完成 → 生成報告 → 清理
+              // 等待所有背景 Accessor Promise 完成
+              await Promise.all(backgroundPhaseBPromises.current)
+              // 生成報告
               console.log('✅ 全部 Accessor 完成，生成報告')
               setGradingMessage('正在生成作業學情報告...')
               try {
