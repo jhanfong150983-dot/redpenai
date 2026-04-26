@@ -2592,7 +2592,7 @@ export default function GradingPage({
       // ── 中位數 bbox 校正 ──
       const BBOX_THRESHOLD_X = 0.04
       const BBOX_THRESHOLD_Y = 0.02
-      const MIN_STUDENTS_FOR_MEDIAN = 3
+      const MIN_STUDENTS_FOR_MEDIAN = 5
       const bboxByQuestion = new Map<string, Array<{ x: number; y: number; w: number; h: number }>>()
 
       for (const { bboxResults } of allBboxResults) {
