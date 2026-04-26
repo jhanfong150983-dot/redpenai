@@ -83,6 +83,7 @@ type StudentAssignmentItem = {
   gradingPending?: boolean
   gradingQueuePosition?: number
   gradingFailed?: boolean
+  photoRules?: { pageCount: number; orientations: ('portrait' | 'landscape')[] } | null
 }
 
 type StudentOverviewResponse = {
@@ -1005,6 +1006,31 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         setError(`此作業需上傳 ${requiredPages} 頁，目前為 ${files.length} 頁`)
         return
       }
+      // 驗證照片方向是否符合老師設定的拍攝規則
+      if (assignment.photoRules?.orientations) {
+        const orientationErrors: string[] = []
+        for (let i = 0; i < files.length && i < assignment.photoRules.orientations.length; i++) {
+          const expected = assignment.photoRules.orientations[i]
+          const file = files[i]
+          // 用 createImageBitmap 讀取圖片尺寸
+          try {
+            const bitmap = await createImageBitmap(file)
+            const isPortrait = bitmap.height > bitmap.width
+            const isLandscape = bitmap.width > bitmap.height
+            bitmap.close()
+            if (expected === 'portrait' && isLandscape) {
+              orientationErrors.push(`第 ${i + 1} 張應為直拍，但你的照片是橫的`)
+            } else if (expected === 'landscape' && isPortrait) {
+              orientationErrors.push(`第 ${i + 1} 張應為橫拍，但你的照片是直的`)
+            }
+          } catch { /* 無法讀取圖片尺寸，跳過驗證 */ }
+        }
+        if (orientationErrors.length > 0) {
+          setError(orientationErrors.join('；') + '。請重新拍攝後再送出。')
+          return
+        }
+      }
+
       const draftSignature = buildDraftSignature(files)
       const previewedSignature = previewedDraftSignatures[assignment.id]
       if (!previewedSignature || previewedSignature !== draftSignature) {
@@ -1456,6 +1482,11 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         <p className="mt-1 text-xs text-slate-500">
                           已選擇 {draftFiles.length} / {requiredPages} 頁
                         </p>
+                        {item.photoRules?.orientations && (
+                          <p className="mt-1 text-xs text-blue-600">
+                            拍攝方式：{item.photoRules.orientations.map((o, i) => `第${i + 1}頁${o === 'portrait' ? '直拍' : '橫拍'}`).join('、')}
+                          </p>
+                        )}
                         {isLocked && (
                           <p className="mt-1 text-xs text-rose-600">
                             {item.uploadLockedReason || '作業已鎖定，請聯繫老師解除後再上傳'}

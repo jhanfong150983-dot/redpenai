@@ -434,12 +434,14 @@ export default function AssignmentList({
           title: data.title.trim(), answerKey: newAK, domain: akTemplate.domain,
           answerKeyTemplateId: akTemplate.id,
           scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
+          photoRules: data.photoRules || undefined,
           folder: data.folder || undefined, updatedAt: now,
         })
       } else {
         const updates: Partial<Assignment> = {
           title: data.title.trim(),
           scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
+          photoRules: data.photoRules || undefined,
           folder: data.folder || undefined, updatedAt: now,
         }
         if (settingsAssignment.answerKey) {
@@ -1461,7 +1463,9 @@ export default function AssignmentList({
               id: generateId(), classroomId: selectedClassroomId, title: data.title.trim(),
               totalPages: 1, domain, answerKey, answerKeyTemplateId: akTemplate?.id || undefined,
               scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
-              folder: data.folder || undefined, updatedAt: now,
+              folder: data.folder || undefined,
+              photoRules: data.photoRules || undefined,
+              updatedAt: now,
             }
             await db.assignments.add(newAssignment)
             requestSync()
@@ -1545,6 +1549,7 @@ export default function AssignmentList({
             enWordOrderCheck: settingsEnWordOrderCheck,
             enWordOrderDeduction: settingsEnWordOrderDeduction,
           }}
+          initialPhotoRules={settingsAssignment.photoRules}
           initialAnswerKeyInfo={settingsAssignment.answerKey ? {
             domain: settingsAssignment.domain || '未設定',
             questionCount: settingsAssignment.answerKey.questions.length,

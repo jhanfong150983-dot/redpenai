@@ -14,11 +14,17 @@ export interface GradingSettings {
   enWordOrderDeduction: number
 }
 
+export interface PhotoRules {
+  pageCount: number
+  orientations: ('portrait' | 'landscape')[]
+}
+
 export interface AssignmentFormData {
   title: string
   folder: string
   selectedAnswerKeyId: string
   settings: GradingSettings
+  photoRules?: PhotoRules | null
 }
 
 interface AnswerKeyOption {
@@ -40,6 +46,7 @@ interface AssignmentFormModalProps {
   initialFolder?: string
   initialDomain?: string
   initialSettings?: Partial<GradingSettings>
+  initialPhotoRules?: PhotoRules | null
   initialAnswerKeyInfo?: { domain: string; questionCount: number; totalScore: number } | null
   // Options
   folders: string[]
@@ -126,6 +133,7 @@ export default function AssignmentFormModal({
   initialFolder = '',
   initialDomain,
   initialSettings,
+  initialPhotoRules,
   initialAnswerKeyInfo,
   folders,
   answerKeys,
@@ -139,6 +147,18 @@ export default function AssignmentFormModal({
   const [selectedAnswerKeyId, setSelectedAnswerKeyId] = useState('')
   const [settings, setSettings] = useState<GradingSettings>({ ...DEFAULT_SETTINGS, ...initialSettings })
   const [akSearch, setAkSearch] = useState('')
+  const [photoPageCount, setPhotoPageCount] = useState(initialPhotoRules?.pageCount ?? 1)
+  const [photoOrientations, setPhotoOrientations] = useState<('portrait' | 'landscape')[]>(
+    initialPhotoRules?.orientations ?? ['portrait']
+  )
+  const handlePageCountChange = (count: number) => {
+    setPhotoPageCount(count)
+    setPhotoOrientations(prev => {
+      const next = [...prev]
+      while (next.length < count) next.push('portrait')
+      return next.slice(0, count)
+    })
+  }
 
   const selectedAK = answerKeys.find((ak) => ak.id === selectedAnswerKeyId)
   const domain = selectedAK?.domain || initialDomain || ''
@@ -177,6 +197,7 @@ export default function AssignmentFormModal({
       folder,
       selectedAnswerKeyId,
       settings,
+      photoRules: { pageCount: photoPageCount, orientations: photoOrientations },
     })
   }
 
@@ -339,6 +360,57 @@ export default function AssignmentFormModal({
                     ⚠ 更換答案卷將清除 {gradedCount} 份批改結果，需重新批改
                   </p>
                 )}
+              </div>
+
+              {/* 學生拍攝規則 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">學生拍攝規則</label>
+                <p className="text-xs text-gray-400 mb-3">設定後，學生上傳時會看到拍攝指引，方向不符會提醒重拍</p>
+
+                {/* 頁數選擇 */}
+                <div className="mb-3">
+                  <span className="text-xs text-gray-500 mr-2">照片頁數</span>
+                  <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                    {[1, 2, 3, 4].map(n => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => handlePageCountChange(n)}
+                        className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                          photoPageCount === n
+                            ? 'bg-green-500 text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
+                        } ${n > 1 ? 'border-l border-gray-200' : ''}`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 每頁方向 */}
+                <div className="flex gap-3 flex-wrap">
+                  {Array.from({ length: photoPageCount }, (_, i) => (
+                    <div key={i} className="flex flex-col items-center gap-1.5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 min-w-[90px]">
+                      <div className="text-[40px] leading-none">
+                        {photoOrientations[i] === 'portrait' ? '📱' : '📱'}
+                      </div>
+                      <span className="text-xs font-medium text-gray-700">第 {i + 1} 頁</span>
+                      <select
+                        value={photoOrientations[i] || 'portrait'}
+                        onChange={(e) => {
+                          const next = [...photoOrientations]
+                          next[i] = e.target.value as 'portrait' | 'landscape'
+                          setPhotoOrientations(next)
+                        }}
+                        className="text-xs rounded-lg border border-gray-300 px-2 py-1 bg-white focus:border-green-400 focus:outline-none"
+                      >
+                        <option value="portrait">直拍</option>
+                        <option value="landscape">橫拍</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}
