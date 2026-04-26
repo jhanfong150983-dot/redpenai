@@ -83,7 +83,7 @@ type StudentAssignmentItem = {
   gradingPending?: boolean
   gradingQueuePosition?: number
   gradingFailed?: boolean
-  photoRules?: { pageCount: number; orientations: ('portrait' | 'landscape')[] } | null
+  photoRules?: { submissionMode: 'photo' | 'pdf'; pageCount: number; orientations: ('portrait' | 'landscape')[] } | null
 }
 
 type StudentOverviewResponse = {
@@ -1455,6 +1455,18 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               {uploadAssignments.map((item) => {
                 const requiredPages = Math.max(1, item.totalPages || 1)
                 const draftFiles = uploadDrafts[item.id] || []
+                // PDF 模式：不開放學生上傳
+                if (item.photoRules?.submissionMode === 'pdf') {
+                  return (
+                    <article
+                      key={item.id}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-4 text-left"
+                    >
+                      <h3 className="mb-1 truncate text-base font-semibold text-gray-900">{item.title}</h3>
+                      <p className="text-sm text-gray-500">此作業由老師上傳批改，不需自行拍照。</p>
+                    </article>
+                  )
+                }
                 const isLocked = Boolean(item.uploadLocked) || !item.canUpload
                 const draftSignature = buildDraftSignature(draftFiles)
                 const hasPreviewedCurrentDraft =

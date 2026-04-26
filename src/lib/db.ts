@@ -210,8 +210,8 @@ export interface Assignment {
   answerSheetImagePaths?: string[]
   // 題本圖 Supabase Storage 路徑，question-booklets/{id}/page-{i}.webp（純答案卷模式下，老師上傳的題本）
   questionBookletImagePaths?: string[]
-  // 學生拍攝規則（頁數 + 每頁方向）
-  photoRules?: { pageCount: number; orientations: ('portrait' | 'landscape')[] } | null
+  // 作業繳交方式 + 學生拍攝規則
+  photoRules?: { submissionMode: 'photo' | 'pdf'; pageCount: number; orientations: ('portrait' | 'landscape')[] } | null
   updatedAt?: number
 }
 
