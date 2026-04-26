@@ -83,7 +83,8 @@ type StudentAssignmentItem = {
   gradingPending?: boolean
   gradingQueuePosition?: number
   gradingFailed?: boolean
-  photoRules?: { studentUploadEnabled: boolean; pageCount: number; orientations: ('portrait' | 'landscape')[] } | null
+  studentUploadEnabled?: boolean
+  pageOrientations?: ('portrait' | 'landscape')[] | null
 }
 
 type StudentOverviewResponse = {
@@ -1006,11 +1007,11 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         setError(`此作業需上傳 ${requiredPages} 頁，目前為 ${files.length} 頁`)
         return
       }
-      // 驗證照片方向是否符合老師設定的拍攝規則
-      if (assignment.photoRules?.orientations) {
+      // 驗證照片方向是否符合答案卷的拍攝規則
+      if (assignment.pageOrientations && assignment.pageOrientations.length > 0) {
         const orientationErrors: string[] = []
-        for (let i = 0; i < files.length && i < assignment.photoRules.orientations.length; i++) {
-          const expected = assignment.photoRules.orientations[i]
+        for (let i = 0; i < files.length && i < assignment.pageOrientations.length; i++) {
+          const expected = assignment.pageOrientations[i]
           const file = files[i]
           // 用 createImageBitmap 讀取圖片尺寸
           try {
@@ -1457,7 +1458,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 const requiredPages = Math.max(1, item.totalPages || 1)
                 const draftFiles = uploadDrafts[item.id] || []
                 // 不開放學生繳交
-                if (item.photoRules?.studentUploadEnabled === false) {
+                if (item.studentUploadEnabled === false) {
                   return (
                     <article
                       key={item.id}
@@ -1495,9 +1496,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         <p className="mt-1 text-xs text-slate-500">
                           已選擇 {draftFiles.length} / {requiredPages} 頁
                         </p>
-                        {item.photoRules?.orientations && (
+                        {item.pageOrientations && item.pageOrientations.length > 0 && (
                           <p className="mt-1 text-xs text-blue-600">
-                            拍攝方式：{item.photoRules.orientations.map((o, i) => `第${i + 1}頁${o === 'portrait' ? '直拍' : '橫拍'}`).join('、')}
+                            拍攝方式：{item.pageOrientations.map((o, i) => `第${i + 1}頁${o === 'portrait' ? '直拍' : '橫拍'}`).join('、')}
                           </p>
                         )}
                         {isLocked && (

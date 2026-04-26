@@ -433,17 +433,16 @@ export default function AssignmentList({
         await db.assignments.update(settingsAssignment.id, {
           title: data.title.trim(), answerKey: newAK, domain: akTemplate.domain,
           answerKeyTemplateId: akTemplate.id,
-          totalPages: data.photoRules?.pageCount ?? settingsAssignment.totalPages ?? 1,
+          totalPages: akTemplate ? Math.max(1, ...((akTemplate.answerKey?.questions as Array<{id?:string}>) || []).map(q => parseInt(String(q?.id || '1').split('-')[0], 10) || 1)) : settingsAssignment.totalPages ?? 1,
           scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
-          photoRules: data.photoRules || undefined,
+          studentUploadEnabled: data.studentUploadEnabled,
           folder: data.folder || undefined, updatedAt: now,
         })
       } else {
         const updates: Partial<Assignment> = {
           title: data.title.trim(),
-          totalPages: data.photoRules?.pageCount ?? settingsAssignment.totalPages ?? 1,
           scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
-          photoRules: data.photoRules || undefined,
+          studentUploadEnabled: data.studentUploadEnabled,
           folder: data.folder || undefined, updatedAt: now,
         }
         if (settingsAssignment.answerKey) {
@@ -1463,10 +1462,11 @@ export default function AssignmentList({
             }
             const newAssignment: Assignment = {
               id: generateId(), classroomId: selectedClassroomId, title: data.title.trim(),
-              totalPages: data.photoRules?.pageCount ?? 1, domain, answerKey, answerKeyTemplateId: akTemplate?.id || undefined,
+              totalPages: akTemplate ? Math.max(1, ...((akTemplate.answerKey?.questions as Array<{id?:string}>) || []).map(q => parseInt(String(q?.id || '1').split('-')[0], 10) || 1)) : 1,
+              domain, answerKey, answerKeyTemplateId: akTemplate?.id || undefined,
               scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
               folder: data.folder || undefined,
-              photoRules: data.photoRules || undefined,
+              studentUploadEnabled: data.studentUploadEnabled,
               updatedAt: now,
             }
             await db.assignments.add(newAssignment)
@@ -1551,7 +1551,7 @@ export default function AssignmentList({
             enWordOrderCheck: settingsEnWordOrderCheck,
             enWordOrderDeduction: settingsEnWordOrderDeduction,
           }}
-          initialPhotoRules={settingsAssignment.photoRules}
+          initialStudentUploadEnabled={settingsAssignment.studentUploadEnabled}
           initialAnswerKeyInfo={settingsAssignment.answerKey ? {
             domain: settingsAssignment.domain || '未設定',
             questionCount: settingsAssignment.answerKey.questions.length,

@@ -14,18 +14,12 @@ export interface GradingSettings {
   enWordOrderDeduction: number
 }
 
-export interface PhotoRules {
-  studentUploadEnabled: boolean
-  pageCount: number
-  orientations: ('portrait' | 'landscape')[]
-}
-
 export interface AssignmentFormData {
   title: string
   folder: string
   selectedAnswerKeyId: string
   settings: GradingSettings
-  photoRules?: PhotoRules | null
+  studentUploadEnabled: boolean
 }
 
 interface AnswerKeyOption {
@@ -48,7 +42,7 @@ interface AssignmentFormModalProps {
   initialFolder?: string
   initialDomain?: string
   initialSettings?: Partial<GradingSettings>
-  initialPhotoRules?: PhotoRules | null
+  initialStudentUploadEnabled?: boolean
   initialAnswerKeyInfo?: { domain: string; questionCount: number; totalScore: number } | null
   // Options
   folders: string[]
@@ -135,7 +129,7 @@ export default function AssignmentFormModal({
   initialFolder = '',
   initialDomain,
   initialSettings,
-  initialPhotoRules,
+  initialStudentUploadEnabled,
   initialAnswerKeyInfo,
   folders,
   answerKeys,
@@ -149,7 +143,7 @@ export default function AssignmentFormModal({
   const [selectedAnswerKeyId, setSelectedAnswerKeyId] = useState('')
   const [settings, setSettings] = useState<GradingSettings>({ ...DEFAULT_SETTINGS, ...initialSettings })
   const [akSearch, setAkSearch] = useState('')
-  const [studentUploadEnabled, setStudentUploadEnabled] = useState(initialPhotoRules?.studentUploadEnabled ?? true)
+  const [studentUploadEnabled, setStudentUploadEnabled] = useState(initialStudentUploadEnabled ?? true)
 
   const selectedAK = answerKeys.find((ak) => ak.id === selectedAnswerKeyId)
   const domain = selectedAK?.domain || initialDomain || ''
@@ -207,7 +201,7 @@ export default function AssignmentFormModal({
       folder,
       selectedAnswerKeyId,
       settings,
-      photoRules: { studentUploadEnabled, pageCount: akPageCount, orientations: akOrientations },
+      studentUploadEnabled,
     })
   }
 
