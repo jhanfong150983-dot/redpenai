@@ -229,7 +229,9 @@ export default function AnswerKeyWizardModal({
       try {
         const { correctPerspective } = await import('../lib/perspectiveCorrection')
         for (const item of orderedBlobs) {
+          const oldUrl = item.url
           item.blob = await correctPerspective(item.blob)
+          URL.revokeObjectURL(oldUrl)
           item.url = URL.createObjectURL(item.blob)
         }
       } catch (err) {

@@ -433,6 +433,7 @@ export default function AssignmentList({
         await db.assignments.update(settingsAssignment.id, {
           title: data.title.trim(), answerKey: newAK, domain: akTemplate.domain,
           answerKeyTemplateId: akTemplate.id,
+          totalPages: data.photoRules?.pageCount ?? settingsAssignment.totalPages ?? 1,
           scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
           photoRules: data.photoRules || undefined,
           folder: data.folder || undefined, updatedAt: now,
@@ -440,6 +441,7 @@ export default function AssignmentList({
       } else {
         const updates: Partial<Assignment> = {
           title: data.title.trim(),
+          totalPages: data.photoRules?.pageCount ?? settingsAssignment.totalPages ?? 1,
           scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
           photoRules: data.photoRules || undefined,
           folder: data.folder || undefined, updatedAt: now,
@@ -1461,7 +1463,7 @@ export default function AssignmentList({
             }
             const newAssignment: Assignment = {
               id: generateId(), classroomId: selectedClassroomId, title: data.title.trim(),
-              totalPages: 1, domain, answerKey, answerKeyTemplateId: akTemplate?.id || undefined,
+              totalPages: data.photoRules?.pageCount ?? 1, domain, answerKey, answerKeyTemplateId: akTemplate?.id || undefined,
               scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
               folder: data.folder || undefined,
               photoRules: data.photoRules || undefined,

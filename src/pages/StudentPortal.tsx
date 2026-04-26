@@ -1128,6 +1128,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         } catch (err) {
           console.warn('[StudentPortal] perspective correction failed:', err)
           // 校正失敗 → 提示學生重新送出
+          setSubmittingStep('uploading')
           setIsSubmitting(false)
           setSubmittingMode(null)
           setError('照片處理失敗，請稍候再按一次送出。如果持續失敗，請通知老師。')

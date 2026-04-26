@@ -180,6 +180,9 @@ export async function applyPerspectiveTransform(
   const dstW = Math.round(Math.max(topWidth, bottomWidth))
   const dstH = Math.round(Math.max(leftHeight, rightHeight))
 
+  // 邊界檢查：尺寸太小代表角偵測有誤，回傳原圖
+  if (dstW < 10 || dstH < 10) return imageBlob
+
   // 目標四角（矩形）
   const dstPoints = [
     { x: 0, y: 0 },       // topLeft
@@ -302,10 +305,17 @@ function addPadding(corners: DocumentCorners, ratio: number): DocumentCorners {
 
 async function loadImage(blob: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob)
     const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = reject
-    img.src = URL.createObjectURL(blob)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(img)
+    }
+    img.onerror = (err) => {
+      URL.revokeObjectURL(url)
+      reject(err)
+    }
+    img.src = url
   })
 }
 
