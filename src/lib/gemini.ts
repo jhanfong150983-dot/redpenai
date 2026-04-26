@@ -4393,6 +4393,90 @@ export async function gradePhaseA(
   return parsed
 }
 
+// ─── Phase Bbox：只跑 Classify，回傳 bbox ─────────────────────────────────
+export async function gradeClassifyOnly(
+  submissionImageBlob: Blob,
+  answerKey: AnswerKey,
+  pageBreaks?: number[],
+  domain?: string,
+  assignmentId?: string,
+  answerSheetMode?: 'with_questions' | 'answer_only',
+  submissionId?: string
+): Promise<{ classifyOnly: true; bboxResults: Array<{ questionId: string; questionType: string; answerBbox: any; readBbox: any }> }> {
+  const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
+  const { sessionId: inkSessionId } = await ensureInkSessionFresh()
+  const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'classify-only')
+  const imageBase64 = await blobToBase64(compressed)
+  const mimeType = compressed.type || submissionImageBlob.type || 'image/jpeg'
+
+  const response = await fetch(geminiProxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      model: currentModelName,
+      contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
+      ...(inkSessionId ? { inkSessionId } : {}),
+      routeKey: 'grading.phase_a',
+      answerKey: JSON.stringify(normalizedAnswerKey),
+      classifyOnly: true,
+      ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
+      ...(assignmentId ? { assignmentId } : {}),
+      ...(submissionId ? { submissionId } : {}),
+      ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
+    })
+  })
+  if (!response.ok) throw new Error(`classifyOnly failed: ${response.status}`)
+  return JSON.parse(await response.text())
+}
+
+// ─── Phase Read：帶校正 bbox 跑 Read + AI3 ─────────────────────────────────
+export interface BboxOverride {
+  questionId: string
+  answerBbox: { x: number; y: number; w: number; h: number } | null
+  readBbox?: { x: number; y: number; w: number; h: number } | null
+  corrected?: boolean
+}
+
+export async function gradeWithBboxOverrides(
+  submissionImageBlob: Blob,
+  answerKey: AnswerKey,
+  bboxOverrides: BboxOverride[],
+  pageBreaks?: number[],
+  domain?: string,
+  assignmentId?: string,
+  answerSheetMode?: 'with_questions' | 'answer_only',
+  submissionId?: string
+): Promise<PhaseAResult> {
+  const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
+  const { sessionId: inkSessionId } = await ensureInkSessionFresh()
+  const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'read-with-overrides')
+  const imageBase64 = await blobToBase64(compressed)
+  const mimeType = compressed.type || submissionImageBlob.type || 'image/jpeg'
+
+  const response = await fetch(geminiProxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      model: currentModelName,
+      contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
+      ...(inkSessionId ? { inkSessionId } : {}),
+      routeKey: 'grading.phase_a',
+      answerKey: JSON.stringify(normalizedAnswerKey),
+      bboxOverrides,
+      ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
+      ...(assignmentId ? { assignmentId } : {}),
+      ...(submissionId ? { submissionId } : {}),
+      ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
+    })
+  })
+  if (!response.ok) throw new Error(`gradeWithBboxOverrides failed: ${response.status}`)
+  const parsed = JSON.parse(await response.text()) as PhaseAResult
+  if (!parsed?.phaseAComplete) throw new Error('Phase Read: unexpected response format')
+  return parsed
+}
+
 // ─── Phase B：正式批改（Accessor + Explain）─────────────────────────────────
 /**
  * 執行批改 Phase B（Accessor + Explain）
