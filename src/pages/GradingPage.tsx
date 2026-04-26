@@ -2540,41 +2540,60 @@ export default function GradingPage({
         return
       }
 
-      // ── Phase Bbox：全班 Classify → 中位數校正 ─────────────────────────────
-      setGradingMessage('定位答案中...')
+      // ── Phase Bbox：多輪 Classify → 中位數校正 ─────────────────────────────
+      // 確保至少 MIN_CLASSIFY_SAMPLES 筆 bbox 資料，讓中位數更穩定
+      const MIN_CLASSIFY_SAMPLES = 15
+      const classifyRounds = Math.max(1, Math.ceil(MIN_CLASSIFY_SAMPLES / toGrade.length))
+      setGradingMessage(`定位答案中...（${classifyRounds > 1 ? `${classifyRounds} 輪` : ''}）`)
+
+      // 展開成多輪任務：每個學生跑 classifyRounds 次
+      const classifyTasks: Array<{ sub: typeof toGrade[0]; idx: number; round: number }> = []
+      for (let round = 0; round < classifyRounds; round++) {
+        for (let i = 0; i < toGrade.length; i++) {
+          classifyTasks.push({ sub: toGrade[i], idx: i, round })
+        }
+      }
+      const totalClassifyTasks = classifyTasks.length
       const allBboxResults: Array<{ idx: number; sub: typeof toGrade[0]; bboxResults: Array<{ questionId: string; questionType: string; answerBbox: any; readBbox: any }> }> = []
       let completedClassify = 0
 
+      console.log(`📐 [Classify] ${toGrade.length} students × ${classifyRounds} rounds = ${totalClassifyTasks} tasks`)
+
       await runWithConcurrency(
-        toGrade,
+        classifyTasks,
         5,
         300,
-        async (sub) => {
+        async (task) => {
           if (stopRequestedRef.current) return null
-          console.log(`📐 [Classify] student=${sub.studentId}`)
+          if (task.round > 0) {
+            console.log(`📐 [Classify] student=${task.sub.studentId} round=${task.round + 1}`)
+          } else {
+            console.log(`📐 [Classify] student=${task.sub.studentId}`)
+          }
           const result = await gradeClassifyOnly(
-            sub.imageBlob!,
+            task.sub.imageBlob!,
             assignment.answerKey!,
-            sub.pageBreaks,
+            task.sub.pageBreaks,
             assignment.domain,
             assignment.id,
             assignment.answerSheetMode,
-            sub.id
+            task.sub.id
           )
-          return { sub, bboxResults: result.bboxResults }
+          return { sub: task.sub, idx: task.idx, bboxResults: result.bboxResults }
         },
         (i, result, err) => {
           completedClassify++
-          // Classify 佔 0~50%：current = completedClassify, total = toGrade.length * 2
-          setGradingProgress({ current: completedClassify, total: toGrade.length * 2 })
+          // Classify 佔 0~50%：current = completedClassify, total = totalClassifyTasks + toGrade.length（Read 佔後半）
+          setGradingProgress({ current: completedClassify, total: totalClassifyTasks + toGrade.length })
           if (stopRequestedRef.current) return
           if (!result || err) {
-            if (err) console.error(`Classify failed for ${toGrade[i].id}:`, err)
+            if (err) console.error(`Classify failed for task ${i}:`, err)
             // 失敗也要 push（空 bbox），確保 idx 對得上
-            allBboxResults.push({ idx: i, sub: toGrade[i], bboxResults: [] })
+            const task = classifyTasks[i]
+            allBboxResults.push({ idx: task.idx, sub: task.sub, bboxResults: [] })
             return
           }
-          allBboxResults.push({ idx: i, ...result })
+          allBboxResults.push({ idx: result.idx, sub: result.sub, bboxResults: result.bboxResults })
           const student = students.find((s) => s.id === result.sub.studentId)
           if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
         }
@@ -2608,38 +2627,49 @@ export default function GradingPage({
         })
       }
 
-      // 校正：偏差超過閾值的用中位數覆蓋
-      let totalCorrected = 0
+      // 校正：中位數 bbox 直接套用到每個學生（所有學生用同一組中位數 bbox）
+      // 多輪 classify 的目的是讓中位數更準，校正結果每個學生只需一份
       const correctedOverrides = new Map<number, BboxOverride[]>() // idx → overrides
+      let totalCorrected = 0
 
+      // 收集每個學生原始 classify 偵測到的 questionId（合併多輪結果）
+      const studentDetectedIds = new Map<number, Set<string>>() // idx → 偵測到的 questionIds
       for (const entry of allBboxResults) {
-        const overrides: BboxOverride[] = []
+        if (!studentDetectedIds.has(entry.idx)) studentDetectedIds.set(entry.idx, new Set())
+        const ids = studentDetectedIds.get(entry.idx)!
         for (const br of entry.bboxResults) {
-          const med = medianBbox.get(br.questionId)
-          if (!med) {
-            // 中位數不存在（題目不足 5 份），保持原值
-            overrides.push({ questionId: br.questionId, answerBbox: br.answerBbox, readBbox: br.readBbox })
-            continue
-          }
-          if (!br.answerBbox) {
-            // bbox 被拒（如像素座標）→ 用中位數覆蓋，省掉 retry
-            overrides.push({ questionId: br.questionId, answerBbox: med, readBbox: null, corrected: true })
-            totalCorrected++
-            continue
-          }
-          // 有中位數就一律用中位數，消除所有 classify 雜訊
-          overrides.push({ questionId: br.questionId, answerBbox: med, readBbox: null, corrected: true })
+          ids.add(br.questionId)
+        }
+      }
+
+      // 為每個學生建立 overrides：有中位數用中位數，沒有時用原始 bbox
+      for (let i = 0; i < toGrade.length; i++) {
+        const overrides: BboxOverride[] = []
+        const detectedIds = studentDetectedIds.get(i) ?? new Set()
+
+        // 先加入中位數涵蓋的題目
+        for (const [qId, med] of medianBbox) {
+          overrides.push({ questionId: qId, answerBbox: med, readBbox: null, corrected: true })
           totalCorrected++
         }
-        // 補漏：如果學生的 classify 漏偵測了某些題目，但中位數存在，補上中位數 bbox
-        const existingIds = new Set(overrides.map(o => o.questionId))
-        for (const [qId, med] of medianBbox) {
-          if (!existingIds.has(qId)) {
-            overrides.push({ questionId: qId, answerBbox: med, readBbox: null, corrected: true })
-            totalCorrected++
+
+        // 補充中位數沒有、但學生 classify 有的題目（樣本不足 MIN_STUDENTS_FOR_MEDIAN 的題）
+        const medianIds = new Set(medianBbox.keys())
+        // 從該學生的任一輪 classify 結果取原始 bbox
+        const studentEntries = allBboxResults.filter(e => e.idx === i)
+        for (const qId of detectedIds) {
+          if (medianIds.has(qId)) continue // 已由中位數覆蓋
+          // 找該學生第一輪有此題的 bbox
+          for (const entry of studentEntries) {
+            const br = entry.bboxResults.find(b => b.questionId === qId)
+            if (br) {
+              overrides.push({ questionId: qId, answerBbox: br.answerBbox, readBbox: br.readBbox })
+              break
+            }
           }
         }
-        correctedOverrides.set(entry.idx, overrides)
+
+        correctedOverrides.set(i, overrides)
       }
 
       console.log(`📐 [BboxCorrection] median calculated for ${medianBbox.size} questions, corrected ${totalCorrected} bboxes`)
@@ -2682,8 +2712,8 @@ export default function GradingPage({
         },
         (i, result, err) => {
           completedA++
-          // Read 佔 50~100%：current = toGrade.length + completedA, total = toGrade.length * 2
-          setGradingProgress({ current: toGrade.length + completedA, total: toGrade.length * 2 })
+          // Read 進度接在 Classify 後面
+          setGradingProgress({ current: totalClassifyTasks + completedA, total: totalClassifyTasks + toGrade.length })
           if (stopRequestedRef.current || !result) {
             if (err) console.error(`Phase A failed for ${toGrade[i].id}:`, err)
             return
