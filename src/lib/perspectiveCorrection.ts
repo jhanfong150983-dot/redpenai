@@ -61,7 +61,15 @@ export async function detectDocumentCorners(imageBlob: Blob): Promise<DocumentCo
   try {
     const base64 = await blobToBase64Simple(imageBlob)
     const mimeType = imageBlob.type || 'image/jpeg'
-    const { sessionId: inkSessionId } = await ensureInkSessionFresh()
+
+    // ink session 是老師端的批改額度系統，學生端可能沒有
+    let inkSessionId: string | null = null
+    try {
+      const result = await ensureInkSessionFresh()
+      inkSessionId = result.sessionId
+    } catch {
+      // 學生端沒有 ink session 權限，靜默忽略
+    }
 
     const response = await fetch(geminiProxyUrl, {
       method: 'POST',
