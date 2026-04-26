@@ -520,6 +520,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [correctionCameraQuestionId, setCorrectionCameraQuestionId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submittingMode, setSubmittingMode] = useState<'upload' | 'correction' | null>(null)
+  const [submittingStep, setSubmittingStep] = useState<'correcting' | 'uploading'>('uploading')
   const [showCorrectionSubmitConfirm, setShowCorrectionSubmitConfirm] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const initialTabSetRef = useRef(false)
@@ -1094,12 +1095,19 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       // 透視校正：每張照片獨立校正，再合併（upload 模式才校正，correction 不需要）
       let filesToMerge: (File | Blob)[] = mergedFiles
       if (mode === 'upload' && mergedFiles.length > 0) {
+        setSubmittingStep('correcting')
         try {
           const { correctPerspectiveMultiple } = await import('../lib/perspectiveCorrection')
           filesToMerge = await correctPerspectiveMultiple(mergedFiles)
         } catch (err) {
-          console.warn('[StudentPortal] perspective correction failed, using originals:', err)
+          console.warn('[StudentPortal] perspective correction failed:', err)
+          // 校正失敗 → 提示學生重新送出
+          setIsSubmitting(false)
+          setSubmittingMode(null)
+          setError('照片處理失敗，請稍候再按一次送出。如果持續失敗，請通知老師。')
+          return
         }
+        setSubmittingStep('uploading')
       }
 
       const mergeTarget = mode === 'correction' ? CORRECTION_MERGE_TARGET_BYTES : 2_000_000
@@ -1835,12 +1843,18 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               <Loader2 className="h-5 w-5 animate-spin text-sky-700" />
             </div>
             <p className="text-base font-semibold text-slate-900">
-              {submittingMode === 'correction' ? '訂正上傳中' : '作業送出中'}
+              {submittingMode === 'correction'
+                ? '訂正上傳中'
+                : submittingStep === 'correcting'
+                  ? '照片處理中'
+                  : '作業送出中'}
             </p>
             <p className="mt-1 text-sm text-slate-600">
               {submittingMode === 'correction'
                 ? '正在上傳照片，上傳完成後 AI 將自動排隊批改。'
-                : '請勿離開此頁，系統正在送出本次作業。'}
+                : submittingStep === 'correcting'
+                  ? '正在校正照片角度，請稍候...'
+                  : '請勿離開此頁，系統正在送出本次作業。'}
             </p>
           </div>
         </div>
