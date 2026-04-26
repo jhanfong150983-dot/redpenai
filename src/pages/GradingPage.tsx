@@ -1584,23 +1584,27 @@ export default function GradingPage({
     const qualityFailedEntries = qualityFails.map((f) => batchPhaseAEntries.find((e) => e.submissionId === f.submissionId)).filter(Boolean) as BatchPhaseAEntry[]
     const totalEntries = entries.length + qualityFails.length
 
-    setBatchPhaseAEntries([])
-    setGradingPhase('idle')
-    setIsGrading(false)
-    setCurrentGradingStudent('')
-    setSelectedSubmissionIds(new Set())
-    setPostRetryWarnings([])
-    setGradeResultNotice({
-      stopped: stopRequestedRef.current,
-      successCount,
-      failCount: failCount + qualityFails.length,
-      totalCount: totalEntries,
-      failReasons: [...failReasons, ...qualityFailReasons],
-      failedEntries: [...failedEntries, ...qualityFailedEntries],
-    })
-    setStopRequested(false)
-    stopRequestedRef.current = false
-    setGradingProgress({ current: 0, total: 0 })
+    if (!background) {
+      // 前台模式：清理狀態，顯示結果通知
+      setBatchPhaseAEntries([])
+      setGradingPhase('idle')
+      setIsGrading(false)
+      setCurrentGradingStudent('')
+      setSelectedSubmissionIds(new Set())
+      setPostRetryWarnings([])
+      setGradeResultNotice({
+        stopped: stopRequestedRef.current,
+        successCount,
+        failCount: failCount + qualityFails.length,
+        totalCount: totalEntries,
+        failReasons: [...failReasons, ...qualityFailReasons],
+        failedEntries: [...failedEntries, ...qualityFailedEntries],
+      })
+      setStopRequested(false)
+      stopRequestedRef.current = false
+      setGradingProgress({ current: 0, total: 0 })
+    }
+    // 背景模式：只累加 phaseBScoredCount（已在上面做了），不動 UI 狀態
   }, [batchPhaseAEntries, students])
 
   // ─── 監聽 Accessor 全部完成 → 生成報告 ──────────────────────────────────
@@ -3033,18 +3037,18 @@ export default function GradingPage({
         const stableEntries = validEntries.filter(e => !isNeedsReview(e))
         const reviewEntries = validEntries.filter(e => isNeedsReview(e))
 
-        if (stableEntries.length > 0) {
-          console.log(`🚀 ${stableEntries.length} 位穩定學生立刻送 Accessor（背景）`)
-          executeBatchPhaseB(stableEntries, true).catch(err =>
-            console.error('Background Accessor failed:', err)
-          )
-        }
-
         if (reviewEntries.length === 0) {
-          // 全部穩定，不需審查，等 Accessor 完成
-          console.log('✅ 全部穩定，等待 Accessor 完成')
-          // executeBatchPhaseB 已在上面觸發，gradingPhase 會被它設成 phase_b_running
+          // 全部穩定，不需審查 → 前台跑全部 Accessor
+          console.log('✅ 全部穩定，直接進入 Phase B')
+          void executeBatchPhaseB(validEntries)
         } else {
+          // 穩定學生背景先跑 Accessor
+          if (stableEntries.length > 0) {
+            console.log(`🚀 ${stableEntries.length} 位穩定學生送 Accessor（背景）`)
+            executeBatchPhaseB(stableEntries, true).catch(err =>
+              console.error('Background Accessor failed:', err)
+            )
+          }
           setGradingPhase('awaiting_review')
         }
         // Fire-and-forget: write Phase A forensic data to Supabase for calibration
