@@ -224,26 +224,24 @@ export default function AnswerKeyWizardModal({
         return { index: newIdx, url: orig.url, blob: orig.blob, rotation: item.rotation }
       })
 
-      // 先應用老師的手動旋轉（90°/180°/270°），再做透視校正
+      // 先應用老師的手動旋轉（90°/180°/270°），再做透視校正（並行處理）
       setLoadingMsg('校正圖片角度…')
-      for (const item of orderedBlobs) {
-        if (item.rotation !== 0) {
-          try {
-            const { rotateImageBlob } = await import('../lib/imageCompression')
-            item.blob = await rotateImageBlob(item.blob, item.rotation)
-          } catch (err) {
-            console.warn(`[AnswerKeyWizard] rotate page ${item.index} failed:`, err)
-          }
-        }
-      }
       try {
-        const { correctPerspective } = await import('../lib/perspectiveCorrection')
-        for (const item of orderedBlobs) {
+        const [{ rotateImageBlob }, { correctPerspective }] = await Promise.all([
+          import('../lib/imageCompression'),
+          import('../lib/perspectiveCorrection')
+        ])
+        await Promise.all(orderedBlobs.map(async (item) => {
+          // 旋轉
+          if (item.rotation !== 0) {
+            item.blob = await rotateImageBlob(item.blob, item.rotation)
+          }
+          // 透視校正
           const oldUrl = item.url
           item.blob = await correctPerspective(item.blob)
           URL.revokeObjectURL(oldUrl)
           item.url = URL.createObjectURL(item.blob)
-        }
+        }))
       } catch (err) {
         console.warn('[AnswerKeyWizard] perspective correction failed, using originals:', err)
       }

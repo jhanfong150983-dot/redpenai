@@ -273,12 +273,11 @@ export async function correctPerspective(imageBlob: Blob): Promise<Blob> {
  * 用於多頁照片：先各自校正，再合併。
  */
 export async function correctPerspectiveMultiple(imageBlobs: Blob[]): Promise<Blob[]> {
-  const results: Blob[] = []
-  for (let i = 0; i < imageBlobs.length; i++) {
+  console.log(`📐 [perspectiveCorrection] correcting ${imageBlobs.length} pages in parallel`)
+  return Promise.all(imageBlobs.map((blob, i) => {
     console.log(`📐 [perspectiveCorrection] page ${i + 1}/${imageBlobs.length}`)
-    results.push(await correctPerspective(imageBlobs[i]))
-  }
-  return results
+    return correctPerspective(blob)
+  }))
 }
 
 // ─── Utility Functions ──────────────────────────────────────────────────────
