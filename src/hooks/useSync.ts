@@ -1170,7 +1170,7 @@ export function useSync(options: UseSyncOptions = {}) {
           answerSheetImagePaths: localData?.answerSheetImagePaths,
           answerSheetMode: (a as any).answerSheetMode ?? (a as any).answer_sheet_mode ?? localData?.answerSheetMode,
           questionBookletImagePaths: localData?.questionBookletImagePaths,
-          studentUploadEnabled: (a as any).studentUploadEnabled ?? (a as any).student_upload_enabled ?? localData?.studentUploadEnabled,
+          studentUploadEnabled: (a as any).studentUploadEnabled ?? (a as any).student_upload_enabled ?? (localData as any)?.studentUploadEnabled,
           updatedAt: localIsNewer ? localUpdatedAt : cloudUpdatedAt
         }
       })
