@@ -2631,6 +2631,14 @@ export default function GradingPage({
           overrides.push({ questionId: br.questionId, answerBbox: med, readBbox: null, corrected: true })
           totalCorrected++
         }
+        // 補漏：如果學生的 classify 漏偵測了某些題目，但中位數存在，補上中位數 bbox
+        const existingIds = new Set(overrides.map(o => o.questionId))
+        for (const [qId, med] of medianBbox) {
+          if (!existingIds.has(qId)) {
+            overrides.push({ questionId: qId, answerBbox: med, readBbox: null, corrected: true })
+            totalCorrected++
+          }
+        }
         correctedOverrides.set(entry.idx, overrides)
       }
 
