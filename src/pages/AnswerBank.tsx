@@ -474,7 +474,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
     } catch (err) { console.warn('⚠️ 答案截圖上傳例外', err) }
   }
 
-  const handleWizardSave = async (answerKey: AnswerKey, _imageBlobs: Blob[]) => {
+  const handleWizardSave = async (answerKey: AnswerKey, imageBlobs: Blob[]) => {
     if (editingAssignmentId) {
       // 檢查有沒有班級作業引用了這份答案卷
       const allAssignments = await db.assignments.toArray()
@@ -496,11 +496,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
       if (!newTitle.trim()) { setError('請輸入答案卷名稱'); return }
       const domainValue = newDomain === '國語（測試中）' ? '國語' : (newDomain || '其他')
       const templateId = generateId()
-      // 偵測每頁答案卷圖片的方向（直拍/橫拍）
+      // 偵測每頁答案卷圖片的方向（用校正+旋轉後的 imageBlobs，而非原始 wizardPages）
       const pageOrientations: ('portrait' | 'landscape')[] = []
-      for (const page of wizardPages) {
+      for (const blob of imageBlobs) {
         try {
-          const bitmap = await createImageBitmap(page.blob)
+          const bitmap = await createImageBitmap(blob)
           pageOrientations.push(bitmap.height > bitmap.width ? 'portrait' : 'landscape')
           bitmap.close()
         } catch {
