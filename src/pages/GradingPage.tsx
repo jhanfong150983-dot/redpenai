@@ -2582,8 +2582,7 @@ export default function GradingPage({
       if (stopRequestedRef.current) { setIsGrading(false); setGradingPhase('idle'); return }
 
       // ── 中位數 bbox 校正 ──
-      const BBOX_THRESHOLD_X = 0.04
-      const BBOX_THRESHOLD_Y = 0.02
+      // 不設閾值：有中位數就一律覆蓋，消除所有 classify 雜訊
       const MIN_STUDENTS_FOR_MEDIAN = 5
       const bboxByQuestion = new Map<string, Array<{ x: number; y: number; w: number; h: number }>>()
 
@@ -2627,14 +2626,9 @@ export default function GradingPage({
             totalCorrected++
             continue
           }
-          const xDiff = Math.abs(br.answerBbox.x - med.x)
-          const yDiff = Math.abs(br.answerBbox.y - med.y)
-          if (xDiff > BBOX_THRESHOLD_X || yDiff > BBOX_THRESHOLD_Y) {
-            overrides.push({ questionId: br.questionId, answerBbox: med, readBbox: null, corrected: true })
-            totalCorrected++
-          } else {
-            overrides.push({ questionId: br.questionId, answerBbox: br.answerBbox, readBbox: br.readBbox })
-          }
+          // 有中位數就一律用中位數，消除所有 classify 雜訊
+          overrides.push({ questionId: br.questionId, answerBbox: med, readBbox: null, corrected: true })
+          totalCorrected++
         }
         correctedOverrides.set(entry.idx, overrides)
       }
