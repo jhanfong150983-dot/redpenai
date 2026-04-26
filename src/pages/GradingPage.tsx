@@ -516,9 +516,12 @@ function GradingPipelineOverlay({
   const stageB: PipelineStageStatus = isAfterPhaseA ? (isReport ? 'done' : 'active') : 'pending'
   const stageReport: PipelineStageStatus = isReport ? 'active' : 'pending'
 
+  const aPercent = phaseAProgress.total > 0
+    ? Math.round((phaseAProgress.current / phaseAProgress.total) * 100)
+    : 0
   const aLabel = isPhaseA
-    ? `${phaseAProgress.current}/${phaseAProgress.total}`
-    : `${phaseAProgress.total}/${phaseAProgress.total}`
+    ? `${aPercent}%`
+    : '100%'
   const bLabel = !isAfterPhaseA
     ? `0/${phaseBProgress.total}`
     : isReport
@@ -1337,7 +1340,7 @@ export default function GradingPage({
     if (entries.length === 0) return
 
     setGradingPhase('phase_b_running')
-    setGradingMessage('Step 3/3：正在批改...')
+    setGradingMessage('AI 批改評分中...')
     setIsGrading(true)
     setGradingStartTime(Date.now())
     setGradingProgress({ current: 0, total: entries.length })
@@ -2534,7 +2537,7 @@ export default function GradingPage({
 
       console.log(`✅ 準備 Phase A，共 ${toGrade.length} 份作業`)
       setGradingProgress({ current: 0, total: toGrade.length })
-      setGradingMessage('Step 1/3：Classify 定位學生答案...')
+      setGradingMessage('定位答案中...')
       setGradingPhase('phase_a_running')
       setPhaseANeedsReviewCount(0)
 
@@ -2552,7 +2555,7 @@ export default function GradingPage({
       }
 
       // ── Phase Bbox：全班 Classify → 中位數校正 ─────────────────────────────
-      setGradingMessage('Step 1/3：Classify 定位學生答案...')
+      setGradingMessage('定位答案中...')
       const allBboxResults: Array<{ idx: number; sub: typeof toGrade[0]; bboxResults: Array<{ questionId: string; questionType: string; answerBbox: any; readBbox: any }> }> = []
       let completedClassify = 0
 
@@ -2576,7 +2579,8 @@ export default function GradingPage({
         },
         (i, result, err) => {
           completedClassify++
-          setGradingProgress({ current: completedClassify, total: toGrade.length })
+          // Classify 佔 0~50%：current = completedClassify, total = toGrade.length * 2
+          setGradingProgress({ current: completedClassify, total: toGrade.length * 2 })
           if (stopRequestedRef.current) return
           if (!result || err) {
             if (err) console.error(`Classify failed for ${toGrade[i].id}:`, err)
@@ -2653,7 +2657,7 @@ export default function GradingPage({
       console.log(`📐 [BboxCorrection] median calculated for ${medianBbox.size} questions, corrected ${totalCorrected} bboxes`)
 
       // ── Phase Read：帶校正 bbox 跑 Read + AI3 ─────────────────────────────
-      setGradingMessage('Step 2/3：AI 讀取學生答案...')
+      setGradingMessage('讀取答案中...')
       const entries: BatchPhaseAEntry[] = []
       let completedA = 0
 
@@ -2690,7 +2694,8 @@ export default function GradingPage({
         },
         (i, result, err) => {
           completedA++
-          setGradingProgress({ current: completedA, total: toGrade.length })
+          // Read 佔 50~100%：current = toGrade.length + completedA, total = toGrade.length * 2
+          setGradingProgress({ current: toGrade.length + completedA, total: toGrade.length * 2 })
           if (stopRequestedRef.current || !result) {
             if (err) console.error(`Phase A failed for ${toGrade[i].id}:`, err)
             return
