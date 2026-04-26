@@ -24,10 +24,13 @@ import { requestSync, waitForSync } from '@/lib/sync-events'
 import {
   gradePhaseA,
   gradePhaseB,
+  gradeClassifyOnly,
+  gradeWithBboxOverrides,
   isGeminiAvailable,
   type PhaseAResult,
   type PhaseAQuestionResult,
-  type FinalAnswer
+  type FinalAnswer,
+  type BboxOverride
 } from '@/lib/gemini'
 import { buildApiUrl } from '@/lib/api-base'
 import { startInkSession, closeInkSession, getInkSessionId } from '@/lib/ink-session'
@@ -1334,7 +1337,7 @@ export default function GradingPage({
     if (entries.length === 0) return
 
     setGradingPhase('phase_b_running')
-    setGradingMessage('Step 2/2：正在批改...')
+    setGradingMessage('Step 3/3：正在批改...')
     setIsGrading(true)
     setGradingStartTime(Date.now())
     setGradingProgress({ current: 0, total: entries.length })
@@ -2531,7 +2534,7 @@ export default function GradingPage({
 
       console.log(`✅ 準備 Phase A，共 ${toGrade.length} 份作業`)
       setGradingProgress({ current: 0, total: toGrade.length })
-      setGradingMessage('Step 1/2：正在讀取學生答案...')
+      setGradingMessage('Step 1/3：Classify 定位學生答案...')
       setGradingPhase('phase_a_running')
       setPhaseANeedsReviewCount(0)
 
@@ -2548,9 +2551,10 @@ export default function GradingPage({
         return
       }
 
-      // ── Batch Phase A（並行 N=5，錯開 300ms）─────────────────────────────
-      const entries: BatchPhaseAEntry[] = []
-      let completedA = 0
+      // ── Phase Bbox：全班 Classify → 中位數校正 ─────────────────────────────
+      setGradingMessage('Step 1/3：Classify 定位學生答案...')
+      const allBboxResults: Array<{ idx: number; sub: typeof toGrade[0]; bboxResults: Array<{ questionId: string; questionType: string; answerBbox: any; readBbox: any }> }> = []
+      let completedClassify = 0
 
       await runWithConcurrency(
         toGrade,
@@ -2558,17 +2562,120 @@ export default function GradingPage({
         300,
         async (sub) => {
           if (stopRequestedRef.current) return null
-          console.log(`📄 [PhaseA] student=${sub.studentId} pageBreaks=${JSON.stringify(sub.pageBreaks ?? [])}`)
-          const phaseAResult = await gradePhaseA(
+          console.log(`📐 [Classify] student=${sub.studentId}`)
+          const result = await gradeClassifyOnly(
             sub.imageBlob!,
             assignment.answerKey!,
             sub.pageBreaks,
             assignment.domain,
             assignment.id,
-            undefined,
             assignment.answerSheetMode,
             sub.id
           )
+          return { sub, bboxResults: result.bboxResults }
+        },
+        (i, result, err) => {
+          completedClassify++
+          setGradingProgress({ current: completedClassify, total: toGrade.length })
+          if (stopRequestedRef.current || !result) {
+            if (err) console.error(`Classify failed for ${toGrade[i].id}:`, err)
+            return
+          }
+          allBboxResults.push({ idx: i, ...result })
+          const student = students.find((s) => s.id === result.sub.studentId)
+          if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
+        }
+      )
+
+      if (stopRequestedRef.current) { setIsGrading(false); setGradingPhase('idle'); return }
+
+      // ── 中位數 bbox 校正 ──
+      const BBOX_THRESHOLD_X = 0.04
+      const BBOX_THRESHOLD_Y = 0.02
+      const MIN_STUDENTS_FOR_MEDIAN = 3
+      const bboxByQuestion = new Map<string, Array<{ x: number; y: number; w: number; h: number }>>()
+
+      for (const { bboxResults } of allBboxResults) {
+        for (const br of bboxResults) {
+          if (!br.answerBbox) continue
+          if (!bboxByQuestion.has(br.questionId)) bboxByQuestion.set(br.questionId, [])
+          bboxByQuestion.get(br.questionId)!.push(br.answerBbox)
+        }
+      }
+
+      const medianBbox = new Map<string, { x: number; y: number; w: number; h: number }>()
+      for (const [qId, bboxes] of bboxByQuestion) {
+        if (bboxes.length < MIN_STUDENTS_FOR_MEDIAN) continue
+        const sorted = (arr: number[]) => [...arr].sort((a, b) => a - b)
+        const median = (arr: number[]) => { const s = sorted(arr); const m = Math.floor(s.length / 2); return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2 }
+        medianBbox.set(qId, {
+          x: +median(bboxes.map(b => b.x)).toFixed(4),
+          y: +median(bboxes.map(b => b.y)).toFixed(4),
+          w: +median(bboxes.map(b => b.w)).toFixed(4),
+          h: +median(bboxes.map(b => b.h)).toFixed(4)
+        })
+      }
+
+      // 校正：偏差超過閾值的用中位數覆蓋
+      let totalCorrected = 0
+      const correctedOverrides = new Map<number, BboxOverride[]>() // idx → overrides
+
+      for (const entry of allBboxResults) {
+        const overrides: BboxOverride[] = []
+        for (const br of entry.bboxResults) {
+          const med = medianBbox.get(br.questionId)
+          if (!med || !br.answerBbox) {
+            overrides.push({ questionId: br.questionId, answerBbox: br.answerBbox, readBbox: br.readBbox })
+            continue
+          }
+          const xDiff = Math.abs(br.answerBbox.x - med.x)
+          const yDiff = Math.abs(br.answerBbox.y - med.y)
+          if (xDiff > BBOX_THRESHOLD_X || yDiff > BBOX_THRESHOLD_Y) {
+            overrides.push({ questionId: br.questionId, answerBbox: med, readBbox: null, corrected: true })
+            totalCorrected++
+          } else {
+            overrides.push({ questionId: br.questionId, answerBbox: br.answerBbox, readBbox: br.readBbox })
+          }
+        }
+        correctedOverrides.set(entry.idx, overrides)
+      }
+
+      console.log(`📐 [BboxCorrection] median calculated for ${medianBbox.size} questions, corrected ${totalCorrected} bboxes`)
+
+      // ── Phase Read：帶校正 bbox 跑 Read + AI3 ─────────────────────────────
+      setGradingMessage('Step 2/3：AI 讀取學生答案...')
+      const entries: BatchPhaseAEntry[] = []
+      let completedA = 0
+
+      await runWithConcurrency(
+        toGrade,
+        5,
+        300,
+        async (sub, idx) => {
+          if (stopRequestedRef.current) return null
+          console.log(`📄 [PhaseRead] student=${sub.studentId}`)
+          const overrides = correctedOverrides.get(idx)
+          const phaseAResult = overrides
+            ? await gradeWithBboxOverrides(
+                sub.imageBlob!,
+                assignment.answerKey!,
+                overrides,
+                sub.pageBreaks,
+                assignment.domain,
+                assignment.id,
+                assignment.answerSheetMode,
+                sub.id
+              )
+            : await gradePhaseA(
+                sub.imageBlob!,
+                assignment.answerKey!,
+                sub.pageBreaks,
+                assignment.domain,
+                assignment.id,
+                undefined,
+                assignment.answerSheetMode,
+                sub.id
+              )
           return { sub, phaseAResult }
         },
         (i, result, err) => {
