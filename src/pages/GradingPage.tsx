@@ -2969,7 +2969,13 @@ export default function GradingPage({
                 }
                 // answer_type_mismatch 已移除（AI3 一致性判官攔截）
               }
-              const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id, corrections, assignment.answerSheetMode, sub.id)
+              // 品質重試：使用校正後的 bbox overrides（跳過 classify），避免再跑一次完整 classify
+              // 注意：不足 5 份時 overrides 仍有值（原始 bbox），一樣跳過 classify 只重跑 Read+AI3
+              // 但如果 overrides 為空（Classify 失敗的學生），則 fallback 到完整 gradePhaseA
+              const overrides = correctedOverrides.get(idx)
+              const phaseAResult = overrides && overrides.length > 0
+                ? await gradeWithBboxOverrides(sub.imageBlob, assignment.answerKey!, overrides, sub.pageBreaks, assignment.domain, assignment.id, assignment.answerSheetMode, sub.id)
+                : await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id, corrections, assignment.answerSheetMode, sub.id)
               return { idx, phaseAResult }
             },
             (_i, result, err) => {
@@ -3712,8 +3718,9 @@ export default function GradingPage({
               setIsGrading(true)
               // 等待所有背景 Accessor Promise 完成
               await Promise.all(backgroundPhaseBPromises.current)
-              // 生成報告
+              // 生成報告（切換 phase 讓 overlay 顯示「生成報告」階段）
               console.log('✅ 全部 Accessor 完成，生成報告')
+              setGradingPhase('report_running')
               setGradingMessage('正在生成作業學情報告...')
               try {
                 await fetch('/api/data/refresh-assignment-summary', {
