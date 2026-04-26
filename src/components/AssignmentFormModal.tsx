@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { X, Loader, BookOpen, Settings, Trash2, Search, Folder, Check } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 
@@ -15,7 +15,7 @@ export interface GradingSettings {
 }
 
 export interface PhotoRules {
-  submissionMode: 'photo' | 'pdf'
+  studentUploadEnabled: boolean
   pageCount: number
   orientations: ('portrait' | 'landscape')[]
 }
@@ -34,6 +34,7 @@ interface AnswerKeyOption {
   domain?: string
   folder?: string
   answerKey?: { questions: unknown[]; totalScore?: number }
+  pageOrientations?: ('portrait' | 'landscape')[]
 }
 
 interface AssignmentFormModalProps {
@@ -148,27 +149,15 @@ export default function AssignmentFormModal({
   const [selectedAnswerKeyId, setSelectedAnswerKeyId] = useState('')
   const [settings, setSettings] = useState<GradingSettings>({ ...DEFAULT_SETTINGS, ...initialSettings })
   const [akSearch, setAkSearch] = useState('')
-  const [submissionMode, setSubmissionMode] = useState<'photo' | 'pdf'>(initialPhotoRules?.submissionMode ?? 'photo')
-  const [photoPageCount, setPhotoPageCount] = useState(initialPhotoRules?.pageCount ?? 1)
-  const [photoOrientations, setPhotoOrientations] = useState<('portrait' | 'landscape')[]>(
-    initialPhotoRules?.orientations ?? ['portrait']
-  )
-  const handlePageCountChange = (count: number) => {
-    setPhotoPageCount(count)
-    setPhotoOrientations(prev => {
-      const next = [...prev]
-      while (next.length < count) next.push('portrait')
-      return next.slice(0, count)
-    })
-  }
+  const [studentUploadEnabled, setStudentUploadEnabled] = useState(initialPhotoRules?.studentUploadEnabled ?? true)
 
   const selectedAK = answerKeys.find((ak) => ak.id === selectedAnswerKeyId)
   const domain = selectedAK?.domain || initialDomain || ''
 
-  // 從答案卷的題目 ID 前綴自動算出頁數（如 "1-1", "2-3" → max prefix = 2 → 2 頁）
+  // 從答案卷自動取得頁數和方向
   const akPageCount = useMemo(() => {
     const questions = selectedAK?.answerKey?.questions as Array<{ id?: string }> | undefined
-    if (!questions?.length) return null
+    if (!questions?.length) return 1
     let maxPrefix = 1
     for (const q of questions) {
       const id = typeof q?.id === 'string' ? q.id : ''
@@ -178,12 +167,11 @@ export default function AssignmentFormModal({
     return maxPrefix
   }, [selectedAK])
 
-  // 選擇答案卷時，自動同步 pageCount
-  useEffect(() => {
-    if (akPageCount && akPageCount !== photoPageCount) {
-      handlePageCountChange(akPageCount)
-    }
-  }, [akPageCount]) // eslint-disable-line react-hooks/exhaustive-deps
+  const akOrientations = useMemo(() => {
+    if (selectedAK?.pageOrientations?.length) return selectedAK.pageOrientations
+    // fallback：沒有方向資訊時預設全部直拍
+    return Array.from({ length: akPageCount }, () => 'portrait' as const)
+  }, [selectedAK, akPageCount])
 
   void folders // kept for future use (folder picker)
 
@@ -219,7 +207,7 @@ export default function AssignmentFormModal({
       folder,
       selectedAnswerKeyId,
       settings,
-      photoRules: { submissionMode, pageCount: photoPageCount, orientations: photoOrientations },
+      photoRules: { studentUploadEnabled, pageCount: akPageCount, orientations: akOrientations },
     })
   }
 
@@ -384,105 +372,40 @@ export default function AssignmentFormModal({
                 )}
               </div>
 
-              {/* 作業繳交方式 */}
+              {/* 是否開放學生繳交 */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">作業繳交方式</label>
-                <div className="grid grid-cols-2 gap-3 mb-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">學生繳交作業</label>
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => setSubmissionMode('photo')}
+                    onClick={() => setStudentUploadEnabled(true)}
                     className={`rounded-xl border-2 p-3 text-left transition-all ${
-                      submissionMode === 'photo'
+                      studentUploadEnabled
                         ? 'border-green-500 bg-green-50'
                         : 'border-gray-200 bg-white hover:border-gray-300'
                     }`}
                   >
-                    <div className="text-sm font-semibold text-gray-800 mb-0.5">📸 拍照</div>
-                    <p className="text-[11px] text-gray-500">學生和老師都可以拍照上傳</p>
+                    <div className="text-sm font-semibold text-gray-800 mb-0.5">📸 開放學生繳交</div>
+                    <p className="text-[11px] text-gray-500">學生可拍照上傳作業</p>
                   </button>
                   <button
                     type="button"
-                    onClick={() => setSubmissionMode('pdf')}
+                    onClick={() => setStudentUploadEnabled(false)}
                     className={`rounded-xl border-2 p-3 text-left transition-all ${
-                      submissionMode === 'pdf'
+                      !studentUploadEnabled
                         ? 'border-green-500 bg-green-50'
                         : 'border-gray-200 bg-white hover:border-gray-300'
                     }`}
                   >
-                    <div className="text-sm font-semibold text-gray-800 mb-0.5">📄 PDF</div>
-                    <p className="text-[11px] text-gray-500">老師自行上傳，不開放學生上傳</p>
+                    <div className="text-sm font-semibold text-gray-800 mb-0.5">📄 不開放學生繳交</div>
+                    <p className="text-[11px] text-gray-500">老師自行上傳批改</p>
                   </button>
                 </div>
-
-                {/* 拍照模式：頁數 + 方向設定 */}
-                {submissionMode === 'photo' && (
-                  <>
-                    <p className="text-xs text-gray-400 mb-3">學生上傳時會看到拍攝指引，方向不符會提醒重拍</p>
-
-                    {/* 頁數選擇 */}
-                    <div className="mb-3">
-                      <span className="text-xs text-gray-500 mr-2">照片頁數</span>
-                      {akPageCount ? (
-                        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
-                          {akPageCount} 頁
-                          <span className="text-[11px] text-green-500 font-normal">（依答案卷自動設定）</span>
-                        </span>
-                      ) : (
-                        <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
-                          {[1, 2, 3, 4].map(n => (
-                            <button
-                              key={n}
-                              type="button"
-                              onClick={() => handlePageCountChange(n)}
-                              className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-                                photoPageCount === n
-                                  ? 'bg-green-500 text-white'
-                                  : 'bg-white text-gray-600 hover:bg-gray-50'
-                              } ${n > 1 ? 'border-l border-gray-200' : ''}`}
-                            >
-                              {n}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 每頁方向：按鈕切換，紙張圖示跟著旋轉 */}
-                    <div className="flex gap-3 flex-wrap">
-                      {Array.from({ length: photoPageCount }, (_, i) => {
-                        const isPortrait = (photoOrientations[i] || 'portrait') === 'portrait'
-                        return (
-                          <button
-                            key={i}
-                            type="button"
-                            onClick={() => {
-                              const next = [...photoOrientations]
-                              next[i] = isPortrait ? 'landscape' : 'portrait'
-                              setPhotoOrientations(next)
-                            }}
-                            className="flex flex-col items-center gap-1.5 rounded-xl border-2 border-gray-200 bg-gray-50 px-4 py-3 min-w-[90px] hover:border-green-400 hover:bg-green-50 transition-all cursor-pointer"
-                          >
-                            {/* 紙張圖示：直拍=高矩形，橫拍=寬矩形 */}
-                            <div
-                              className="rounded border-2 border-gray-400 bg-white transition-all duration-200"
-                              style={{
-                                width: isPortrait ? 28 : 42,
-                                height: isPortrait ? 42 : 28,
-                              }}
-                            />
-                            <span className="text-xs font-medium text-gray-700">第 {i + 1} 頁</span>
-                            <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
-                              isPortrait
-                                ? 'bg-blue-100 text-blue-700'
-                                : 'bg-amber-100 text-amber-700'
-                            }`}>
-                              {isPortrait ? '直拍' : '橫拍'}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </>
+                {/* 開放學生繳交時，顯示自動偵測的拍攝規則 */}
+                {studentUploadEnabled && selectedAK && (
+                  <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs text-blue-700">
+                    學生需上傳 {akPageCount} 頁照片（{akOrientations.map((o, i) => `第${i + 1}頁${o === 'portrait' ? '直拍' : '橫拍'}`).join('、')}），依答案卷自動設定
+                  </div>
                 )}
               </div>
             </div>

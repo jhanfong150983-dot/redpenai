@@ -83,7 +83,7 @@ type StudentAssignmentItem = {
   gradingPending?: boolean
   gradingQueuePosition?: number
   gradingFailed?: boolean
-  photoRules?: { submissionMode: 'photo' | 'pdf'; pageCount: number; orientations: ('portrait' | 'landscape')[] } | null
+  photoRules?: { studentUploadEnabled: boolean; pageCount: number; orientations: ('portrait' | 'landscape')[] } | null
 }
 
 type StudentOverviewResponse = {
@@ -1456,8 +1456,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               {uploadAssignments.map((item) => {
                 const requiredPages = Math.max(1, item.totalPages || 1)
                 const draftFiles = uploadDrafts[item.id] || []
-                // PDF 模式：不開放學生上傳
-                if (item.photoRules?.submissionMode === 'pdf') {
+                // 不開放學生繳交
+                if (item.photoRules?.studentUploadEnabled === false) {
                   return (
                     <article
                       key={item.id}

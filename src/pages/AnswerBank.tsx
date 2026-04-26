@@ -496,6 +496,18 @@ export default function AnswerBank(_props: AnswerBankProps) {
       if (!newTitle.trim()) { setError('請輸入答案卷名稱'); return }
       const domainValue = newDomain === '國語（測試中）' ? '國語' : (newDomain || '其他')
       const templateId = generateId()
+      // 偵測每頁答案卷圖片的方向（直拍/橫拍）
+      const pageOrientations: ('portrait' | 'landscape')[] = []
+      for (const page of wizardPages) {
+        try {
+          const bitmap = await createImageBitmap(page.blob)
+          pageOrientations.push(bitmap.height > bitmap.width ? 'portrait' : 'landscape')
+          bitmap.close()
+        } catch {
+          pageOrientations.push('portrait') // fallback
+        }
+      }
+
       const template: AnswerKeyTemplate = {
         id: templateId,
         name: newTitle.trim(),
@@ -505,6 +517,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         answerKey,
         questionCount: answerKey.questions?.length ?? 0,
         totalScore: answerKey.totalScore ?? 0,
+        pageOrientations,
         updatedAt: Date.now(),
       }
       await db.answerKeyTemplates.add(template)

@@ -210,8 +210,8 @@ export interface Assignment {
   answerSheetImagePaths?: string[]
   // 題本圖 Supabase Storage 路徑，question-booklets/{id}/page-{i}.webp（純答案卷模式下，老師上傳的題本）
   questionBookletImagePaths?: string[]
-  // 作業繳交方式 + 學生拍攝規則
-  photoRules?: { submissionMode: 'photo' | 'pdf'; pageCount: number; orientations: ('portrait' | 'landscape')[] } | null
+  // 作業繳交規則（是否開放學生上傳 + 頁數方向從答案卷自動帶入）
+  photoRules?: { studentUploadEnabled: boolean; pageCount: number; orientations: ('portrait' | 'landscape')[] } | null
   updatedAt?: number
 }
 
@@ -229,6 +229,7 @@ export interface AnswerKeyTemplate {
   questionCount?: number
   totalScore?: number
   shareCode?: string
+  pageOrientations?: ('portrait' | 'landscape')[] // 每頁答案卷圖片的方向（建立時自動偵測）
   updatedAt?: number
 }
 

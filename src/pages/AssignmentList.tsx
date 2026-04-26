@@ -1492,7 +1492,7 @@ export default function AssignmentList({
         isSubmitting={isCreating}
         folders={usedFolders}
 
-        answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, folder: t.folder, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined }))}
+        answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, folder: t.folder, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined, pageOrientations: t.pageOrientations }))}
       />
 
       {/* 批改設定 Modal（統一元件） */}
@@ -1560,7 +1560,7 @@ export default function AssignmentList({
           gradedCount={settingsAssignment.gradedCount ?? 0}
           folders={usedFolders}
   
-          answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, folder: t.folder, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined }))}
+          answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, folder: t.folder, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined, pageOrientations: t.pageOrientations }))}
         />
       )}
     </div>
