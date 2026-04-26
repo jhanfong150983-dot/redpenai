@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { X, Loader, BookOpen, Settings, Trash2, Search, Folder, Check } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 
@@ -164,6 +164,26 @@ export default function AssignmentFormModal({
 
   const selectedAK = answerKeys.find((ak) => ak.id === selectedAnswerKeyId)
   const domain = selectedAK?.domain || initialDomain || ''
+
+  // 從答案卷的題目 ID 前綴自動算出頁數（如 "1-1", "2-3" → max prefix = 2 → 2 頁）
+  const akPageCount = useMemo(() => {
+    const questions = selectedAK?.answerKey?.questions as Array<{ id?: string }> | undefined
+    if (!questions?.length) return null
+    let maxPrefix = 1
+    for (const q of questions) {
+      const id = typeof q?.id === 'string' ? q.id : ''
+      const prefix = parseInt(id.split('-')[0], 10)
+      if (Number.isFinite(prefix) && prefix > maxPrefix) maxPrefix = prefix
+    }
+    return maxPrefix
+  }, [selectedAK])
+
+  // 選擇答案卷時，自動同步 pageCount
+  useEffect(() => {
+    if (akPageCount && akPageCount !== photoPageCount) {
+      handlePageCountChange(akPageCount)
+    }
+  }, [akPageCount]) // eslint-disable-line react-hooks/exhaustive-deps
 
   void folders // kept for future use (folder picker)
 
@@ -402,22 +422,29 @@ export default function AssignmentFormModal({
                     {/* 頁數選擇 */}
                     <div className="mb-3">
                       <span className="text-xs text-gray-500 mr-2">照片頁數</span>
-                      <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
-                        {[1, 2, 3, 4].map(n => (
-                          <button
-                            key={n}
-                            type="button"
-                            onClick={() => handlePageCountChange(n)}
-                            className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-                              photoPageCount === n
-                                ? 'bg-green-500 text-white'
-                                : 'bg-white text-gray-600 hover:bg-gray-50'
-                            } ${n > 1 ? 'border-l border-gray-200' : ''}`}
-                          >
-                            {n}
-                          </button>
-                        ))}
-                      </div>
+                      {akPageCount ? (
+                        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-1.5">
+                          {akPageCount} 頁
+                          <span className="text-[11px] text-green-500 font-normal">（依答案卷自動設定）</span>
+                        </span>
+                      ) : (
+                        <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                          {[1, 2, 3, 4].map(n => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => handlePageCountChange(n)}
+                              className={`px-4 py-1.5 text-sm font-medium transition-colors ${
+                                photoPageCount === n
+                                  ? 'bg-green-500 text-white'
+                                  : 'bg-white text-gray-600 hover:bg-gray-50'
+                              } ${n > 1 ? 'border-l border-gray-200' : ''}`}
+                            >
+                              {n}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* 每頁方向：按鈕切換，紙張圖示跟著旋轉 */}
