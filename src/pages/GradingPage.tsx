@@ -2643,8 +2643,8 @@ export default function GradingPage({
 
       await runWithConcurrency(
         toGrade,
-        2,  // Phase Read 每人同時呼叫 AI1+AI2+finalAnswer+calcFinalAnswer（最多 4 requests），併發 2 = 同時 8 requests
-        300,
+        3,  // Phase Read 每人最多 4 requests，靠 stagger 錯開避免同時爆發
+        2000, // 每個學生錯開 2 秒，讓前一個學生的 Gemini 請求先被接收
         async (sub, idx) => {
           if (stopRequestedRef.current) return null
           console.log(`📄 [PhaseRead] student=${sub.studentId}`)
@@ -2941,8 +2941,8 @@ export default function GradingPage({
           const indicesToRetry = Array.from(anomalousIndices)
           await runWithConcurrency(
             indicesToRetry,
-            2,  // Phase Read 併發限制（同 Phase Read 主流程）
-            300,
+            3,  // Phase Read 併發限制（同 Phase Read 主流程）
+            2000,
             async (idx) => {
               if (stopRequestedRef.current) return null
               const entry = entries[idx]
