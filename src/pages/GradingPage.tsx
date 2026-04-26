@@ -3732,11 +3732,13 @@ export default function GradingPage({
               setGradingPhase('idle')
               setIsGrading(false)
               setGradingProgress({ current: 0, total: 0 })
+              // 用 batchPhaseAEntries.length 而非 phaseBTotalCount — 避免 closure 拿到過期 state
+              const totalStudents = batchPhaseAEntries.length
               setGradeResultNotice({
                 stopped: false,
-                successCount: phaseBTotalCount,
+                successCount: totalStudents,
                 failCount: 0,
-                totalCount: phaseBTotalCount,
+                totalCount: totalStudents,
                 failReasons: [],
                 failedEntries: [],
               })
