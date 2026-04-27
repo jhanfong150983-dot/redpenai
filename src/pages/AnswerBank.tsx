@@ -796,22 +796,24 @@ export default function AnswerBank(_props: AnswerBankProps) {
         </div>
       )}
 
-      {/* Unified Answer Key Modal */}
-      <AnswerKeyUnifiedModal
-        open={showUnifiedModal}
-        onClose={() => setShowUnifiedModal(false)}
-        onExtract={handleUnifiedExtract}
-        onSave={handleUnifiedSave}
-        editMode={!!editingTemplateId}
-        initialTitle={editingTitle}
-        initialDomain={editingDomain}
-        initialDocType={editingDocType}
-        initialFolder={editingFolder}
-        initialAnswerSheetMode={editingAnswerSheetMode}
-        initialAnswerKey={editingAnswerKey}
-        initialAnswerSheetImages={editingAnswerSheetImages}
-        domainOptions={domainOptions}
-      />
+      {/* Unified Answer Key Modal — conditionally mounted so state resets each open */}
+      {showUnifiedModal && (
+        <AnswerKeyUnifiedModal
+          open
+          onClose={() => setShowUnifiedModal(false)}
+          onExtract={handleUnifiedExtract}
+          onSave={handleUnifiedSave}
+          editMode={!!editingTemplateId}
+          initialTitle={editingTitle}
+          initialDomain={editingDomain}
+          initialDocType={editingDocType}
+          initialFolder={editingFolder}
+          initialAnswerSheetMode={editingAnswerSheetMode}
+          initialAnswerKey={editingAnswerKey}
+          initialAnswerSheetImages={editingAnswerSheetImages}
+          domainOptions={domainOptions}
+        />
+      )}
 
       {/* 匯入短碼 Modal */}
       {showImportModal && (
