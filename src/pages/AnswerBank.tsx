@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, type ChangeEvent } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   Plus, Search, BookOpen, Pencil, Trash2, FileUp, Loader2,
   Folder, ChevronDown, ChevronRight, Edit2, Download, Copy
@@ -8,11 +8,9 @@ import type { AnswerKey, AnswerKeyTemplate, Assignment, Classroom } from '@/lib/
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages } from '@/lib/gemini'
-import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
-import { compressImageFile } from '@/lib/imageCompression'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { checkFolderNameUnique } from '@/lib/utils'
-import AnswerKeyWizardModal from '@/components/AnswerKeyWizardModal'
+import AnswerKeyUnifiedModal from '@/components/AnswerKeyUnifiedModal'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -91,23 +89,16 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const [dragOverFolderName, setDragOverFolderName] = useState<string | null>(null)
   const [dragOverItemId, setDragOverItemId] = useState<string | null>(null)
 
-  // Wizard state
-  const [showWizard, setShowWizard] = useState(false)
-  const [wizardPages, setWizardPages] = useState<Array<{ index: number; url: string; blob: Blob }>>([])
-  const [editingAssignmentId, setEditingAssignmentId] = useState<string | null>(null)
+  // Unified modal state
+  const [showUnifiedModal, setShowUnifiedModal] = useState(false)
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
   const [editingAnswerKey, setEditingAnswerKey] = useState<AnswerKey | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
   const [editingDomain, setEditingDomain] = useState('')
-
-  // New answer key modal
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [isExtracting, setIsExtracting] = useState(false)
-  const [showNewModal, setShowNewModal] = useState(false)
-  const [newTitle, setNewTitle] = useState('')
-  const [newDomain, setNewDomain] = useState('')
-  const [newFolder, setNewFolder] = useState('')
-  const [newDocType, setNewDocType] = useState<'worksheet' | 'exam'>('worksheet')
-  const [newAnswerSheetMode, setNewAnswerSheetMode] = useState<'with_questions' | 'answer_only'>('with_questions')
-  const [questionBookletBlobs, setQuestionBookletBlobs] = useState<Blob[]>([])
+  const [editingDocType, setEditingDocType] = useState<'worksheet' | 'exam'>('worksheet')
+  const [editingFolder, setEditingFolder] = useState('')
+  const [editingAnswerSheetMode, setEditingAnswerSheetMode] = useState<'with_questions' | 'answer_only'>('with_questions')
+  const [editingAnswerSheetImages, setEditingAnswerSheetImages] = useState<Blob[]>([])
   const domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他']
 
   // 匯入短碼
@@ -361,38 +352,19 @@ export default function AnswerBank(_props: AnswerBankProps) {
     setEditingTitleId(null); setEditingTitleValue('')
   }
 
-  // ── File upload → wizard ───────────────────────────────────────────────────
+  // ── Unified modal handlers ─────────────────────────────────────────────────
 
-  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []); if (files.length === 0) return; e.target.value = ''
-    setError(null); setIsExtracting(true)
-    try {
-      const blobs: Blob[] = []
-      for (const file of files) {
-        const ft = getFileType(file)
-        if (ft === 'pdf') { blobs.push(...await convertPdfToImages(file, { scale: 1.5, quality: 0.7 })) }
-        else if (ft === 'image') { blobs.push(await fileToBlob(file)) }
-        else { setError(`不支援的檔案格式：${file.name}`); return }
-      }
-      if (blobs.length === 0) { setError('沒有可用的圖片'); return }
-      const compressed = await Promise.all(blobs.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
-      const pages = compressed.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) }))
-      setWizardPages(pages); setEditingAssignmentId(null); setEditingAnswerKey(null); setEditingDomain(newDomain === '國語（測試中）' ? '國語' : newDomain); setShowWizard(true)
-    } catch (err) { setError(err instanceof Error ? err.message : '檔案處理失敗') }
-    finally { setIsExtracting(false) }
-  }
-
-  const handleWizardExtract = async (orderedPages: Array<{ index: number; url: string; blob: Blob }>, _onProgress: (msg: string) => void) => {
+  const handleUnifiedExtract = async (orderedPages: Array<{ index: number; url: string; blob: Blob }>, _onProgress: (msg: string) => void) => {
     const blobs = orderedPages.map((p) => p.blob)
     await startInkSession()
     try {
       const domain = editingDomain || undefined
-      const answerKey = await extractAnswerKeyFromImages(blobs, { domain, docType: editingAssignmentId ? undefined : newDocType })
+      const answerKey = await extractAnswerKeyFromImages(blobs, { domain, docType: editingTemplateId ? undefined : editingDocType })
       return { answerKey, imageBlobs: blobs, notice: null }
     } finally { closeInkSession() }
   }
 
-  // 同步更新 modal
+  // 同步更新 modal (shown inside unified modal save flow)
   const [showSyncModal, setShowSyncModal] = useState(false)
   const [syncLinkedAssignments, setSyncLinkedAssignments] = useState<Assignment[]>([])
   const [syncPendingAnswerKey, setSyncPendingAnswerKey] = useState<AnswerKey | null>(null)
@@ -400,26 +372,23 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const [isSyncing, setIsSyncing] = useState(false)
 
   const handleSyncConfirm = async () => {
-    if (!editingAssignmentId || !syncPendingAnswerKey) return
+    if (!editingTemplateId || !syncPendingAnswerKey) return
     setIsSyncing(true)
     try {
       const now = Date.now()
-      await db.answerKeyTemplates.update(editingAssignmentId, { answerKey: syncPendingAnswerKey, updatedAt: now })
-      console.log(`[sync-confirm] choice=${syncChoice} linkedAssignments=${syncLinkedAssignments.length} templateId=${editingAssignmentId}`)
+      await db.answerKeyTemplates.update(editingTemplateId, { answerKey: syncPendingAnswerKey, updatedAt: now })
+      console.log(`[sync-confirm] choice=${syncChoice} linkedAssignments=${syncLinkedAssignments.length} templateId=${editingTemplateId}`)
       if (syncChoice === 'sync_all' && syncLinkedAssignments.length > 0) {
         for (const a of syncLinkedAssignments) {
           console.log(`[sync-confirm] updating assignment ${a.id} "${a.title}"`);
           const newAK = JSON.parse(JSON.stringify(syncPendingAnswerKey))
-          // 保留作業自身的批改設定
           if (a.answerKey?.strictness) newAK.strictness = a.answerKey.strictness
           if (a.answerKey?.fractionRule) newAK.fractionRule = a.answerKey.fractionRule
           if (a.answerKey?.englishRules) newAK.englishRules = a.answerKey.englishRules
           await db.assignments.update(a.id, { answerKey: newAK, updatedAt: now })
-          // 清除已批改的結果 — 本地 + 直接呼叫 server API
           const subs = await db.submissions.where('assignmentId').equals(a.id).toArray()
           const gradedSubs = subs.filter(s => s.gradingResult || s.score)
           console.log(`[sync-confirm] assignment ${a.id}: ${subs.length} subs, ${gradedSubs.length} graded → clearing`)
-          // 本地清除
           for (const sub of subs) {
             if (sub.gradingResult || sub.score) {
               await db.submissions.update(sub.id, {
@@ -431,7 +400,6 @@ export default function AnswerBank(_props: AnswerBankProps) {
               })
             }
           }
-          // Server 端直接清除（不依賴 sync push）
           if (gradedSubs.length > 0) {
             await fetch('/api/data/clear-grading', {
               method: 'POST',
@@ -442,10 +410,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
           }
         }
       }
+      // 非同步上傳裁切圖
+      uploadAnswerCrops(editingTemplateId, syncPendingAnswerKey)
       requestSync(); await loadData()
       setShowSyncModal(false)
-      setShowWizard(false)
-      wizardPages.forEach((p) => URL.revokeObjectURL(p.url)); setWizardPages([])
+      setShowUnifiedModal(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : '更新失敗')
     } finally { setIsSyncing(false) }
@@ -505,11 +474,15 @@ export default function AnswerBank(_props: AnswerBankProps) {
     }
   }
 
-  const handleWizardSave = async (answerKey: AnswerKey, imageBlobs: Blob[]) => {
-    if (editingAssignmentId) {
+  const handleUnifiedSave = async (answerKey: AnswerKey, imageBlobs: Blob[], metadata: {
+    title: string; domain: string; docType: 'worksheet' | 'exam'
+    folder: string; answerSheetMode: 'with_questions' | 'answer_only'
+    questionBookletBlobs: Blob[]
+  }) => {
+    if (editingTemplateId) {
       // 檢查有沒有班級作業引用了這份答案卷
       const allAssignments = await db.assignments.toArray()
-      const linked = allAssignments.filter((a) => a.answerKeyTemplateId === editingAssignmentId)
+      const linked = allAssignments.filter((a) => a.answerKeyTemplateId === editingTemplateId)
       if (linked.length > 0) {
         // 有引用的班級 → 顯示同步確認 modal
         setSyncLinkedAssignments(linked)
@@ -520,14 +493,14 @@ export default function AnswerBank(_props: AnswerBankProps) {
       }
       // 沒有引用 → 直接更新 template
       const now = Date.now()
-      await db.answerKeyTemplates.update(editingAssignmentId, { answerKey, updatedAt: now })
-      // 非同步上傳裁切圖
-      uploadAnswerCrops(editingAssignmentId, answerKey)
+      await db.answerKeyTemplates.update(editingTemplateId, {
+        answerKey, name: metadata.title, domain: metadata.domain,
+        docType: metadata.docType, answerSheetMode: metadata.answerSheetMode,
+        folder: metadata.folder || undefined, updatedAt: now,
+      })
+      uploadAnswerCrops(editingTemplateId, answerKey)
     } else {
-      if (!newTitle.trim()) { setError('請輸入答案卷名稱'); return }
-      const domainValue = newDomain === '國語（測試中）' ? '國語' : (newDomain || '其他')
       const templateId = generateId()
-      // 偵測每頁答案卷圖片的方向（用校正+旋轉後的 imageBlobs，而非原始 wizardPages）
       const pageOrientations: ('portrait' | 'landscape')[] = []
       for (const blob of imageBlobs) {
         try {
@@ -535,17 +508,16 @@ export default function AnswerBank(_props: AnswerBankProps) {
           pageOrientations.push(bitmap.height > bitmap.width ? 'portrait' : 'landscape')
           bitmap.close()
         } catch {
-          pageOrientations.push('portrait') // fallback
+          pageOrientations.push('portrait')
         }
       }
-
       const template: AnswerKeyTemplate = {
         id: templateId,
-        name: newTitle.trim(),
-        domain: domainValue,
-        docType: newDocType,
-        answerSheetMode: newAnswerSheetMode,
-        folder: newFolder || undefined,
+        name: metadata.title,
+        domain: metadata.domain,
+        docType: metadata.docType,
+        answerSheetMode: metadata.answerSheetMode,
+        folder: metadata.folder || undefined,
         answerKey,
         questionCount: answerKey.questions?.length ?? 0,
         totalScore: answerKey.totalScore ?? 0,
@@ -553,24 +525,27 @@ export default function AnswerBank(_props: AnswerBankProps) {
         updatedAt: Date.now(),
       }
       await db.answerKeyTemplates.add(template)
-      // 非同步上傳裁切圖
       uploadAnswerCrops(templateId, answerKey)
-      // 純答案卷模式：上傳題本圖
-      if (newAnswerSheetMode === 'answer_only' && questionBookletBlobs.length > 0) {
-        uploadQuestionBookletImages(templateId, questionBookletBlobs)
+      if (metadata.answerSheetMode === 'answer_only' && metadata.questionBookletBlobs.length > 0) {
+        uploadQuestionBookletImages(templateId, metadata.questionBookletBlobs)
       }
     }
     requestSync(); await loadData()
-    setShowWizard(false); wizardPages.forEach((p) => URL.revokeObjectURL(p.url)); setWizardPages([])
+    setShowUnifiedModal(false)
   }
-
-  const handleWizardCancel = () => { setShowWizard(false); wizardPages.forEach((p) => URL.revokeObjectURL(p.url)); setWizardPages([]) }
 
   // ── Edit / Delete ──────────────────────────────────────────────────────────
 
   const handleEdit = (t: AnswerKeyTemplate) => {
-    setEditingAssignmentId(t.id); setEditingAnswerKey(t.answerKey); setEditingDomain(t.domain || '')
-    setWizardPages([]); setShowWizard(true)
+    setEditingTemplateId(t.id)
+    setEditingAnswerKey(t.answerKey)
+    setEditingTitle(t.name)
+    setEditingDomain(t.domain || '')
+    setEditingDocType((t.docType as 'worksheet' | 'exam') || 'worksheet')
+    setEditingFolder(t.folder || '')
+    setEditingAnswerSheetMode((t.answerSheetMode as 'with_questions' | 'answer_only') || 'with_questions')
+    setEditingAnswerSheetImages([]) // will be loaded if available
+    setShowUnifiedModal(true)
   }
 
   const handleDelete = async (id: string) => {
@@ -651,7 +626,6 @@ export default function AnswerBank(_props: AnswerBankProps) {
       <div className="mb-4 border-b border-slate-200 pb-3 flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-gray-900">建立答案</h1>
         <div className="flex items-center gap-2">
-          <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />
           <button type="button" onClick={() => { setImportCode(''); setImportError(''); setShowImportModal(true) }}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
             <Download className="w-4 h-4" />匯入短碼
@@ -660,10 +634,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
             <Plus className="w-4 h-4" />建立資料夾
           </button>
-          <button type="button" disabled={isExtracting}
-            onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setNewDocType('worksheet'); setNewAnswerSheetMode('with_questions'); setQuestionBookletBlobs([]); setShowNewModal(true) }}
-            className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 active:scale-95 disabled:opacity-50">
-            {isExtracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}新增答案卷
+          <button type="button"
+            onClick={() => { setEditingTemplateId(null); setEditingAnswerKey(null); setEditingTitle(''); setEditingDomain(''); setEditingDocType('worksheet'); setEditingFolder(''); setEditingAnswerSheetMode('with_questions'); setEditingAnswerSheetImages([]); setShowUnifiedModal(true) }}
+            className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 active:scale-95">
+            <Plus className="h-4 w-4" />新增答案卷
           </button>
         </div>
       </div>
@@ -696,7 +670,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             <div className="py-12 text-center">
               <BookOpen className="mx-auto h-12 w-12 text-slate-300" />
               <p className="mt-4 text-sm font-medium text-slate-500">尚未建立任何答案卷</p>
-              <button type="button" onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setNewDocType('worksheet'); setNewAnswerSheetMode('with_questions'); setQuestionBookletBlobs([]); setShowNewModal(true) }}
+              <button type="button" onClick={() => { setEditingTemplateId(null); setEditingAnswerKey(null); setEditingTitle(''); setEditingDomain(''); setEditingDocType('worksheet'); setEditingFolder(''); setEditingAnswerSheetMode('with_questions'); setEditingAnswerSheetImages([]); setShowUnifiedModal(true) }}
                 className="mt-3 inline-flex items-center gap-2 rounded-lg border border-green-300 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-50">
                 <FileUp className="h-4 w-4" />上傳答案卷圖片
               </button>
@@ -816,110 +790,23 @@ export default function AnswerBank(_props: AnswerBankProps) {
         </div>
       )}
 
-      {/* New answer key modal */}
-      {showNewModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <h2 className="text-lg font-semibold text-gray-900">新增答案卷</h2>
-              <button type="button" onClick={() => setShowNewModal(false)} className="rounded-full p-2 hover:bg-gray-100">
-                <span className="text-gray-400 text-xl leading-none">&times;</span>
-              </button>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">答案卷名稱</label>
-                <input type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="例如：數習P.42-43" autoFocus
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">領域</label>
-                <select value={newDomain} onChange={(e) => setNewDomain(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
-                  <option value="">請選擇</option>
-                  {domainOptions.map((d) => <option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">類型</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" checked={newDocType === 'worksheet'} onChange={() => setNewDocType('worksheet')} className="w-4 h-4 accent-green-600" />
-                    <span className="text-sm text-gray-700">習作</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" checked={newDocType === 'exam'} onChange={() => setNewDocType('exam')} className="w-4 h-4 accent-green-600" />
-                    <span className="text-sm text-gray-700">考卷</span>
-                  </label>
-                </div>
-                <p className="mt-1 text-xs text-slate-500">影響 AI 解析時的題號排序策略</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">資料夾（選填）</label>
-                <select value={newFolder} onChange={(e) => setNewFolder(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none">
-                  <option value="">不分類</option>
-                  {usedFolders.map((f) => <option key={f} value={f}>{f}</option>)}
-                </select>
-              </div>
-              {/* 答案卷模式 */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">答案卷模式</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" checked={newAnswerSheetMode === 'with_questions'} onChange={() => setNewAnswerSheetMode('with_questions')} className="w-4 h-4 accent-green-600" />
-                    <span className="text-sm text-gray-700">帶題目</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" checked={newAnswerSheetMode === 'answer_only'} onChange={() => setNewAnswerSheetMode('answer_only')} className="w-4 h-4 accent-green-600" />
-                    <span className="text-sm text-gray-700">純答案卷（題本分開）</span>
-                  </label>
-                </div>
-              </div>
-              {/* 題本上傳（純答案卷模式） */}
-              {newAnswerSheetMode === 'answer_only' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    上傳題本 <span className="text-xs text-slate-400">（學生看到的題目頁面，用於錯誤解說）</span>
-                  </label>
-                  <input
-                    type="file"
-                    accept="image/*,.pdf"
-                    multiple
-                    onChange={async (e) => {
-                      const files = Array.from(e.target.files || [])
-                      if (files.length === 0) return
-                      const blobs: Blob[] = []
-                      for (const file of files) {
-                        if (file.type === 'application/pdf') {
-                          const { convertPdfToImages } = await import('../lib/pdfToImage')
-                          const pages = await convertPdfToImages(file)
-                          blobs.push(...pages)
-                        } else {
-                          blobs.push(file)
-                        }
-                      }
-                      setQuestionBookletBlobs(blobs)
-                    }}
-                    className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
-                  />
-                  {questionBookletBlobs.length > 0 && (
-                    <p className="mt-1 text-xs text-green-600">已選取 {questionBookletBlobs.length} 頁題本圖</p>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
-              <button type="button" onClick={() => setShowNewModal(false)} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">取消</button>
-              <button type="button" disabled={!newTitle.trim() || !newDomain}
-                onClick={() => { setShowNewModal(false); fileInputRef.current?.click() }}
-                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
-                上傳答案卷圖片
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Unified Answer Key Modal */}
+      <AnswerKeyUnifiedModal
+        open={showUnifiedModal}
+        onClose={() => setShowUnifiedModal(false)}
+        onExtract={handleUnifiedExtract}
+        onSave={handleUnifiedSave}
+        editMode={!!editingTemplateId}
+        initialTitle={editingTitle}
+        initialDomain={editingDomain}
+        initialDocType={editingDocType}
+        initialFolder={editingFolder}
+        initialAnswerSheetMode={editingAnswerSheetMode}
+        initialAnswerKey={editingAnswerKey}
+        initialAnswerSheetImages={editingAnswerSheetImages}
+        domainOptions={domainOptions}
+        folderOptions={usedFolders}
+      />
 
       {/* 匯入短碼 Modal */}
       {showImportModal && (
@@ -995,18 +882,6 @@ export default function AnswerBank(_props: AnswerBankProps) {
         </div>
       )}
 
-      {/* Wizard Modal */}
-      {showWizard && (
-        <AnswerKeyWizardModal
-          initialPages={wizardPages}
-          initialStep={editingAnswerKey ? 'results' : 'page_order'}
-          initialAnswerKey={editingAnswerKey}
-          domain={editingDomain}
-          onExtract={handleWizardExtract}
-          onSave={handleWizardSave}
-          onCancel={handleWizardCancel}
-        />
-      )}
       </div>
     </div>
   )
