@@ -209,6 +209,8 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
       const list = await db.classrooms.toArray()
       setClassrooms(list)
       if (list.length > 0) {
+        // 保持 isLoading=true，讓第二個 useEffect（load grades）接手
+        // 避免在兩個 useEffect 之間閃一下空狀態
         setSelectedClassroomId((prev) => prev || list[0].id)
       } else {
         setSelectedClassroomId('')
@@ -227,6 +229,12 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     })
   }, [])
 
+  const classroomsLoadedRef = useRef(false)
+  // Track when classrooms have been loaded at least once
+  useEffect(() => {
+    if (classrooms.length > 0) classroomsLoadedRef.current = true
+  }, [classrooms])
+
   useEffect(() => {
     const load = async () => {
       if (!selectedClassroomId) {
@@ -235,7 +243,9 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
         setStudents([])
         setSubmissions([])
         setCustomColumns([])
-        setIsLoading(false)
+        // 只有在 classrooms 已載入後才設 isLoading=false
+        // 避免初始掛載時提早顯示「尚未建立班級」
+        if (classroomsLoadedRef.current) setIsLoading(false)
         return
       }
       setIsLoading(true)
