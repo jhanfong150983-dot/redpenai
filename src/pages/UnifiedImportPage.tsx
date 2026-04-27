@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
+  type DragEndEvent
+} from '@dnd-kit/core'
+import {
+  arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy, useSortable
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import {
   ArrowLeft,
   Camera,
   CheckCircle,
@@ -158,6 +166,83 @@ async function saveStudentSubmission(
       throw error
     }
   }
+}
+
+// ── Sortable card for upload preview (drag to reorder + orientation) ──────────
+
+function SortableUploadCard({ id, displayIdx, url, rotation, expectedOrientation, orientationStatus, onRotate }: {
+  id: string
+  displayIdx: number
+  url: string
+  rotation: number
+  expectedOrientation?: 'portrait' | 'landscape'
+  orientationStatus: 'correct' | 'wrong' | 'unknown'
+  onRotate: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const borderColor = orientationStatus === 'correct'
+    ? 'border-green-400'
+    : orientationStatus === 'wrong'
+      ? 'border-red-400'
+      : 'border-slate-200'
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, zIndex: isDragging ? 50 : undefined, opacity: isDragging ? 0.8 : 1 }}
+      className={isDragging ? 'shadow-2xl' : ''}
+    >
+      <div
+        {...attributes}
+        {...listeners}
+        className={`relative bg-white rounded-xl border-2 ${borderColor} overflow-hidden shadow-sm cursor-grab active:cursor-grabbing`}
+      >
+        {/* Page label + orientation badge */}
+        <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5">
+          <span className="px-2 py-0.5 bg-black/50 rounded-md text-white text-xs font-medium">
+            第 {displayIdx + 1} 頁
+          </span>
+          {expectedOrientation && (
+            <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
+              orientationStatus === 'correct'
+                ? 'bg-green-500 text-white'
+                : orientationStatus === 'wrong'
+                  ? 'bg-red-500 text-white'
+                  : 'bg-slate-400 text-white'
+            }`}>
+              {expectedOrientation === 'portrait' ? '直拍' : '橫拍'}
+              {orientationStatus === 'wrong' && ' ✗'}
+            </span>
+          )}
+        </div>
+        {/* Rotate button */}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRotate() }}
+          className="absolute top-2 right-2 z-10 p-1.5 bg-white/90 rounded-lg shadow hover:bg-white transition-colors"
+          title="旋轉 90°"
+        >
+          <RotateCw className="w-4 h-4 text-slate-600" />
+        </button>
+        {/* Image */}
+        <div className="aspect-[3/4] flex items-center justify-center p-2">
+          <img
+            src={url}
+            alt={`第 ${displayIdx + 1} 頁`}
+            className="max-w-full max-h-full object-contain transition-transform"
+            style={{ transform: `rotate(${rotation}deg)` }}
+            draggable={false}
+          />
+        </div>
+        {/* Wrong orientation warning */}
+        {orientationStatus === 'wrong' && (
+          <div className="px-3 py-1.5 bg-red-50 text-red-700 text-xs text-center border-t border-red-200">
+            方向不符，請旋轉或重新選擇
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // ── Sortable card for batch preview ───────────────────────────────────────────
@@ -327,6 +412,22 @@ export default function UnifiedImportPage({
   const [uploadPreviewRotations, setUploadPreviewRotations] = useState<number[]>([])
   const [uploadPreviewSource, setUploadPreviewSource] = useState<string>('teacher_student_upload')
   const [isUploadPreviewSaving, setIsUploadPreviewSaving] = useState(false)
+  // 拖曳排序用的 items（id 清單，對應 uploadPreviewBlobs/Urls/Rotations 的索引）
+  const [uploadPreviewOrder, setUploadPreviewOrder] = useState<string[]>([])
+  const uploadDndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+  const handleUploadDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      setUploadPreviewOrder(prev => {
+        const oldIdx = prev.indexOf(String(active.id))
+        const newIdx = prev.indexOf(String(over.id))
+        return arrayMove(prev, oldIdx, newIdx)
+      })
+    }
+  }, [])
 
   // ── Load data ───────────────────────────────────────────────────────────
 
@@ -504,6 +605,7 @@ export default function UnifiedImportPage({
         setUploadPreviewBlobs(blobs)
         setUploadPreviewUrls(urls)
         setUploadPreviewRotations(new Array(blobs.length).fill(0))
+        setUploadPreviewOrder(blobs.map((_, i) => `page-${i}`))
         setUploadPreviewSource(
           fileType === 'pdf' ? 'teacher_scan' : 'teacher_student_upload',
         )
@@ -533,6 +635,7 @@ export default function UnifiedImportPage({
     setUploadPreviewBlobs([])
     setUploadPreviewUrls([])
     setUploadPreviewRotations([])
+    setUploadPreviewOrder([])
   }, [uploadPreviewUrls])
 
   const handleUploadPreviewConfirm = useCallback(async () => {
@@ -540,10 +643,12 @@ export default function UnifiedImportPage({
     setIsUploadPreviewSaving(true)
 
     try {
-      // Apply rotations
+      // 按拖曳排序的順序重排，並套用旋轉
+      const orderedIndices = uploadPreviewOrder.map(id => parseInt(id.replace('page-', ''), 10))
       const rotatedBlobs = await Promise.all(
-        uploadPreviewBlobs.map(async (blob, i) => {
-          const rot = uploadPreviewRotations[i] ?? 0
+        orderedIndices.map(async (origIdx) => {
+          const blob = uploadPreviewBlobs[origIdx]
+          const rot = uploadPreviewRotations[origIdx] ?? 0
           return rot !== 0 ? rotateImageBlob(blob, rot) : blob
         }),
       )
@@ -563,6 +668,7 @@ export default function UnifiedImportPage({
       setUploadPreviewBlobs([])
       setUploadPreviewUrls([])
       setUploadPreviewRotations([])
+      setUploadPreviewOrder([])
 
       await loadData()
     } catch (err) {
@@ -605,6 +711,7 @@ export default function UnifiedImportPage({
       setUploadPreviewBlobs(blobs)
       setUploadPreviewUrls(urls)
       setUploadPreviewRotations(new Array(blobs.length).fill(0))
+      setUploadPreviewOrder(blobs.map((_, i) => `page-${i}`))
       setUploadPreviewSource('teacher_student_upload')
     },
     [pagesPerStudent],
@@ -1743,79 +1850,42 @@ export default function UnifiedImportPage({
 
             {/* Pages grid */}
             <div className="flex-1 overflow-y-auto bg-slate-50 p-4">
-              <div className={`grid gap-4 ${
-                uploadPreviewUrls.length === 1 ? 'grid-cols-1 max-w-sm mx-auto' : 'grid-cols-2 sm:grid-cols-3'
-              }`}>
-                {uploadPreviewUrls.map((url, i) => {
-                  // 計算旋轉後的實際方向
-                  const rotation = uploadPreviewRotations[i] ?? 0
-                  const isRotated90or270 = rotation === 90 || rotation === 270
-                  // 原始圖片方向由驗證時已確認，旋轉 90/270 會翻轉方向
-                  const expectedOrientation = pageOrientations[i]
-                  let orientationStatus: 'correct' | 'wrong' | 'unknown' = 'unknown'
-                  if (expectedOrientation && uploadPreviewBlobs[i]) {
-                    // 簡化判斷：原圖是 portrait，旋轉 0/180 仍是 portrait，旋轉 90/270 變 landscape
-                    // 由於已通過方向驗證進入預覽，原圖方向 = expectedOrientation
-                    // 旋轉後方向 = isRotated90or270 ? 翻轉 : 不變
-                    const afterRotation = isRotated90or270
-                      ? (expectedOrientation === 'portrait' ? 'landscape' : 'portrait')
-                      : expectedOrientation
-                    orientationStatus = afterRotation === expectedOrientation ? 'correct' : 'wrong'
-                  }
-                  const borderColor = orientationStatus === 'correct'
-                    ? 'border-green-400'
-                    : orientationStatus === 'wrong'
-                      ? 'border-red-400'
-                      : 'border-slate-200'
+              <DndContext sensors={uploadDndSensors} collisionDetection={closestCenter} onDragEnd={handleUploadDragEnd}>
+                <SortableContext items={uploadPreviewOrder} strategy={rectSortingStrategy}>
+                  <div className={`grid gap-4 ${
+                    uploadPreviewOrder.length === 1 ? 'grid-cols-1 max-w-sm mx-auto' : 'grid-cols-2 sm:grid-cols-3'
+                  }`}>
+                    {uploadPreviewOrder.map((pageId, displayIdx) => {
+                      const origIdx = parseInt(pageId.replace('page-', ''), 10)
+                      const url = uploadPreviewUrls[origIdx]
+                      const rotation = uploadPreviewRotations[origIdx] ?? 0
+                      const isRotated90or270 = rotation === 90 || rotation === 270
+                      // 方向驗證：用顯示順序（displayIdx）對應答案卷的 pageOrientations
+                      const expectedOrientation = pageOrientations[displayIdx]
+                      let orientationStatus: 'correct' | 'wrong' | 'unknown' = 'unknown'
+                      if (expectedOrientation) {
+                        const afterRotation = isRotated90or270
+                          ? (expectedOrientation === 'portrait' ? 'landscape' : 'portrait')
+                          : expectedOrientation
+                        orientationStatus = afterRotation === expectedOrientation ? 'correct' : 'wrong'
+                      }
 
-                  return (
-                    <div key={i} className={`relative bg-white rounded-xl border-2 ${borderColor} overflow-hidden shadow-sm`}>
-                      {/* Page label + orientation badge */}
-                      <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5">
-                        <span className="px-2 py-0.5 bg-black/50 rounded-md text-white text-xs font-medium">
-                          第 {i + 1} 頁
-                        </span>
-                        {expectedOrientation && (
-                          <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
-                            orientationStatus === 'correct'
-                              ? 'bg-green-500 text-white'
-                              : orientationStatus === 'wrong'
-                                ? 'bg-red-500 text-white'
-                                : 'bg-slate-400 text-white'
-                          }`}>
-                            {expectedOrientation === 'portrait' ? '直拍' : '橫拍'}
-                            {orientationStatus === 'wrong' && ' ✗'}
-                          </span>
-                        )}
-                      </div>
-                      {/* Rotate button */}
-                      <button
-                        type="button"
-                        onClick={() => handleUploadPreviewRotate(i)}
-                        className="absolute top-2 right-2 z-10 p-1.5 bg-white/90 rounded-lg shadow hover:bg-white transition-colors"
-                        title="旋轉 90°"
-                      >
-                        <RotateCw className="w-4 h-4 text-slate-600" />
-                      </button>
-                      {/* Image */}
-                      <div className="aspect-[3/4] flex items-center justify-center p-2">
-                        <img
-                          src={url}
-                          alt={`第 ${i + 1} 頁`}
-                          className="max-w-full max-h-full object-contain transition-transform"
-                          style={{ transform: `rotate(${rotation}deg)` }}
+                      return (
+                        <SortableUploadCard
+                          key={pageId}
+                          id={pageId}
+                          displayIdx={displayIdx}
+                          url={url}
+                          rotation={rotation}
+                          expectedOrientation={expectedOrientation}
+                          orientationStatus={orientationStatus}
+                          onRotate={() => handleUploadPreviewRotate(origIdx)}
                         />
-                      </div>
-                      {/* Wrong orientation warning */}
-                      {orientationStatus === 'wrong' && (
-                        <div className="px-3 py-1.5 bg-red-50 text-red-700 text-xs text-center border-t border-red-200">
-                          方向不符，請旋轉或重新選擇
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+                      )
+                    })}
+                  </div>
+                </SortableContext>
+              </DndContext>
             </div>
 
             {/* Footer */}
@@ -1841,10 +1911,12 @@ export default function UnifiedImportPage({
                   取消
                 </button>
                 {(() => {
-                  // 檢查是否有方向錯誤（旋轉後仍不符合）
-                  const hasOrientationError = pageOrientations.length > 0 && uploadPreviewRotations.some((rot, i) => {
-                    const expected = pageOrientations[i]
+                  // 檢查是否有方向錯誤（用拖曳排序後的順序）
+                  const hasOrientationError = pageOrientations.length > 0 && uploadPreviewOrder.some((pageId, displayIdx) => {
+                    const origIdx = parseInt(pageId.replace('page-', ''), 10)
+                    const expected = pageOrientations[displayIdx]
                     if (!expected) return false
+                    const rot = uploadPreviewRotations[origIdx] ?? 0
                     const isRotated90or270 = rot === 90 || rot === 270
                     const afterRotation = isRotated90or270
                       ? (expected === 'portrait' ? 'landscape' : 'portrait')
