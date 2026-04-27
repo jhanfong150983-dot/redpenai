@@ -516,6 +516,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [previewedDraftSignatures, setPreviewedDraftSignatures] = useState<Record<string, string>>({})
   const [previewModal, setPreviewModal] = useState<PreviewModalState>(null)
   const [previewChecks, setPreviewChecks] = useState({ orientation: false, clarity: false })
+  const [previewCoverage, setPreviewCoverage] = useState<Record<number, boolean>>({}) // 每頁滿版狀態
   const [cameraMode, setCameraMode] = useState<StudentCameraMode>(null)
   const [cameraAssignmentId, setCameraAssignmentId] = useState('')
   const [capturedBlobs, setCapturedBlobs] = useState<Blob[]>([])
@@ -705,6 +706,26 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     () => previewFiles.map((file) => URL.createObjectURL(file)),
     [previewFiles]
   )
+
+  // 預覽開啟時，檢查每頁的滿版狀態
+  useEffect(() => {
+    if (!previewModal || previewFiles.length === 0) {
+      setPreviewCoverage({})
+      return
+    }
+    (async () => {
+      const { checkCoverage } = await import('../lib/coverageCheck')
+      const results: Record<number, boolean> = {}
+      for (let i = 0; i < previewFiles.length; i++) {
+        try {
+          results[i] = await checkCoverage(previewFiles[i])
+        } catch {
+          results[i] = true // 檢查失敗就當通過
+        }
+      }
+      setPreviewCoverage(results)
+    })()
+  }, [previewFiles, previewModal])
 
   const rotatePreviewImage = useCallback(
     async (direction: 'clockwise' | 'counterclockwise') => {
@@ -1905,124 +1926,90 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         </div>
       )}
 
-      {previewModal && previewFiles.length > 0 && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-4">
-          <div className="relative w-full max-w-5xl overflow-y-auto rounded-xl bg-white shadow-2xl" style={{ maxHeight: 'calc(100vh - 2rem)' }}>
-            <button
-              type="button"
-              onClick={() => setPreviewModal(null)}
-              className="absolute right-3 top-3 z-10 rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 hover:text-slate-900"
-              aria-label="關閉預覽"
-            >
-              <X className="h-4 w-4" />
-            </button>
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 pr-14">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">作業預覽</p>
-                <p className="mt-0.5 text-xs text-amber-700">
-                  請確認照片正確後，勾選下方確認項目才能送出。
-                </p>
-              </div>
-              <span className="text-xs text-slate-500">
-                第 {previewModal.index + 1} / {previewFiles.length} 頁
-              </span>
-            </div>
-            {/* 方向提示 */}
-            {(() => {
-              const assignment = uploadAssignments.find(a => a.id === previewModal.assignmentId)
-              const expectedOri = assignment?.pageOrientations?.[previewModal.index]
-              if (!expectedOri) return null
-              // 檢查當前照片方向是否正確（用 previewFiles 的寬高比）
-              const file = previewFiles[previewModal.index]
-              return (
-                <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 text-center">
-                  <span className="text-xs text-blue-700">
-                    第 {previewModal.index + 1} 頁應為
-                    <span className="font-semibold">{expectedOri === 'portrait' ? '直拍 📱' : '橫拍 📱'}</span>
-                    {file && '，如方向不對請使用下方旋轉按鈕調整'}
-                  </span>
+      {previewModal && previewFiles.length > 0 && (() => {
+        const assignment = uploadAssignments.find(a => a.id === previewModal.assignmentId)
+        const orientations = assignment?.pageOrientations || []
+        // 檢查是否有任何問題（方向或滿版）
+        const hasAnyError = previewFiles.some((_, i) => previewCoverage[i] === false)
+
+        return (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-4">
+            <div className="relative w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl" style={{ maxHeight: 'calc(100vh - 2rem)' }}>
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+                <div>
+                  <p className="text-base font-semibold text-slate-900">作業預覽</p>
+                  <p className="mt-0.5 text-xs text-slate-500">共 {previewFiles.length} 頁，請確認每頁照片正確</p>
                 </div>
-              )
-            })()}
-            <div className="relative flex min-h-[160px] items-center justify-center bg-slate-50">
-              {previewModal.index > 0 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPreviewModal((prev) =>
-                      prev
-                        ? { ...prev, index: Math.max(0, prev.index - 1) }
-                        : prev
-                    )
-                  }
-                  className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full border border-slate-300 bg-white p-2 text-slate-700 shadow-sm hover:border-slate-400"
-                  aria-label="上一頁"
-                >
-                  <ChevronLeft className="h-5 w-5" />
-                </button>
-              )}
-              <img
-                src={previewUrls[previewModal.index]}
-                alt={`作業預覽第 ${previewModal.index + 1} 頁`}
-                className="max-h-[45vh] w-auto max-w-full object-contain"
-              />
-              {previewModal.index < previewFiles.length - 1 && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setPreviewModal((prev) =>
-                      prev
-                        ? { ...prev, index: Math.min(previewFiles.length - 1, prev.index + 1) }
-                        : prev
-                    )
-                  }
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full border border-slate-300 bg-white p-2 text-slate-700 shadow-sm hover:border-slate-400"
-                  aria-label="下一頁"
-                >
-                  <ChevronRight className="h-5 w-5" />
-                </button>
-              )}
-            </div>
-            <div className="border-t border-slate-200 bg-white px-4 py-4 space-y-4">
-              {/* 旋轉按鈕 */}
-              <div className="flex items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => void rotatePreviewImage('counterclockwise')}
-                  disabled={isRotatingPreview}
-                  className="inline-flex items-center gap-2 rounded-lg border-2 border-slate-300 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <RotateCcw className="h-5 w-5" />
-                  向左旋轉
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void rotatePreviewImage('clockwise')}
-                  disabled={isRotatingPreview}
-                  className="inline-flex items-center gap-2 rounded-lg border-2 border-slate-300 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-sky-400 hover:bg-sky-50 hover:text-sky-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <RotateCw className="h-5 w-5" />
-                  向右旋轉
+                <button type="button" onClick={() => setPreviewModal(null)} className="p-2 rounded-full hover:bg-slate-100">
+                  <X className="w-5 h-5 text-slate-500" />
                 </button>
               </div>
-              {/* 確認 checklist */}
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 space-y-2">
-                <p className="text-xs font-semibold text-amber-800">送出前請確認：</p>
-                <label className="flex cursor-pointer items-center gap-2.5">
-                  <input
-                    type="checkbox"
-                    checked={previewChecks.clarity}
-                    onChange={(e) => setPreviewChecks((p) => ({ ...p, clarity: e.target.checked }))}
-                    className="h-4 w-4 rounded border-amber-400 accent-amber-500"
-                  />
-                  <span className="text-sm text-amber-900">內容清晰完整（文字可辨識，頁面沒有缺角）</span>
-                </label>
+
+              {/* Pages grid */}
+              <div className="flex-1 overflow-y-auto bg-slate-50 p-4" style={{ maxHeight: 'calc(100vh - 12rem)' }}>
+                <div className={`grid gap-4 ${previewFiles.length === 1 ? 'grid-cols-1 max-w-xs mx-auto' : 'grid-cols-2'}`}>
+                  {previewFiles.map((file, i) => {
+                    const expectedOri = orientations[i]
+                    const isCovered = previewCoverage[i] !== false
+                    const hasCoverageError = previewCoverage[i] === false
+                    const borderColor = hasCoverageError ? 'border-red-400' : 'border-green-400'
+
+                    return (
+                      <div key={i} className={`relative bg-white rounded-xl border-2 ${borderColor} overflow-hidden shadow-sm`}>
+                        {/* Page label + orientation */}
+                        <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-semibold text-slate-700">第 {i + 1} 頁</span>
+                            {expectedOri && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+                                {expectedOri === 'portrait' ? '直拍' : '橫拍'}
+                              </span>
+                            )}
+                          </div>
+                          {isCovered && <span className="text-[10px] text-green-600 font-medium">✓</span>}
+                        </div>
+                        {/* Image */}
+                        <div className="aspect-[3/4] flex items-center justify-center p-2">
+                          <img src={previewUrls[i]} alt={`第 ${i + 1} 頁`} className="max-w-full max-h-full object-contain" />
+                        </div>
+                        {/* Error + retake */}
+                        {hasCoverageError && (
+                          <div className="px-3 py-2 bg-red-50 border-t border-red-200 text-center">
+                            <p className="text-xs text-red-700 mb-2">作業未填滿畫面</p>
+                          </div>
+                        )}
+                        {/* Retake button (always visible) */}
+                        <div className="px-3 py-2 border-t border-slate-100">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              // 開啟相機重拍這一頁
+                              setPreviewModal(null)
+                              // 觸發相機拍攝，拍完後替換這一頁
+                              openCamera('upload', previewModal.assignmentId)
+                            }}
+                            className={`w-full text-xs font-medium py-1.5 rounded-lg transition-colors ${
+                              hasCoverageError
+                                ? 'bg-red-600 text-white hover:bg-red-700'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            <Camera className="w-3.5 h-3.5 inline mr-1" />
+                            重新拍攝第 {i + 1} 頁
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-              {/* 確認完成按鈕（方向驗證在送出時自動檢查） */}
-              <div className="flex justify-center">
+
+              {/* Footer */}
+              <div className="flex items-center justify-center px-5 py-3 border-t border-slate-200">
                 <button
                   type="button"
-                  disabled={!previewChecks.clarity}
+                  disabled={hasAnyError}
                   onClick={() => {
                     if (!previewModal) return
                     setPreviewedDraftSignatures((prev) => ({
@@ -2035,13 +2022,13 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                   }}
                   className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
                 >
-                  確認完成，準備送出
+                  {hasAnyError ? '請先修正問題頁面' : '確認完成，準備送出'}
                 </button>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {zoomImageUrl && (
         <ZoomImageModal url={zoomImageUrl} onClose={() => setZoomImageUrl(null)} />
