@@ -122,7 +122,8 @@ export interface AnswerKeyUnifiedModalProps {
   onClose: () => void
   onExtract: (
     orderedBlobs: Array<{ index: number; url: string; blob: Blob }>,
-    onProgress: (msg: string) => void
+    onProgress: (msg: string) => void,
+    context: { domain: string; docType: 'worksheet' | 'exam' }
   ) => Promise<{ answerKey: AnswerKey; imageBlobs: Blob[]; notice: string | null }>
   onSave: (answerKey: AnswerKey, imageBlobs: Blob[], metadata: {
     title: string; domain: string; docType: 'worksheet' | 'exam'
@@ -424,7 +425,8 @@ export default function AnswerKeyUnifiedModal({
         console.warn('[UnifiedModal] perspective correction failed, using originals:', err)
       }
 
-      const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setExtractionMsg)
+      const effectiveDomain = domain === '國語（測試中）' ? '國語' : domain
+      const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setExtractionMsg, { domain: effectiveDomain, docType })
       setEditingKey(answerKey)
       setExtractedImageBlobs(blobs)
       setNotice(n)

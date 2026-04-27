@@ -354,12 +354,18 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   // ── Unified modal handlers ─────────────────────────────────────────────────
 
-  const handleUnifiedExtract = async (orderedPages: Array<{ index: number; url: string; blob: Blob }>, _onProgress: (msg: string) => void) => {
+  const handleUnifiedExtract = async (
+    orderedPages: Array<{ index: number; url: string; blob: Blob }>,
+    _onProgress: (msg: string) => void,
+    context: { domain: string; docType: 'worksheet' | 'exam' }
+  ) => {
     const blobs = orderedPages.map((p) => p.blob)
     await startInkSession()
     try {
-      const domain = editingDomain || undefined
-      const answerKey = await extractAnswerKeyFromImages(blobs, { domain, docType: editingTemplateId ? undefined : editingDocType })
+      const answerKey = await extractAnswerKeyFromImages(blobs, {
+        domain: context.domain || undefined,
+        docType: context.docType,
+      })
       return { answerKey, imageBlobs: blobs, notice: null }
     } finally { closeInkSession() }
   }
