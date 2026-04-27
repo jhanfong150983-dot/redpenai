@@ -367,11 +367,16 @@ export default function AnswerKeyUnifiedModal({
   }, [uploadedPages])
 
   // When page items change (reorder/rotate/delete), reset upload_order completion if it was set
-  // (so user needs to re-confirm)
+  // Skip reset when update comes from post-extraction sync
   const prevPageItemsRef = useRef(pageItems)
+  const skipPageResetRef = useRef(false)
   useEffect(() => {
+    if (skipPageResetRef.current) {
+      skipPageResetRef.current = false
+      prevPageItemsRef.current = pageItems
+      return
+    }
     if (prevPageItemsRef.current !== pageItems && completedSteps.has('upload_order')) {
-      // Only reset if the actual ordering/content changed, not on initial mount
       if (prevPageItemsRef.current.length > 0) {
         resetFromStep('upload_order')
       }
@@ -424,6 +429,12 @@ export default function AnswerKeyUnifiedModal({
       setExtractedImageBlobs(blobs)
       setNotice(n)
       setSelectedIdx(0)
+      // Update uploadedPages with corrected images so Step 2 preview stays valid
+      skipPageResetRef.current = true
+      const correctedPages = blobs.map((blob, i) => ({
+        index: i, blob, url: URL.createObjectURL(blob),
+      }))
+      setUploadedPages(correctedPages)
       markComplete('extracting')
       markComplete('editing') // editing is auto-unlocked, consider complete by default
       setActiveStep('editing')
