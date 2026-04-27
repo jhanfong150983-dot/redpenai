@@ -637,6 +637,7 @@ export default function UnifiedImportPage({
     try {
       // 按拖曳排序的順序重排，並套用旋轉
       const orderedIndices = uploadPreviewOrder.map(id => parseInt(id.replace('page-', ''), 10))
+      // 旋轉
       const rotatedBlobs = await Promise.all(
         orderedIndices.map(async (origIdx) => {
           const blob = uploadPreviewBlobs[origIdx]
@@ -645,10 +646,19 @@ export default function UnifiedImportPage({
         }),
       )
 
+      // 透視校正（每頁獨立，並行）
+      let correctedBlobs = rotatedBlobs
+      try {
+        const { correctPerspectiveMultiple } = await import('../lib/perspectiveCorrection')
+        correctedBlobs = await correctPerspectiveMultiple(rotatedBlobs)
+      } catch (err) {
+        console.warn('[UnifiedImport] perspective correction failed, using originals:', err)
+      }
+
       await saveStudentSubmission(
         assignmentId,
         uploadPreviewStudent.id,
-        rotatedBlobs,
+        correctedBlobs,
         avoidBlobStorage,
         uploadPreviewSource,
       )
@@ -675,6 +685,7 @@ export default function UnifiedImportPage({
     uploadPreviewRotations,
     uploadPreviewUrls,
     uploadPreviewSource,
+    uploadPreviewOrder,
     assignmentId,
     avoidBlobStorage,
     loadData,
