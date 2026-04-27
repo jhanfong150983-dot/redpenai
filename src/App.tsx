@@ -1609,7 +1609,7 @@ function App() {
                   <ChevronDown className="h-4 w-4 text-slate-500" />
                 </button>
                 {isUserMenuOpen && (
-                  <div className="absolute right-0 z-40 mt-2 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                  <div className="absolute right-0 z-[200] mt-2 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
                     <div className="border-b border-slate-100 px-4 py-3">
                       <p className="truncate text-sm font-semibold text-slate-900">{userDisplayName}</p>
                       <div className="mt-0.5 flex items-center gap-1.5">
