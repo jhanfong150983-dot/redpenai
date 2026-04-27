@@ -49,7 +49,10 @@ interface UserStatsData {
   totalInkUsed: number
   lastActiveAt?: string
   students?: StudentUsage[]
+  status?: 'active' | 'new'
 }
+
+type StatusFilter = 'all' | 'active' | 'new'
 
 type BalanceMode = 'none' | 'set' | 'delta'
 
@@ -59,6 +62,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set())
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
   const [editingUser, setEditingUser] = useState<UserStatsData | null>(null)
   const [role, setRole] = useState('user')
@@ -95,10 +99,17 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
     void loadUsers()
   }, [loadUsers])
 
+  const activeCount = useMemo(() => users.filter(u => u.status === 'active').length, [users])
+  const newCount = useMemo(() => users.filter(u => u.status === 'new').length, [users])
+
   const filteredUsers = useMemo(() => {
+    let result = users
+    if (statusFilter !== 'all') {
+      result = result.filter(u => u.status === statusFilter)
+    }
     const keyword = query.trim().toLowerCase()
-    if (!keyword) return users
-    return users.filter((user) => {
+    if (!keyword) return result
+    return result.filter((user) => {
       const haystack = [
         user.email,
         user.name,
@@ -111,7 +122,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
         .toLowerCase()
       return haystack.includes(keyword)
     })
-  }, [users, query])
+  }, [users, query, statusFilter])
 
   const formatRelativeTime = (value?: string) => {
     if (!value) return '未知'
@@ -297,6 +308,28 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
             共 {users.length} 位使用者 {filteredUsers.length !== users.length && `（顯示 ${filteredUsers.length} 位）`}
           </div>
         </div>
+
+        {/* Status Filter Tabs */}
+        <div className="mt-3 flex gap-2">
+          {([
+            { key: 'all' as StatusFilter, label: '全部', count: users.length },
+            { key: 'active' as StatusFilter, label: '使用中', count: activeCount },
+            { key: 'new' as StatusFilter, label: '新註冊（尚無班級）', count: newCount },
+          ]).map(tab => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setStatusFilter(tab.key)}
+              className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                statusFilter === tab.key
+                  ? 'bg-amber-100 border-amber-400 text-amber-700 font-medium'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              {tab.label}（{tab.count}）
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Error Message */}
@@ -339,6 +372,11 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                         {user.email || user.userId}
                       </p>
                       <div className="flex flex-wrap gap-1.5 mt-2">
+                        {user.status === 'new' && (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium">
+                            新註冊
+                          </span>
+                        )}
                         {user.role === 'admin' && (
                           <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-medium">
                             管理員
