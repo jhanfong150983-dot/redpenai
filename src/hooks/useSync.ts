@@ -530,7 +530,8 @@ export function useSync(options: UseSyncOptions = {}) {
       submissions: [],
       folders: [],
       gradebook_custom_columns: [],
-      gradebook_custom_scores: []
+      gradebook_custom_scores: [],
+      answer_key_templates: []
     }
 
     const deleteMap = new Map<
@@ -582,6 +583,11 @@ export function useSync(options: UseSyncOptions = {}) {
     const deletedGradebookCustomScoreIds = new Set(
       [...deleteMap.values()]
         .filter((e) => e.tableName === 'gradebook_custom_scores')
+        .map((e) => e.recordId)
+    )
+    const deletedAnswerKeyTemplateIds = new Set(
+      [...deleteMap.values()]
+        .filter((e) => e.tableName === 'answer_key_templates')
         .map((e) => e.recordId)
     )
 
@@ -723,6 +729,7 @@ export function useSync(options: UseSyncOptions = {}) {
     const answerKeyTemplatesPayload = answerKeyTemplates
       .filter((t) => {
         if (!t?.id || !t?.answerKey) return false
+        if (deletedAnswerKeyTemplateIds.has(t.id)) return false
         // 只推送有變更的 templates（避免每次 sync 都送全部的大 payload）
         if (lastSuccessfulSyncAt && t.updatedAt && t.updatedAt < lastSuccessfulSyncAt) return false
         return true
@@ -743,6 +750,7 @@ export function useSync(options: UseSyncOptions = {}) {
         } : undefined,
         questionCount: t.questionCount ?? t.answerKey?.questions?.length ?? 0,
         totalScore: t.totalScore ?? t.answerKey?.totalScore ?? 0,
+        version: t.version ?? 1,
         shareCode: t.shareCode ?? undefined,
         pageOrientations: t.pageOrientations ?? undefined,
         answerSheetMode: t.answerSheetMode ?? undefined,
@@ -854,6 +862,7 @@ export function useSync(options: UseSyncOptions = {}) {
     const deletedFolderIds = collectDeletedIds(deleted.folders)
     const deletedGradebookCustomColumnIds = collectDeletedIds(deleted.gradebook_custom_columns)
     const deletedGradebookCustomScoreIds = collectDeletedIds(deleted.gradebook_custom_scores)
+    const deletedAnswerKeyTemplateIdsPull = collectDeletedIds(deleted.answer_key_templates)
 
     debugLog('🗑️ 要刪除的 folders:', deletedFolderIds)
 
@@ -868,6 +877,7 @@ export function useSync(options: UseSyncOptions = {}) {
     const deletedFolderSet = new Set(deletedFolderIds)
     const deletedGradebookCustomColumnSet = new Set(deletedGradebookCustomColumnIds)
     const deletedGradebookCustomScoreSet = new Set(deletedGradebookCustomScoreIds)
+    const deletedAnswerKeyTemplateSet = new Set(deletedAnswerKeyTemplateIdsPull)
 
     const existingSubmissions = await db.submissions.toArray()
 
@@ -1286,6 +1296,7 @@ export function useSync(options: UseSyncOptions = {}) {
         pageOrientations: t.pageOrientations ?? t.page_orientations ?? undefined,
         answerSheetMode: t.answerSheetMode ?? t.answer_sheet_mode ?? undefined,
         questionBookletImagePaths: t.questionBookletImagePaths ?? t.question_booklet_image_paths ?? undefined,
+        version: t.version ?? 1,
         updatedAt: toMillis(t.updatedAt ?? t.updated_at),
       }))
 
@@ -1362,6 +1373,10 @@ export function useSync(options: UseSyncOptions = {}) {
     if (deletedGradebookCustomScoreIds.length > 0) {
       await db.gradebookCustomScores.bulkDelete(deletedGradebookCustomScoreIds)
     }
+    if (deletedAnswerKeyTemplateIdsPull.length > 0) {
+      await db.answerKeyTemplates.bulkDelete(deletedAnswerKeyTemplateIdsPull)
+      debugLog(`🗑️ 刪除了 ${deletedAnswerKeyTemplateIdsPull.length} 個答案卷模板`)
+    }
 
     // 在所有 bulkDelete 之後檢查 folders
     const afterDelete = await db.folders.toArray()
@@ -1385,6 +1400,8 @@ export function useSync(options: UseSyncOptions = {}) {
       pendingDeleteByTable.get('gradebook_custom_columns') ?? new Set()
     const pendingGradebookCustomScoreDeletes =
       pendingDeleteByTable.get('gradebook_custom_scores') ?? new Set()
+    const pendingAnswerKeyTemplateDeletes =
+      pendingDeleteByTable.get('answer_key_templates') ?? new Set()
 
     if (pendingDeletes.length > 0) {
       debugLog(`🛡️ 本地有 ${pendingDeletes.length} 筆待刪除記錄，bulkPut 將跳過這些 ID`)
@@ -1489,9 +1506,12 @@ export function useSync(options: UseSyncOptions = {}) {
     }
 
     // Answer key templates
-    if (normalizedTemplates.length > 0) {
-      await db.answerKeyTemplates.bulkPut(normalizedTemplates)
-      debugLog(`✅ 同步了 ${normalizedTemplates.length} 個答案卷模板`)
+    const safeTemplates = normalizedTemplates.filter(
+      (t: { id: string }) => !deletedAnswerKeyTemplateSet.has(t.id) && !pendingAnswerKeyTemplateDeletes.has(t.id)
+    )
+    if (safeTemplates.length > 0) {
+      await db.answerKeyTemplates.bulkPut(safeTemplates)
+      debugLog(`✅ 同步了 ${safeTemplates.length} 個答案卷模板`)
     }
 
     // 清理孤兒 assignment folders（所屬班級已被刪除）

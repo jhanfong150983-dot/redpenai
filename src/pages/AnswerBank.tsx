@@ -6,7 +6,7 @@ import {
 import { db, generateId } from '@/lib/db'
 import type { AnswerKey, AnswerKeyTemplate } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
-import { queueDeleteMany } from '@/lib/sync-delete-queue'
+import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages } from '@/lib/gemini'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { checkFolderNameUnique } from '@/lib/utils'
@@ -511,6 +511,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       )) return
     }
     try {
+      await queueDelete('answer_key_templates', id)
       await db.answerKeyTemplates.delete(id)
       requestSync(); await loadData()
     } catch (err) { setError(err instanceof Error ? err.message : '刪除失敗') }
