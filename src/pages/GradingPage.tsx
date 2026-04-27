@@ -3449,7 +3449,7 @@ export default function GradingPage({
     <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
       {/* AI 使用計算中 Overlay */}
       {isClosingSession && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-8 flex flex-col items-center gap-4">
             <Loader className="w-10 h-10 text-blue-500 animate-spin" />
             <div className="text-center">
@@ -3461,7 +3461,7 @@ export default function GradingPage({
       )}
 
       {isCheckingCorrectionState && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/30 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-6 w-full max-w-sm mx-4">
             <div className="flex items-center gap-3">
               <Loader className="w-6 h-6 text-sky-600 animate-spin" />
@@ -3475,7 +3475,7 @@ export default function GradingPage({
       )}
 
       {correctionGuardModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-lg w-full mx-4">
             <div className="flex items-start gap-3 mb-4">
               <AlertTriangle className="w-6 h-6 text-amber-500 mt-0.5 shrink-0" />
@@ -3525,7 +3525,7 @@ export default function GradingPage({
 
       {/* 🆕 確認對話框 */}
       {showGradeConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-sm w-full mx-4">
             <h3 className="text-lg font-bold text-gray-900 mb-4">
               {isRegrade ? '確認重新批改' : '確認開始批改'}
@@ -3566,7 +3566,7 @@ export default function GradingPage({
       )}
 
       {gradeResultNotice && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-xl w-full mx-4">
             <h3 className="text-lg font-bold text-gray-900 mb-4">
               {gradeResultNotice.stopped ? '已停止批改' : '批改完成'}
@@ -4090,7 +4090,7 @@ export default function GradingPage({
       {/* Modal */}
       {selectedSubmission && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
           onClick={handleCloseModal}
         >
           <div
@@ -4154,7 +4154,7 @@ export default function GradingPage({
                         : rawLeft
                       const panelTop = Math.max(8, Math.min(window.innerHeight - panelH - 8, previewLensState.clientY - panelH / 2))
                       return (
-                      <div className="pointer-events-none fixed z-[60] rounded-xl border border-blue-200 bg-white/95 p-2 shadow-2xl" style={{ left: panelLeft, top: panelTop }}>
+                      <div className="pointer-events-none fixed z-[120] rounded-xl border border-blue-200 bg-white/95 p-2 shadow-2xl" style={{ left: panelLeft, top: panelTop }}>
                         <div className="mb-1 text-[10px] font-semibold tracking-wide text-blue-700">
                           細節放大
                         </div>

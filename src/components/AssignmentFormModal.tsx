@@ -214,7 +214,7 @@ export default function AssignmentFormModal({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-[900px] h-[580px] flex flex-col overflow-hidden relative">
 
         {/* ── Main content: sidebar + content ── */}

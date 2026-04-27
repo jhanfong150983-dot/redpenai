@@ -707,7 +707,7 @@ export default function AnswerKeyUnifiedModal({
   const effectiveDomain = domain === '國語（測試中）' ? '���語' : domain
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-[960px] h-[640px] flex flex-col overflow-hidden relative">
 
         {/* ── Main content: sidebar + content ── */}

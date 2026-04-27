@@ -713,7 +713,7 @@ export default function ScannerPage({
   // 如果顯示確認視窗
   if (showConfirmation) {
     return (
-      <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50">
+      <div className="fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-[120]">
         <div className="bg-white rounded-2xl w-full max-w-6xl max-h-[90vh] overflow-y-auto p-6">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">確認送出作業</h2>
 

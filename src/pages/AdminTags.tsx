@@ -656,7 +656,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
 
       {editingTag && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={closeEditTag}
         >
           <div
@@ -768,7 +768,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
 
       {overrideTarget && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={closeOverride}
         >
           <div

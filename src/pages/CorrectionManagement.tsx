@@ -750,7 +750,7 @@ export default function CorrectionManagement({
 
       {/* Dispute resolution panel */}
       {disputePanel && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-10">
+        <div className="fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 pt-10">
           <div className="w-full max-w-xl rounded-xl border border-slate-200 bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <div>

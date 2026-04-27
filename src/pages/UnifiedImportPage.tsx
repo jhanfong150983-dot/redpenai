@@ -1524,7 +1524,7 @@ export default function UnifiedImportPage({
 
       {/* Preview modal — shows full image + re-upload options */}
       {previewStudent && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
             {/* Modal header */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 flex-shrink-0">
@@ -1720,7 +1720,7 @@ export default function UnifiedImportPage({
             : 'grid-cols-2 sm:grid-cols-3'
 
         return (
-          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden">
               {/* Header */}
               <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 shrink-0">
@@ -1832,7 +1832,7 @@ export default function UnifiedImportPage({
 
       {/* Upload preview modal — per-page rotation before merge */}
       {uploadPreviewStudent && uploadPreviewUrls.length > 0 && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 flex-shrink-0">

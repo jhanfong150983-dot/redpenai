@@ -1191,7 +1191,7 @@ export default function AssignmentList({
       {/* 編輯標準答案對話框 */}
       {editingAssignment && editingAnswerKey && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60"
           onClick={() => setEditingAssignment(null)}
         >
           <div

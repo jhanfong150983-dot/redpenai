@@ -538,7 +538,7 @@ export default function ScanImportFlow({
       />
 
       {isSubmitConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 p-4">
           <div className="relative w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
             <button
               type="button"

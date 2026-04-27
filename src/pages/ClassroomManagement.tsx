@@ -1421,7 +1421,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
       {isCreateModalOpen && (
         <div
           data-tutorial="create-classroom-backdrop"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={() => {
             if (tutorial?.isActive) return
             setIsCreateModalOpen(false)
@@ -1558,7 +1558,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
       {/* 編輯學生名單視窗 */}
       {isStudentModalOpen && studentModalClassroom && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={() => {
             if (!isStudentSaving) {
               setIsStudentModalOpen(false)
@@ -1753,7 +1753,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
       {/* 新建資料夾對話框 */}
       {isCreateFolderModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={() => {
             setIsCreateFolderModalOpen(false)
             setNewFolderName('')

@@ -395,7 +395,7 @@ function ZoomImageModal({ url, onClose }: { url: string; onClose: () => void }) 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80"
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80"
       onClick={onClose}
       onWheel={handleWheel}
     >
@@ -1925,7 +1925,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       )}
 
       {isSubmitting && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/45 p-4">
           <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 text-center shadow-2xl">
             <div className="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-sky-100">
               <Loader2 className="h-5 w-5 animate-spin text-sky-700" />
@@ -2119,7 +2119,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       {/* 送出訂正確認對話框 */}
       {showCorrectionSubmitConfirm && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={() => setShowCorrectionSubmitConfirm(false)}
         >
           <div

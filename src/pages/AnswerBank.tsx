@@ -779,7 +779,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
       {/* Create folder modal */}
       {isCreateFolderModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <h2 className="text-base font-semibold text-gray-900">新建資料夾</h2>
@@ -825,7 +825,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
       {/* 匯入短碼 Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
               <h2 className="text-base font-semibold text-gray-900">匯入答案卷</h2>
@@ -854,7 +854,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
       {/* 同步更新確認 Modal */}
       {showSyncModal && syncPendingAnswerKey && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
             <div className="border-b border-gray-200 px-6 py-4">
               <h2 className="text-lg font-semibold text-gray-900">更新答案卷</h2>

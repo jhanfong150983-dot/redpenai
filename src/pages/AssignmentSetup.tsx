@@ -2654,7 +2654,7 @@ export default function AssignmentSetup({
     <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
       {/* AI 使用計算中 Overlay */}
       {isClosingSession && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-8 flex flex-col items-center gap-4">
             <Loader className="w-10 h-10 text-blue-500 animate-spin" />
             <div className="text-center">
@@ -2953,7 +2953,7 @@ export default function AssignmentSetup({
 
       {isCreateModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-3 sm:p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/55 p-3 sm:p-4"
           data-tutorial="create-assignment-modal"
         >
           <div
@@ -3504,7 +3504,7 @@ export default function AssignmentSetup({
 
       {answerKeyModalOpen && editingAnswerAssignment && editingAnswerKey && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+          className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60"
           onClick={closeAnswerKeyModal}
         >
           <div
@@ -3744,7 +3744,7 @@ export default function AssignmentSetup({
       {/* 複製作業對話框 */}
       {isCopyModalOpen && sourceAssignment && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={() => setIsCopyModalOpen(false)}
         >
           <div
@@ -3858,7 +3858,7 @@ export default function AssignmentSetup({
       {/* 新建資料夾對話框 */}
       {isCreateFolderModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
           onClick={() => {
             setIsCreateFolderModalOpen(false)
             setNewFolderName('')
