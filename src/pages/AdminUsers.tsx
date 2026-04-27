@@ -277,7 +277,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">使用者統計</h1>
               <p className="text-sm text-gray-600">
-                查看所有使用者的詳細使用統計
+                查看所有教師帳號的詳細使用統計
               </p>
             </div>
           </div>
@@ -305,7 +305,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
             />
           </div>
           <div className="text-xs text-gray-500">
-            共 {users.length} 位使用者 {filteredUsers.length !== users.length && `（顯示 ${filteredUsers.length} 位）`}
+            共 {users.length} 位教師 {filteredUsers.length !== users.length && `（顯示 ${filteredUsers.length} 位）`}
           </div>
         </div>
 
