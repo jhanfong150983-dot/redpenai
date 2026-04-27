@@ -1927,6 +1927,23 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 第 {previewModal.index + 1} / {previewFiles.length} 頁
               </span>
             </div>
+            {/* 方向提示 */}
+            {(() => {
+              const assignment = uploadAssignments.find(a => a.id === previewModal.assignmentId)
+              const expectedOri = assignment?.pageOrientations?.[previewModal.index]
+              if (!expectedOri) return null
+              // 檢查當前照片方向是否正確（用 previewFiles 的寬高比）
+              const file = previewFiles[previewModal.index]
+              return (
+                <div className="px-4 py-2 bg-blue-50 border-b border-blue-200 text-center">
+                  <span className="text-xs text-blue-700">
+                    第 {previewModal.index + 1} 頁應為
+                    <span className="font-semibold">{expectedOri === 'portrait' ? '直拍 📱' : '橫拍 📱'}</span>
+                    {file && '，如方向不對請使用下方旋轉按鈕調整'}
+                  </span>
+                </div>
+              )
+            })()}
             <div className="relative flex min-h-[160px] items-center justify-center bg-slate-50">
               {previewModal.index > 0 && (
                 <button
