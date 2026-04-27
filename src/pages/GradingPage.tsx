@@ -1241,6 +1241,9 @@ export default function GradingPage({
   const [gradingMessage, setGradingMessage] = useState<string>('AI 批改中...')
   const [_nowTs, setNowTs] = useState(() => Date.now())
 
+  // 答案卷版本狀態
+  const [answerKeyStatus, setAnswerKeyStatus] = useState<'normal' | 'updated' | 'deleted'>('normal')
+
   // Phase A/B 批次一致性審查
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
   const backgroundPhaseBPromises = useRef<Promise<void>[]>([])
@@ -1884,6 +1887,24 @@ export default function GradingPage({
       // 主 assignment（用於 answerKey）
       const assignmentData = validAssignments[0]
       setAssignment(assignmentData)
+
+      // 檢查答案卷版本狀態
+      if (assignmentData.answerKeyTemplateId) {
+        const tpl = await db.answerKeyTemplates.get(assignmentData.answerKeyTemplateId)
+        if (!tpl) {
+          setAnswerKeyStatus('deleted')
+        } else if (
+          typeof assignmentData.boundAnswerKeyVersion === 'number' &&
+          typeof tpl.version === 'number' &&
+          tpl.version > assignmentData.boundAnswerKeyVersion
+        ) {
+          setAnswerKeyStatus('updated')
+        } else {
+          setAnswerKeyStatus('normal')
+        }
+      } else {
+        setAnswerKeyStatus('normal')
+      }
 
       // 載入所有相關班級和學生
       const classroomIds = [...new Set(validAssignments.map((a) => a.classroomId))]
@@ -3683,7 +3704,8 @@ export default function GradingPage({
                 isRefreshing ||
                 isCheckingCorrectionState ||
                 !isGeminiAvailable ||
-                !inkSessionReady
+                !inkSessionReady ||
+                answerKeyStatus === 'deleted'
               }
               className="inline-flex items-center gap-2 rounded-lg border border-green-600 bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -4043,49 +4065,23 @@ export default function GradingPage({
         </div>
         )}
 
-        {/* Stats */}
-        <div className="mt-6 bg-white rounded-xl border border-slate-200 p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">統計資訊</h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-gray-900">
-                {Array.from(submissions.values()).filter((s) => s.status === 'graded').length}
-              </p>
-              <p className="text-sm text-gray-600">已批改</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-blue-600">
-                {Array.from(submissions.values()).filter(
-                  (s) => s.status === 'scanned' || s.status === 'synced'
-                ).length}
-              </p>
-              <p className="text-sm text-gray-600">待批改</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-gray-500">{students.length - submissions.size}</p>
-              <p className="text-sm text-gray-600">尚未繳交</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-green-600">
-                {submissions.size > 0
-                  ? Math.round(
-                      (Array.from(submissions.values()).filter((s) => s.status === 'graded').length /
-                        submissions.size) *
-                        100
-                    )
-                  : 0}
-                %
-              </p>
-              <p className="text-sm text-gray-600">批改完成率</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-rose-600">
-                {Array.from(submissions.values()).filter((s) => isSubmissionNeedsReview(s.gradingResult)).length}
-              </p>
-              <p className="text-sm text-rose-600 font-semibold">需複核</p>
-            </div>
+        {/* 答案卷版本狀態提示 */}
+        {answerKeyStatus === 'updated' && (
+          <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+            <p className="text-sm text-amber-700 font-medium">
+              答案卷已更新，目前成績為舊版批改結果
+            </p>
           </div>
-        </div>
+        )}
+        {answerKeyStatus === 'deleted' && (
+          <div className="mt-6 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+            <p className="text-sm text-red-700 font-medium">
+              答案卷已移除，請重新選擇答案卷
+            </p>
+          </div>
+        )}
       </div>
       {/* Modal */}
       {selectedSubmission && (

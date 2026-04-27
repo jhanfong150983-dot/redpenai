@@ -205,6 +205,7 @@ export interface Assignment {
   answerSheetMode?: 'with_questions' | 'answer_only' // 答案卷模式：帶題目 / 純答案卷（題目在另一本題本）
   answerKey?: AnswerKey // 向後兼容：舊資料直接存答案卷
   answerKeyTemplateId?: string // 新架構：引用獨立的答案卷模板
+  boundAnswerKeyVersion?: number // 綁定時的答案卷版本號（用於偵測答案卷是否已更新）
   conceptTags?: Record<string, { code: string; label: string }> // 108課綱概念標記（questionId → concept）
   // Supabase Storage 路徑，answer-sheets/{id}/page-{i}.webp（各頁壓縮圖，用於 wizard 預覽）
   answerSheetImagePaths?: string[]
@@ -231,6 +232,7 @@ export interface AnswerKeyTemplate {
   shareCode?: string
   pageOrientations?: ('portrait' | 'landscape')[] // 每頁答案卷圖片的方向（建立時自動偵測）
   questionBookletImagePaths?: string[] // 題本圖 Supabase Storage 路徑（純答案卷模式）
+  version?: number // 答案卷版本號（每次編輯內容時 +1）
   updatedAt?: number
 }
 
@@ -818,6 +820,37 @@ class RedPenDatabase extends Dexie {
       answerKeyTemplates: '&id, name, domain, folder, updatedAt'
     })
 
+    // version 12: add version tracking for answer key templates
+    this.version(12).stores({
+      classrooms: '&id, name, folder',
+      students: '&id, classroomId, seatNumber, name',
+      assignments: '&id, classroomId, title, folder',
+      submissions:
+        '&id, assignmentId, studentId, status, createdAt, [assignmentId+studentId]',
+      syncQueue: '++id, tableName, recordId, createdAt',
+      answerExtractionCorrections:
+        '++id, assignmentId, studentId, submissionId, questionId, createdAt',
+      folders: '&id, name, type, classroomId, [type+classroomId], [type+classroomId+name]',
+      teacherSummaryCache: '&cacheKey, assignmentId, updatedAt',
+      domainDiagnosisCache: '&cacheKey, domain, startDate, endDate, updatedAt',
+      gradebookCustomColumns:
+        '&id, classroomId, [classroomId+sortOrder], updatedAt',
+      gradebookCustomScores:
+        '&id, classroomId, columnId, studentId, [columnId+studentId], [classroomId+studentId], updatedAt',
+      answerKeyTemplates: '&id, name, domain, folder, updatedAt'
+    }).upgrade(async tx => {
+      // 所有既有模板設定 version = 1
+      await tx.table('answerKeyTemplates').toCollection().modify(t => {
+        if (!t.version) t.version = 1
+      })
+      // 所有既有作業設定 boundAnswerKeyVersion = 1（有 templateId 的）
+      await tx.table('assignments').toCollection().modify(a => {
+        if (a.answerKeyTemplateId && !a.boundAnswerKeyVersion) {
+          a.boundAnswerKeyVersion = 1
+        }
+      })
+    })
+
     const setUpdatedAt = (value: unknown) => {
       if (typeof value === 'number' && Number.isFinite(value)) return value
       return Date.now()
@@ -932,6 +965,28 @@ export async function resolveAnswerKey(assignment: Assignment): Promise<AnswerKe
   }
   // Fallback: inline answerKey（舊資料向後兼容）
   return assignment.answerKey
+}
+
+/**
+ * 檢查作業的答案卷版本狀態：
+ * - 'normal': 答案卷正常（或無 templateId 的舊資料）
+ * - 'updated': 答案卷已更新（版本不同）
+ * - 'deleted': 答案卷已被刪除
+ */
+export type AnswerKeyVersionStatus = 'normal' | 'updated' | 'deleted'
+
+export async function getAnswerKeyVersionStatus(assignment: Assignment): Promise<AnswerKeyVersionStatus> {
+  if (!assignment.answerKeyTemplateId) return 'normal'
+  const template = await db.answerKeyTemplates.get(assignment.answerKeyTemplateId)
+  if (!template) return 'deleted'
+  if (
+    typeof assignment.boundAnswerKeyVersion === 'number' &&
+    typeof template.version === 'number' &&
+    template.version > assignment.boundAnswerKeyVersion
+  ) {
+    return 'updated'
+  }
+  return 'normal'
 }
 
 /**

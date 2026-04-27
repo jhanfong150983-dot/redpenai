@@ -4,7 +4,7 @@ import {
   Folder, ChevronDown, ChevronRight, Edit2, Download, Copy
 } from 'lucide-react'
 import { db, generateId } from '@/lib/db'
-import type { AnswerKey, AnswerKeyTemplate, Assignment, Classroom } from '@/lib/db'
+import type { AnswerKey, AnswerKeyTemplate } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages } from '@/lib/gemini'
@@ -58,7 +58,6 @@ function DomainBadge({ domain }: { domain: string }) {
 
 export default function AnswerBank(_props: AnswerBankProps) {
   const [templates, setTemplates] = useState<AnswerKeyTemplate[]>([])
-  const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterDomain, setFilterDomain] = useState('')
@@ -155,13 +154,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   const loadData = useCallback(async () => {
     try {
-      const [allTemplates, allFolders, allClassrooms] = await Promise.all([
+      const [allTemplates, allFolders] = await Promise.all([
         db.answerKeyTemplates.toArray(),
         db.folders.where('type').equals('assignment').toArray(),
-        db.classrooms.toArray(),
       ])
       setTemplates(allTemplates)
-      setClassrooms(allClassrooms)
       const folderNames = allFolders.map((f) => f.name)
       setEmptyFolders(folderNames)
     } catch (err) {
@@ -370,61 +367,6 @@ export default function AnswerBank(_props: AnswerBankProps) {
     } finally { closeInkSession() }
   }
 
-  // 同步更新 modal (shown inside unified modal save flow)
-  const [showSyncModal, setShowSyncModal] = useState(false)
-  const [syncLinkedAssignments, setSyncLinkedAssignments] = useState<Assignment[]>([])
-  const [syncPendingAnswerKey, setSyncPendingAnswerKey] = useState<AnswerKey | null>(null)
-  const [syncChoice, setSyncChoice] = useState<'template_only' | 'sync_all'>('sync_all')
-  const [isSyncing, setIsSyncing] = useState(false)
-
-  const handleSyncConfirm = async () => {
-    if (!editingTemplateId || !syncPendingAnswerKey) return
-    setIsSyncing(true)
-    try {
-      const now = Date.now()
-      await db.answerKeyTemplates.update(editingTemplateId, { answerKey: syncPendingAnswerKey, updatedAt: now })
-      console.log(`[sync-confirm] choice=${syncChoice} linkedAssignments=${syncLinkedAssignments.length} templateId=${editingTemplateId}`)
-      if (syncChoice === 'sync_all' && syncLinkedAssignments.length > 0) {
-        for (const a of syncLinkedAssignments) {
-          console.log(`[sync-confirm] updating assignment ${a.id} "${a.title}"`);
-          const newAK = JSON.parse(JSON.stringify(syncPendingAnswerKey))
-          if (a.answerKey?.strictness) newAK.strictness = a.answerKey.strictness
-          if (a.answerKey?.fractionRule) newAK.fractionRule = a.answerKey.fractionRule
-          if (a.answerKey?.englishRules) newAK.englishRules = a.answerKey.englishRules
-          await db.assignments.update(a.id, { answerKey: newAK, updatedAt: now })
-          const subs = await db.submissions.where('assignmentId').equals(a.id).toArray()
-          const gradedSubs = subs.filter(s => s.gradingResult || s.score)
-          console.log(`[sync-confirm] assignment ${a.id}: ${subs.length} subs, ${gradedSubs.length} graded → clearing`)
-          for (const sub of subs) {
-            if (sub.gradingResult || sub.score) {
-              await db.submissions.update(sub.id, {
-                gradingResult: null as unknown as undefined,
-                score: null as unknown as undefined,
-                aiScore: null as unknown as undefined,
-                gradedAt: null as unknown as undefined,
-                status: 'synced', updatedAt: now,
-              })
-            }
-          }
-          if (gradedSubs.length > 0) {
-            await fetch('/api/data/clear-grading', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ assignmentId: a.id })
-            }).catch(err => console.warn('清除 server 成績失敗:', err))
-          }
-        }
-      }
-      // 非同步上傳裁切圖
-      uploadAnswerCrops(editingTemplateId, syncPendingAnswerKey)
-      requestSync(); await loadData()
-      setShowSyncModal(false)
-      setShowUnifiedModal(false)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '更新失敗')
-    } finally { setIsSyncing(false) }
-  }
 
   // 上傳 answerKey 每題的 cropImageUrl 到 Supabase Storage，回寫 cropImagePath
   const uploadAnswerCrops = async (templateId: string, ak: AnswerKey) => {
@@ -492,25 +434,14 @@ export default function AnswerBank(_props: AnswerBankProps) {
         || JSON.stringify(original.answerKey.questions) !== JSON.stringify(answerKey.questions)
         || original.answerKey.totalScore !== answerKey.totalScore
 
-      if (answerKeyChanged) {
-        // 檢查有沒有班級作業引用了這份答案卷
-        const allAssignments = await db.assignments.toArray()
-        const linked = allAssignments.filter((a) => a.answerKeyTemplateId === editingTemplateId)
-        if (linked.length > 0) {
-          // 有引用的班級 → 顯示同步確認 modal
-          setSyncLinkedAssignments(linked)
-          setSyncPendingAnswerKey(answerKey)
-          setSyncChoice('sync_all')
-          setShowSyncModal(true)
-          return
-        }
-      }
-      // 沒有引用 or 沒有變動 → 直接更新 template
+      // 更新 template，若 answerKey 有變動則遞增版本號
       const now = Date.now()
+      const currentVersion = original?.version ?? 1
       await db.answerKeyTemplates.update(editingTemplateId, {
         answerKey, name: metadata.title, domain: metadata.domain,
         docType: metadata.docType, answerSheetMode: metadata.answerSheetMode,
         folder: metadata.folder || undefined, updatedAt: now,
+        ...(answerKeyChanged ? { version: currentVersion + 1 } : {}),
       })
       if (answerKeyChanged) uploadAnswerCrops(editingTemplateId, answerKey)
     } else {
@@ -536,6 +467,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         questionCount: answerKey.questions?.length ?? 0,
         totalScore: answerKey.totalScore ?? 0,
         pageOrientations,
+        version: 1,
         updatedAt: Date.now(),
       }
       await db.answerKeyTemplates.add(template)
@@ -565,7 +497,19 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const handleDelete = async (id: string) => {
     const t = templates.find((x) => x.id === id)
     if (!t) return
-    if (!window.confirm(`確定要刪除「${t.name}」的答案卷？\n\n已使用此答案卷的班級作業不受影響（它們有各自的副本）。`)) return
+    // 檢查是否有班級作業引用此答案卷
+    const allAssignments = await db.assignments.toArray()
+    const linked = allAssignments.filter((a) => a.answerKeyTemplateId === id)
+    if (linked.length > 0) {
+      const allClassrooms = await db.classrooms.toArray()
+      const lines = linked.map((a) => {
+        const cn = allClassrooms.find((c) => c.id === a.classroomId)?.name || '未知班級'
+        return `・${cn}「${a.title}」`
+      })
+      if (!window.confirm(
+        `確定要刪除「${t.name}」？\n\n以下班級作業將無法繼續批改，直到重新選擇答案卷：\n${lines.join('\n')}\n\n已批改的成績不會被刪除。`
+      )) return
+    }
     try {
       await db.answerKeyTemplates.delete(id)
       requestSync(); await loadData()
@@ -853,49 +797,6 @@ export default function AnswerBank(_props: AnswerBankProps) {
       )}
 
       {/* 同步更新確認 Modal */}
-      {showSyncModal && syncPendingAnswerKey && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
-            <div className="border-b border-gray-200 px-6 py-4">
-              <h2 className="text-lg font-semibold text-gray-900">更新答案卷</h2>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              <p className="text-sm text-gray-700">
-                此答案卷被 <strong>{syncLinkedAssignments.length}</strong> 個班級使用中：
-              </p>
-              <ul className="text-sm text-gray-600 bg-gray-50 rounded-lg px-4 py-2 space-y-1">
-                {syncLinkedAssignments.map((a) => {
-                  const cn = classrooms.find((c) => c.id === a.classroomId)?.name || '未知班級'
-                  return <li key={a.id}>· {cn}「{a.title}」</li>
-                })}
-              </ul>
-              <div className="space-y-2">
-                <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-gray-200 p-3 hover:bg-gray-50 transition-colors">
-                  <input type="radio" checked={syncChoice === 'template_only'} onChange={() => setSyncChoice('template_only')} className="mt-0.5 w-4 h-4 accent-green-600" />
-                  <div>
-                    <span className="text-sm font-medium text-gray-900">只更新答案庫</span>
-                    <p className="text-xs text-gray-500 mt-0.5">班級作業保持原來的答案卷，不受影響</p>
-                  </div>
-                </label>
-                <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-gray-200 p-3 hover:bg-gray-50 transition-colors">
-                  <input type="radio" checked={syncChoice === 'sync_all'} onChange={() => setSyncChoice('sync_all')} className="mt-0.5 w-4 h-4 accent-green-600" />
-                  <div>
-                    <span className="text-sm font-medium text-gray-900">同步更新所有班級</span>
-                    <p className="text-xs text-amber-600 mt-0.5">⚠ 已批改的成績將被清除，需重新批改</p>
-                  </div>
-                </label>
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
-              <button type="button" onClick={() => setShowSyncModal(false)} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">取消</button>
-              <button type="button" disabled={isSyncing} onClick={() => void handleSyncConfirm()}
-                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300 transition-all active:scale-95">
-                {isSyncing ? '更新中...' : '確認'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       </div>
     </div>

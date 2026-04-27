@@ -182,6 +182,7 @@ export default function AssignmentList({
         await db.assignments.update(settingsAssignment.id, {
           answerKey: newAK, domain: settingsSelectedNewAK.domain,
           answerKeyTemplateId: settingsSelectedNewAK.id,
+          boundAnswerKeyVersion: settingsSelectedNewAK.version ?? 1,
           scoringMode: settingsScoringMode === 'unscored' ? 'unscored' : undefined,
           folder: settingsFolder || undefined,
           updatedAt: now,
@@ -432,7 +433,7 @@ export default function AssignmentList({
         }
         await db.assignments.update(settingsAssignment.id, {
           title: data.title.trim(), answerKey: newAK, domain: akTemplate.domain,
-          answerKeyTemplateId: akTemplate.id,
+          answerKeyTemplateId: akTemplate.id, boundAnswerKeyVersion: akTemplate.version ?? 1,
           totalPages: akTemplate ? Math.max(1, ...((akTemplate.answerKey?.questions as Array<{id?:string}>) || []).map(q => parseInt(String(q?.id || '1').split('-')[0], 10) || 1)) : settingsAssignment.totalPages ?? 1,
           scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
           studentUploadEnabled: data.studentUploadEnabled,
@@ -512,6 +513,7 @@ export default function AssignmentList({
         domain,
         answerKey,
         answerKeyTemplateId: selectedAnswerKey?.id || undefined,
+        boundAnswerKeyVersion: selectedAnswerKey?.version ?? 1,
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
         folder: createFolder || undefined,
         updatedAt: now,
@@ -1463,7 +1465,7 @@ export default function AssignmentList({
             const newAssignment: Assignment = {
               id: generateId(), classroomId: selectedClassroomId, title: data.title.trim(),
               totalPages: akTemplate ? Math.max(1, ...((akTemplate.answerKey?.questions as Array<{id?:string}>) || []).map(q => parseInt(String(q?.id || '1').split('-')[0], 10) || 1)) : 1,
-              domain, answerKey, answerKeyTemplateId: akTemplate?.id || undefined,
+              domain, answerKey, answerKeyTemplateId: akTemplate?.id || undefined, boundAnswerKeyVersion: akTemplate?.version ?? 1,
               scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
               folder: data.folder || undefined,
               studentUploadEnabled: data.studentUploadEnabled,
