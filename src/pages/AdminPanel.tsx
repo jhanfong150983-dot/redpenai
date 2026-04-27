@@ -1,17 +1,16 @@
 import { useState } from 'react'
-import { ArrowLeft, Users, Receipt, BarChart3, Tags } from 'lucide-react'
+import { ArrowLeft, Users, Receipt, BarChart3 } from 'lucide-react'
 import AdminUsers from './AdminUsers'
 import AdminOrders from './AdminOrders'
 import AdminAnalytics from './AdminAnalytics'
-import AdminTags from './AdminTags'
 
 type AdminPanelProps = {
   onBack: () => void
   onNavigateToDetail?: (userId: string) => void
-  initialTab?: 'users' | 'orders' | 'analytics' | 'tags'
+  initialTab?: 'users' | 'orders' | 'analytics'
 }
 
-type TabType = 'users' | 'orders' | 'analytics' | 'tags'
+type TabType = 'users' | 'orders' | 'analytics'
 
 export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'users' }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab)
@@ -20,7 +19,6 @@ export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'u
     { id: 'users' as TabType, label: '使用者統計', icon: Users, color: 'text-amber-600' },
     { id: 'orders' as TabType, label: '訂單管理', icon: Receipt, color: 'text-sky-600' },
     { id: 'analytics' as TabType, label: '使用情形', icon: BarChart3, color: 'text-purple-600' },
-    { id: 'tags' as TabType, label: '標籤字典', icon: Tags, color: 'text-indigo-600' }
   ]
 
   const renderContent = () => {
@@ -31,8 +29,6 @@ export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'u
         return <AdminOrders />
       case 'analytics':
         return <AdminAnalytics />
-      case 'tags':
-        return <AdminTags />
       default:
         return null
     }
