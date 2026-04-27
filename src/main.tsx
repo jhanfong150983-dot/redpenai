@@ -11,18 +11,18 @@ if (import.meta.env.PROD) {
   // 正式環境才註冊 Service Worker，避免開發環境被舊快取干擾
   const updateSW = registerSW({
     onNeedRefresh() {
-      console.log('🔄 發現新版本，自動更新...')
-      void updateSW(true) // 立即啟用新 SW
+      // 不自動 reload：新 SW 會在下次使用者重新整理時自然生效
+      // 避免老師已看到畫面後又被踢走的問題
+      console.log('🔄 發現新版本，將於下次重新整理時生效')
     },
     onRegisteredSW(_url, registration) {
-      // 每次載入頁面時檢查新版本
+      // 每次載入頁面時檢查新版本（背景下載，不打斷使用者）
       if (registration) {
         void registration.update()
       }
     },
     onOfflineReady() {
       console.log('✅ 應用已可離線使用')
-      // 可選: 顯示通知給使用者
     },
     onRegisterError(error: Error) {
       console.error('❌ Service Worker 註冊失敗:', error)
@@ -30,18 +30,6 @@ if (import.meta.env.PROD) {
   })
 
   window.__SW_UPDATE__ = updateSW
-
-  // SW 控制權切換時自動重新載入，確保載入最新程式碼
-  // 需檢查 navigator.serviceWorker 是否存在（WebView 可能不支援 SW）
-  if ('serviceWorker' in navigator) {
-    let refreshing = false
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!refreshing) {
-        refreshing = true
-        window.location.reload()
-      }
-    })
-  }
 } else if ('serviceWorker' in navigator) {
   // 開發環境主動移除既有 SW，確保不會載入舊版 UI
   navigator.serviceWorker
