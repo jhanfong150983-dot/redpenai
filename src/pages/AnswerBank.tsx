@@ -805,7 +805,6 @@ export default function AnswerBank(_props: AnswerBankProps) {
         initialAnswerKey={editingAnswerKey}
         initialAnswerSheetImages={editingAnswerSheetImages}
         domainOptions={domainOptions}
-        folderOptions={usedFolders}
       />
 
       {/* 匯入短碼 Modal */}

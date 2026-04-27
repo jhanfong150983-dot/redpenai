@@ -142,7 +142,6 @@ export interface AnswerKeyUnifiedModalProps {
   hasGradedSubmissions?: boolean
   // Options
   domainOptions?: string[]
-  folderOptions?: string[]
 }
 
 // ─── main component ───────────────────────���────────────────────────────────
@@ -163,7 +162,6 @@ export default function AnswerKeyUnifiedModal({
   scoringMode = 'scored',
   hasGradedSubmissions = false,
   domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他'],
-  folderOptions = [],
 }: AnswerKeyUnifiedModalProps) {
 
   // ── step state machine ────────────────────────────────────────────────────
@@ -207,7 +205,7 @@ export default function AnswerKeyUnifiedModal({
   const [title, setTitle] = useState(initialTitle)
   const [domain, setDomain] = useState(initialDomain)
   const [docType, setDocType] = useState<'worksheet' | 'exam'>(initialDocType)
-  const [folder, setFolder] = useState(initialFolder)
+  const [folder] = useState(initialFolder)
   const [answerSheetMode, setAnswerSheetMode] = useState<'with_questions' | 'answer_only'>(initialAnswerSheetMode)
   const [questionBookletBlobs, setQuestionBookletBlobs] = useState<Blob[]>([])
 
@@ -709,73 +707,101 @@ export default function AnswerKeyUnifiedModal({
             {/* Content */}
             <div className="flex-1 overflow-y-auto">
 
-              {/* ══ Step 1: 基本���料 ══ */}
+              {/* ══ Step 1: 基本資料 ══ */}
               {activeStep === 'metadata' && (
-                <div className="p-6 space-y-5 max-w-lg">
+                <div className="p-6 pb-8 space-y-8 max-w-lg">
+                  {/* 答案卷名稱 */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-base font-semibold text-gray-800 mb-2">
                       答案卷名稱 <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text" value={title} onChange={(e) => setTitle(e.target.value)}
                       placeholder="例如：數習P.42-43" autoFocus
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
                     />
                   </div>
+
+                  {/* 領域 */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-base font-semibold text-gray-800 mb-2">
                       領域 <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={domain} onChange={(e) => setDomain(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none"
                     >
-                      <option value="">請���擇</option>
+                      <option value="">請選擇</option>
                       {domainOptions.map((d) => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
+
+                  {/* 類型 — segmented control */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">類型</label>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" checked={docType === 'worksheet'} onChange={() => setDocType('worksheet')} className="w-4 h-4 accent-green-600" />
-                        <span className="text-sm text-gray-700">習作</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" checked={docType === 'exam'} onChange={() => setDocType('exam')} className="w-4 h-4 accent-green-600" />
-                        <span className="text-sm text-gray-700">考卷</span>
-                      </label>
+                    <label className="block text-base font-semibold text-gray-800 mb-2">類型</label>
+                    <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setDocType('worksheet')}
+                        className={`px-5 py-2 text-sm font-medium transition-colors ${
+                          docType === 'worksheet'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        習作
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDocType('exam')}
+                        className={`px-5 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
+                          docType === 'exam'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        考卷
+                      </button>
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">影響 AI 解析時的題號排序策略</p>
+                    <p className="mt-2 text-xs text-slate-500">影響 AI 解析時的題號排序策略</p>
                   </div>
+
+                  {/* 答案卷模式 — segmented control */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">資料夾（選填）</label>
-                    <select
-                      value={folder} onChange={(e) => setFolder(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none"
-                    >
-                      <option value="">不分類</option>
-                      {folderOptions.map((f) => <option key={f} value={f}>{f}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">答案卷模式</label>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" checked={answerSheetMode === 'with_questions'} onChange={() => setAnswerSheetMode('with_questions')} className="w-4 h-4 accent-green-600" />
-                        <span className="text-sm text-gray-700">帶題目</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" checked={answerSheetMode === 'answer_only'} onChange={() => setAnswerSheetMode('answer_only')} className="w-4 h-4 accent-green-600" />
-                        <span className="text-sm text-gray-700">純答案卷（題本分開）</span>
-                      </label>
+                    <label className="block text-base font-semibold text-gray-800 mb-2">答案卷模式</label>
+                    <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setAnswerSheetMode('with_questions')}
+                        className={`px-5 py-2 text-sm font-medium transition-colors ${
+                          answerSheetMode === 'with_questions'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        帶題目
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAnswerSheetMode('answer_only')}
+                        className={`px-5 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
+                          answerSheetMode === 'answer_only'
+                            ? 'bg-green-600 text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        純答案卷（題本分開）
+                      </button>
                     </div>
                   </div>
+
+                  {/* 題本上傳（純答案卷模式） */}
                   {answerSheetMode === 'answer_only' && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        上傳題本 <span className="text-xs text-slate-400">（學生看到的題目頁面，用於錯誤解說）</span>
+                      <label className="block text-base font-semibold text-gray-800 mb-1">
+                        上傳題本
                       </label>
+                      <p className="text-xs text-slate-500 mb-2">學生看到的題目頁面，用於錯誤解說</p>
                       <input
                         type="file" accept="image/*,.pdf" multiple
                         onChange={async (e) => {
@@ -799,6 +825,8 @@ export default function AnswerKeyUnifiedModal({
                       )}
                     </div>
                   )}
+
+                  {/* 提示 */}
                   {!metadataValid && (
                     <p className="text-xs text-amber-600">請填寫名稱和領域以繼續下一步</p>
                   )}
