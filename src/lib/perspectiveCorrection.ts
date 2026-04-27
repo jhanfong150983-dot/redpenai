@@ -279,6 +279,8 @@ export async function correctPerspective(imageBlob: Blob): Promise<Blob> {
  */
 export async function correctPerspectiveMultiple(imageBlobs: Blob[]): Promise<Blob[]> {
   console.log(`📐 [perspectiveCorrection] correcting ${imageBlobs.length} pages in parallel`)
+  // 先建立一次 ink session，避免並行時重複建立
+  try { await ensureInkSessionFresh() } catch { /* 學生端沒有 ink session */ }
   return Promise.all(imageBlobs.map((blob, i) => {
     console.log(`📐 [perspectiveCorrection] page ${i + 1}/${imageBlobs.length}`)
     return correctPerspective(blob)
