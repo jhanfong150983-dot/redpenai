@@ -166,7 +166,7 @@ export default function AnswerKeyUnifiedModal({
 }: AnswerKeyUnifiedModalProps) {
 
   // ── step state machine ────────────────────────────────────────────────────
-  const [activeStep, setActiveStep] = useState<UnifiedStep>('metadata')
+  const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
   const [completedSteps, setCompletedSteps] = useState<Set<UnifiedStep>>(
     () => editMode ? new Set<UnifiedStep>(['metadata', 'upload_order', 'extracting', 'editing']) : new Set()
   )
@@ -180,6 +180,12 @@ export default function AnswerKeyUnifiedModal({
     }
     return true
   }, [completedSteps])
+
+  // Edit mode: steps 1-3 are read-only (viewable but not editable)
+  const isStepReadOnly = useCallback((step: UnifiedStep): boolean => {
+    if (!editMode) return false
+    return step !== 'editing'
+  }, [editMode])
 
   const markComplete = useCallback((step: UnifiedStep) => {
     setCompletedSteps(prev => new Set([...prev, step]))
@@ -718,6 +724,7 @@ export default function AnswerKeyUnifiedModal({
                 const isActive = activeStep === stepCfg.key
                 const isCompleted = completedSteps.has(stepCfg.key)
                 const unlocked = isStepUnlocked(stepCfg.key)
+                const readOnly = isStepReadOnly(stepCfg.key)
 
                 return (
                   <button
@@ -727,7 +734,9 @@ export default function AnswerKeyUnifiedModal({
                     onClick={() => unlocked && setActiveStep(stepCfg.key)}
                     className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors text-sm ${
                       isActive
-                        ? 'bg-green-50 text-green-800 border-r-2 border-green-600'
+                        ? readOnly
+                          ? 'bg-gray-100 text-gray-700 border-r-2 border-gray-400'
+                          : 'bg-green-50 text-green-800 border-r-2 border-green-600'
                         : unlocked
                           ? 'text-gray-700 hover:bg-gray-100'
                           : 'text-gray-400 cursor-not-allowed'
@@ -735,15 +744,20 @@ export default function AnswerKeyUnifiedModal({
                   >
                     {/* Step icon */}
                     {isCompleted ? (
-                      <CheckCircle2 className={`w-5 h-5 shrink-0 ${isActive ? 'text-green-600' : 'text-green-500'}`} />
+                      <CheckCircle2 className={`w-5 h-5 shrink-0 ${isActive && !readOnly ? 'text-green-600' : 'text-green-500'}`} />
                     ) : !unlocked ? (
                       <Lock className="w-5 h-5 shrink-0 text-gray-300" />
                     ) : (
                       <Circle className={`w-5 h-5 shrink-0 ${isActive ? 'text-green-600' : 'text-gray-400'}`} />
                     )}
-                    <span className={`font-medium ${isActive ? 'text-green-800' : ''}`}>
-                      {stepCfg.label}
-                    </span>
+                    <div className="flex flex-col">
+                      <span className={`font-medium ${isActive && !readOnly ? 'text-green-800' : ''}`}>
+                        {stepCfg.label}
+                      </span>
+                      {readOnly && (
+                        <span className="text-[10px] text-gray-400">僅供瀏覽</span>
+                      )}
+                    </div>
                   </button>
                 )
               })}
@@ -768,93 +782,117 @@ export default function AnswerKeyUnifiedModal({
               {/* ══ Step 1: 基本資料 ══ */}
               {activeStep === 'metadata' && (
                 <div className="p-6 pb-8 space-y-8 max-w-lg">
+                  {editMode && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
+                      <Lock className="w-3.5 h-3.5 shrink-0" />
+                      <span>編輯模式下基本資料僅供瀏覽，如需修改請建立新答案卷</span>
+                    </div>
+                  )}
                   {/* 答案卷名稱 */}
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">
-                      答案卷名稱 <span className="text-red-500">*</span>
+                      答案卷名稱 {!editMode && <span className="text-red-500">*</span>}
                     </label>
-                    <input
-                      type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-                      placeholder="例如：數習P.42-43" autoFocus
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
-                    />
+                    {editMode ? (
+                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{title || '—'}</p>
+                    ) : (
+                      <input
+                        type="text" value={title} onChange={(e) => setTitle(e.target.value)}
+                        placeholder="例如：數習P.42-43" autoFocus
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
+                      />
+                    )}
                   </div>
 
                   {/* 領域 */}
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">
-                      領域 <span className="text-red-500">*</span>
+                      領域 {!editMode && <span className="text-red-500">*</span>}
                     </label>
-                    <select
-                      value={domain} onChange={(e) => setDomain(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none"
-                    >
-                      <option value="">請選擇</option>
-                      {domainOptions.map((d) => <option key={d} value={d}>{d}</option>)}
-                    </select>
+                    {editMode ? (
+                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{domain || '—'}</p>
+                    ) : (
+                      <select
+                        value={domain} onChange={(e) => setDomain(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none"
+                      >
+                        <option value="">請選擇</option>
+                        {domainOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    )}
                   </div>
 
                   {/* 類型 — segmented control */}
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">類型</label>
-                    <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setDocType('worksheet')}
-                        className={`px-5 py-2 text-sm font-medium transition-colors ${
-                          docType === 'worksheet'
-                            ? 'bg-green-600 text-white'
-                            : 'bg-white text-gray-600 hover:bg-gray-50'
-                        }`}
-                      >
-                        習作
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDocType('exam')}
-                        className={`px-5 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
-                          docType === 'exam'
-                            ? 'bg-green-600 text-white'
-                            : 'bg-white text-gray-600 hover:bg-gray-50'
-                        }`}
-                      >
-                        考卷
-                      </button>
-                    </div>
-                    <p className="mt-2 text-xs text-slate-500">影響 AI 解析時的題號排序策略</p>
+                    {editMode ? (
+                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{docType === 'worksheet' ? '習作' : '考卷'}</p>
+                    ) : (
+                      <>
+                        <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setDocType('worksheet')}
+                            className={`px-5 py-2 text-sm font-medium transition-colors ${
+                              docType === 'worksheet'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            習作
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDocType('exam')}
+                            className={`px-5 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
+                              docType === 'exam'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            考卷
+                          </button>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">影響 AI 解析時的題號排序策略</p>
+                      </>
+                    )}
                   </div>
 
                   {/* 答案卷模式 — segmented control */}
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">答案卷模式</label>
-                    <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setAnswerSheetMode('with_questions')}
-                        className={`px-5 py-2 text-sm font-medium transition-colors ${
-                          answerSheetMode === 'with_questions'
-                            ? 'bg-green-600 text-white'
-                            : 'bg-white text-gray-600 hover:bg-gray-50'
-                        }`}
-                      >
-                        帶題目
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setAnswerSheetMode('answer_only')}
-                        className={`px-5 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
-                          answerSheetMode === 'answer_only'
-                            ? 'bg-green-600 text-white'
-                            : 'bg-white text-gray-600 hover:bg-gray-50'
-                        }`}
-                      >
-                        純答案卷（題本分開）
-                      </button>
-                    </div>
+                    {editMode ? (
+                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{answerSheetMode === 'with_questions' ? '帶題目' : '純答案卷（題本分開）'}</p>
+                    ) : (
+                      <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setAnswerSheetMode('with_questions')}
+                          className={`px-5 py-2 text-sm font-medium transition-colors ${
+                            answerSheetMode === 'with_questions'
+                              ? 'bg-green-600 text-white'
+                              : 'bg-white text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          帶題目
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAnswerSheetMode('answer_only')}
+                          className={`px-5 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
+                            answerSheetMode === 'answer_only'
+                              ? 'bg-green-600 text-white'
+                              : 'bg-white text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          純答案卷（題本分開）
+                        </button>
+                      </div>
+                    )}
                   </div>
 
-                  {/* 題本上傳（純答案卷模式） */}
-                  {answerSheetMode === 'answer_only' && (
+                  {/* 題本上傳（純答案卷模式，僅新建） */}
+                  {!editMode && answerSheetMode === 'answer_only' && (
                     <div>
                       <label className="block text-base font-semibold text-gray-800 mb-1">
                         上傳題本
@@ -885,7 +923,7 @@ export default function AnswerKeyUnifiedModal({
                   )}
 
                   {/* 提示 */}
-                  {!metadataValid && (
+                  {!editMode && !metadataValid && (
                     <p className="text-xs text-amber-600">請填寫名稱和領域以繼續下一步</p>
                   )}
                 </div>
@@ -894,72 +932,110 @@ export default function AnswerKeyUnifiedModal({
               {/* ══ Step 2: 上傳答案 ══ */}
               {activeStep === 'upload_order' && (
                 <div className="p-4 flex flex-col h-full">
-                  {/* Upload area */}
-                  <div className="mb-4 shrink-0">
-                    <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />
-                    <input ref={addFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleAddFiles} />
-                    {pageItems.length === 0 ? (
-                      /* Drop zone style upload */
-                      <button
-                        type="button"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isProcessingFiles}
-                        className="w-full border-2 border-dashed border-gray-300 rounded-xl py-12 flex flex-col items-center gap-3 text-gray-500 hover:border-green-400 hover:text-green-600 hover:bg-green-50/30 transition-colors"
-                      >
-                        {isProcessingFiles ? (
-                          <Loader2 className="w-8 h-8 animate-spin" />
-                        ) : (
-                          <Upload className="w-8 h-8" />
-                        )}
-                        <span className="text-sm font-medium">
-                          {isProcessingFiles ? '處理中…' : '點擊上傳答案卷圖片或 PDF'}
-                        </span>
-                        <span className="text-xs text-gray-400">支援多檔上傳</span>
-                      </button>
-                    ) : (
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">共 {pageItems.length} 頁，拖曳調整順序</span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => addFileInputRef.current?.click()}
-                            disabled={isProcessingFiles}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                          >
-                            {isProcessingFiles ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                            新增檔案
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleDeleteAllPages}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" /> 全部刪除
-                          </button>
-                        </div>
+                  {editMode ? (
+                    /* ── Edit mode: read-only view ── */
+                    <>
+                      <div className="mb-4 shrink-0 flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
+                        <Lock className="w-3.5 h-3.5 shrink-0" />
+                        <span>編輯模式下僅供瀏覽，如需重新上傳請建立新答案卷</span>
                       </div>
-                    )}
-                    {fileError && (
-                      <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{fileError}</div>
-                    )}
-                  </div>
-
-                  {/* Page order grid */}
-                  {pageItems.length > 0 && (
-                    <div className="flex-1 min-h-0 overflow-y-auto">
-                      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                        <SortableContext items={pageItems.map((i) => i.id)} strategy={rectSortingStrategy}>
-                          <div
-                            className="grid gap-4"
-                            style={{ gridTemplateColumns: `repeat(${Math.min(pageItems.length, 2)}, minmax(0, 1fr))` }}
-                          >
-                            {pageItems.map((item) => (
-                              <SortablePageCard key={item.id} item={item} onRotate={handleRotateOne} onDelete={handleDeletePage} canDelete />
-                            ))}
+                      {pageItems.length > 0 ? (
+                        <>
+                          <div className="mb-3 text-sm text-gray-600">共 {pageItems.length} 頁</div>
+                          <div className="flex-1 min-h-0 overflow-y-auto">
+                            <div
+                              className="grid gap-4"
+                              style={{ gridTemplateColumns: `repeat(${Math.min(pageItems.length, 2)}, minmax(0, 1fr))` }}
+                            >
+                              {pageItems.map((item) => (
+                                <div key={item.id} className="border-2 border-gray-200 rounded-xl overflow-hidden bg-white flex flex-col">
+                                  <div className="bg-gray-50 px-2 py-1.5 text-xs text-gray-600 font-medium shrink-0">
+                                    第 {item.originalIndex + 1} 頁
+                                  </div>
+                                  <div className="flex-1 bg-white overflow-hidden flex items-center justify-center">
+                                    <img src={item.url} alt={`第 ${item.originalIndex + 1} 頁`} className="w-full h-full object-contain" draggable={false} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </SortableContext>
-                      </DndContext>
-                    </div>
+                        </>
+                      ) : (
+                        <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+                          無圖片資料
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    /* ── Create mode: full upload + reorder ── */
+                    <>
+                      {/* Upload area */}
+                      <div className="mb-4 shrink-0">
+                        <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />
+                        <input ref={addFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleAddFiles} />
+                        {pageItems.length === 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isProcessingFiles}
+                            className="w-full border-2 border-dashed border-gray-300 rounded-xl py-12 flex flex-col items-center gap-3 text-gray-500 hover:border-green-400 hover:text-green-600 hover:bg-green-50/30 transition-colors"
+                          >
+                            {isProcessingFiles ? (
+                              <Loader2 className="w-8 h-8 animate-spin" />
+                            ) : (
+                              <Upload className="w-8 h-8" />
+                            )}
+                            <span className="text-sm font-medium">
+                              {isProcessingFiles ? '處理中…' : '點擊上傳答案卷圖片或 PDF'}
+                            </span>
+                            <span className="text-xs text-gray-400">支援多檔上傳</span>
+                          </button>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-gray-600">共 {pageItems.length} 頁，拖曳調整順序</span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => addFileInputRef.current?.click()}
+                                disabled={isProcessingFiles}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                              >
+                                {isProcessingFiles ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                                新增檔案
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleDeleteAllPages}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" /> 全部刪除
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {fileError && (
+                          <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{fileError}</div>
+                        )}
+                      </div>
+
+                      {/* Page order grid */}
+                      {pageItems.length > 0 && (
+                        <div className="flex-1 min-h-0 overflow-y-auto">
+                          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                            <SortableContext items={pageItems.map((i) => i.id)} strategy={rectSortingStrategy}>
+                              <div
+                                className="grid gap-4"
+                                style={{ gridTemplateColumns: `repeat(${Math.min(pageItems.length, 2)}, minmax(0, 1fr))` }}
+                              >
+                                {pageItems.map((item) => (
+                                  <SortablePageCard key={item.id} item={item} onRotate={handleRotateOne} onDelete={handleDeletePage} canDelete />
+                                ))}
+                              </div>
+                            </SortableContext>
+                          </DndContext>
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {/* Confirm button */}
@@ -986,63 +1062,85 @@ export default function AnswerKeyUnifiedModal({
               {/* ══ Step 3: AI 解析 ══ */}
               {activeStep === 'extracting' && (
                 <div className="p-6 flex flex-col items-center justify-center h-full">
-                  {!isExtracting && !completedSteps.has('extracting') && (
+                  {editMode ? (
+                    /* ── Edit mode: read-only ── */
                     <div className="text-center space-y-4">
-                      <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto">
-                        <FileUp className="w-8 h-8 text-green-600" />
+                      <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto">
+                        <CheckCircle2 className="w-8 h-8 text-green-500" />
                       </div>
                       <div>
-                        <h3 className="text-base font-semibold text-gray-900 mb-1">準備送出 AI 解析</h3>
-                        <p className="text-sm text-gray-500">共 {pageItems.length} 頁答案卷圖片</p>
-                        <p className="text-xs text-amber-600 mt-2">此操作將消耗墨水，完成後現有標準答案將被更新</p>
-                      </div>
-                      {extractError && (
-                        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{extractError}</div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => void handleStartExtract()}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
-                      >
-                        <Check className="w-4 h-4" /> 確認送出解析
-                      </button>
-                    </div>
-                  )}
-                  {isExtracting && (
-                    <div className="text-center space-y-4">
-                      <Loader2 className="w-10 h-10 text-green-600 animate-spin mx-auto" />
-                      <p className="text-sm text-gray-600">{extractionMsg}</p>
-                    </div>
-                  )}
-                  {completedSteps.has('extracting') && !isExtracting && (
-                    <div className="text-center space-y-4">
-                      <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto">
-                        <CheckCircle2 className="w-8 h-8 text-green-600" />
-                      </div>
-                      <div>
-                        <h3 className="text-base font-semibold text-gray-900 mb-1">AI 解析完成</h3>
+                        <h3 className="text-base font-semibold text-gray-900 mb-1">AI 解析已完成</h3>
                         <p className="text-sm text-gray-500">
-                          已解析 {editingKey?.questions.length ?? 0} 題
-                          {notice && <span className="text-amber-600 ml-2">{notice}</span>}
+                          共 {editingKey?.questions.length ?? 0} 題
                         </p>
                       </div>
-                      <div className="flex items-center justify-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => void handleStartExtract()}
-                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-                        >
-                          重新解析
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setActiveStep('editing')}
-                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
-                        >
-                          前往編輯題目 <ChevronRight className="w-4 h-4" />
-                        </button>
+                      <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
+                        <Lock className="w-3.5 h-3.5 shrink-0" />
+                        <span>如需重新解析請建立新答案卷</span>
                       </div>
                     </div>
+                  ) : (
+                    /* ── Create mode ── */
+                    <>
+                      {!isExtracting && !completedSteps.has('extracting') && (
+                        <div className="text-center space-y-4">
+                          <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto">
+                            <FileUp className="w-8 h-8 text-green-600" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-semibold text-gray-900 mb-1">準備送出 AI 解析</h3>
+                            <p className="text-sm text-gray-500">共 {pageItems.length} 頁答案卷圖片</p>
+                            <p className="text-xs text-amber-600 mt-2">此操作將消耗墨水，完成後現有標準答案將被更新</p>
+                          </div>
+                          {extractError && (
+                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{extractError}</div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void handleStartExtract()}
+                            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
+                          >
+                            <Check className="w-4 h-4" /> 確認送出解析
+                          </button>
+                        </div>
+                      )}
+                      {isExtracting && (
+                        <div className="text-center space-y-4">
+                          <Loader2 className="w-10 h-10 text-green-600 animate-spin mx-auto" />
+                          <p className="text-sm text-gray-600">{extractionMsg}</p>
+                        </div>
+                      )}
+                      {completedSteps.has('extracting') && !isExtracting && (
+                        <div className="text-center space-y-4">
+                          <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto">
+                            <CheckCircle2 className="w-8 h-8 text-green-600" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-semibold text-gray-900 mb-1">AI 解析完成</h3>
+                            <p className="text-sm text-gray-500">
+                              已解析 {editingKey?.questions.length ?? 0} 題
+                              {notice && <span className="text-amber-600 ml-2">{notice}</span>}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => void handleStartExtract()}
+                              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                            >
+                              重新解析
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveStep('editing')}
+                              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
+                            >
+                              前往編輯題目 <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
