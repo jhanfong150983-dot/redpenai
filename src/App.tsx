@@ -1597,7 +1597,7 @@ function App() {
       <GlobalSyncBar />
       <div className="mx-auto flex h-screen w-full max-w-[1280px] flex-col">
         {!isCameraCaptureMode && (
-          <header className="sticky top-0 z-[110] border-b border-slate-200 bg-[#f7f7f5]/95 px-4 py-2 backdrop-blur md:px-6">
+          <header className="sticky top-0 z-30 border-b border-slate-200 bg-[#f7f7f5]/95 px-4 py-2 backdrop-blur md:px-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <img
