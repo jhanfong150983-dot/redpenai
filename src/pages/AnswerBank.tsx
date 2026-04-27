@@ -486,25 +486,33 @@ export default function AnswerBank(_props: AnswerBankProps) {
     questionBookletBlobs: Blob[]
   }) => {
     if (editingTemplateId) {
-      // 檢查有沒有班級作業引用了這份答案卷
-      const allAssignments = await db.assignments.toArray()
-      const linked = allAssignments.filter((a) => a.answerKeyTemplateId === editingTemplateId)
-      if (linked.length > 0) {
-        // 有引用的班級 → 顯示同步確認 modal
-        setSyncLinkedAssignments(linked)
-        setSyncPendingAnswerKey(answerKey)
-        setSyncChoice('sync_all')
-        setShowSyncModal(true)
-        return
+      // 比對 answerKey 是否有實際變動
+      const original = await db.answerKeyTemplates.get(editingTemplateId)
+      const answerKeyChanged = !original?.answerKey
+        || JSON.stringify(original.answerKey.questions) !== JSON.stringify(answerKey.questions)
+        || original.answerKey.totalScore !== answerKey.totalScore
+
+      if (answerKeyChanged) {
+        // 檢查有沒有班級作業引用了這份答案卷
+        const allAssignments = await db.assignments.toArray()
+        const linked = allAssignments.filter((a) => a.answerKeyTemplateId === editingTemplateId)
+        if (linked.length > 0) {
+          // 有引用的班級 → 顯示同步確認 modal
+          setSyncLinkedAssignments(linked)
+          setSyncPendingAnswerKey(answerKey)
+          setSyncChoice('sync_all')
+          setShowSyncModal(true)
+          return
+        }
       }
-      // 沒有引用 → 直接更新 template
+      // 沒有引用 or 沒有變動 → 直接更新 template
       const now = Date.now()
       await db.answerKeyTemplates.update(editingTemplateId, {
         answerKey, name: metadata.title, domain: metadata.domain,
         docType: metadata.docType, answerSheetMode: metadata.answerSheetMode,
         folder: metadata.folder || undefined, updatedAt: now,
       })
-      uploadAnswerCrops(editingTemplateId, answerKey)
+      if (answerKeyChanged) uploadAnswerCrops(editingTemplateId, answerKey)
     } else {
       const templateId = generateId()
       const pageOrientations: ('portrait' | 'landscape')[] = []
