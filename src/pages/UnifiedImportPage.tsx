@@ -251,6 +251,18 @@ export default function UnifiedImportPage({
     [assignment],
   )
 
+  // 從答案卷 template 讀取 pageOrientations
+  const [pageOrientations, setPageOrientations] = useState<('portrait' | 'landscape')[]>([])
+  useEffect(() => {
+    (async () => {
+      if (!assignment?.answerKeyTemplateId) return
+      try {
+        const template = await db.answerKeyTemplates.get(assignment.answerKeyTemplateId)
+        if (template?.pageOrientations) setPageOrientations(template.pageOrientations)
+      } catch { /* ignore */ }
+    })()
+  }, [assignment])
+
   // ── View state ──────────────────────────────────────────────────────────
   const [currentView, setCurrentView] = useState<ViewType>('grid')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
@@ -571,16 +583,48 @@ export default function UnifiedImportPage({
   ])
 
   const handleFileInputChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files || [])
       const student = actionStudentRef.current
-      if (file && student) {
-        void handleFileUpload(student, file)
-      }
-      // Reset the input so the same file can be re-selected
       event.target.value = ''
+
+      if (!files.length || !student) return
+
+      // 驗證數量
+      if (files.length !== pagesPerStudent) {
+        setError(`需上傳 ${pagesPerStudent} 頁，目前選擇了 ${files.length} 頁`)
+        return
+      }
+
+      // 驗證每頁方向
+      if (pageOrientations.length > 0) {
+        const errors: string[] = []
+        for (let i = 0; i < files.length && i < pageOrientations.length; i++) {
+          const expected = pageOrientations[i]
+          try {
+            const bitmap = await createImageBitmap(files[i])
+            const isPortrait = bitmap.height > bitmap.width
+            const isLandscape = bitmap.width > bitmap.height
+            bitmap.close()
+            if (expected === 'portrait' && isLandscape) {
+              errors.push(`第 ${i + 1} 張應為直拍，但照片是橫的`)
+            } else if (expected === 'landscape' && isPortrait) {
+              errors.push(`第 ${i + 1} 張應為橫拍，但照片是直的`)
+            }
+          } catch { /* 跳過驗證 */ }
+        }
+        if (errors.length > 0) {
+          setError(errors.join('；') + '。請重新選擇照片。')
+          return
+        }
+      }
+
+      // 逐頁上傳
+      for (const file of files) {
+        await handleFileUpload(student, file)
+      }
     },
-    [handleFileUpload],
+    [handleFileUpload, pagesPerStudent, pageOrientations],
   )
 
   const handlePdfInputChange = useCallback(
@@ -1150,6 +1194,7 @@ export default function UnifiedImportPage({
         ref={fileInputRef}
         type="file"
         accept="image/*"
+        multiple
         className="hidden"
         onChange={handleFileInputChange}
       />
