@@ -596,30 +596,7 @@ export default function UnifiedImportPage({
         return
       }
 
-      // 驗證每頁方向
-      if (pageOrientations.length > 0) {
-        const errors: string[] = []
-        for (let i = 0; i < files.length && i < pageOrientations.length; i++) {
-          const expected = pageOrientations[i]
-          try {
-            const bitmap = await createImageBitmap(files[i])
-            const isPortrait = bitmap.height > bitmap.width
-            const isLandscape = bitmap.width > bitmap.height
-            bitmap.close()
-            if (expected === 'portrait' && isLandscape) {
-              errors.push(`第 ${i + 1} 張應為直拍，但照片是橫的`)
-            } else if (expected === 'landscape' && isPortrait) {
-              errors.push(`第 ${i + 1} 張應為橫拍，但照片是直的`)
-            }
-          } catch { /* 跳過驗證 */ }
-        }
-        if (errors.length > 0) {
-          setError(errors.join('；') + '。請重新選擇照片。')
-          return
-        }
-      }
-
-      // 多檔：一次性開啟預覽（所有頁面一起顯示）
+      // 多檔：一次性開啟預覽（方向驗證在預覽畫面中進行）
       setActionSheetStudent(null)
       setError(null)
       const blobs: Blob[] = files
@@ -630,7 +607,7 @@ export default function UnifiedImportPage({
       setUploadPreviewRotations(new Array(blobs.length).fill(0))
       setUploadPreviewSource('teacher_student_upload')
     },
-    [pagesPerStudent, pageOrientations],
+    [pagesPerStudent],
   )
 
   const handlePdfInputChange = useCallback(
@@ -1769,32 +1746,75 @@ export default function UnifiedImportPage({
               <div className={`grid gap-4 ${
                 uploadPreviewUrls.length === 1 ? 'grid-cols-1 max-w-sm mx-auto' : 'grid-cols-2 sm:grid-cols-3'
               }`}>
-                {uploadPreviewUrls.map((url, i) => (
-                  <div key={i} className="relative bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-                    {/* Page label */}
-                    <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/50 rounded-md text-white text-xs font-medium">
-                      第 {i + 1} 頁
+                {uploadPreviewUrls.map((url, i) => {
+                  // 計算旋轉後的實際方向
+                  const rotation = uploadPreviewRotations[i] ?? 0
+                  const isRotated90or270 = rotation === 90 || rotation === 270
+                  // 原始圖片方向由驗證時已確認，旋轉 90/270 會翻轉方向
+                  const expectedOrientation = pageOrientations[i]
+                  let orientationStatus: 'correct' | 'wrong' | 'unknown' = 'unknown'
+                  if (expectedOrientation && uploadPreviewBlobs[i]) {
+                    // 簡化判斷：原圖是 portrait，旋轉 0/180 仍是 portrait，旋轉 90/270 變 landscape
+                    // 由於已通過方向驗證進入預覽，原圖方向 = expectedOrientation
+                    // 旋轉後方向 = isRotated90or270 ? 翻轉 : 不變
+                    const afterRotation = isRotated90or270
+                      ? (expectedOrientation === 'portrait' ? 'landscape' : 'portrait')
+                      : expectedOrientation
+                    orientationStatus = afterRotation === expectedOrientation ? 'correct' : 'wrong'
+                  }
+                  const borderColor = orientationStatus === 'correct'
+                    ? 'border-green-400'
+                    : orientationStatus === 'wrong'
+                      ? 'border-red-400'
+                      : 'border-slate-200'
+
+                  return (
+                    <div key={i} className={`relative bg-white rounded-xl border-2 ${borderColor} overflow-hidden shadow-sm`}>
+                      {/* Page label + orientation badge */}
+                      <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 bg-black/50 rounded-md text-white text-xs font-medium">
+                          第 {i + 1} 頁
+                        </span>
+                        {expectedOrientation && (
+                          <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-medium ${
+                            orientationStatus === 'correct'
+                              ? 'bg-green-500 text-white'
+                              : orientationStatus === 'wrong'
+                                ? 'bg-red-500 text-white'
+                                : 'bg-slate-400 text-white'
+                          }`}>
+                            {expectedOrientation === 'portrait' ? '直拍' : '橫拍'}
+                            {orientationStatus === 'wrong' && ' ✗'}
+                          </span>
+                        )}
+                      </div>
+                      {/* Rotate button */}
+                      <button
+                        type="button"
+                        onClick={() => handleUploadPreviewRotate(i)}
+                        className="absolute top-2 right-2 z-10 p-1.5 bg-white/90 rounded-lg shadow hover:bg-white transition-colors"
+                        title="旋轉 90°"
+                      >
+                        <RotateCw className="w-4 h-4 text-slate-600" />
+                      </button>
+                      {/* Image */}
+                      <div className="aspect-[3/4] flex items-center justify-center p-2">
+                        <img
+                          src={url}
+                          alt={`第 ${i + 1} 頁`}
+                          className="max-w-full max-h-full object-contain transition-transform"
+                          style={{ transform: `rotate(${rotation}deg)` }}
+                        />
+                      </div>
+                      {/* Wrong orientation warning */}
+                      {orientationStatus === 'wrong' && (
+                        <div className="px-3 py-1.5 bg-red-50 text-red-700 text-xs text-center border-t border-red-200">
+                          方向不符，請旋轉或重新選擇
+                        </div>
+                      )}
                     </div>
-                    {/* Rotate button */}
-                    <button
-                      type="button"
-                      onClick={() => handleUploadPreviewRotate(i)}
-                      className="absolute top-2 right-2 z-10 p-1.5 bg-white/90 rounded-lg shadow hover:bg-white transition-colors"
-                      title="旋轉 90°"
-                    >
-                      <RotateCw className="w-4 h-4 text-slate-600" />
-                    </button>
-                    {/* Image */}
-                    <div className="aspect-[3/4] flex items-center justify-center p-2">
-                      <img
-                        src={url}
-                        alt={`第 ${i + 1} 頁`}
-                        className="max-w-full max-h-full object-contain transition-transform"
-                        style={{ transform: `rotate(${uploadPreviewRotations[i] ?? 0}deg)` }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
 
@@ -1820,15 +1840,29 @@ export default function UnifiedImportPage({
                 >
                   取消
                 </button>
-                <button
-                  type="button"
-                  disabled={isUploadPreviewSaving}
-                  onClick={handleUploadPreviewConfirm}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300 transition-colors"
-                >
-                  {isUploadPreviewSaving && <Loader className="w-4 h-4 animate-spin" />}
-                  確認上傳
-                </button>
+                {(() => {
+                  // 檢查是否有方向錯誤（旋轉後仍不符合）
+                  const hasOrientationError = pageOrientations.length > 0 && uploadPreviewRotations.some((rot, i) => {
+                    const expected = pageOrientations[i]
+                    if (!expected) return false
+                    const isRotated90or270 = rot === 90 || rot === 270
+                    const afterRotation = isRotated90or270
+                      ? (expected === 'portrait' ? 'landscape' : 'portrait')
+                      : expected
+                    return afterRotation !== expected
+                  })
+                  return (
+                    <button
+                      type="button"
+                      disabled={isUploadPreviewSaving || hasOrientationError}
+                      onClick={handleUploadPreviewConfirm}
+                      className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300 transition-colors"
+                    >
+                      {isUploadPreviewSaving && <Loader className="w-4 h-4 animate-spin" />}
+                      {hasOrientationError ? '請先修正方向' : '確認上傳'}
+                    </button>
+                  )
+                })()}
               </div>
             </div>
           </div>
