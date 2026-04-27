@@ -24,9 +24,11 @@ function checkEdge(brightness: number[]): boolean {
   const mean = brightness.reduce((s, v) => s + v, 0) / n
   const variance = brightness.reduce((s, v) => s + (v - mean) ** 2, 0) / n
   const stdDev = Math.sqrt(variance)
-  const darkCount = brightness.filter(b => b < 80).length
+  // 暗像素：亮度 < 60（放寬，原本 80 太嚴格）
+  const darkCount = brightness.filter(b => b < 60).length
   const darkRatio = darkCount / n
-  return stdDev < 40 && darkRatio < 0.15
+  // 標準差 < 50（放寬，原本 40）且暗像素 < 25%（放寬，原本 15%）
+  return stdDev < 50 && darkRatio < 0.25
 }
 
 /**
