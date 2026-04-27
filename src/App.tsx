@@ -1569,7 +1569,7 @@ function App() {
       <GlobalSyncBar />
       <div className="mx-auto flex h-screen w-full max-w-[1280px] flex-col">
         {!isCameraCaptureMode && (
-          <header className="sticky top-0 z-20 border-b border-slate-200 bg-[#f7f7f5]/95 px-4 py-2 backdrop-blur md:px-6">
+          <header className="sticky top-0 z-[110] border-b border-slate-200 bg-[#f7f7f5]/95 px-4 py-2 backdrop-blur md:px-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <img
@@ -1609,7 +1609,7 @@ function App() {
                   <ChevronDown className="h-4 w-4 text-slate-500" />
                 </button>
                 {isUserMenuOpen && (
-                  <div className="absolute right-0 z-[200] mt-2 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
+                  <div className="absolute right-0 z-50 mt-2 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl">
                     <div className="border-b border-slate-100 px-4 py-3">
                       <p className="truncate text-sm font-semibold text-slate-900">{userDisplayName}</p>
                       <div className="mt-0.5 flex items-center gap-1.5">
