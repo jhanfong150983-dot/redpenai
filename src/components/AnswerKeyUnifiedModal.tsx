@@ -218,15 +218,16 @@ export default function AnswerKeyUnifiedModal({
 
   const metadataValid = title.trim() !== '' && domain !== ''
 
-  // Auto-complete/uncomplete metadata step
+  // Auto-complete/uncomplete metadata step (skip in edit mode — steps are pre-completed)
   useEffect(() => {
+    if (editMode) return
     if (metadataValid && !completedSteps.has('metadata')) {
       markComplete('metadata')
     } else if (!metadataValid && completedSteps.has('metadata')) {
       resetFromStep('metadata')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [metadataValid])
+  }, [metadataValid, editMode])
 
   // ── Step 2: upload + page order state ─────────────────────────────────────
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -378,7 +379,7 @@ export default function AnswerKeyUnifiedModal({
   const prevPageItemsRef = useRef(pageItems)
   const skipPageResetRef = useRef(false)
   useEffect(() => {
-    if (skipPageResetRef.current) {
+    if (editMode || skipPageResetRef.current) {
       skipPageResetRef.current = false
       prevPageItemsRef.current = pageItems
       return
