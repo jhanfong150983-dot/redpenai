@@ -124,6 +124,22 @@ export default function ScannerPage({
 
   const requiredPages = Math.max(1, Math.round(pagesPerStudent || 1))
 
+  // 從答案卷 template 讀取 pageOrientations
+  const [pageOrientations, setPageOrientations] = useState<('portrait' | 'landscape')[]>([])
+  useEffect(() => {
+    (async () => {
+      try {
+        const assignment = await db.assignments.get(assignmentId)
+        if (assignment?.answerKeyTemplateId) {
+          const template = await db.answerKeyTemplates.get(assignment.answerKeyTemplateId)
+          if (template?.pageOrientations) {
+            setPageOrientations(template.pageOrientations)
+          }
+        }
+      } catch { /* ignore */ }
+    })()
+  }, [assignmentId])
+
   useEffect(() => {
     const updateLayout = () => {
       setIsLandscape(window.innerWidth > window.innerHeight)
@@ -636,14 +652,46 @@ export default function ScannerPage({
   /**
    * 處理文件選擇
    */
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      handleFileUpload(file)
-      // 清空 input，允許重複選擇同一文件
-      e.target.value = ''
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    e.target.value = '' // 清空 input，允許重複選擇
+
+    if (files.length === 0) return
+
+    // 驗證數量
+    if (files.length !== requiredPages) {
+      setError(`需上傳 ${requiredPages} 頁，目前選擇了 ${files.length} 頁`)
+      return
     }
-  }, [handleFileUpload])
+
+    // 驗證每頁方向
+    if (pageOrientations.length > 0) {
+      const orientationErrors: string[] = []
+      for (let i = 0; i < files.length && i < pageOrientations.length; i++) {
+        const expected = pageOrientations[i]
+        try {
+          const bitmap = await createImageBitmap(files[i])
+          const isPortrait = bitmap.height > bitmap.width
+          const isLandscape = bitmap.width > bitmap.height
+          bitmap.close()
+          if (expected === 'portrait' && isLandscape) {
+            orientationErrors.push(`第 ${i + 1} 張應為直拍，但照片是橫的`)
+          } else if (expected === 'landscape' && isPortrait) {
+            orientationErrors.push(`第 ${i + 1} 張應為橫拍，但照片是直的`)
+          }
+        } catch { /* 無法讀取，跳過驗證 */ }
+      }
+      if (orientationErrors.length > 0) {
+        setError(orientationErrors.join('；') + '。請重新選擇照片。')
+        return
+      }
+    }
+
+    // 逐個處理上傳
+    for (const file of files) {
+      await handleFileUpload(file)
+    }
+  }, [handleFileUpload, requiredPages, pageOrientations])
 
   // 載入所有學生
   useEffect(() => {
@@ -946,6 +994,7 @@ export default function ScannerPage({
         ref={fileInputRef}
         type="file"
         accept="image/*,application/pdf"
+        multiple
         onChange={handleFileChange}
         className="hidden"
       />
