@@ -515,7 +515,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [uploadDrafts, setUploadDrafts] = useState<Record<string, File[]>>({})
   const [previewedDraftSignatures, setPreviewedDraftSignatures] = useState<Record<string, string>>({})
   const [previewModal, setPreviewModal] = useState<PreviewModalState>(null)
-  const [previewChecks, setPreviewChecks] = useState({ orientation: false, clarity: false })
   const [previewCoverage, setPreviewCoverage] = useState<Record<number, boolean>>({}) // 每頁滿版狀態
   const [cameraMode, setCameraMode] = useState<StudentCameraMode>(null)
   const [cameraAssignmentId, setCameraAssignmentId] = useState('')
@@ -1554,7 +1553,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                           <button
                             type="button"
                             onClick={() => {
-                              setPreviewChecks({ orientation: false, clarity: false })
                               setPreviewModal({ assignmentId: item.id, index: 0 })
                             }}
                             disabled={draftFiles.length === 0}
