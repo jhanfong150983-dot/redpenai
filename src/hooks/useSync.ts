@@ -745,6 +745,8 @@ export function useSync(options: UseSyncOptions = {}) {
         totalScore: t.totalScore ?? t.answerKey?.totalScore ?? 0,
         shareCode: t.shareCode ?? undefined,
         pageOrientations: t.pageOrientations ?? undefined,
+        answerSheetMode: t.answerSheetMode ?? undefined,
+        questionBookletImagePaths: t.questionBookletImagePaths ?? undefined,
         updatedAt: t.updatedAt
       }))
 
@@ -1282,6 +1284,8 @@ export function useSync(options: UseSyncOptions = {}) {
         totalScore: t.totalScore ?? t.total_score ?? t.answerKey?.totalScore ?? 0,
         shareCode: t.shareCode ?? t.share_code ?? undefined,
         pageOrientations: t.pageOrientations ?? t.page_orientations ?? undefined,
+        answerSheetMode: t.answerSheetMode ?? t.answer_sheet_mode ?? undefined,
+        questionBookletImagePaths: t.questionBookletImagePaths ?? t.question_booklet_image_paths ?? undefined,
         updatedAt: toMillis(t.updatedAt ?? t.updated_at),
       }))
 

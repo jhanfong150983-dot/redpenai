@@ -106,6 +106,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const [newDomain, setNewDomain] = useState('')
   const [newFolder, setNewFolder] = useState('')
   const [newDocType, setNewDocType] = useState<'worksheet' | 'exam'>('worksheet')
+  const [newAnswerSheetMode, setNewAnswerSheetMode] = useState<'with_questions' | 'answer_only'>('with_questions')
+  const [questionBookletBlobs, setQuestionBookletBlobs] = useState<Blob[]>([])
   const domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他']
 
   // 匯入短碼
@@ -474,6 +476,35 @@ export default function AnswerBank(_props: AnswerBankProps) {
     } catch (err) { console.warn('⚠️ 答案截圖上傳例外', err) }
   }
 
+  // 上傳題本圖到 Supabase Storage（純答案卷模式，用於 Explain 讀取題目）
+  const uploadQuestionBookletImages = async (templateId: string, blobs: Blob[]) => {
+    try {
+      const imagesBase64: string[] = await Promise.all(
+        blobs.map(blob => new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = reject
+          reader.readAsDataURL(blob)
+        }))
+      )
+      const res = await fetch('/api/storage/download', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignmentId: templateId, imagesBase64, storagePrefix: 'question-booklets' }),
+      })
+      if (!res.ok) {
+        console.warn('⚠️ 題本圖片上傳失敗', await res.text())
+        return
+      }
+      const { paths } = await res.json() as { paths: string[] }
+      await db.answerKeyTemplates.update(templateId, { questionBookletImagePaths: paths })
+      console.log(`✅ 題本圖已上傳 ${paths.length} 頁`)
+    } catch (err) {
+      console.warn('⚠️ 題本圖片上傳例外', err)
+    }
+  }
+
   const handleWizardSave = async (answerKey: AnswerKey, imageBlobs: Blob[]) => {
     if (editingAssignmentId) {
       // 檢查有沒有班級作業引用了這份答案卷
@@ -513,6 +544,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         name: newTitle.trim(),
         domain: domainValue,
         docType: newDocType,
+        answerSheetMode: newAnswerSheetMode,
         folder: newFolder || undefined,
         answerKey,
         questionCount: answerKey.questions?.length ?? 0,
@@ -523,6 +555,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
       await db.answerKeyTemplates.add(template)
       // 非同步上傳裁切圖
       uploadAnswerCrops(templateId, answerKey)
+      // 純答案卷模式：上傳題本圖
+      if (newAnswerSheetMode === 'answer_only' && questionBookletBlobs.length > 0) {
+        uploadQuestionBookletImages(templateId, questionBookletBlobs)
+      }
     }
     requestSync(); await loadData()
     setShowWizard(false); wizardPages.forEach((p) => URL.revokeObjectURL(p.url)); setWizardPages([])
@@ -625,7 +661,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             <Plus className="w-4 h-4" />建立資料夾
           </button>
           <button type="button" disabled={isExtracting}
-            onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setNewDocType('worksheet'); setShowNewModal(true) }}
+            onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setNewDocType('worksheet'); setNewAnswerSheetMode('with_questions'); setQuestionBookletBlobs([]); setShowNewModal(true) }}
             className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 active:scale-95 disabled:opacity-50">
             {isExtracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}新增答案卷
           </button>
@@ -660,7 +696,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             <div className="py-12 text-center">
               <BookOpen className="mx-auto h-12 w-12 text-slate-300" />
               <p className="mt-4 text-sm font-medium text-slate-500">尚未建立任何答案卷</p>
-              <button type="button" onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setNewDocType('worksheet'); setShowNewModal(true) }}
+              <button type="button" onClick={() => { setNewTitle(''); setNewDomain(''); setNewFolder(''); setNewDocType('worksheet'); setNewAnswerSheetMode('with_questions'); setQuestionBookletBlobs([]); setShowNewModal(true) }}
                 className="mt-3 inline-flex items-center gap-2 rounded-lg border border-green-300 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-50">
                 <FileUp className="h-4 w-4" />上傳答案卷圖片
               </button>
@@ -826,6 +862,52 @@ export default function AnswerBank(_props: AnswerBankProps) {
                   {usedFolders.map((f) => <option key={f} value={f}>{f}</option>)}
                 </select>
               </div>
+              {/* 答案卷模式 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">答案卷模式</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" checked={newAnswerSheetMode === 'with_questions'} onChange={() => setNewAnswerSheetMode('with_questions')} className="w-4 h-4 accent-green-600" />
+                    <span className="text-sm text-gray-700">帶題目</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" checked={newAnswerSheetMode === 'answer_only'} onChange={() => setNewAnswerSheetMode('answer_only')} className="w-4 h-4 accent-green-600" />
+                    <span className="text-sm text-gray-700">純答案卷（題本分開）</span>
+                  </label>
+                </div>
+              </div>
+              {/* 題本上傳（純答案卷模式） */}
+              {newAnswerSheetMode === 'answer_only' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    上傳題本 <span className="text-xs text-slate-400">（學生看到的題目頁面，用於錯誤解說）</span>
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    multiple
+                    onChange={async (e) => {
+                      const files = Array.from(e.target.files || [])
+                      if (files.length === 0) return
+                      const blobs: Blob[] = []
+                      for (const file of files) {
+                        if (file.type === 'application/pdf') {
+                          const { convertPdfToImages } = await import('../lib/pdfToImage')
+                          const pages = await convertPdfToImages(file)
+                          blobs.push(...pages)
+                        } else {
+                          blobs.push(file)
+                        }
+                      }
+                      setQuestionBookletBlobs(blobs)
+                    }}
+                    className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                  />
+                  {questionBookletBlobs.length > 0 && (
+                    <p className="mt-1 text-xs text-green-600">已選取 {questionBookletBlobs.length} 頁題本圖</p>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-4">
               <button type="button" onClick={() => setShowNewModal(false)} className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100">取消</button>

@@ -230,6 +230,7 @@ export interface AnswerKeyTemplate {
   totalScore?: number
   shareCode?: string
   pageOrientations?: ('portrait' | 'landscape')[] // 每頁答案卷圖片的方向（建立時自動偵測）
+  questionBookletImagePaths?: string[] // 題本圖 Supabase Storage 路徑（純答案卷模式）
   updatedAt?: number
 }
 
