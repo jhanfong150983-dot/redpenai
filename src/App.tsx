@@ -11,7 +11,10 @@ import {
   BookOpen,
   FileText,
   SlidersHorizontal,
-  ChevronDown
+  ChevronDown,
+  AlertTriangle,
+  Link as LinkIcon,
+  X
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -247,6 +250,7 @@ function App() {
   const [ssoPendingSync, setSsoPendingSync] = useState<{
     dsns: string
   } | null>(null)
+  const [ssoOAuthDenied, setSsoOAuthDenied] = useState(false)
   const userMenuRef = useRef<HTMLDivElement | null>(null)
   const ssoRedirectingRef = useRef(_isSsoEntry)
   const inkBalance =
@@ -413,12 +417,18 @@ function App() {
 
     // 後端 SSO 完成後回傳的參數
     const ssoError = params.get('sso_error')?.trim() || ''
+    const ssoWarning = params.get('sso_warning')?.trim() || ''
     const ssoProvider = params.get('sso_provider')?.trim() || ''
     const ssoSync = params.get('sso_sync') === '1'
     const ssoDsns = params.get('sso_dsns')?.trim() || ''
 
-    const hasSsoParams = !!(ssoError || ssoProvider || ssoSync)
+    const hasSsoParams = !!(ssoError || ssoWarning || ssoProvider || ssoSync)
     if (!hasSsoParams) return
+
+    // OAuth 授權被拒絕（Phase 1 已登入，不影響 auth 狀態，只顯示提醒）
+    if (ssoWarning === 'oauth_denied') {
+      setSsoOAuthDenied(true)
+    }
 
     if (ssoError) {
       const errorMessages: Record<string, string> = {
@@ -442,6 +452,7 @@ function App() {
 
     // 清除 URL 中的 SSO 參數
     params.delete('sso_error')
+    params.delete('sso_warning')
     params.delete('sso_provider')
     params.delete('sso_sync')
     params.delete('sso_dsns')
@@ -1767,6 +1778,66 @@ function App() {
           )}
 
           <main className="flex min-h-0 flex-1 flex-col bg-[#FFFFFF]">
+            {/* 方案 1：OAuth 授權被拒絕提示 / 方案 3：campus1 虛擬 email 持續提醒 */}
+            {!isStudent && auth.status === 'authenticated' && (() => {
+              const email = auth.user.email ?? ''
+              const isCampus1Email = email.startsWith('campus1.') && email.includes('@')
+              const dsns = isCampus1Email
+                ? email.slice(email.indexOf('@') + 1)
+                : auth.user.campus1Binding?.dsns || ''
+              const oauthRetryUrl = dsns
+                ? buildApiUrl(`/api/auth/1campus?__step=oauth&dsns=${encodeURIComponent(dsns)}`)
+                : ''
+
+              // 方案 1：剛從 1Campus OAuth 拒絕回來
+              if (ssoOAuthDenied) {
+                return (
+                  <div className="flex items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" />
+                    <span className="flex-1">
+                      您剛才未授權 Google 帳號綁定。綁定後可整合您在不同平台的資料，建議立即完成。
+                    </span>
+                    {oauthRetryUrl && (
+                      <a
+                        href={oauthRetryUrl}
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700"
+                      >
+                        <LinkIcon className="h-3.5 w-3.5" />
+                        重新授權
+                      </a>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSsoOAuthDenied(false)}
+                      className="shrink-0 rounded p-1 text-amber-400 hover:bg-amber-100 hover:text-amber-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                )
+              }
+
+              // 方案 3：持續提醒 — email 仍是 campus1.* 虛擬 email
+              if (isCampus1Email && oauthRetryUrl) {
+                return (
+                  <div className="flex items-center gap-3 border-b border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+                    <LinkIcon className="h-5 w-5 shrink-0 text-blue-500" />
+                    <span className="flex-1">
+                      您的帳號尚未綁定 Google，目前使用虛擬信箱登入。綁定後可整合資料並使用完整功能。
+                    </span>
+                    <a
+                      href={oauthRetryUrl}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+                    >
+                      <LinkIcon className="h-3.5 w-3.5" />
+                      立即綁定
+                    </a>
+                  </div>
+                )
+              }
+
+              return null
+            })()}
             <div className={`flex-1 overflow-y-scroll ${isStudent ? '' : 'px-4 py-4 md:px-6 md:py-5'}`}>
               <Suspense fallback={
                 <div className="flex items-center justify-center py-20">
