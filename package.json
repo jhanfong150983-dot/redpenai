@@ -29,6 +29,12 @@
     "tailwind-merge": "^3.4.0",
     "zod": "^4.2.1"
   },
+  "browserslist": [
+    "> 1%",
+    "last 2 versions",
+    "not dead",
+    "Safari >= 14"
+  ],
   "devDependencies": {
     "@eslint/js": "^9.17.0",
     "@types/node": "^25.0.2",
