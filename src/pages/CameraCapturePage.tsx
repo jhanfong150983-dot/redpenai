@@ -218,14 +218,7 @@ export default function CameraCapturePage({
 
   return (
     <div className="fixed inset-0 bg-black">
-      {/* 隱藏的文件輸入 */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        onChange={handleFileUpload}
-        className="hidden"
-      />
+      {/* 檔案上傳已移除 — 學生端統一用 App 相機拍照，確保框線引導生效 */}
 
       {/* 攝像頭畫面 */}
       <Webcam
@@ -487,15 +480,7 @@ export default function CameraCapturePage({
             </p>
           )}
           <div className={`flex items-center gap-3 ${isLandscape ? 'flex-col' : 'flex-row justify-center'}`}>
-            <button
-              onClick={triggerFileUpload}
-              disabled={isProcessing}
-              className={actionBase}
-              aria-label="上傳作業"
-              title="上傳"
-            >
-              <Upload className="w-5 h-5" />
-            </button>
+            {/* 上傳按鈕已移除 — 統一用相機拍照 */}
             <button
               onClick={handleCapture}
               disabled={isProcessing || gyroBlocking}
