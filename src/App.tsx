@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import {
   Users,
   Sparkles,
@@ -14,24 +14,31 @@ import {
   ChevronDown
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import ClassroomManagement from '@/pages/ClassroomManagement'
-import AssignmentSetup from '@/pages/AssignmentSetup'
-import AnswerBank from '@/pages/AnswerBank'
-import AssignmentList from '@/pages/AssignmentList'
-import GradingPage from '@/pages/GradingPage'
-import AssignmentImport from '@/pages/AssignmentImport'
-import AssignmentImportSelect from '@/pages/AssignmentImportSelect'
-import AssignmentScanImport from '@/pages/AssignmentScanImport'
-import UnifiedImportPage from '@/pages/UnifiedImportPage'
-import CorrectionSelect from '@/pages/CorrectionSelect'
-import CorrectionManagement from '@/pages/CorrectionManagement'
-import Gradebook from '@/pages/Gradebook'
-import StudentPortal from '@/pages/StudentPortal'
-import AdminPanel from '@/pages/AdminPanel'
-import InkTopUp from '@/pages/InkTopUp'
-import AiReport from '@/pages/AiReport'
-import LandingPage from '@/pages/LandingPage'
-import { SyncIndicator, GlobalSyncBar } from '@/components'
+
+// ── Lazy-loaded page components ──
+const ClassroomManagement = lazy(() => import('@/pages/ClassroomManagement'))
+const AssignmentSetup = lazy(() => import('@/pages/AssignmentSetup'))
+const AnswerBank = lazy(() => import('@/pages/AnswerBank'))
+const AssignmentList = lazy(() => import('@/pages/AssignmentList'))
+const GradingPage = lazy(() => import('@/pages/GradingPage'))
+const AssignmentImport = lazy(() => import('@/pages/AssignmentImport'))
+const AssignmentImportSelect = lazy(() => import('@/pages/AssignmentImportSelect'))
+const AssignmentScanImport = lazy(() => import('@/pages/AssignmentScanImport'))
+const UnifiedImportPage = lazy(() => import('@/pages/UnifiedImportPage'))
+const CorrectionSelect = lazy(() => import('@/pages/CorrectionSelect'))
+const CorrectionManagement = lazy(() => import('@/pages/CorrectionManagement'))
+const Gradebook = lazy(() => import('@/pages/Gradebook'))
+const StudentPortal = lazy(() => import('@/pages/StudentPortal'))
+const AdminPanel = lazy(() => import('@/pages/AdminPanel'))
+const InkTopUp = lazy(() => import('@/pages/InkTopUp'))
+const AiReport = lazy(() => import('@/pages/AiReport'))
+const LandingPage = lazy(() => import('@/pages/LandingPage'))
+const AdminUserDetail = lazy(() => import('@/pages/AdminUserDetail'))
+const TeacherPreferences = lazy(() => import('@/pages/TeacherPreferences'))
+
+import SyncIndicator from '@/components/SyncIndicator'
+import GlobalSyncBar from '@/components/GlobalSyncBar'
+import ErrorBoundary from '@/components/ErrorBoundary'
 import { checkWebPSupport } from '@/lib/webpSupport'
 import { INK_BALANCE_EVENT, type InkBalanceDetail } from '@/lib/ink-events'
 import { buildApiUrl } from '@/lib/api-base'
@@ -44,8 +51,6 @@ import '@/lib/debug-sync'
 import { debugLog } from '@/lib/logger'
 import { LEGAL_MODAL_EVENT, type LegalModalDetail } from '@/lib/legal-events'
 import { TERMS_VERSION, PRIVACY_VERSION, REFUND_FEE_RATE } from '@/lib/legal'
-import AdminUserDetail from '@/pages/AdminUserDetail'
-import TeacherPreferences from '@/pages/TeacherPreferences'
 import {
   db,
   type Classroom,
@@ -740,11 +745,11 @@ function App() {
   const legalModals = (
     <>
       {isTermsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="terms-dialog-title">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
-                <h2 className="text-base font-semibold text-gray-900">服務條款</h2>
+                <h2 id="terms-dialog-title" className="text-base font-semibold text-gray-900">服務條款</h2>
                 <p className="text-xs text-gray-500 mt-1">版本：{TERMS_VERSION}</p>
               </div>
               <button
@@ -803,11 +808,11 @@ function App() {
       )}
 
       {isPrivacyOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="privacy-dialog-title">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
-                <h2 className="text-base font-semibold text-gray-900">隱私權政策</h2>
+                <h2 id="privacy-dialog-title" className="text-base font-semibold text-gray-900">隱私權政策</h2>
                 <p className="text-xs text-gray-500 mt-1">版本：{PRIVACY_VERSION}</p>
               </div>
               <button
@@ -1225,7 +1230,15 @@ function App() {
   }
 
   if (auth.status === 'unauthenticated') {
-    return <LandingPage />
+    return (
+      <Suspense fallback={
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      }>
+        <LandingPage />
+      </Suspense>
+    )
   }
 
   if (isInitialSyncing) {
@@ -1342,13 +1355,15 @@ function App() {
       )
     }
     return (
-      <AdminPanel
-        onBack={() => setCurrentPage('home')}
-        onNavigateToDetail={(userId) => {
-          setSelectedUserId(userId)
-          setCurrentPage('admin-user-detail')
-        }}
-      />
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}>
+        <AdminPanel
+          onBack={() => setCurrentPage('home')}
+          onNavigateToDetail={(userId) => {
+            setSelectedUserId(userId)
+            setCurrentPage('admin-user-detail')
+          }}
+        />
+      </Suspense>
     )
   }
 
@@ -1380,26 +1395,28 @@ function App() {
     }
 
     return (
-      <AdminUserDetail
-        userId={selectedUserId}
-        onBack={() => {
-          setCurrentPage('admin-panel')
-          setSelectedUserId('')
-        }}
-      />
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}>
+        <AdminUserDetail
+          userId={selectedUserId}
+          onBack={() => {
+            setCurrentPage('admin-panel')
+            setSelectedUserId('')
+          }}
+        />
+      </Suspense>
     )
   }
 
   // 補充墨水
   if (currentPage === 'ink-topup') {
     return (
-      <>
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}>
         <InkTopUp
           onBack={() => setCurrentPage('home')}
           currentBalance={auth.user.inkBalance ?? 0}
         />
         {legalModals}
-      </>
+      </Suspense>
     )
   }
 
@@ -1751,6 +1768,11 @@ function App() {
 
           <main className="flex min-h-0 flex-1 flex-col bg-[#FFFFFF]">
             <div className={`flex-1 overflow-y-scroll ${isStudent ? '' : 'px-4 py-4 md:px-6 md:py-5'}`}>
+              <Suspense fallback={
+                <div className="flex items-center justify-center py-20">
+                  <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              }>
               {isStudent ? (
                 <StudentPortal onCaptureModeChange={setIsCameraCaptureMode} />
               ) : currentPage === 'answer-bank' ? (
@@ -2015,7 +2037,7 @@ function App() {
 
                     <div className="mt-4 grid gap-0 sm:grid-cols-2 xl:grid-cols-4">
                       <div className="px-2 py-3 xl:border-r xl:border-slate-200">
-                        <p className="text-[11px] text-slate-400">總作業數</p>
+                        <p className="text-[11px] text-slate-500">總作業數</p>
                         {homeOverviewLoading ? (
                           <div className="mt-2 h-9 w-16 animate-pulse rounded bg-slate-100" />
                         ) : (
@@ -2025,7 +2047,7 @@ function App() {
                         )}
                       </div>
                       <div className="px-2 py-3 xl:border-r xl:border-slate-200">
-                        <p className="text-[11px] text-slate-400">待匯入作業</p>
+                        <p className="text-[11px] text-slate-500">待匯入作業</p>
                         {homeOverviewLoading ? (
                           <div className="mt-2 h-9 w-16 animate-pulse rounded bg-slate-100" />
                         ) : (
@@ -2035,7 +2057,7 @@ function App() {
                         )}
                       </div>
                       <div className="px-2 py-3 xl:border-r xl:border-slate-200">
-                        <p className="text-[11px] text-slate-400">待批改份數</p>
+                        <p className="text-[11px] text-slate-500">待批改份數</p>
                         {homeOverviewLoading ? (
                           <div className="mt-2 h-9 w-16 animate-pulse rounded bg-slate-100" />
                         ) : (
@@ -2045,7 +2067,7 @@ function App() {
                         )}
                       </div>
                       <div className="px-2 py-3">
-                        <p className="text-[11px] text-slate-400">批改完成率</p>
+                        <p className="text-[11px] text-slate-500">批改完成率</p>
                         {homeOverviewLoading ? (
                           <div className="mt-2 h-9 w-16 animate-pulse rounded bg-slate-100" />
                         ) : (
@@ -2208,6 +2230,7 @@ function App() {
                 </>
               )}
 
+            </Suspense>
             </div>
           </main>
         </div>
@@ -2257,10 +2280,10 @@ function App() {
       </div>
 
       {isAiDisclaimerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="ai-disclaimer-title">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="text-base font-semibold text-gray-900">
+              <h2 id="ai-disclaimer-title" className="text-base font-semibold text-gray-900">
                 免責聲明及 AI 生成內容著作權聲明
               </h2>
               <button
@@ -2311,10 +2334,10 @@ function App() {
       )}
 
       {isIpDisclaimerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="ip-disclaimer-title">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <h2 className="text-base font-semibold text-gray-900">
+              <h2 id="ip-disclaimer-title" className="text-base font-semibold text-gray-900">
                 網站智慧財產權聲明
               </h2>
               <button
@@ -2342,4 +2365,12 @@ function App() {
   )
 }
 
-export default App
+function AppWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  )
+}
+
+export default AppWithErrorBoundary

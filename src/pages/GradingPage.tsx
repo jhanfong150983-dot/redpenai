@@ -728,7 +728,7 @@ function ConsistencyQuestionCard({
     parts.push('」')
     // If other text is longer, show trailing extra
     if (otherText.length > text.length) {
-      parts.push(<span key="extra" className="text-gray-400 text-[9px] ml-1">（對方多 {otherText.length - text.length} 字）</span>)
+      parts.push(<span key="extra" className="text-gray-500 text-[9px] ml-1">（對方多 {otherText.length - text.length} 字）</span>)
     }
     return <>{parts}</>
   }
@@ -1099,7 +1099,7 @@ function BatchConsistencyReviewSection({
                   {student?.seatNumber ?? '?'}
                 </span>
                 <span className="text-sm font-bold text-gray-900">{student?.name ?? currentEntry.studentId}</span>
-                <span className="text-xs text-gray-400">({currentReviewQs.length} 題待確認)</span>
+                <span className="text-xs text-gray-500">({currentReviewQs.length} 題待確認)</span>
               </div>
               <span className="text-xs text-gray-500">
                 {currentReviewIdx + 1}/{needsReviewEntries.length}
@@ -4062,7 +4062,7 @@ export default function GradingPage({
               <p className="text-sm text-gray-600">待批改</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-gray-400">{students.length - submissions.size}</p>
+              <p className="text-2xl font-bold text-gray-500">{students.length - submissions.size}</p>
               <p className="text-sm text-gray-600">尚未繳交</p>
             </div>
             <div className="text-center">
@@ -4452,7 +4452,7 @@ export default function GradingPage({
 
                 {!selectedSubmission.submission.gradingResult?.details &&
                   selectedSubmission.submission.feedback && (
-                    <div className="text-gray-400 text-sm text-center italic py-4">
+                    <div className="text-gray-500 text-sm text-center italic py-4">
                       這是舊版批改紀錄，建議重新批改更新 AI 結果
                     </div>
                   )}

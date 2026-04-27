@@ -224,6 +224,20 @@ export default defineConfig({
   build: {
     // 降級編譯：支援舊版 WebView（Android Chrome 70+）
     target: 'es2015',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // React 核心
+          'vendor-react': ['react', 'react-dom'],
+          // IndexedDB
+          'vendor-dexie': ['dexie'],
+          // Supabase
+          'vendor-supabase': ['@supabase/supabase-js'],
+          // 動畫與拖放
+          'vendor-ui': ['framer-motion', 'lucide-react'],
+        },
+      },
+    },
   },
   resolve: {
     alias: {
