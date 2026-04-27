@@ -516,8 +516,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [previewedDraftSignatures, setPreviewedDraftSignatures] = useState<Record<string, string>>({})
   const [previewModal, setPreviewModal] = useState<PreviewModalState>(null)
   const [previewCoverage, setPreviewCoverage] = useState<Record<number, boolean>>({}) // 每頁滿版狀態
-  const retakeInputRef = useRef<HTMLInputElement>(null)
-  const retakePageIdxRef = useRef<number>(0)
+  const [retakePageIdx, setRetakePageIdx] = useState<number | null>(null) // 重拍模式：要取代的頁面 index
   const [cameraMode, setCameraMode] = useState<StudentCameraMode>(null)
   const [cameraAssignmentId, setCameraAssignmentId] = useState('')
   const [capturedBlobs, setCapturedBlobs] = useState<Blob[]>([])
@@ -959,6 +958,29 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       setCameraMode(null)
       setCameraAssignmentId('')
       onCaptureModeChange?.(false)
+      return
+    }
+
+    // 單頁重拍模式：取代指定頁面後回到預覽
+    if (retakePageIdx !== null && cameraAssignmentId) {
+      const file = new File([imageBlob], `student-retake-${retakePageIdx + 1}.jpg`, {
+        type: imageBlob.type || 'image/jpeg'
+      })
+      const assignmentId = cameraAssignmentId
+      const pageIdx = retakePageIdx
+      setUploadDrafts(prev => {
+        const current = prev[assignmentId] || []
+        if (pageIdx >= current.length) return prev
+        const next = [...current]
+        next[pageIdx] = file
+        return { ...prev, [assignmentId]: next }
+      })
+      setRetakePageIdx(null)
+      setCameraMode(null)
+      setCameraAssignmentId('')
+      onCaptureModeChange?.(false)
+      // 重新開啟預覽
+      setPreviewModal({ assignmentId, index: pageIdx })
       return
     }
 
@@ -1926,28 +1948,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         </div>
       )}
 
-      {/* 單頁重拍用的隱藏 input（開啟手機相機拍一張） */}
-      <input
-        ref={retakeInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={async (e) => {
-          const file = e.target.files?.[0]
-          e.target.value = ''
-          if (!file || !previewModal) return
-          const idx = retakePageIdxRef.current
-          // 替換 uploadDrafts 裡的那一頁
-          setUploadDrafts(prev => {
-            const current = prev[previewModal.assignmentId] || []
-            if (idx >= current.length) return prev
-            const next = [...current]
-            next[idx] = file
-            return { ...prev, [previewModal.assignmentId]: next }
-          })
-        }}
-      />
 
       {previewModal && previewFiles.length > 0 && (() => {
         const assignment = uploadAssignments.find(a => a.id === previewModal.assignmentId)
@@ -2049,8 +2049,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                   <button
                     type="button"
                     onClick={() => {
-                      retakePageIdxRef.current = currentIdx
-                      retakeInputRef.current?.click()
+                      setRetakePageIdx(currentIdx)
+                      setPreviewModal(null)
+                      openCamera('upload', previewModal.assignmentId)
                     }}
                     className={`inline-flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium transition-colors ${
                       hasCoverageError
