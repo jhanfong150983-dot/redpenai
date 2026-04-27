@@ -619,12 +619,18 @@ export default function UnifiedImportPage({
         }
       }
 
-      // 逐頁上傳
-      for (const file of files) {
-        await handleFileUpload(student, file)
-      }
+      // 多檔：一次性開啟預覽（所有頁面一起顯示）
+      setActionSheetStudent(null)
+      setError(null)
+      const blobs: Blob[] = files
+      const urls = blobs.map((b) => URL.createObjectURL(b))
+      setUploadPreviewStudent(student)
+      setUploadPreviewBlobs(blobs)
+      setUploadPreviewUrls(urls)
+      setUploadPreviewRotations(new Array(blobs.length).fill(0))
+      setUploadPreviewSource('teacher_student_upload')
     },
-    [handleFileUpload, pagesPerStudent, pageOrientations],
+    [pagesPerStudent, pageOrientations],
   )
 
   const handlePdfInputChange = useCallback(
