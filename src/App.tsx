@@ -524,8 +524,14 @@ function App() {
     void fetchAuth()
   }, [fetchAuth])
 
+  // focus 節流：tab 回到前景時重新驗證，但至少間隔 5 分鐘才重打 API
+  const lastFetchAuthRef = useRef(0)
   useEffect(() => {
+    const FOCUS_THROTTLE_MS = 5 * 60 * 1000 // 5 分鐘
     const handleFocus = () => {
+      const now = Date.now()
+      if (now - lastFetchAuthRef.current < FOCUS_THROTTLE_MS) return
+      lastFetchAuthRef.current = now
       void fetchAuth()
     }
     window.addEventListener('focus', handleFocus)
@@ -756,7 +762,7 @@ function App() {
   const legalModals = (
     <>
       {isTermsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="terms-dialog-title">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="terms-dialog-title">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
@@ -819,7 +825,7 @@ function App() {
       )}
 
       {isPrivacyOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="privacy-dialog-title">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="privacy-dialog-title">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div>
@@ -1597,7 +1603,7 @@ function App() {
       <GlobalSyncBar />
       <div className="mx-auto flex h-screen w-full max-w-[1280px] flex-col">
         {!isCameraCaptureMode && (
-          <header className="sticky top-0 z-30 border-b border-slate-200 bg-[#f7f7f5]/95 px-4 py-2 backdrop-blur md:px-6">
+          <header className="sticky top-0 z-[110] border-b border-slate-200 bg-[#f7f7f5]/95 px-4 py-2 backdrop-blur md:px-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <img
@@ -2351,7 +2357,7 @@ function App() {
       </div>
 
       {isAiDisclaimerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="ai-disclaimer-title">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="ai-disclaimer-title">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <h2 id="ai-disclaimer-title" className="text-base font-semibold text-gray-900">
@@ -2405,7 +2411,7 @@ function App() {
       )}
 
       {isIpDisclaimerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="ip-disclaimer-title">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="ip-disclaimer-title">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <h2 id="ip-disclaimer-title" className="text-base font-semibold text-gray-900">
