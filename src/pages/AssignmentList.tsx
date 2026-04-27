@@ -1555,6 +1555,7 @@ export default function AssignmentList({
           }}
           initialStudentUploadEnabled={settingsAssignment.studentUploadEnabled}
           initialAnswerKeyInfo={settingsAssignment.answerKey ? {
+            name: allTemplates.find(t => t.id === settingsAssignment.answerKeyTemplateId)?.name,
             domain: settingsAssignment.domain || '未設定',
             questionCount: settingsAssignment.answerKey.questions.length,
             totalScore: settingsAssignment.answerKey.totalScore,

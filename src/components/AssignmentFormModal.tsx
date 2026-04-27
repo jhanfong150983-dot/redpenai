@@ -46,7 +46,7 @@ interface AssignmentFormModalProps {
   initialDomain?: string
   initialSettings?: Partial<GradingSettings>
   initialStudentUploadEnabled?: boolean
-  initialAnswerKeyInfo?: { domain: string; questionCount: number; totalScore: number } | null
+  initialAnswerKeyInfo?: { name?: string; domain: string; questionCount: number; totalScore: number } | null
   // Options
   folders: string[]
   answerKeys: AnswerKeyOption[]
@@ -355,7 +355,7 @@ export default function AssignmentFormModal({
                     <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
                       <p className="text-xs text-gray-500 mb-1">目前答案卷</p>
                       <p className="text-sm font-medium text-gray-900">
-                        {initialAnswerKeyInfo.domain || '未設定領域'} · {initialAnswerKeyInfo.questionCount} 題 · 總分 {initialAnswerKeyInfo.totalScore}
+                        {initialAnswerKeyInfo.name && <>{initialAnswerKeyInfo.name} · </>}{initialAnswerKeyInfo.domain || '未設定領域'} · {initialAnswerKeyInfo.questionCount} 題 · 總分 {initialAnswerKeyInfo.totalScore}
                       </p>
                     </div>
                   )}
