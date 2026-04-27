@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import Webcam from 'react-webcam'
-import { Camera, Upload, ArrowLeft, Loader, AlertCircle, CheckCircle, CameraOff, RefreshCw } from 'lucide-react'
+import { Camera, ArrowLeft, Loader, AlertCircle, CheckCircle, CameraOff, RefreshCw } from 'lucide-react'
 import { compressImage } from '@/lib/imageCompression'
 import CameraGuideOverlay from '@/components/CameraGuideOverlay'
 import { useGyroscope } from '@/hooks/useGyroscope'
@@ -26,7 +26,6 @@ export default function CameraCapturePage({
   onBack
 }: CameraCapturePageProps) {
   const webcamRef = useRef<Webcam>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [captureSuccess, setCaptureSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -160,58 +159,6 @@ export default function CameraCapturePage({
     }
   }, [onCaptureComplete])
 
-  const handleFileUpload = useCallback(
-    async (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
-      if (!file) return
-
-      setIsProcessing(true)
-      setError(null)
-      try {
-        const reader = new FileReader()
-        const base64 = await new Promise<string>((resolve, reject) => {
-          let timeoutId: number | null = null
-
-          reader.onload = () => {
-            if (timeoutId) clearTimeout(timeoutId)
-            resolve(reader.result as string)
-          }
-          reader.onerror = () => {
-            if (timeoutId) clearTimeout(timeoutId)
-            reject(new Error('檔案讀取失敗'))
-          }
-
-          timeoutId = window.setTimeout(() => {
-            reject(new Error('檔案讀取超時 - 檔案可能過大'))
-          }, 10000)
-
-          reader.readAsDataURL(file)
-        })
-
-        const compressed = await compressImage(base64, {
-          maxWidth: 2000,
-          quality: 0.85
-        })
-
-        setCaptureSuccess(true)
-        setTimeout(() => {
-          setCaptureSuccess(false)
-          onCaptureComplete(compressed)
-        }, 500)
-      } catch (error) {
-        console.error('上傳失敗:', error)
-        setError(error instanceof Error ? error.message : '上傳失敗')
-      } finally {
-        setIsProcessing(false)
-        event.target.value = ''
-      }
-    },
-    [onCaptureComplete]
-  )
-
-  const triggerFileUpload = () => {
-    fileInputRef.current?.click()
-  }
 
   const actionBase =
     'w-14 h-14 rounded-full border border-white/70 text-white flex items-center justify-center transition disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white/10'
