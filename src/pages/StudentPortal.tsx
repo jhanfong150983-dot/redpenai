@@ -2011,15 +2011,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 <label className="flex cursor-pointer items-center gap-2.5">
                   <input
                     type="checkbox"
-                    checked={previewChecks.orientation}
-                    onChange={(e) => setPreviewChecks((p) => ({ ...p, orientation: e.target.checked }))}
-                    className="h-4 w-4 rounded border-amber-400 accent-amber-500"
-                  />
-                  <span className="text-sm text-amber-900">照片方向正確（文字正立，沒有顛倒或橫置）</span>
-                </label>
-                <label className="flex cursor-pointer items-center gap-2.5">
-                  <input
-                    type="checkbox"
                     checked={previewChecks.clarity}
                     onChange={(e) => setPreviewChecks((p) => ({ ...p, clarity: e.target.checked }))}
                     className="h-4 w-4 rounded border-amber-400 accent-amber-500"
@@ -2027,11 +2018,11 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                   <span className="text-sm text-amber-900">內容清晰完整（文字可辨識，頁面沒有缺角）</span>
                 </label>
               </div>
-              {/* 確認完成按鈕 */}
+              {/* 確認完成按鈕（方向驗證在送出時自動檢查） */}
               <div className="flex justify-center">
                 <button
                   type="button"
-                  disabled={!previewChecks.orientation || !previewChecks.clarity}
+                  disabled={!previewChecks.clarity}
                   onClick={() => {
                     if (!previewModal) return
                     setPreviewedDraftSignatures((prev) => ({
