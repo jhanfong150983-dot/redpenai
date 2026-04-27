@@ -34,23 +34,28 @@ const PADDING_RATIO = 0.02  // 2%
 
 // ─── 1. 偵測紙張四角（Gemini API）─────────────────────────────────────────
 
-const DETECT_CORNERS_PROMPT = `You are a document edge detector. Look at this photo and find the 4 corners of the paper document (answer sheet / exam paper).
+const DETECT_CORNERS_PROMPT = `You are a document edge detector. This photo was taken by a phone camera aimed at a paper document on a desk/table.
 
-RULES:
-- Find the PHYSICAL PAPER EDGES — where the paper meets the background surface.
+YOUR TASK: Find the exact 4 corners where the WHITE PAPER meets the BACKGROUND (desk, table, or other surface).
+
+CRITICAL RULES:
+- The paper is WHITE or light-colored. The background (desk/table) is a DIFFERENT color or texture.
+- Look for the CONTRAST BOUNDARY between the paper edge and the background.
+- The paper may be tilted, rotated, or at an angle — that's expected.
+- Even if the paper fills MOST of the image, there is usually some background visible at the edges or corners. Find where the paper ENDS and the background BEGINS.
 - Return coordinates as normalized values (0-1) relative to the image width and height.
-- topLeft = the corner closest to the top-left of the image.
-- topRight = the corner closest to the top-right of the image.
-- bottomLeft = the corner closest to the bottom-left of the image.
-- bottomRight = the corner closest to the bottom-right of the image.
-- If the photo IS the document (no visible background/edges), return the image corners: topLeft={x:0,y:0}, topRight={x:1,y:0}, bottomLeft={x:0,y:1}, bottomRight={x:1,y:1}.
-- If you cannot clearly identify the paper edges, return null.
+- topLeft = the paper corner closest to the top-left of the image.
+- topRight = the paper corner closest to the top-right of the image.
+- bottomLeft = the paper corner closest to the bottom-left of the image.
+- bottomRight = the paper corner closest to the bottom-right of the image.
+- If the paper edge is partially outside the image frame (cropped), estimate where the corner would be at the image boundary.
+- If there is truly NO visible background at all (the paper completely fills the frame with zero background), return null.
 - If there are multiple papers, detect the LARGEST one.
 
 OUTPUT FORMAT (strict JSON, no markdown):
 {"topLeft":{"x":0.05,"y":0.03},"topRight":{"x":0.95,"y":0.02},"bottomLeft":{"x":0.04,"y":0.97},"bottomRight":{"x":0.96,"y":0.98}}
 
-Or if not detectable:
+Or if truly no background visible:
 null`
 
 /**
