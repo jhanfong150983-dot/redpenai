@@ -110,7 +110,7 @@ type UnifiedStep = 'metadata' | 'upload_order' | 'extracting' | 'editing'
 
 const STEP_CONFIG: { key: UnifiedStep; label: string; shortLabel: string }[] = [
   { key: 'metadata', label: '基本資料', shortLabel: '①' },
-  { key: 'upload_order', label: '上傳排序', shortLabel: '②' },
+  { key: 'upload_order', label: '上傳答案', shortLabel: '②' },
   { key: 'extracting', label: 'AI 解析', shortLabel: '③' },
   { key: 'editing', label: '題目編輯', shortLabel: '④' },
 ]
@@ -282,10 +282,50 @@ export default function AnswerKeyUnifiedModal({
     }
   }
 
+  const addFileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleAddFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    e.target.value = ''
+    setFileError(null)
+    setIsProcessingFiles(true)
+    try {
+      const blobs: Blob[] = []
+      for (const file of files) {
+        const ft = getFileType(file)
+        if (ft === 'pdf') { blobs.push(...await convertPdfToImages(file, { scale: 1.5, quality: 0.7 })) }
+        else if (ft === 'image') { blobs.push(await fileToBlob(file)) }
+        else { setFileError(`不支援的檔案格式：${file.name}`); return }
+      }
+      if (blobs.length === 0) { setFileError('沒有可用的圖片'); return }
+      const compressed = await Promise.all(blobs.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
+      const startIdx = uploadedPages.length
+      const newPages = compressed.map((blob, i) => ({ index: startIdx + i, blob, url: URL.createObjectURL(blob) }))
+      setUploadedPages(prev => [...prev, ...newPages])
+      // Reset downstream steps since pages changed
+      resetFromStep('upload_order')
+      setEditingKey(null)
+      setExtractedImageBlobs([])
+    } catch (err) {
+      setFileError(err instanceof Error ? err.message : '檔案處理失敗')
+    } finally {
+      setIsProcessingFiles(false)
+    }
+  }
+
+  const handleDeleteAllPages = () => {
+    uploadedPages.forEach(p => URL.revokeObjectURL(p.url))
+    setUploadedPages([])
+    setPageItems([])
+    resetFromStep('upload_order')
+    setEditingKey(null)
+    setExtractedImageBlobs([])
+  }
+
   const handleConfirmPageOrder = () => {
     if (pageItems.length === 0) return
     markComplete('upload_order')
-    // Auto-advance to extraction step
     setActiveStep('extracting')
   }
 
@@ -310,16 +350,21 @@ export default function AnswerKeyUnifiedModal({
     setPageItems((prev) => prev.map((item) => item.id === id ? { ...item, rotation: (item.rotation + 90) % 360 } : item))
   }, [])
 
-  const handleRotateAll = useCallback(() => {
-    setPageItems((prev) => prev.map((item) => ({ ...item, rotation: (item.rotation + 90) % 360 })))
-  }, [])
-
   const handleDeletePage = useCallback((id: string) => {
     setPageItems((prev) => {
-      if (prev.length <= 1) return prev
-      return prev.filter((item) => item.id !== id)
+      const next = prev.filter((item) => item.id !== id)
+      if (next.length === 0) {
+        // Last page deleted — also clean up uploaded pages
+        uploadedPages.forEach(p => URL.revokeObjectURL(p.url))
+        setUploadedPages([])
+        resetFromStep('upload_order')
+        setEditingKey(null)
+        setExtractedImageBlobs([])
+      }
+      return next
     })
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadedPages])
 
   // When page items change (reorder/rotate/delete), reset upload_order completion if it was set
   // (so user needs to re-confirm)
@@ -833,12 +878,13 @@ export default function AnswerKeyUnifiedModal({
                 </div>
               )}
 
-              {/* ══ Step 2: 上傳排序 ══ */}
+              {/* ══ Step 2: 上傳答案 ══ */}
               {activeStep === 'upload_order' && (
                 <div className="p-4 flex flex-col h-full">
                   {/* Upload area */}
                   <div className="mb-4 shrink-0">
                     <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />
+                    <input ref={addFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleAddFiles} />
                     {pageItems.length === 0 ? (
                       /* Drop zone style upload */
                       <button
@@ -861,11 +907,21 @@ export default function AnswerKeyUnifiedModal({
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-gray-600">共 {pageItems.length} 頁，拖曳調整順序</span>
                         <div className="flex items-center gap-2">
-                          <button type="button" onClick={handleRotateAll} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
-                            <RotateCw className="w-3.5 h-3.5" /> 全���旋轉
+                          <button
+                            type="button"
+                            onClick={() => addFileInputRef.current?.click()}
+                            disabled={isProcessingFiles}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                          >
+                            {isProcessingFiles ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                            新增檔案
                           </button>
-                          <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
-                            <Upload className="w-3.5 h-3.5" /> 重新上傳
+                          <button
+                            type="button"
+                            onClick={handleDeleteAllPages}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> 全部刪除
                           </button>
                         </div>
                       </div>
@@ -885,7 +941,7 @@ export default function AnswerKeyUnifiedModal({
                             style={{ gridTemplateColumns: `repeat(${Math.min(pageItems.length, 2)}, minmax(0, 1fr))` }}
                           >
                             {pageItems.map((item) => (
-                              <SortablePageCard key={item.id} item={item} onRotate={handleRotateOne} onDelete={handleDeletePage} canDelete={pageItems.length > 1} />
+                              <SortablePageCard key={item.id} item={item} onRotate={handleRotateOne} onDelete={handleDeletePage} canDelete />
                             ))}
                           </div>
                         </SortableContext>
