@@ -963,6 +963,7 @@ function buildGlobalTaskAndFormat(): string {
     ⚠️ 絕對禁止只框圈選區、絕對禁止只框理由區。複合題的 bbox 必須一起框 ⇒ 學生答案的兩個部分必須都在框內。
     ⚠️ 自我檢查：bbox 內應同時看見「(選項/選項)」+「因為...」整段文字。如果只看到其中一個 → bbox 飄了，重新標。
   - 🚨 compound_judge_with_correction 例外：bbox 必須涵蓋括號 ○/✗ 區 + 改正寫字區，兩個都要在框內。
+  - 🚨 compound_judge_with_explain 例外：bbox 必須涵蓋判斷括號（對/不對 或 ○/✗）+ 理由說明區（從「為什麼？」到理由文字最末字），兩個都要在框內。
   - 🚨 compound_chain_table 例外：bbox 必須涵蓋整個 row（該行所有 cells），從第一格到最後一格框成一個 bbox。
   - 🚨 multi_check_other 例外：bbox 必須涵蓋一列方框 □ + 「其他：___」開放欄，整題框。
   ⚠️ 每題 bbox 根據實際視覺位置獨立標記，禁止為避免重疊而偏移座標。
@@ -1110,7 +1111,7 @@ Q2-C：評鑑標的是文字還是繪圖？  [2 選 1]
 
 ═══════════════════════════════════════════════════
 ─── 進入 Bucket D：複合題（多部分**有依存關係**，必須一起評分）───
-Q2-D：哪一種組合？  [6 選 1]
+Q2-D：哪一種組合？  [7 選 1]
 
 ⚠️ Bucket D 與 Bucket C 的關鍵差別：
 - Bucket C：rubric 維度**獨立**（如 calculation 算式 + 答案，可分開評）
@@ -1121,9 +1122,16 @@ Q2-D：哪一種組合？  [6 選 1]
 ➋ 在 □ 打勾 + 寫理由 → compound_check_with_explain
 ➌ 寫代號 + 寫理由 → compound_writein_with_explain
 ➍ 勾選多個 + 開放「其他：___」欄位 → multi_check_other
-➎ 對的打 ○ / 錯的打 ✗ + 改正 → compound_judge_with_correction
-➏ 表格多 cell，cell 之間 chain 連動 → compound_chain_table
+➎ 對的打 ○ / 錯的打 ✗ + 改正錯的內容 → compound_judge_with_correction
+   例：「以下敘述對的打○、錯的打✗，錯的請改正」（改正錯誤部分）
+➏ 寫對/不對 + 解釋為什麼 → compound_judge_with_explain
+   例：「他們花的錢一樣多，對不對？(不對) 為什麼？(因為...)」（理由說明判斷）
+➐ 表格多 cell，cell 之間 chain 連動 → compound_chain_table
    例：「人物 / 具體事件 / 影響」表格（事件取決於人物，影響取決於事件）
+
+⚠️ ➎ vs ➏ 怎麼分？
+- ➎ judge_with_correction：錯的部分要學生「改寫成正確版本」（改字）
+- ➏ judge_with_explain：判斷後寫「為什麼」「理由」（解釋因果）
 
 ═══════════════════════════════════════════════════
 ⚠️ 識別優先順序：
@@ -1322,9 +1330,30 @@ function buildTypeSpecs(): string {
 
 ▸ compound_judge_with_correction 「判斷改正題」
   視覺：敘述句 + 括號 ○/✗ + 改正空白
-  動作：對的打 ○、錯的打 ✗，錯的還要改正（改正取決於判斷）
-  欄位：answer = "○" 或 "✗"；referenceAnswer = 正確改寫文字
+  動作：對的打 ○、錯的打 ✗，錯的還要**改正錯的部分**（改正取決於判斷）
+  欄位：answer = "○" 或 "✗"；referenceAnswer = 正確改寫文字（改錯字／改錯數值）
   🚨 bbox：必須從括號 → 框到改正寫字區末端。bbox 內包含括號 ○/✗ + 改正文字。
+
+▸ compound_judge_with_explain 「判斷說明題」
+  視覺：敘述句 + 「對不對？」括號（學生寫對/不對 或 ○/✗）+ 「為什麼？」括號或空白（學生寫理由）
+  動作：判斷對錯 + **解釋為什麼**（理由 must match 判斷）
+  與 compound_judge_with_correction 差別：
+    - judge_with_correction：錯的「改寫成正確版本」（改字）
+    - judge_with_explain：「解釋因果」（為什麼對 / 為什麼不對）
+  自選情境（題幹是開放性提問，沒有絕對對錯）：
+    answer = "" 或 "自選"
+    referenceAnswer = "不對，因為他們的畢業旅行總額不同..."（一句話示範）
+    rubricsDimensions:
+      [{name:"判斷", criteria:"有寫對/不對(或○/✗)即可，無對錯"},
+       {name:"理由", criteria:"理由與所判斷的方向一致且邏輯合理"}]
+  必選情境（題幹有確定答案）：
+    answer = "不對"（正確判斷）
+    referenceAnswer = "不對，因為..."（一句話示範）
+    rubricsDimensions:
+      [{name:"判斷", criteria:"必須判斷為[正確答案]"},
+       {name:"理由", criteria:"理由能支持正確判斷，邏輯合理"}]
+  🚨 bbox：必須從第一個括號（對不對？）→ 框到理由文字最末一字。
+        bbox 內必須同時包含「(對/不對)」+「為什麼？(理由...)」整段。
 
 ▸ compound_chain_table 「表格連動題」
   視覺：表格格式，多個 cell（每 cell 不同欄位類型，如人物/事件/影響）
@@ -3711,7 +3740,8 @@ const AK_VALID_CATEGORIES = new Set([
   'short_answer', 'calculation', 'word_problem', 'map_draw', 'diagram_draw', 'diagram_color',
   // Bucket D
   'compound_circle_with_explain', 'compound_check_with_explain',
-  'compound_writein_with_explain', 'multi_check_other', 'compound_judge_with_correction',
+  'compound_writein_with_explain', 'multi_check_other',
+  'compound_judge_with_correction', 'compound_judge_with_explain',
   'compound_chain_table',
 ])
 
@@ -3726,7 +3756,8 @@ const AK_ANSWER_REQUIRED = new Set([
   'fill_variants',
   // Bucket D 中含「精確比對」部分的題型（必選情境）
   'compound_circle_with_explain', 'compound_check_with_explain',
-  'compound_writein_with_explain', 'multi_check_other', 'compound_judge_with_correction',
+  'compound_writein_with_explain', 'multi_check_other',
+  'compound_judge_with_correction', 'compound_judge_with_explain',
   // compound_chain_table 不需要 answer（純 rubric）
 ])
 

@@ -80,7 +80,8 @@ export type QuestionCategory =
   | 'compound_check_with_explain'   // 勾選說明題：打勾 + 寫理由
   | 'compound_writein_with_explain' // 寫入說明題：寫代號 + 寫理由
   | 'multi_check_other'             // 複選含其他題：勾多個 + 開放「其他」欄位
-  | 'compound_judge_with_correction' // 判斷改正題：對的打 ○ / 錯的打 ✗ + 改正
+  | 'compound_judge_with_correction' // 判斷改正題：對的打 ○ / 錯的打 ✗ + 改正錯的部分
+  | 'compound_judge_with_explain'   // 判斷說明題：對/不對 + 解釋為什麼（理由 must match 判斷）
   | 'compound_chain_table'          // 表格連動題：多 cell 表格，cell 之間有 chain 依存（人物→事件→影響）
 
 /**
@@ -116,6 +117,7 @@ export const QUESTION_CATEGORY_TO_BUCKET: Record<QuestionCategory, QuestionBucke
   compound_writein_with_explain: 'D',
   multi_check_other: 'D',
   compound_judge_with_correction: 'D',
+  compound_judge_with_explain: 'D',
   compound_chain_table: 'D',
 }
 
@@ -153,6 +155,7 @@ export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
   compound_writein_with_explain: '寫入說明題',
   multi_check_other: '複選含其他題',
   compound_judge_with_correction: '判斷改正題',
+  compound_judge_with_explain: '判斷說明題',
   compound_chain_table: '表格連動題',
 }
 
@@ -215,6 +218,7 @@ export const CATEGORY_TO_TYPE: Record<QuestionCategory, QuestionCategoryType> = 
   compound_writein_with_explain: 3,
   multi_check_other: 3,
   compound_judge_with_correction: 3,
+  compound_judge_with_explain: 3,
   compound_chain_table: 3,
 }
 
