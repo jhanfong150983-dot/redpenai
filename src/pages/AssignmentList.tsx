@@ -17,7 +17,7 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import { type GradingSettingsValues } from '@/components/GradingSettingsPanel'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
-import { db, generateId, getBucket } from '@/lib/db'
+import { db, generateId, getBucket, QUESTION_CATEGORY_LABELS } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import type {
@@ -26,7 +26,6 @@ import type {
   Assignment,
   Classroom,
   Folder as AssignmentFolder,
-  QuestionCategoryType,
   AnswerKeyQuestion,
   Rubric
 } from '@/lib/db'
@@ -592,64 +591,26 @@ export default function AssignmentList({
 
   const updateQuestionField = (
     index: number,
-    field: 'id' | 'answer' | 'referenceAnswer' | 'type' | 'maxScore',
+    field: 'id' | 'answer' | 'referenceAnswer' | 'maxScore',
     value: string
   ) => {
     if (!editingAnswerKey) return
     const questions = [...editingAnswerKey.questions]
     const existing = questions[index]
 
-    // Support both old QuestionType and new QuestionCategoryType
-    const currentType = typeof existing?.type === 'number'
-      ? existing.type
-      : existing?.type
-        ? (existing.type === 'truefalse' || existing.type === 'choice' ? 1
-          : existing.type === 'fill' || existing.type === 'short' || existing.type === 'short_sentence' ? 2
-          : 3)
-        : 2
-
     const item: AnswerKeyQuestion = {
       ...existing,
       id: existing?.id ?? '',
-      type: currentType as QuestionCategoryType,
       maxScore: existing?.maxScore ?? 0
     }
 
     if (field === 'maxScore') {
       const num = Number.parseInt(value || '0', 10) || 0
       item.maxScore = num
-      // Rubric-based 題型（bucket C 或 D，含舊資料 type === 3）需要正規化 rubric 配分
+      // Rubric-based 題型（bucket C 或 D）需要正規化 rubric 配分
       const bucket = getBucket(item)
       if ((bucket === 'C' || bucket === 'D') && item.rubric) {
         item.rubric = normalizeRubric(item.rubric, num)
-      }
-    } else if (field === 'type') {
-      const nextType = parseInt(value, 10) as QuestionCategoryType
-      item.type = nextType
-
-      // Clear fields when type changes
-      if (nextType === 1) {
-        item.answer = item.answer ?? ''
-        item.answerFormat = item.answerFormat ?? undefined
-        item.referenceAnswer = undefined
-        item.acceptableAnswers = undefined
-        item.rubric = undefined
-        item.rubricsDimensions = undefined
-      } else if (nextType === 2) {
-        item.answer = undefined
-        item.answerFormat = undefined
-        item.referenceAnswer = item.referenceAnswer ?? ''
-        item.acceptableAnswers = item.acceptableAnswers ?? []
-        item.rubric = undefined
-        item.rubricsDimensions = undefined
-      } else if (nextType === 3) {
-        item.answer = undefined
-        item.answerFormat = undefined
-        item.referenceAnswer = item.referenceAnswer ?? ''
-        item.acceptableAnswers = undefined
-        if (!item.rubric && !item.rubricsDimensions) {
-          item.rubric = normalizeRubric(undefined, item.maxScore || 0)
-        }
       }
     } else if (field === 'referenceAnswer') {
       item.referenceAnswer = value
@@ -1233,7 +1194,10 @@ export default function AssignmentList({
 
               <div className="space-y-3 max-h-64 overflow-auto">
                 {editingAnswerKey.questions.map((q, idx) => {
-                  const questionType = typeof q.type === 'number' ? q.type : 2
+                  const bucket = getBucket(q)
+                  const categoryLabel = q.questionCategory
+                    ? (QUESTION_CATEGORY_LABELS[q.questionCategory] || q.questionCategory)
+                    : `Bucket ${bucket}`
                   const rubric = q.rubric ?? buildDefaultRubric(q.maxScore || 0)
 
                   return (
@@ -1249,17 +1213,12 @@ export default function AssignmentList({
                             updateQuestionField(idx, 'id', e.target.value)
                           }
                         />
-                        <select
-                          className="px-2 py-1 border border-gray-300 rounded"
-                          value={questionType}
-                          onChange={(e) =>
-                            updateQuestionField(idx, 'type', e.target.value)
-                          }
+                        <span
+                          className="px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-600"
+                          title="題型由 AI 自動分類，不可變更"
                         >
-                          <option value={1}>Type 1 - 唯一答案</option>
-                          <option value={2}>Type 2 - 多答案可接受</option>
-                          <option value={3}>Type 3 - 依表現給分</option>
-                        </select>
+                          {categoryLabel}
+                        </span>
                         <NumericInput
                           className="w-16 px-1 py-1 border border-gray-300 rounded text-right"
                           value={q.maxScore}
@@ -1269,8 +1228,8 @@ export default function AssignmentList({
                         />
                       </div>
 
-                      {/* Type 1: Standard Answer */}
-                      {questionType === 1 && (
+                      {/* Bucket A / D: 標準答案 */}
+                      {(bucket === 'A' || bucket === 'D') && (
                         <div>
                           <div className="text-[11px] text-gray-500 mb-1">
                             標準答案
@@ -1285,8 +1244,8 @@ export default function AssignmentList({
                         </div>
                       )}
 
-                      {/* Type 2 or 3: Reference Answer */}
-                      {(questionType === 2 || questionType === 3) && (
+                      {/* Bucket B / C / D: 參考答案 */}
+                      {(bucket === 'B' || bucket === 'C' || bucket === 'D') && (
                         <div>
                           <div className="text-[11px] text-gray-500 mb-1">
                             參考答案
@@ -1305,8 +1264,8 @@ export default function AssignmentList({
                         </div>
                       )}
 
-                      {/* Type 3: Rubric */}
-                      {questionType === 3 && q.rubric && (
+                      {/* Bucket C / D: Rubric */}
+                      {(bucket === 'C' || bucket === 'D') && q.rubric && (
                         <div className="space-y-2">
                           {rubric.levels.map((level, levelIndex) => (
                             <div

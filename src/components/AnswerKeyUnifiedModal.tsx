@@ -16,10 +16,11 @@ import { NumericInput } from '@/components/NumericInput'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
 import { compressImageFile } from '@/lib/imageCompression'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric } from '@/lib/db'
-import { CATEGORY_TO_TYPE, QUESTION_CATEGORY_LABELS as CATEGORY_LABELS } from '@/lib/db'
+import { QUESTION_CATEGORY_TO_BUCKET, QUESTION_CATEGORY_LABELS as CATEGORY_LABELS } from '@/lib/db'
 
 function getEffectiveCategory(q: AnswerKeyQuestion): QuestionCategory {
   if (q.questionCategory) return q.questionCategory
+  // 舊資料 fallback：依 type 推 questionCategory（type=1→fill_blank, 2→fill_variants, 3→short_answer）
   const t = typeof q.type === 'number' ? q.type : 2
   if (t === 1) return 'fill_blank'
   if (t === 3) return 'short_answer'
@@ -626,7 +627,12 @@ export default function AnswerKeyUnifiedModal({
   // ── derived editing state ──
   const selectedQuestion = editingKey?.questions[selectedIdx] ?? null
   const selectedCategory = selectedQuestion ? getEffectiveCategory(selectedQuestion) : 'fill_blank'
-  const selectedType = CATEGORY_TO_TYPE[selectedCategory] ?? 2
+  const selectedBucket = QUESTION_CATEGORY_TO_BUCKET[selectedCategory] ?? 'A'
+  // UI 模式（依 bucket 顯示對應欄位）：
+  // A = answer 標準答案、B = reference + acceptable、C = reference + rubric、D = answer + reference + rubric
+  const showAnswerField = selectedBucket === 'A' || selectedBucket === 'D'
+  const showAcceptableAnswers = selectedBucket === 'B'
+  const showRubric = selectedBucket === 'C' || selectedBucket === 'D'
   const activeBbox: NormalizedBbox | null = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
   const bboxIsAiDetected = !bboxDraft && !selectedQuestion?.referenceBbox && !!selectedQuestion?.answerBbox
 
@@ -1283,55 +1289,45 @@ export default function AnswerKeyUnifiedModal({
                             </div>
                           )}
 
-                          {/* Type 1: answer */}
-                          {selectedType === 1 && (
+                          {/* Bucket A / D: 標準答案 / 圈選 / 勾選 / 寫入結果 */}
+                          {showAnswerField && (
                             <div className="flex items-center gap-2">
-                              <span className="text-gray-500 w-16 shrink-0">標準答案</span>
-                              <input className="flex-1 px-2 py-1 border border-gray-300 rounded" value={selectedQuestion.answer ?? ''} onChange={(e) => updateField(selectedIdx, 'answer', e.target.value)} />
+                              <span className="text-gray-500 w-16 shrink-0">
+                                {(selectedCategory === 'multi_check' || selectedCategory === 'multi_choice' || selectedCategory === 'multi_check_other' || selectedCategory === 'circle_select_many') ? '正確選項' : '標準答案'}
+                              </span>
+                              <input
+                                className="flex-1 px-2 py-1 border border-gray-300 rounded"
+                                value={selectedQuestion.answer ?? ''}
+                                onChange={(e) => updateField(selectedIdx, 'answer', e.target.value)}
+                                placeholder={selectedCategory === 'multi_choice' ? '例如：A,C' : (selectedCategory === 'multi_check' || selectedCategory === 'multi_check_other') ? '例如：①,③' : ''}
+                              />
                             </div>
                           )}
 
-                          {/* Type 2: reference + acceptable */}
-                          {selectedType === 2 && (
+                          {/* Bucket B: 參考答案 + 可接受答案 */}
+                          {showAcceptableAnswers && (
                             <div className="space-y-2">
-                              {(selectedCategory === 'multi_check' || selectedCategory === 'multi_choice' || selectedCategory === 'multi_check_other') ? (
-                                <>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-gray-500 w-16 shrink-0">正確選項</span>
-                                    <input className="flex-1 px-2 py-1 border border-gray-300 rounded" value={selectedQuestion.answer ?? ''} onChange={(e) => updateField(selectedIdx, 'answer', e.target.value)} placeholder={selectedCategory === 'multi_choice' ? '例如：A,C' : '例如：①,③'} />
+                              <div className="flex items-start gap-2">
+                                <span className="text-gray-500 w-16 shrink-0 mt-1">參考答案</span>
+                                <textarea rows={2} className="flex-1 px-2 py-1 border border-gray-300 rounded" value={selectedQuestion.referenceAnswer ?? ''} onChange={(e) => updateField(selectedIdx, 'referenceAnswer', e.target.value)} />
+                              </div>
+                              <div>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-gray-500">可接受答案</span>
+                                  <button type="button" onClick={() => addAcceptableAnswer(selectedIdx)} className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200">+ 新增</button>
+                                </div>
+                                {(selectedQuestion.acceptableAnswers ?? []).map((ans, ansIdx) => (
+                                  <div key={ansIdx} className="flex items-center gap-2 mb-1">
+                                    <input className="flex-1 px-2 py-1 border border-gray-300 rounded" value={ans} onChange={(e) => updateAcceptableAnswer(selectedIdx, ansIdx, e.target.value)} />
+                                    <button type="button" onClick={() => removeAcceptableAnswer(selectedIdx, ansIdx)} className="p-1 text-gray-400 hover:text-red-500"><X className="w-3 h-3" /></button>
                                   </div>
-                                  {selectedCategory === 'multi_check_other' && (
-                                    <div className="flex items-start gap-2">
-                                      <span className="text-gray-500 w-16 shrink-0 mt-1">其他（參考）</span>
-                                      <textarea rows={2} className="flex-1 px-2 py-1 border border-gray-300 rounded" value={selectedQuestion.referenceAnswer ?? ''} onChange={(e) => updateField(selectedIdx, 'referenceAnswer', e.target.value)} placeholder="其他欄的參考答案（選填）" />
-                                    </div>
-                                  )}
-                                </>
-                              ) : (
-                                <>
-                                  <div className="flex items-start gap-2">
-                                    <span className="text-gray-500 w-16 shrink-0 mt-1">參考答案</span>
-                                    <textarea rows={2} className="flex-1 px-2 py-1 border border-gray-300 rounded" value={selectedQuestion.referenceAnswer ?? ''} onChange={(e) => updateField(selectedIdx, 'referenceAnswer', e.target.value)} />
-                                  </div>
-                                  <div>
-                                    <div className="flex items-center justify-between mb-1">
-                                      <span className="text-gray-500">可接受答案</span>
-                                      <button type="button" onClick={() => addAcceptableAnswer(selectedIdx)} className="text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-700 hover:bg-blue-200">+ 新增</button>
-                                    </div>
-                                    {(selectedQuestion.acceptableAnswers ?? []).map((ans, ansIdx) => (
-                                      <div key={ansIdx} className="flex items-center gap-2 mb-1">
-                                        <input className="flex-1 px-2 py-1 border border-gray-300 rounded" value={ans} onChange={(e) => updateAcceptableAnswer(selectedIdx, ansIdx, e.target.value)} />
-                                        <button type="button" onClick={() => removeAcceptableAnswer(selectedIdx, ansIdx)} className="p-1 text-gray-400 hover:text-red-500"><X className="w-3 h-3" /></button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </>
-                              )}
+                                ))}
+                              </div>
                             </div>
                           )}
 
-                          {/* Type 3: reference + rubrics */}
-                          {selectedType === 3 && (
+                          {/* Bucket C / D: 參考答案 + Rubric */}
+                          {showRubric && (
                             <div className="space-y-2">
                               <div className="flex items-start gap-2">
                                 <span className="text-gray-500 w-16 shrink-0 mt-1">參考答案</span>

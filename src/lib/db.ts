@@ -1,22 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import { debugLog } from './logger'
 
-/**
- * 標準答案資料結構
- * @deprecated 此類型已廢棄，請使用 QuestionCategoryType (1|2|3) 替代
- * 保留此類型僅用於向後兼容和數據遷移
- */
-export type QuestionType =
-  | 'truefalse'
-  | 'choice'
-  | 'fill'
-  | 'calc'
-  | 'qa'
-  | 'short'
-  | 'short_sentence'
-  | 'long'
-  | 'essay'
-
 export interface RubricLevel {
   label: '優秀' | '良好' | '尚可' | '待努力'
   min: number
@@ -29,9 +13,9 @@ export interface Rubric {
 }
 
 /**
- * @deprecated 改用 QuestionBucket ('A'|'B'|'C'|'D')
+ * @deprecated 已被 QuestionBucket 取代。
+ * 此 type alias 僅保留供讀取極舊資料中的 question.type 欄位（read-only fallback）。
  * 1=唯一答案(精確), 2=多答案可接受(模糊), 3=依表現給分(評價)
- * 保留此類型僅供讀取舊資料（向後相容），新寫入應使用 bucket 欄位。
  */
 export type QuestionCategoryType = 1 | 2 | 3
 
@@ -166,68 +150,13 @@ export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
 }
 
 /**
- * @deprecated 舊 type 1|2|3 → 新 bucket 對照（向後相容用）
- * 新代碼應該直接使用 QUESTION_CATEGORY_TO_BUCKET[questionCategory]。
- * 此 mapping 只在讀取舊資料時 fallback 用。
- */
-export const LEGACY_TYPE_TO_BUCKET: Record<QuestionCategoryType, QuestionBucket> = {
-  1: 'A', // 精確比對
-  2: 'B', // 容多元
-  3: 'C', // Rubric（注意：複合題舊資料原本歸 type 3，如需區分可手動調整為 'D'）
-}
-
-/**
- * 從題目取得 bucket：優先用 questionCategory 推 bucket，否則 fallback 到舊 type。
+ * 從題目取得 bucket：優先用 question.bucket，否則從 questionCategory 推導。
  * 整個系統應使用此 helper 取代直接讀 question.type。
  */
-export function getBucket(question: Pick<AnswerKeyQuestion, 'questionCategory' | 'type' | 'bucket'>): QuestionBucket {
+export function getBucket(question: Pick<AnswerKeyQuestion, 'questionCategory' | 'bucket'>): QuestionBucket {
   if (question.bucket) return question.bucket
   if (question.questionCategory) return QUESTION_CATEGORY_TO_BUCKET[question.questionCategory]
-  if (question.type !== undefined && question.type !== null) {
-    return LEGACY_TYPE_TO_BUCKET[question.type] || 'A'
-  }
   return 'A' // 預設 fallback
-}
-
-/**
- * @deprecated 改用 QUESTION_CATEGORY_TO_BUCKET
- * 舊 questionCategory → type 1|2|3 映射（向後相容用）
- * 注意：複合題（Bucket D）也會 map 到 type 3，因為舊系統沒有 D。
- */
-export const CATEGORY_TO_TYPE: Record<QuestionCategory, QuestionCategoryType> = {
-  // Bucket A → type 1
-  single_choice: 1,
-  multi_choice: 1,
-  circle_select_one: 1,
-  circle_select_many: 1,
-  single_check: 1,
-  multi_check: 1,
-  true_false: 1,
-  fill_blank: 1,
-  multi_fill: 1,
-  matching: 1,
-  ordering: 1,
-  mark_in_text: 1,
-  calculation: 1,    // 從 type 3 改為 1（A bucket）
-  word_problem: 1,   // 從 type 3 改為 1（A bucket）
-  // Bucket B → type 2
-  fill_variants: 2,
-  map_fill: 2,
-  // Bucket C → type 3
-  short_answer: 3,
-  map_symbol: 3,
-  grid_geometry: 3,
-  connect_dots: 3,
-  diagram_draw: 3,
-  diagram_color: 3,
-  // Bucket D → type 3（舊系統無 D，fallback 到 3）
-  compound_circle_with_explain: 3,
-  compound_check_with_explain: 3,
-  compound_writein_with_explain: 3,
-  multi_check_other: 3,
-  compound_judge_with_correction: 3,
-  compound_judge_with_explain: 3,
-  compound_chain_table: 3,
 }
 
 export interface RubricDimension {
@@ -259,9 +188,10 @@ export interface AnswerKeyQuestion {
 
   /**
    * @deprecated 改用 bucket 欄位（'A'|'B'|'C'|'D'）
-   * 舊內部分類 1=精確、2=多元、3=評價。保留供讀取舊資料用。
+   * 舊內部分類 1=精確、2=多元、3=評價。
+   * 此欄位**僅供讀取舊資料**——新寫入請只設定 questionCategory（bucket 自動推導）。
    */
-  type: QuestionCategoryType
+  type?: QuestionCategoryType
 
   // Type 1 專用：標準答案（精確匹配）
   answer?: string
@@ -323,8 +253,6 @@ export interface AnswerKeyQuestion {
     rowspan?: number  // 合併列數（預設 1）
   }
 
-  // @deprecated 已廢棄的欄位（保留向後兼容）
-  detectedType?: QuestionCategoryType // 已合併到 type
 }
 
 export interface AnswerKey {
@@ -427,7 +355,6 @@ export type SubmissionStatus = 'missing' | 'scanned' | 'synced' | 'graded'
  */
 export interface GradingDetail {
   questionId: string
-  detectedType?: QuestionCategoryType // 記錄此題的 Type 判定
   studentAnswer?: string
   studentFinalAnswer?: string
   score: number
@@ -1173,26 +1100,3 @@ export async function getAnswerKeyVersionStatus(assignment: Assignment): Promise
   return 'normal'
 }
 
-/**
- * 數據遷移：將舊題目的 type 從 QuestionType 轉換為 QuestionCategoryType
- */
-export function migrateAnswerKeyQuestion(question: any): AnswerKeyQuestion {
-  // 如果 type 已經是數字（QuestionCategoryType），不需要遷移
-  if (typeof question.type === 'number') {
-    return question as AnswerKeyQuestion
-  }
-
-  // 如果沒有 type，嘗試從 detectedType 讀取
-  if (!question.type && question.detectedType) {
-    return {
-      ...question,
-      type: question.detectedType
-    } as AnswerKeyQuestion
-  }
-
-  // 如果都沒有，預設為 Type 2（最常見）
-  return {
-    ...question,
-    type: 2
-  } as AnswerKeyQuestion
-}

@@ -18,11 +18,10 @@ import {
 import {
   db,
   generateId,
-  CATEGORY_TO_TYPE,
+  QUESTION_CATEGORY_TO_BUCKET,
   type AnswerKey,
   type Assignment,
   type Classroom,
-  type QuestionCategoryType,
   type QuestionCategory,
   type AnswerKeyQuestion,
   type Rubric
@@ -642,11 +641,6 @@ export default function AssignmentSetup({
   }
 
 
-  // CATEGORY_TO_TYPE 已從 @/lib/db import（single source of truth）
-
-
-
-
   function sanitizeQuestionId(value: unknown, fallback: string) {
     const normalized =
       typeof value === 'string'
@@ -914,17 +908,6 @@ export default function AssignmentSetup({
           ? q.unorderedGroupId.trim()
           : undefined
 
-      // Resolve type: prefer questionCategory (from AI extraction), fallback to legacy numeric type
-      const questionType: QuestionCategoryType =
-        q?.questionCategory && CATEGORY_TO_TYPE[q.questionCategory as QuestionCategory] !== undefined
-          ? CATEGORY_TO_TYPE[q.questionCategory as QuestionCategory]
-          : typeof q?.type === 'number'
-            ? q.type
-            : q?.type === 'truefalse' || q?.type === 'choice'
-              ? 1
-              : q?.type === 'fill' || q?.type === 'short' || q?.type === 'short_sentence'
-                ? 2
-                : 3
       const idPath = Array.isArray(q?.idPath)
         ? q.idPath
             .map((segment: unknown) => String(segment ?? '').trim())
@@ -933,7 +916,6 @@ export default function AssignmentSetup({
 
       const baseQuestion: AnswerKeyQuestion = {
         id: sanitizeQuestionId(q?.id, `${idx + 1}`),
-        type: questionType as QuestionCategoryType,
         questionCategory: q?.questionCategory as QuestionCategory | undefined,
         maxScore,
         idPath,
@@ -961,8 +943,11 @@ export default function AssignmentSetup({
         aiMaxScore: typeof q?.aiMaxScore === 'number' ? q.aiMaxScore : undefined,
       }
 
-      // Add type-specific fields
-      if (questionType === 1) {
+      // Add bucket-specific fields（依 questionCategory 推導 bucket）
+      const importBucket = q?.questionCategory
+        ? QUESTION_CATEGORY_TO_BUCKET[q.questionCategory as QuestionCategory] ?? 'B'
+        : 'B'
+      if (importBucket === 'A' || importBucket === 'D') {
         baseQuestion.answer =
           typeof q?.answer === 'string'
             ? q.answer
@@ -972,41 +957,29 @@ export default function AssignmentSetup({
         if (q?.answerFormat === 'matching') {
           baseQuestion.answerFormat = 'matching'
         }
-      } else if (questionType === 2) {
-        // multi_check, multi_choice, multi_check_other use 'answer' field (comma-separated tokens e.g. "①,③" or "A,C")
-        if (q?.questionCategory === 'multi_check' || q?.questionCategory === 'multi_choice' || q?.questionCategory === 'multi_check_other') {
-          baseQuestion.answer =
-            typeof q?.answer === 'string'
-              ? q.answer
-              : q?.answer === null || q?.answer === undefined
-                ? ''
-                : String(q.answer)
-          // multi_check_other also has referenceAnswer for the open-ended 其他 text
-          if (q?.questionCategory === 'multi_check_other') {
-            baseQuestion.referenceAnswer =
-              typeof q?.referenceAnswer === 'string'
-                ? q.referenceAnswer
-                : q?.referenceAnswer === null || q?.referenceAnswer === undefined
-                  ? ''
-                  : String(q.referenceAnswer)
+        // Bucket D: 補上 referenceAnswer / rubricsDimensions（複合題需要）
+        if (importBucket === 'D') {
+          if (typeof q?.referenceAnswer === 'string') baseQuestion.referenceAnswer = q.referenceAnswer
+          if (Array.isArray(q?.rubricsDimensions)) {
+            baseQuestion.rubricsDimensions = q.rubricsDimensions
           }
-        } else {
-          baseQuestion.referenceAnswer =
-            typeof q?.referenceAnswer === 'string'
-              ? q.referenceAnswer
-              : q?.referenceAnswer === null || q?.referenceAnswer === undefined
-                ? ''
-                : String(q.referenceAnswer)
-          const acceptableAnswers = Array.isArray(q?.acceptableAnswers)
-            ? q.acceptableAnswers
-                .map((ans: unknown) => String(ans ?? '').trim())
-                .filter(Boolean)
-            : typeof q?.acceptableAnswers === 'string' && q.acceptableAnswers.trim()
-              ? [q.acceptableAnswers.trim()]
-              : []
-          baseQuestion.acceptableAnswers = acceptableAnswers
         }
-      } else if (questionType === 3) {
+      } else if (importBucket === 'B') {
+        baseQuestion.referenceAnswer =
+          typeof q?.referenceAnswer === 'string'
+            ? q.referenceAnswer
+            : q?.referenceAnswer === null || q?.referenceAnswer === undefined
+              ? ''
+              : String(q.referenceAnswer)
+        const acceptableAnswers = Array.isArray(q?.acceptableAnswers)
+          ? q.acceptableAnswers
+              .map((ans: unknown) => String(ans ?? '').trim())
+              .filter(Boolean)
+          : typeof q?.acceptableAnswers === 'string' && q.acceptableAnswers.trim()
+            ? [q.acceptableAnswers.trim()]
+            : []
+        baseQuestion.acceptableAnswers = acceptableAnswers
+      } else if (importBucket === 'C') {
         // word_problem / short_answer / diagram_draw / diagram_color: prefer referenceAnswer, fall back to answer
         const refAnswer = typeof q?.referenceAnswer === 'string' ? q.referenceAnswer
           : q?.referenceAnswer == null ? '' : String(q.referenceAnswer)
@@ -2595,7 +2568,7 @@ export default function AssignmentSetup({
 
     const newQuestion: AnswerKeyQuestion = {
       id: String(nextNumericId),
-      type: 2, // Default to Type 2 (multi-answer acceptable)
+      questionCategory: 'fill_variants', // 預設多元填空（可自由切換）
       orderMode: 'strict',
       referenceAnswer: '',
       acceptableAnswers: [],

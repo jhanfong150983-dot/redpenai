@@ -3261,7 +3261,6 @@ ${forcedIds.map((id) => `- 題號 ${id}：studentAnswer="無法辨識", score=0,
   "details": [
     {
       "questionId": 題號,
-      "detectedType": 1|2|3,
       "studentAnswer": 學生答案,
       "isCorrect": true/false,
       "score": 得分,
@@ -4239,7 +4238,7 @@ ${needsPagePrefix ? `\n【多張圖片處理 - 多頁模式】\n- 你會收到 $
       const originalQuestion = markedQuestions.find((q) => q.id === id)!
       return {
         id,
-        type: 2 as import('./db').QuestionCategoryType,
+        questionCategory: 'fill_variants' as import('./db').QuestionCategory,
         maxScore: originalQuestion.maxScore || 0,
         referenceAnswer: 'AI 無法從圖片中重新辨識此題，請手動編輯',
         acceptableAnswers: [],
