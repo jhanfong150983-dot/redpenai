@@ -75,12 +75,13 @@ export type QuestionCategory =
   | 'map_draw'             // 標記繪圖題：在地圖標符號/座標
   | 'diagram_draw'         // 圖表繪製題：繪製長條/圓餅圖
   | 'diagram_color'        // 塗色題：在預印圖形上塗色
-  // ── Bucket D：複合題（標準答案 + Rubric 並存）──
-  | 'compound_circle_with_explain'  // 圈選說明題：圈印刷選項 + 寫理由
+  // ── Bucket D：複合題（多部分有依存關係，必須一起評分）──
+  | 'compound_circle_with_explain'  // 圈選說明題：圈印刷選項 + 寫理由（理由要 match 圈選）
   | 'compound_check_with_explain'   // 勾選說明題：打勾 + 寫理由
   | 'compound_writein_with_explain' // 寫入說明題：寫代號 + 寫理由
-  | 'multi_check_other'             // 複選含其他題：勾多個 + 開放欄位
+  | 'multi_check_other'             // 複選含其他題：勾多個 + 開放「其他」欄位
   | 'compound_judge_with_correction' // 判斷改正題：對的打 ○ / 錯的打 ✗ + 改正
+  | 'compound_chain_table'          // 表格連動題：多 cell 表格，cell 之間有 chain 依存（人物→事件→影響）
 
 /**
  * 25 個 type 對應 Bucket。Single source of truth — 前端與後端皆從此 import。
@@ -115,10 +116,11 @@ export const QUESTION_CATEGORY_TO_BUCKET: Record<QuestionCategory, QuestionBucke
   compound_writein_with_explain: 'D',
   multi_check_other: 'D',
   compound_judge_with_correction: 'D',
+  compound_chain_table: 'D',
 }
 
 /**
- * 25 個 type 中文顯示名（給前端 UI 用）。
+ * 26 個 type 中文顯示名（給前端 UI 用）。
  * Single source of truth — 前端 modal/page 從此 import，避免重複定義。
  */
 export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
@@ -151,6 +153,7 @@ export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
   compound_writein_with_explain: '寫入說明題',
   multi_check_other: '複選含其他題',
   compound_judge_with_correction: '判斷改正題',
+  compound_chain_table: '表格連動題',
 }
 
 /**
@@ -212,6 +215,7 @@ export const CATEGORY_TO_TYPE: Record<QuestionCategory, QuestionCategoryType> = 
   compound_writein_with_explain: 3,
   multi_check_other: 3,
   compound_judge_with_correction: 3,
+  compound_chain_table: 3,
 }
 
 export interface RubricDimension {
@@ -227,6 +231,9 @@ export interface AnswerKeyQuestion {
   orderMode?: 'strict' | 'unordered'
   // 當 orderMode=unordered 時，同組題目的群組識別（例如 "1"）
   unorderedGroupId?: string
+  // AI 把題目歸為 unordered 時設為 true，提醒老師複核群組設定
+  // 老師確認後可手動清除（前端 UI 用黃色提醒）
+  orderModeUncertain?: boolean
 
   // 題型分類（老師視角，行為導向）：直接描述題型，批改規則從此推導
   // 25 種 type 對應「學生作答方式」（寫代號、圈選、打勾、填值、連線...）

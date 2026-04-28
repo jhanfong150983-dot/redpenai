@@ -942,6 +942,9 @@ function buildGlobalTaskAndFormat(): string {
     - 題目說：「任選 3 個填入空格（順序不限）」
     - 題目說：「將下列詞語依任意順序填入」
   - 同一可互換組的所有子題，必須設定相同 unorderedGroupId（通常用主題號，如 "1"）
+  - ⚠️ **設 orderMode="unordered" 時必須同時設 `orderModeUncertain: true`**
+    （AI 的群組判斷不一定 100% 正確，這個 flag 提醒老師到前端複核此題群組是否設對。
+     老師確認後可手動清除，前端題號清單會用黃色提醒。strict 不需設此 flag。）
 - 配分：圖片有就用，無則估計（是非/選擇 2-5 分，簡答 5-8 分，申論 8-15 分）。⚠️ AI 估計的配分必須為整數（禁止小數）。
 - rubricsDimensions 配分規則：每個 dimension 的 maxScore 必須為整數，且所有 dimension 的 maxScore 總和必須等於該題的 maxScore。將 maxScore 盡量均分到各 dimension；若無法整除，將餘數分配給第一個 dimension。例如：maxScore=4, 2 個 dimension → 各 2 分；maxScore=5, 2 個 dimension → 3 分 + 2 分。
 - totalScore = 所有 maxScore 總和
@@ -1099,15 +1102,21 @@ Q2-C：評鑑標的是文字還是繪圖？  [2 選 1]
    └─ 在預印圖形上塗色 → diagram_color
 
 ═══════════════════════════════════════════════════
-─── 進入 Bucket D：複合題 ───
-Q2-D：哪一種組合？  [5 選 1]
+─── 進入 Bucket D：複合題（多部分**有依存關係**，必須一起評分）───
+Q2-D：哪一種組合？  [6 選 1]
+
+⚠️ Bucket D 與 Bucket C 的關鍵差別：
+- Bucket C：rubric 維度**獨立**（如 calculation 算式 + 答案，可分開評）
+- Bucket D：部分之間**有依存**（一部分對錯取決於另一部分）
 
 ➊ 圈印刷選項 + 寫理由說明 → compound_circle_with_explain
-   例：「我認為（同意／不同意），因為...」
+   例：「我認為（同意／不同意），因為...」（理由 must match 圈選）
 ➋ 在 □ 打勾 + 寫理由 → compound_check_with_explain
 ➌ 寫代號 + 寫理由 → compound_writein_with_explain
 ➍ 勾選多個 + 開放「其他：___」欄位 → multi_check_other
 ➎ 對的打 ○ / 錯的打 ✗ + 改正 → compound_judge_with_correction
+➏ 表格多 cell，cell 之間 chain 連動 → compound_chain_table
+   例：「人物 / 具體事件 / 影響」表格（事件取決於人物，影響取決於事件）
 
 ═══════════════════════════════════════════════════
 ⚠️ 識別優先順序：
@@ -1254,24 +1263,44 @@ function buildTypeSpecs(): string {
   欄位：rubricsDimensions: [塗色比例, 塗色位置, 塗色完整性]
   bbox：整個塗色區
 
-═══════════════ Bucket D：複合題 ═══════════════
+═══════════════ Bucket D：複合題（部分之間有依存關係）═══════════════
+
+⚠️ D bucket referenceAnswer 寫法通則：
+- 寫成「**選項，因為理由**」一句話作為示範（自選或必選都這樣寫）
+- 配 rubricsDimensions 兩維（圈/勾選 + 理由說明）分別評分
+- criteria 內**用「所選/所填/該事件」reference 前面 cell** 表達依存
 
 ▸ compound_circle_with_explain 「圈選說明題」
   視覺：括號內預印選項（同意／不同意）+ 圈選 + 下方理由區
-  動作：圈印刷選項 1 個 + 寫理由說明
-  欄位：answer = 被圈選項；rubricsDimensions = 說明部分的評分規準
+  動作：圈印刷選項 1 個 + 寫理由說明（理由 must match 圈選）
+  自選情境（任選/你的看法）：
+    answer = "" 或 "自選"
+    referenceAnswer = "同意，因為讀書是重要出路..."（一句話示範）
+    rubricsDimensions:
+      [{name:"圈選", criteria:"有圈選任一選項即可，無對錯"},
+       {name:"理由", criteria:"說明的理由與**所選選項**一致且合理"}]
+  必選情境（判斷/哪個正確）：
+    answer = "清朝"（正確選項）
+    referenceAnswer = "清朝，因為從文獻記載..."（一句話示範）
+    rubricsDimensions:
+      [{name:"圈選", criteria:"必須圈選正確選項"},
+       {name:"理由", criteria:"說明的理由能支持正確選項，邏輯合理"}]
   bbox：整題框（括號區 + 理由說明區）
 
 ▸ compound_check_with_explain 「勾選說明題」
   視覺：方框 □ 列 + 勾選 + 下方理由區
   動作：□ 打勾 1 個 + 寫理由
-  欄位：answer = 勾選位置編號；rubricsDimensions = 說明部分
+  欄位寫法同 compound_circle_with_explain（自選/必選兩種情境）
+  answer = 勾選位置編號（必選時）or "" or "自選"（自選時）
+  referenceAnswer = "[選項]，因為[理由]"
   bbox：整題框
 
 ▸ compound_writein_with_explain 「寫入說明題」
   視覺：空括號 + 代號 + 下方理由區
   動作：寫代號 + 寫理由
-  欄位：answer = 代號；rubricsDimensions = 說明部分
+  欄位寫法同 compound_circle_with_explain
+  answer = 代號（必選時）or ""（自選時）
+  referenceAnswer = "[選項]，因為[理由]"
   bbox：整題框
 
 ▸ multi_check_other 「複選含其他題」
@@ -1283,9 +1312,39 @@ function buildTypeSpecs(): string {
 
 ▸ compound_judge_with_correction 「判斷改正題」
   視覺：敘述句 + 括號 ○/✗ + 改正空白
-  動作：對的打 ○、錯的打 ✗，錯的還要改正
-  欄位：answer = "○" 或 "✗"；referenceAnswer = 正確改寫
+  動作：對的打 ○、錯的打 ✗，錯的還要改正（改正取決於判斷）
+  欄位：answer = "○" 或 "✗"；referenceAnswer = 正確改寫文字
   bbox：括號 + 改正寫字區
+
+▸ compound_chain_table 「表格連動題」
+  視覺：表格格式，多個 cell（每 cell 不同欄位類型，如人物/事件/影響）
+  動作：學生在 row 各 cell 填寫對應內容，**cell 之間 chain 依存**
+        （事件取決於人物選誰；影響取決於事件是什麼）
+  識別特徵：
+    - 表格多欄（≥2 欄），每欄問不同的具體內容
+    - 至少一欄是限制範圍的選擇（如「從題目給的人物中選」）
+    - 後續欄位的 criteria 必須 reference 前一 cell 的內容
+  欄位：
+    answer = null（無單一精確答案）
+    referenceAnswer = 整 row 範例（如「斯文豪推薦臺灣茶，讓臺灣茶外銷量增加...」）
+    rubricsDimensions = 依表格實際欄位數動態（每欄一個維度，名稱用欄標題）
+    每維度 criteria：
+      第 1 欄（選擇/限制）：直接寫範圍限制
+        例：name="人物"，criteria="填入題目給的三位外國人之一"
+      第 2 欄起（依存欄）：用「**所填 X**」「**該事件**」reference 前一 cell
+        例：name="具體事件"，criteria="舉出**所填人物**做的、與[類別]相關的具體事件"
+            name="影響"，criteria="說明**該事件**對臺灣的具體影響"
+  orderMode：通常是 strict（列由印刷的「類別」label 固定）
+  bbox：整 row 框起來（涵蓋該行所有 cell）
+  範例（社會表格題）：
+    題目：「請完成下面的表格（貢獻 / 人物 / 具體事件 / 影響）」
+    第 1 列「經濟發展」→ id="5-1", questionCategory="compound_chain_table"
+      rubricsDimensions=[
+        {name:"人物", maxScore:1, criteria:"填入題目給的三位外國人之一"},
+        {name:"具體事件", maxScore:1, criteria:"舉出所填人物做的、與經濟發展相關的具體事件"},
+        {name:"影響", maxScore:2, criteria:"說明該事件對臺灣經濟的具體影響"}
+      ]
+    第 2 列「社會福利」→ id="5-2"，rubricsDimensions 類似但 criteria 改為「與社會福利相關」
 
 ═══════════════════════════════════════════════════
 【反幻覺警告（適用所有 type）】
@@ -3630,7 +3689,7 @@ async function gradeSubmissionWithPreparedImage(
 }
 
 // ── Answer Key Quality Gate (client-side, mirrors server-side validateAnswerKeyQuality) ──
-// 25 種 type 全部列出（與 db.ts 的 QuestionCategory enum 同步）
+// 26 種 type 全部列出（與 db.ts 的 QuestionCategory enum 同步）
 const AK_VALID_CATEGORIES = new Set([
   // Bucket A
   'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
@@ -3643,9 +3702,11 @@ const AK_VALID_CATEGORIES = new Set([
   // Bucket D
   'compound_circle_with_explain', 'compound_check_with_explain',
   'compound_writein_with_explain', 'multi_check_other', 'compound_judge_with_correction',
+  'compound_chain_table',
 ])
 
 // 必須填 answer 欄位的 type（精確比對 + 部分複合題）
+// 注意：compound_chain_table 不在此列，因為它沒有單一 answer（只有 rubric）
 const AK_ANSWER_REQUIRED = new Set([
   // Bucket A 全部
   'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
@@ -3653,9 +3714,10 @@ const AK_ANSWER_REQUIRED = new Set([
   'matching', 'ordering', 'mark_in_text',
   // Bucket B 雖然主用 referenceAnswer，但 fill_variants 仍可能有 answer
   'fill_variants',
-  // Bucket D 中含「精確比對」部分的題型
+  // Bucket D 中含「精確比對」部分的題型（必選情境）
   'compound_circle_with_explain', 'compound_check_with_explain',
   'compound_writein_with_explain', 'multi_check_other', 'compound_judge_with_correction',
+  // compound_chain_table 不需要 answer（純 rubric）
 ])
 
 /**
