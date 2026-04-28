@@ -4270,7 +4270,7 @@ ${needsPagePrefix ? `\n【多張圖片處理 - 多頁模式】\n- 你會收到 $
  */
 export interface ClassifyCorrection {
   questionId: string
-  type: 'neighbor_match' | 'consecutive_blank' | 'type_mismatch'
+  type: 'neighbor_match' | 'consecutive_blank'
   neighborId?: string
 }
 

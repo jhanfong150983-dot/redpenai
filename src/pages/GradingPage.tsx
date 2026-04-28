@@ -2905,18 +2905,20 @@ export default function GradingPage({
           }
         }
 
-        // 條件四：fill_blank 鄰題答案交叉比對（bbox 偏移檢測）
-        // 如果學生某題的答案 ≠ 該題標準答案，但 = 隔壁 fill_blank 的標準答案 → bbox 可能偏移
+        // 條件四：fill_blank / multi_fill 鄰題答案交叉比對（bbox 偏移檢測）
+        // 如果學生某題的答案 ≠ 該題標準答案，但 = 隔壁同型題的標準答案 → bbox 可能偏移
         if (assignment?.answerKey?.questions) {
           const akQuestions = assignment.answerKey.questions
-          // 建立 fill_blank 題目的有序清單（按 questionId）和標準答案 map
+          const isFillType = (q: typeof akQuestions[0]) =>
+            (q.questionCategory === 'fill_blank' || q.questionCategory === 'multi_fill') && q.answer
+          // 建立填空題（fill_blank + multi_fill）的有序清單（按 questionId）和標準答案 map
           const fillBlankIds = akQuestions
-            .filter((q) => q.questionCategory === 'fill_blank' && q.answer)
+            .filter(isFillType)
             .map((q) => q.id)
             .sort()
           const refAnswerById = new Map(
             akQuestions
-              .filter((q) => q.questionCategory === 'fill_blank' && q.answer)
+              .filter(isFillType)
               .map((q) => [q.id, String(q.answer).trim()])
           )
 
@@ -2940,7 +2942,7 @@ export default function GradingPage({
             const neighborMismatches: Array<{ questionId: string; studentAnswer: string; neighborId: string; neighborRef: string }> = []
 
             for (const qr of entries[i].phaseAResult.questionResults) {
-              if (qr.questionType !== 'fill_blank') continue
+              if (qr.questionType !== 'fill_blank' && qr.questionType !== 'multi_fill') continue
               const stuAns = qr.readAnswer1?.studentAnswer ?? ''
               if (!stuAns || qr.readAnswer1?.status !== 'read') continue
               const ref = refAnswerById.get(qr.questionId)
@@ -2948,7 +2950,7 @@ export default function GradingPage({
               // 如果答對了（含等值），不檢查
               if (numEq(stuAns, ref)) continue
 
-              // 找相鄰的 fill_blank
+              // 找相鄰的填空題（fill_blank / multi_fill）
               const idx = fillBlankIds.indexOf(qr.questionId)
               if (idx < 0) continue
               const neighbors = [fillBlankIds[idx - 1], fillBlankIds[idx + 1]].filter(Boolean)
@@ -3015,7 +3017,7 @@ export default function GradingPage({
               if (!sub?.imageBlob) return null
               // 組裝 classify 修正提示（各品質檢查條件 → 對應的提醒類型）
               const flag = flagDetails.get(idx)
-              const corrections: Array<{ questionId: string; type: 'neighbor_match' | 'consecutive_blank' | 'type_mismatch'; neighborId?: string }> = []
+              const corrections: Array<{ questionId: string; type: 'neighbor_match' | 'consecutive_blank'; neighborId?: string }> = []
               if (flag) {
                 // fill_blank_neighbor_match → neighbor_match
                 const neighborDetails = (flag as any).neighborMatchDetails as Array<{ questionId: string; neighborId: string }> | undefined
