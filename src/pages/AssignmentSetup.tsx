@@ -18,6 +18,7 @@ import {
 import {
   db,
   generateId,
+  CATEGORY_TO_TYPE,
   type AnswerKey,
   type Assignment,
   type Classroom,
@@ -641,25 +642,7 @@ export default function AssignmentSetup({
   }
 
 
-  const CATEGORY_TO_TYPE: Record<QuestionCategory, QuestionCategoryType> = {
-    single_choice: 1,
-    multi_choice: 2,
-    single_check: 1,
-    true_false: 1,
-    fill_blank: 1,
-    fill_variants: 2,
-    multi_check: 2,
-    multi_check_other: 2,
-    calculation: 3,
-    word_problem: 3,
-    short_answer: 3,
-    map_fill: 2,
-    multi_fill: 1,
-    map_draw: 3,
-    diagram_draw: 3,
-    diagram_color: 3,
-    matching: 1,
-  }
+  // CATEGORY_TO_TYPE 已從 @/lib/db import（single source of truth）
 
 
 

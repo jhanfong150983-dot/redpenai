@@ -872,7 +872,7 @@ async function getRecentAnswerExtractionCorrections(
 /**
  * 建立全域規則（適用於所有領域）
  */
-// Part 1：task 指令 + JSON schema + 通用原則 + 顏色辨識 + 選擇/勾選題識別
+// Part 1：task 指令 + JSON schema + 通用原則 + 顏色辨識
 // 永遠排在 prompt 最前面
 function buildGlobalTaskAndFormat(): string {
   return `
@@ -880,63 +880,41 @@ function buildGlobalTaskAndFormat(): string {
 
 {
   "questions": [{
-    "id": "1",           // 題號
-    "orderMode": "strict" | "unordered", // strict=固定位置, unordered=同組可互換
-    "unorderedGroupId": "1", // orderMode=unordered 時必填（同組共用）
-    "questionCategory": "fill_blank",  // 題型（必填，見下方分類標準）
-    "maxScore": 5,                      // 滿分
-    "answerBbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05}, // 你剛才讀到的 "answer" 文字／符號在圖像上的精確位置（歸一化，0-1；x/y=左上角，w/h=寬高）。框住你實際看到並識別的那些字元，不是猜測，是你已經視覺定位的文字。
-    "anchorHint": "比率列中有印刷括號（　）/180的空格，位於欄標題「三國演義」正下方", // 此答案格本身的視覺外觀（優先）＋鄰近印刷標誌（輔助）。讓後續 AI 能精確定位答案格本身，而非欄標題。multi_fill 每個子題各自描述自己格子的外觀。
-    "tablePosition": {"col": 4, "row": 3, "totalCols": 8, "totalRows": 3, "colspan": 1, "rowspan": 1}, // 表格題專用：此答案格在表格中的座標（1-based，含標題欄/列）。非表格題省略此欄位。
+    "id": "1",                              // 題號（必填）
+    "idPath": ["1"],                        // 題號階層陣列
+    "questionCategory": "fill_blank",        // 25 種 type 之一（必填，見 Decision Tree + Type Specs）
+    "bucket": "A",                           // A/B/C/D，可省略（系統自動推導）
+    "orderMode": "strict",                   // strict | unordered
+    "unorderedGroupId": "1",                 // orderMode=unordered 時必填（同組共用）
+    "maxScore": 5,                           // 滿分
+    "answerBbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05},
+    "anchorHint": "比率列中有印刷括號（　）/180的空格，位於欄標題「三國演義」正下方",
+    "tablePosition": {"col": 4, "row": 3, "totalCols": 8, "totalRows": 3},
 
-    // single_choice / true_false / fill_blank / multi_check / multi_choice / single_check 專用：標準答案
-    // single_choice: 括號()內填一個代號，如 "A"、"甲"、"①"（答案空間為括號）
-    // multi_choice: 括號()內填多個代號（逗號分隔），如 "A,C"、"①,③"（答案空間為括號）
-    // single_check: 方框□內標記一個選項，如 "①"、"第一個"（答案空間為勾選方框）
-    // multi_check: 方框□內標記多個選項（逗號分隔），如 "①,③"、"第一個,第三個"（答案空間為勾選方框）
-    // true_false: "○" 或 "✗"
-    // fill_blank: 完整正解含單位，如 "15 公分"
-    "answer": "正確答案",
+    // ─── 答案欄位（依 bucket 不同）───
+    // bucket="A"：精確比對，必填 answer（格式見 Type Specs 各 type）
+    "answer": "...",
 
-    // fill_variants / map_fill 專用：可接受的答案變體
+    // bucket="B"：容多元，必填 referenceAnswer + acceptableAnswers
     "referenceAnswer": "範例答案",
     "acceptableAnswers": ["同義詞1", "同義詞2"],
 
-    // 國字注音題（fill_blank 特殊格式）：
-    // answer: "國字/注音"，如 "彰/ㄓㄤ"（斜線分隔，學生寫任一個都算對）
-    // 🚫 注音必須讀自圖片，禁止用語言知識推測
-
-    // word_problem / calculation / short_answer / map_draw / diagram_draw / diagram_color 專用：評分規準
-    // word_problem: [列式計算, 答句（含單位）]
-    // calculation: [算式過程, 最終答案（純數值，不需單位）]
-    // short_answer: 必須使用 rubricsDimensions（至少兩維）
-    // - 一般：作答依據 + 結論表達
-    // - 社會領域可用「核心結論優先」：核心結論 + 作答依據（兩維皆可配分）
-    // diagram_color: [塗色比例, 塗色位置, 塗色完整性]
-    // diagram_draw: [數值正確性, 標籤完整性]
-    //
-    // ⚠️【rubricsDimensions criteria 黃金規則】（short_answer / word_problem 必讀）
-    // criteria 必須從【題幹要求】推導，描述「何種答案符合」，禁止把參考答案的具體名詞直接寫進 criteria。
-    // 參考答案（referenceAnswer）只是一個例子的深度示範，不代表唯一正確答案。
-    // ✅ 正確：criteria: "能從圖片中辨識出一種現代較少使用或已被取代的生活器具"
-    // ❌ 錯誤：criteria: "能正確指出「灶」被取代"（綁死特定答案，學生寫油燈也對但會被扣分）
-    // ✅ 正確：criteria: "能說明該器具被取代的原因或舉出現代替代品"
-    // ❌ 錯誤：criteria: "能說明瓦斯爐或電磁爐及其優點"（綁死參考答案內容）
-    "referenceAnswer": "評分要點",
+    // bucket="C"：Rubric，必填 referenceAnswer + rubricsDimensions
+    // bucket="D"：複合題，依 type 同時填 answer 部分 + rubricsDimensions 部分
     "rubricsDimensions": [
       {"name": "列式計算", "maxScore": 3, "criteria": "算式正確、步驟清晰"},
-      {"name": "答句", "maxScore": 2, "criteria": "以「答：」或「A：」開頭，含數字與單位（或完整文字答案）"}
+      {"name": "答句", "maxScore": 2, "criteria": "以「答：」或「A：」開頭，含數字與單位"}
     ],
-    // rubric 只保留相容舊資料；short_answer 不可使用 rubric
-    "rubric": {
-      "levels": [
-        {"label": "優秀", "min": 9, "max": 10, "criteria": "邏輯清晰完整"},
-        {"label": "良好", "min": 7, "max": 8, "criteria": "大致正確"},
-        {"label": "尚可", "min": 5, "max": 6, "criteria": "部分正確"},
-        {"label": "待努力", "min": 1, "max": 4, "criteria": "多處錯誤"}
-      ]
-    },
 
+    // ⚠️【rubricsDimensions criteria 黃金規則】（C/D bucket 必讀）
+    // criteria 必須從【題幹要求】推導，描述「何種答案符合」。
+    // 禁止把參考答案的具體名詞直接寫進 criteria（綁死答案）。
+    // ✅ "能從圖片中辨識出一種現代較少使用的生活器具"
+    // ❌ "能正確指出「灶」被取代"
+    // 參考答案（referenceAnswer）只是品質示範，不代表唯一正確答案。
+
+    // 舊資料相容（不建議新題使用，short_answer 不可用）
+    "rubric": {"levels": [{"label": "優秀", "min": 9, "max": 10, "criteria": "..."}]},
   }],
   "totalScore": 50
 }
@@ -1052,682 +1030,470 @@ function buildGlobalTaskAndFormat(): string {
   - 上下格都是紅色 → 答案本身是分數，answer = "上格/下格"（如 "3/4"）
   - 黑色的格子是印刷結構，不屬於答案，不可含入 answer 欄位
 
-【選擇題與勾選題識別（4種題型）】
-
-⚠️ 關鍵區分：「選擇」= 答案空間是括號 ( )；「勾選」= 答案空間是方框 □
-
-【1. single_choice 單選選擇】
-- 答案空間是括號 ( )，學生在括號內填入一個代號
-- 識別特徵：題目有 ( ) 空格，學生寫 A/B/C/D 或 甲/乙/丙/丁 或 ①②③ 其中一個
-- questionCategory: "single_choice"
-- answer: 填一個代號，如 "A"、"甲"、"①"
-- 給分：二元（全對/全錯）
-
-【2. multi_choice 多選選擇】
-- 答案空間是括號 ( )，學生在括號內填入多個代號（逗號分隔）
-- 識別特徵：題目有 ( ) 空格，且說明「可複選」「選出所有正確的」，或顯然需填多個代號
-- questionCategory: "multi_choice"
-- answer: 填多個代號（逗號分隔），如 "A,C"、"①,③"
-- 給分：部分給分（按正確選項比例）
-
-【3. single_check 單選勾選】
-- 答案空間是方框 □，學生在一個方框內標記（✓/○/×）
-- 識別特徵：題目旁有多個 □ 方框，但只能選/標記一個
-- questionCategory: "single_check"
-- answer: 填一個標記（格式依標籤類型決定）：
-   - 有印刷標籤 ①②③ → answer: "①"
-   - 有印刷標籤 A B C → answer: "A"
-   - 無印刷標籤方框 → 用「第X個」，如 "第一個"
-- 給分：二元（全對/全錯）
-
-【4. multi_check 多選勾選】
-- 答案空間是方框 □，學生可在多個方框內標記（可複選）
-- 識別特徵：題目有多個 □ 方框，且「請勾選」「可複選」「選出所有正確的」或可標記多個
-- ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"（見【4b】）
-- questionCategory: "multi_check"
-- answer: 填正確選項集合，用逗號分隔（格式依標籤類型決定）：
-   - 有印刷標籤 ①②③ → answer: "①,③"
-   - 有印刷標籤 A B C → answer: "A,C"
-   - 有印刷數字 1 2 3 → answer: "1,3"
-   - ⚠️ 無任何印刷標籤的空白方框 → 用「第X個」編號（X 為中文數字）：
-     - 直排版面（方框排成橫列，每框對應一欄直排文字）：從右到左計數，最右邊的框 = 第一個
-     - 橫排版面（方框排成橫列）：從左到右計數，最左邊的框 = 第一個
-     - 直列版面（方框排成直行）：從上到下計數，最上面的框 = 第一個
-     - 範例：4個橫排無標籤方框，第1與第3被打勾 → answer: "第一個,第三個"
-- 給分：部分給分（按「正確勾到的數量 − 多勾錯的數量」比例）
-
-【4b. multi_check_other 多選勾選（含其他）】
-- 同 multi_check，但最後一個選項是開放填寫的「□其他：___」欄位
-- 識別特徵：選項列表最後有「□其他：___」或「□其他：（空白）」
-- questionCategory: "multi_check_other"
-- answer: 只填固定選項中有被標記✓的選項（不含最後的其他選項），格式同 multi_check
-  - 例：共4個選項，最後一個是其他，圖中 ②④(其他) 被標記 → answer: "②"（只填 ②，不填 ④）
-  - 若固定選項全部都沒被標記（只有其他被標記）→ answer: ""（空字串，正常）
-- referenceAnswer: 若其他選項有被標記✓ 且欄位內有文字 → 填入該文字（去除括號備注如「答案僅供參考」）
-  - 例：「□④其他：逐漸成為文風鼎盛的社會。（答案僅供參考）」→ referenceAnswer: "逐漸成為文風鼎盛的社會"
-  - 若其他選項未被標記 或 欄位空白 → referenceAnswer: ""
-- 最後一個選項（其他）自動被系統忽略，不計入分數加減
-- ⚠️ "(答案僅供參考)" 備注只說明其他欄的填法是參考用，不影響固定選項的標記擷取。
-  即使看到此備注，仍必須正常擷取固定選項中被標記的答案。
-
-🚫 嚴格禁止自行解題：
-- ❌ 禁止：用自己的知識判斷「哪個選項是正確的」
-- ❌ 禁止：因為選項聽起來合理就自動勾選
-- ✅ 應做：只看圖片中哪些方框□已被標記（✓、○、打勾、劃線），照實記錄
-- 若圖片中沒有任何固定方框被標記（且不確定是否有答案）→ answer 填「?」，提示需人工確認
-
-範例：
-- 題目：「請勾選台灣的地形特色：□①高山多 □②平原廣 □③四面環海 □④沙漠廣大」
-  圖片顯示 ①③ 的方框內有標記 → answer: "①,③"
-- 設定：id: "3", questionCategory: "multi_check", answer: "①,③", maxScore: 2
-- 題目：「下列哪些是正確的？(　　) A.地球 B.月球 C.太陽 D.彗星（可複選）」
-  圖片顯示括號內寫 A,C → answer: "A,C"
-- 設定：id: "4", questionCategory: "multi_choice", answer: "A,C", maxScore: 2
+⚠️ 詳細題型分類見下方 Decision Tree + Type Specs（共 25 種 type，分 4 個 bucket）。
+按「學生作答方式」分類，每個 type 有獨立的視覺特徵、answer 格式、bbox 規則。
 `.trim()
 }
 
-// Part 2：全域題型分類（後備規則）
-// 排在領域專屬規則之後，作為 fallback
-function buildGlobalClassificationFallback(): string {
+// Part 2：大類別決策樹（4 個 bucket → 25 個 type）
+// 給 AI 走的階層判斷流程
+function buildDecisionTree(): string {
   return `
-【題型分類標準（後備規則）】
-⚠️ 若上方領域專屬規則已能匹配題目，直接套用，不需再查以下標準。
-以下規則僅在領域規則未覆蓋時使用。
+【大類別決策樹】
+依「學生作答方式」逐層判斷 type。3 層內走到 leaf。
 
-判斷流程（依序套用，第一個符合的就是答案）：
+═══════════════════════════════════════════════════
+Q1：怎麼判分？  [4 選 1]
+─ A. 標準答案 + 精確比對（學生答案要與正解完全相同）
+─ B. 標準答案 + 容多元（同義詞、近義詞、多種說法都算對）
+─ C. Rubric 給分（依品質給分，無單一正解）
+─ D. 複合題（精確比對 + Rubric 並存於同一題）
 
-1. 有明確填答空格（___／（   ）／(   )／□ 內填值）且只有一個標準正解？
-   → questionCategory: "fill_blank"（填充題）
-   - answer 填入完整正解（含單位，如 "15 公分"）
-   - 單位是答案的一部分，批改時會嚴格比對
-   - 即使題目內容包含計算步驟、分數換算、百分率換算，也優先歸類 fill_blank（不要改判 calculation/word_problem）
+═══════════════════════════════════════════════════
+─── 進入 Bucket A：精確比對 ───
+Q2-A：學生主要動作是什麼？  [8 選 1]
 
-2. 有明確填答空格，但可接受多種不同表達（同義詞、造詞、近義詞）？
-   → questionCategory: "fill_variants"（填充題多元）
-   - referenceAnswer 填入範例；acceptableAnswers 列出所有可接受答案
-   - 同樣優先於 calculation / word_problem
+➊ 寫代號（在空括號內寫 A/甲/①等）
+   ├─ 寫一個 → single_choice
+   └─ 寫多個 → multi_choice
 
-3. 數學題 + 答題區結尾有「答：」或「A：」開頭的答句？
-   → questionCategory: "word_problem"（應用題）
-   - 判斷標準（最優先）：答題區最後一行是「答：___」或「A：___」→ 一定是 word_problem，無論有無故事情境
-   - rubricsDimensions: [列式計算, 答句]
-   - 答句維度的 criteria 必須說明：「以『答：』或『A：』開頭，含數字與單位（或完整文字答案如甲班、教師節）」
-   - 關鍵：答案需要單位或文字說明（非純數值）
-   - ⚠️「算算看」「計算看看」後若有「答：」行 → word_problem，不可改判 calculation
-   - ⚠️ word_problem 必須使用 referenceAnswer 欄位填入答案要點（如 "35÷4=8.75，答：爸爸的速度是8.75公里/時"），**禁止用 answer 欄位**
+➋ 圈印刷選項（括號內預印選項，學生用圈/底線/劃掉標記）
+   ├─ 圈一個 → circle_select_one
+   └─ 圈多個 → circle_select_many
 
-4. 數學題 + 答題區只有計算算式、沒有「答：」或「A：」答句？
-   → questionCategory: "calculation"（計算題）
-   - 判斷標準（最優先）：答題區沒有「答：」或「A：」開頭的答句 → 才可判 calculation
-   - 例：直式算算看、純算式計算（只列橫式或直式，無答句）
-   - referenceAnswer 填數值正解（如 "360"）
-   - rubricsDimensions: [算式過程, 最終答案]
-   - 算式過程 criteria: 列出正確算式（橫式或直式）
-   - 最終答案 criteria: 數值正確（不需單位）
-   - ⚠️ 與 word_problem 差異：答題區完全沒有「答：」或「A：」行
+➌ 在 □ 打勾
+   ├─ 勾一個 → single_check
+   └─ 勾多個 → multi_check
 
-5. 有括號 ( ) 作為答案空間，且需填入多個選項代號（可複選）？
-   → questionCategory: "multi_choice"（多選選擇）
-   - answer 填正確選項集合（逗號分隔），如 "A,C" 或 "①,③"
+➍ 寫 ○ 或 ✗ 符號（單一括號內手寫對錯符號）→ true_false
 
-5b. 有括號 ( ) 作為答案空間，且只填一個選項代號？
-   → questionCategory: "single_choice"（單選選擇）
-   - answer 填選項代號（如 "A"、"甲"、"①"）
-   - 包含「圈圈看」「比比看」「打✓選一個」等格式（但答案空間是括號）
+➎ 填寫值（____ ／ □ ／ 表格儲存格 內填值）
+   ├─ 一個值 → fill_blank
+   └─ 多個值（順序無關）→ multi_fill
 
-6. 有方框 □ 且學生只能標記一個框（單選勾選）？
-   → questionCategory: "single_check"（單選勾選）
-   - answer 填一個標記代號（如 "①"、"A"）；無標籤方框用「第X個」（如「第一個」）
+➏ 連線（左右欄之間畫連線）→ matching
 
-6b. 有多個勾選框，學生可勾選多個？
-   → questionCategory: "multi_check"（多選勾選）
-   - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」)
+➐ 寫序號排序（在格子內填 1/2/3...指定順序）→ ordering
 
-7. 只有兩個選項：○/✗、對/錯、是/否？
-   → questionCategory: "true_false"（是非題）
-   - answer 統一填 "○" 或 "✗"
+➑ 在文章中圈詞（沒有預先列出的選項，學生在連續文字中圈出特定詞語）→ mark_in_text
 
-8. 地圖/圖表的多個指定位置，需填寫地名/國名等文字標籤？
-   → questionCategory: "map_fill"（填圖題）
-   - acceptableAnswers 列出所有正確名稱；referenceAnswer 描述位置對應關係
+═══════════════════════════════════════════════════
+─── 進入 Bucket B：容多元 ───
+Q2-B：哪一種多元？  [2 選 1]
 
-9. 需要在圖上畫圖形/符號/連線？（地圖符號、格紙幾何、連線圖）
-   → questionCategory: "map_draw"（繪圖題）
-   - rubricsDimensions: [圖形/符號正確性, 位置精準度]
-   - 地圖符號例：颱風符號畫在指定座標
-   - 格紙幾何例：在方格紙上畫邊長3公分的正方形
-   - 連線圖例：依編號順序連接座標點
+➊ 單一空格容多種說法（同義詞、近義詞、造詞）→ fill_variants
+➋ 多位置-名稱配對（地圖填地名/國名）→ map_fill
 
-10. 需要在預印圖形上塗色/填色？
-    → questionCategory: "diagram_color"（塗色題）
-    - 例：塗色表示分數（塗 1⅔ 個圓）、塗色表示數量
-    - referenceAnswer 描述應塗色的範圍/比例
-    - rubricsDimensions: [塗色比例, 塗色位置, 塗色完整性]
+═══════════════════════════════════════════════════
+─── 進入 Bucket C：Rubric 給分 ───
+Q2-C：評鑑標的是文字還是繪圖？  [2 選 1]
 
-10b. 需要繪製圖表（長條圖、圓餅圖、折線圖等）？
-    → questionCategory: "diagram_draw"（圖表繪製題）
-    - 例：根據數據畫長條圖、畫圓餅圖標記百分比
-    - referenceAnswer 描述正確的標籤與數值
-    - rubricsDimensions: [數值正確性, 標籤完整性]
+➊ 文字
+   ├─ 自由說明（解釋、舉例、論述）→ short_answer
+   ├─ 純計算（只有算式、無答句）→ calculation
+   └─ 應用題（含算式 + 「答：」答句）→ word_problem
 
-11. 題目要求把左欄和右欄的項目用線連起來（連連看）？
-    → questionCategory: "matching"（連連看）
-    - 每個子題對應左欄一個項目，answer 填寫該項目「應連到的右欄文字」
-    - answer 格式：直接寫右欄文字，如 "2公尺/秒"
-    - type: 1（精確比對）
-    - 例：左欄 (1) 每1分鐘0.12公里，右欄選項含「2公尺/秒」
-      → id: "3-1", questionCategory: "matching", answer: "2公尺/秒", maxScore: 2
-    - 注意：各子題各自設定一個 id（3-1, 3-2, 3-3...），answer 只寫對應的右欄文字
+➋ 繪圖
+   ├─ 在地圖標符號/座標 → map_draw
+   ├─ 繪製長條圖/圓餅圖 → diagram_draw
+   └─ 在預印圖形上塗色 → diagram_color
 
-11b. 有空白框（非方框□），學生需在框內手寫多個代號/符號（如 ㄅ、ㄇ、ㄉ 或 甲、丙），且這些代號對應圖表中的選項代號，順序不重要？
-    → questionCategory: "multi_fill"（多項填入題）
-    - 識別特徵：空白填答框（非勾選框□）；答案為多個代號，用頓號或逗號分隔；沒有打勾動作
-    - 每個空白框為一題（若題目有多個框 → 拆成多個子題，各自設定 id）
-    - answer 填入代號集合（如 "ㄅ、ㄇ、ㄉ"），順序無關
-    - 給分：完全吻合全對；支援部分給分（依答對代號比例）
-    - ⚠️ 與 multi_check 差異：multi_check 必須有方框□且有打勾動作；multi_fill 是空白格自由書寫
-    - ⚠️ 與 fill_blank 差異：fill_blank 只有一個值；multi_fill 有多個值且順序無關
+═══════════════════════════════════════════════════
+─── 進入 Bucket D：複合題 ───
+Q2-D：哪一種組合？  [5 選 1]
 
-12. 非數學題，要求文字說明、解釋或列舉，不需計算？
-    → questionCategory: "short_answer"（簡答題）
-    - referenceAnswer 填評分要點；必須使用 rubricsDimensions 多維度評分（至少兩維）
-    - 建議維度：作答依據、結論表達（不可使用 rubric 四級評量）
-    - 社會領域可採「核心結論優先」：
-      - 維度1：核心結論（可較高權重）
-      - 維度2：作答依據（可較低權重，但仍配分）
+➊ 圈印刷選項 + 寫理由說明 → compound_circle_with_explain
+   例：「我認為（同意／不同意），因為...」
+➋ 在 □ 打勾 + 寫理由 → compound_check_with_explain
+➌ 寫代號 + 寫理由 → compound_writein_with_explain
+➍ 勾選多個 + 開放「其他：___」欄位 → multi_check_other
+➎ 對的打 ○ / 錯的打 ✗ + 改正 → compound_judge_with_correction
 
+═══════════════════════════════════════════════════
+⚠️ 識別優先順序：
+1. 先看顏色 → 找紅色內容（學生需填部分）
+2. 看答題區的視覺結構 → 括號／方框／底線／工作區
+3. 看學生實際動作 → 依決策樹判斷
+4. 套用該 type 的 bbox 規則與 answer 格式（見 Type Specs）
+`.trim()
+}
 
-【反幻覺警告】（適用於所有操作）
-❌ 禁止猜測：看不清楚時設 confidence < 0.5
-❌ 禁止修正：即使答案錯誤也要保留原貌
-❌ 禁止美化：即使字跡潦草也要如實提取
-❌ 禁止推測：無法辨識時設 answerText: null
-❌ 禁止創造：只提取圖片中實際存在的內容
+// Part 3：每個 type 的精確定義（含 bbox 規則）
+// 25 種 type，每個自帶視覺特徵 + answer 格式 + bbox 範圍
+function buildTypeSpecs(): string {
+  return `
+【Type Specs — 25 種題型完整定義】
 
-⚠️ 寧可標記為 null，也不要猜測答案
+每個 type 包含：視覺特徵 / 學生動作 / answer 欄位格式 / bbox 涵蓋範圍 / 範例。
+
+═══════════════ Bucket A：精確比對 ═══════════════
+
+▸ single_choice 「選擇題」
+  視覺：題號前空括號 (   )；括號外另有 A/B/C/D 等選項清單
+  動作：學生在空括號內寫一個代號
+  answer：單一代號 — "A" / "甲" / "①" / "1"
+  bbox：緊框括號 + 小邊距（25-35% 頁寬），不框題幹
+
+▸ multi_choice 「多選選擇題」
+  視覺：題號前空括號；題目說「可複選」「選出所有正確的」
+  動作：學生在空括號內寫多個代號（逗號分隔）
+  answer：多代號用 "," 連接 — "A,C" / "①,③"
+  bbox：緊框括號 + 小邊距
+
+▸ circle_select_one 「圈選題」
+  視覺：括號內預印多個選項，以 ／ 或 ， 分隔（如 (同意／不同意)、(大於／等於／小於)）
+  動作：學生用圈/底線/劃掉等筆跡標記其中一個選項
+  answer：被標記選項的文字 — "同意" / "等於"（純文字，不含括號或分隔符）
+  bbox：必含全部印刷選項文字 + 圈選筆跡，不能只框筆跡
+
+▸ circle_select_many 「多選圈選題」
+  視覺：同 circle_select_one，但學生標記多個選項
+  動作：圈/標記多個預印選項
+  answer：多選項用 "," 連接 — "同意,大於"
+  bbox：同 circle_select_one
+
+▸ single_check 「勾選題」
+  視覺：一列方框 □ + 各對應選項文字（如 □父親 □母親 □祖父）
+  動作：學生在一個 □ 內打勾/打叉/塗黑
+  answer：1-based 位置編號 — "1" / "2" / "3"...（純數字，不含 □、勾號、選項文字）
+  bbox：整列方框 + 對應選項文字
+
+▸ multi_check 「多選勾選題」
+  視覺：一列方框 □ + 選項；題目說「請勾出所有」
+  動作：學生在多個 □ 內打勾
+  answer：多位置編號用 "," 連接 — "1,3"
+  bbox：整列方框 + 選項
+
+▸ true_false 「是非題」
+  視覺：單一括號 (   ) 接在敘述句後
+  動作：學生在括號內手寫 ○ / ✗ / 對 / 錯 / 是 / 否
+  answer：統一 "○" 或 "✗"
+  bbox：緊框括號
+
+▸ fill_blank 「填空題」
+  視覺：____ ／ □ ／ 表格儲存格 + 紅色手寫文字
+  動作：學生在空格內填寫一個值（含單位）
+  answer：完整正解含單位 — "15 公分" / "彰" / "ㄓㄤ"
+  bbox：緊框該空格 + 紅色文字
+  ⚠️ 直式分數格特例：上下格紅色 → "上格/下格"（如 "3/4"）；只有上格紅 → "上格值"
+
+▸ multi_fill 「多項填空題」
+  視覺：多個空白框（非 □ 勾選框）+ 紅色代號
+  動作：學生在多個格子內填代號（如 ㄅ、ㄇ、ㄉ），順序無關
+  answer：代號集合 — "ㄅ、ㄇ、ㄉ"（每子題各自一個 answer）
+  bbox：每子題獨立 bbox，緊框該格
+
+▸ matching 「連連看」
+  視覺：左欄項目 + 右欄選項 + 紅色連線
+  動作：學生連線（1對1 / 1對多 / 多對多）
+  answer：每子題填對應右欄文字 — "2公尺/秒"
+  bbox：整個連連看區（左欄 + 右欄 + 連線）為單一 bbox
+
+▸ ordering 「排序題」
+  視覺：一列待排序項目 + 紅色序號 1-N
+  動作：學生在格內填序號表示順序
+  answer：序號集合 — "3,1,4,2"
+  bbox：整體一個 bbox（涵蓋所有排序格）
+
+▸ mark_in_text 「圈詞題」
+  視覺：一段文章 + 紅色圈/底線散布其中（如「請在文中圈出所有名詞」）
+  動作：學生在文中圈出特定詞語
+  answer：列出所有被圈詞語 — "桌子,椅子,書本"
+  bbox：涵蓋整個文章區域，可框大一點以含上下文
+
+═══════════════ Bucket B：容多元 ═══════════════
+
+▸ fill_variants 「多元填空題」
+  視覺：空格 + 紅色答案，題目可接受多種寫法（造詞、近義詞）
+  動作：學生填一個值，可有多種接受答案
+  欄位：referenceAnswer = 範例答案；acceptableAnswers = 所有可接受答案陣列
+  bbox：緊框該空格
+
+▸ map_fill 「填圖題」
+  視覺：地圖 + 多個標記位置 + 紅色名稱
+  動作：學生在地圖上多個位置填寫地名/國名
+  欄位：referenceAnswer 描述位置-名稱對應；acceptableAnswers 列出所有正確名稱
+  bbox：整張地圖 + 周邊標記
+
+═══════════════ Bucket C：Rubric ═══════════════
+
+▸ short_answer 「簡答題」
+  視覺：大空白區 + 紅色文字段落
+  動作：學生寫文字自由說明
+  欄位：referenceAnswer + rubricsDimensions（至少兩維，如「核心結論」+「作答依據」）
+  bbox：整個答題區
+
+▸ calculation 「計算題」
+  視覺：工作區 + 紅色橫式/直式算式（無「答：」答句）
+  動作：學生寫純算式
+  欄位：referenceAnswer = 數值正解（如 "360"）；rubricsDimensions: [算式過程, 最終答案]
+  bbox：所有算式行（橫式 + 直式 + 結果）整個範圍
+
+▸ word_problem 「應用題」
+  視覺：工作區 + 紅色算式 + 「答：」答句行
+  動作：學生寫算式 + 答句（含單位）
+  欄位：referenceAnswer = 答案要點（如 "35÷4=8.75，答：爸爸的速度是8.75公里/時"）
+        rubricsDimensions: [列式計算, 答句]
+  bbox：從第一行算式到最末「答：」行整個範圍
+
+▸ map_draw 「標記繪圖題」
+  視覺：地圖 + 紅色符號/座標
+  動作：學生在地圖上畫符號或標記座標
+  欄位：rubricsDimensions: [符號正確性, 位置精準度]
+  bbox：整張地圖 + 題幹
+
+▸ diagram_draw 「圖表繪製題」
+  視覺：預印格線/圓 + 紅色繪製
+  動作：學生繪製長條圖/圓餅圖等
+  欄位：rubricsDimensions: [數值正確性, 標籤完整性]
+  bbox：整個圖表繪製區
+
+▸ diagram_color 「塗色題」
+  視覺：預印圖形 + 紅色塗色
+  動作：學生在預印圖形上塗色（如分數塗色）
+  欄位：rubricsDimensions: [塗色比例, 塗色位置, 塗色完整性]
+  bbox：整個塗色區
+
+═══════════════ Bucket D：複合題 ═══════════════
+
+▸ compound_circle_with_explain 「圈選說明題」
+  視覺：括號內預印選項（同意／不同意）+ 圈選 + 下方理由區
+  動作：圈印刷選項 1 個 + 寫理由說明
+  欄位：answer = 被圈選項；rubricsDimensions = 說明部分的評分規準
+  bbox：整題框（括號區 + 理由說明區）
+
+▸ compound_check_with_explain 「勾選說明題」
+  視覺：方框 □ 列 + 勾選 + 下方理由區
+  動作：□ 打勾 1 個 + 寫理由
+  欄位：answer = 勾選位置編號；rubricsDimensions = 說明部分
+  bbox：整題框
+
+▸ compound_writein_with_explain 「寫入說明題」
+  視覺：空括號 + 代號 + 下方理由區
+  動作：寫代號 + 寫理由
+  欄位：answer = 代號；rubricsDimensions = 說明部分
+  bbox：整題框
+
+▸ multi_check_other 「複選含其他題」
+  視覺：一列 □ + 最後一個 □ 後接「其他：___」開放欄
+  動作：勾多個固定選項 + 在「其他」欄寫開放文字（若勾了其他）
+  欄位：answer = 固定選項中被勾的位置編號（不含其他）；
+        referenceAnswer = 其他欄寫的文字（若勾且有寫，去掉「答案僅供參考」備注）
+  bbox：整列方框 + 其他開放欄
+
+▸ compound_judge_with_correction 「判斷改正題」
+  視覺：敘述句 + 括號 ○/✗ + 改正空白
+  動作：對的打 ○、錯的打 ✗，錯的還要改正
+  欄位：answer = "○" 或 "✗"；referenceAnswer = 正確改寫
+  bbox：括號 + 改正寫字區
+
+═══════════════════════════════════════════════════
+【反幻覺警告（適用所有 type）】
+❌ 禁止猜測答案：看不清楚 → answer 填 "?"
+❌ 禁止用語言/學科知識補答案
+❌ 禁止修正錯字、不美化字跡
+❌ 禁止創造圖中沒有的內容
+⚠️ 寧可標 "?" 或省略 answerBbox，也不要猜測。
 `.trim()
 }
 
 /**
- * 建立領域特化規則（題型判斷式）
+ * Part 4：領域加成（refinement layer）
+ * 只描述領域特化的細節（如國字注音、社會圈選說明判別、數學 word_problem 邊界），
+ * 不重複決策樹的分類邏輯（那部分在 buildDecisionTree + buildTypeSpecs）。
  */
-function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
+function buildDomainRefinements(domain: string = '其他'): string {
   const domainMap: Record<string, string> = {
     國語: `
-【國語領域專屬規則】（優先級：高於全域後備規則）
-⚠️ 以下規則適用於國語作業。若題目符合以下任一類型，直接套用，不需再查全域分類標準。
+【國語領域加成】
 
-領域通用規則：
+領域通用：
 - 直排文字閱讀：從右上角開始，往左、往下依序排列
-- 選項順序：甲乙丙丁通常是從右到左排列
-- 題號編排：依照直排閱讀順序（圖片有題號就用，沒有則按順序編號）
+- 選項順序：甲乙丙丁通常從右到左排列
+- 題號編排：依直排閱讀順序
 
-題型判斷與擷取規則：
-
-▸ 如果是「國字注音題」（每個空格要寫國字或注音）：
-  - questionCategory: "fill_blank"
+▸ 國字注音題（fill_blank 子情境）：
   - 每一個詞語只有一個空格（彩色框/紅字框），另一部分已印在題目中
-    → 每個詞語只建立一題，不要為同一個詞語建立兩題
-    → ❌ 錯誤範例：詞語「托（ㄊㄨㄛ）」→ 不可拆成兩題（一題填「托」、一題填「ㄊㄨㄛ」）
-    → ✅ 正確範例：詞語「托（ㄊㄨㄛ）」→ 只建一題，answer 填彩色框裡的那個值
-  - answer 格式：只填一個值（只讀彩色框中的內容）
-    → 若彩色框是國字 → answer 填國字（如 "托"）
-    → 若彩色框是注音 → answer 填注音（如 "ㄊㄨㄛ"）
+    → 每個詞語只建一題，不要為同一詞語建兩題
+    → ❌ 錯誤：詞語「托（ㄊㄨㄛ）」拆成兩題（一填「托」、一填「ㄊㄨㄛ」）
+    → ✅ 正確：詞語「托（ㄊㄨㄛ）」只建一題，answer 填彩色框內的值
+  - answer 格式：只填一個值（只讀彩色框內容）
+    → 彩色框是國字 → answer 填國字（如 "托"）
+    → 彩色框是注音 → answer 填注音（如 "ㄊㄨㄛ"）
     → 不要用斜線格式，不要同時填國字和注音
-  - maxScore：每格 1 分
+  🚫 嚴格禁止注音幻覺：禁止用語言知識推算注音，只讀彩色框內實際印出的值。
+     若不清楚 → answer 填 "?"
 
-  🚫 嚴格禁止注音幻覺：
-  - ❌ 禁止：看到「彰」就自己推算注音「ㄓㄤ」（即使你知道正確讀音）
-  - ❌ 禁止：用語言知識補充或推測任何答案
-  - ✅ 應做：只讀圖片中彩色框（答案框）裡實際印出的文字或符號
-  - 若彩色框中的內容不清楚無法辨識 → answer 填「?」
-  - 寧可標記「?」，也不要猜測
-
-▸ 如果是「相近字造詞題」（如：辨/辯、嗇/普）：
-  - questionCategory: "fill_variants"
-  - referenceAnswer 必須包含部首說明
-  - acceptableAnswers 列出標準答案中的所有範例詞
-  - 範例：「(言部)辯：辯護、爭辯」「(辛部)辨：辨別、分辨」
-
-▸ 如果是「同音字造詞題」（如：ㄋㄨㄥˋ：弄/農）：
-  - questionCategory: "fill_variants"
-  - referenceAnswer 必須包含讀音說明（如：「ㄋㄨㄥˋ讀音的詞語」）
+▸ 形近字 / 同音字 / 異音字造詞題（fill_variants）：
+  - 形近字：referenceAnswer 必須包含部首說明（如「(言部)辯：辯護、爭辯」）
+  - 同音字：referenceAnswer 必須包含讀音說明（如「ㄋㄨㄥˋ讀音的詞語」）
+  - 異音字：referenceAnswer 必須包含讀音說明
   - acceptableAnswers 列出標準答案中的所有範例詞
 
-▸ 如果是「異音字造詞題」（如：行（ㄏㄤˊ/ㄒㄧㄥˊ））：
-  - questionCategory: "fill_variants"
-  - referenceAnswer 必須包含讀音說明
-  - acceptableAnswers 列出標準答案中的所有範例詞
-
-▸ 如果是「引導式多段問答題」（如：步驟一/步驟二、承上題選擇並說明）：
-  - 識別特徵：「步驟一/二」「第一步/第二步」「先…再…」
-    或「承上題...請選擇一個...並說明」「根據上題...任選一項...說明」
+▸ 引導式多段問答題（如「步驟一/步驟二」「承上題選擇並說明」）：
   - 必須視為 1 題（不可拆成多題）
-  - questionCategory: "short_answer"
-  - 使用 rubricsDimensions 分階段：
-    • 第一階段（引導）：criteria「完成選擇即可，無對錯」
-    • 第二階段（主要作答）：criteria 依題幹要求推導（見下方接題型規則）
+  - questionCategory: short_answer
+  - rubricsDimensions 分階段：
+    • 第一階段（引導/選擇）：criteria「完成選擇即可，無對錯」
+    • 第二階段（主要作答）：criteria 依題幹要求推導
 
-  ⚠️【接題型（承上題）rubricsDimensions 特別規則】
-  當題幹開頭含有「承上題」「接續上題」「根據上題」等字樣時：
+  ⚠️【接題型 criteria 鐵律】當題幹含「承上題」「接續上題」「根據上題」：
+    1. criteria 必須從【題幹本身】推導，不得從參考答案複製
+    2. 第一階段固定寫：criteria: "任選上題有效選項完成選擇即可，無對錯"
+    3. 第二階段依題幹的說明深度推導，例：
+       - 題幹說「說明以什麼樣的方式達到這樣的意義」
+         → criteria: "具體說明所選層面如何達到效果，不限定選哪個層面"
+    4. ❌ 禁止 criteria 包含特定層面/答案內容
+    ✅ criteria 描述「格式與深度要求」，不限定「內容方向」
 
-  1. rubricsDimensions 的 criteria 必須從【題幹本身】推導，不得從參考答案複製。
-     參考答案只是一個例子的品質示範，不代表唯一正確的說明方向。
-
-  2. 第一階段（選擇）固定寫：
-     criteria: "任選上題有效選項完成選擇即可，無對錯"
-
-  3. 第二階段（說明）依題幹要求的說明深度推導，例如：
-     - 題幹說「說明以什麼樣的方式達到這樣的意義」
-       → criteria: "具體說明客家戲如何達到所選層面的效果，不限定選哪個層面，任一有效層面皆可"
-     - 題幹說「舉例說明」
-       → criteria: "舉出具體例子說明所選層面，例子需與所選層面相符"
-
-  4. referenceAnswer 填寫「說明要求的品質標準」（從題幹推導），而非複製參考答案文字：
-     例：referenceAnswer = "說明需具體，應包含客家戲的做法或機制，不只陳述結論"
-
-  5. ❌ 禁止：criteria 包含特定層面名稱（如「教育」「文化傳承」）或特定說明內容（如「教化人心」「傳遞觀念」）
-     ✅ 允許：criteria 描述說明的「格式與深度要求」，不限定說明的「內容方向」
-
-▸ 如果是「方格框題目」（如：□□□□ 填字格）：
-  - questionCategory: "fill_blank"
-  - 一行連續方格 = 1 題；answer 填入完整詞語（含所有方格的字）
-  - 題號：有引導文字就用，無則按順序編號
-  - 注意：方格可能是直排（由右往左、由上往下）
-
-▸ 如果是「選擇題」（選出正確的字/詞/成語/字義）：
-  單選（答案空間是括號，只填一個代號）：
-  - questionCategory: "single_choice"
-  - answer 填選項代號（如 "A"、"甲"、"①"）
-  - 識別特徵：題目列出 A/B/C/D 或 甲/乙/丙/丁 或 ①②③ 選項，括號( )內填一個
-  多選（答案空間是括號，填多個代號）：
-  - questionCategory: "multi_choice"
-  - answer 填多個代號（逗號分隔），如 "A,C"、"①,③"
-  - 識別特徵：題目說「可複選」「選出所有正確的」，括號( )內填多個
-
-▸ 如果是「是非題」（判斷對錯，○/✗ 或 對/錯）：
-  - questionCategory: "true_false"
-  - answer 統一填 "○"（正確）或 "✗"（錯誤）
-
-▸ 如果是「勾選題」（答案空間是方框 □）：
-  單選勾選（只能標記一個框）：
-  - questionCategory: "single_check"
-  - answer 填一個標記代號（如 "①"、"A"）；無標籤方框用「第X個」
-  - 識別特徵：題目旁有 □ 方框但只能選一個
-  多選勾選（可標記多個框）：
-  - questionCategory: "multi_check"
-  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
-  - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個
-  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含其他），referenceAnswer 填其他欄的文字（若有勾且有文字，去掉括號備注；否則留空）
-
-▸ 如果是「造句題」（根據詞語或句型造句）：
-  - questionCategory: "short_answer"
-  - referenceAnswer 填造句範例
-  - rubricsDimensions: [{"name": "句意通順", "criteria": "造句語意合理、通順"}, {"name": "詞語使用", "criteria": "正確使用指定詞語或句型"}]
-
-▸ 如果是「閱讀測驗簡答題」（根據文章回答問題）：
-  - questionCategory: "short_answer"
-  - referenceAnswer 填評分要點（關鍵字/概念）
-  - rubricsDimensions 依題目要求設定維度（至少兩維）
-  - 社會領域可採「核心結論優先」：核心結論可較高權重，作答依據可較低權重（兩維皆配分）
-
-▸ 如果是「改錯題」（找出並改正錯別字）：
-  - questionCategory: "fill_blank"
+▸ 改錯題（fill_blank 子情境）：
   - answer 填正確的字（不含錯字）
   - 每一個改正位置為一題
-
-▸ 其他題型：
-  - 按照全域規則的顏色辨識原則提取
-  - 保留原始格式，不修正、不美化
 `.trim(),
     數學: `
-【數學領域專屬規則】（優先級：高於全域後備規則）
-⚠️ 以下規則適用於數學作業。若題目符合以下任一類型，直接套用，不需再查全域分類標準。
+【數學領域加成】
 
-領域通用規則：
+領域通用：
 - 數值+單位必須完整（如：5 公分，不是 5）
-- 公式需包含核心部分
-- 提取數字、符號（+、-、×、÷、=）
-- 分數格式：「1/2」或「½」
-- 小數格式：「3.14」
+- 分數格式：「1/2」或「½」；小數格式：「3.14」
+- 提取算術符號（+、−、×、÷、=）
 
-題型判斷與擷取規則：
+▸ word_problem vs calculation 邊界（最關鍵）：
+  - 答題區結尾有「答：___」或「A：___」答句行 → word_problem
+    referenceAnswer 填「算式 + 答句」（如 "35÷4=8.75，答：爸爸的速度是 8.75 公里/時"）
+    rubricsDimensions: [列式計算, 答句]
+    ⚠️ 答句維度 criteria 必須說明：「以『答：』或『A：』開頭，含數字與單位（或完整文字答案）」
+    ⚠️ word_problem 必須用 referenceAnswer，禁止用 answer 欄位
+    ⚠️「算算看」「計算看看」後若有「答：」行 → word_problem，不可改判 calculation
+  - 答題區只有算式、無答句 → calculation
+    referenceAnswer 填數值（如 "360"）
+    rubricsDimensions: [算式過程, 最終答案]
 
-▸ 【最高優先】如果題目有明確填答空格（＿＿＿、(   )、（   ）、□ 內直接填值）：
-  先判斷答案欄的內容型態：
+▸ 填答空格優先：
+  - 即使題目內容含計算/分數換算/百分率換算，只要答題區是單一空格 → 優先 fill_blank
+  - 不要改判 calculation/word_problem
 
-  ├─ 答案欄【只有最終值】（如 "20%"、"12 公分"、"3/4"，沒有算符或中間步驟）：
-  │   - 單一標準答案 → questionCategory: "fill_blank"
-  │   - 多種可接受答案 → questionCategory: "fill_variants"
-  │
-  └─ 答案欄【含完整計算過程】（有算符 ÷、×、+、- 且含中間步驟，如 8÷40=0.2=20%）：
-      → 單一題，questionCategory: "calculation"（不建立額外題號，不拆成兩題）
-        referenceAnswer = 最終數值（如 "55%"、"240"）
-        rubricsDimensions: [
-          {"name": "算式過程", "criteria": "算式方向正確，過程可追蹤"},
-          {"name": "最終答案", "criteria": "最終數值正確"}
-        ]
-      → A、B、C、D 各自建一題（題號保持原題號，如 "1-1-A"、"1-1-B"）
-      ⚠️ 禁止建立 "-p" 結尾的額外題號
-
-▸ 如果是「繪圖題」（在座標平面畫點/線、畫幾何圖形、標註角度等）：
-  - questionCategory: "short_answer"（數學繪圖，非地圖符號）
-  - 使用 rubricsDimensions 分維度：
-    1. 圖形正確性：{"name": "圖形正確性", "criteria": "圖形/線條是否正確"}
-    2. 位置精準度：{"name": "位置精準度", "criteria": "<精準座標>"}
-       • 題目給定精準座標（如：點 A(3, 5)）→ criteria：「必須在座標 (3, 5) 附近（允許誤差 ±0.5）」
-       • 題目只給範圍（如：第一象限）→ criteria：「必須在第一象限內」
-    3. 標註完整性：{"name": "標註完整性", "criteria": "必要標註是否完整"}
-
-▸ 如果是「應用題」（有情境敘述、需列式計算並寫答句）：
-  - questionCategory: "word_problem"
-  - 使用 rubricsDimensions，必須包含以下維度（依題目配分拆分）：
-    1. 列式計算：{"name": "列式計算", "criteria": "算式正確、過程清楚"}
-    2. 答句：{"name": "答句", "criteria": "必須以「答：」或「A：」開頭，寫出完整答句（含數字與單位，或完整文字答案如甲班、教師節）"}
-  - 識別特徵：題目包含情境（人名、物品、數量關係描述）且有空白答句區（如「答：＿＿＿」）
-  - 前提：不符合上方「填答空格優先」規則時才可歸類為 word_problem。
-
-▸ 如果是「勾選題」（答案空間是方框 □）：
-  單選勾選（只能標記一個框）：
-  - questionCategory: "single_check"
-  - answer 填一個標記代號；無標籤方框用「第X個」
-  多選勾選（可標記多個框）：
-  - questionCategory: "multi_check"
-  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
-  - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
-  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含其他），referenceAnswer 填其他欄的文字（若有勾且有文字，去掉括號備注；否則留空）
-
-▸ 其他題型：
-  - 按照全域規則的顏色辨識原則提取
-  - 保留原始格式，不修正、不美化
+▸ 比例式格式（word_problem 特化）：
+  學生可能寫「箭頭式」「÷N 標註式」「括號 + 除以式」三種比例式表達。
+  rubric 評分時，列式維度應接受任一種比例式格式為合格列式。
 `.trim(),
     英語: `
-【英語領域專屬規則】（優先級：高於全域後備規則）
-⚠️ 以下規則適用於英語作業。若題目符合以下任一類型，直接套用，不需再查全域分類標準。
+【英語領域加成】
 
-領域通用規則：
-- 拼字/大小寫需精確
-- 保留大小寫（如：Apple ≠ apple）
-- 保留標點符號（如：Hello! ≠ Hello）
-- 保留撇號（don't、it's）
-- 保留連字號（twenty-one）
-- 保留空格（I am ≠ Iam）
-
-題型判斷與擷取規則：
-
-▸ 如果是「選擇題」（答案空間是括號 ( )）：
-  單選（填一個代號）：
-  - questionCategory: "single_choice"
-  - answer 填選項代號（如 "A"、"B"）
-  多選（填多個代號）：
-  - questionCategory: "multi_choice"
-  - answer 填多個代號（逗號分隔），如 "A,C"
-
-▸ 如果是「勾選題」（答案空間是方框 □）：
-  單選勾選（只能標記一個框）：
-  - questionCategory: "single_check"
-  - answer 填一個標記代號；無標籤方框用「第X個」
-  多選勾選（可標記多個框）：
-  - questionCategory: "multi_check"
-  - answer 填正確勾選集合（逗號分隔），如 "A,C" 或 "①,③"；無標籤方框用「第X個」（如「第一個,第三個」）
-  - 識別特徵：題目說「check all」「tick all that apply」，且可選多個
-
-▸ 其他題型：
-  - 按照全域規則的顏色辨識原則提取字母、單詞、句子
-  - 嚴格保留原始拼寫格式
-`.trim(),
-    社會: `
-【社會領域專屬規則】（優先級：高於全域後備規則）
-⚠️ 以下規則適用於社會作業。若題目符合以下任一類型，直接套用，不需再查全域分類標準。
-
-領域通用規則：
-- 專注同音異字（如：九州≠九洲）
-
-⚠️【社會領域 任選/自選題 通用鐵律】（適用所有題型）
-當題幹出現「任選」「選出 N 個」「挑選」或學生可從多個選項中自由選擇時：
-1. criteria 絕對不可包含特定的人名、地名、事件名、項目名稱
-   ❌ "正確填入人物『斯文豪』" ← 限定了特定答案
-   ❌ "說明鐵路建設的影響" ← 限定了特定項目
-   ✅ "填入題目提供的任一有效人物即可" ← 不限定選誰
-   ✅ "說明所選人物/建設的具體影響，邏輯合理" ← 不限定哪一個
-2. criteria 只評內容品質，不要求特定書寫格式
-   ❌ "使用因為...所以...格式" ← 格式不是評分標準
-   ✅ "理由合理且與所選相符" ← 只看內容
-3. 具體的人名/項目名稱只能出現在 referenceAnswer（作為參考示範）
-4. 多行/多格的任選題，所有行的 criteria 必須相同（通用寫法），只有 referenceAnswer 不同
-
-題型判斷與擷取規則：
-
-▸ 如果是「填圖題」（在空白地圖上填寫國名、地名、河流名稱等）：
-  - 整張地圖視為 1 題（questionId = "1"）
-  - questionCategory: "map_fill"
-  - answer：列出所有正確的對應，例如 "A=泰國, B=越南, C=緬甸, ..."
-  - referenceAnswer（⚠️ 必填，且必須包含每個答案的地理相對位置描述）：
-    逐一描述地圖上每個標記位置與對應的正確名稱。
-    必須用「方位詞」或「相鄰關係」描述每個答案在地圖上的位置，
-    這是批改時判斷學生是否「填對位置」的唯一依據。
-    ❌ 禁止只列出國名/地名而省略位置描述（如「包含：摩洛哥、阿爾及利亞」）。
-    ✅ 必須像這樣寫：「地圖最左上方為摩洛哥，摩洛哥右側（東方）為阿爾及利亞，
-       阿爾及利亞右側為突尼西亞，突尼西亞下方（南方）為利比亞，
-       利比亞右側為埃及，埃及南方為蘇丹。」
-    若地圖有標記代號（A、B、C…），也要寫出：「標記A（左上方）為泰國，標記B（中間偏右）為越南…」
-  - acceptableAnswers：列出所有正確國名/地名（不含位置），例如 ["泰國","越南","緬甸","柬埔寨","寮國"]
-  - maxScore：依題目配分（例如每個正確答案2分，共5個=10分）
-
-▸ 如果是「圖表代號填入題」（在地圖/流程圖/示意圖的空白框中填入代號，非地名，如 ㄅ、ㄆ、ㄇ 或 甲、乙）：
-  ⚠️ 不要歸類為 map_fill（map_fill 只用於填地名/國名）
-  - 每個空白框獨立為一題（拆成子題，如 1-1、1-2、1-3）
-  - questionCategory: "multi_fill"
-  - answer：填入該框應填的代號集合，例如 "ㄅ、ㄇ、ㄉ"（順序無關）
-  - referenceAnswer：描述該框在圖表中的位置/語意，例如 "由大陸指向臺灣的進口箭頭方框"
-  - maxScore：依題目各框配分
-
-  ⚠️【無題號時的子題 id 指派順序】
-  當空白框沒有印刷題號標示時，必須按以下固定順序指派子題 id（避免每次擷取順序不同）：
-  - 主要排序：**由上而下**（y 座標由小到大）
-  - 同一行有多格：**由左而右**（x 座標由小到大）
-  - ⚠️ 禁止依語意或重要性重排順序；必須完全依視覺位置由上而下、左而右編號
-  - referenceAnswer 必須描述該框的位置特徵（如「上方方框」「下方方框」「左側框」），方便老師核對 id 是否與實際位置吻合
-
-  - 範例：清帝國貿易圖有3個方框→拆成3題
-    → id: "1-1", questionCategory: "multi_fill", answer: "ㄅ、ㄇ、ㄉ", referenceAnswer: "最上方方框：由大陸指向臺灣的進口箭頭"
-    → id: "1-2", questionCategory: "multi_fill", answer: "ㄆ、ㄊ", referenceAnswer: "中間方框：由臺灣指向日本的出口箭頭"
-    → id: "1-3", questionCategory: "multi_fill", answer: "ㄆ、ㄈ", referenceAnswer: "最下方方框：由臺灣指向大陸的出口箭頭"
-
-▸ 如果是「繪圖/標記題」（在地圖上標註位置、畫符號、標記座標等）：
-  - questionCategory: "map_draw"
-  - 使用 rubricsDimensions 分成兩個維度：
-    1. 符號正確性：{"name": "符號正確性", "criteria": "符號是否正確"}
-    2. 位置精準度：{"name": "位置精準度", "criteria": "<精準座標要求>"}
-
-  🚨 位置精準度的 criteria 設定：
-  - 優先抓取題目中的精準座標（如：東經 151.4°E、北緯 15°N）
-  - 題目明確給定精準座標 → criteria：「必須標註在東經 151.4°E、北緯 15°N 附近（允許誤差 ±1°以內）」
-    ❌ 錯誤：「經度 121°E 以東，23.5°N 以北」（範圍過於寬鬆）
-    ✅ 正確：「必須標註在東經 151.4°E、北緯 15°N 附近（允許誤差 ±1°以內）」
-  - 題目沒有精準座標，只給範圍描述 → criteria 才使用範圍
-
-  ⚠️ 符號對 ≠ 答案對，必須同時檢查符號和位置
-
-▸ 如果是「圈選/勾選 + 說明理由題」（先選一個選項，再說明選擇的理由）：
-  識別特徵（符合任一即為此類型）：
-  - 題目要求學生先圈選或勾選某一選項，再說明理由
-  - 題目同時包含「選項/勾選/圈選」AND「說明理由/判斷的理由：___」空白欄
-  - 常見句式：「我會（支持/反對）：因為...」「先圈選，再說明理由」
-    「在□裡打✓，並說明判斷的理由」「根據以下文物...並說明與XX哪一項較有關係？」
-
-  ⚠️ 擷取規則（最高優先）：
-  - 必須視為【1 題】（絕對不可拆成「圈選」和「理由」兩題）
-  - questionCategory: "short_answer"
-
-  ⚠️【關鍵】圈選部分必須先判斷是「自選」還是「必選」，依以下四層順序判斷（優先級由高到低）：
-
-  ① 題幹關鍵字：
-     看到「任選」「你的看法」「你認為」「你覺得」           → 自選
-     看到「判斷」「哪一項正確」「屬於哪個」「根據...判斷」  → 必選
-
-  ② 選項內容：
-     選項是立場對立詞（支持/反對、贊成/不贊成、同意/不同意）→ 自選
-     選項是事實性名詞（歷史時期、人物、地名、科學概念）      → 必選
-
-  ③ 答案卷紅筆：
-     老師只在一個選項上標記紅筆（圈選/打勾/寫字）→ 必選
-     老師沒有圈特定選項 / 兩邊都寫了參考理由     → 自選
-
-  ④ 配分提示：
-     出現「圈選正確答案 N 分」→ 必選
-     出現「圈選 N 分」（沒說「正確」）→ 自選
-
-  → 判斷為【自選】時：
-    - answer 欄位留空或填 "自選"
-    - 圈選維度 criteria: "有圈選或勾選任一選項即可，無對錯"
-    - 理由維度 criteria: "說明的理由與所選選項一致且合理"（不限定選哪個）
-    - referenceAnswer 填參考理由示範，不限定立場
-
-  → 判斷為【必選】時：
-    - answer 欄位填正確選項（如 "反對"、"清領時期"）
-    - 圈選維度 criteria: "必須圈選正確選項"
-    - 理由維度 criteria: "說明的理由能支持正確選項，邏輯合理"
-    - referenceAnswer 填正確選項 + 參考理由
-
-  rubricsDimensions 設定：
-    • 若答案卷明確標示各項配分（如「圈選1分，理由符合所選1分，語句通順1分，共3分」）→ 直接依標示設定維度名稱和各維度 maxScore
-    • 若未標示 → 預設維度：
-      1.「圈選」— criteria 依上述自選/必選規則
-      2.「理由說明」— criteria 依上述自選/必選規則
-      3.「語句通順」（若有對應配分才設）— criteria: "語句表達清楚通順"
-
-  ⚠️ 此題型包含「文物/圖片佐證題」（看圖勾選+判斷理由）：
-    通常為【必選】（有正確的歷史時期/事件），此時：
-    - 「理由說明」的 criteria 應為「能指出圖示中的具體文物或符號，並說明其與所選選項的關聯」
-    - 不得要求學生解釋所選概念的功能或歷史背景
-
-▸ 如果是「任選項目+逐項說明題」（從清單任選 N 項，表格或分行逐一說明）：
-  觸發條件（必須【同時】滿足以下三點，缺一則不適用此規則）：
-  ① 題幹明確出現「任選」「選出」「挑選」N 項（N ≥ 2）等字樣，且選項來自一組已知清單
-  ② 提供表格或分行格式（如「第一項/第二項」「項目一/項目二」或編號行），每行同時有「選了什麼」欄 + 「說明/理由」欄
-  ③ 說明欄的寬度明顯大於選擇欄（學生需要寫一句話以上的說明，而非只填代號或名詞）
-
-  ⚠️ 與 multi_fill 的區分（最重要）：
-  - multi_fill = 每格填 1-3 個字的代號/名詞，每格有唯一正確答案，精確匹配
-  - 本題型 = 每行需寫一句話以上的說明，任選無唯一正確答案，用 rubricsDimensions 評分
-  → 如果每格只需填短詞且有固定答案 → 不是本題型，請用 multi_fill
-
-  擷取規則：
-  ❌ 禁止：把同一行的「選擇」和「說明」拆成兩題
-  ❌ 禁止：把所有行合併成一大題
-  ❌ 禁止：歸類為 multi_fill
-  ✅ 正確：每一行 = 獨立 1 題 short_answer
-
-  - questionCategory: "short_answer"
-  - orderMode: "unordered"，所有行共用同一 unorderedGroupId（因為任選，順序無關）
-  - rubricsDimensions（每行）：
-    • 若答案卷標示了各項配分 → 依標示設定維度名稱和各維度 maxScore
-    • 若未標示 → 預設兩維度：
-      1.「選擇」— criteria: "有填入清單中任一有效項目即可"
-      2.「理由說明」— criteria: "說明所選項目的影響或理由，內容合理且與所選相符"
-    ⚠️【任選題 criteria 鐵律一】因為是「任選」，每一行的 criteria 絕對不可包含特定項目名稱！
-      ❌ 錯誤 criteria: "勾選「鐵路」" ← 限定了特定答案，會導致選其他項目的學生被判錯
-      ❌ 錯誤 criteria: "選擇電報並說明" ← 同上
-      ✅ 正確 criteria: "有填入清單中任一有效項目即可" ← 不限定選哪個
-      ✅ 正確 criteria: "說明所選建設對做生意的具體影響，邏輯合理" ← 不限定哪個建設
-    → 具體的項目名稱只能出現在 referenceAnswer（作為參考示範），不可出現在 criteria
-    ⚠️【任選題 criteria 鐵律二】criteria 只評內容品質，不要求特定書寫格式！
-      題目中的「因為...所以...」「請用...說明」是引導學生作答的句式，不是評分標準。
-      ❌ 錯誤 criteria: "使用因為...所以...格式" ← 格式要求會在寬鬆模式下誤扣分
-      ❌ 錯誤 criteria: "必須包含因為和所以兩個關鍵字" ← 同上
-      ✅ 正確 criteria: "說明所選建設的影響，邏輯合理" ← 只看內容是否合理
-    → 學生用自己的方式表達合理理由即可給分，不強制特定句式
-  - referenceAnswer: 填該行的參考答案示範（可包含具體項目名稱，因為只是範例）
-  - answerBbox: 必須涵蓋整行（選擇欄 + 說明欄），不可只框說明欄
-
-  範例：
-  題目：「任選兩項現代化建設，用因為...所以...說明對做生意的影響」
-  表格：第一項 [建設名稱] [因為...所以...]
-        第二項 [建設名稱] [因為...所以...]
-  → 輸出 2 題（假設此大題是第 8 題）：
-    { "id": "8-1", "questionCategory": "short_answer", "maxScore": 3,
-      "orderMode": "unordered", "unorderedGroupId": "8",
-      "referenceAnswer": "（鐵路）以前主要靠船運送貨物，因為鐵路建設縮短了運輸時間，所以做起生意更方便",
-      "rubricsDimensions": [
-        { "name": "選擇", "maxScore": 1, "criteria": "有填入清單中任一有效項目即可" },
-        { "name": "理由說明", "maxScore": 2, "criteria": "說明所選建設對做生意的具體影響，邏輯合理" }
-      ] }
-    { "id": "8-2", "questionCategory": "short_answer", "maxScore": 3,
-      "orderMode": "unordered", "unorderedGroupId": "8",
-      "referenceAnswer": "（電報）因為電報建設讓資訊傳遞更快速，縮短等待時間，所以可以做更多生意",
-      "rubricsDimensions": [
-        { "name": "選擇", "maxScore": 1, "criteria": "有填入清單中任一有效項目即可" },
-        { "name": "理由說明", "maxScore": 2, "criteria": "說明所選建設對做生意的具體影響，邏輯合理" }
-      ] }
-
-▸ 如果是「簡答題」（解釋、說明原因、比較異同）：
-  - questionCategory: "short_answer"
-  - referenceAnswer 填「核心結論」或關鍵重點
-  - rubricsDimensions 必須至少兩維，且可採核心結論優先：
-    1. 核心結論（主要分數，語意相符即可）
-    2. 作答依據（次要分數，檢查是否有引用題幹或文本）
-  - 規則：核心結論是判定重點；作答依據可作次要加減分
-
-▸ 如果是「勾選題」（答案空間是方框 □）：
-  單選勾選（只能標記一個框）：
-  - questionCategory: "single_check"
-  - answer 填一個標記代號；無標籤方框用「第X個」
-  多選勾選（可標記多個框）：
-  - questionCategory: "multi_check"
-  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
-  - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
-  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含其他），referenceAnswer 填其他欄的文字（若有勾且有文字，去掉括號備注；否則留空）
-
-▸ 其他題型：
-  - 按照全域規則的顏色辨識原則提取
-  - 保留原始格式，不修正、不美化
-`.trim(),
-    自然: `
-【自然領域專屬規則】（優先級：高於全域後備規則）
-⚠️ 以下規則適用於自然作業。若題目符合以下任一類型，直接套用，不需再查全域分類標準。
-
-領域通用規則：
-- 名詞/數值/單位必須完整
-
-題型判斷與擷取規則：
-
-▸ 如果是「繪圖/標註題」（繪製實驗裝置圖、標註器官/部位、畫食物鏈/食物網等）：
-  - questionCategory: "short_answer"（自然繪圖，非地圖符號）
-  - 使用 rubricsDimensions 分維度：
-    • 圖形正確性
-    • 標註正確性
-    • 完整性
-
-▸ 如果是「勾選題」（答案空間是方框 □）：
-  單選勾選（只能標記一個框）：
-  - questionCategory: "single_check"
-  - answer 填一個標記代號；無標籤方框用「第X個」
-  多選勾選（可標記多個框）：
-  - questionCategory: "multi_check"
-  - answer 填正確勾選集合（逗號分隔），如 "①,③" 或 "A,C"；無標籤方框用「第X個」（如「第一個,第三個」）
-  - 識別特徵：題目說「請勾出」「請選出所有」「打✓」，且可選多個；或題目旁有多個勾選框
-  - ⚠️ 若最後一個選項是「□其他：___」開放填寫欄位 → 改用 questionCategory: "multi_check_other"，answer 只填固定選項中被標記✓的選項（不含其他），referenceAnswer 填其他欄的文字（若有勾且有文字，去掉括號備注；否則留空）
-
-▸ 其他題型：
-  - 按照全域規則的顏色辨識原則提取
-  - 保留原始格式，不修正、不美化
-`.trim()
-  }
-
-  // 其他領域使用通用規則
-  const defaultDomain = `
-【${domain}領域】
-
-領域通用規則：
-- 按照全域規則的顏色辨識原則提取
-- 保留原始格式，不修正、不美化
-
-題型判斷與擷取規則：
+領域通用：
+- 拼字/大小寫需精確（Apple ≠ apple）
+- 保留標點符號（Hello! ≠ Hello）
+- 保留撇號（don't、it's）、連字號（twenty-one）、空格（I am ≠ Iam）
 
 ▸ 所有題型：
-  - 提取彩色筆跡內容作為答案
-  - 保留原始格式
+  - 嚴格保留原始拼寫格式
+  - 不修正錯字、不補大寫
+`.trim(),
+    社會: `
+【社會領域加成】
+
+領域通用：
+- 專注同音異字（如：九州 ≠ 九洲）
+- 紅色內容是答案，但人名/地名/事件名「即使紅色」也只是參考答案，不限唯一
+
+⚠️【任選/自選題 criteria 通用鐵律】（適用所有題型）
+當題幹出現「任選」「選出 N 個」「挑選」或學生可從多個選項自由選擇時：
+1. criteria 絕對不可包含特定的人名、地名、事件名、項目名稱
+   ❌ "正確填入人物『斯文豪』"（限定特定答案）
+   ❌ "說明鐵路建設的影響"（限定特定項目）
+   ✅ "填入題目提供的任一有效人物即可"
+   ✅ "說明所選人物/建設的具體影響，邏輯合理"
+2. criteria 只評內容品質，不要求特定書寫格式
+   ❌ "使用因為...所以...格式"
+   ✅ "理由合理且與所選相符"
+3. 具體名稱只能出現在 referenceAnswer（作為示範），不在 criteria
+4. 多行/多格的任選題，所有行的 criteria 必須相同（通用寫法），只有 referenceAnswer 不同
+
+▸ 圈選說明題識別（compound_circle_with_explain 特化）：
+  - 識別特徵：題目要求學生先圈選/勾選一個選項，再說明理由
+  - 句式：「我（同意/不同意）：因為...」「先圈選，再說明理由」「在□裡打✓，並說明判斷的理由」
+  - 必須視為 1 題（絕對不可拆成「圈選」+「理由」兩題）
+  - questionCategory 三選一：
+    • 圈印刷選項 + 說明 → compound_circle_with_explain
+    • □ 打勾 + 說明 → compound_check_with_explain
+    • 寫代號 + 說明 → compound_writein_with_explain
+
+  ⚠️【圈選部分自選 vs 必選判斷】（依以下 4 層順序判斷）：
+  ① 題幹關鍵字：
+     「任選」「你的看法」「你認為」「你覺得」 → 自選
+     「判斷」「哪一項正確」「屬於哪個」「根據...判斷」 → 必選
+  ② 選項內容：
+     立場對立詞（支持/反對、贊成/不贊成）→ 自選
+     事實性名詞（歷史時期、人物、地名、科學概念）→ 必選
+  ③ 答案卷紅筆：
+     老師只在一個選項上標記紅筆 → 必選
+     沒圈特定選項 / 兩邊都寫了參考理由 → 自選
+  ④ 配分提示：
+     「圈選正確答案 N 分」 → 必選
+     「圈選 N 分」（沒說「正確」）→ 自選
+
+  → 自選：answer 留空或填 "自選"；圈選維度 criteria："有圈選任一選項即可，無對錯"；
+        理由維度 criteria："說明的理由與所選選項一致且合理"
+  → 必選：answer 填正確選項（如 "反對"、"清領時期"）；圈選維度 criteria："必須圈選正確選項"；
+        理由維度 criteria："說明的理由能支持正確選項，邏輯合理"
+
+  rubricsDimensions 預設兩維（若答案卷有明確配分標示則依標示）：
+    1.「圈選」 — 依上述自選/必選規則
+    2.「理由說明」 — 依上述自選/必選規則
+    （若有「語句通順」獨立配分，加第 3 維 criteria: "語句表達清楚通順"）
+
+▸ 任選+逐項說明題（多行 short_answer 特化）：
+  觸發條件（必須同時滿足）：
+  ① 題幹明確「任選 N 項」「選出 N 個」「挑選 N 個」（N ≥ 2）
+  ② 表格或分行格式，每行有「選擇欄」+「說明欄」
+  ③ 說明欄寬度明顯大於選擇欄（學生需寫一句話以上）
+  ❌ 禁止：拆成兩題（選擇 + 說明）
+  ❌ 禁止：合併成一大題
+  ❌ 禁止：歸 multi_fill
+  ✅ 正確：每一行 = 獨立 1 題 short_answer
+  - orderMode: "unordered"，所有行共用 unorderedGroupId
+  - rubricsDimensions（每行）：
+    1.「選擇」 criteria: "有填入清單中任一有效項目即可"
+    2.「理由說明」 criteria: "說明所選項目的影響或理由，內容合理且與所選相符"
+  ⚠️ 任選題鐵律：每行 criteria 不可包含特定項目名稱（見上方通用鐵律）
+  ⚠️ answerBbox 必須涵蓋整行（選擇欄 + 說明欄）
+
+▸ 圖表代號填入題（multi_fill 特化）：
+  - 在地圖/流程圖/示意圖的空白框中填入代號（非地名，如 ㄅ、ㄆ、ㄇ 或 甲、乙）
+  - 不要歸類為 map_fill（map_fill 只用於填地名/國名）
+  - 每個空白框獨立為一題（拆成子題）
+  - referenceAnswer 描述該框在圖中的位置/語意
+  - 子題 id 排序：由上而下（y 由小到大），同行由左而右（x 由小到大）
+
+▸ map_fill 必填位置描述（重要）：
+  - referenceAnswer 必須包含每個答案的地理相對位置描述
+  - 用「方位詞」或「相鄰關係」描述每個答案在地圖上的位置
+  - ❌ 禁止只列國名（如「包含：摩洛哥、阿爾及利亞」）
+  - ✅ 必須像：「地圖最左上方為摩洛哥，摩洛哥右側（東方）為阿爾及利亞...」
+  - 若有印刷標記代號（A、B、C），寫「標記A（左上方）為泰國...」
+
+▸ map_draw 位置精準度（重要）：
+  - 優先抓取題目中的精準座標（如：東經 151.4°E、北緯 15°N）
+  - criteria：「必須標註在東經 151.4°E、北緯 15°N 附近（允許誤差 ±1°以內）」
+  - ❌ 範圍過於寬鬆（如「經度 121°E 以東」）
+`.trim(),
+    自然: `
+【自然領域加成】
+
+領域通用：
+- 名詞/數值/單位必須完整
+- 化學式保留下標（H₂O、CO₂）
+
+▸ 自然繪圖/標註題（rubric_text 或 rubric_draw 特化）：
+  - 實驗裝置圖、標註器官/部位、畫食物鏈/食物網等
+  - 使用 rubricsDimensions 分維度：圖形正確性 / 標註正確性 / 完整性
+`.trim(),
+  }
+
+  const defaultDomain = `
+【${domain}領域】
+- 按通則的顏色辨識原則提取（紅色 = 答案）
+- 保留原始格式，不修正、不美化
 `.trim()
 
   return domainMap[domain] || defaultDomain
@@ -1739,8 +1505,9 @@ function buildDomainRulesWithDecisionTree(domain: string = '其他'): string {
  */
 function buildInferFromBlankPrompt(domain?: string): string {
   const domainLabel = domain || '小學'
-  const domainRules = buildDomainRulesWithDecisionTree(domain || '其他')
-  const classificationFallback = buildGlobalClassificationFallback()
+  const decisionTree = buildDecisionTree()
+  const typeSpecs = buildTypeSpecs()
+  const domainRefinements = buildDomainRefinements(domain || '其他')
 
   return `
 你是一位台灣${domainLabel}老師，請看這份**空白習作**圖片，推論每題的正確標準答案，建立 AnswerKey。
@@ -1755,9 +1522,11 @@ function buildInferFromBlankPrompt(domain?: string): string {
 - 看到空白框（□）旁邊有注音 → 請填入對應的正確國字
 - 每一個空白框是獨立的一題，不要把多個框合併
 
-${domainRules}
+${decisionTree}
 
-${classificationFallback}
+${typeSpecs}
+
+${domainRefinements}
 
 【輸出格式（JSON）】
 {
@@ -1765,7 +1534,7 @@ ${classificationFallback}
     {
       "id": "1-1",
       "questionCategory": "fill_blank",
-      "type": 1,
+      "bucket": "A",
       "answer": "彰",
       "maxScore": 1
     }
@@ -1778,15 +1547,16 @@ ${classificationFallback}
 }
 
 /**
- * 建立答案提取 Prompt（重構版 - 決策樹架構）
+ * 建立答案提取 Prompt（重構版 — 決策樹 + 25 type specs + 領域加成）
  */
 function buildAnswerKeyPrompt(domain?: string): string {
   const taskAndFormat = buildGlobalTaskAndFormat()
-  const domainRules = buildDomainRulesWithDecisionTree(domain || '其他')
-  const classificationFallback = buildGlobalClassificationFallback()
+  const decisionTree = buildDecisionTree()
+  const typeSpecs = buildTypeSpecs()
+  const domainRefinements = buildDomainRefinements(domain || '其他')
 
-  // 正確順序：task 說明 → 領域規則（高優先）→ 全域後備分類
-  return [taskAndFormat, domainRules, classificationFallback].filter(Boolean).join('\n\n')
+  // 順序：通則 → 決策樹 → 25 type specs（含 bbox） → 領域加成
+  return [taskAndFormat, decisionTree, typeSpecs, domainRefinements].filter(Boolean).join('\n\n')
 }
 
 function roundToTenth(value: number): number {
@@ -1917,7 +1687,13 @@ function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: 
  * Only applies to single_choice, multi_choice, multi_fill, multi_check, single_check
  */
 function normalizeChoiceAnswerSymbols(question: AnswerKeyQuestion): AnswerKeyQuestion {
-  const choiceTypes = new Set(['single_choice', 'multi_choice', 'multi_fill', 'multi_check', 'single_check'])
+  // OCR 符號正規化適用的「選擇/勾選」類 type（含新增的 circle_select_*）
+  const choiceTypes = new Set([
+    'single_choice', 'multi_choice',
+    'circle_select_one', 'circle_select_many',
+    'single_check', 'multi_check',
+    'multi_fill',
+  ])
   if (!question.questionCategory || !choiceTypes.has(question.questionCategory)) return question
   if (typeof question.answer !== 'string' || !question.answer.trim()) return question
 
@@ -3854,15 +3630,32 @@ async function gradeSubmissionWithPreparedImage(
 }
 
 // ── Answer Key Quality Gate (client-side, mirrors server-side validateAnswerKeyQuality) ──
+// 25 種 type 全部列出（與 db.ts 的 QuestionCategory enum 同步）
 const AK_VALID_CATEGORIES = new Set([
-  'fill_blank', 'single_choice', 'true_false', 'multi_check', 'multi_choice',
-  'multi_check_other', 'single_check', 'word_problem', 'calculation',
-  'short_answer', 'matching', 'map_fill', 'multi_fill', 'map_draw',
-  'diagram_draw', 'diagram_color', 'fill_variants'
+  // Bucket A
+  'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
+  'single_check', 'multi_check', 'true_false', 'fill_blank', 'multi_fill',
+  'matching', 'ordering', 'mark_in_text',
+  // Bucket B
+  'fill_variants', 'map_fill',
+  // Bucket C
+  'short_answer', 'calculation', 'word_problem', 'map_draw', 'diagram_draw', 'diagram_color',
+  // Bucket D
+  'compound_circle_with_explain', 'compound_check_with_explain',
+  'compound_writein_with_explain', 'multi_check_other', 'compound_judge_with_correction',
 ])
+
+// 必須填 answer 欄位的 type（精確比對 + 部分複合題）
 const AK_ANSWER_REQUIRED = new Set([
-  'fill_blank', 'single_choice', 'true_false', 'multi_check', 'multi_choice',
-  'multi_check_other', 'single_check', 'fill_variants'
+  // Bucket A 全部
+  'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
+  'single_check', 'multi_check', 'true_false', 'fill_blank', 'multi_fill',
+  'matching', 'ordering', 'mark_in_text',
+  // Bucket B 雖然主用 referenceAnswer，但 fill_variants 仍可能有 answer
+  'fill_variants',
+  // Bucket D 中含「精確比對」部分的題型
+  'compound_circle_with_explain', 'compound_check_with_explain',
+  'compound_writein_with_explain', 'multi_check_other', 'compound_judge_with_correction',
 ])
 
 /**
@@ -4351,6 +4144,7 @@ export async function gradePhaseA(
     ...(sid ? { inkSessionId: sid } : {}),
     routeKey: 'grading.phase_a',
     answerKey: JSON.stringify(normalizedAnswerKey),
+    ...(domain ? { domain } : {}),
     ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
     ...(assignmentId ? { assignmentId } : {}),
     ...(submissionId ? { submissionId } : {}),
@@ -4424,6 +4218,7 @@ export async function gradeClassifyOnly(
       routeKey: 'grading.phase_a',
       answerKey: JSON.stringify(normalizedAnswerKey),
       classifyOnly: true,
+      ...(domain ? { domain } : {}),
       ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
       ...(assignmentId ? { assignmentId } : {}),
       ...(submissionId ? { submissionId } : {}),
@@ -4472,6 +4267,7 @@ export async function gradeWithBboxOverrides(
       routeKey: 'grading.phase_a',
       answerKey: JSON.stringify(normalizedAnswerKey),
       bboxOverrides,
+      ...(domain ? { domain } : {}),
       ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
       ...(assignmentId ? { assignmentId } : {}),
       ...(submissionId ? { submissionId } : {}),

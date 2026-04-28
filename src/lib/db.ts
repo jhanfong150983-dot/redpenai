@@ -28,34 +28,191 @@ export interface Rubric {
   levels: RubricLevel[]
 }
 
+/**
+ * @deprecated 改用 QuestionBucket ('A'|'B'|'C'|'D')
+ * 1=唯一答案(精確), 2=多答案可接受(模糊), 3=依表現給分(評價)
+ * 保留此類型僅供讀取舊資料（向後相容），新寫入應使用 bucket 欄位。
+ */
 export type QuestionCategoryType = 1 | 2 | 3
 
 /**
- * 題型分類（老師視角）
- * 取代抽象的 type: 1|2|3，直接以題型名稱描述批改規則。
- * Internal type 1/2/3 從此欄位自動 derive（向後兼容）。
+ * 題型分類大類（Bucket）— 用學生作答行為分類
+ * - 'A' = 標準答案 + 精確比對（pick / fill / match 系列）
+ * - 'B' = 標準答案 + 容多元（fill_variants / map_fill）
+ * - 'C' = Rubric 給分（自由文字、計算、繪圖、塗色）
+ * - 'D' = 複合題（標準答案 + Rubric 並存：圈選+說明、勾選+其他、判斷+改正）
+ */
+export type QuestionBucket = 'A' | 'B' | 'C' | 'D'
+
+/**
+ * 題型分類（老師視角，行為導向）
+ * 每一個 type 對應一種「學生作答方式」：寫代號、圈選、打勾、填值、連線、繪圖...
+ * type 是傳給 Read 的核心資訊；Read 看 type 就知道該找什麼視覺特徵。
+ *
+ * Bucket 分類見 QUESTION_CATEGORY_TO_BUCKET。
  */
 export type QuestionCategory =
-  | 'single_choice'  // 單選選擇：在括號()內填一個代號（A/甲/①），二元給分
-  | 'multi_choice'   // 多選選擇：在括號()內填多個代號（逗號分隔，如"A,C"），部分給分
-  | 'single_check'   // 單選勾選：在方框□內標記一個選項（✓/○/×），二元給分
-  | 'multi_check'       // 多選勾選：在方框□內標記多個選項，部分給分
-  | 'multi_check_other' // 多選勾選（含其他）：同 multi_check，但最後一個選項是開放填寫的「其他：___」，不計入勾選分數
-  | 'true_false'     // 是非題：二元判斷（○/✗）
-  | 'fill_blank'     // 填充題：唯一正解，單位嚴格比對
-  | 'fill_variants'  // 填充題（多元）：多種說法皆可（造詞、近義詞）
-  | 'calculation'    // 計算題：純算式，列式過程+數值答案，不查單位
-  | 'word_problem'   // 應用題：數學情境題，需列式+答句含單位/文字
-  | 'short_answer'   // 簡答題：非數學文字說明，按關鍵概念給分
-  | 'map_fill'       // 填圖題：地圖多位置填文字，位置-名稱配對
-  | 'map_draw'       // 繪圖題：地圖符號/格紙幾何/連線圖，符號類型+位置精準度
-  | 'diagram_draw'   // 圖表繪製題：繪製長條圖/圓餅圖等，標籤+數值
-  | 'diagram_color'  // 塗色題：在預印圖形上塗色/填色，判斷比例/位置/範圍正確
-  | 'matching'       // 連連看：左欄項目畫線連到右欄項目，每個子題對應一個配對
-  | 'multi_fill'     // 多項填入題：空白框手寫多個代號（如ㄅ、ㄇ），無勾選動作，順序無關，集合比對
-  // 預留未來擴充：
-  // | 'ordering'       // 排序題
-  // | 'diagram_label'  // 標示圖題
+  // ── Bucket A：標準答案 + 精確比對 ──
+  | 'single_choice'        // 選擇題：空括號 + 寫代號 1 個（A/甲/①）
+  | 'multi_choice'         // 多選選擇題：空括號 + 寫多個代號（A,C）
+  | 'circle_select_one'    // 圈選題：括號內預印選項（同意／不同意），圈 1 個
+  | 'circle_select_many'   // 多選圈選題：括號內預印選項，圈多個
+  | 'single_check'         // 勾選題：□ 打勾 1 個
+  | 'multi_check'          // 多選勾選題：□ 打勾多個
+  | 'true_false'           // 是非題：括號內手寫 ○ 或 ✗
+  | 'fill_blank'           // 填空題：____ ／ □ ／ 表格儲存格 填 1 個值
+  | 'multi_fill'           // 多項填空題：多空格填多值（順序無關）
+  | 'matching'             // 連連看：1對1/1對多/多對多 連線
+  | 'ordering'             // 排序題：在格內填序號 1-N
+  | 'mark_in_text'         // 圈詞題：在文章中圈出特定詞語
+  // ── Bucket B：標準答案 + 容多元 ──
+  | 'fill_variants'        // 多元填空題：單一空格容多種說法
+  | 'map_fill'             // 填圖題：地圖多位置-名稱配對
+  // ── Bucket C：Rubric 給分 ──
+  | 'short_answer'         // 簡答題：自由文字說明
+  | 'calculation'          // 計算題：純算式（無答句）
+  | 'word_problem'         // 應用題：算式 + 答句含單位
+  | 'map_draw'             // 標記繪圖題：在地圖標符號/座標
+  | 'diagram_draw'         // 圖表繪製題：繪製長條/圓餅圖
+  | 'diagram_color'        // 塗色題：在預印圖形上塗色
+  // ── Bucket D：複合題（標準答案 + Rubric 並存）──
+  | 'compound_circle_with_explain'  // 圈選說明題：圈印刷選項 + 寫理由
+  | 'compound_check_with_explain'   // 勾選說明題：打勾 + 寫理由
+  | 'compound_writein_with_explain' // 寫入說明題：寫代號 + 寫理由
+  | 'multi_check_other'             // 複選含其他題：勾多個 + 開放欄位
+  | 'compound_judge_with_correction' // 判斷改正題：對的打 ○ / 錯的打 ✗ + 改正
+
+/**
+ * 25 個 type 對應 Bucket。Single source of truth — 前端與後端皆從此 import。
+ */
+export const QUESTION_CATEGORY_TO_BUCKET: Record<QuestionCategory, QuestionBucket> = {
+  // Bucket A
+  single_choice: 'A',
+  multi_choice: 'A',
+  circle_select_one: 'A',
+  circle_select_many: 'A',
+  single_check: 'A',
+  multi_check: 'A',
+  true_false: 'A',
+  fill_blank: 'A',
+  multi_fill: 'A',
+  matching: 'A',
+  ordering: 'A',
+  mark_in_text: 'A',
+  // Bucket B
+  fill_variants: 'B',
+  map_fill: 'B',
+  // Bucket C
+  short_answer: 'C',
+  calculation: 'C',
+  word_problem: 'C',
+  map_draw: 'C',
+  diagram_draw: 'C',
+  diagram_color: 'C',
+  // Bucket D
+  compound_circle_with_explain: 'D',
+  compound_check_with_explain: 'D',
+  compound_writein_with_explain: 'D',
+  multi_check_other: 'D',
+  compound_judge_with_correction: 'D',
+}
+
+/**
+ * 25 個 type 中文顯示名（給前端 UI 用）。
+ * Single source of truth — 前端 modal/page 從此 import，避免重複定義。
+ */
+export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
+  // Bucket A
+  single_choice: '選擇題',
+  multi_choice: '多選選擇題',
+  circle_select_one: '圈選題',
+  circle_select_many: '多選圈選題',
+  single_check: '勾選題',
+  multi_check: '多選勾選題',
+  true_false: '是非題',
+  fill_blank: '填空題',
+  multi_fill: '多項填空題',
+  matching: '連連看',
+  ordering: '排序題',
+  mark_in_text: '圈詞題',
+  // Bucket B
+  fill_variants: '多元填空題',
+  map_fill: '填圖題',
+  // Bucket C
+  short_answer: '簡答題',
+  calculation: '計算題',
+  word_problem: '應用題',
+  map_draw: '標記繪圖題',
+  diagram_draw: '圖表繪製題',
+  diagram_color: '塗色題',
+  // Bucket D
+  compound_circle_with_explain: '圈選說明題',
+  compound_check_with_explain: '勾選說明題',
+  compound_writein_with_explain: '寫入說明題',
+  multi_check_other: '複選含其他題',
+  compound_judge_with_correction: '判斷改正題',
+}
+
+/**
+ * @deprecated 舊 type 1|2|3 → 新 bucket 對照（向後相容用）
+ * 新代碼應該直接使用 QUESTION_CATEGORY_TO_BUCKET[questionCategory]。
+ * 此 mapping 只在讀取舊資料時 fallback 用。
+ */
+export const LEGACY_TYPE_TO_BUCKET: Record<QuestionCategoryType, QuestionBucket> = {
+  1: 'A', // 精確比對
+  2: 'B', // 容多元
+  3: 'C', // Rubric（注意：複合題舊資料原本歸 type 3，如需區分可手動調整為 'D'）
+}
+
+/**
+ * 從題目取得 bucket：優先用 questionCategory 推 bucket，否則 fallback 到舊 type。
+ * 整個系統應使用此 helper 取代直接讀 question.type。
+ */
+export function getBucket(question: Pick<AnswerKeyQuestion, 'questionCategory' | 'type' | 'bucket'>): QuestionBucket {
+  if (question.bucket) return question.bucket
+  if (question.questionCategory) return QUESTION_CATEGORY_TO_BUCKET[question.questionCategory]
+  if (question.type !== undefined && question.type !== null) {
+    return LEGACY_TYPE_TO_BUCKET[question.type] || 'A'
+  }
+  return 'A' // 預設 fallback
+}
+
+/**
+ * @deprecated 改用 QUESTION_CATEGORY_TO_BUCKET
+ * 舊 questionCategory → type 1|2|3 映射（向後相容用）
+ * 注意：複合題（Bucket D）也會 map 到 type 3，因為舊系統沒有 D。
+ */
+export const CATEGORY_TO_TYPE: Record<QuestionCategory, QuestionCategoryType> = {
+  // Bucket A → type 1
+  single_choice: 1,
+  multi_choice: 1,
+  circle_select_one: 1,
+  circle_select_many: 1,
+  single_check: 1,
+  multi_check: 1,
+  true_false: 1,
+  fill_blank: 1,
+  multi_fill: 1,
+  matching: 1,
+  ordering: 1,
+  mark_in_text: 1,
+  // Bucket B → type 2
+  fill_variants: 2,
+  map_fill: 2,
+  // Bucket C → type 3
+  short_answer: 3,
+  calculation: 3,
+  word_problem: 3,
+  map_draw: 3,
+  diagram_draw: 3,
+  diagram_color: 3,
+  // Bucket D → type 3（舊系統無 D，fallback 到 3）
+  compound_circle_with_explain: 3,
+  compound_check_with_explain: 3,
+  compound_writein_with_explain: 3,
+  multi_check_other: 3,
+  compound_judge_with_correction: 3,
+}
 
 export interface RubricDimension {
   name: string
@@ -71,12 +228,20 @@ export interface AnswerKeyQuestion {
   // 當 orderMode=unordered 時，同組題目的群組識別（例如 "1"）
   unorderedGroupId?: string
 
-  // 題型分類（老師視角）：直接描述題型，批改規則從此推導
-  // 若存在則優先使用；不存在時 fallback 到 type (1|2|3)
+  // 題型分類（老師視角，行為導向）：直接描述題型，批改規則從此推導
+  // 25 種 type 對應「學生作答方式」（寫代號、圈選、打勾、填值、連線...）
+  // 寫入新資料時必填；舊資料可能無此欄位，會 fallback 到 type
   questionCategory?: QuestionCategory
 
-  // 題型分類（內部）：1=唯一答案(精確), 2=多答案可接受(模糊), 3=依表現給分(評價)
-  // 當 questionCategory 存在時，此欄位為 derived field（自動計算）
+  // 題型分類大類（A/B/C/D）— 從 questionCategory 自動推導
+  // A=精確比對, B=容多元, C=Rubric, D=複合題
+  // 整個系統應透過 getBucket() helper 讀取，而非直接讀 type
+  bucket?: QuestionBucket
+
+  /**
+   * @deprecated 改用 bucket 欄位（'A'|'B'|'C'|'D'）
+   * 舊內部分類 1=精確、2=多元、3=評價。保留供讀取舊資料用。
+   */
   type: QuestionCategoryType
 
   // Type 1 專用：標準答案（精確匹配）

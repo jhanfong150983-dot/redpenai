@@ -17,7 +17,7 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import { type GradingSettingsValues } from '@/components/GradingSettingsPanel'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
-import { db, generateId } from '@/lib/db'
+import { db, generateId, getBucket } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import type {
@@ -618,7 +618,9 @@ export default function AssignmentList({
     if (field === 'maxScore') {
       const num = Number.parseInt(value || '0', 10) || 0
       item.maxScore = num
-      if (item.type === 3 && item.rubric) {
+      // Rubric-based 題型（bucket C 或 D，含舊資料 type === 3）需要正規化 rubric 配分
+      const bucket = getBucket(item)
+      if ((bucket === 'C' || bucket === 'D') && item.rubric) {
         item.rubric = normalizeRubric(item.rubric, num)
       }
     } else if (field === 'type') {
