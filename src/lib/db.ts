@@ -72,7 +72,9 @@ export type QuestionCategory =
   | 'short_answer'         // 簡答題：自由文字說明
   | 'calculation'          // 計算題：純算式（無答句）
   | 'word_problem'         // 應用題：算式 + 答句含單位
-  | 'map_draw'             // 標記繪圖題：在地圖標符號/座標
+  | 'map_symbol'           // 地圖符號標記題：在地圖某位置畫符號（▲/★/●）
+  | 'grid_geometry'        // 格線幾何繪製題：在格線紙上畫幾何圖形（三角形/平行四邊形）
+  | 'connect_dots'         // 連點繪圖題：把指定點連起來形成圖形
   | 'diagram_draw'         // 圖表繪製題：繪製長條/圓餅圖
   | 'diagram_color'        // 塗色題：在預印圖形上塗色
   // ── Bucket D：複合題（多部分有依存關係，必須一起評分）──
@@ -108,7 +110,9 @@ export const QUESTION_CATEGORY_TO_BUCKET: Record<QuestionCategory, QuestionBucke
   map_fill: 'B',
   // Bucket C — Rubric（純文字評鑑或繪圖評鑑）
   short_answer: 'C',
-  map_draw: 'C',
+  map_symbol: 'C',
+  grid_geometry: 'C',
+  connect_dots: 'C',
   diagram_draw: 'C',
   diagram_color: 'C',
   // Bucket D
@@ -146,7 +150,9 @@ export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
   short_answer: '簡答題',
   calculation: '計算題',
   word_problem: '應用題',
-  map_draw: '標記繪圖題',
+  map_symbol: '地圖符號標記題',
+  grid_geometry: '格線幾何繪製題',
+  connect_dots: '連點繪圖題',
   diagram_draw: '圖表繪製題',
   diagram_color: '塗色題',
   // Bucket D
@@ -209,7 +215,9 @@ export const CATEGORY_TO_TYPE: Record<QuestionCategory, QuestionCategoryType> = 
   map_fill: 2,
   // Bucket C → type 3
   short_answer: 3,
-  map_draw: 3,
+  map_symbol: 3,
+  grid_geometry: 3,
+  connect_dots: 3,
   diagram_draw: 3,
   diagram_color: 3,
   // Bucket D → type 3（舊系統無 D，fallback 到 3）

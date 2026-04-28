@@ -968,7 +968,7 @@ function buildGlobalTaskAndFormat(): string {
   - 🚨 multi_check_other 例外：bbox 必須涵蓋一列方框 □ + 「其他：___」開放欄，整題框。
   ⚠️ 每題 bbox 根據實際視覺位置獨立標記，禁止為避免重疊而偏移座標。
   ⚠️ 若該題的 answer 文字在圖上無法視覺定位，請省略 answerBbox。
-- anchorHint：每題必填（除 word_problem / calculation / map_draw / diagram_draw / diagram_color 外）。用 1-2 句中文描述此答案格附近最能唯一識別其位置的印刷特徵：
+- anchorHint：每題必填（除 word_problem / calculation / map_symbol / grid_geometry / connect_dots / diagram_draw / diagram_color 外）。用 1-2 句中文描述此答案格附近最能唯一識別其位置的印刷特徵：
   - fill_blank 單格：描述緊鄰的題幹關鍵字或括號前後的文字，例如「括號前為「一定能，可能」，括號後接「大於1」」
   - fill_blank 多格（multi_fill / 表格子題）：優先描述格子本身的視覺外觀（印刷格式、括號樣式、預留空白），再以欄標題或列標題作為輔助定位。例如：「比率列中有印刷括號（　）/180的空格，位於欄標題「三國演義」正下方」「票數列中對應「金銀島」欄的空白數字格」。禁止只寫欄標題文字（如「欄標題為「三國演義」的格子」），因為欄標題本身不是答案格。
   - single_choice / single_check：描述題幹第一句關鍵字，例如「題幹開頭為「擲出來的點數和可能大於1嗎」」
@@ -1113,7 +1113,9 @@ Q2-C：評鑑標的是文字還是繪圖？  [2 選 1]
    ⚠️ calculation / word_problem 已搬到 Bucket A「填值+算式」分支（只看最終答案，過程交 Accessor）
 
 ➋ 繪圖
-   ├─ 在地圖標符號/座標 → map_draw
+   ├─ 在地圖某位置畫符號（▲/★/●）→ map_symbol
+   ├─ 在格線紙上畫幾何圖形（三角形/平行四邊形）→ grid_geometry
+   ├─ 把指定點連起來形成圖形 → connect_dots
    ├─ 繪製長條圖/圓餅圖 → diagram_draw
    └─ 在預印圖形上塗色 → diagram_color
 
@@ -1275,11 +1277,23 @@ function buildTypeSpecs(): string {
 
   ⚠️ calculation / word_problem 已搬到 Bucket A（精確比對，只看最終答案）。詳見 Bucket A 區段。
 
-▸ map_draw 「標記繪圖題」
-  視覺：地圖 + 紅色符號/座標
-  動作：學生在地圖上畫符號或標記座標
+▸ map_symbol 「地圖符號標記題」
+  視覺：地圖 + 紅色符號（▲/★/●）
+  動作：學生在地圖某位置畫符號
   欄位：rubricsDimensions: [符號正確性, 位置精準度]
   bbox：整張地圖 + 題幹
+
+▸ grid_geometry 「格線幾何繪製題」
+  視覺：格線紙 + 紅色繪製的幾何圖形（三角形、平行四邊形等）
+  動作：學生在格線紙上依條件畫幾何圖形
+  欄位：rubricsDimensions: [圖形正確性, 邊長/角度精準度]
+  bbox：整個格線區 + 題幹
+
+▸ connect_dots 「連點繪圖題」
+  視覺：點陣 + 紅色連線形成圖形
+  動作：學生把指定點連起來形成圖形
+  欄位：rubricsDimensions: [連線正確性, 圖形完整性]
+  bbox：整個點陣區 + 題幹
 
 ▸ diagram_draw 「圖表繪製題」
   視覺：預印格線/圓 + 紅色繪製
@@ -1602,7 +1616,7 @@ function buildDomainRefinements(domain: string = '其他'): string {
   - ✅ 必須像：「地圖最左上方為摩洛哥，摩洛哥右側（東方）為阿爾及利亞...」
   - 若有印刷標記代號（A、B、C），寫「標記A（左上方）為泰國...」
 
-▸ map_draw 位置精準度（重要）：
+▸ map_symbol 位置精準度（重要）：
   - 優先抓取題目中的精準座標（如：東經 151.4°E、北緯 15°N）
   - criteria：「必須標註在東經 151.4°E、北緯 15°N 附近（允許誤差 ±1°以內）」
   - ❌ 範圍過於寬鬆（如「經度 121°E 以東」）
@@ -2838,7 +2852,7 @@ ${isPartialImage
   - 右側順序不影響判斷
 - fill_variants / map_fill（多元）：使用 acceptableAnswers 進行語義匹配。完全/語義相符 → 滿分；部分 → 部分分
   - 字音造詞題：若 referenceAnswer 含讀音說明（如「ㄋㄨㄥˋ讀音」），學生答案必須符合該讀音；讀音錯誤直接 0 分
-- word_problem / short_answer / map_draw（評價）：使用 rubricsDimensions 多維度評分，逐維度累計總分
+- word_problem / short_answer / map_symbol / grid_geometry / connect_dots（評價）：使用 rubricsDimensions 多維度評分，逐維度累計總分
   - short_answer 必須使用 rubricsDimensions（至少兩維：作答依據、結論表達），不可退回 rubric 四級評量
   - word_problem 單位規則：「答句」維度中，若正解含單位，學生答句的單位必須正確。公尺 ≠ 公分，errorType='unit'。
   - ⚠️ 多維度評分時，每個維度的評分標準不同：
@@ -3760,7 +3774,7 @@ async function gradeSubmissionWithPreparedImage(
 }
 
 // ── Answer Key Quality Gate (client-side, mirrors server-side validateAnswerKeyQuality) ──
-// 26 種 type 全部列出（與 db.ts 的 QuestionCategory enum 同步）
+// 28 種 type 全部列出（與 db.ts 的 QuestionCategory enum 同步）
 const AK_VALID_CATEGORIES = new Set([
   // Bucket A
   'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
@@ -3769,7 +3783,9 @@ const AK_VALID_CATEGORIES = new Set([
   // Bucket B
   'fill_variants', 'map_fill',
   // Bucket C
-  'short_answer', 'calculation', 'word_problem', 'map_draw', 'diagram_draw', 'diagram_color',
+  'short_answer', 'calculation', 'word_problem',
+  'map_symbol', 'grid_geometry', 'connect_dots',
+  'diagram_draw', 'diagram_color',
   // Bucket D
   'compound_circle_with_explain', 'compound_check_with_explain',
   'compound_writein_with_explain', 'multi_check_other',
