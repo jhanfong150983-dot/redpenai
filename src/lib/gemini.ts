@@ -942,7 +942,7 @@ function buildGlobalTaskAndFormat(): string {
     - 題目說：「任選 3 個填入空格（順序不限）」
     - 題目說：「將下列詞語依任意順序填入」
   - 同一可互換組的所有子題，必須設定相同 unorderedGroupId（通常用主題號，如 "1"）
-  - ⚠️ **設 orderMode="unordered" 時必須同時設 `orderModeUncertain: true`**
+  - ⚠️ **設 orderMode="unordered" 時必須同時設 orderModeUncertain: true**
     （AI 的群組判斷不一定 100% 正確，這個 flag 提醒老師到前端複核此題群組是否設對。
      老師確認後可手動清除，前端題號清單會用黃色提醒。strict 不需設此 flag。）
 - 配分：圖片有就用，無則估計（是非/選擇 2-5 分，簡答 5-8 分，申論 8-15 分）。⚠️ AI 估計的配分必須為整數（禁止小數）。
