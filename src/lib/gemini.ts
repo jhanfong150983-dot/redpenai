@@ -1080,10 +1080,16 @@ Q2-A：學生主要動作是什麼？  [8 選 1]
 
 ➎ 填寫值（____ ／ □ ／ 表格儲存格 內填值）
    ⚠️ 先做 work area 檢查：題目下方/旁邊有沒有預留空白讓學生**寫算式或計算過程**？
-      • 有 work area + 學生實際寫了算式步驟 → ❌ 不是填空題，跳到 Q2-C 走 calculation
-      • 沒 work area / 學生只填了單一值 → ✅ 繼續走填值分支
+      • 沒 work area / 學生只填了單一值 → 繼續走「純填值」分支
+      • 有 work area + 學生實際寫了算式步驟 → 走「填值+算式」分支
+
+   ─ 純填值（無算式步驟）：
    ├─ 一個值 → fill_blank
    └─ 多個值（順序無關）→ multi_fill
+
+   ─ 填值 + 算式步驟（數學題型）：
+   ├─ 無「答：」答句行 → calculation（只看最終值，純數值正解）
+   └─ 有「答：」答句行 → word_problem（只看最終答案，含單位）
 
 ➏ 連線（左右欄之間畫連線）→ matching
 
@@ -1103,9 +1109,8 @@ Q2-B：哪一種多元？  [2 選 1]
 Q2-C：評鑑標的是文字還是繪圖？  [2 選 1]
 
 ➊ 文字
-   ├─ 自由說明（解釋、舉例、論述）→ short_answer
-   ├─ 純計算（只有算式、無答句）→ calculation
-   └─ 應用題（含算式 + 「答：」答句）→ word_problem
+   └─ 自由說明（解釋、舉例、論述）→ short_answer
+   ⚠️ calculation / word_problem 已搬到 Bucket A「填值+算式」分支（只看最終答案，過程交 Accessor）
 
 ➋ 繪圖
    ├─ 在地圖標符號/座標 → map_draw
@@ -1228,6 +1233,24 @@ function buildTypeSpecs(): string {
   answer：列出所有被圈詞語 — "桌子,椅子,書本"
   bbox：涵蓋整個文章區域，可框大一點以含上下文
 
+▸ calculation 「計算題」（A bucket — 只看最終答案，過程交 Accessor 自行判斷）
+  視覺：印刷算式或情境 + 工作區 + 紅色橫式/直式算式（無「答：」答句行）
+  動作：學生寫算式步驟 + 在 (   ) 或工作區末尾寫最終值
+  answer：純數值正解（不含單位）— "360" / "3/4" / "8.75"
+  ⚠️ 不需要 rubricsDimensions（過程交 Accessor 處理）
+  ⚠️ 即使括號內只有單一值，只要學生在下方寫了算式步驟，仍歸 calculation
+  bbox：從第一行算式 → 框到最終答案，所有算式行（橫式 + 直式 + 結果）整個範圍
+
+▸ word_problem 「應用題」（A bucket — 只看最終答案，過程交 Accessor 自行判斷）
+  視覺：情境敘述 + 工作區 + 紅色算式 + 「答：___」或「A：___」答句行
+  動作：學生寫算式 + 答句（含單位或文字答案）
+  answer：純最終答案（含單位或文字），**不含「答：」前綴**
+       例：「8.75 公里/時」、「120 公尺」、「甲班」、「教師節」
+       不對：「答：8.75 公里/時」（不要寫 prefix）
+  ⚠️ 不需要 rubricsDimensions（過程交 Accessor 處理）
+  ⚠️ 與 calculation 差別：是否有「答：」答句行
+  bbox：從第一行算式 → 框到最末「答：」行整個範圍
+
 ═══════════════ Bucket B：容多元 ═══════════════
 
 ▸ fill_variants 「多元填空題」
@@ -1250,18 +1273,7 @@ function buildTypeSpecs(): string {
   欄位：referenceAnswer + rubricsDimensions（至少兩維，如「核心結論」+「作答依據」）
   bbox：整個答題區
 
-▸ calculation 「計算題」
-  視覺：工作區 + 紅色橫式/直式算式（無「答：」答句）
-  動作：學生寫純算式
-  欄位：referenceAnswer = 數值正解（如 "360"）；rubricsDimensions: [算式過程, 最終答案]
-  bbox：所有算式行（橫式 + 直式 + 結果）整個範圍
-
-▸ word_problem 「應用題」
-  視覺：工作區 + 紅色算式 + 「答：」答句行
-  動作：學生寫算式 + 答句（含單位）
-  欄位：referenceAnswer = 答案要點（如 "35÷4=8.75，答：爸爸的速度是8.75公里/時"）
-        rubricsDimensions: [列式計算, 答句]
-  bbox：從第一行算式到最末「答：」行整個範圍
+  ⚠️ calculation / word_problem 已搬到 Bucket A（精確比對，只看最終答案）。詳見 Bucket A 區段。
 
 ▸ map_draw 「標記繪圖題」
   視覺：地圖 + 紅色符號/座標
@@ -1459,41 +1471,37 @@ function buildDomainRefinements(domain: string = '其他'): string {
 - 分數格式：「1/2」或「½」；小數格式：「3.14」
 - 提取算術符號（+、−、×、÷、=）
 
-▸ word_problem vs calculation 邊界（最關鍵）：
-  - 答題區結尾有「答：___」或「A：___」答句行 → word_problem
-    referenceAnswer 填「算式 + 答句」（如 "35÷4=8.75，答：爸爸的速度是 8.75 公里/時"）
-    rubricsDimensions: [列式計算, 答句]
-    ⚠️ 答句維度 criteria 必須說明：「以『答：』或『A：』開頭，含數字與單位（或完整文字答案）」
-    ⚠️ word_problem 必須用 referenceAnswer，禁止用 answer 欄位
-    ⚠️「算算看」「計算看看」後若有「答：」行 → word_problem，不可改判 calculation
-  - 答題區只有算式、無答句 → calculation
-    referenceAnswer 填數值（如 "360"）
-    rubricsDimensions: [算式過程, 最終答案]
+▸ fill_blank vs calculation vs word_problem 邊界（依「學生實際作答行為」判斷）：
 
-▸ fill_blank vs calculation 邊界（強化版，依「學生實際作答行為」判斷）：
+  ⚠️ 三者皆為 A bucket（精確比對 answer field）。差別在 work area 與「答：」答句。
 
-  ⚠️ 關鍵：不要只看「答案欄是不是單一空格」，要看**學生在答題區實際做了什麼**。
+  Step 1：題目下方/旁邊有沒有 work area（給學生寫算式的空白）？
+    - 沒 work area / 學生只填單一值 → fill_blank（answer = 單一值）
+    - 有 work area + 學生寫了算式步驟 → 進 Step 2
 
-  Step 1：題目下方有沒有預留 work area（給學生寫算式的空白）？
-    - 有 work area + 學生寫了多行算式步驟 → 走 calculation
-    - 沒 work area / 緊接下一題 → 走 fill_blank
-
-  Step 2：看「答」字
-    - 有「答：___」答句行 → word_problem
-    - 沒「答：」+ 有 work area 含算式步驟 → calculation
-    - 沒「答：」+ 無 work area / 學生只填單一值 → fill_blank
+  Step 2：學生算式末尾有沒有「答：___」或「A：___」答句行？
+    - 沒答句行 → calculation
+      answer = 純數值（不含單位）"360" / "3/4" / "8.75"
+    - 有答句行 → word_problem
+      answer = 純最終答案（含單位或文字答案，不含「答：」前綴）"8.75 公里/時" / "甲班"
 
   典型 fill_blank（無工作區）：
-    題目「3 + 5 = (   )」直接接下一題，學生只填單一值
+    題目「3 + 5 = (   )」直接接下一題
     → fill_blank, answer = "8"
 
-  典型 calculation（有工作區 + 算式步驟）：
+  典型 calculation（有工作區、無答句）：
     題目「(1) 0.6 ÷ (2.5 - 1.9) - 1/4 = (   )」+ 下方留 4-5 行空白
-    括號內填 "3/4" + 下方寫了 "0.6 ÷ 0.6 = 1; 1 - 1/4 = 3/4"
-    → calculation, referenceAnswer = "3/4", rubricsDimensions = [算式過程, 最終答案]
+    學生在括號填 "3/4"，下方寫了 "0.6 ÷ 0.6 = 1; 1 - 1/4 = 3/4"
+    → calculation, answer = "3/4"
 
-  ❌ 舊規則錯誤：「答案欄是單一空格 → 一律 fill_blank」
-  ✅ 新規則：答案欄即使單一空格，只要學生在 work area 寫了算式 → 仍是 calculation
+  典型 word_problem（有工作區 + 有「答：」）：
+    題目「小明的速度…？」+ 工作區 + 「答：___」
+    學生寫了 "35 ÷ 4 = 8.75" + 「答：8.75 公里/時」
+    → word_problem, answer = "8.75 公里/時"（不含「答：」）
+
+  ⚠️ calculation/word_problem 不需要 rubricsDimensions（過程交 Accessor 自行判斷）
+  ⚠️「算算看」「計算看看」後若有「答：」行 → word_problem
+  ⚠️ 即使括號內只有單一值，只要學生寫了算式步驟 → calculation 或 word_problem
 
 ▸ 比例式格式（word_problem 特化）：
   學生可能寫「箭頭式」「÷N 標註式」「括號 + 除以式」三種比例式表達。
@@ -3772,10 +3780,12 @@ const AK_VALID_CATEGORIES = new Set([
 // 必須填 answer 欄位的 type（精確比對 + 部分複合題）
 // 注意：compound_chain_table 不在此列，因為它沒有單一 answer（只有 rubric）
 const AK_ANSWER_REQUIRED = new Set([
-  // Bucket A 全部
+  // Bucket A 全部（含新加入的 calculation / word_problem）
   'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
   'single_check', 'multi_check', 'true_false', 'fill_blank', 'multi_fill',
   'matching', 'ordering', 'mark_in_text',
+  'calculation',     // A bucket：answer = 純數值（過程交 Accessor）
+  'word_problem',    // A bucket：answer = 含單位最終值（不含「答：」前綴）
   // Bucket B 雖然主用 referenceAnswer，但 fill_variants 仍可能有 answer
   'fill_variants',
   // Bucket D 中含「精確比對」部分的題型（必選情境）

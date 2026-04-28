@@ -88,7 +88,7 @@ export type QuestionCategory =
  * 25 個 type 對應 Bucket。Single source of truth — 前端與後端皆從此 import。
  */
 export const QUESTION_CATEGORY_TO_BUCKET: Record<QuestionCategory, QuestionBucket> = {
-  // Bucket A
+  // Bucket A — 標準答案 + 精確比對
   single_choice: 'A',
   multi_choice: 'A',
   circle_select_one: 'A',
@@ -101,13 +101,13 @@ export const QUESTION_CATEGORY_TO_BUCKET: Record<QuestionCategory, QuestionBucke
   matching: 'A',
   ordering: 'A',
   mark_in_text: 'A',
+  calculation: 'A',     // 數學計算題：只看最終答案，過程交給 Accessor 自行判斷
+  word_problem: 'A',    // 數學應用題：只看最終答案（含單位），過程交給 Accessor 自行判斷
   // Bucket B
   fill_variants: 'B',
   map_fill: 'B',
-  // Bucket C
+  // Bucket C — Rubric（純文字評鑑或繪圖評鑑）
   short_answer: 'C',
-  calculation: 'C',
-  word_problem: 'C',
   map_draw: 'C',
   diagram_draw: 'C',
   diagram_color: 'C',
@@ -202,13 +202,13 @@ export const CATEGORY_TO_TYPE: Record<QuestionCategory, QuestionCategoryType> = 
   matching: 1,
   ordering: 1,
   mark_in_text: 1,
+  calculation: 1,    // 從 type 3 改為 1（A bucket）
+  word_problem: 1,   // 從 type 3 改為 1（A bucket）
   // Bucket B → type 2
   fill_variants: 2,
   map_fill: 2,
   // Bucket C → type 3
   short_answer: 3,
-  calculation: 3,
-  word_problem: 3,
   map_draw: 3,
   diagram_draw: 3,
   diagram_color: 3,
