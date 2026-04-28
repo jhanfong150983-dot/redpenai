@@ -1079,6 +1079,9 @@ Q2-A：學生主要動作是什麼？  [8 選 1]
 ➍ 寫 ○ 或 ✗ 符號（單一括號內手寫對錯符號）→ true_false
 
 ➎ 填寫值（____ ／ □ ／ 表格儲存格 內填值）
+   ⚠️ 先做 work area 檢查：題目下方/旁邊有沒有預留空白讓學生**寫算式或計算過程**？
+      • 有 work area + 學生實際寫了算式步驟 → ❌ 不是填空題，跳到 Q2-C 走 calculation
+      • 沒 work area / 學生只填了單一值 → ✅ 繼續走填值分支
    ├─ 一個值 → fill_blank
    └─ 多個值（順序無關）→ multi_fill
 
@@ -1467,9 +1470,30 @@ function buildDomainRefinements(domain: string = '其他'): string {
     referenceAnswer 填數值（如 "360"）
     rubricsDimensions: [算式過程, 最終答案]
 
-▸ 填答空格優先：
-  - 即使題目內容含計算/分數換算/百分率換算，只要答題區是單一空格 → 優先 fill_blank
-  - 不要改判 calculation/word_problem
+▸ fill_blank vs calculation 邊界（強化版，依「學生實際作答行為」判斷）：
+
+  ⚠️ 關鍵：不要只看「答案欄是不是單一空格」，要看**學生在答題區實際做了什麼**。
+
+  Step 1：題目下方有沒有預留 work area（給學生寫算式的空白）？
+    - 有 work area + 學生寫了多行算式步驟 → 走 calculation
+    - 沒 work area / 緊接下一題 → 走 fill_blank
+
+  Step 2：看「答」字
+    - 有「答：___」答句行 → word_problem
+    - 沒「答：」+ 有 work area 含算式步驟 → calculation
+    - 沒「答：」+ 無 work area / 學生只填單一值 → fill_blank
+
+  典型 fill_blank（無工作區）：
+    題目「3 + 5 = (   )」直接接下一題，學生只填單一值
+    → fill_blank, answer = "8"
+
+  典型 calculation（有工作區 + 算式步驟）：
+    題目「(1) 0.6 ÷ (2.5 - 1.9) - 1/4 = (   )」+ 下方留 4-5 行空白
+    括號內填 "3/4" + 下方寫了 "0.6 ÷ 0.6 = 1; 1 - 1/4 = 3/4"
+    → calculation, referenceAnswer = "3/4", rubricsDimensions = [算式過程, 最終答案]
+
+  ❌ 舊規則錯誤：「答案欄是單一空格 → 一律 fill_blank」
+  ✅ 新規則：答案欄即使單一空格，只要學生在 work area 寫了算式 → 仍是 calculation
 
 ▸ 比例式格式（word_problem 特化）：
   學生可能寫「箭頭式」「÷N 標註式」「括號 + 除以式」三種比例式表達。
