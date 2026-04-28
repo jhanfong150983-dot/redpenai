@@ -958,6 +958,13 @@ function buildGlobalTaskAndFormat(): string {
   - calculation 例外：answerBbox 必須涵蓋**所有算式行**——橫式、直式、最終數值結果，全部框在同一個 bbox 內。
   - multi_fill 例外：每個子題的 answerBbox 對應你讀到那個格子內的文字位置（不含鄰格）。
   - matching（group_context）：answerBbox 必須涵蓋**整個連連看區域**——左欄所有項目、右欄所有選項、以及中間所有連接線，全部框在同一個 bbox 內。不可只框右欄文字，連線本身就是答案，必須完整包含。
+  - 🚨 compound_*_with_explain 例外（含 compound_circle_with_explain / compound_check_with_explain / compound_writein_with_explain）：
+    answerBbox **必須涵蓋整題作答區**——從圈選/勾選/代號的位置（括號 ( ) 或方框 □ 的左上角）一路框到理由說明文字的**最末一行最末一字**（含逗號、句號等標點）。
+    ⚠️ 絕對禁止只框圈選區、絕對禁止只框理由區。複合題的 bbox 必須一起框 ⇒ 學生答案的兩個部分必須都在框內。
+    ⚠️ 自我檢查：bbox 內應同時看見「(選項/選項)」+「因為...」整段文字。如果只看到其中一個 → bbox 飄了，重新標。
+  - 🚨 compound_judge_with_correction 例外：bbox 必須涵蓋括號 ○/✗ 區 + 改正寫字區，兩個都要在框內。
+  - 🚨 compound_chain_table 例外：bbox 必須涵蓋整個 row（該行所有 cells），從第一格到最後一格框成一個 bbox。
+  - 🚨 multi_check_other 例外：bbox 必須涵蓋一列方框 □ + 「其他：___」開放欄，整題框。
   ⚠️ 每題 bbox 根據實際視覺位置獨立標記，禁止為避免重疊而偏移座標。
   ⚠️ 若該題的 answer 文字在圖上無法視覺定位，請省略 answerBbox。
 - anchorHint：每題必填（除 word_problem / calculation / map_draw / diagram_draw / diagram_color 外）。用 1-2 句中文描述此答案格附近最能唯一識別其位置的印刷特徵：
@@ -1285,7 +1292,10 @@ function buildTypeSpecs(): string {
     rubricsDimensions:
       [{name:"圈選", criteria:"必須圈選正確選項"},
        {name:"理由", criteria:"說明的理由能支持正確選項，邏輯合理"}]
-  bbox：整題框（括號區 + 理由說明區）
+  🚨 bbox：必須從括號的左上角 → 框到理由文字最末一字（含標點）。
+        bbox 內必須同時包含「(選項/選項)」+「因為...」整段。
+        ❌ 禁止只框括號（漏掉理由）；❌ 禁止只框理由（漏掉括號）。
+        ✅ 自我檢查：框出來能看到兩個部分嗎？看不到 → 重新標。
 
 ▸ compound_check_with_explain 「勾選說明題」
   視覺：方框 □ 列 + 勾選 + 下方理由區
@@ -1293,7 +1303,7 @@ function buildTypeSpecs(): string {
   欄位寫法同 compound_circle_with_explain（自選/必選兩種情境）
   answer = 勾選位置編號（必選時）or "" or "自選"（自選時）
   referenceAnswer = "[選項]，因為[理由]"
-  bbox：整題框
+  🚨 bbox：必須從第一個方框 □ → 框到理由文字最末一字。bbox 內同時包含「□ 選項 □ 選項...」+「因為...」。
 
 ▸ compound_writein_with_explain 「寫入說明題」
   視覺：空括號 + 代號 + 下方理由區
@@ -1301,20 +1311,20 @@ function buildTypeSpecs(): string {
   欄位寫法同 compound_circle_with_explain
   answer = 代號（必選時）or ""（自選時）
   referenceAnswer = "[選項]，因為[理由]"
-  bbox：整題框
+  🚨 bbox：必須從空括號 ( ) → 框到理由文字最末一字。bbox 內同時包含括號 + 寫的代號 + 整段理由。
 
 ▸ multi_check_other 「複選含其他題」
   視覺：一列 □ + 最後一個 □ 後接「其他：___」開放欄
   動作：勾多個固定選項 + 在「其他」欄寫開放文字（若勾了其他）
   欄位：answer = 固定選項中被勾的位置編號（不含其他）；
         referenceAnswer = 其他欄寫的文字（若勾且有寫，去掉「答案僅供參考」備注）
-  bbox：整列方框 + 其他開放欄
+  🚨 bbox：必須從第一個方框 → 框到「其他：___」開放欄末端。bbox 內包含全部方框 + 其他欄。
 
 ▸ compound_judge_with_correction 「判斷改正題」
   視覺：敘述句 + 括號 ○/✗ + 改正空白
   動作：對的打 ○、錯的打 ✗，錯的還要改正（改正取決於判斷）
   欄位：answer = "○" 或 "✗"；referenceAnswer = 正確改寫文字
-  bbox：括號 + 改正寫字區
+  🚨 bbox：必須從括號 → 框到改正寫字區末端。bbox 內包含括號 ○/✗ + 改正文字。
 
 ▸ compound_chain_table 「表格連動題」
   視覺：表格格式，多個 cell（每 cell 不同欄位類型，如人物/事件/影響）
