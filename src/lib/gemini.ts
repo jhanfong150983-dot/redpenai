@@ -4337,7 +4337,7 @@ export async function gradeClassifyOnly(
   assignmentId?: string,
   answerSheetMode?: 'with_questions' | 'answer_only',
   submissionId?: string
-): Promise<{ classifyOnly: true; bboxResults: Array<{ questionId: string; questionType: string; answerBbox: any; readBbox: any }> }> {
+): Promise<{ classifyOnly: true; bboxResults: Array<{ questionId: string; questionType: string; answerBbox: any }> }> {
   const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
   const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'classify-only')
@@ -4373,7 +4373,6 @@ export async function gradeClassifyOnly(
 export interface BboxOverride {
   questionId: string
   answerBbox: { x: number; y: number; w: number; h: number } | null
-  readBbox?: { x: number; y: number; w: number; h: number } | null
   corrected?: boolean
 }
 

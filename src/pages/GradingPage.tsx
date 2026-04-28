@@ -2581,7 +2581,7 @@ export default function GradingPage({
         }
       }
       const totalClassifyTasks = classifyTasks.length
-      const allBboxResults: Array<{ idx: number; sub: typeof toGrade[0]; bboxResults: Array<{ questionId: string; questionType: string; answerBbox: any; readBbox: any }> }> = []
+      const allBboxResults: Array<{ idx: number; sub: typeof toGrade[0]; bboxResults: Array<{ questionId: string; questionType: string; answerBbox: any }> }> = []
       let completedClassify = 0
 
       console.log(`📐 [Classify] ${toGrade.length} students × ${classifyRounds} rounds = ${totalClassifyTasks} tasks`)
@@ -2676,7 +2676,7 @@ export default function GradingPage({
 
         // 先加入中位數涵蓋的題目
         for (const [qId, med] of medianBbox) {
-          overrides.push({ questionId: qId, answerBbox: med, readBbox: null, corrected: true })
+          overrides.push({ questionId: qId, answerBbox: med, corrected: true })
           totalCorrected++
         }
 
@@ -2690,7 +2690,7 @@ export default function GradingPage({
           for (const entry of studentEntries) {
             const br = entry.bboxResults.find(b => b.questionId === qId)
             if (br) {
-              overrides.push({ questionId: qId, answerBbox: br.answerBbox, readBbox: br.readBbox })
+              overrides.push({ questionId: qId, answerBbox: br.answerBbox })
               break
             }
           }
