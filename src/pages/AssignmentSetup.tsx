@@ -3078,18 +3078,6 @@ export default function AssignmentSetup({
                     {modalMode === 'edit' && <p className="mt-1 text-xs text-slate-400">領域在建立後無法更改</p>}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">作業形式</label>
-                    <select
-                      value={createAnswerDocType}
-                      onChange={(e) => setCreateAnswerDocType(e.target.value as 'worksheet' | 'exam')}
-                      disabled={isSubmitting || isExtractingAnswerKey}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white"
-                    >
-                      <option value="worksheet">習作</option>
-                      <option value="exam">考卷</option>
-                    </select>
-                  </div>
-                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">答案卷模式</label>
                     <select
                       value={createAnswerSheetMode}
@@ -3585,25 +3573,14 @@ export default function AssignmentSetup({
                 <label className="block text-sm font-medium text-gray-700">
                   重新上傳答案卷（可選 PDF 或圖片）
                 </label>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={editAnswerDocType}
-                    onChange={(e) => setEditAnswerDocType(e.target.value as 'worksheet' | 'exam')}
-                    disabled={isExtractingAnswerKeyEdit}
-                    className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
-                  >
-                    <option value="worksheet">習作</option>
-                    <option value="exam">考卷</option>
-                  </select>
-                  <input
-                    type="file"
-                    accept="image/*,application/pdf"
-                    multiple
-                    onChange={handleEditAnswerKeyFileChange}
-                    disabled={isExtractingAnswerKeyEdit}
-                    className="min-w-0 flex-1 text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
-                  />
-                </div>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  multiple
+                  onChange={handleEditAnswerKeyFileChange}
+                  disabled={isExtractingAnswerKeyEdit}
+                  className="w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                />
                 <p className="text-xs text-gray-500 mt-1">
                   系統會自動壓縮後交給 AI。可一次選取多個檔案，重新上傳會覆蓋先前的解析結果。
                 </p>

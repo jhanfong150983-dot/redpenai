@@ -195,7 +195,8 @@ export default function AnswerKeyUnifiedModal({
   // ── Step 1: metadata state ────────���───────────────────────────────────────
   const [title, setTitle] = useState(initialTitle)
   const [domain, setDomain] = useState(initialDomain)
-  const [docType, setDocType] = useState<'worksheet' | 'exam'>(initialDocType)
+  // docType UI 已移除（AI 直接從圖片視覺判斷雙欄/單欄）；保留變數供 sync 與 onExtract 傳遞
+  const [docType] = useState<'worksheet' | 'exam'>(initialDocType)
   const [folder] = useState(initialFolder)
   const [answerSheetMode, setAnswerSheetMode] = useState<'with_questions' | 'answer_only'>(initialAnswerSheetMode)
   const [questionBookletBlobs, setQuestionBookletBlobs] = useState<Blob[]>([])
@@ -809,42 +810,6 @@ export default function AnswerKeyUnifiedModal({
                         <option value="">請選擇</option>
                         {domainOptions.map((d) => <option key={d} value={d}>{d}</option>)}
                       </select>
-                    )}
-                  </div>
-
-                  {/* 類型 — segmented control */}
-                  <div>
-                    <label className="block text-base font-semibold text-gray-800 mb-2">類型</label>
-                    {editMode ? (
-                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{docType === 'worksheet' ? '習作' : '考卷'}</p>
-                    ) : (
-                      <>
-                        <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => setDocType('worksheet')}
-                            className={`px-5 py-2 text-sm font-medium transition-colors ${
-                              docType === 'worksheet'
-                                ? 'bg-green-600 text-white'
-                                : 'bg-white text-gray-600 hover:bg-gray-50'
-                            }`}
-                          >
-                            習作
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDocType('exam')}
-                            className={`px-5 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
-                              docType === 'exam'
-                                ? 'bg-green-600 text-white'
-                                : 'bg-white text-gray-600 hover:bg-gray-50'
-                            }`}
-                          >
-                            考卷
-                          </button>
-                        </div>
-                        <p className="mt-2 text-xs text-slate-500">影響 AI 解析時的題號排序策略</p>
-                      </>
                     )}
                   </div>
 
