@@ -290,6 +290,31 @@ function normalizeParts(parts: GeminiRequestPart[]): GeminiPart[] {
 }
 
 /**
+ * 比較兩個多段 ID 字串（如 "1-2-1" vs "1-2-10"）。
+ * 逐段比較：純數字段用 natural sort，混字母段用字典序。
+ * 用於 AnswerKey 題號清單排序，取代過去依 bbox 位置 + 佈局策略的排序。
+ */
+function compareNaturalIds(idA: unknown, idB: unknown): number {
+  const segsA = String(idA ?? '').split('-')
+  const segsB = String(idB ?? '').split('-')
+  const len = Math.max(segsA.length, segsB.length)
+  for (let i = 0; i < len; i++) {
+    const sa = segsA[i] ?? ''
+    const sb = segsB[i] ?? ''
+    if (sa === sb) continue
+    const aIsNum = /^\d+$/.test(sa)
+    const bIsNum = /^\d+$/.test(sb)
+    if (aIsNum && bIsNum) {
+      const na = parseInt(sa, 10)
+      const nb = parseInt(sb, 10)
+      if (na !== nb) return na - nb
+    }
+    return sa.localeCompare(sb)
+  }
+  return 0
+}
+
+/**
  * 延遲函數（用於退避重試）
  */
 function delay(ms: number): Promise<void> {
@@ -922,6 +947,13 @@ function buildGlobalTaskAndFormat(): string {
 【通用原則】
 - 題號：只為「有答案/作答區」的題目建立題號，必須輸出 idPath，並讓 id = idPath 用 "-" 串接
 - 題號：圖片有就用，無則依題目順序補上（不可跳號）
+- 🚨 **questions 陣列必須按閱讀順序輸出**（系統依 ID 排序顯示，不再用 bbox 位置）：
+  - 直向單欄：上→下
+  - 雙欄考卷：左欄全部 → 右欄全部
+  - 雙頁展開（橫向照片）：左頁全部 → 右頁全部
+  - 多照片合成：第 1 張全部 → 第 2 張全部
+  - 子題（如 "1-1", "1-2"）：依子題編號自然遞增
+  - ⚠️ 即使印刷題號跳號或亂序，**AI 輸出的 id 必須單調遞增**，不可逆序
 - orderMode（三種情況）：
   ┌──────────────────┬─────────────────────────────────────────────────────────────────────────┐
   │ 情況              │ 說明                                                                    │
@@ -4063,60 +4095,13 @@ export async function extractAnswerKeyFromImages(
     }
   }
 
-  // 計算每張照片的長寬比，決定排序策略
-  // 直向（ratio ≤ 1.3）= 單頁，橫向（ratio > 1.3）= 雙頁展開
-  const photoRatios = await Promise.all(
-    answerSheetImages.map(blob => new Promise<number>(resolve => {
-      const url = URL.createObjectURL(blob)
-      const img = new Image()
-      img.onload = () => { resolve(img.naturalWidth / img.naturalHeight); URL.revokeObjectURL(url) }
-      img.onerror = () => { resolve(1.0); URL.revokeObjectURL(url) }
-      img.src = url
-    }))
-  )
-  const LANDSCAPE_RATIO = 1.3
-  console.log('📐 [AnswerKey] 照片長寬比：', photoRatios.map((r, i) => `照片${i + 1}=${r.toFixed(2)}(${r > LANDSCAPE_RATIO ? '雙頁' : '單頁'})`).join(', '))
-
-  // 排序：照片序號（ID 首段）→ 依文件類型選策略
-  //   考卷（docType='exam'）：左欄（x < 0.5）全部優先，右欄（x ≥ 0.5）全部其次，各欄內依 y 排
-  //   習作（docType='worksheet'，預設）：
-  //     雙頁展開（橫向照片）：左半頁先，右半頁後，各自依 y 排
-  //     單頁直向：純粹依 y 排；同一列（y 差距 < 3%）內再依 x 由左到右
-  // bbox 無效的題目排到同頁最後
-  const isExam = opts?.docType === 'exam'
-  result.questions.sort((a, b) => {
-    const aPageNum = parseInt(String(a.id ?? '').split('-')[0], 10) || 0
-    const bPageNum = parseInt(String(b.id ?? '').split('-')[0], 10) || 0
-    if (aPageNum !== bPageNum) return aPageNum - bPageNum
-    const aHasBbox = !!a.answerBbox
-    const bHasBbox = !!b.answerBbox
-    if (aHasBbox !== bHasBbox) return aHasBbox ? -1 : 1
-    const aY = a.answerBbox?.y ?? 0
-    const bY = b.answerBbox?.y ?? 0
-    const aX = a.answerBbox?.x ?? 0
-    const bX = b.answerBbox?.x ?? 0
-    if (isExam) {
-      // 考卷雙欄：左欄全部先，右欄全部後，各欄內依 y 排
-      const aCol = aX < 0.5 ? 0 : 1
-      const bCol = bX < 0.5 ? 0 : 1
-      if (aCol !== bCol) return aCol - bCol
-      return aY - bY
-    }
-    const photoIdx = aPageNum - 1
-    const isLandscape = (photoRatios[photoIdx] ?? 1.0) > LANDSCAPE_RATIO
-    if (isLandscape) {
-      // 習作雙頁展開：左半頁 vs 右半頁
-      const aCol = aX < 0.5 ? 0 : 1
-      const bCol = bX < 0.5 ? 0 : 1
-      if (aCol !== bCol) return aCol - bCol
-      return aY - bY
-    } else {
-      // 習作單頁直向：依 y，同一列（y 差距 < 3%）再依 x
-      const yDiff = aY - bY
-      if (Math.abs(yDiff) > 0.03) return yDiff
-      return aX - bX
-    }
-  })
+  // 排序：純 ID natural sort（信任 AI 已按閱讀順序生成 ID）
+  // 過去用 bbox 位置 + 佈局策略（考卷雙欄 / 習作橫向直向）排序，但：
+  // 1. 依賴 bbox 準確度，bbox 不準排序就錯
+  // 2. 各種佈局需要不同邏輯（30+ 行特例）
+  // 3. AI 本來就被要求按閱讀順序輸出 ID（"依題目順序補上"）
+  // 改成純 ID 排序後，所有佈局都共用同一邏輯。
+  result.questions.sort((a, b) => compareNaturalIds(a.id, b.id))
 
   // 根據 ID 首段（照片序號，1-based）設定 pageIndex（0-based），供預覽底圖選取
   for (const q of result.questions) {
