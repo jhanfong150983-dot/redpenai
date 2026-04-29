@@ -1157,8 +1157,8 @@ export function useSync(options: UseSyncOptions = {}) {
             (a as { updated_at?: unknown }).updated_at
         )
         const localUpdatedAt = localData?.updatedAt
-        // 若本地資料比雲端新（push 尚未完成就被 pull 覆蓋的競態），保留本地 answerKey 和 updatedAt
-        const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt > cloudUpdatedAt)
+        // 若本地資料比雲端新或相同（保險起見用 >=，避免時間相等時誤判 local 為舊）
+        const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt >= cloudUpdatedAt)
 
         const cloudConceptTags = (a as Assignment & { conceptTags?: unknown }).conceptTags ?? (a as { concept_tags?: unknown }).concept_tags
         return {
@@ -1171,7 +1171,8 @@ export function useSync(options: UseSyncOptions = {}) {
           folder: finalFolder,
           scoringMode: finalScoringMode,
           gradeWeightPercent: finalGradeWeightPercent,
-          answerKey: localIsNewer ? (localData?.answerKey ?? a.answerKey ?? undefined) : (a.answerKey ?? undefined),
+          // localIsNewer 時嚴格只用 local（不 fallback 到 cloud，避免 localData.answerKey 為 undefined 時誤用 cloud 舊版）
+          answerKey: localIsNewer ? localData?.answerKey : (a.answerKey ?? undefined),
           answerKeyTemplateId:
             (a as Assignment & { answerKeyTemplateId?: string }).answerKeyTemplateId ??
             (a as { answer_key_template_id?: string }).answer_key_template_id ??
@@ -1208,7 +1209,7 @@ export function useSync(options: UseSyncOptions = {}) {
         const localData = localCustomColumnMap.get(c.id)
         const cloudUpdatedAt = toMillis(c.updatedAt ?? c.updated_at)
         const localUpdatedAt = localData?.updatedAt
-        const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt > cloudUpdatedAt)
+        const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt >= cloudUpdatedAt)
 
         if (localIsNewer && localData) {
           return localData
@@ -1245,7 +1246,7 @@ export function useSync(options: UseSyncOptions = {}) {
         const localData = localCustomScoreMap.get(s.id)
         const cloudUpdatedAt = toMillis(s.updatedAt ?? s.updated_at)
         const localUpdatedAt = localData?.updatedAt
-        const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt > cloudUpdatedAt)
+        const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt >= cloudUpdatedAt)
 
         if (localIsNewer && localData) {
           return localData
@@ -1648,7 +1649,13 @@ export function useSync(options: UseSyncOptions = {}) {
         await pushMetadata()
       })()
 
-      await Promise.all([pullMetadata(), pushWork])
+      // 改為序列化：先 push 再 pull
+      // 平行（Promise.all）會造成 race condition：pull 拿到 stale server 資料 →
+      // 若 server 寫入後 updated_at 因時鐘差或其他原因變得比 local updatedAt 大 →
+      // localIsNewer 判定錯誤 → cloud 的舊 answerKey 覆蓋 local 的新 answerKey
+      // 序列化後，pull 拿到的就是 push 後的 server 狀態，避免 stale 視窗
+      await pushWork
+      await pullMetadata()
       if (syncBlockedReasonRef.current) {
         setStatus((prev) => ({
           ...prev,
