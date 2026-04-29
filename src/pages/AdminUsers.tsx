@@ -50,6 +50,7 @@ interface UserStatsData {
   lastActiveAt?: string
   students?: StudentUsage[]
   status?: 'active' | 'new'
+  isAlsoStudent?: boolean
 }
 
 type StatusFilter = 'all' | 'active' | 'new'
@@ -375,6 +376,11 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                         {user.status === 'new' && (
                           <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium">
                             新註冊
+                          </span>
+                        )}
+                        {user.isAlsoStudent && (
+                          <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
+                            老師＋學生
                           </span>
                         )}
                         {user.role === 'admin' && (
