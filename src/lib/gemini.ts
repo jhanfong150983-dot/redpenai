@@ -1312,32 +1312,39 @@ function buildTypeSpecs(): string {
 ▸ map_symbol 「地圖符號標記題」
   視覺：地圖 + 紅色符號（▲/★/●）
   動作：學生在地圖某位置畫符號
-  欄位：rubricsDimensions: [符號正確性, 位置精準度]
+  欄位：referenceAnswer + rubricsDimensions: [符號正確性, 位置精準度]
+  referenceAnswer 範例：「颱風符號，位置：23.5°N 緯線以南、121°E 經線以東的格子（右下格）」
   bbox：整張地圖 + 題幹
 
 ▸ grid_geometry 「格線幾何繪製題」
   視覺：格線紙 + 紅色繪製的幾何圖形（三角形、平行四邊形等）
   動作：學生在格線紙上依條件畫幾何圖形
-  欄位：rubricsDimensions: [圖形正確性, 邊長/角度精準度]
+  欄位：referenceAnswer + rubricsDimensions: [圖形正確性, 邊長/角度精準度]
+  referenceAnswer 範例：「圖形：正方形，大小：邊長 3 格，位置：從第 1 列第 2 格開始」
   bbox：整個格線區 + 題幹
 
 ▸ connect_dots 「連點繪圖題」
   視覺：點陣 + 紅色連線形成圖形
   動作：學生把指定點連起來形成圖形
-  欄位：rubricsDimensions: [連線正確性, 圖形完整性]
+  欄位：referenceAnswer + rubricsDimensions: [連線正確性, 圖形完整性]
+  referenceAnswer 範例：「連線：1→2→3→4→5，形成圖形：Z 字形」
   bbox：整個點陣區 + 題幹
 
 ▸ diagram_draw 「圖表繪製題」
   視覺：預印格線/圓 + 紅色繪製
   動作：學生繪製長條圖/圓餅圖等
-  欄位：rubricsDimensions: [數值正確性, 標籤完整性]
-  bbox：整個圖表繪製區
+  欄位：referenceAnswer + rubricsDimensions: [數值正確性, 標籤完整性]
+  referenceAnswer 範例：
+   - 圓餅圖：「番茄汁 2/5, 紅蘿蔔汁 1/10, 蘋果汁 3/20, 葡萄汁 1/4」（每扇形「標籤 比率」）
+   - 長條圖：「一月 50, 二月 30, 三月 45, 四月 60」（每長條「標籤 高度/數值」）
+  bbox：整個圖表繪製區 + 題幹
 
 ▸ diagram_color 「塗色題」
   視覺：預印圖形 + 紅色塗色
   動作：學生在預印圖形上塗色（如分數塗色）
-  欄位：rubricsDimensions: [塗色比例, 塗色位置, 塗色完整性]
-  bbox：整個塗色區
+  欄位：referenceAnswer + rubricsDimensions: [塗色比例, 塗色位置, 塗色完整性]
+  referenceAnswer 範例：「塗色：第 1 個圓完整，第 2 個圓左側 2/3，第 3 個圓未塗」
+  bbox：整個塗色區 + 題幹
 
 ═══════════════ Bucket D：複合題（部分之間有依存關係）═══════════════
 
@@ -3824,8 +3831,9 @@ const AK_VALID_CATEGORIES = new Set([
   'compound_chain_table',
 ])
 
-// 必須填 answer 欄位的 type（精確比對 + 部分複合題）
-// 注意：compound_chain_table 不在此列，因為它沒有單一 answer（只有 rubric）
+// 必須填 answer 或 referenceAnswer 的 type
+// 驗證邏輯：answer 或 referenceAnswer 至少一個有值（非 placeholder）
+// 注意：compound_chain_table 不在此列，因為它沒有單一 answer（純 rubric）
 const AK_ANSWER_REQUIRED = new Set([
   // Bucket A 全部（含新加入的 calculation / word_problem）
   'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
@@ -3833,8 +3841,12 @@ const AK_ANSWER_REQUIRED = new Set([
   'matching', 'ordering', 'mark_in_text',
   'calculation',     // A bucket：answer = 純數值（過程交 Accessor）
   'word_problem',    // A bucket：answer = 含單位最終值（不含「答：」前綴）
-  // Bucket B 雖然主用 referenceAnswer，但 fill_variants 仍可能有 answer
+  // Bucket B（用 referenceAnswer + acceptableAnswers）
   'fill_variants',
+  // Bucket C（用 referenceAnswer + rubricsDimensions）
+  'short_answer',
+  'map_symbol', 'grid_geometry', 'connect_dots',
+  'diagram_draw', 'diagram_color',
   // Bucket D 中含「精確比對」部分的題型（必選情境）
   'compound_circle_with_explain', 'compound_check_with_explain',
   'compound_writein_with_explain', 'multi_check_other',
