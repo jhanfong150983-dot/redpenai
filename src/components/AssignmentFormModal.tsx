@@ -213,7 +213,12 @@ export default function AssignmentFormModal({
     }
     return Array.from(groups.entries())
       .map(([f, items]) => ({ folder: f, items: items.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant')) }))
-      .sort((a, b) => a.folder.localeCompare(b.folder, 'zh-Hant'))
+      .sort((a, b) => {
+        // 「未分類」永遠排到最後，其他資料夾依名稱排序
+        if (a.folder === '未分類') return 1
+        if (b.folder === '未分類') return -1
+        return a.folder.localeCompare(b.folder, 'zh-Hant')
+      })
   }, [answerKeys, akSearch])
 
   const updateSetting = <K extends keyof FormSettings>(key: K, value: FormSettings[K]) => {
