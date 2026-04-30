@@ -1439,6 +1439,8 @@ export default function AssignmentSetup({
       setAssignments(prev => prev.map(a =>
         a.id === assignmentId ? { ...a, answerSheetImagePaths: paths } : a
       ))
+      // 觸發 sync push 把 answerSheetImagePaths 寫入 Supabase（避免登出後 Dexie 清空時遺失路徑）
+      requestSync()
     } catch (err) {
       console.warn('⚠️ 答案卷圖片上傳例外', err)
     }
@@ -1470,6 +1472,7 @@ export default function AssignmentSetup({
       setAssignments(prev => prev.map(a =>
         a.id === assignmentId ? { ...a, questionBookletImagePaths: paths } : a
       ))
+      requestSync()
     } catch (err) {
       console.warn('⚠️ 題本圖片上傳例外', err)
     }
@@ -1511,17 +1514,34 @@ export default function AssignmentSetup({
     }
   }
 
-  const downloadAnswerSheetImages = async (assignmentId: string, pageCount: number) => {
+  const downloadAnswerSheetImages = async (assignmentId: string) => {
+    const MAX_PAGES = 10
     try {
-      const blobs = await Promise.all(
-        Array.from({ length: pageCount }, (_, i) =>
-          fetch(`/api/storage/download?assignmentId=${encodeURIComponent(assignmentId)}&pageIndex=${i}`, {
-            credentials: 'include',
-          }).then(r => r.ok ? r.blob() : null)
-        )
+      const fetchPage = (i: number) =>
+        fetch(`/api/storage/download?assignmentId=${encodeURIComponent(assignmentId)}&pageIndex=${i}`, {
+          credentials: 'include',
+        }).then(r => r.ok ? r.blob() : null)
+
+      // 先試 page-0；不存在就直接返回（避免白打 9 個 404）
+      const first = await fetchPage(0)
+      if (!first) return
+
+      const rest = await Promise.all(
+        Array.from({ length: MAX_PAGES - 1 }, (_, i) => fetchPage(i + 1))
       )
-      const validBlobs = blobs.filter((b): b is Blob => b !== null)
-      if (validBlobs.length > 0) setEditAnswerSheetImages(validBlobs)
+
+      // 取連續命中（遇到第一個 null 就停）
+      const blobs: Blob[] = [first]
+      for (const b of rest) {
+        if (!b) break
+        blobs.push(b)
+      }
+
+      setEditAnswerSheetImages(blobs)
+
+      // 自動修復本地快取：把探測到的 paths 寫回 Dexie，避免每次都重打探測
+      const paths = blobs.map((_, i) => `answer-sheets/${assignmentId}/page-${i}.webp`)
+      await db.assignments.update(assignmentId, { answerSheetImagePaths: paths }).catch(() => {})
     } catch (err) {
       console.warn('⚠️ 答案卷圖片下載例外', err)
     }
@@ -2321,10 +2341,9 @@ export default function AssignmentSetup({
     setCreateAnswerSheetMode(assignment.answerSheetMode ?? 'with_questions')
     setAnswerKey(normalizedAk)
     setIsCreateModalOpen(true)
-    // 非同步下載已存在的答案卷圖片（若有）
-    if (assignment.answerSheetImagePaths?.length) {
-      downloadAnswerSheetImages(assignment.id, assignment.answerSheetImagePaths.length)
-    }
+    // 非同步下載已存在的答案卷圖片（不依賴 answerSheetImagePaths，因為登出後 Dexie 清空時該欄位會是 undefined；
+    // 改由 downloadAnswerSheetImages() 從 Storage 動態探測 page-0..9）
+    downloadAnswerSheetImages(assignment.id)
   }
 
   const closeAnswerKeyModal = () => {

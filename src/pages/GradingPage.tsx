@@ -3819,6 +3819,24 @@ export default function GradingPage({
         )}
 
 
+        {/* 答案卷版本狀態提示（放在卡片區塊上方，進頁面立即可見） */}
+        {answerKeyStatus === 'updated' && (
+          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+            <p className="text-sm text-amber-700 font-medium">
+              答案卷已更新，目前成績為舊版批改結果
+            </p>
+          </div>
+        )}
+        {answerKeyStatus === 'deleted' && (
+          <div className="mb-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
+            <p className="text-sm text-red-700 font-medium">
+              答案卷已移除，請重新選擇答案卷
+            </p>
+          </div>
+        )}
+
         {/* Grid */}
         {isBatchMode && studentsByClassroom ? (
           // 批次模式：按班級分組顯示
@@ -4067,23 +4085,6 @@ export default function GradingPage({
         </div>
         )}
 
-        {/* 答案卷版本狀態提示 */}
-        {answerKeyStatus === 'updated' && (
-          <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
-            <p className="text-sm text-amber-700 font-medium">
-              答案卷已更新，目前成績為舊版批改結果
-            </p>
-          </div>
-        )}
-        {answerKeyStatus === 'deleted' && (
-          <div className="mt-6 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-red-500 shrink-0" />
-            <p className="text-sm text-red-700 font-medium">
-              答案卷已移除，請重新選擇答案卷
-            </p>
-          </div>
-        )}
       </div>
       {/* Modal */}
       {selectedSubmission && (

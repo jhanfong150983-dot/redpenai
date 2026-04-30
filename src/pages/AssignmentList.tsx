@@ -973,8 +973,12 @@ export default function AssignmentList({
                             <button
                               type="button"
                               onClick={() => openSettingsModal(assignment)}
-                              className="rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-                              title="批改設定 / 更換答案卷"
+                              className={
+                                !assignment.answerKey
+                                  ? 'rounded-full p-1 text-red-500 bg-red-50 ring-1 ring-red-200 transition-colors hover:bg-red-100 hover:text-red-600 animate-pulse'
+                                  : 'rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600'
+                              }
+                              title={!assignment.answerKey ? '尚未設定答案卷，點此前往設定' : '批改設定 / 更換答案卷'}
                             >
                               <Settings className="h-4 w-4" />
                             </button>

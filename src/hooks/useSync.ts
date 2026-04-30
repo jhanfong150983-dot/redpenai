@@ -642,9 +642,12 @@ export function useSync(options: UseSyncOptions = {}) {
         answerKeyTemplateId: a.answerKeyTemplateId ?? null,
         conceptTags: a.conceptTags,
         studentUploadEnabled: a.studentUploadEnabled,
+        answerSheetImagePaths: a.answerSheetImagePaths ?? null,
+        questionBookletImagePaths: a.questionBookletImagePaths ?? null,
+        answerSheetMode: a.answerSheetMode ?? null,
         updatedAt: a.updatedAt
       }))
-    
+
     console.log(`📤 [Sync Push] 準備上傳 ${assignmentPayload.length} 個作業:`, assignmentPayload.map(a => ({ id: a.id, title: a.title, hasAnswerKey: !!a.answerKey })))
 
     // submissions push: 只送結構性 metadata（不送批改資料）
@@ -1179,10 +1182,13 @@ export function useSync(options: UseSyncOptions = {}) {
             localData?.answerKeyTemplateId,
           // conceptTags: 優先用雲端（若有），否則保留本地（避免 bulkPut 洗掉）
           conceptTags: (cloudConceptTags ?? localData?.conceptTags) as Assignment['conceptTags'] | undefined,
-          // answerSheetImagePaths / questionBookletImagePaths: 本地端特有欄位，永遠保留本地資料
-          answerSheetImagePaths: localData?.answerSheetImagePaths,
+          // 雲端為主（assignments 表已有對應欄位），缺則 fallback 本地
+          answerSheetImagePaths: (a as Assignment).answerSheetImagePaths ?? localData?.answerSheetImagePaths,
           answerSheetMode: (a as any).answerSheetMode ?? (a as any).answer_sheet_mode ?? localData?.answerSheetMode,
-          questionBookletImagePaths: localData?.questionBookletImagePaths,
+          questionBookletImagePaths:
+            (a as Assignment).questionBookletImagePaths
+            ?? (a as { question_booklet_image_paths?: string[] }).question_booklet_image_paths
+            ?? localData?.questionBookletImagePaths,
           studentUploadEnabled: (a as any).studentUploadEnabled ?? (a as any).student_upload_enabled ?? (localData as any)?.studentUploadEnabled,
           updatedAt: localIsNewer ? localUpdatedAt : cloudUpdatedAt
         }
