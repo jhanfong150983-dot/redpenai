@@ -155,7 +155,7 @@ export default function AssignmentList({
         if (gradedCount > 0) {
           const ok = window.confirm(`此作業已有 ${gradedCount} 份批改結果，更換答案卷將清除所有批改。確定？`)
           if (!ok) { setIsSavingSettings(false); return }
-          // 清除批改結果
+          // 清除本地 Dexie 批改結果
           const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
           for (const sub of subs) {
             if (sub.gradingResult || sub.score) {
@@ -167,6 +167,20 @@ export default function AssignmentList({
                 status: 'synced', updatedAt: now,
               })
             }
+          }
+          // 同步清除 Supabase 批改結果（否則下次 sync pull 會把舊分數抓回來覆蓋）
+          try {
+            const res = await fetch('/api/data/clear-grading', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ assignmentId: settingsAssignment.id }),
+            })
+            if (!res.ok) {
+              console.warn('[clear-grading] 後端清除失敗', await res.text())
+            }
+          } catch (err) {
+            console.warn('[clear-grading] 後端清除例外', err)
           }
         }
         const newAK = JSON.parse(JSON.stringify(settingsSelectedNewAK.answerKey))
@@ -423,6 +437,7 @@ export default function AssignmentList({
         if (gradedCount > 0) {
           const ok = window.confirm(`此作業已有 ${gradedCount} 份批改結果，更換答案卷將清除所有批改。確定？`)
           if (!ok) { setIsSavingSettings(false); return }
+          // 清除本地 Dexie 批改結果
           const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
           for (const sub of subs) {
             if (sub.gradingResult || sub.score) {
@@ -432,6 +447,20 @@ export default function AssignmentList({
                 status: 'synced', updatedAt: now,
               })
             }
+          }
+          // 同步清除 Supabase 批改結果（否則下次 sync pull 會把舊分數抓回來覆蓋）
+          try {
+            const res = await fetch('/api/data/clear-grading', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ assignmentId: settingsAssignment.id }),
+            })
+            if (!res.ok) {
+              console.warn('[clear-grading] 後端清除失敗', await res.text())
+            }
+          } catch (err) {
+            console.warn('[clear-grading] 後端清除例外', err)
           }
         }
         const newAK = JSON.parse(JSON.stringify(akTemplate.answerKey))
