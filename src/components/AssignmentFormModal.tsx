@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import {
   Loader, BookOpen, Settings, Trash2, Search, Folder, Check,
-  CheckCircle2, Circle, FileText
+  CheckCircle2, Circle, FileText, ChevronRight
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 
@@ -211,6 +211,40 @@ export default function AssignmentFormModal({
     await onSubmit({ title, folder, selectedAnswerKeyId, settings, studentUploadEnabled })
   }
 
+  // ── footer dispatcher ─────────────────────────────────────────────────────
+  // 主按鈕的文案 / 動作 / disabled 狀態都依 activeStep 決定，所有「下一步」按鈕統一在此。
+  const isCreate = mode === 'create'
+  const primary: { label: string; disabled: boolean; loading?: boolean; icon?: React.ReactNode } = (() => {
+    if (activeStep === 'basic') {
+      return { label: '下一步', disabled: !title.trim(), icon: <ChevronRight className="w-4 h-4" /> }
+    }
+    if (activeStep === 'answer_key') {
+      return {
+        label: '下一步',
+        disabled: isCreate && selectedAnswerKeyId === '',
+        icon: <ChevronRight className="w-4 h-4" />,
+      }
+    }
+    // rules
+    return {
+      label: isSubmitting ? '處理中…' : isCreate ? '建立作業' : '儲存設定',
+      disabled: !canSubmit || isSubmitting,
+      loading: isSubmitting,
+      icon: <Check className="w-4 h-4" />,
+    }
+  })()
+
+  const handlePrimaryAction = () => {
+    if (activeStep === 'basic') { setActiveStep('answer_key'); return }
+    if (activeStep === 'answer_key') { setActiveStep('rules'); return }
+    void handleSubmit()
+  }
+
+  const handleBack = () => {
+    if (activeStep === 'rules') { setActiveStep('answer_key'); return }
+    if (activeStep === 'answer_key') { setActiveStep('basic'); return }
+  }
+
   if (!open) return null
 
   return (
@@ -230,20 +264,20 @@ export default function AssignmentFormModal({
                 <p className="text-xs text-gray-500 mt-0.5 truncate">{editAssignmentTitle}</p>
               )}
             </div>
+            {/* 流程清單為純文字，導航全交由 footer 主按鈕（樣式保留） */}
             <nav className="flex-1 py-2">
               {STEP_CONFIG.map((stepCfg) => {
                 const isActive = activeStep === stepCfg.key
                 const completed = isStepComplete(stepCfg.key)
 
                 return (
-                  <button
+                  <div
                     key={stepCfg.key}
-                    type="button"
-                    onClick={() => setActiveStep(stepCfg.key)}
-                    className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors text-sm ${
+                    aria-current={isActive ? 'step' : undefined}
+                    className={`w-full text-left px-4 py-3 flex items-center gap-3 text-sm select-none ${
                       isActive
                         ? 'bg-green-50 text-green-800 border-r-2 border-green-600'
-                        : 'text-gray-700 hover:bg-gray-100'
+                        : 'text-gray-700'
                     }`}
                   >
                     {completed ? (
@@ -254,7 +288,7 @@ export default function AssignmentFormModal({
                     <span className={`font-medium ${isActive ? 'text-green-800' : ''}`}>
                       {stepCfg.label}
                     </span>
-                  </button>
+                  </div>
                 )
               })}
             </nav>
@@ -584,20 +618,29 @@ export default function AssignmentFormModal({
               )}
             </div>
 
-            {/* ── Footer ── */}
-            <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-gray-200 bg-gray-50 shrink-0">
+            {/* ── Footer：上一步 + 主按鈕（dispatcher） ── */}
+            <div className="flex items-center gap-3 px-5 py-3 border-t border-gray-200 bg-gray-50 shrink-0">
+              {/* 上一步：basic 隱藏 */}
+              {activeStep !== 'basic' && (
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  disabled={isSubmitting}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  上一步
+                </button>
+              )}
+
+              {/* 主按鈕（右下角，文案與動作隨 step 變化） */}
               <button
                 type="button"
-                disabled={!canSubmit || isSubmitting}
-                onClick={() => void handleSubmit()}
-                className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                onClick={handlePrimaryAction}
+                disabled={primary.disabled}
+                className="ml-auto inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {isSubmitting ? (
-                  <Loader className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Check className="w-4 h-4" />
-                )}
-                {isSubmitting ? '處理中…' : mode === 'create' ? '建立作業' : '儲存設定'}
+                {primary.loading ? <Loader className="w-4 h-4 animate-spin" /> : primary.icon}
+                {primary.label}
               </button>
             </div>
           </div>
