@@ -232,11 +232,24 @@ export default function AssignmentList({
   // 所有答案卷模板（獨立表，跨班級）
   const [allTemplates, setAllTemplates] = useState<AnswerKeyTemplate[]>([])
 
+  // 完整模板 ID 集合（含空白模板），用來判斷 assignment 綁的答案卷是否已被刪除
+  const [allTemplateIds, setAllTemplateIds] = useState<Set<string>>(new Set())
+
   useEffect(() => {
     db.answerKeyTemplates.toArray().then((all) => {
       setAllTemplates(all.filter((t) => t.answerKey?.questions?.length))
+      setAllTemplateIds(new Set(all.map((t) => t.id)))
     })
   }, [assignments])
+
+  // 判斷答案卷是否缺失：(1) 從沒設過 (2) 綁的模板已被刪除
+  const isAnswerKeyMissing = (a: AssignmentWithMeta) => {
+    if (!a.answerKey) return true
+    if (a.answerKeyTemplateId && !allTemplateIds.has(a.answerKeyTemplateId)) return true
+    return false
+  }
+  const isAnswerKeyDeleted = (a: AssignmentWithMeta) =>
+    Boolean(a.answerKey && a.answerKeyTemplateId && !allTemplateIds.has(a.answerKeyTemplateId))
 
   // ── 跨班級模式：依答案卷模板分組 ──
   const crossClassTemplates = useMemo(() => {
@@ -974,11 +987,15 @@ export default function AssignmentList({
                               type="button"
                               onClick={() => openSettingsModal(assignment)}
                               className={
-                                !assignment.answerKey
+                                isAnswerKeyMissing(assignment)
                                   ? 'rounded-full p-1 text-red-500 bg-red-50 ring-1 ring-red-200 transition-colors hover:bg-red-100 hover:text-red-600 animate-pulse'
                                   : 'rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600'
                               }
-                              title={!assignment.answerKey ? '尚未設定答案卷，點此前往設定' : '批改設定 / 更換答案卷'}
+                              title={
+                                isAnswerKeyDeleted(assignment) ? '答案卷已刪除，請重新選擇'
+                                : !assignment.answerKey ? '尚未設定答案卷，點此前往設定'
+                                : '批改設定 / 更換答案卷'
+                              }
                             >
                               <Settings className="h-4 w-4" />
                             </button>
@@ -992,11 +1009,15 @@ export default function AssignmentList({
                             {assignment.title} · 共 {assignment.totalPages} 頁 ·
                             已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
                           </p>
-                          {!assignment.answerKey && (
+                          {isAnswerKeyDeleted(assignment) ? (
+                            <p className="mt-1 text-xs text-red-500">
+                              答案卷已刪除，請重新選擇答案卷。
+                            </p>
+                          ) : !assignment.answerKey ? (
                             <p className="mt-1 text-xs text-red-500">
                               尚未設定標準答案，AI 批改將無法使用。
                             </p>
-                          )}
+                          ) : null}
                         </div>
 
                         <div className="max-w-[58vw] self-center overflow-x-auto">
@@ -1089,8 +1110,16 @@ export default function AssignmentList({
                       <button
                         type="button"
                         onClick={() => openSettingsModal(assignment)}
-                        className="rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-                        title="批改設定 / 更換答案卷"
+                        className={
+                          isAnswerKeyMissing(assignment)
+                            ? 'rounded-full p-1 text-red-500 bg-red-50 ring-1 ring-red-200 transition-colors hover:bg-red-100 hover:text-red-600 animate-pulse'
+                            : 'rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600'
+                        }
+                        title={
+                          isAnswerKeyDeleted(assignment) ? '答案卷已刪除，請重新選擇'
+                          : !assignment.answerKey ? '尚未設定答案卷，點此前往設定'
+                          : '批改設定 / 更換答案卷'
+                        }
                       >
                         <Settings className="h-4 w-4" />
                       </button>
@@ -1099,11 +1128,15 @@ export default function AssignmentList({
                       {assignment.classroom?.name || '未知班級'} · 共 {assignment.totalPages} 頁 ·
                       已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
                     </p>
-                    {!assignment.answerKey && (
+                    {isAnswerKeyDeleted(assignment) ? (
+                      <p className="mt-1 text-xs text-red-500">
+                        答案卷已刪除，請重新選擇答案卷。
+                      </p>
+                    ) : !assignment.answerKey ? (
                       <p className="mt-1 text-xs text-red-500">
                         尚未設定標準答案，AI 批改將無法使用。
                       </p>
-                    )}
+                    ) : null}
                   </div>
 
                   <div className="max-w-[58vw] self-center overflow-x-auto">
@@ -1519,12 +1552,15 @@ export default function AssignmentList({
             enWordOrderDeduction: settingsEnWordOrderDeduction,
           }}
           initialStudentUploadEnabled={settingsAssignment.studentUploadEnabled}
-          initialAnswerKeyInfo={settingsAssignment.answerKey ? {
-            name: allTemplates.find(t => t.id === settingsAssignment.answerKeyTemplateId)?.name,
-            domain: settingsAssignment.domain || '未設定',
-            questionCount: settingsAssignment.answerKey.questions.length,
-            totalScore: settingsAssignment.answerKey.totalScore,
-          } : null}
+          initialAnswerKeyInfo={
+            // 答案卷已被刪除（綁的 templateId 不在 db 裡）→ 視為 null，提示老師重選
+            settingsAssignment.answerKey && !isAnswerKeyDeleted(settingsAssignment) ? {
+              name: allTemplates.find(t => t.id === settingsAssignment.answerKeyTemplateId)?.name,
+              domain: settingsAssignment.domain || '未設定',
+              questionCount: settingsAssignment.answerKey.questions.length,
+              totalScore: settingsAssignment.answerKey.totalScore,
+            } : null
+          }
           gradedCount={settingsAssignment.gradedCount ?? 0}
           folders={usedFolders}
   
