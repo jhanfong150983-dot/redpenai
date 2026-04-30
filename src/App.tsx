@@ -200,6 +200,67 @@ const normalizeLoginEntry = (value: unknown): LoginEntryMode | null => {
 const OVERVIEW_VISIBLE_STEP = 3
 const INITIAL_SYNC_TIMEOUT_MS = 8000
 
+// Stage 2 路由：currentPage ↔ URL ?page= 雙向同步
+// 'home' 用無 ?page= 表示；其他 Page 值直接作為 URL slug
+const URL_SYNCABLE_PAGES: readonly Page[] = [
+  'classroom-management',
+  'assignment-setup',
+  'answer-bank',
+  'assignment-import-select',
+  'assignment-scan',
+  'grading-list',
+  'grading',
+  'batch-grading',
+  'gradebook',
+  'assignment-import',
+  'unified-import',
+  'correction-select',
+  'correction',
+  'ai-report',
+  'admin-panel',
+  'admin-user-detail',
+  'ink-topup',
+  'teacher-preferences'
+]
+
+// 舊書籤相容：別名 → 規範化 Page
+const PAGE_PARAM_ALIASES: Record<string, Page> = {
+  'classroom': 'classroom-management',
+  'admin-orders': 'admin-panel',
+  'admin-users': 'admin-panel',
+  'admin-analytics': 'admin-panel',
+  'admin-tags': 'admin-panel'
+}
+
+const parseUrlPageParam = (raw: string | null | undefined): Page | null => {
+  if (!raw) return 'home'
+  const trimmed = raw.trim()
+  if (!trimmed) return 'home'
+  if (PAGE_PARAM_ALIASES[trimmed]) return PAGE_PARAM_ALIASES[trimmed]
+  if ((URL_SYNCABLE_PAGES as readonly string[]).includes(trimmed)) return trimmed as Page
+  return null
+}
+
+const writeCurrentPageToUrl = (page: Page, action: 'push' | 'replace' = 'push'): void => {
+  if (typeof window === 'undefined') return
+  const params = new URLSearchParams(window.location.search)
+  const currentParam = params.get('page')
+  if (page === 'home') {
+    if (!currentParam) return
+    params.delete('page')
+  } else {
+    if (currentParam === page) return
+    params.set('page', page)
+  }
+  const query = params.toString()
+  const url = query ? `${window.location.pathname}?${query}` : window.location.pathname
+  if (action === 'push') {
+    window.history.pushState({}, '', url)
+  } else {
+    window.history.replaceState({}, '', url)
+  }
+}
+
 // 模組頂層即時偵測：若 URL 帶有 1Campus SSO 參數，加上旗標阻擋
 // fetchAuth 變更 auth state，避免在跳轉前閃過 LandingPage
 const _initParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
@@ -1155,56 +1216,83 @@ function App() {
     }
   }, [])
 
+  // Stage 2 路由：登入完成後從 URL ?page= 還原 currentPage（含舊書籤別名 + 權限閘）
   useEffect(() => {
     if (urlPageHandled) return
     if (auth.status !== 'authenticated') return
 
     const params = new URLSearchParams(window.location.search)
     const pageParam = params.get('page')
-    let nextPage: Page | null = null
+    const parsed = parseUrlPageParam(pageParam)
 
-    switch (pageParam) {
-      case 'classroom-management':
-      case 'classroom':
-        nextPage = 'classroom-management'
-        break
-      case 'ink-topup':
-        nextPage = 'ink-topup'
-        break
-      case 'admin-panel':
-      case 'admin-orders':
-      case 'admin-users':
-      case 'admin-analytics':
-      case 'admin-tags':
-        nextPage = isAdmin ? 'admin-panel' : null
-        break
-      case 'gradebook':
-        nextPage = canAccessTracking ? 'gradebook' : null
-        break
-      case 'correction':
-      case 'correction-select':
-        nextPage = canAccessTracking ? 'correction-select' : null
-        break
-      case 'ai-report':
-        nextPage = canAccessTracking ? 'ai-report' : null
-        break
-      default:
-        nextPage = null
+    let nextPage: Page = 'home'
+    if (parsed && parsed !== 'home') {
+      const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'ai-report']
+      const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail']
+      if (needsTracking.includes(parsed) && !canAccessTracking) {
+        nextPage = 'home'
+      } else if (needsAdmin.includes(parsed) && !isAdmin) {
+        nextPage = 'home'
+      } else {
+        nextPage = parsed
+      }
     }
 
-    if (nextPage) {
+    if (nextPage !== 'home') {
       setCurrentPage(nextPage)
     }
-
-    if (pageParam) {
-      params.delete('page')
-      const query = params.toString()
-      const url = query ? `${window.location.pathname}?${query}` : window.location.pathname
-      window.history.replaceState({}, '', url)
-    }
+    // 規範化 URL（別名 → 規範值；不合法/無權限 → 清空），用 replaceState 避免污染歷史
+    writeCurrentPageToUrl(nextPage, 'replace')
 
     setUrlPageHandled(true)
   }, [auth.status, canAccessTracking, isAdmin, urlPageHandled])
+
+  // Stage 2 路由：currentPage 變動時，將狀態 push 到 URL（讓返回鍵能用）
+  useEffect(() => {
+    if (!urlPageHandled) return
+    if (auth.status !== 'authenticated') return
+    writeCurrentPageToUrl(currentPage, 'push')
+  }, [currentPage, urlPageHandled, auth.status])
+
+  // Stage 2 路由：popstate 監聽（瀏覽器返回/前進鍵）+ 守 Phase A awaiting_review
+  useEffect(() => {
+    if (!urlPageHandled) return
+    if (auth.status !== 'authenticated') return
+
+    const handlePopstate = () => {
+      const params = new URLSearchParams(window.location.search)
+      const parsed = parseUrlPageParam(params.get('page'))
+      const target: Page = parsed && parsed !== null ? parsed : 'home'
+      if (target === currentPage) return
+
+      // 權限閘：URL 偽造試圖跳到無權限頁，把 URL 還原回 currentPage
+      const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'ai-report']
+      const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail']
+      if ((needsTracking.includes(target) && !canAccessTracking)
+        || (needsAdmin.includes(target) && !isAdmin)) {
+        writeCurrentPageToUrl(currentPage, 'push')
+        return
+      }
+
+      // 守門：Phase A 一致性審查未提交，離開要確認
+      if ((currentPage === 'grading' || currentPage === 'batch-grading')
+        && gradingPagePhase === 'awaiting_review') {
+        const confirmed = window.confirm(
+          '一致性審查尚未提交批改。\n\nPhase A 已完成並產生費用，離開後本次費用仍會結算。\n\n確定要離開批改頁面嗎？'
+        )
+        if (!confirmed) {
+          // 使用者取消離開，把 URL 推回 currentPage
+          writeCurrentPageToUrl(currentPage, 'push')
+          return
+        }
+      }
+
+      setCurrentPage(target)
+    }
+
+    window.addEventListener('popstate', handlePopstate)
+    return () => window.removeEventListener('popstate', handlePopstate)
+  }, [urlPageHandled, auth.status, currentPage, canAccessTracking, isAdmin, gradingPagePhase])
 
   useEffect(() => {
     if (auth.status !== 'authenticated') return
