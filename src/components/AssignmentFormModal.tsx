@@ -206,7 +206,8 @@ export default function AssignmentFormModal({
 
     const groups = new Map<string, AnswerKeyOption[]>()
     for (const ak of filtered) {
-      const grpKey = (ak as { folder?: string }).folder || ak.domain || '未分類'
+      // 只用老師自己建立的資料夾分組，不再 fallback 到領域
+      const grpKey = (ak as { folder?: string }).folder || '未分類'
       if (!groups.has(grpKey)) groups.set(grpKey, [])
       groups.get(grpKey)!.push(ak)
     }
@@ -470,9 +471,9 @@ export default function AssignmentFormModal({
                       )}
                       {groupedAnswerKeys.map(({ folder: grpFolder, items }) => (
                         <div key={grpFolder}>
-                          <div className="flex items-center gap-1.5 px-4 py-1.5 bg-gray-50 border-b border-gray-100 sticky top-0">
-                            <Folder className="w-3.5 h-3.5 text-gray-400" />
-                            <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{grpFolder}</span>
+                          <div className="flex items-center gap-2 px-4 py-2 bg-gray-100 border-b border-gray-200 sticky top-0">
+                            <Folder className="w-4 h-4 text-gray-600" />
+                            <span className="text-base font-bold text-gray-800">{grpFolder}</span>
                           </div>
                           {items.map((ak) => {
                             const isSelected = selectedAnswerKeyId === ak.id
