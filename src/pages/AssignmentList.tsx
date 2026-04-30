@@ -983,22 +983,6 @@ export default function AssignmentList({
                             <h3 className="text-base font-semibold text-gray-900">
                               {assignment.classroom?.name || '未知班級'}
                             </h3>
-                            <button
-                              type="button"
-                              onClick={() => openSettingsModal(assignment)}
-                              className={
-                                isAnswerKeyMissing(assignment)
-                                  ? 'rounded-full p-1 text-red-500 bg-red-50 ring-1 ring-red-200 transition-colors hover:bg-red-100 hover:text-red-600 animate-pulse'
-                                  : 'rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600'
-                              }
-                              title={
-                                isAnswerKeyDeleted(assignment) ? '答案卷已刪除，請重新選擇'
-                                : !assignment.answerKey ? '尚未設定答案卷，點此前往設定'
-                                : '批改設定 / 更換答案卷'
-                              }
-                            >
-                              <Settings className="h-4 w-4" />
-                            </button>
                             {!hasSubmissions && (
                               <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                                 尚未匯入
