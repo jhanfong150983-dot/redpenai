@@ -10,7 +10,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   RotateCw, Check, X, AlertTriangle, Loader2, ChevronRight, Crop, Plus, Trash2,
-  FileUp, Lock, CheckCircle2, Circle, Upload
+  Lock, CheckCircle2, Circle, Upload
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
@@ -90,13 +90,12 @@ function SortablePageCard({ item, onRotate, onDelete, canDelete }: { item: PageI
 
 // ─── types ─────────────��────────────────────────────────────────────────────
 
-type UnifiedStep = 'metadata' | 'upload_order' | 'extracting' | 'editing'
+type UnifiedStep = 'metadata' | 'extract' | 'editing'
 
 const STEP_CONFIG: { key: UnifiedStep; label: string; shortLabel: string }[] = [
   { key: 'metadata', label: '基本資料', shortLabel: '①' },
-  { key: 'upload_order', label: '上傳答案', shortLabel: '②' },
-  { key: 'extracting', label: 'AI 解析', shortLabel: '③' },
-  { key: 'editing', label: '題目編輯', shortLabel: '④' },
+  { key: 'extract', label: 'AI 解析', shortLabel: '②' },
+  { key: 'editing', label: '題目編輯', shortLabel: '③' },
 ]
 
 interface NormalizedBbox { x: number; y: number; w: number; h: number }
@@ -152,7 +151,7 @@ export default function AnswerKeyUnifiedModal({
   // ── step state machine ────────────────────────────────────────────────────
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
   const [completedSteps, setCompletedSteps] = useState<Set<UnifiedStep>>(
-    () => editMode ? new Set<UnifiedStep>(['metadata', 'upload_order', 'extracting', 'editing']) : new Set()
+    () => editMode ? new Set<UnifiedStep>(['metadata', 'extract', 'editing']) : new Set()
   )
 
   const isStepUnlocked = useCallback((step: UnifiedStep): boolean => {
@@ -265,7 +264,7 @@ export default function AnswerKeyUnifiedModal({
       const pages = compressed.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) }))
       setUploadedPages(pages)
       // Reset extraction and editing since we have new images
-      resetFromStep('upload_order')
+      resetFromStep('extract')
       setEditingKey(null)
       setExtractedImageBlobs([])
     } catch (err) {
@@ -297,7 +296,7 @@ export default function AnswerKeyUnifiedModal({
       const newPages = compressed.map((blob, i) => ({ index: startIdx + i, blob, url: URL.createObjectURL(blob) }))
       setUploadedPages(prev => [...prev, ...newPages])
       // Reset downstream steps since pages changed
-      resetFromStep('upload_order')
+      resetFromStep('extract')
       setEditingKey(null)
       setExtractedImageBlobs([])
     } catch (err) {
@@ -311,15 +310,9 @@ export default function AnswerKeyUnifiedModal({
     uploadedPages.forEach(p => URL.revokeObjectURL(p.url))
     setUploadedPages([])
     setPageItems([])
-    resetFromStep('upload_order')
+    resetFromStep('extract')
     setEditingKey(null)
     setExtractedImageBlobs([])
-  }
-
-  const handleConfirmPageOrder = () => {
-    if (pageItems.length === 0) return
-    markComplete('upload_order')
-    setActiveStep('extracting')
   }
 
   // DnD sensors
@@ -350,7 +343,7 @@ export default function AnswerKeyUnifiedModal({
         // Last page deleted — also clean up uploaded pages
         uploadedPages.forEach(p => URL.revokeObjectURL(p.url))
         setUploadedPages([])
-        resetFromStep('upload_order')
+        resetFromStep('extract')
         setEditingKey(null)
         setExtractedImageBlobs([])
       }
@@ -369,9 +362,9 @@ export default function AnswerKeyUnifiedModal({
       prevPageItemsRef.current = pageItems
       return
     }
-    if (prevPageItemsRef.current !== pageItems && completedSteps.has('upload_order')) {
+    if (prevPageItemsRef.current !== pageItems && completedSteps.has('extract')) {
       if (prevPageItemsRef.current.length > 0) {
-        resetFromStep('upload_order')
+        resetFromStep('extract')
       }
     }
     prevPageItemsRef.current = pageItems
@@ -429,8 +422,9 @@ export default function AnswerKeyUnifiedModal({
         index: i, blob, url: URL.createObjectURL(blob),
       }))
       setUploadedPages(correctedPages)
-      markComplete('extracting')
+      markComplete('extract')
       markComplete('editing') // editing is auto-unlocked, consider complete by default
+      // 解析成功 → 自動跳到題目編輯，不停留在中間畫面
       setActiveStep('editing')
     } catch (err) {
       setExtractError(err instanceof Error ? err.message : String(err))
@@ -691,10 +685,60 @@ export default function AnswerKeyUnifiedModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── render ────────────���───────────────────────────────────────────────────
+  // ── footer dispatcher ─────────────────────────────────────────────────────
+  // 主按鈕的文案 / 動作 / disabled 狀態都依 activeStep 決定，所有「下一步」按鈕統一在此。
+  const primary: { label: string; disabled: boolean; loading?: boolean; icon?: React.ReactNode } = (() => {
+    if (activeStep === 'metadata') {
+      return { label: '下一步', disabled: !editMode && !metadataValid, icon: <ChevronRight className="w-4 h-4" /> }
+    }
+    if (activeStep === 'extract') {
+      if (editMode) {
+        return { label: '下一步：題目編輯', disabled: false, icon: <ChevronRight className="w-4 h-4" /> }
+      }
+      if (isExtracting) {
+        return { label: '解析中…', disabled: true, loading: true }
+      }
+      // 從 ③ 退回（已解析過、editingKey 仍在、頁面沒變動）→ 純導航；否則送 AI
+      const goingBackFromEdit = completedSteps.has('extract') && editingKey
+      if (goingBackFromEdit) {
+        return { label: '下一步：題目編輯', disabled: false, icon: <ChevronRight className="w-4 h-4" /> }
+      }
+      return { label: '確認送出解析', disabled: pageItems.length === 0, icon: <Check className="w-4 h-4" /> }
+    }
+    // editing
+    return {
+      label: isSaving ? '儲存中…' : '儲存答案卷',
+      disabled: !allComplete || isSaving || !editingKey,
+      loading: isSaving,
+      icon: <Check className="w-4 h-4" />,
+    }
+  })()
+
+  const handlePrimaryAction = () => {
+    if (activeStep === 'metadata') {
+      setActiveStep('extract')
+      return
+    }
+    if (activeStep === 'extract') {
+      if (editMode) { setActiveStep('editing'); return }
+      if (isExtracting) return
+      const goingBackFromEdit = completedSteps.has('extract') && editingKey
+      if (goingBackFromEdit) { setActiveStep('editing'); return }
+      void handleStartExtract()
+      return
+    }
+    handleSaveClick()
+  }
+
+  const handleBack = () => {
+    if (activeStep === 'extract') { setActiveStep('metadata'); return }
+    if (activeStep === 'editing') { setActiveStep('extract'); return }
+  }
+
+  // ── render ────────────────────────────────────────────────────────────────
   if (!open) return null
 
-  const effectiveDomain = domain === '國語（測試中）' ? '���語' : domain
+  const effectiveDomain = domain === '國語（測試中）' ? '國語' : domain
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
@@ -710,6 +754,7 @@ export default function AnswerKeyUnifiedModal({
                 {editMode ? '編輯答案卷' : '新增答案卷'}
               </h2>
             </div>
+            {/* 流程清單為純文字，導航全交由 footer 主按鈕（樣式保留） */}
             <nav className="flex-1 py-2">
               {STEP_CONFIG.map((stepCfg) => {
                 const isActive = activeStep === stepCfg.key
@@ -718,19 +763,17 @@ export default function AnswerKeyUnifiedModal({
                 const readOnly = isStepReadOnly(stepCfg.key)
 
                 return (
-                  <button
+                  <div
                     key={stepCfg.key}
-                    type="button"
-                    disabled={!unlocked}
-                    onClick={() => unlocked && setActiveStep(stepCfg.key)}
-                    className={`w-full text-left px-4 py-3 flex items-center gap-3 transition-colors text-sm ${
+                    aria-current={isActive ? 'step' : undefined}
+                    className={`w-full text-left px-4 py-3 flex items-center gap-3 text-sm select-none ${
                       isActive
                         ? readOnly
                           ? 'bg-gray-100 text-gray-700 border-r-2 border-gray-400'
                           : 'bg-green-50 text-green-800 border-r-2 border-green-600'
                         : unlocked
-                          ? 'text-gray-700 hover:bg-gray-100'
-                          : 'text-gray-400 cursor-not-allowed'
+                          ? 'text-gray-700'
+                          : 'text-gray-400'
                     }`}
                   >
                     {/* Step icon */}
@@ -749,7 +792,7 @@ export default function AnswerKeyUnifiedModal({
                         <span className="text-[10px] text-gray-400">僅供瀏覽</span>
                       )}
                     </div>
-                  </button>
+                  </div>
                 )
               })}
             </nav>
@@ -884,8 +927,8 @@ export default function AnswerKeyUnifiedModal({
                 </div>
               )}
 
-              {/* ══ Step 2: 上傳答案 ══ */}
-              {activeStep === 'upload_order' && (
+              {/* ══ Step 2: AI 解析（合併原 上傳答案 + AI 解析） ══ */}
+              {activeStep === 'extract' && !isExtracting && (
                 <div className="p-4 flex flex-col h-full">
                   {editMode ? (
                     /* ── Edit mode: read-only view ── */
@@ -993,112 +1036,37 @@ export default function AnswerKeyUnifiedModal({
                     </>
                   )}
 
-                  {/* Confirm button */}
-                  {pageItems.length > 0 && !completedSteps.has('upload_order') && (
-                    <div className="mt-4 flex justify-end shrink-0">
+                  {/* 已解析狀態：從 ③ 退回時顯示「重新解析」secondary（不改頁面也想重做用） */}
+                  {!editMode && completedSteps.has('extract') && editingKey && pageItems.length > 0 && (
+                    <div className="mt-4 flex items-center justify-between text-sm text-green-700 shrink-0 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>已解析 {editingKey.questions.length} 題</span>
+                        {notice && <span className="text-amber-600">{notice}</span>}
+                      </div>
                       <button
                         type="button"
-                        onClick={handleConfirmPageOrder}
-                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
+                        onClick={() => void handleStartExtract()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
                       >
-                        <Check className="w-4 h-4" /> 確認順序
+                        重新解析
                       </button>
                     </div>
                   )}
-                  {completedSteps.has('upload_order') && pageItems.length > 0 && (
-                    <div className="mt-4 flex items-center gap-2 text-sm text-green-600 shrink-0">
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>頁面順序已確認</span>
-                    </div>
+                  {extractError && (
+                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 shrink-0">{extractError}</div>
                   )}
                 </div>
               )}
 
-              {/* ══ Step 3: AI 解析 ══ */}
-              {activeStep === 'extracting' && (
+              {/* Step 2 解析中 sub-state */}
+              {activeStep === 'extract' && isExtracting && (
                 <div className="p-6 flex flex-col items-center justify-center h-full">
-                  {editMode ? (
-                    /* ── Edit mode: read-only ── */
-                    <div className="text-center space-y-4">
-                      <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto">
-                        <CheckCircle2 className="w-8 h-8 text-green-500" />
-                      </div>
-                      <div>
-                        <h3 className="text-base font-semibold text-gray-900 mb-1">AI 解析已完成</h3>
-                        <p className="text-sm text-gray-500">
-                          共 {editingKey?.questions.length ?? 0} 題
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
-                        <Lock className="w-3.5 h-3.5 shrink-0" />
-                        <span>如需重新解析請建立新答案卷</span>
-                      </div>
-                    </div>
-                  ) : (
-                    /* ── Create mode ── */
-                    <>
-                      {!isExtracting && !completedSteps.has('extracting') && (
-                        <div className="text-center space-y-4">
-                          <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto">
-                            <FileUp className="w-8 h-8 text-green-600" />
-                          </div>
-                          <div>
-                            <h3 className="text-base font-semibold text-gray-900 mb-1">準備送出 AI 解析</h3>
-                            <p className="text-sm text-gray-500">共 {pageItems.length} 頁答案卷圖片</p>
-                            <p className="text-xs text-amber-600 mt-2">此操作將消耗墨水，完成後現有標準答案將被更新</p>
-                          </div>
-                          {extractError && (
-                            <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{extractError}</div>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => void handleStartExtract()}
-                            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
-                          >
-                            <Check className="w-4 h-4" /> 確認送出解析
-                          </button>
-                        </div>
-                      )}
-                      {isExtracting && (
-                        <div className="text-center space-y-4">
-                          <Loader2 className="w-10 h-10 text-green-600 animate-spin mx-auto" />
-                          <p className="text-sm text-gray-600">{extractionMsg}</p>
-                        </div>
-                      )}
-                      {completedSteps.has('extracting') && !isExtracting && (
-                        <div className="text-center space-y-4">
-                          <div className="w-16 h-16 rounded-full bg-green-50 flex items-center justify-center mx-auto">
-                            <CheckCircle2 className="w-8 h-8 text-green-600" />
-                          </div>
-                          <div>
-                            <h3 className="text-base font-semibold text-gray-900 mb-1">AI 解析完成</h3>
-                            <p className="text-sm text-gray-500">
-                              已解析 {editingKey?.questions.length ?? 0} 題
-                              {notice && <span className="text-amber-600 ml-2">{notice}</span>}
-                            </p>
-                          </div>
-                          <div className="flex items-center justify-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => void handleStartExtract()}
-                              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-                            >
-                              重新解析
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setActiveStep('editing')}
-                              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
-                            >
-                              前往編輯題目 <ChevronRight className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
+                  <Loader2 className="w-10 h-10 text-green-600 animate-spin mx-auto" />
+                  <p className="mt-4 text-sm text-gray-600">{extractionMsg}</p>
                 </div>
               )}
+
 
               {/* ══ Step 4: 題目編輯 ���═ */}
               {activeStep === 'editing' && editingKey && (
@@ -1376,21 +1344,35 @@ export default function AnswerKeyUnifiedModal({
               )}
             </div>
 
-            {/* ── Footer ── */}
-            <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-gray-200 bg-gray-50 shrink-0">
+            {/* ── Footer：上一步 + 主按鈕（dispatcher） ── */}
+            <div className="flex items-center gap-3 px-5 py-3 border-t border-gray-200 bg-gray-50 shrink-0">
+              {/* 上一步：metadata 隱藏；解析中也隱藏避免 race */}
+              {activeStep !== 'metadata' && !(activeStep === 'extract' && isExtracting) && (
+                <button
+                  type="button"
+                  onClick={handleBack}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  上一步
+                </button>
+              )}
+
+              {/* 中間 hint 區（保留原有的 編輯 step 警告） */}
               {editingKey && activeStep === 'editing' && (
-                <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 mr-auto">
+                <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
                   你可以相信 AI，但你一定要認真檢查
                 </span>
               )}
+
+              {/* 主按鈕（右下角，文案與動作隨 step 變化） */}
               <button
                 type="button"
-                onClick={handleSaveClick}
-                disabled={!allComplete || isSaving || !editingKey}
-                className="inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                onClick={handlePrimaryAction}
+                disabled={primary.disabled}
+                className="ml-auto inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                {isSaving ? '儲存中…' : '儲存答案卷'}
+                {primary.loading ? <Loader2 className="w-4 h-4 animate-spin" /> : primary.icon}
+                {primary.label}
               </button>
             </div>
           </div>
