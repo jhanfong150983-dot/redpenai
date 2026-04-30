@@ -343,6 +343,9 @@ export interface AnswerKeyTemplate {
   totalScore?: number
   shareCode?: string
   pageOrientations?: ('portrait' | 'landscape')[] // 每頁答案卷圖片的方向（建立時自動偵測）
+  // 原始答案卷整頁圖 Supabase Storage 路徑：homework-images/template-answer-sheets/{id}/page-{i}.webp
+  // 用於再次開啟編輯器時還原預覽（bbox 標記、題目對應）
+  answerSheetImagePaths?: string[]
   questionBookletImagePaths?: string[] // 題本圖 Supabase Storage 路徑（純答案卷模式）
   version?: number // 答案卷版本號（每次編輯內容時 +1）
   updatedAt?: number

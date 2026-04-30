@@ -380,6 +380,15 @@ export default function AnswerKeyUnifiedModal({
   )
   const [notice, setNotice] = useState<string | null>(null)
 
+  // Edit mode: 父層非同步從 Storage 下載答案卷圖後，把 prop 同步進編輯預覽用的 state
+  useEffect(() => {
+    if (!editMode) return
+    if (initialAnswerSheetImages.length === 0) return
+    if (extractedImageBlobs.length > 0) return
+    setExtractedImageBlobs([...initialAnswerSheetImages])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode, initialAnswerSheetImages])
+
   const handleStartExtract = async () => {
     setIsExtracting(true)
     setExtractError(null)
@@ -391,12 +400,14 @@ export default function AnswerKeyUnifiedModal({
       })
 
       // Apply rotation + perspective correction
-      setExtractionMsg('校正圖片角度…')
+      const total = orderedBlobs.length
+      setExtractionMsg(`校正圖片角度 (0/${total})…`)
       try {
         const [{ rotateImageBlob }, { correctPerspective }] = await Promise.all([
           import('../lib/imageCompression'),
           import('../lib/perspectiveCorrection')
         ])
+        let done = 0
         await Promise.all(orderedBlobs.map(async (item) => {
           if (item.rotation !== 0) {
             item.blob = await rotateImageBlob(item.blob, item.rotation)
@@ -405,10 +416,13 @@ export default function AnswerKeyUnifiedModal({
           item.blob = await correctPerspective(item.blob)
           URL.revokeObjectURL(oldUrl)
           item.url = URL.createObjectURL(item.blob)
+          done += 1
+          setExtractionMsg(`校正圖片角度 (${done}/${total})…`)
         }))
       } catch (err) {
         console.warn('[UnifiedModal] perspective correction failed, using originals:', err)
       }
+      setExtractionMsg('擷取答案中，請稍候…')
 
       const effectiveDomain = domain === '國語（測試中）' ? '國語' : domain
       const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setExtractionMsg, { domain: effectiveDomain, docType })

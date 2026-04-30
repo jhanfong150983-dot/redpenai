@@ -393,22 +393,24 @@ export default function AnswerBank(_props: AnswerBankProps) {
     } catch (err) { console.warn('⚠️ 答案截圖上傳例外', err) }
   }
 
+  const blobsToBase64 = (blobs: Blob[]) => Promise.all(
+    blobs.map(blob => new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = reject
+      reader.readAsDataURL(blob)
+    }))
+  )
+
   // 上傳題本圖到 Supabase Storage（純答案卷模式，用於 Explain 讀取題目）
   const uploadQuestionBookletImages = async (templateId: string, blobs: Blob[]) => {
     try {
-      const imagesBase64: string[] = await Promise.all(
-        blobs.map(blob => new Promise<string>((resolve, reject) => {
-          const reader = new FileReader()
-          reader.onload = () => resolve(reader.result as string)
-          reader.onerror = reject
-          reader.readAsDataURL(blob)
-        }))
-      )
+      const imagesBase64 = await blobsToBase64(blobs)
       const res = await fetch('/api/storage/download', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignmentId: templateId, imagesBase64, storagePrefix: 'question-booklets' }),
+        body: JSON.stringify({ templateId, imagesBase64, storagePrefix: 'question-booklets' }),
       })
       if (!res.ok) {
         console.warn('⚠️ 題本圖片上傳失敗', await res.text())
@@ -419,6 +421,61 @@ export default function AnswerBank(_props: AnswerBankProps) {
       console.log(`✅ 題本圖已上傳 ${paths.length} 頁`)
     } catch (err) {
       console.warn('⚠️ 題本圖片上傳例外', err)
+    }
+  }
+
+  // 上傳原始答案卷整頁圖到 Supabase Storage，再次開啟編輯器時用於還原預覽
+  const uploadAnswerSheetImages = async (templateId: string, blobs: Blob[]) => {
+    if (!blobs.length) return
+    try {
+      const imagesBase64 = await blobsToBase64(blobs)
+      const res = await fetch('/api/storage/download', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateId, imagesBase64, storagePrefix: 'template-answer-sheets' }),
+      })
+      if (!res.ok) {
+        console.warn('⚠️ 答案卷圖片上傳失敗', await res.text())
+        return
+      }
+      const { paths } = await res.json() as { paths: string[] }
+      await db.answerKeyTemplates.update(templateId, { answerSheetImagePaths: paths, updatedAt: Date.now() })
+      // 觸發 sync push，把 answerSheetImagePaths 寫入 Supabase（避免登出後 Dexie 清空時遺失路徑）
+      requestSync()
+      console.log(`✅ 答案卷圖已上傳 ${paths.length} 頁`)
+    } catch (err) {
+      console.warn('⚠️ 答案卷圖片上傳例外', err)
+    }
+  }
+
+  // 從 Supabase Storage 動態探測 page-0..9，回傳依序命中的 blob
+  const downloadAnswerSheetImages = async (templateId: string): Promise<Blob[]> => {
+    const MAX_PAGES = 10
+    try {
+      const fetchPage = (i: number) =>
+        fetch(`/api/storage/download?templateId=${encodeURIComponent(templateId)}&pageIndex=${i}`, {
+          credentials: 'include',
+        }).then(r => r.ok ? r.blob() : null)
+
+      const first = await fetchPage(0)
+      if (!first) return []
+
+      const rest = await Promise.all(
+        Array.from({ length: MAX_PAGES - 1 }, (_, i) => fetchPage(i + 1))
+      )
+      const blobs: Blob[] = [first]
+      for (const b of rest) {
+        if (!b) break
+        blobs.push(b)
+      }
+      // 自動修復本地快取
+      const paths = blobs.map((_, i) => `template-answer-sheets/${templateId}/page-${i}.webp`)
+      await db.answerKeyTemplates.update(templateId, { answerSheetImagePaths: paths }).catch(() => {})
+      return blobs
+    } catch (err) {
+      console.warn('⚠️ 答案卷圖片下載例外', err)
+      return []
     }
   }
 
@@ -444,6 +501,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
         ...(answerKeyChanged ? { version: currentVersion + 1 } : {}),
       })
       if (answerKeyChanged) uploadAnswerCrops(editingTemplateId, answerKey)
+      // 若這次有重新解析（imageBlobs 非空），就重新上傳整頁圖；否則保留 Storage 既有版本
+      if (imageBlobs.length > 0) uploadAnswerSheetImages(editingTemplateId, imageBlobs)
     } else {
       const templateId = generateId()
       const pageOrientations: ('portrait' | 'landscape')[] = []
@@ -472,6 +531,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       }
       await db.answerKeyTemplates.add(template)
       uploadAnswerCrops(templateId, answerKey)
+      uploadAnswerSheetImages(templateId, imageBlobs)
       if (metadata.answerSheetMode === 'answer_only' && metadata.questionBookletBlobs.length > 0) {
         uploadQuestionBookletImages(templateId, metadata.questionBookletBlobs)
       }
@@ -490,8 +550,12 @@ export default function AnswerBank(_props: AnswerBankProps) {
     setEditingDocType((t.docType as 'worksheet' | 'exam') || 'worksheet')
     setEditingFolder(t.folder || '')
     setEditingAnswerSheetMode((t.answerSheetMode as 'with_questions' | 'answer_only') || 'with_questions')
-    setEditingAnswerSheetImages([]) // will be loaded if available
+    setEditingAnswerSheetImages([])
     setShowUnifiedModal(true)
+    // 非同步從 Supabase Storage 還原答案卷整頁圖（不依賴 answerSheetImagePaths，因為登出後 Dexie 清空時該欄位會是 undefined）
+    void downloadAnswerSheetImages(t.id).then((blobs) => {
+      if (blobs.length > 0) setEditingAnswerSheetImages(blobs)
+    })
   }
 
   const handleDelete = async (id: string) => {
