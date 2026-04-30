@@ -17,6 +17,18 @@ export interface GradingSettings {
   enWordOrderDeduction: number
 }
 
+// Modal 內部使用的表單型態：必填欄位允許 null（老師沒選時為 null）。
+// 提交時會驗證所有必填欄位非 null 後才觸發 onSubmit，因此 onSubmit 拿到的是非 null 的 GradingSettings。
+type FormSettings = {
+  strictness: 'strict' | 'standard' | 'lenient' | null
+  scoringMode: 'scored' | 'unscored' | null
+  fractionRule: 'require_simplified' | 'allow_equivalent' | null
+  enPunctuationCheck: boolean
+  enPunctuationDeduction: number
+  enWordOrderCheck: boolean
+  enWordOrderDeduction: number
+}
+
 export interface AssignmentFormData {
   title: string
   folder: string
@@ -56,10 +68,11 @@ interface AssignmentFormModalProps {
   gradedCount?: number
 }
 
-const DEFAULT_SETTINGS: GradingSettings = {
-  strictness: 'standard',
-  scoringMode: 'scored',
-  fractionRule: 'require_simplified',
+// 表單初始值：必填欄位預設 null，老師必須自行選擇（避免不知不覺套到沒檢查過的預設值）
+const DEFAULT_FORM_SETTINGS: FormSettings = {
+  strictness: null,
+  scoringMode: null,
+  fractionRule: null,
   enPunctuationCheck: false,
   enPunctuationDeduction: 1,
   enWordOrderCheck: false,
@@ -87,7 +100,7 @@ function StrictnessCard({
 }) {
   const config = {
     strict: { icon: '🔒', label: '嚴格', desc: '每個維度嚴格評分，逐項加總' },
-    standard: { icon: '⚖️', label: '標準', desc: '接受同義詞和小差異，拒絕錯誤意思', badge: '預設' },
+    standard: { icon: '⚖️', label: '標準', desc: '接受同義詞和小差異，拒絕錯誤意思', badge: '建議' },
     lenient: { icon: '🌱', label: '寬鬆', desc: '核心概念對就給滿分，不扣細節分' },
   }[value]
 
@@ -144,7 +157,17 @@ export default function AssignmentFormModal({
   const [title, setTitle] = useState(initialTitle)
   const [folder] = useState(initialFolder)
   const [selectedAnswerKeyId, setSelectedAnswerKeyId] = useState('')
-  const [settings, setSettings] = useState<GradingSettings>({ ...DEFAULT_SETTINGS, ...initialSettings })
+  // 編輯模式：initialSettings 帶入既有作業的值（非 null）→ 全欄位都已選妥
+  // 新增模式：initialSettings undefined → 必填欄位 null，等老師選
+  const [settings, setSettings] = useState<FormSettings>({
+    strictness: initialSettings?.strictness ?? null,
+    scoringMode: initialSettings?.scoringMode ?? null,
+    fractionRule: initialSettings?.fractionRule ?? null,
+    enPunctuationCheck: initialSettings?.enPunctuationCheck ?? DEFAULT_FORM_SETTINGS.enPunctuationCheck,
+    enPunctuationDeduction: initialSettings?.enPunctuationDeduction ?? DEFAULT_FORM_SETTINGS.enPunctuationDeduction,
+    enWordOrderCheck: initialSettings?.enWordOrderCheck ?? DEFAULT_FORM_SETTINGS.enWordOrderCheck,
+    enWordOrderDeduction: initialSettings?.enWordOrderDeduction ?? DEFAULT_FORM_SETTINGS.enWordOrderDeduction,
+  })
   const [akSearch, setAkSearch] = useState('')
   const [studentUploadEnabled, setStudentUploadEnabled] = useState(initialStudentUploadEnabled ?? true)
 
@@ -192,23 +215,40 @@ export default function AssignmentFormModal({
       .sort((a, b) => a.folder.localeCompare(b.folder, 'zh-Hant'))
   }, [answerKeys, akSearch])
 
-  const updateSetting = <K extends keyof GradingSettings>(key: K, value: GradingSettings[K]) => {
+  const updateSetting = <K extends keyof FormSettings>(key: K, value: FormSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }))
   }
 
   // ── Step completion logic ──
+  // 必填規則欄位都選妥才算完成；數學領域多一個 fractionRule 必填
+  const requiredRulesSet =
+    settings.strictness !== null &&
+    settings.scoringMode !== null &&
+    (domain !== '數學' || settings.fractionRule !== null)
+
   const isStepComplete = (step: AssignmentStep): boolean => {
     switch (step) {
       case 'basic': return title.trim() !== ''
       case 'answer_key': return mode === 'edit' || selectedAnswerKeyId !== ''
-      case 'rules': return true // always complete (has defaults)
+      case 'rules': return requiredRulesSet
     }
   }
 
-  const canSubmit = title.trim() !== '' && (mode === 'edit' || selectedAnswerKeyId !== '')
+  const canSubmit =
+    title.trim() !== '' &&
+    (mode === 'edit' || selectedAnswerKeyId !== '') &&
+    requiredRulesSet
 
   const handleSubmit = async () => {
-    await onSubmit({ title, folder, selectedAnswerKeyId, settings, studentUploadEnabled })
+    if (!requiredRulesSet) return // 安全閘門（理論上 canSubmit 已擋）
+    await onSubmit({
+      title,
+      folder,
+      selectedAnswerKeyId,
+      // requiredRulesSet 確保以下 cast 安全
+      settings: settings as GradingSettings,
+      studentUploadEnabled,
+    })
   }
 
   // ── footer dispatcher ─────────────────────────────────────────────────────
@@ -509,7 +549,9 @@ export default function AssignmentFormModal({
                       </button>
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
-                      {settings.scoringMode === 'scored' ? '顯示每題分數和總分' : '只顯示對錯符號'}
+                      {settings.scoringMode === null
+                        ? '請選擇計分方式'
+                        : settings.scoringMode === 'scored' ? '顯示每題分數和總分' : '只顯示對錯符號'}
                     </p>
                   </div>
 
@@ -521,6 +563,9 @@ export default function AssignmentFormModal({
                       <StrictnessCard value="standard" selected={settings.strictness === 'standard'} onClick={() => updateSetting('strictness', 'standard')} />
                       <StrictnessCard value="lenient" selected={settings.strictness === 'lenient'} onClick={() => updateSetting('strictness', 'lenient')} />
                     </div>
+                    {settings.strictness === null && (
+                      <p className="mt-2 text-xs text-slate-500">請選擇問答題嚴謹度</p>
+                    )}
                   </div>
 
                   {/* 領域專屬規則 */}
@@ -552,7 +597,9 @@ export default function AssignmentFormModal({
                         </button>
                       </div>
                       <p className="mt-2 text-xs text-slate-500">
-                        {settings.fractionRule === 'require_simplified' ? '2/4 判錯，必須寫 1/2' : '2/4 = 1/2 都算對'}
+                        {settings.fractionRule === null
+                          ? '請選擇分數規則'
+                          : settings.fractionRule === 'require_simplified' ? '2/4 判錯，必須寫 1/2' : '2/4 = 1/2 都算對'}
                       </p>
                     </div>
                   )}
