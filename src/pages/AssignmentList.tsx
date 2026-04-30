@@ -993,15 +993,6 @@ export default function AssignmentList({
                             {assignment.title} · 共 {assignment.totalPages} 頁 ·
                             已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
                           </p>
-                          {isAnswerKeyDeleted(assignment) ? (
-                            <p className="mt-1 text-xs text-red-500">
-                              答案卷已刪除，請重新選擇答案卷。
-                            </p>
-                          ) : !assignment.answerKey ? (
-                            <p className="mt-1 text-xs text-red-500">
-                              尚未設定標準答案，AI 批改將無法使用。
-                            </p>
-                          ) : null}
                         </div>
 
                         <div className="max-w-[58vw] self-center overflow-x-auto">
