@@ -904,12 +904,16 @@ function buildGlobalTaskAndFormat(): string {
 從標準答案圖片提取可機器批改的答案表。回傳純 JSON（無 Markdown）：
 
 {
-  "_layoutDetected": "two-page-spread",   // ⚠️ 必填，且必須在 questions 之前生成。值為以下之一：
-                                          //   "single-page-single-column" 單頁直向單欄（一般習作）
-                                          //   "single-page-two-column"     單頁雙欄（如考卷左右兩欄）
-                                          //   "two-page-spread"            跨頁展開（一張照片含左右兩個物理頁面）
-                                          //   "multi-photo"                本次上傳多張獨立照片
-                                          //   "other:<簡短描述>"           其他情況請簡述
+  "_layoutDetected": [                    // ⚠️ 必填，且必須在 questions 之前生成。
+                                          //   陣列長度 = 本次上傳的照片張數（每張一個元素）。
+                                          //   每張照片標出該張的版面類型，值為以下之一：
+                                          //     "single-page-single-column" 單頁直向單欄（一般習作）
+                                          //     "single-page-two-column"    單頁雙欄（如考卷左右兩欄）
+                                          //     "two-page-spread"           跨頁展開（一張照片含左右兩個物理頁面）
+                                          //     "other:<簡短描述>"          其他情況請簡述
+    { "photo": 1, "layout": "single-page-single-column" },
+    { "photo": 2, "layout": "two-page-spread" }
+  ],
   "questions": [{
     "id": "1",                              // 題號（必填）
     "idPath": ["1"],                        // 題號階層陣列
