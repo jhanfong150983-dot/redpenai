@@ -38,7 +38,7 @@ export default function SyncIndicator({ autoSync = false }: SyncIndicatorProps) 
     text = autoSync ? '同步失敗，等待下次變更' : '同步失敗，請手動重試'
     icon = <AlertCircle className="w-4 h-4 text-red-500" />
   } else if (isSyncing) {
-    text = '同步中...'
+    text = '同步中…'
     icon = <RefreshCw className="w-4 h-4 text-blue-600 animate-spin" />
   } else if (pendingCount > 0) {
     text = `待同步 ${pendingCount} 筆`

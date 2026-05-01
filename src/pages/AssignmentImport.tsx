@@ -909,7 +909,7 @@ export default function AssignmentImport({
       <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-purple-600 mx-auto mb-4 animate-spin" />
-          <p className="text-gray-600">載入中...</p>
+          <p className="text-gray-600">載入中…</p>
         </div>
       </div>
     )
@@ -979,13 +979,13 @@ export default function AssignmentImport({
             {(isUploading || isLoadingPreviews) && (
               <div className="mt-2 flex items-center gap-2 text-xs text-indigo-600">
                 <Loader className="w-4 h-4 animate-spin" />
-                <span>載入 PDF 預覽中，請稍候...</span>
+                <span>載入 PDF 預覽中，請稍候…</span>
               </div>
             )}
             {isMerging && (
               <div className="mt-2 flex items-center gap-2 text-xs text-emerald-600">
                 <Loader className="w-4 h-4 animate-spin" />
-                <span>處理 PDF 中，請稍候...</span>
+                <span>處理 PDF 中，請稍候…</span>
               </div>
             )}
             {!isUploading && !isLoadingPreviews && !isMerging && fileName && (
@@ -1109,7 +1109,7 @@ export default function AssignmentImport({
                   {isSaving ? (
                     <>
                       <Loader className="w-4 h-4 animate-spin" />
-                      寫入中...
+                      寫入中…
                     </>
                   ) : (
                     '確認匯入'

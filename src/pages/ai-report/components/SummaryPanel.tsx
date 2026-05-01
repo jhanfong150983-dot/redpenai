@@ -19,7 +19,7 @@ export default function SummaryPanel({
     <div className="summary-note">
       <div className="summary-title">老師行動摘要：</div>
       {loading ? (
-        <div className="summary-loading">摘要生成中，請稍候...</div>
+        <div className="summary-loading">摘要生成中，請稍候…</div>
       ) : null}
       <div className="summary-section">
         <div className="summary-section-title">一、本次作業主要卡關概念</div>
@@ -38,7 +38,7 @@ export default function SummaryPanel({
           二、建議課堂處理方式（約 10 分鐘）
         </div>
         {loading ? (
-          <div className="summary-muted">建議生成中，請稍候...</div>
+          <div className="summary-muted">建議生成中，請稍候…</div>
         ) : suggestions.length ? (
           <div className="summary-lines">
             {suggestions.map((item) => (
@@ -52,7 +52,7 @@ export default function SummaryPanel({
       <div className="summary-section">
         <div className="summary-section-title">三、個別追蹤建議</div>
         {loading ? (
-          <div className="summary-muted">補救方式生成中，請稍候...</div>
+          <div className="summary-muted">補救方式生成中，請稍候…</div>
         ) : students.length ? (
           <>
             <div className="summary-lines">

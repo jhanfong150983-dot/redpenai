@@ -1382,7 +1382,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         {isLoading && (
           <div className="flex items-center gap-2 text-sm text-slate-600">
             <Loader2 className="h-4 w-4 animate-spin" />
-            載入中...
+            載入中…
           </div>
         )}
 
@@ -1941,7 +1941,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               {submittingMode === 'correction'
                 ? '正在上傳照片，上傳完成後 AI 將自動排隊批改。'
                 : submittingStep === 'correcting'
-                  ? '正在校正照片角度，請稍候...'
+                  ? '正在校正照片角度，請稍候…'
                   : '請勿離開此頁，系統正在送出本次作業。'}
             </p>
           </div>

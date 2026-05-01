@@ -602,7 +602,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
             {isPackageLoading ? (
               <div className="flex items-center gap-2 text-sm text-gray-500">
                 <Loader className="w-4 h-4 animate-spin" />
-                載入方案中...
+                載入方案中…
               </div>
             ) : packages.length === 0 ? (
               <div className="text-sm text-gray-500">尚無方案資料</div>
@@ -898,7 +898,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
         {isLoading ? (
           <div className="bg-white rounded-2xl shadow p-6 flex items-center gap-3 text-sm text-gray-600">
             <Loader className="w-4 h-4 animate-spin" />
-            載入中...
+            載入中…
           </div>
         ) : filteredOrders.length === 0 ? (
           <div className="bg-white rounded-2xl shadow p-6 text-sm text-gray-500">

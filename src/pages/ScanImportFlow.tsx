@@ -475,7 +475,7 @@ export default function ScanImportFlow({
       <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-indigo-600 mx-auto mb-4 animate-spin" />
-          <p className="text-gray-600">載入學生名單中...</p>
+          <p className="text-gray-600">載入學生名單中…</p>
         </div>
       </div>
     )
@@ -486,7 +486,7 @@ export default function ScanImportFlow({
       <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-green-600 mx-auto mb-4 animate-spin" />
-          <p className="text-gray-600">送出作業中...</p>
+          <p className="text-gray-600">送出作業中…</p>
         </div>
       </div>
     )

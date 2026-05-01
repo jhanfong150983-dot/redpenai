@@ -70,13 +70,13 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
 
         if (!res.ok) {
           const errorData = await res.json()
-          throw new Error(errorData.error || '获取详细信息失败')
+          throw new Error(errorData.error || '取得詳細資訊失敗')
         }
 
         const data = await res.json()
         setDetail(data)
       } catch (err) {
-        setError(err instanceof Error ? err.message : '获取详细信息失败')
+        setError(err instanceof Error ? err.message : '取得詳細資訊失敗')
         console.error('Error loading user detail:', err)
       } finally {
         setIsLoading(false)
@@ -113,9 +113,9 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
   const translateReason = (reason?: string) => {
     if (!reason) return '-'
     const translations: Record<string, string> = {
-      'purchase': '购买套餐',
-      'grading': '批改作业',
-      'admin_adjustment': '管理员调整',
+      'purchase': '購買套餐',
+      'grading': '批改作業',
+      'admin_adjustment': '管理員調整',
       'refund': '退款'
     }
     return translations[reason] || reason
@@ -127,7 +127,7 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
         <div className="max-w-7xl mx-auto">
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="flex items-center justify-center py-12">
-              <div className="text-gray-600">载入中...</div>
+              <div className="text-gray-600">載入中…</div>
             </div>
           </div>
         </div>
@@ -141,12 +141,12 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
         <div className="max-w-7xl mx-auto">
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="text-center py-12">
-              <p className="text-red-600 mb-4">{error || '无法载入数据'}</p>
+              <p className="text-red-600 mb-4">{error || '無法載入資料'}</p>
               <button
                 onClick={onBack}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
               >
-                返回列表
+                返回清單
               </button>
             </div>
           </div>
@@ -156,9 +156,9 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
   }
 
   const tabs = [
-    { id: 'classrooms' as TabType, label: '班级管理', icon: Users, count: detail.classrooms.length },
-    { id: 'assignments' as TabType, label: '作业列表', icon: FileText, count: detail.assignments.length },
-    { id: 'ink' as TabType, label: '墨水记录', icon: Droplet, count: detail.inkLedger.length }
+    { id: 'classrooms' as TabType, label: '班級管理', icon: Users, count: detail.classrooms.length },
+    { id: 'assignments' as TabType, label: '作業清單', icon: FileText, count: detail.assignments.length },
+    { id: 'ink' as TabType, label: '墨水紀錄', icon: Droplet, count: detail.inkLedger.length }
   ]
 
   return (
@@ -170,11 +170,11 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
             <button
               onClick={onBack}
               className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              aria-label="返回列表"
+              aria-label="返回清單"
             >
               <ArrowLeft className="w-5 h-5 text-gray-600" />
             </button>
-            <h1 className="text-2xl font-bold text-gray-900">使用者详细资讯</h1>
+            <h1 className="text-2xl font-bold text-gray-900">使用者詳細資訊</h1>
           </div>
 
           {/* Profile Overview */}
@@ -184,13 +184,13 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
             </div>
             <div className="flex-1">
               <h2 className="text-xl font-semibold text-gray-900 mb-1">
-                {detail.profile.name || '未命名用户'}
+                {detail.profile.name || '未命名使用者'}
               </h2>
               <p className="text-gray-600 mb-3">{detail.profile.email}</p>
               <div className="flex gap-2 mb-4">
                 {detail.profile.role === 'admin' && (
                   <span className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-full">
-                    管理员
+                    管理員
                   </span>
                 )}
                 {detail.profile.permission_tier === 'advanced' && (
@@ -204,19 +204,19 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <div>
-                  <p className="text-sm text-gray-600">墨水余额</p>
+                  <p className="text-sm text-gray-600">墨水餘額</p>
                   <p className="text-lg font-semibold text-gray-900">
                     {detail.profile.ink_balance || 0} 滴
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">注册时间</p>
+                  <p className="text-sm text-gray-600">註冊時間</p>
                   <p className="text-lg font-semibold text-gray-900">
                     {formatDate(detail.profile.created_at)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">最后活跃</p>
+                  <p className="text-sm text-gray-600">最後活躍</p>
                   <p className="text-lg font-semibold text-gray-900">
                     {formatDate(detail.profile.updated_at)}
                   </p>
@@ -269,13 +269,13 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
   )
 }
 
-// 子组件：班级列表
+// 子元件：班級清單
 function ClassroomsList({ classrooms, formatDate }: { classrooms: ClassroomData[]; formatDate: (date?: string) => string }) {
   if (classrooms.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
         <Users className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-        <p>暂无班级</p>
+        <p>暫無班級</p>
       </div>
     )
   }
@@ -289,8 +289,8 @@ function ClassroomsList({ classrooms, formatDate }: { classrooms: ClassroomData[
         >
           <h3 className="font-semibold text-gray-900 mb-2">{classroom.name}</h3>
           <div className="space-y-1 text-sm text-gray-600">
-            <p>学生数: {classroom.studentCount}</p>
-            <p>创建时间: {formatDate(classroom.created_at)}</p>
+            <p>學生数: {classroom.studentCount}</p>
+            <p>建立時間: {formatDate(classroom.created_at)}</p>
           </div>
         </div>
       ))}
@@ -298,13 +298,13 @@ function ClassroomsList({ classrooms, formatDate }: { classrooms: ClassroomData[
   )
 }
 
-// 子组件：作业列表
+// 子元件：作業清單
 function AssignmentsList({ assignments, formatDate }: { assignments: AssignmentData[]; formatDate: (date?: string) => string }) {
   if (assignments.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
         <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-        <p>暂无作业</p>
+        <p>暫無作業</p>
       </div>
     )
   }
@@ -314,11 +314,11 @@ function AssignmentsList({ assignments, formatDate }: { assignments: AssignmentD
       <table className="w-full">
         <thead>
           <tr className="border-b border-gray-200">
-            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">作业名称</th>
-            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">提交数</th>
+            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">作業名稱</th>
+            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">繳交數</th>
             <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">已批改</th>
-            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">进度</th>
-            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">创建时间</th>
+            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">進度</th>
+            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">建立時間</th>
           </tr>
         </thead>
         <tbody>
@@ -347,7 +347,7 @@ function AssignmentsList({ assignments, formatDate }: { assignments: AssignmentD
   )
 }
 
-// 子组件：墨水记录
+// 子元件：墨水紀錄
 function InkLedger({
   records,
   formatDateTime,
@@ -361,7 +361,7 @@ function InkLedger({
     return (
       <div className="text-center py-12 text-gray-500">
         <Droplet className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-        <p>暂无墨水记录</p>
+        <p>暫無墨水紀錄</p>
       </div>
     )
   }
@@ -371,10 +371,10 @@ function InkLedger({
       <table className="w-full">
         <thead>
           <tr className="border-b border-gray-200">
-            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">时间</th>
-            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">变动</th>
+            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">時間</th>
+            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">變動</th>
             <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">原因</th>
-            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">备注</th>
+            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">備註</th>
           </tr>
         </thead>
         <tbody>

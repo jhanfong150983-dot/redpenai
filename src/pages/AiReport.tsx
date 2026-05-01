@@ -785,7 +785,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               <p className="subtitle">正在取得最新作業資料。</p>
             </div>
           </header>
-          <section className="card">請稍候...</section>
+          <section className="card">請稍候…</section>
         </main>
       </div>
     )

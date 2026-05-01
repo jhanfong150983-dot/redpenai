@@ -141,7 +141,7 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
   }
 
   const loadPackages = async () => {
-    console.log('🔍 開始載入墨水方案...')
+    console.log('🔍 開始載入墨水方案…')
     setIsLoadingPackages(true)
     setPackageError(null)
     try {
@@ -416,7 +416,7 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
           {isLoadingPackages ? (
             <div className="flex items-center gap-2 py-4 text-xs text-slate-500">
               <Loader className="h-3.5 w-3.5 animate-spin" />
-              載入方案中...
+              載入方案中…
             </div>
           ) : packageOptions.length === 0 ? (
             <p className="py-4 text-xs text-slate-500">尚未設定補充方案，請聯繫管理者。</p>
@@ -563,7 +563,7 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
                 ) : isEcpaySubmitting ? (
                   <>
                     <Loader className="h-4 w-4 animate-spin" />
-                    轉接中...
+                    轉接中…
                   </>
                 ) : (
                   <>
@@ -597,7 +597,7 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
           {isLoading ? (
             <div className="flex items-center gap-2 py-4 text-sm text-slate-500">
               <Loader className="h-4 w-4 animate-spin" />
-              載入中...
+              載入中…
             </div>
           ) : orders.length === 0 ? (
             <p className="py-4 text-sm text-slate-500">尚無訂單紀錄</p>

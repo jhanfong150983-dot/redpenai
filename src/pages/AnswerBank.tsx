@@ -668,7 +668,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       <div className="mb-4 flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input type="text" placeholder="搜尋答案卷..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+          <input type="text" placeholder="搜尋答案卷…" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-lg border border-slate-200 py-2 pl-10 pr-4 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100" />
         </div>
         <select value={filterDomain} onChange={(e) => setFilterDomain(e.target.value)}

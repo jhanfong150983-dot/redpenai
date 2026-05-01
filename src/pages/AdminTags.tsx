@@ -452,7 +452,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
         {isLoading ? (
           <div className="bg-white rounded-2xl shadow p-6 flex items-center gap-3 text-sm text-gray-600">
             <Loader className="w-4 h-4 animate-spin" />
-            載入中...
+            載入中…
           </div>
         ) : (
           <>

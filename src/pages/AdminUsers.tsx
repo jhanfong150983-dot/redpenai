@@ -340,7 +340,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
       {isLoading ? (
         <div className="bg-white rounded-2xl shadow p-6 flex items-center gap-3 text-sm text-gray-600">
           <Loader className="w-4 h-4 animate-spin" />
-          載入中...
+          載入中…
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">

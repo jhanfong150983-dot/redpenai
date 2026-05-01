@@ -254,7 +254,7 @@ export default function ScannerPage({
       console.log('📸 截圖成功')
 
       // 2. 壓縮圖片
-      console.log('🔄 開始壓縮圖片...')
+      console.log('🔄 開始壓縮圖片…')
       const compressedBlob = await compressImage(imageSrc, {
         maxWidth: 1024,
         quality: 0.8
@@ -314,7 +314,7 @@ export default function ScannerPage({
 
       if (fileType === 'image') {
         // 處理圖片文件
-        console.log('🖼️ 處理圖片文件...', { fileName: file.name, fileSize: file.size, fileType: file.type })
+        console.log('🖼️ 處理圖片文件…', { fileName: file.name, fileSize: file.size, fileType: file.type })
 
         // 先用原始解析度做透視校正（精度較高），再壓縮
         imageBlob = file
@@ -357,7 +357,7 @@ export default function ScannerPage({
 
       } else if (fileType === 'pdf') {
         // 處理 PDF 文件
-        console.log('📄 處理 PDF 文件...')
+        console.log('📄 處理 PDF 文件…')
 
         // 將 PDF 第一頁轉換為圖片
         imageBlob = await convertPdfToImage(file, {
@@ -442,7 +442,7 @@ export default function ScannerPage({
     try {
       let successCount = 0
 
-      console.log('📤 開始批量保存作業到資料庫...')
+      console.log('📤 開始批量保存作業到資料庫…')
       console.log(`   作業 ID: ${assignmentId}`)
       console.log(`   待保存數量: ${capturedImages.size}`)
 
@@ -531,7 +531,7 @@ export default function ScannerPage({
           const isBlobError = isIndexedDbBlobError(dbError)
 
           if (!avoidBlobStorage && isBlobError) {
-            console.warn('⚠️ Blob 儲存失敗，嘗試僅使用 Base64 儲存...')
+            console.warn('⚠️ Blob 儲存失敗，嘗試僅使用 Base64 儲存…')
 
             // 備用方案：僅儲存 Base64，不儲存 Blob
             const submissionWithoutBlob: Submission = {
@@ -927,7 +927,7 @@ export default function ScannerPage({
               className="flex-1 py-4 bg-green-600 text-white rounded-xl font-bold text-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               title={completedCount === 0 ? '沒有已完成的作業可以送出' : ''}
             >
-              {isSubmitting ? '送出中...' : `確認送出 ${completedCount} 份作業`}
+              {isSubmitting ? '送出中…' : `確認送出 ${completedCount} 份作業`}
             </button>
           </div>
         </div>
@@ -1089,7 +1089,7 @@ export default function ScannerPage({
       >
         <div className="text-[11px] text-white/80">座號 {currentSeat}</div>
         <div className="text-sm font-semibold">
-          {currentStudent ? currentStudent.name : '載入中...'}
+          {currentStudent ? currentStudent.name : '載入中…'}
         </div>
         <div className="text-[11px] text-white/80">
           第 {Math.min(currentStudentCount, requiredPages)}/{requiredPages} 張
@@ -1155,7 +1155,7 @@ export default function ScannerPage({
         <div className="absolute right-3 bottom-3 text-xs text-red-200 drop-shadow-[0_2px_6px_rgba(0,0,0,0.8)]">
           <span className="inline-flex items-center gap-2">
             <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-            語音識別中...
+            語音識別中…
           </span>
         </div>
       )}

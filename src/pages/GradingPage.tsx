@@ -49,7 +49,7 @@ const GRADING_MESSAGES = [
   '你看我做什麼？趕快去休息 👀',
   '改作業的事，就交給專業的來 💪',
   '老師辛苦了，喝杯水休息一下 💧',
-  '批改中... 你可以先滑個手機 📱',
+  '批改中… 你可以先滑個手機 📱',
   '放心，我會認真改的 ✨',
   '這點小事，包在我身上 🎯',
   '老師去倒杯茶，馬上就好 🍵',
@@ -371,7 +371,7 @@ function rebuildBlobFromBase64(base64: string): Blob {
     console.log('🎨 MIME 類型:', mimeType)
 
     // 轉換為 Blob
-    console.log('🔄 開始 atob 解碼...')
+    console.log('🔄 開始 atob 解碼…')
     const byteString = atob(base64Data)
     console.log(`✅ atob 解碼成功，長度: ${byteString.length}`)
 
@@ -525,14 +525,14 @@ function GradingPipelineOverlay({
     ? `${aPercent}%`
     : '100%'
   const bLabel = !isAfterPhaseA
-    ? (phaseBProgress.total > 0 ? `${phaseBProgress.current}/${phaseBProgress.total}` : '批改中...')
+    ? (phaseBProgress.total > 0 ? `${phaseBProgress.current}/${phaseBProgress.total}` : '批改中…')
     : isReport
       ? `${phaseBProgress.total}/${phaseBProgress.total}`
-      : (phaseBProgress.total > 0 ? `${phaseBProgress.current}/${phaseBProgress.total}` : '批改中...')
+      : (phaseBProgress.total > 0 ? `${phaseBProgress.current}/${phaseBProgress.total}` : '批改中…')
 
   const reviewLabel = phaseANeedsReviewCount > 0
     ? `需審查 ${phaseANeedsReviewCount}/${phaseATotalQuestionCount} 題`
-    : isPhaseA ? '統計中...' : '已確認'
+    : isPhaseA ? '統計中…' : '已確認'
 
   return (
     <>
@@ -560,7 +560,7 @@ function GradingPipelineOverlay({
           <PipelineStage index={1} label="擷取學生答案" sublabel={aLabel} status={stageA} />
           <PipelineStage index={2} label="教師人工審查" sublabel={reviewLabel} status={stageReview} />
           <PipelineStage index={3} label="AI批改評分" sublabel={bLabel} status={stageB} />
-          <PipelineStage index={4} label="生成作業報告" sublabel={isReport ? '生成中...' : '等待中'} status={stageReport} />
+          <PipelineStage index={4} label="生成作業報告" sublabel={isReport ? '生成中…' : '等待中'} status={stageReport} />
         </div>
 
         {/* 人工審查提醒（Phase A 執行中且已有需審查題目） */}
@@ -605,7 +605,7 @@ function GradingPipelineOverlay({
             transition: 'background 0.2s',
           }}
         >
-          {stopRequested ? '正在停止...' : '停止批改'}
+          {stopRequested ? '正在停止…' : '停止批改'}
         </button>
         {stopRequested && (
           <p style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '-1rem' }}>將在完成當前作業後停止</p>
@@ -979,7 +979,7 @@ function ConsistencyQuestionCard({
               rows={2}
               value={manualInput}
               disabled={disabled}
-              placeholder={isCalcType ? '輸入最終答案（不需要寫算式）' : '輸入答案...'}
+              placeholder={isCalcType ? '輸入最終答案（不需要寫算式）' : '輸入答案…'}
               className="mt-1.5 w-full rounded-lg border border-blue-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50 resize-y"
               autoFocus
               onChange={(e) => {
@@ -1145,7 +1145,7 @@ function BatchConsistencyReviewSection({
           <span>
             <strong>全部審查完成！</strong>
             {phaseBScoredCount < phaseBTotalCount
-              ? ` 等待最後 ${phaseBTotalCount - phaseBScoredCount} 位學生評分完成...`
+              ? ` 等待最後 ${phaseBTotalCount - phaseBScoredCount} 位學生評分完成…`
               : ' 所有學生評分完成！'}
           </span>
         </div>
@@ -1241,7 +1241,7 @@ export default function GradingPage({
   const [_currentGradingStudent, setCurrentGradingStudent] = useState<string>('')
   const [_gradingStartTime, setGradingStartTime] = useState<number>(0)
   const [_completedReviewCount, setCompletedReviewCount] = useState(0)
-  const [gradingMessage, setGradingMessage] = useState<string>('AI 批改中...')
+  const [gradingMessage, setGradingMessage] = useState<string>('AI 批改中…')
   const [_nowTs, setNowTs] = useState(() => Date.now())
 
   // 答案卷版本狀態
@@ -1339,7 +1339,7 @@ export default function GradingPage({
 
     if (!background) {
       setGradingPhase('phase_b_running')
-      setGradingMessage('AI 批改評分中...')
+      setGradingMessage('AI 批改評分中…')
       setIsGrading(true)
       setGradingStartTime(Date.now())
       setGradingProgress({ current: 0, total: entries.length })
@@ -1505,7 +1505,7 @@ export default function GradingPage({
 
     if (phaseBRetryEntries.length > 0 && !stopRequestedRef.current) {
       console.log(`[PhaseB-QC] ${phaseBRetryEntries.length} submissions need retry (accessor incomplete)`)
-      setGradingMessage('品質檢測中...')
+      setGradingMessage('品質檢測中…')
       let retrySuccess = 0
       for (const entry of phaseBRetryEntries) {
         try {
@@ -1576,7 +1576,7 @@ export default function GradingPage({
     // 同步等待作業報告生成（只在前台模式執行，背景模式跳過）
     if (successCount > 0 && !stopRequestedRef.current && !background) {
       setGradingPhase('report_running')
-      setGradingMessage('正在生成作業學情報告...')
+      setGradingMessage('正在生成作業學情報告…')
       try {
         await fetch('/api/data/refresh-assignment-summary', {
           method: 'POST',
@@ -2448,7 +2448,7 @@ export default function GradingPage({
 
       if (needRebuild.length > 0 || needPrepare.length > 0) {
         setIsDownloading(true)
-        setCurrentGradingStudent('準備圖片中...')
+        setCurrentGradingStudent('準備圖片中…')
 
         const totalTasks = needRebuild.length + needPrepare.length
         let currentTask = 0
@@ -2551,7 +2551,7 @@ export default function GradingPage({
 
       console.log(`✅ 準備 Phase A，共 ${toGrade.length} 份作業`)
       setGradingProgress({ current: 0, total: toGrade.length })
-      setGradingMessage('定位答案中...')
+      setGradingMessage('定位答案中…')
       setGradingPhase('phase_a_running')
       setPhaseANeedsReviewCount(0)
 
@@ -2574,7 +2574,7 @@ export default function GradingPage({
       const MIN_CLASSIFY_SAMPLES = 15
       const MAX_CLASSIFY_ROUNDS = 5
       const classifyRounds = Math.min(MAX_CLASSIFY_ROUNDS, Math.max(1, Math.ceil(MIN_CLASSIFY_SAMPLES / toGrade.length)))
-      setGradingMessage(`定位答案中...（${classifyRounds > 1 ? `${classifyRounds} 輪` : ''}）`)
+      setGradingMessage(`定位答案中…（${classifyRounds > 1 ? `${classifyRounds} 輪` : ''}）`)
 
       // 展開成多輪任務：每個學生跑 classifyRounds 次
       const classifyTasks: Array<{ sub: typeof toGrade[0]; idx: number; round: number }> = []
@@ -2705,7 +2705,7 @@ export default function GradingPage({
       console.log(`📐 [BboxCorrection] median calculated for ${medianBbox.size} questions, corrected ${totalCorrected} bboxes`)
 
       // ── Phase Read：帶校正 bbox 跑 Read + AI3 ─────────────────────────────
-      setGradingMessage('讀取答案中...')
+      setGradingMessage('讀取答案中…')
       const entries: BatchPhaseAEntry[] = []
       let completedA = 0
 
@@ -3007,7 +3007,7 @@ export default function GradingPage({
 
         // 重跑品質不通過的作業（最多一次）
         if (anomalousIndices.size > 0) {
-          setGradingMessage('品質檢測中...')
+          setGradingMessage('品質檢測中…')
           const indicesToRetry = Array.from(anomalousIndices)
           await runWithConcurrency(
             indicesToRetry,
@@ -3415,7 +3415,7 @@ export default function GradingPage({
       <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-purple-600 mx-auto mb-4 animate-spin" />
-          <p className="text-gray-600">載入中...</p>
+          <p className="text-gray-600">載入中…</p>
         </div>
       </div>
     )
@@ -3479,7 +3479,7 @@ export default function GradingPage({
           <div className="bg-white rounded-xl border border-slate-200 p-8 flex flex-col items-center gap-4">
             <Loader className="w-10 h-10 text-blue-500 animate-spin" />
             <div className="text-center">
-              <p className="text-lg font-semibold text-gray-800">AI 使用計算中...</p>
+              <p className="text-lg font-semibold text-gray-800">AI 使用計算中…</p>
               <p className="text-sm text-gray-500 mt-1">正在結算本次批改費用，請稍候</p>
             </div>
           </div>
@@ -3492,7 +3492,7 @@ export default function GradingPage({
             <div className="flex items-center gap-3">
               <Loader className="w-6 h-6 text-sky-600 animate-spin" />
               <div>
-                <p className="text-base font-semibold text-gray-900">檢查訂正狀態中...</p>
+                <p className="text-base font-semibold text-gray-900">檢查訂正狀態中…</p>
                 <p className="text-sm text-gray-500">避免誤覆蓋學生端訂正內容</p>
               </div>
             </div>
@@ -3728,7 +3728,7 @@ export default function GradingPage({
           <div className="sticky top-4 z-40 mb-4">
             <div className="bg-sky-50 border border-sky-200 rounded-xl px-4 py-2.5 flex items-center gap-3">
               <RefreshCw className="w-4 h-4 text-sky-500 animate-spin shrink-0" />
-              <p className="text-sm text-sky-700 font-medium">正在同步最新資料，請稍候...</p>
+              <p className="text-sm text-sky-700 font-medium">正在同步最新資料，請稍候…</p>
             </div>
           </div>
         )}
@@ -3755,7 +3755,7 @@ export default function GradingPage({
             }
             phaseANeedsReviewCount={phaseANeedsReviewCount}
             phaseATotalQuestionCount={phaseATotalQuestionCount}
-            gradingMessage={isDownloading ? '正在下載學生作業圖片...' : gradingMessage}
+            gradingMessage={isDownloading ? '正在下載學生作業圖片…' : gradingMessage}
             stopRequested={stopRequested}
             onStop={handleStopGrading}
           />
@@ -3763,7 +3763,7 @@ export default function GradingPage({
 
         {!inkSessionReady && (
           <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl px-4 py-3 text-sm">
-            正在建立批改會話，請稍候...
+            正在建立批改會話，請稍候…
           </div>
         )}
 
@@ -3783,14 +3783,14 @@ export default function GradingPage({
             onAllDone={async () => {
               console.log('✅ 全部審查完成，等待背景 Accessor')
               setGradingPhase('phase_b_running')
-              setGradingMessage('AI 批改評分中...')
+              setGradingMessage('AI 批改評分中…')
               setIsGrading(true)
               // 等待所有背景 Accessor Promise 完成
               await Promise.all(backgroundPhaseBPromises.current)
               // 生成報告（切換 phase 讓 overlay 顯示「生成報告」階段）
               console.log('✅ 全部 Accessor 完成，生成報告')
               setGradingPhase('report_running')
-              setGradingMessage('正在生成作業學情報告...')
+              setGradingMessage('正在生成作業學情報告…')
               try {
                 await fetch('/api/data/refresh-assignment-summary', {
                   method: 'POST',

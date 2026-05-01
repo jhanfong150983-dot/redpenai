@@ -445,7 +445,7 @@ export default function AdminAnalytics() {
 
   if (loading) return (
     <div className="bg-white rounded-xl border border-slate-200 p-10 flex items-center justify-center gap-3 text-gray-500">
-      <RefreshCw className="w-5 h-5 animate-spin" />載入中...
+      <RefreshCw className="w-5 h-5 animate-spin" />載入中…
     </div>
   )
 

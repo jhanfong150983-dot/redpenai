@@ -361,7 +361,7 @@ export default function CameraCapturePage({
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-30">
           <div className="text-center text-white">
             <Loader className="w-12 h-12 mx-auto mb-3 animate-spin" />
-            <p className="text-lg font-semibold">處理中...</p>
+            <p className="text-lg font-semibold">處理中…</p>
           </div>
         </div>
       )}

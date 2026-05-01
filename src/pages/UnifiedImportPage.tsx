@@ -1254,7 +1254,7 @@ export default function UnifiedImportPage({
       >
         <div className="text-center">
           <Loader className="w-12 h-12 text-purple-600 mx-auto mb-4 animate-spin" />
-          <p className="text-gray-600">載入中...</p>
+          <p className="text-gray-600">載入中…</p>
         </div>
       </div>
     )
@@ -1580,7 +1580,7 @@ export default function UnifiedImportPage({
               ) : (
                 <div className="min-h-full flex flex-col items-center justify-center gap-2 text-slate-400">
                   <Loader className="w-8 h-8 animate-spin" />
-                  <span className="text-sm">載入預覽中...</span>
+                  <span className="text-sm">載入預覽中…</span>
                 </div>
               )}
               {/* Zoom controls */}

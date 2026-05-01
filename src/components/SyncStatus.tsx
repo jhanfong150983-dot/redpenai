@@ -87,7 +87,7 @@ export default function SyncStatus({ autoSync = false, syncInterval = 30000 }: S
         {isSyncing && (
           <div className="flex items-center gap-2 text-sm text-blue-600">
             <Loader className="w-4 h-4 animate-spin" />
-            <span>正在同步...</span>
+            <span>正在同步…</span>
           </div>
         )}
 
@@ -106,7 +106,7 @@ export default function SyncStatus({ autoSync = false, syncInterval = 30000 }: S
         className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-sm font-medium"
       >
         <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-        {isSyncing ? '同步中...' : '手動同步'}
+        {isSyncing ? '同步中…' : '手動同步'}
       </button>
 
       {/* 離線提示 */}

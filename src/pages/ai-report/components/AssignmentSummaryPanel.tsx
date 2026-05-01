@@ -79,7 +79,7 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry }: Assig
   if (loading) {
     return (
       <div className="card" style={{ padding: '1.5rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
-        摘要生成中，請稍候...
+        摘要生成中，請稍候…
       </div>
     )
   }
@@ -112,7 +112,7 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry }: Assig
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1.2s linear infinite', flexShrink: 0 }}>
               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
             </svg>
-            AI 摘要生成中...
+            AI 摘要生成中…
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
         )}

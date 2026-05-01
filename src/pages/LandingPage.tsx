@@ -50,7 +50,7 @@ export default function LandingPage() {
                 onClick={() => handleLogin('student')}
                 className="px-4 py-2 border border-gray-200 bg-white text-gray-700 font-medium rounded-lg text-sm transition-all duration-200 hover:bg-gray-50 hover:shadow active:scale-95 disabled:opacity-70 disabled:cursor-wait"
               >
-                {loginLoading === 'student' ? '登入中...' : '學生入口'}
+                {loginLoading === 'student' ? '登入中…' : '學生入口'}
               </button>
               <button
                 type="button"
@@ -58,7 +58,7 @@ export default function LandingPage() {
                 onClick={() => handleLogin('teacher')}
                 className="px-4 py-2 bg-gray-900 text-white font-semibold rounded-lg text-sm transition-all duration-200 hover:bg-gray-700 hover:shadow active:scale-95 disabled:opacity-70 disabled:cursor-wait"
               >
-                {loginLoading === 'teacher' ? '登入中...' : '教師登入'}
+                {loginLoading === 'teacher' ? '登入中…' : '教師登入'}
               </button>
             </div>
           </div>
@@ -87,7 +87,7 @@ export default function LandingPage() {
                   className="inline-flex items-center justify-center px-8 py-4 bg-gray-900 text-white font-semibold rounded-xl text-lg transition-all duration-200 hover:bg-gray-700 hover:scale-105 hover:shadow-lg active:scale-95 disabled:opacity-70 disabled:cursor-wait"
                 >
                   {loginLoading === 'teacher' ? (
-                    <><RefreshCw className="w-5 h-5 animate-spin mr-2" />登入中...</>
+                    <><RefreshCw className="w-5 h-5 animate-spin mr-2" />登入中…</>
                   ) : '教師登入'}
                 </button>
                 <button
@@ -97,7 +97,7 @@ export default function LandingPage() {
                   className="inline-flex items-center justify-center px-8 py-4 border-2 border-gray-200 bg-white text-gray-700 font-semibold rounded-xl text-lg transition-all duration-200 hover:bg-gray-50 hover:scale-105 hover:shadow-lg hover:border-gray-300 active:scale-95 disabled:opacity-70 disabled:cursor-wait"
                 >
                   {loginLoading === 'student' ? (
-                    <><RefreshCw className="w-5 h-5 animate-spin mr-2" />登入中...</>
+                    <><RefreshCw className="w-5 h-5 animate-spin mr-2" />登入中…</>
                   ) : '學生登入'}
                 </button>
               </div>
@@ -416,7 +416,7 @@ export default function LandingPage() {
               className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-gray-900 text-white font-semibold rounded-xl text-lg transition-all duration-200 hover:bg-gray-700 hover:scale-105 hover:shadow-lg active:scale-95 disabled:opacity-70 disabled:cursor-wait"
             >
               {loginLoading === 'teacher' ? (
-                <><RefreshCw className="w-5 h-5 animate-spin mr-2" />登入中...</>
+                <><RefreshCw className="w-5 h-5 animate-spin mr-2" />登入中…</>
               ) : (<>立即試用<ArrowRight className="w-5 h-5" /></>)}
             </button>
             <button
@@ -425,7 +425,7 @@ export default function LandingPage() {
               onClick={() => handleLogin('student')}
               className="inline-flex items-center justify-center gap-2 px-8 py-4 border-2 border-gray-200 bg-white text-gray-700 font-semibold rounded-xl text-lg transition-all duration-200 hover:bg-gray-50 hover:scale-105 hover:shadow-lg hover:border-gray-300 active:scale-95 disabled:opacity-70 disabled:cursor-wait"
             >
-              {loginLoading === 'student' ? '登入中...' : '學生訂正入口'}
+              {loginLoading === 'student' ? '登入中…' : '學生訂正入口'}
             </button>
           </div>
         </div>

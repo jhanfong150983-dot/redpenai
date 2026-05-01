@@ -432,7 +432,7 @@ function App() {
       // 偵測使用者切換：若登入的是不同帳號，先清空本地資料庫避免資料混用
       const storedUserId = window.localStorage.getItem(CURRENT_USER_ID_KEY)
       if (storedUserId && storedUserId !== data.user.id) {
-        console.log('🔄 偵測到使用者切換，清空本地資料庫...')
+        console.log('🔄 偵測到使用者切換，清空本地資料庫…')
         try {
           await db.delete()
           await db.open()
@@ -1453,7 +1453,7 @@ function App() {
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
         <div className="text-center">
           <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-gray-600 text-sm">驗證登入狀態...</p>
+          <p className="text-gray-600 text-sm">驗證登入狀態…</p>
         </div>
       </div>
     )
@@ -1481,7 +1481,7 @@ function App() {
           {!initialSyncError ? (
             <>
               <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-              <p className="text-gray-600 text-sm">正在載入資料...</p>
+              <p className="text-gray-600 text-sm">正在載入資料…</p>
             </>
           ) : (
             <>
@@ -1924,7 +1924,7 @@ function App() {
                         onClick={handleLogout}
                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition-all duration-200 hover:border-red-300 hover:text-red-600 active:scale-95 disabled:opacity-70 disabled:cursor-wait"
                       >
-                        {isLoggingOut ? '登出中...' : '登出'}
+                        {isLoggingOut ? '登出中…' : '登出'}
                       </button>
                     </div>
                   </div>

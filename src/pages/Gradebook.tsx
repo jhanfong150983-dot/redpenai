@@ -764,7 +764,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
       <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} flex items-center justify-center bg-white`}>
         <div className="text-center">
           <div className="animate-spin w-10 h-10 border-4 border-orange-400 border-t-transparent rounded-full mx-auto mb-3" />
-          <p className="text-gray-600">載入成績中...</p>
+          <p className="text-gray-600">載入成績中…</p>
         </div>
       </div>
     )

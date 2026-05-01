@@ -2558,7 +2558,7 @@ export default function AssignmentSetup({
         scoringMode: editingScoringMode === 'unscored' ? 'unscored' : undefined,
         updatedAt: now
       })
-      console.log(`🔄 [答案解析] 觸發同步...`)
+      console.log(`🔄 [答案解析] 觸發同步…`)
       requestSync()
       // 非同步上傳答案截圖（不阻塞儲存流程）
       if (editingAnswerKey) {
@@ -2636,7 +2636,7 @@ export default function AssignmentSetup({
           <div className="bg-white rounded-xl border border-slate-200 p-8 flex flex-col items-center gap-4">
             <Loader className="w-10 h-10 text-blue-500 animate-spin" />
             <div className="text-center">
-              <p className="text-lg font-semibold text-gray-800">AI 使用計算中...</p>
+              <p className="text-lg font-semibold text-gray-800">AI 使用計算中…</p>
               <p className="text-sm text-gray-500 mt-1">正在結算本次使用費用，請稍候</p>
             </div>
           </div>

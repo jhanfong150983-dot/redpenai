@@ -453,7 +453,7 @@ export default function AssignmentFormModal({
                         type="text"
                         value={akSearch}
                         onChange={(e) => setAkSearch(e.target.value)}
-                        placeholder="搜尋答案卷..."
+                        placeholder="搜尋答案卷…"
                         className="w-full rounded-lg border border-gray-300 pl-9 pr-4 py-2.5 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
                       />
                     </div>
