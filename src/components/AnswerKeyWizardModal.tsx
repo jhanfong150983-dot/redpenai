@@ -554,7 +554,23 @@ export default function AnswerKeyWizardModal({
               {/* Left sidebar: question list */}
               <div className="w-56 border-r border-gray-200 flex flex-col shrink-0 min-h-0">
                 <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between">
-                  <span className="text-xs font-medium text-gray-500">共 {editingKey.questions.length} 題</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-xs font-medium text-gray-500">共 {editingKey.questions.length} 題</span>
+                    {(() => {
+                      const PLACEHOLDER_ANSWERS = ['?', '？', '未知', 'unknown', 'N/A']
+                      const missingCount = editingKey.questions.filter(q => {
+                        const a = (q.answer ?? '').trim()
+                        const r = (q.referenceAnswer ?? '').trim()
+                        return (!a || PLACEHOLDER_ANSWERS.includes(a)) && (!r || PLACEHOLDER_ANSWERS.includes(r))
+                      }).length
+                      if (missingCount === 0) return null
+                      return (
+                        <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold tabular-nums" title="AI 沒填答案的題數">
+                          {missingCount} 缺答
+                        </span>
+                      )
+                    })()}
+                  </div>
                   <button type="button" onClick={addQuestion} className="p-1 rounded hover:bg-gray-100 text-gray-500 hover:text-green-600" title="新增題目">
                     <Plus className="w-3.5 h-3.5" />
                   </button>
@@ -568,8 +584,10 @@ export default function AnswerKeyWizardModal({
                     const PLACEHOLDER_ANSWERS = ['?', '？', '未知', 'unknown', 'N/A']
                     const ans = (q.answer ?? '').trim()
                     const ref = (q.referenceAnswer ?? '').trim()
-                    const answerMissing = (!ans || PLACEHOLDER_ANSWERS.includes(ans)) && (!ref || PLACEHOLDER_ANSWERS.includes(ref))
-                      && cat !== 'short_answer' && cat !== 'word_problem' && cat !== 'calculation' // these types may legitimately have no answer field
+                    // AI 漏填答案就警示（含 short_answer / word_problem / calculation —
+                    // 這三類也必填 answer 或 referenceAnswer）
+                    const answerMissing = (!ans || PLACEHOLDER_ANSWERS.includes(ans))
+                      && (!ref || PLACEHOLDER_ANSWERS.includes(ref))
                     const hasWarn = vocabWarn || multiFillWarn || answerMissing
                     const isSelected = idx === selectedIdx
                     return (
@@ -577,7 +595,7 @@ export default function AnswerKeyWizardModal({
                         key={q.id ?? idx}
                         type="button"
                         onClick={() => setSelectedIdx(idx)}
-                        className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-start gap-2 ${
+                        className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-start gap-2 ${answerMissing ? 'border-l-4 border-red-500' : ''} ${
                           isSelected
                             ? answerMissing ? 'bg-red-100 text-red-900' : hasWarn ? 'bg-orange-100 text-orange-900' : 'bg-green-50 text-green-900'
                             : answerMissing ? 'bg-red-50 text-red-800 hover:bg-red-100' : hasWarn ? 'bg-orange-50 text-orange-800 hover:bg-orange-100' : 'hover:bg-gray-50 text-gray-700'
