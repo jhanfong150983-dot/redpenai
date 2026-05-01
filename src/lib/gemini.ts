@@ -1825,11 +1825,32 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
 - "位於『三、非選題』第 1 大題的子格 (2)"
 - "位於『四、混合題』第 1 格"
 
-## 4. answerBbox（必填）
-每格 bbox 用 normalized coordinates [0,1]：
-- x, y: 格子左上角；w, h: 格子寬高
-- bbox 必須涵蓋整格答案儲存區（不只字本身、要含整格背景），讓批改階段切圖時能對齊
-- 對 short_answer 多行作答區：bbox 範圍要包含整個寫字區塊
+## 4. answerBbox（必填）— 一律用 box（方框）格式
+
+⚠️ **重要心智模型**：答題卡的每一格 = 一個 fill_blank box 格子，不論 questionCategory 是什麼。
+即使 questionCategory 是 single_choice / multi_choice / short_answer，bbox 規則都一樣：「框格子的方框邊界 + 內部寫的內容」。
+
+【box 方框型 bbox 規則】
+- bbox 框 □ 整個邊界 + 內部紅字（含算式中的 ×/+/− 等運算符）
+- 🚨 邊距：bbox **不要緊貼 □**，四邊各向外推 3-5% 頁寬，避免切到 □ 邊框或紅字尾巴
+- 對 short_answer 多行作答區：bbox 範圍要包含整個寫字區塊（縱向可能較高）
+
+範例：
+  □ 邊界 x=0.40~0.48, y=0.20~0.28
+  → bbox.x = 0.40 - 0.04 = 0.36
+  → bbox.x + w = 0.48 + 0.04 = 0.52，所以 bbox.w = 0.16
+  → bbox.y = 0.20 - 0.02 = 0.18
+  → bbox.y + h = 0.28 + 0.02 = 0.30，所以 bbox.h = 0.12
+
+🚨 共通規則：
+- 印刷標題、題號 header（如表格第一列的「1, 2, 3, ..., 12」）必須在 bbox **之外**
+- 鄰格的內容必須在 bbox **之外**
+- 同一 section 同 row 的 bbox 高度應該一致（除非 short_answer 縱向較高）
+
+❌ 常見 bug：
+- bbox 太小（h < 0.02）→ 切到 □ 邊框上，crop 出來只有一條線
+- bbox 含到上方 header row 的題號數字 → 切錯題
+- bbox 跨進鄰格 → 切到別人的答案
 
 ## 5. maxScore 推論
 - 優先從 section 標題抓「每題 X 分」（例：「一、單選題（12題 每題4分 共48分）」→ 每題 4 分）
@@ -1837,12 +1858,7 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
 - 都沒寫 → 預設 1
 - short_answer：必填 rubricsDimensions（兩維度：作答依據 + 結論表達），兩維度 maxScore 加總 = 該題 maxScore
 
-## 6. tablePosition（建議填，能就填）
-若該題位於有多列／多行的表格，填寫表格座標：
-{"col": <格子在第幾欄>, "row": <格子在第幾列>, "totalCols": <總欄數>, "totalRows": <總列數>}
-答題卡通常是「一列題號 + 一列答案」的兩列表格（totalRows=2），這時 row=2 代表答案格。
-
-## 7. _layoutDetected（必填，且要在 questions 之前生成）
+## 6. _layoutDetected（必填，且要在 questions 之前生成）
 陣列長度 = 上傳照片張數，每張一個元素：
 - "answer-only-single-section"：整張照片只有一個 section
 - "answer-only-multi-section"：整張照片含多個 section（如單選+多選+非選都在同一張）
@@ -4795,14 +4811,24 @@ export async function extractAnswerKeyFromImages(
   console.log(`✅ 成功提取 ${result.questions.length} 題，總分 ${result.totalScore}`)
 
   // ─── Phase 2: locate（並行 per-page）+ Phase 3: canvas crop ──────────────
-  // Server 端 extract 只回題目，bbox 由這裡接手
+  // answer_only 模式：skip locate，直接信任 extract 階段給的 answerBbox（box-format 規則已在 extract prompt）
+  // 一般模式：仍走 locate（25 type 規則靠紅字當錨點，比 extract 的 grid 推算更準）
   if (result.questions.length > 0 && answerSheetImages.length > 0) {
     try {
-      const bboxMap = await locateAnswerKeyBboxesAcrossPages(result.questions, answerSheetImages)
-      // 寫回 answerBbox
+      const bboxMap = isAnswerOnly
+        ? new Map<string, NormalizedBbox>(
+            result.questions
+              .filter(q => q.answerBbox)
+              .map(q => [q.id, q.answerBbox as NormalizedBbox])
+          )
+        : await locateAnswerKeyBboxesAcrossPages(result.questions, answerSheetImages)
+      // 寫回 answerBbox（answer_only 已經有了，這裡 no-op；一般模式用 locate 結果覆寫）
       for (const q of result.questions) {
         const bbox = bboxMap.get(q.id)
         if (bbox) q.answerBbox = bbox
+      }
+      if (isAnswerOnly) {
+        console.log(`✂️ [extract.answer_only] skip locate, use ${bboxMap.size}/${result.questions.length} bboxes from extract`)
       }
       // canvas 裁切 → cropImageUrl
       const cropMap = await cropAnswerKeyQuestionsOnCanvas(result.questions, bboxMap, answerSheetImages)
