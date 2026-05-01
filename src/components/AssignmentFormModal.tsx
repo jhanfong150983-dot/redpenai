@@ -4,6 +4,7 @@ import {
   CheckCircle2, Circle, FileText, ChevronRight
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
+import Button from '@/components/ui/Button'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -675,26 +676,27 @@ export default function AssignmentFormModal({
             <div className="flex items-center gap-3 px-5 py-3 border-t border-gray-200 bg-gray-50 shrink-0">
               {/* 上一步：basic 隱藏 */}
               {activeStep !== 'basic' && (
-                <button
+                <Button
                   type="button"
+                  variant="outline"
                   onClick={handleBack}
                   disabled={isSubmitting}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   上一步
-                </button>
+                </Button>
               )}
 
               {/* 主按鈕（右下角，文案與動作隨 step 變化） */}
-              <button
+              <Button
                 type="button"
+                variant="primary"
                 onClick={handlePrimaryAction}
                 disabled={primary.disabled}
-                className="ml-auto inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="ml-auto"
               >
                 {primary.loading ? <Loader className="w-4 h-4 animate-spin" /> : primary.icon}
                 {primary.label}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
