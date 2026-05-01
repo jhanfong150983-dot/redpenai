@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Button from '@/components/ui/Button'
 import {
   ArrowLeft,
   Loader2,
@@ -544,16 +545,16 @@ export default function CorrectionManagement({
               重新整理
             </button>
 
-            <button
+            <Button
               type="button"
+              variant="primary"
               onClick={() => void handleDispatchSelected()}
               disabled={isDispatchBusy || isLoading || !dashboard || selectedDispatchCount === 0}
-              className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               {isDispatchBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               <Send className="h-4 w-4" />
               派發勾選{selectedDispatchCount > 0 ? ` (${selectedDispatchCount})` : ''}
-            </button>
+            </Button>
 
             {(dashboard?.dispatchActive || stoppableStudentIds.length > 0) ? (
               <button

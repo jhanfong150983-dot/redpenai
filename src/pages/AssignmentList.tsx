@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import Button from '@/components/ui/Button'
 import {
   BookOpen,
   ArrowLeft,
@@ -940,15 +941,16 @@ export default function AssignmentList({
                 </select>
               </div>
               <div className="flex items-center gap-2">
-                <button
+                <Button
+                  variant="outline"
                   onClick={batchToggleAll}
                   disabled={batchSelectableIds.length === 0}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50"
                 >
                   <CheckSquare className="h-4 w-4" />
                   {batchSelectedIds.size === batchSelectableIds.length && batchSelectableIds.length > 0 ? '取消全選' : '全選'}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="primary"
                   onClick={() => {
                     if (batchSelectedIds.size === 0) return
                     const ids = Array.from(batchSelectedIds)
@@ -960,11 +962,10 @@ export default function AssignmentList({
                     onStartBatchGrading?.(ids)
                   }}
                   disabled={batchSelectedIds.size === 0}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-green-700 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Sparkles className="h-4 w-4" />
                   批次批改{batchSelectedIds.size > 0 ? ` (${batchSelectedIds.size})` : ''}
-                </button>
+                </Button>
               </div>
             </div>
           </div>

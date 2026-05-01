@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import Button from '@/components/ui/Button'
 import {
   Plus, Search, BookOpen, Pencil, Trash2, FileUp, Loader2,
   Folder, ChevronDown, ChevronRight, Edit2, Download, Copy
@@ -649,19 +650,17 @@ export default function AnswerBank(_props: AnswerBankProps) {
       <div className="mb-4 border-b border-slate-200 pb-3 flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-gray-900">建立答案</h1>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => { setImportCode(''); setImportError(''); setShowImportModal(true) }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+          <Button type="button" variant="outline" onClick={() => { setImportCode(''); setImportError(''); setShowImportModal(true) }}>
             <Download className="w-4 h-4" />匯入短碼
-          </button>
-          <button type="button" onClick={() => { setNewFolderName(''); setNewFolderError(''); setIsCreateFolderModalOpen(true) }}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+          </Button>
+          <Button type="button" variant="outline" onClick={() => { setNewFolderName(''); setNewFolderError(''); setIsCreateFolderModalOpen(true) }}>
             <Plus className="w-4 h-4" />建立資料夾
-          </button>
-          <button type="button"
+          </Button>
+          <Button type="button" variant="primary"
             onClick={() => { setEditingTemplateId(null); setEditingAnswerKey(null); setEditingTitle(''); setEditingDomain(''); setEditingDocType('worksheet'); setEditingFolder(''); setEditingAnswerSheetMode('with_questions'); setEditingAnswerSheetImages([]); setShowUnifiedModal(true) }}
-            className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 active:scale-95">
+          >
             <Plus className="h-4 w-4" />新增答案卷
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -806,8 +805,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             </div>
             <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-3">
               <button type="button" onClick={() => setIsCreateFolderModalOpen(false)} className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">取消</button>
-              <button type="button" disabled={!newFolderName.trim() || !!newFolderError} onClick={() => void handleCreateFolder()}
-                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300">建立</button>
+              <Button type="button" variant="primary" disabled={!newFolderName.trim() || !!newFolderError} onClick={() => void handleCreateFolder()}>建立</Button>
             </div>
           </div>
         </div>
@@ -852,10 +850,9 @@ export default function AnswerBank(_props: AnswerBankProps) {
             </div>
             <div className="flex justify-end gap-3 border-t border-gray-200 px-6 py-3">
               <button type="button" onClick={() => setShowImportModal(false)} className="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100">取消</button>
-              <button type="button" disabled={!importCode.trim() || isImporting} onClick={() => void handleImportByCode()}
-                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-gray-300 transition-all active:scale-95">
-                {isImporting ? '匯入中...' : '匯入'}
-              </button>
+              <Button type="button" variant="primary" disabled={!importCode.trim() || isImporting} onClick={() => void handleImportByCode()}>
+                {isImporting ? '匯入中…' : '匯入'}
+              </Button>
             </div>
           </div>
         </div>

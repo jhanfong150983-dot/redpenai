@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from 'react'
+import Button from '@/components/ui/Button'
 import {
   Users,
   Plus,
@@ -1519,28 +1520,28 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
               </div>
 
               <div className="pt-2 flex justify-end gap-2">
-                <button
+                <Button
                   data-tutorial="classroom-cancel"
                   type="button"
+                  variant="outline"
                   onClick={() => {
                     if (tutorial.isActive) return
                     setIsCreateModalOpen(false)
                   }}
-                  className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
                   disabled={isCreating}
                 >
                   取消
-                </button>
-                <button
+                </Button>
+                <Button
                   data-tutorial="classroom-submit"
                   type="submit"
+                  variant="primary"
                   disabled={isCreating || !newName.trim() || newGrade === '' || parsedStudentCount === 0}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
                   {isCreating ? (
                     <>
                       <Loader className="w-4 h-4 animate-spin" />
-                      建立中...
+                      建立中…
                     </>
                   ) : (
                     <>
@@ -1548,7 +1549,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                       建立班級
                     </>
                   )}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -1690,58 +1691,58 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
 
               {isStudentReadonly ? (
                 <div className="flex justify-end">
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
                     onClick={() => {
                       setIsStudentModalOpen(false)
                       setStudentModalError(null)
                     }}
-                    className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
                   >
                     關閉
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 <div className="flex items-center justify-between">
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
                     onClick={handleAddStudentRow}
-                    className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
                     disabled={isStudentSaving}
                   >
                     <Plus className="w-4 h-4" />
                     新增學生
-                  </button>
+                  </Button>
 
                   <div className="flex gap-2">
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
                       onClick={() => {
                         if (!isStudentSaving) {
                           setIsStudentModalOpen(false)
                           setStudentModalError(null)
                         }
                       }}
-                      className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
                       disabled={isStudentSaving}
                     >
                       取消
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
+                      variant="primary"
                       onClick={handleSaveStudents}
                       disabled={isStudentSaving || studentRows.length === 0}
-                      className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                     >
                       {isStudentSaving ? (
                         <>
                           <Loader className="w-4 h-4 animate-spin" />
-                          儲存中...
+                          儲存中…
                         </>
                       ) : (
                         '儲存變更'
                       )}
-                    </button>
+                    </Button>
                   </div>
                 </div>
               )}
@@ -1830,26 +1831,26 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
             </div>
 
             <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => {
                   setIsCreateFolderModalOpen(false)
                   setNewFolderName('')
                   setNewFolderError('')
                 }}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
               >
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="primary"
                 onClick={handleCreateFolder}
                 disabled={!newFolderName.trim() || !!newFolderError}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 <Plus className="w-4 h-4" />
                 建立資料夾
-              </button>
+              </Button>
             </div>
           </div>
         </div>
