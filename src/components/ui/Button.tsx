@@ -2,7 +2,7 @@ import { ButtonHTMLAttributes, forwardRef } from 'react'
 import { cn } from '@/lib/utils'
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost'
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive'
   size?: 'sm' | 'md' | 'lg'
 }
 
@@ -12,20 +12,29 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={cn(
-          'inline-flex items-center justify-center rounded-lg font-medium transition-colors',
+          // 共同基底
+          'inline-flex items-center justify-center gap-2 rounded-lg font-semibold',
+          'transition-colors active:scale-[0.98]',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
-          'disabled:pointer-events-none disabled:opacity-50',
+          'disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100',
+          // Variants
           {
-            'bg-blue-600 text-white hover:bg-blue-700 focus-visible:ring-blue-600':
+            'bg-green-600 text-white hover:bg-green-700 focus-visible:ring-green-500':
               variant === 'primary',
-            'bg-gray-600 text-white hover:bg-gray-700 focus-visible:ring-gray-600':
+            'bg-slate-600 text-white hover:bg-slate-700 focus-visible:ring-slate-500':
               variant === 'secondary',
-            'border border-gray-300 bg-white hover:bg-gray-50 focus-visible:ring-gray-600':
+            'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 focus-visible:ring-slate-400':
               variant === 'outline',
-            'hover:bg-gray-100 focus-visible:ring-gray-600': variant === 'ghost',
+            'text-slate-700 hover:bg-slate-100 focus-visible:ring-slate-400':
+              variant === 'ghost',
+            'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500':
+              variant === 'destructive'
+          },
+          // Sizes
+          {
             'px-3 py-1.5 text-sm': size === 'sm',
-            'px-4 py-2 text-base': size === 'md',
-            'px-6 py-3 text-lg': size === 'lg',
+            'px-4 py-2 text-sm': size === 'md',
+            'px-5 py-2.5 text-base': size === 'lg'
           },
           className
         )}
