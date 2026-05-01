@@ -1153,6 +1153,28 @@ export default function AnswerKeyUnifiedModal({
                             </DndContext>
                           )}
 
+                          {/* 用新題本重新解析（只在編輯模式 + 已上傳題本時顯示） */}
+                          {bookletPageItems.length > 0 && pageItems.length > 0 && (
+                            <div className="mt-3 flex items-center justify-between gap-3 px-3 py-2.5 bg-blue-100/60 border border-blue-300 rounded-lg">
+                              <div className="text-xs text-blue-900 leading-relaxed">
+                                <strong>🔄 用題本重新解析</strong>
+                                <br />
+                                AI 會重新跑一次答案抽取，套用題本的題幹來改寫 short_answer 的評分標準。
+                                <br />
+                                <span className="text-blue-700/80">原答案會被覆寫，需重新檢查並儲存。</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void handleStartExtract()}
+                                disabled={isExtracting}
+                                className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              >
+                                {isExtracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCw className="w-3.5 h-3.5" />}
+                                重新解析
+                              </button>
+                            </div>
+                          )}
+
                           <div className="mt-3 px-3 py-2 bg-amber-50 border-l-2 border-amber-400 rounded text-xs text-amber-800">
                             💡 後補題本只會影響「之後新批改」與「重新批改」的作業；先前批改的學生看到的仍是通用引導。如要更新解說，請對該作業重新批改。
                           </div>
