@@ -109,7 +109,13 @@ export interface AnswerKeyUnifiedModalProps {
   onExtract: (
     orderedBlobs: Array<{ index: number; url: string; blob: Blob }>,
     onProgress: (msg: string) => void,
-    context: { domain: string; docType: 'worksheet' | 'exam'; answerSheetMode: 'with_questions' | 'answer_only' }
+    context: {
+      domain: string
+      docType: 'worksheet' | 'exam'
+      answerSheetMode: 'with_questions' | 'answer_only'
+      /** answer_only 模式下若老師有上傳題本，傳給 AI 幫忙推 short_answer rubric */
+      bookletBlobs?: Blob[]
+    }
   ) => Promise<{ answerKey: AnswerKey; imageBlobs: Blob[]; notice: string | null }>
   onSave: (answerKey: AnswerKey, imageBlobs: Blob[], metadata: {
     title: string; domain: string; docType: 'worksheet' | 'exam'
@@ -531,7 +537,30 @@ export default function AnswerKeyUnifiedModal({
       setExtractionMsg('擷取答案中，請稍候…')
 
       const effectiveDomain = domain === '國語（測試中）' ? '國語' : domain
-      const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setExtractionMsg, { domain: effectiveDomain, docType, answerSheetMode })
+
+      // answer_only 模式下，把 booklet 套上 rotation 後傳給 onExtract（AI 用來推 rubric criteria）
+      let bookletBlobsForExtract: Blob[] | undefined
+      if (answerSheetMode === 'answer_only' && bookletPageItems.length > 0) {
+        try {
+          const { rotateImageBlob } = await import('../lib/imageCompression')
+          bookletBlobsForExtract = await Promise.all(bookletPageItems.map(async (item) => {
+            const orig = bookletPages.find((p) => p.index === item.originalIndex)!
+            return item.rotation !== 0 ? await rotateImageBlob(orig.blob, item.rotation) : orig.blob
+          }))
+        } catch (err) {
+          console.warn('[UnifiedModal] booklet rotation for extract failed, using originals:', err)
+          bookletBlobsForExtract = bookletPageItems.map((item) =>
+            bookletPages.find((p) => p.index === item.originalIndex)!.blob
+          )
+        }
+      }
+
+      const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setExtractionMsg, {
+        domain: effectiveDomain,
+        docType,
+        answerSheetMode,
+        bookletBlobs: bookletBlobsForExtract,
+      })
       setEditingKey(answerKey)
       setExtractedImageBlobs(blobs)
       setNotice(n)

@@ -358,7 +358,12 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const handleUnifiedExtract = async (
     orderedPages: Array<{ index: number; url: string; blob: Blob }>,
     _onProgress: (msg: string) => void,
-    context: { domain: string; docType: 'worksheet' | 'exam'; answerSheetMode: 'with_questions' | 'answer_only' }
+    context: {
+      domain: string
+      docType: 'worksheet' | 'exam'
+      answerSheetMode: 'with_questions' | 'answer_only'
+      bookletBlobs?: Blob[]
+    }
   ) => {
     const blobs = orderedPages.map((p) => p.blob)
     await startInkSession()
@@ -367,6 +372,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         domain: context.domain || undefined,
         docType: context.docType,
         answerSheetMode: context.answerSheetMode,
+        bookletImages: context.bookletBlobs,
       })
       return { answerKey, imageBlobs: blobs, notice: null }
     } finally { closeInkSession() }

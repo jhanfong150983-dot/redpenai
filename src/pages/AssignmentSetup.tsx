@@ -1360,6 +1360,7 @@ export default function AssignmentSetup({
     else onProgress('正在解析，預計需要 40–50 秒，實際時間依題數而有所不同…')
 
     // 並行送出所有批次，Promise.all 保證回傳陣列順序與送出順序一致
+    // answer_only 模式：把題本只附在第一個 batch（避免每批都重送同一份題本浪費 token）
     const extractedResults = await Promise.all(
       batches.map((batch, i) =>
         extractAnswerKeyFromImages(batch, {
@@ -1369,6 +1370,9 @@ export default function AssignmentSetup({
           totalPages,
           docType: createAnswerDocType,
           answerSheetMode: createAnswerSheetMode,
+          bookletImages: i === 0 && createAnswerSheetMode === 'answer_only' && questionBookletBlobs.length > 0
+            ? questionBookletBlobs
+            : undefined,
         })
       )
     )

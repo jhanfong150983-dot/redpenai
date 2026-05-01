@@ -618,6 +618,12 @@ export interface ExtractAnswerKeyOptions {
    * - 'answer_only'：純答題卡，搭配獨立題本
    */
   answerSheetMode?: 'with_questions' | 'answer_only'
+  /**
+   * 題本圖（學生看的乾淨題目卷）。僅 answer_only 模式有效。
+   * 若有，AI 在 extract 時可用題幹推導 short_answer 的 rubricsDimensions criteria，
+   * 比從答案內容反推大幅準確。
+   */
+  bookletImages?: Blob[]
 }
 
 export interface GradeSubmissionOptions {
@@ -1753,8 +1759,16 @@ ${domainRefinements}
  *   公式/數值/單位 → fill_blank；長段文字/推導 → short_answer
  * - 沿用一般模式的 4 種 type，不另創名詞
  */
-function buildAnswerKeyAnswerOnlyPrompt(domain?: string): string {
-  const domainHint = domain && domain !== '其他' ? `\n【領域提示】科目：${domain}（影響 fill_blank 答案的單位／格式判讀）` : ''
+function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): string {
+  const domainHint = domain && domain !== '其他'
+    ? `\n【領域提示】科目：${domain}\n- 影響 fill_blank 答案的單位／格式判讀（例：自然 → SI 單位、英語 → 拼字／時態）\n- 影響 short_answer 的 rubricsDimensions criteria 寫法：\n  · 數學／自然 → 強調「列式正確、過程清晰、單位標注」\n  · 國語／社會 → 強調「論述完整、依據明確、結論清楚」\n  · 英語 → 強調「文法正確、用字精準、句構流暢」\n- 用 domain 推 criteria 比硬從答案內容反推更可靠`
+    : ''
+
+  // 題本（學生看的乾淨題目卷）若也一起傳給 AI，能用題幹來推 short_answer 的 rubricsDimensions criteria，
+  // 比從答案內容反推大幅準確。
+  const bookletSection = hasBooklet
+    ? `\n## ⭐ 題本參考（重要，僅在 short_answer 時使用）\n你會收到「答案卷圖片」+「題本圖片」兩組。題本圖片不需要逐格抽答案——你只需要從題本上找出每個 short_answer 題目的「題目要求」，依此推導 rubricsDimensions 的 criteria：\n- 找到題本上對應題號的題幹\n- 把題幹的核心要求拆解成兩個 criteria 維度（作答依據 + 結論表達），寫進 rubricsDimensions\n- 例：題本 4-2 寫「比較 A 與 B 兩物體在...時的速度大小，並說明原因」+ 答案卷寫「一樣大」\n  → criteria 應是「正確比較速度大小（一樣大／A>B／A<B），並依守恆定律說明原因」，而不是只反推答案的「指出『一樣大』」\n- single_choice / multi_choice / fill_blank 不需要參考題本，照答案卷的內容判斷即可\n- 嚴禁因為看了題本就把題幹文字塞進 answer 欄位，answer/referenceAnswer 一律來自答案卷的格子`
+    : ''
 
   return `
 你會看到一張或多張「純答題卡」圖片：只有答案表格，沒有題目本身。
@@ -1896,7 +1910,7 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string): string {
     }
   ],
   "totalScore": 120
-}${domainHint}
+}${domainHint}${bookletSection}
 
 輸出純 JSON，不要 markdown 代碼塊。
 `.trim()
@@ -4661,18 +4675,20 @@ export async function extractAnswerKeyFromImages(
 
   const isInferMode = opts?.inferMode === 'infer_blank'
   const isAnswerOnly = opts?.answerSheetMode === 'answer_only'
+  const bookletImages = isAnswerOnly && Array.isArray(opts?.bookletImages) ? opts!.bookletImages! : []
+  const hasBooklet = bookletImages.length > 0
   // startPage: page number of the first image in this batch (1-based, default 1)
   // totalPages: total pages across ALL batches — determines whether page prefix is needed
   const startPage = opts?.startPage ?? 1
   const totalPages = opts?.totalPages ?? answerSheetImages.length
   const needsPagePrefix = totalPages > 1
 
-  console.log(`🧾 開始從 ${answerSheetImages.length} 張圖片${isInferMode ? '推論（空白作業模式）' : (isAnswerOnly ? '抽取（純答題卡模式）' : '抽取（解答圖模式）')} AnswerKey... startPage=${startPage} totalPages=${totalPages}`)
+  console.log(`🧾 開始從 ${answerSheetImages.length} 張圖片${isInferMode ? '推論（空白作業模式）' : (isAnswerOnly ? '抽取（純答題卡模式）' : '抽取（解答圖模式）')} AnswerKey... startPage=${startPage} totalPages=${totalPages}${hasBooklet ? ` + 題本 ${bookletImages.length} 頁（用於 short_answer rubric 推導）` : ''}`)
 
   const prompt = isInferMode
     ? buildInferFromBlankPrompt(opts?.domain)
     : (isAnswerOnly
-      ? buildAnswerKeyAnswerOnlyPrompt(opts?.domain)
+      ? buildAnswerKeyAnswerOnlyPrompt(opts?.domain, hasBooklet)
       : buildAnswerKeyPrompt(opts?.domain))
   console.log('📋 [AnswerKey prompt]', prompt)
 
@@ -4702,8 +4718,8 @@ export async function extractAnswerKeyFromImages(
   for (let i = 0; i < answerSheetImages.length; i++) {
     const pageNum = startPage + i
     const pageLabel = needsPagePrefix
-      ? `--- 第 ${pageNum} 張照片（頁碼 ${pageNum}，此頁所有題目 id 前綴為 "${pageNum}-"）---`
-      : `--- 第 1 張照片 ---`
+      ? `--- 第 ${pageNum} 張答案卷照片（頁碼 ${pageNum}，此頁所有題目 id 前綴為 "${pageNum}-"）---`
+      : `--- 第 1 張答案卷照片 ---`
     requestParts.push(pageLabel)
     const imageBase64 = await blobToBase64(answerSheetImages[i])
     const mimeType = answerSheetImages[i].type || 'image/jpeg'
@@ -4711,6 +4727,17 @@ export async function extractAnswerKeyFromImages(
       inlineData: { mimeType, data: imageBase64 }
     })
     console.log(`  📄 已添加第 ${pageNum} 張圖片（頁碼前綴 "${needsPagePrefix ? `${pageNum}-` : '無'}"）`)
+  }
+
+  // answer_only 模式：附帶題本圖片（用於 short_answer rubric 推導，不抽答案）
+  if (hasBooklet) {
+    requestParts.push(`--- 以下為「題本」圖片（${bookletImages.length} 張）：學生看的乾淨題目卷。僅用於推導 short_answer 題的 rubricsDimensions criteria，不要從題本抽答案 ---`)
+    for (let i = 0; i < bookletImages.length; i++) {
+      const imageBase64 = await blobToBase64(bookletImages[i])
+      const mimeType = bookletImages[i].type || 'image/jpeg'
+      requestParts.push({ inlineData: { mimeType, data: imageBase64 } })
+      console.log(`  📚 已添加題本第 ${i + 1} 頁`)
+    }
   }
 
   console.log('🤖 發送請求到 Gemini API...')
