@@ -1858,7 +1858,12 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
 - 都沒寫 → 預設 1
 - short_answer：必填 rubricsDimensions（兩維度：作答依據 + 結論表達），兩維度 maxScore 加總 = 該題 maxScore
 
-## 6. _layoutDetected（必填，且要在 questions 之前生成）
+## 6. ⚠️ 不要輸出 tablePosition
+答題卡每格本身就是一題、ID 已經帶位置資訊（"1-1" = 第 1 section 第 1 題），
+**禁止輸出 tablePosition 欄位**。tablePosition 是一般模式為「混在大表格裡的題目」設計的，
+在本模式下會誤觸 server 端的 offset 校正邏輯，反而把正確的 box bbox 蓋掉。
+
+## 7. _layoutDetected（必填，且要在 questions 之前生成）
 陣列長度 = 上傳照片張數，每張一個元素：
 - "answer-only-single-section"：整張照片只有一個 section
 - "answer-only-multi-section"：整張照片含多個 section（如單選+多選+非選都在同一張）
@@ -1876,8 +1881,7 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
       "answer": "C",
       "maxScore": 4,
       "answerBbox": {"x": 0.113, "y": 0.239, "w": 0.078, "h": 0.081},
-      "anchorHint": "位於『一、單選題』表格第 1 格",
-      "tablePosition": {"col": 1, "row": 2, "totalCols": 12, "totalRows": 2}
+      "anchorHint": "位於『一、單選題』表格第 1 格"
     },
     {
       "id": "2-1",
@@ -1886,8 +1890,7 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
       "answer": "B,C",
       "maxScore": 5,
       "answerBbox": {"x": 0.085, "y": 0.345, "w": 0.155, "h": 0.067},
-      "anchorHint": "位於『二、多重選擇題』表格第 1 格",
-      "tablePosition": {"col": 1, "row": 2, "totalCols": 6, "totalRows": 2}
+      "anchorHint": "位於『二、多重選擇題』表格第 1 格"
     },
     {
       "id": "3-2",
