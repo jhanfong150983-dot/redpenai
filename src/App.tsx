@@ -232,18 +232,27 @@ const PAGE_PARAM_ALIASES: Record<string, Page> = {
   'admin-tags': 'admin-panel'
 }
 
-// Stage 3 路由：path-based URL 對應表（其他頁面繼續用 ?page=xxx）
-// 改造後 URL：'/ink-topup' / '/preferences' / '/admin'
+// path-based URL 對應表（其他頁面繼續用 ?page=xxx）
+// Stage 3：ink-topup / teacher-preferences / admin-panel
+// Stage 4：answer-bank / classroom-management / gradebook / ai-report
 const PAGE_PATH_MAP: Partial<Record<Page, string>> = {
   'ink-topup': '/ink-topup',
   'teacher-preferences': '/preferences',
-  'admin-panel': '/admin'
+  'admin-panel': '/admin',
+  'answer-bank': '/answer-bank',
+  'classroom-management': '/classroom',
+  'gradebook': '/gradebook',
+  'ai-report': '/ai-report'
 }
 
 const PATH_PAGE_MAP: Record<string, Page> = {
   '/ink-topup': 'ink-topup',
   '/preferences': 'teacher-preferences',
-  '/admin': 'admin-panel'
+  '/admin': 'admin-panel',
+  '/answer-bank': 'answer-bank',
+  '/classroom': 'classroom-management',
+  '/gradebook': 'gradebook',
+  '/ai-report': 'ai-report'
 }
 
 const parseUrlPageParam = (raw: string | null | undefined): Page | null => {
