@@ -235,6 +235,7 @@ const PAGE_PARAM_ALIASES: Record<string, Page> = {
 // path-based URL 對應表（其他頁面繼續用 ?page=xxx）
 // Stage 3：ink-topup / teacher-preferences / admin-panel
 // Stage 4：answer-bank / classroom-management / gradebook / ai-report
+// Stage 5：grading-list / correction-select / assignment-import-select
 const PAGE_PATH_MAP: Partial<Record<Page, string>> = {
   'ink-topup': '/ink-topup',
   'teacher-preferences': '/preferences',
@@ -242,7 +243,10 @@ const PAGE_PATH_MAP: Partial<Record<Page, string>> = {
   'answer-bank': '/answer-bank',
   'classroom-management': '/classroom',
   'gradebook': '/gradebook',
-  'ai-report': '/ai-report'
+  'ai-report': '/ai-report',
+  'grading-list': '/grading-list',
+  'correction-select': '/correction-select',
+  'assignment-import-select': '/import-select'
 }
 
 const PATH_PAGE_MAP: Record<string, Page> = {
@@ -252,7 +256,10 @@ const PATH_PAGE_MAP: Record<string, Page> = {
   '/answer-bank': 'answer-bank',
   '/classroom': 'classroom-management',
   '/gradebook': 'gradebook',
-  '/ai-report': 'ai-report'
+  '/ai-report': 'ai-report',
+  '/grading-list': 'grading-list',
+  '/correction-select': 'correction-select',
+  '/import-select': 'assignment-import-select'
 }
 
 const parseUrlPageParam = (raw: string | null | undefined): Page | null => {
