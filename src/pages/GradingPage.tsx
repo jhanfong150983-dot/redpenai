@@ -1,5 +1,6 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   Loader,
@@ -1162,6 +1163,7 @@ export default function GradingPage({
   onGradingPhaseChange,
   embedded = false
 }: GradingPageProps) {
+  const navigate = useNavigate()
   const isBatchMode = !!(batchAssignmentIds && batchAssignmentIds.length > 1)
   const PREVIEW_LENS_SIZE = 140
   const PREVIEW_ZOOM_SCALE = 2.3
@@ -1648,8 +1650,8 @@ export default function GradingPage({
       onRequireInkTopUp()
       return
     }
-    window.location.href = '/?page=ink-topup'
-  }, [onRequireInkTopUp])
+    navigate('/ink-topup')
+  }, [onRequireInkTopUp, navigate])
 
   const closePreviewLens = useCallback(() => {
     setPreviewLensActive(false)

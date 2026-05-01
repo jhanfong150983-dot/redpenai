@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, type ChangeEvent, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   BookOpen,
   Plus,
@@ -68,6 +69,7 @@ export default function AssignmentSetup({
   onRequireInkTopUp,
   embedded = false
 }: AssignmentSetupProps) {
+  const navigate = useNavigate()
   // 引导式教学
   const tutorial = useTutorial('assignment')
 
@@ -1097,7 +1099,7 @@ export default function AssignmentSetup({
         onRequireInkTopUp()
         return
       }
-      window.location.href = '/?page=ink-topup'
+      navigate('/ink-topup')
     }
   }
 
