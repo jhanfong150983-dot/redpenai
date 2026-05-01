@@ -1771,13 +1771,29 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string): string {
 
 ## 1. questionCategory 規則（必須使用以下 4 種之一）
 
+【規則優先順序】section header 優先於答案內容；答案內容只在 section 不能決定時使用。
+
+### 1A. Section header 強規則（最高優先）
+- 「簡答」「問答」「申論」「混合題」「非選擇題的子題之申論」section
+  → 該 section 所有題目原則上都是 short_answer
+  → 這類題目用 referenceAnswer 欄位（不是 answer），並必填 rubricsDimensions
+  → 例外：若該 section 中某題答案明顯是單一字母（A-E）或選項，仍可用 single_choice
+- 「單選題」「多選題」「多重選擇題」「複選」section → 對應 single_choice / multi_choice
+- 「填充題」「填空題」「非選擇題」「非選」section → 對應 fill_blank
+
+### 1B. 答案內容輔助判斷（當 section 不能決定時）
 | 答案內容樣態 | questionCategory | 範例 |
 |---|---|---|
 | 單一英文字母 A–E | single_choice | "C"、"A" |
 | 多個字母（逗號分隔或連寫） | multi_choice | "B,C"、"BC"、"A、D" |
 | 純數字、公式、含單位的數值 | fill_blank | "240A"、"4/3 B"、"1.0×10⁻²"、"μ₀i/4(1/a-1/b)" |
 | 多行推導、長段文字、解釋 | short_answer | "因 a+b=0 故..." |
-| 空白 | 看 section：簡答／問答／申論 → short_answer；其他 → fill_blank | "" |
+| 空白 | 看 section：簡答／混合 → short_answer；其他 → fill_blank | "" |
+
+### 1C. 欄位選擇規則（重要）
+- single_choice / multi_choice / fill_blank → 答案放 answer 欄位
+- short_answer → 答案放 referenceAnswer 欄位（不是 answer），且必填 rubricsDimensions
+- 即使老師寫的 short_answer 文字很短（如「一樣大」「正確」），仍是 referenceAnswer
 
 ⚠️ 名稱必須完全一致：single_choice / multi_choice / fill_blank / short_answer。
    禁止使用 fill_variants、circle_select_one、compound_* 或其他舊系統名稱。
@@ -1856,14 +1872,27 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string): string {
       "id": "4-2",
       "idPath": ["4","2"],
       "questionCategory": "short_answer",
-      "referenceAnswer": "因 a+b=0 ⇒ a=-b，代入...",
+      "referenceAnswer": "一樣大（即使參考答案文字短，short_answer 仍用 referenceAnswer 欄位）",
+      "rubricsDimensions": [
+        {"name": "作答依據", "maxScore": 2, "criteria": "正確比較兩者大小關係並說明原因"},
+        {"name": "結論表達", "maxScore": 2, "criteria": "明確寫出比較結論"}
+      ],
+      "maxScore": 4,
+      "answerBbox": {"x": 0.30, "y": 0.78, "w": 0.30, "h": 0.10},
+      "anchorHint": "位於『四、混合題』第 2 格"
+    },
+    {
+      "id": "4-3",
+      "idPath": ["4","3"],
+      "questionCategory": "short_answer",
+      "referenceAnswer": "因 a+b=0 ⇒ a=-b，代入...（多行推導也是 short_answer）",
       "rubricsDimensions": [
         {"name": "作答依據", "maxScore": 2, "criteria": "明確指出守恆條件並列式推導"},
         {"name": "結論表達", "maxScore": 2, "criteria": "得到具體結果並標注單位"}
       ],
       "maxScore": 4,
-      "answerBbox": {"x": 0.30, "y": 0.78, "w": 0.30, "h": 0.10},
-      "anchorHint": "位於『四、混合題』第 2 格"
+      "answerBbox": {"x": 0.62, "y": 0.78, "w": 0.30, "h": 0.10},
+      "anchorHint": "位於『四、混合題』第 3 格"
     }
   ],
   "totalScore": 120
@@ -4572,7 +4601,9 @@ async function cropAnswerKeyQuestionsOnCanvas(
   const bitmapCache = new Map<number, ImageBitmap>()
 
   for (const q of questions) {
-    const bbox = bboxMap.get(q.id)
+    // 優先用 locate 結果，沒有就 fallback 到 extract 階段已給的 q.answerBbox。
+    // 這對 short_answer（無文字答案 → locate 跳過）特別重要，避免 bbox 顯示但無 crop。
+    const bbox = bboxMap.get(q.id) ?? q.answerBbox ?? null
     if (!bbox) continue
     const pageIdx = typeof q.pageIndex === 'number'
       ? q.pageIndex
