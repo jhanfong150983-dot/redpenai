@@ -434,7 +434,7 @@ export default function AdminAnalytics() {
     setLoading(true); setError('')
     try {
       const res = await fetch('/api/admin/analytics?action=analytics', { credentials: 'include' })
-      if (!res.ok) throw new Error('取得統計資料失敗')
+      if (!res.ok) throw new Error('取得統計資料失敗，請重新整理或稍後再試')
       setData(await res.json())
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '發生錯誤')

@@ -277,7 +277,7 @@ export default function AssignmentImport({
       try {
         const assignmentData = await db.assignments.get(assignmentId)
         if (!assignmentData) {
-          throw new Error('找不到這份作業')
+          throw new Error('找不到這份作業，可能已被刪除。請返回列表重新選擇。')
         }
         setAssignment(assignmentData)
 
@@ -285,7 +285,7 @@ export default function AssignmentImport({
           assignmentData.classroomId
         )
         if (!classroomData) {
-          throw new Error('找不到對應的班級')
+          throw new Error('找不到對應的班級，請先到「班級管理」確認班級存在')
         }
 
         const studentsData = await db.students
@@ -632,18 +632,18 @@ export default function AssignmentImport({
       return
     }
     if (!students.length) {
-      setError('此班級尚未有學生名單')
+      setError('此班級尚未有學生名單，請先到「班級管理」加入學生')
       return
     }
     // 驗證每位學生頁數和起始頁號
     const pagesNum = Number(pagesPerStudent)
     const startNum = Number(startSeat)
     if (!Number.isFinite(pagesNum) || pagesNum < 1) {
-      setError('請填寫有效的每位學生頁數')
+      setError('每位學生頁數須為大於 0 的整數')
       return
     }
     if (!Number.isFinite(startNum) || startNum < 1) {
-      setError('請填寫有效的起始頁號')
+      setError('起始頁號須為大於 0 的整數')
       return
     }
 
@@ -691,7 +691,7 @@ export default function AssignmentImport({
 
   const handleSaveMappings = async () => {
     if (!assignment) {
-      setError('找不到這份作業')
+      setError('找不到這份作業，可能已被刪除。請返回列表重新選擇。')
       return
     }
     if (mappings.length === 0) {

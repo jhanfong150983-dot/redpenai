@@ -208,7 +208,7 @@ export default function AssignmentImportSelect({
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              尚未建立任何作業
+              尚未建立任何作業。先到「答案卷」建立答案，再回來建立作業。
             </h3>
             <p className="text-gray-600 mb-4">
               請先到「作業管理」建立作業與標準答案，再回到這裡匯入作業。
@@ -242,7 +242,7 @@ export default function AssignmentImportSelect({
                     </p>
                     {!assignment.answerKey && (
                       <p className="text-xs text-red-500 mt-1">
-                        尚未設定標準答案，AI 批改將無法使用。
+                        尚未設定標準答案。AI 批改需要標準答案才能對照，請先到「答案卷」設定。
                       </p>
                     )}
                   </div>

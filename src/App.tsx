@@ -2400,7 +2400,7 @@ function App() {
                         </div>
                       ) : todoOverviewItems.length === 0 ? (
                         <div className="bg-slate-50/60 px-4 py-8 text-center">
-                          <p className="text-sm text-slate-600">目前沒有待辦作業。</p>
+                          <p className="text-sm text-slate-600">目前沒有待辦作業。點上方「作業批改」建立第一份作業。</p>
                           <button
                             type="button"
                             onClick={openAssignmentSetup}

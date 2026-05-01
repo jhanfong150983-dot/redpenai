@@ -1099,7 +1099,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                     setEditingName('')
                   }
                 }}
-                placeholder="班級名稱"
+                placeholder="例如：七年甲班、203班"
                 className="w-full max-w-[220px] rounded border border-gray-300 px-2 py-1 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-green-500"
                 disabled={isSaving}
               />
@@ -1337,7 +1337,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                                       setEditingFolderError('')
                                     }
                                   }}
-                                  placeholder="資料夾名稱"
+                                  placeholder="例如：七年級、八年級"
                                   className="w-full rounded border border-gray-300 px-2 py-1 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-green-500"
                                   disabled={isSaving}
                                 />

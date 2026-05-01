@@ -1396,7 +1396,7 @@ export default function AssignmentSetup({
       }
     }
 
-    if (!mergedAnswerKey) throw new Error('AI 未能解析出任何題目')
+    if (!mergedAnswerKey) throw new Error('AI 未能解析出任何題目。請確認上傳的圖片清晰，或重新拍攝後再試。')
 
     const { answerKey: scoredKey, scoreNotice } = applyCreateScoreMode(mergedAnswerKey)
     const notices: string[] = []
@@ -1706,7 +1706,7 @@ export default function AssignmentSetup({
       }
     }
 
-    if (!mergedAnswerKey) throw new Error('AI 未能解析出任何題目')
+    if (!mergedAnswerKey) throw new Error('AI 未能解析出任何題目。請確認上傳的圖片清晰，或重新拍攝後再試。')
 
     const { answerKey: scoredKey, scoreNotice } = applyCreateScoreMode(mergedAnswerKey)
     const notices: string[] = []
@@ -1942,7 +1942,7 @@ export default function AssignmentSetup({
       requestSync()
     } catch (error) {
       console.error('更新資料夾失敗:', error)
-      setError('更新資料夾失敗')
+      setError('更新資料夾失敗，請稍後重試')
     } finally {
       setDraggedAssignmentId(null)
       setDropTargetFolder(null)
@@ -2014,7 +2014,7 @@ export default function AssignmentSetup({
       }
     } catch (error) {
       console.error('調整作業順序失敗:', error)
-      setError('調整作業順序失敗')
+      setError('調整作業順序失敗，請重新整理後再試')
     } finally {
       setDraggedAssignmentId(null)
       setDropTargetFolder(null)
@@ -2415,7 +2415,7 @@ export default function AssignmentSetup({
                   setEditingTitle('')
                 }
               }}
-              placeholder="作業標題"
+              placeholder="例如：第三週數學習作"
               className="px-2 py-1 border border-green-300 rounded text-sm w-full max-w-[220px] focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
               disabled={isSubmitting}
             />
@@ -2845,7 +2845,7 @@ export default function AssignmentSetup({
                                         setEditingFolderError('')
                                       }
                                     }}
-                                    placeholder="資料夾名稱"
+                                    placeholder="例如：段考、小考"
                                     className="px-2 py-1 border border-green-300 rounded text-sm w-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                                     disabled={isSubmitting}
                                   />

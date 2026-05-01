@@ -327,7 +327,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       setTemplates((prev) => prev.map((t) => t.id === draggedItemId ? { ...t, folder: newFolder } : t))
       requestSync()
       if (targetFolder !== '__uncategorized__') setExpandedFolders((prev) => prev.includes(targetFolder) ? prev : [...prev, targetFolder])
-    } catch { setError('移動失敗') }
+    } catch { setError('移動失敗，請稍後重試或重新整理頁面') }
     finally { setDraggedItemId(null); setDropTargetFolder(null); setDragOverItemId(null) }
   }
 
@@ -731,7 +731,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
                               onChange={(e) => { setEditingFolderName(e.target.value); setEditingFolderError('') }}
                               onBlur={() => void handleCommitFolderEdit()}
                               onKeyDown={(e) => { if (e.key === 'Enter') void handleCommitFolderEdit(); else if (e.key === 'Escape') { setEditingFolderId(null); setEditingFolderError('') } }}
-                              placeholder="資料夾名稱"
+                              placeholder="例如：英文段考、自然小考"
                               className="px-2 py-1 border border-green-300 rounded text-sm w-full focus:outline-none focus:ring-2 focus:ring-green-500" disabled={isBusy} />
                             {editingFolderError && <p className="text-xs text-red-600">{editingFolderError}</p>}
                           </div>
