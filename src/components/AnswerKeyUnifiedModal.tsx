@@ -1020,11 +1020,11 @@ export default function AnswerKeyUnifiedModal({
               {activeStep === 'extract' && !isExtracting && (
                 <div className="p-4 flex flex-col h-full">
                   {editMode ? (
-                    /* ── Edit mode: read-only view ── */
+                    /* ── Edit mode: read-only answer sheet + late booklet upload ── */
                     <>
                       <div className="mb-4 shrink-0 flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
                         <Lock className="w-3.5 h-3.5 shrink-0" />
-                        <span>編輯模式下僅供瀏覽，如需重新上傳請建立新答案卷</span>
+                        <span>答案卷僅供瀏覽，如需重新上傳請建立新答案卷</span>
                       </div>
                       {pageItems.length > 0 ? (
                         <>
@@ -1048,9 +1048,86 @@ export default function AnswerKeyUnifiedModal({
                           </div>
                         </>
                       ) : (
-                        <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+                        <div className="flex items-center justify-center text-sm text-gray-400 py-12 mb-4">
                           無圖片資料
                         </div>
+                      )}
+
+                      {/* 編輯模式下：答案卷模式可後補題本 */}
+                      {answerSheetMode === 'answer_only' && (
+                        <section className="mt-4 rounded-xl border border-blue-200 bg-blue-50/30 p-4">
+                          <div className="flex items-baseline justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-sm font-semibold text-blue-900">📚 題本</h3>
+                              <span className="text-[11px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">可後補</span>
+                              <span className="text-xs text-gray-500">— 學生看的乾淨題目卷</span>
+                            </div>
+                          </div>
+                          <input ref={bookletFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleBookletFileChange} />
+                          <input ref={bookletAddFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleBookletAddFiles} />
+                          {bookletPageItems.length === 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => bookletFileInputRef.current?.click()}
+                              disabled={isProcessingBooklet}
+                              className="w-full border-2 border-dashed border-blue-300 rounded-xl py-8 flex flex-col items-center gap-2 text-blue-500 hover:border-blue-400 hover:bg-blue-50/60 transition-colors bg-white"
+                            >
+                              {isProcessingBooklet ? (
+                                <Loader2 className="w-7 h-7 animate-spin" />
+                              ) : (
+                                <Upload className="w-7 h-7" />
+                              )}
+                              <span className="text-sm font-medium">
+                                {isProcessingBooklet ? '處理中…' : '點擊補上題本圖片或 PDF'}
+                              </span>
+                              <span className="text-xs text-blue-400/80">儲存後即生效，套用到所有使用此答案卷的作業</span>
+                            </button>
+                          ) : (
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-sm text-gray-600">共 {bookletPageItems.length} 頁，拖曳調整順序</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => bookletAddFileInputRef.current?.click()}
+                                  disabled={isProcessingBooklet}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                  {isProcessingBooklet ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                                  新增檔案
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleBookletDeleteAll}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" /> 全部刪除
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {bookletFileError && (
+                            <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{bookletFileError}</div>
+                          )}
+
+                          {bookletPageItems.length > 0 && (
+                            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleBookletDragEnd}>
+                              <SortableContext items={bookletPageItems.map((i) => i.id)} strategy={rectSortingStrategy}>
+                                <div
+                                  className="grid gap-4"
+                                  style={{ gridTemplateColumns: `repeat(${Math.min(bookletPageItems.length, 2)}, minmax(0, 1fr))` }}
+                                >
+                                  {bookletPageItems.map((item) => (
+                                    <SortablePageCard key={item.id} item={item} onRotate={handleBookletRotateOne} onDelete={handleBookletDeletePage} canDelete />
+                                  ))}
+                                </div>
+                              </SortableContext>
+                            </DndContext>
+                          )}
+
+                          <div className="mt-3 px-3 py-2 bg-amber-50 border-l-2 border-amber-400 rounded text-xs text-amber-800">
+                            💡 後補題本只會影響「之後新批改」與「重新批改」的作業；先前批改的學生看到的仍是通用引導。如要更新解說，請對該作業重新批改。
+                          </div>
+                        </section>
                       )}
                     </>
                   ) : (

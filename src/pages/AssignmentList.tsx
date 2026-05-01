@@ -556,6 +556,9 @@ export default function AssignmentList({
         answerKey,
         answerKeyTemplateId: selectedAnswerKey?.id || undefined,
         boundAnswerKeyVersion: selectedAnswerKey?.version ?? 1,
+        // 從模板繼承答案卷模式與作業形式（影響 grading pipeline 分支）
+        answerSheetMode: selectedAnswerKey?.answerSheetMode,
+        docType: selectedAnswerKey?.docType,
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
         folder: createFolder || undefined,
         updatedAt: now,
@@ -1469,6 +1472,9 @@ export default function AssignmentList({
               id: generateId(), classroomId: selectedClassroomId, title: data.title.trim(),
               totalPages: akTemplate ? Math.max(1, ...((akTemplate.answerKey?.questions as Array<{id?:string}>) || []).map(q => parseInt(String(q?.id || '1').split('-')[0], 10) || 1)) : 1,
               domain, answerKey, answerKeyTemplateId: akTemplate?.id || undefined, boundAnswerKeyVersion: akTemplate?.version ?? 1,
+              // 從模板繼承答案卷模式與作業形式（影響 grading pipeline 分支）
+              answerSheetMode: akTemplate?.answerSheetMode,
+              docType: akTemplate?.docType,
               scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
               folder: data.folder || undefined,
               studentUploadEnabled: data.studentUploadEnabled,

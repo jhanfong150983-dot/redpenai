@@ -2228,6 +2228,11 @@ export default function AssignmentSetup({
         domain: sourceAssignment.domain,
         folder: sourceAssignment.folder,
         gradeWeightPercent: sourceAssignment.gradeWeightPercent ?? 0,
+        // 從來源作業繼承答案卷模式、作業形式與綁定模板（影響 grading pipeline 分支）
+        answerSheetMode: sourceAssignment.answerSheetMode,
+        docType: sourceAssignment.docType,
+        answerKeyTemplateId: sourceAssignment.answerKeyTemplateId,
+        boundAnswerKeyVersion: sourceAssignment.boundAnswerKeyVersion,
         answerKey: copiedAnswerKey
       }
 

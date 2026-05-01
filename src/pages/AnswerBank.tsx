@@ -507,6 +507,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
       if (answerKeyChanged) uploadAnswerCrops(editingTemplateId, answerKey)
       // 若這次有重新解析（imageBlobs 非空），就重新上傳整頁圖；否則保留 Storage 既有版本
       if (imageBlobs.length > 0) uploadAnswerSheetImages(editingTemplateId, imageBlobs)
+      // 後補題本：編輯模式下若 answer_only 且有上傳新題本，覆蓋既有題本
+      if (metadata.answerSheetMode === 'answer_only' && metadata.questionBookletBlobs.length > 0) {
+        uploadQuestionBookletImages(editingTemplateId, metadata.questionBookletBlobs)
+      }
     } else {
       const templateId = generateId()
       const pageOrientations: ('portrait' | 'landscape')[] = []
