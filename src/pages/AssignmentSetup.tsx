@@ -1368,6 +1368,7 @@ export default function AssignmentSetup({
           startPage: batchStartPages[i],
           totalPages,
           docType: createAnswerDocType,
+          answerSheetMode: createAnswerSheetMode,
         })
       )
     )
@@ -1679,6 +1680,7 @@ export default function AssignmentSetup({
           startPage: batchStartPages[i],
           totalPages,
           docType: editAnswerDocType,
+          answerSheetMode: editingAnswerAssignment?.answerSheetMode,
         })
       )
     )

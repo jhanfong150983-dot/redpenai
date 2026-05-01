@@ -345,10 +345,11 @@ async function executeGeminiRequest(
   modelName: string,
   parts: GeminiRequestPart[],
   inkSessionId: string | null,
-  options?: { useAnswerKeyCache?: boolean; routeKey?: GeminiRouteKey }
+  options?: { useAnswerKeyCache?: boolean; routeKey?: GeminiRouteKey; answerSheetMode?: 'with_questions' | 'answer_only' }
 ): Promise<{ text: string; data: any }> {
   const useAnswerKeyCache = options?.useAnswerKeyCache ?? false
   const routeKey = options?.routeKey || 'unknown'
+  const answerSheetMode = options?.answerSheetMode
   const shouldForceFullAnswerKey = routeKey === 'grading.evaluate'
   
   // 🆕 AnswerKey 緩存邏輯
@@ -378,6 +379,7 @@ async function executeGeminiRequest(
       contents: [{ role: 'user', parts: normalizeParts(parts) }],
       ...(inkSessionId ? { inkSessionId } : {}),
       routeKey,
+      ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {}),
       ...answerKeyPayload
     })
   })
@@ -500,24 +502,26 @@ async function executeGeminiRequest(
 async function generateGeminiText(
   modelName: string,
   parts: GeminiRequestPart[],
-  options?: { useAnswerKeyCache?: boolean; routeKey?: GeminiRouteKey }
+  options?: { useAnswerKeyCache?: boolean; routeKey?: GeminiRouteKey; answerSheetMode?: 'with_questions' | 'answer_only' }
 ): Promise<string> {
   const MAX_RETRIES = 2
   let lastError: Error | null = null
   const useAnswerKeyCache = options?.useAnswerKeyCache ?? false
   const routeKey = options?.routeKey || 'unknown'
+  const answerSheetMode = options?.answerSheetMode
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       // 確保 session 有效（第一次嘗試時檢查，重試時可能已經重建）
       let inkSessionId = getInkSessionId()
-      
+
       // 如果沒有 session，嘗試建立（但不強制，因為用戶可能在非批改流程）
       // ensureInkSessionFresh 會在批改流程中被呼叫
-      
+
       const result = await executeGeminiRequest(modelName, parts, inkSessionId, {
         useAnswerKeyCache,
-        routeKey
+        routeKey,
+        answerSheetMode
       })
       return result.text
       
@@ -608,6 +612,12 @@ export interface ExtractAnswerKeyOptions {
    * - 'exam'：考卷／雙欄版面，左欄全部優先，右欄全部其次，各欄內依 Y 排序
    */
   docType?: 'worksheet' | 'exam'
+  /**
+   * 答案卷模式（決定 server 端 extract pipeline 走哪條分支）：
+   * - 'with_questions'（預設）：題目跟答案在同一張紙
+   * - 'answer_only'：純答題卡，搭配獨立題本
+   */
+  answerSheetMode?: 'with_questions' | 'answer_only'
 }
 
 export interface GradeSubmissionOptions {
@@ -3997,7 +4007,8 @@ export async function extractAnswerKeyFromImage(
     prompt,
     { inlineData: { mimeType, data: imageBase64 } }
   ], {
-    routeKey: 'answer_key.extract'
+    routeKey: 'answer_key.extract',
+    answerSheetMode: opts?.answerSheetMode
   }))
     .replace(/```json|```/g, '')
     .trim()
@@ -4013,7 +4024,7 @@ export async function extractAnswerKeyFromImage(
       const retryText = (await generateGeminiText(currentModelName, [
         prompt,
         { inlineData: { mimeType, data: imageBase64 } }
-      ], { routeKey: 'answer_key.extract' }))
+      ], { routeKey: 'answer_key.extract', answerSheetMode: opts?.answerSheetMode }))
         .replace(/```json|```/g, '').trim()
       const retryAk = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(retryText) as AnswerKey, opts?.domain)
       const retryQg = checkAnswerKeyQuality(retryAk, 1)
@@ -4536,7 +4547,8 @@ export async function extractAnswerKeyFromImages(
 
   console.log('🤖 發送請求到 Gemini API...')
   const text = (await generateGeminiText(currentModelName, requestParts, {
-    routeKey: 'answer_key.extract'
+    routeKey: 'answer_key.extract',
+    answerSheetMode: opts?.answerSheetMode
   }))
     .replace(/```json|```/g, '')
     .trim()

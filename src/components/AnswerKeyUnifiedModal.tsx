@@ -109,7 +109,7 @@ export interface AnswerKeyUnifiedModalProps {
   onExtract: (
     orderedBlobs: Array<{ index: number; url: string; blob: Blob }>,
     onProgress: (msg: string) => void,
-    context: { domain: string; docType: 'worksheet' | 'exam' }
+    context: { domain: string; docType: 'worksheet' | 'exam'; answerSheetMode: 'with_questions' | 'answer_only' }
   ) => Promise<{ answerKey: AnswerKey; imageBlobs: Blob[]; notice: string | null }>
   onSave: (answerKey: AnswerKey, imageBlobs: Blob[], metadata: {
     title: string; domain: string; docType: 'worksheet' | 'exam'
@@ -531,7 +531,7 @@ export default function AnswerKeyUnifiedModal({
       setExtractionMsg('擷取答案中，請稍候…')
 
       const effectiveDomain = domain === '國語（測試中）' ? '國語' : domain
-      const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setExtractionMsg, { domain: effectiveDomain, docType })
+      const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setExtractionMsg, { domain: effectiveDomain, docType, answerSheetMode })
       setEditingKey(answerKey)
       setExtractedImageBlobs(blobs)
       setNotice(n)
