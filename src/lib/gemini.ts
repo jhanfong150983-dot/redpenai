@@ -1743,6 +1743,137 @@ ${domainRefinements}
 }
 
 /**
+ * 純答題卡（answer_only）模式專用提取 Prompt。
+ *
+ * 與一般模式的不同：
+ * - 圖片是「純答題卡」，沒有題目內容，只有 section 表格 + 每格答案
+ * - 不靠題型推位置、改靠 section header + grid 切每格
+ * - questionCategory 由「答案內容」推：
+ *   單字母 → single_choice；字母逗號/無分隔 → multi_choice；
+ *   公式/數值/單位 → fill_blank；長段文字/推導 → short_answer
+ * - 沿用一般模式的 4 種 type，不另創名詞
+ */
+function buildAnswerKeyAnswerOnlyPrompt(domain?: string): string {
+  const domainHint = domain && domain !== '其他' ? `\n【領域提示】科目：${domain}（影響 fill_blank 答案的單位／格式判讀）` : ''
+
+  return `
+你會看到一張或多張「純答題卡」圖片：只有答案表格，沒有題目本身。
+表格通常依 section 分區（如「一、單選題」「二、多重選擇題」「三、非選題」「四、混合題」），
+每個 section 是一個格子表格，每格放一題的答案。
+
+請把每一格的答案 + 題型抽出，回傳純 JSON（無 markdown）。
+
+## 0. 重要原則
+1. **不要編造題目內容**。你只能看到答案、不知道題目在問什麼。
+2. **每一格 = 一題**，按表格從上到下、從左到右逐格編號。
+3. **section 標題**指出大致題型範疇，但每格的 questionCategory 最終由「答案內容」決定。
+4. **空格也要建立題目項**（answer 為空），讓老師之後手動填入。
+
+## 1. questionCategory 規則（必須使用以下 4 種之一）
+
+| 答案內容樣態 | questionCategory | 範例 |
+|---|---|---|
+| 單一英文字母 A–E | single_choice | "C"、"A" |
+| 多個字母（逗號分隔或連寫） | multi_choice | "B,C"、"BC"、"A、D" |
+| 純數字、公式、含單位的數值 | fill_blank | "240A"、"4/3 B"、"1.0×10⁻²"、"μ₀i/4(1/a-1/b)" |
+| 多行推導、長段文字、解釋 | short_answer | "因 a+b=0 故..." |
+| 空白 | 看 section：簡答／問答／申論 → short_answer；其他 → fill_blank | "" |
+
+⚠️ 名稱必須完全一致：single_choice / multi_choice / fill_blank / short_answer。
+   禁止使用 fill_variants、circle_select_one、compound_* 或其他舊系統名稱。
+
+## 2. 題號規則
+- section 序號（一→1、二→2、三→3、四→4），section 內題目從 1 開始
+- ID 格式：「<photoIdx>-<sectionIdx>-<questionIdx>」（單張照片時可省略 photoIdx）
+  例：第一張照片，「一、單選題」第 5 題 → "1-5"；「三、非選題」第 1 題第 2 子格 → "3-1-2"
+- idPath 對應：["1","5"] 或 ["3","1","2"]
+- 若一個 section 內有「子題群」（如非選題第 1 題下分 (1)(2)(3) 三格），用第三層編號
+
+## 3. anchorHint（必填）
+中文短句描述位置，例：
+- "位於『一、單選題』表格第 5 格"
+- "位於『三、非選題』第 1 大題的子格 (2)"
+- "位於『四、混合題』第 1 格"
+
+## 4. answerBbox（必填）
+每格 bbox 用 normalized coordinates [0,1]：
+- x, y: 格子左上角；w, h: 格子寬高
+- bbox 必須涵蓋整格答案儲存區（不只字本身、要含整格背景），讓批改階段切圖時能對齊
+- 對 short_answer 多行作答區：bbox 範圍要包含整個寫字區塊
+
+## 5. maxScore 推論
+- 優先從 section 標題抓「每題 X 分」（例：「一、單選題（12題 每題4分 共48分）」→ 每題 4 分）
+- 找不到「每題 X 分」就從 section 總分均分（總分 / 題數）
+- 都沒寫 → 預設 1
+- short_answer：必填 rubricsDimensions（兩維度：作答依據 + 結論表達），兩維度 maxScore 加總 = 該題 maxScore
+
+## 6. tablePosition（建議填，能就填）
+若該題位於有多列／多行的表格，填寫表格座標：
+{"col": <格子在第幾欄>, "row": <格子在第幾列>, "totalCols": <總欄數>, "totalRows": <總列數>}
+答題卡通常是「一列題號 + 一列答案」的兩列表格（totalRows=2），這時 row=2 代表答案格。
+
+## 7. _layoutDetected（必填，且要在 questions 之前生成）
+陣列長度 = 上傳照片張數，每張一個元素：
+- "answer-only-single-section"：整張照片只有一個 section
+- "answer-only-multi-section"：整張照片含多個 section（如單選+多選+非選都在同一張）
+- "answer-only-multi-page"：跨頁展開
+- "other:<簡述>"：其他
+
+## 輸出範本
+{
+  "_layoutDetected": [{"photo": 1, "layout": "answer-only-multi-section"}],
+  "questions": [
+    {
+      "id": "1-1",
+      "idPath": ["1","1"],
+      "questionCategory": "single_choice",
+      "answer": "C",
+      "maxScore": 4,
+      "answerBbox": {"x": 0.113, "y": 0.239, "w": 0.078, "h": 0.081},
+      "anchorHint": "位於『一、單選題』表格第 1 格",
+      "tablePosition": {"col": 1, "row": 2, "totalCols": 12, "totalRows": 2}
+    },
+    {
+      "id": "2-1",
+      "idPath": ["2","1"],
+      "questionCategory": "multi_choice",
+      "answer": "B,C",
+      "maxScore": 5,
+      "answerBbox": {"x": 0.085, "y": 0.345, "w": 0.155, "h": 0.067},
+      "anchorHint": "位於『二、多重選擇題』表格第 1 格",
+      "tablePosition": {"col": 1, "row": 2, "totalCols": 6, "totalRows": 2}
+    },
+    {
+      "id": "3-2",
+      "idPath": ["3","2"],
+      "questionCategory": "fill_blank",
+      "answer": "240A",
+      "maxScore": 5,
+      "answerBbox": {"x": 0.245, "y": 0.620, "w": 0.13, "h": 0.065},
+      "anchorHint": "位於『三、非選題』表格第 2 格"
+    },
+    {
+      "id": "4-2",
+      "idPath": ["4","2"],
+      "questionCategory": "short_answer",
+      "referenceAnswer": "因 a+b=0 ⇒ a=-b，代入...",
+      "rubricsDimensions": [
+        {"name": "作答依據", "maxScore": 2, "criteria": "明確指出守恆條件並列式推導"},
+        {"name": "結論表達", "maxScore": 2, "criteria": "得到具體結果並標注單位"}
+      ],
+      "maxScore": 4,
+      "answerBbox": {"x": 0.30, "y": 0.78, "w": 0.30, "h": 0.10},
+      "anchorHint": "位於『四、混合題』第 2 格"
+    }
+  ],
+  "totalScore": 120
+}${domainHint}
+
+輸出純 JSON，不要 markdown 代碼塊。
+`.trim()
+}
+
+/**
  * 建立答案提取 Prompt（重構版 — 決策樹 + 25 type specs + 領域加成）
  */
 function buildAnswerKeyPrompt(domain?: string): string {
@@ -3994,13 +4125,16 @@ export async function extractAnswerKeyFromImage(
   if (!isGeminiAvailable) throw new Error('Gemini 服務未設定')
 
   const isInferMode = opts?.inferMode === 'infer_blank'
-  console.log(`🧾 開始從圖片${isInferMode ? '推論（空白作業模式）' : '抽取（解答圖模式）'} AnswerKey...`)
+  const isAnswerOnly = opts?.answerSheetMode === 'answer_only'
+  console.log(`🧾 開始從圖片${isInferMode ? '推論（空白作業模式）' : (isAnswerOnly ? '抽取（純答題卡模式）' : '抽取（解答圖模式）')} AnswerKey...`)
   const imageBase64 = await blobToBase64(answerSheetImage)
   const mimeType = answerSheetImage.type || 'image/jpeg'
 
   const prompt = isInferMode
     ? buildInferFromBlankPrompt(opts?.domain)
-    : buildAnswerKeyPrompt(opts?.domain)
+    : (isAnswerOnly
+      ? buildAnswerKeyAnswerOnlyPrompt(opts?.domain)
+      : buildAnswerKeyPrompt(opts?.domain))
   console.log('📋 [AnswerKey prompt]', prompt)
 
   const text = (await generateGeminiText(currentModelName, [
@@ -4495,17 +4629,20 @@ export async function extractAnswerKeyFromImages(
   if (answerSheetImages.length === 0) throw new Error('至少需要提供一張圖片')
 
   const isInferMode = opts?.inferMode === 'infer_blank'
+  const isAnswerOnly = opts?.answerSheetMode === 'answer_only'
   // startPage: page number of the first image in this batch (1-based, default 1)
   // totalPages: total pages across ALL batches — determines whether page prefix is needed
   const startPage = opts?.startPage ?? 1
   const totalPages = opts?.totalPages ?? answerSheetImages.length
   const needsPagePrefix = totalPages > 1
 
-  console.log(`🧾 開始從 ${answerSheetImages.length} 張圖片${isInferMode ? '推論（空白作業模式）' : '抽取（解答圖模式）'} AnswerKey... startPage=${startPage} totalPages=${totalPages}`)
+  console.log(`🧾 開始從 ${answerSheetImages.length} 張圖片${isInferMode ? '推論（空白作業模式）' : (isAnswerOnly ? '抽取（純答題卡模式）' : '抽取（解答圖模式）')} AnswerKey... startPage=${startPage} totalPages=${totalPages}`)
 
   const prompt = isInferMode
     ? buildInferFromBlankPrompt(opts?.domain)
-    : buildAnswerKeyPrompt(opts?.domain)
+    : (isAnswerOnly
+      ? buildAnswerKeyAnswerOnlyPrompt(opts?.domain)
+      : buildAnswerKeyPrompt(opts?.domain))
   console.log('📋 [AnswerKey prompt]', prompt)
 
   // 多圖片提示增強
