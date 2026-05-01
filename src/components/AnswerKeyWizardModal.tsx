@@ -12,6 +12,7 @@ import {
   RotateCw, Check, X, AlertTriangle, Loader2, ChevronRight, Crop, Plus, Trash2
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
+import Button from '@/components/ui/Button'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric } from '@/lib/db'
 import { QUESTION_CATEGORY_TO_BUCKET, QUESTION_CATEGORY_LABELS as CATEGORY_LABELS } from '@/lib/db'
 
@@ -832,8 +833,8 @@ export default function AnswerKeyWizardModal({
                 </div>
                 <p className="text-xs text-gray-600 mb-4">此操作將消耗墨水，完成後現有標準答案將被更新。</p>
                 <div className="flex justify-end gap-2">
-                  <button type="button" onClick={() => setOverlay(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">取消</button>
-                  <button type="button" onClick={() => void handleStartExtract()} className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">確認送出</button>
+                  <Button type="button" variant="outline" onClick={() => setOverlay(null)}>取消</Button>
+                  <Button type="button" variant="primary" onClick={() => void handleStartExtract()}>確認送出</Button>
                 </div>
               </div>
             </div>
@@ -848,8 +849,8 @@ export default function AnswerKeyWizardModal({
                 </div>
                 <p className="text-xs text-gray-600 mb-4">修改標準答案不會自動重新批改已批改的作業，請手動重新批改需要更正的作業。</p>
                 <div className="flex justify-end gap-2">
-                  <button type="button" onClick={() => setOverlay(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">取消</button>
-                  <button type="button" onClick={() => void doSave()} className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">確認儲存</button>
+                  <Button type="button" variant="outline" onClick={() => setOverlay(null)}>取消</Button>
+                  <Button type="button" variant="primary" onClick={() => void doSave()}>確認儲存</Button>
                 </div>
               </div>
             </div>
@@ -863,19 +864,19 @@ export default function AnswerKeyWizardModal({
               {items.length < initialPages.length && (
                 <span className="text-xs text-gray-500 mr-auto">已移除 {initialPages.length - items.length} 頁，剩餘 {items.length} 頁</span>
               )}
-              <button type="button" onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">取消</button>
-              <button type="button" onClick={handleConfirmOrder} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700">
+              <Button type="button" variant="outline" onClick={onCancel}>取消</Button>
+              <Button type="button" variant="primary" onClick={handleConfirmOrder}>
                 <Check className="w-4 h-4" /> 確認順序，送出解析
-              </button>
+              </Button>
             </>
           )}
           {step === 'results' && (
             <>
-              <button type="button" onClick={onCancel} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">取消</button>
-              <button type="button" onClick={handleSaveClick} disabled={isSaving || !editingKey} className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-60">
+              <Button type="button" variant="outline" onClick={onCancel}>取消</Button>
+              <Button type="button" variant="primary" onClick={handleSaveClick} disabled={isSaving || !editingKey}>
                 {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 {isSaving ? '儲存中…' : '確認標準答案'}
-              </button>
+              </Button>
             </>
           )}
         </div>

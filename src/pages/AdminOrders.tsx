@@ -8,6 +8,7 @@ import {
   XCircle,
   Loader
 } from 'lucide-react'
+import Button from '@/components/ui/Button'
 
 interface AdminOrdersProps {
   onBack?: () => void
@@ -442,17 +443,12 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                 設定補充墨水方案，使用者頁面會同步更新。
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => void loadPackages()}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-              disabled={isPackageLoading}
-            >
+            <Button type="button" variant="outline" onClick={() => void loadPackages()} disabled={isPackageLoading}>
               <RefreshCw
                 className={`w-4 h-4 ${isPackageLoading ? 'animate-spin' : ''}`}
               />
               重新整理
-            </button>
+            </Button>
           </div>
 
           {packageError && (
@@ -590,21 +586,16 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
               />
               啟用此方案
             </label>
-            <button
-              type="button"
-              onClick={handleCreatePackage}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              disabled={isPackageSaving}
-            >
+            <Button type="button" variant="primary" onClick={handleCreatePackage} disabled={isPackageSaving}>
               {isPackageSaving ? (
                 <>
                   <Loader className="w-4 h-4 animate-spin" />
-                  儲存中...
+                  儲存中…
                 </>
               ) : (
                 '新增方案'
               )}
-            </button>
+            </Button>
           </div>
 
           <div className="mt-4">
@@ -760,29 +751,19 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                               啟用此方案
                             </label>
                             <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={cancelEditPackage}
-                                className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-                                disabled={isPackageSaving}
-                              >
+                              <Button type="button" variant="outline" onClick={cancelEditPackage} disabled={isPackageSaving}>
                                 取消
-                              </button>
-                              <button
-                                type="button"
-                                onClick={handleUpdatePackage}
-                                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                                disabled={isPackageSaving}
-                              >
+                              </Button>
+                              <Button type="button" variant="primary" onClick={handleUpdatePackage} disabled={isPackageSaving}>
                                 {isPackageSaving ? (
                                   <>
                                     <Loader className="w-4 h-4 animate-spin" />
-                                    儲存中...
+                                    儲存中…
                                   </>
                                 ) : (
                                   '儲存變更'
                                 )}
-                              </button>
+                              </Button>
                             </div>
                           </div>
                         </div>
@@ -868,15 +849,10 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => void loadOrders()}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-              disabled={isLoading}
-            >
+            <Button type="button" variant="outline" onClick={() => void loadOrders()} disabled={isLoading}>
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               重新整理
-            </button>
+            </Button>
           </div>
 
           <div className="mt-4 flex flex-col md:flex-row md:items-center gap-3">

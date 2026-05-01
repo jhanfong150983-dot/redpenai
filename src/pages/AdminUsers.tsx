@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import Button from '@/components/ui/Button'
 import {
   Shield,
   Search,
@@ -282,15 +283,10 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => void loadUsers()}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-            disabled={isLoading}
-          >
+          <Button type="button" variant="outline" onClick={() => void loadUsers()} disabled={isLoading}>
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
             重新整理
-          </button>
+          </Button>
         </div>
 
         {/* Search Bar */}
@@ -687,29 +683,19 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                 刪除使用者
               </button>
               <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={closeEdit}
-                  className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-                  disabled={isSaving}
-                >
+                <Button type="button" variant="outline" onClick={closeEdit} disabled={isSaving}>
                   取消
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  disabled={isSaving}
-                >
+                </Button>
+                <Button type="button" variant="primary" onClick={handleSave} disabled={isSaving}>
                   {isSaving ? (
                     <>
                       <Loader className="w-4 h-4 animate-spin" />
-                      儲存中...
+                      儲存中…
                     </>
                   ) : (
                     '儲存變更'
                   )}
-                </button>
+                </Button>
               </div>
             </div>
           </div>

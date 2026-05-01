@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import Button from '@/components/ui/Button'
 
 interface Props {
   children: ReactNode
@@ -53,20 +54,12 @@ class ErrorBoundary extends Component<Props, State> {
               </p>
             )}
             <div className="mt-5 flex items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={this.handleReset}
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
+              <Button type="button" variant="outline" onClick={this.handleReset}>
                 重試
-              </button>
-              <button
-                type="button"
-                onClick={this.handleReload}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-              >
+              </Button>
+              <Button type="button" variant="primary" onClick={this.handleReload}>
                 重新載入
-              </button>
+              </Button>
             </div>
           </div>
         </div>

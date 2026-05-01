@@ -13,6 +13,7 @@ import {
   Lock, CheckCircle2, Circle, Upload
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
+import Button from '@/components/ui/Button'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
 import { compressImageFile } from '@/lib/imageCompression'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric } from '@/lib/db'
@@ -1362,13 +1363,9 @@ export default function AnswerKeyUnifiedModal({
             <div className="flex items-center gap-3 px-5 py-3 border-t border-gray-200 bg-gray-50 shrink-0">
               {/* 上一步：metadata 隱藏；解析中也隱藏避免 race */}
               {activeStep !== 'metadata' && !(activeStep === 'extract' && isExtracting) && (
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
+                <Button type="button" variant="outline" onClick={handleBack}>
                   上一步
-                </button>
+                </Button>
               )}
 
               {/* 中間 hint 區（保留原有的 編輯 step 警告） */}
@@ -1379,15 +1376,16 @@ export default function AnswerKeyUnifiedModal({
               )}
 
               {/* 主按鈕（右下角，文案與動作隨 step 變化） */}
-              <button
+              <Button
                 type="button"
+                variant="primary"
                 onClick={handlePrimaryAction}
                 disabled={primary.disabled}
-                className="ml-auto inline-flex items-center gap-2 px-5 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="ml-auto"
               >
                 {primary.loading ? <Loader2 className="w-4 h-4 animate-spin" /> : primary.icon}
                 {primary.label}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1402,8 +1400,8 @@ export default function AnswerKeyUnifiedModal({
               </div>
               <p className="text-xs text-gray-600 mb-4">修改標準答案不會自動重新批改已批改的作業，請手動重新批改需要更正的作業。</p>
               <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setConfirmOverlay(null)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">取消</button>
-                <button type="button" onClick={() => void doSave()} className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700">確認儲存</button>
+                <Button type="button" variant="outline" onClick={() => setConfirmOverlay(null)}>取消</Button>
+                <Button type="button" variant="primary" onClick={() => void doSave()}>確認儲存</Button>
               </div>
             </div>
           </div>

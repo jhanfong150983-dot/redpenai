@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { X } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
+import Button from '@/components/ui/Button'
 
 // ── PDF 檔案資訊（匯入設定對話框用）────────────────────────────────────────
 
@@ -468,21 +469,12 @@ export default function ImportConfigDialog({
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 flex-shrink-0">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-          >
+          <Button type="button" variant="outline" onClick={onCancel}>
             取消
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={!canConfirm}
-            className="px-4 py-2 text-sm font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-          >
+          </Button>
+          <Button type="button" variant="primary" onClick={onConfirm} disabled={!canConfirm}>
             開始匯入
-          </button>
+          </Button>
         </div>
       </div>
     </div>

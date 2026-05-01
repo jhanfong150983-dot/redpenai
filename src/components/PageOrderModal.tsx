@@ -17,6 +17,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { RotateCw, Check, X } from 'lucide-react'
+import Button from '@/components/ui/Button'
 
 interface PageItem {
   id: string
@@ -221,21 +222,13 @@ export default function PageOrderModal({
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-200 bg-gray-50">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
+          <Button type="button" variant="outline" onClick={onCancel}>
             取消
-          </button>
-          <button
-            type="button"
-            onClick={handleConfirm}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-          >
+          </Button>
+          <Button type="button" variant="primary" onClick={handleConfirm}>
             <Check className="w-4 h-4" />
             確認順序
-          </button>
+          </Button>
         </div>
       </div>
     </div>

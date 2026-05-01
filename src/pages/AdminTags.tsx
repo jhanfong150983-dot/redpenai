@@ -10,6 +10,7 @@ import {
   Play,
   Loader
 } from 'lucide-react'
+import Button from '@/components/ui/Button'
 
 interface AdminTagsProps {
   onBack?: () => void
@@ -405,15 +406,10 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                 </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => void loadData()}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-              disabled={isLoading}
-            >
+            <Button type="button" variant="outline" onClick={() => void loadData()} disabled={isLoading}>
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               重新整理
-            </button>
+            </Button>
           </div>
 
           <div className="mt-4 flex flex-col md:flex-row md:items-center gap-3">
@@ -738,29 +734,19 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
             </div>
 
             <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeEditTag}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-                disabled={tagSaving}
-              >
+              <Button type="button" variant="outline" onClick={closeEditTag} disabled={tagSaving}>
                 取消
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveTag}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                disabled={tagSaving}
-              >
+              </Button>
+              <Button type="button" variant="primary" onClick={handleSaveTag} disabled={tagSaving}>
                 {tagSaving ? (
                   <>
                     <Loader className="w-4 h-4 animate-spin" />
-                    儲存中...
+                    儲存中…
                   </>
                 ) : (
                   '儲存變更'
                 )}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -825,29 +811,19 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
             </div>
 
             <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeOverride}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
-                disabled={overrideSaving}
-              >
+              <Button type="button" variant="outline" onClick={closeOverride} disabled={overrideSaving}>
                 取消
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveOverride}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                disabled={overrideSaving}
-              >
+              </Button>
+              <Button type="button" variant="primary" onClick={handleSaveOverride} disabled={overrideSaving}>
                 {overrideSaving ? (
                   <>
                     <Loader className="w-4 h-4 animate-spin" />
-                    儲存中...
+                    儲存中…
                   </>
                 ) : (
                   '套用覆蓋'
                 )}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
