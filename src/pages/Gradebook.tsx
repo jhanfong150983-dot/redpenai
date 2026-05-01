@@ -1028,13 +1028,13 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
                       {/* Custom column scores */}
                       {customColumns.map((col, idx) => (
-                        <td key={col.id} className="px-3 py-2 text-center bg-amber-50/60">
+                        <td key={col.id} className="px-3 py-2 text-center tabular-nums bg-amber-50/60">
                           <input
                             type="number"
                             value={r.customScores[idx] ?? ''}
                             onChange={(e) => handleCustomScoreChange(col.id, r.student.id, e.target.value)}
                             placeholder="—"
-                            className="w-20 rounded border border-amber-200 bg-white px-2 py-1 text-center text-sm text-gray-900 placeholder-gray-300 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-300"
+                            className="w-20 rounded border border-amber-200 bg-white px-2 py-1 text-center text-sm tabular-nums text-gray-900 placeholder-gray-300 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-300"
                           />
                         </td>
                       ))}
@@ -1053,7 +1053,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                         return (
                           <td
                             key={assignment.id}
-                            className="px-3 py-2 text-center"
+                            className="px-3 py-2 text-center tabular-nums"
                             onMouseEnter={hasRestoreTarget
                               ? (e) => handleScoreCellMouseEnter(e, cell.submissionId!, restoreAiScore!)
                               : undefined}
@@ -1099,7 +1099,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       })}
 
                       {/* 總分 */}
-                      <td className="px-3 py-2 text-center font-semibold">
+                      <td className="px-3 py-2 text-center font-semibold tabular-nums">
                         <span
                           className={`inline-flex items-center justify-center gap-1 ${
                             isLow

@@ -205,7 +205,7 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <p className="text-sm text-gray-600">墨水餘額</p>
-                  <p className="text-lg font-semibold text-gray-900">
+                  <p className="text-lg font-semibold tabular-nums text-gray-900">
                     {detail.profile.ink_balance || 0} 滴
                   </p>
                 </div>
@@ -325,8 +325,8 @@ function AssignmentsList({ assignments, formatDate }: { assignments: AssignmentD
           {assignments.map((assignment) => (
             <tr key={assignment.id} className="border-b border-gray-100 hover:bg-gray-50">
               <td className="py-3 px-4 text-sm text-gray-900">{assignment.title}</td>
-              <td className="py-3 px-4 text-sm text-gray-600">{assignment.submissionCount}</td>
-              <td className="py-3 px-4 text-sm text-gray-600">{assignment.gradedCount}</td>
+              <td className="py-3 px-4 text-sm tabular-nums text-gray-600">{assignment.submissionCount}</td>
+              <td className="py-3 px-4 text-sm tabular-nums text-gray-600">{assignment.gradedCount}</td>
               <td className="py-3 px-4 text-sm text-gray-600">
                 <div className="flex items-center gap-2">
                   <div className="flex-1 max-w-[100px] h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -335,7 +335,7 @@ function AssignmentsList({ assignments, formatDate }: { assignments: AssignmentD
                       style={{ width: `${assignment.gradingProgress}%` }}
                     />
                   </div>
-                  <span className="text-xs">{assignment.gradingProgress}%</span>
+                  <span className="text-xs tabular-nums">{assignment.gradingProgress}%</span>
                 </div>
               </td>
               <td className="py-3 px-4 text-sm text-gray-600">{formatDate(assignment.created_at)}</td>
@@ -381,7 +381,7 @@ function InkLedger({
           {records.map((record) => (
             <tr key={record.id} className="border-b border-gray-100 hover:bg-gray-50">
               <td className="py-3 px-4 text-sm text-gray-600">{formatDateTime(record.created_at)}</td>
-              <td className={`py-3 px-4 text-sm font-semibold ${record.delta > 0 ? 'text-green-600' : 'text-red-600'}`}>
+              <td className={`py-3 px-4 text-sm font-semibold tabular-nums ${record.delta > 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {record.delta > 0 ? '+' : ''}{record.delta}
               </td>
               <td className="py-3 px-4 text-sm text-gray-600">{translateReason(record.reason)}</td>

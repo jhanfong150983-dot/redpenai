@@ -1879,14 +1879,14 @@ function App() {
                         </div>
                         <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
                           <span>墨水</span>
-                          <span className="font-semibold text-amber-700">
+                          <span className="font-semibold tabular-nums text-amber-700">
                             {auth.user.inkBalance ?? 0} 滴
                           </span>
                         </div>
                         {pendingInk.totalDrops > 0 && (
                           <div className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-amber-700">
                             <span>待入帳</span>
-                            <span className="font-semibold">{pendingInk.totalDrops} 滴</span>
+                            <span className="font-semibold tabular-nums">{pendingInk.totalDrops} 滴</span>
                           </div>
                         )}
                       </div>
