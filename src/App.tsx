@@ -232,6 +232,20 @@ const PAGE_PARAM_ALIASES: Record<string, Page> = {
   'admin-tags': 'admin-panel'
 }
 
+// Stage 3 路由：path-based URL 對應表（其他頁面繼續用 ?page=xxx）
+// 改造後 URL：'/ink-topup' / '/preferences' / '/admin'
+const PAGE_PATH_MAP: Partial<Record<Page, string>> = {
+  'ink-topup': '/ink-topup',
+  'teacher-preferences': '/preferences',
+  'admin-panel': '/admin'
+}
+
+const PATH_PAGE_MAP: Record<string, Page> = {
+  '/ink-topup': 'ink-topup',
+  '/preferences': 'teacher-preferences',
+  '/admin': 'admin-panel'
+}
+
 const parseUrlPageParam = (raw: string | null | undefined): Page | null => {
   if (!raw) return 'home'
   const trimmed = raw.trim()
@@ -241,23 +255,56 @@ const parseUrlPageParam = (raw: string | null | undefined): Page | null => {
   return null
 }
 
+// Stage 3：解析整個 location（先看 pathname 是否為 path-based，再 fallback 到 ?page=）
+const parseCurrentPageFromLocation = (): Page | null => {
+  if (typeof window === 'undefined') return 'home'
+  const pathname = window.location.pathname
+  if (PATH_PAGE_MAP[pathname]) return PATH_PAGE_MAP[pathname]
+  if (pathname === '/') {
+    const params = new URLSearchParams(window.location.search)
+    return parseUrlPageParam(params.get('page'))
+  }
+  return null
+}
+
 const writeCurrentPageToUrl = (page: Page, action: 'push' | 'replace' = 'push'): void => {
   if (typeof window === 'undefined') return
-  const params = new URLSearchParams(window.location.search)
-  const currentParam = params.get('page')
+  const pathBased = PAGE_PATH_MAP[page]
+  const currentPathname = window.location.pathname
+  const currentSearch = window.location.search
+
+  if (pathBased) {
+    // Path-based URL：把 ?page= 清掉，pathname 改成對應路徑
+    const params = new URLSearchParams(currentSearch)
+    params.delete('page')
+    const query = params.toString()
+    const targetUrl = query ? `${pathBased}?${query}` : pathBased
+    const currentUrl = currentPathname + currentSearch
+    if (currentUrl === targetUrl) return
+    if (action === 'push') {
+      window.history.pushState({}, '', targetUrl)
+    } else {
+      window.history.replaceState({}, '', targetUrl)
+    }
+    return
+  }
+
+  // 其他頁面：用 ?page=xxx 並回到根路徑 '/'
+  const targetPath = '/'
+  const params = new URLSearchParams(currentSearch)
   if (page === 'home') {
-    if (!currentParam) return
     params.delete('page')
   } else {
-    if (currentParam === page) return
     params.set('page', page)
   }
   const query = params.toString()
-  const url = query ? `${window.location.pathname}?${query}` : window.location.pathname
+  const targetUrl = query ? `${targetPath}?${query}` : targetPath
+  const currentUrl = currentPathname + currentSearch
+  if (currentUrl === targetUrl) return
   if (action === 'push') {
-    window.history.pushState({}, '', url)
+    window.history.pushState({}, '', targetUrl)
   } else {
-    window.history.replaceState({}, '', url)
+    window.history.replaceState({}, '', targetUrl)
   }
 }
 
@@ -1216,14 +1263,13 @@ function App() {
     }
   }, [])
 
-  // Stage 2 路由：登入完成後從 URL ?page= 還原 currentPage（含舊書籤別名 + 權限閘）
+  // Stage 2 路由：登入完成後從 URL 還原 currentPage（含舊書籤別名 + 權限閘）
+  // Stage 3 起：parseCurrentPageFromLocation 同時支援 path-based URL（/ink-topup 等）
   useEffect(() => {
     if (urlPageHandled) return
     if (auth.status !== 'authenticated') return
 
-    const params = new URLSearchParams(window.location.search)
-    const pageParam = params.get('page')
-    const parsed = parseUrlPageParam(pageParam)
+    const parsed = parseCurrentPageFromLocation()
 
     let nextPage: Page = 'home'
     if (parsed && parsed !== 'home') {
@@ -1260,8 +1306,7 @@ function App() {
     if (auth.status !== 'authenticated') return
 
     const handlePopstate = () => {
-      const params = new URLSearchParams(window.location.search)
-      const parsed = parseUrlPageParam(params.get('page'))
+      const parsed = parseCurrentPageFromLocation()
       const target: Page = parsed && parsed !== null ? parsed : 'home'
       if (target === currentPage) return
 
