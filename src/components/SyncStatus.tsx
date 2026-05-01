@@ -57,7 +57,7 @@ export default function SyncStatus({ autoSync = false, syncInterval = 30000 }: S
       </div>
 
       {/* 同步狀態資訊 */}
-      <div className="space-y-2 mb-4">
+      <div className="space-y-2 mb-4" role="status" aria-live={error ? 'assertive' : 'polite'}>
         {/* 待同步數量 */}
         {pendingCount > 0 && (
           <div className="flex items-center gap-2 text-sm">

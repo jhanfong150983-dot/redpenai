@@ -550,7 +550,7 @@ function GradingPipelineOverlay({
         display: 'flex', flexDirection: 'column', gap: '1.5rem', alignItems: 'center',
       }}>
         {/* Title */}
-        <div style={{ textAlign: 'center' }}>
+        <div style={{ textAlign: 'center' }} role="status" aria-live="polite">
           <div style={{ fontSize: '1rem', fontWeight: 700, color: '#111827' }}>AI 批改進行中</div>
           <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>{gradingMessage}</div>
         </div>

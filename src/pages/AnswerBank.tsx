@@ -145,6 +145,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
       // 簡單的 toast 效果
       const el = document.createElement('div')
       el.textContent = '已複製分享碼'
+      el.setAttribute('role', 'status')
+      el.setAttribute('aria-live', 'polite')
       el.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white px-4 py-2 rounded-lg text-sm z-50'
       document.body.appendChild(el)
       setTimeout(() => el.remove(), 2000)

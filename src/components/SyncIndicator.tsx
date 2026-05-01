@@ -49,7 +49,11 @@ export default function SyncIndicator({ autoSync = false }: SyncIndicatorProps) 
   }
 
   return (
-    <div className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+    <div
+      className="inline-flex items-center gap-2 text-sm font-medium text-slate-700"
+      role="status"
+      aria-live={error ? 'assertive' : 'polite'}
+    >
       {icon}
       <span>{text}</span>
     </div>
