@@ -4759,11 +4759,18 @@ export async function extractAnswerKeyFromImages(
   // 改成純 ID 排序後，所有佈局都共用同一邏輯。
   result.questions.sort((a, b) => compareNaturalIds(a.id, b.id))
 
-  // 根據 ID 首段（照片序號，1-based）設定 pageIndex（0-based），供預覽底圖選取
-  for (const q of result.questions) {
+  // 設定 pageIndex（0-based），供預覽底圖選取
+  // - answer_only 單張答題卡：所有題目都在 page 0（ID 首段是 sectionIdx 不是 photoIdx）
+  // - 其他情況：ID 首段是 photo 序號（1-based）
+  const assignPageIndex = (q: AnswerKeyQuestion) => {
+    if (isAnswerOnly && answerSheetImages.length === 1) {
+      q.pageIndex = 0
+      return
+    }
     const pageNum = parseInt(String(q.id ?? '').split('-')[0], 10)
     if (pageNum >= 1) q.pageIndex = pageNum - 1
   }
+  for (const q of result.questions) assignPageIndex(q)
 
   // Quality gate + auto-retry (1 attempt)
   const qg = checkAnswerKeyQuality(result, answerSheetImages.length)
@@ -4777,10 +4784,7 @@ export async function extractAnswerKeyFromImages(
       const retryQg = checkAnswerKeyQuality(retryResult, answerSheetImages.length)
       console.log('[AnswerKey QG] retry result:', retryQg.reasons.length === 0 ? 'pass' : retryQg.reasons)
       // Re-apply pageIndex on retry result before merge
-      for (const q of retryResult.questions) {
-        const pageNum = parseInt(String(q.id ?? '').split('-')[0], 10)
-        if (pageNum >= 1) q.pageIndex = pageNum - 1
-      }
+      for (const q of retryResult.questions) assignPageIndex(q)
       // Merge: keep first run's good questions, only override broken ones from retry
       result = mergeAnswerKeyResults(result, retryResult)
     } catch (retryErr) {
