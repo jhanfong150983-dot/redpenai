@@ -259,6 +259,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   const [domainDiagnosisLoading, setDomainDiagnosisLoading] = useState<
     Record<string, boolean>
   >({})
+  // 手動觸發領域診斷重生（後補題本後可用，繞過 cache）
+  const [domainDiagnosisRegenCounter, setDomainDiagnosisRegenCounter] = useState(0)
   const [activeTab, setActiveTab] = useState<'class' | 'domain' | 'student'>('class')
   const [assignmentSummary, setAssignmentSummary] = useState<{
     status: string
@@ -716,7 +718,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     return () => {
       isActive = false
     }
-  }, [domainPlansKey])
+  // domainDiagnosisRegenCounter 在 dependency list：點重生按鈕後遞增 → 觸發 useEffect 重跑
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [domainPlansKey, domainDiagnosisRegenCounter])
 
   const classHeader = useMemo(() => {
     if (!syncData) return { classroomName: '班級', domainLabel: '學情摘要' }
@@ -939,10 +943,34 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 </section>
               )}
               {domainRangeStats.assignmentCount > 0 && (
-                <DomainDiagnosisView
-                  cards={domainDiagnosisCards}
-                  emptyState="此班級尚無作業可分析。"
-                />
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDomainDiagnoses({})
+                        setDomainDiagnosisRegenCounter((c) => c + 1)
+                      }}
+                      disabled={Object.values(domainDiagnosisLoading).some(Boolean)}
+                      style={{
+                        padding: '6px 12px',
+                        fontSize: '12px',
+                        background: '#f1f5f9',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '6px',
+                        cursor: Object.values(domainDiagnosisLoading).some(Boolean) ? 'not-allowed' : 'pointer',
+                        opacity: Object.values(domainDiagnosisLoading).some(Boolean) ? 0.5 : 1,
+                      }}
+                      title="補題本後或想刷新分析時用"
+                    >
+                      🔄 重生領域診斷
+                    </button>
+                  </div>
+                  <DomainDiagnosisView
+                    cards={domainDiagnosisCards}
+                    emptyState="此班級尚無作業可分析。"
+                  />
+                </>
               )}
               <ConceptMasteryTable
                 students={conceptMasteryData.students}
