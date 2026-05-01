@@ -271,50 +271,74 @@ const parseUrlPageParam = (raw: string | null | undefined): Page | null => {
   return null
 }
 
-// Stage 3：解析整個 location（先看 pathname 是否為 path-based，再 fallback 到 ?page=）
-const parseCurrentPageFromLocation = (): Page | null => {
-  if (typeof window === 'undefined') return 'home'
-  const pathname = window.location.pathname
-  if (PATH_PAGE_MAP[pathname]) return PATH_PAGE_MAP[pathname]
-  if (pathname === '/') {
-    const params = new URLSearchParams(window.location.search)
-    return parseUrlPageParam(params.get('page'))
-  }
-  return null
+// Stage 6：帶 ID 的路徑前綴對應（/grading/:id、/import/:id、/correction/:id）
+const PARAMETERIZED_PATH_PREFIXES: Array<{ prefix: string; page: Page }> = [
+  { prefix: '/grading/', page: 'grading' },
+  { prefix: '/import/', page: 'unified-import' },
+  { prefix: '/correction/', page: 'correction' }
+]
+
+// 沒有 ID 時的 fallback：grading→grading-list 等
+const PAGE_FALLBACK_WITHOUT_ID: Partial<Record<Page, Page>> = {
+  'grading': 'grading-list',
+  'unified-import': 'assignment-import-select',
+  'correction': 'correction-select'
 }
 
-const writeCurrentPageToUrl = (page: Page, action: 'push' | 'replace' = 'push'): void => {
+type ParsedLocation = { page: Page | null; assignmentId?: string }
+
+// Stage 3：解析整個 location（先看 pathname 是否為 path-based，再 fallback 到 ?page=）
+// Stage 6：擴充支援 /grading/:id、/import/:id、/correction/:id
+const parseCurrentPageFromLocation = (): ParsedLocation => {
+  if (typeof window === 'undefined') return { page: 'home' }
+  const pathname = window.location.pathname
+  if (PATH_PAGE_MAP[pathname]) return { page: PATH_PAGE_MAP[pathname] }
+  for (const { prefix, page } of PARAMETERIZED_PATH_PREFIXES) {
+    if (pathname.startsWith(prefix)) {
+      const id = pathname.slice(prefix.length).split('/')[0]
+      if (id) return { page, assignmentId: decodeURIComponent(id) }
+    }
+  }
+  if (pathname === '/') {
+    const params = new URLSearchParams(window.location.search)
+    return { page: parseUrlPageParam(params.get('page')) }
+  }
+  return { page: null }
+}
+
+const writeCurrentPageToUrl = (
+  page: Page,
+  assignmentId: string | undefined,
+  action: 'push' | 'replace' = 'push'
+): void => {
   if (typeof window === 'undefined') return
-  const pathBased = PAGE_PATH_MAP[page]
+
+  // 帶 ID 的頁面但沒有 ID → 回退到 list 頁
+  if (PAGE_FALLBACK_WITHOUT_ID[page] && !assignmentId) {
+    return writeCurrentPageToUrl(PAGE_FALLBACK_WITHOUT_ID[page]!, undefined, action)
+  }
+
   const currentPathname = window.location.pathname
   const currentSearch = window.location.search
-
-  if (pathBased) {
-    // Path-based URL：把 ?page= 清掉，pathname 改成對應路徑
-    const params = new URLSearchParams(currentSearch)
-    params.delete('page')
-    const query = params.toString()
-    const targetUrl = query ? `${pathBased}?${query}` : pathBased
-    const currentUrl = currentPathname + currentSearch
-    if (currentUrl === targetUrl) return
-    if (action === 'push') {
-      window.history.pushState({}, '', targetUrl)
-    } else {
-      window.history.replaceState({}, '', targetUrl)
-    }
-    return
-  }
-
-  // 其他頁面：用 ?page=xxx 並回到根路徑 '/'
-  const targetPath = '/'
   const params = new URLSearchParams(currentSearch)
-  if (page === 'home') {
-    params.delete('page')
+  params.delete('page')
+
+  let targetPathname: string
+  if (assignmentId && (page === 'grading' || page === 'unified-import' || page === 'correction')) {
+    const prefix = page === 'grading' ? '/grading' : page === 'unified-import' ? '/import' : '/correction'
+    targetPathname = `${prefix}/${encodeURIComponent(assignmentId)}`
+  } else if (PAGE_PATH_MAP[page]) {
+    targetPathname = PAGE_PATH_MAP[page]!
+  } else if (page === 'home') {
+    targetPathname = '/'
   } else {
+    // 其他頁面：用 ?page=xxx 並回到根路徑
+    targetPathname = '/'
     params.set('page', page)
   }
+
   const query = params.toString()
-  const targetUrl = query ? `${targetPath}?${query}` : targetPath
+  const targetUrl = query ? `${targetPathname}?${query}` : targetPathname
   const currentUrl = currentPathname + currentSearch
   if (currentUrl === targetUrl) return
   if (action === 'push') {
@@ -1281,57 +1305,80 @@ function App() {
 
   // Stage 2 路由：登入完成後從 URL 還原 currentPage（含舊書籤別名 + 權限閘）
   // Stage 3 起：parseCurrentPageFromLocation 同時支援 path-based URL（/ink-topup 等）
+  // Stage 6 起：支援 /grading/:id、/import/:id、/correction/:id 帶 ID 的路徑
   useEffect(() => {
     if (urlPageHandled) return
     if (auth.status !== 'authenticated') return
 
     const parsed = parseCurrentPageFromLocation()
+    const parsedPage = parsed.page
 
     let nextPage: Page = 'home'
-    if (parsed && parsed !== 'home') {
+    let nextAssignmentId: string | undefined
+    if (parsedPage && parsedPage !== 'home') {
       const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'ai-report']
       const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail']
-      if (needsTracking.includes(parsed) && !canAccessTracking) {
+      if (needsTracking.includes(parsedPage) && !canAccessTracking) {
         nextPage = 'home'
-      } else if (needsAdmin.includes(parsed) && !isAdmin) {
+      } else if (needsAdmin.includes(parsedPage) && !isAdmin) {
         nextPage = 'home'
+      } else if (PAGE_FALLBACK_WITHOUT_ID[parsedPage] && !parsed.assignmentId) {
+        // /grading 沒 ID 等 → 退回 list 頁
+        nextPage = PAGE_FALLBACK_WITHOUT_ID[parsedPage]!
       } else {
-        nextPage = parsed
+        nextPage = parsedPage
+        nextAssignmentId = parsed.assignmentId
       }
     }
 
     if (nextPage !== 'home') {
       setCurrentPage(nextPage)
     }
+    if (nextAssignmentId) {
+      setSelectedAssignmentId(nextAssignmentId)
+    }
     // 規範化 URL（別名 → 規範值；不合法/無權限 → 清空），用 replaceState 避免污染歷史
-    writeCurrentPageToUrl(nextPage, 'replace')
+    writeCurrentPageToUrl(nextPage, nextAssignmentId, 'replace')
 
     setUrlPageHandled(true)
   }, [auth.status, canAccessTracking, isAdmin, urlPageHandled])
 
-  // Stage 2 路由：currentPage 變動時，將狀態 push 到 URL（讓返回鍵能用）
+  // currentPage 變動時，將狀態 push 到 URL（讓返回鍵能用）
+  // Stage 6 起：grading / unified-import / correction 多帶 selectedAssignmentId
   useEffect(() => {
     if (!urlPageHandled) return
     if (auth.status !== 'authenticated') return
-    writeCurrentPageToUrl(currentPage, 'push')
-  }, [currentPage, urlPageHandled, auth.status])
+    const id = (currentPage === 'grading' || currentPage === 'unified-import' || currentPage === 'correction')
+      ? selectedAssignmentId || undefined
+      : undefined
+    writeCurrentPageToUrl(currentPage, id, 'push')
+  }, [currentPage, selectedAssignmentId, urlPageHandled, auth.status])
 
-  // Stage 2 路由：popstate 監聽（瀏覽器返回/前進鍵）+ 守 Phase A awaiting_review
+  // popstate 監聽（瀏覽器返回/前進鍵）+ 守 Phase A awaiting_review
   useEffect(() => {
     if (!urlPageHandled) return
     if (auth.status !== 'authenticated') return
 
     const handlePopstate = () => {
       const parsed = parseCurrentPageFromLocation()
-      const target: Page = parsed && parsed !== null ? parsed : 'home'
-      if (target === currentPage) return
+      let target: Page = parsed.page ?? 'home'
+      let targetAssignmentId = parsed.assignmentId
+      // 帶 ID 但沒有 ID（極少發生）→ 退回 list 頁
+      if (PAGE_FALLBACK_WITHOUT_ID[target] && !targetAssignmentId) {
+        target = PAGE_FALLBACK_WITHOUT_ID[target]!
+        targetAssignmentId = undefined
+      }
+      if (target === currentPage && (targetAssignmentId ?? '') === (selectedAssignmentId || '')) return
 
       // 權限閘：URL 偽造試圖跳到無權限頁，把 URL 還原回 currentPage
       const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'ai-report']
       const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail']
       if ((needsTracking.includes(target) && !canAccessTracking)
         || (needsAdmin.includes(target) && !isAdmin)) {
-        writeCurrentPageToUrl(currentPage, 'push')
+        const currentId = (currentPage === 'grading' || currentPage === 'unified-import' || currentPage === 'correction')
+          ? selectedAssignmentId || undefined
+          : undefined
+        writeCurrentPageToUrl(currentPage, currentId, 'push')
         return
       }
 
@@ -1343,17 +1390,33 @@ function App() {
         )
         if (!confirmed) {
           // 使用者取消離開，把 URL 推回 currentPage
-          writeCurrentPageToUrl(currentPage, 'push')
+          const currentId = currentPage === 'grading' ? selectedAssignmentId || undefined : undefined
+          writeCurrentPageToUrl(currentPage, currentId, 'push')
           return
         }
       }
 
+      if (targetAssignmentId) {
+        setSelectedAssignmentId(targetAssignmentId)
+      }
       setCurrentPage(target)
     }
 
     window.addEventListener('popstate', handlePopstate)
     return () => window.removeEventListener('popstate', handlePopstate)
-  }, [urlPageHandled, auth.status, currentPage, canAccessTracking, isAdmin, gradingPagePhase])
+  }, [urlPageHandled, auth.status, currentPage, selectedAssignmentId, canAccessTracking, isAdmin, gradingPagePhase])
+
+  // Stage 6：beforeunload 守門 — Phase A awaiting_review 時，按 F5 / 關分頁 / 改網址都會跳瀏覽器原生離開警告
+  useEffect(() => {
+    if ((currentPage !== 'grading' && currentPage !== 'batch-grading') || gradingPagePhase !== 'awaiting_review') return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      // 部分瀏覽器需要設 returnValue 才會跳警告
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [currentPage, gradingPagePhase])
 
   useEffect(() => {
     if (auth.status !== 'authenticated') return
@@ -2092,7 +2155,11 @@ function App() {
                   embedded
                   assignmentId={batchAssignmentIds[0]}
                   batchAssignmentIds={batchAssignmentIds}
-                  onBack={() => { setBatchAssignmentIds([]); setCurrentPage('grading-list') }}
+                  onBack={() => {
+                    if (!confirmLeaveGrading()) return
+                    setBatchAssignmentIds([])
+                    setCurrentPage('grading-list')
+                  }}
                   onRequireInkTopUp={() => setCurrentPage('ink-topup')}
                   onGradingPhaseChange={setGradingPagePhase}
                 />
@@ -2100,7 +2167,10 @@ function App() {
                 <GradingPage
                   embedded
                   assignmentId={selectedAssignmentId}
-                  onBack={() => setCurrentPage('grading-list')}
+                  onBack={() => {
+                    if (!confirmLeaveGrading()) return
+                    setCurrentPage('grading-list')
+                  }}
                   onRequireInkTopUp={() => setCurrentPage('ink-topup')}
                   onGradingPhaseChange={setGradingPagePhase}
                 />
