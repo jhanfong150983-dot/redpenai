@@ -243,7 +243,7 @@ export default function SeatSelectionPage({
                     }
                     onSelectStudent(student)
                   }}
-                  className={`relative aspect-square rounded-2xl transition-all transform hover:scale-105 active:scale-95 ${seatStyle.cardClass}`}
+                  className={`relative aspect-square rounded-2xl transition-colors transform hover:scale-105 active:scale-95 ${seatStyle.cardClass}`}
                 >
                   <div className="flex flex-col items-center justify-center h-full p-2">
                     <span className="text-2xl font-bold mb-1">

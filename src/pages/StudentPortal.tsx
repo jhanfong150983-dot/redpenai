@@ -2072,7 +2072,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         key={i}
                         type="button"
                         onClick={() => setPreviewModal(prev => prev ? { ...prev, index: i } : prev)}
-                        className={`w-8 h-8 rounded-full text-xs font-semibold border-2 transition-all ${
+                        className={`w-8 h-8 rounded-full text-xs font-semibold border-2 transition-colors ${
                           i === currentIdx
                             ? 'border-blue-500 bg-blue-500 text-white scale-110'
                             : previewCoverage[i] === false

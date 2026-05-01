@@ -437,7 +437,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                     </div>
                     <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-gradient-to-r from-green-500 to-emerald-600 rounded-full transition-all"
+                        className="h-full bg-gradient-to-r from-green-500 to-emerald-600 rounded-full transition-[width]"
                         style={{ width: `${user.gradingProgress}%` }}
                       />
                     </div>

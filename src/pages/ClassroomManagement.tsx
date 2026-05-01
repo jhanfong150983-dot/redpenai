@@ -1298,7 +1298,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                           }
                           handleFolderDropReorder(e, folder)
                         }}
-                        className={`rounded-xl border bg-white transition-all ${
+                        className={`rounded-xl border bg-white transition-colors ${
                           isAssignmentDropTarget
                             ? 'border-green-400 bg-green-50'
                             : isFolderReorderTarget

@@ -109,7 +109,7 @@ function StrictnessCard({
     <button
       type="button"
       onClick={onClick}
-      className={`flex-1 rounded-xl border-2 p-3 text-left transition-all ${
+      className={`flex-1 rounded-xl border-2 p-3 text-left transition-colors ${
         selected
           ? 'border-green-500 bg-green-50 shadow-sm'
           : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'

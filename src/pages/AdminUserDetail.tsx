@@ -331,7 +331,7 @@ function AssignmentsList({ assignments, formatDate }: { assignments: AssignmentD
                 <div className="flex items-center gap-2">
                   <div className="flex-1 max-w-[100px] h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-green-600 rounded-full transition-all"
+                      className="h-full bg-green-600 rounded-full transition-[width]"
                       style={{ width: `${assignment.gradingProgress}%` }}
                     />
                   </div>

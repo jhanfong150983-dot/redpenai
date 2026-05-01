@@ -716,7 +716,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
                     onDragOver={(e) => { handleDragOver(e, folder); handleFolderDragOver(e, folder) }}
                     onDragLeave={() => { handleDragLeave(); if (dragOverFolderName === folder) setDragOverFolderName(null) }}
                     onDrop={(e) => { if (draggedItemId) { void handleDrop(e, folder); return }; handleFolderDropReorder(e, folder) }}
-                    className={`rounded-xl border bg-white transition-all ${
+                    className={`rounded-xl border bg-white transition-colors ${
                       isAssignmentDropTarget ? 'border-green-400 bg-green-50' : isFolderReorderTarget ? 'border-blue-400 bg-blue-50/60' : 'border-slate-200'
                     } ${draggedFolderName === folder ? 'opacity-60 cursor-grabbing' : editingFolderId === folder ? '' : 'cursor-grab'}`}
                   >

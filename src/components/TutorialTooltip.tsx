@@ -152,7 +152,7 @@ export function TutorialTooltip({
       {/* 进度条 */}
       <div className="mb-4 bg-gray-200 rounded-full h-1.5 overflow-hidden">
         <div
-          className="bg-blue-600 h-full transition-all duration-300"
+          className="bg-blue-600 h-full transition-[width] duration-300"
           style={{ width: `${((currentStepIndex + 1) / totalSteps) * 100}%` }}
         />
       </div>

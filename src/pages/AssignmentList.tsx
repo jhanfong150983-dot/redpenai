@@ -830,7 +830,7 @@ export default function AssignmentList({
                   setCreateFolder(selectedFolder === '__all__' || selectedFolder === '__uncategorized__' ? '' : selectedFolder)
                   setShowCreateModal(true)
                 }}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-all hover:bg-green-700 active:scale-95"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700 active:scale-95"
               >
                 <Plus className="h-4 w-4" />
                 新增作業
@@ -875,7 +875,7 @@ export default function AssignmentList({
                 <select
                   value={selectedClassroomId}
                   onChange={(e) => setSelectedClassroomId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-transparent focus:ring-2 focus:ring-green-500"
                 >
                   {classrooms.map((classroom) => (
                     <option key={classroom.id} value={classroom.id}>
@@ -892,7 +892,7 @@ export default function AssignmentList({
                 <select
                   value={selectedFolder}
                   onChange={(e) => setSelectedFolder(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-transparent focus:ring-2 focus:ring-green-500"
                 >
                   <option value="__all__">
                     全部 ({classAssignments.length})
@@ -928,7 +928,7 @@ export default function AssignmentList({
                 <select
                   value={selectedTemplateId}
                   onChange={(e) => setSelectedTemplateId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-transparent focus:ring-2 focus:ring-green-500"
                 >
                   {crossClassTemplateOptions.length === 0 && (
                     <option value="">尚無可用的答案卷</option>

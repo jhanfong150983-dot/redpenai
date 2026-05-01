@@ -1922,7 +1922,7 @@ function App() {
                         type="button"
                         disabled={isLoggingOut}
                         onClick={handleLogout}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition-all duration-200 hover:border-red-300 hover:text-red-600 active:scale-95 disabled:opacity-70 disabled:cursor-wait"
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 transition-colors duration-200 hover:border-red-300 hover:text-red-600 active:scale-95 disabled:opacity-70 disabled:cursor-wait"
                       >
                         {isLoggingOut ? '登出中…' : '登出'}
                       </button>
@@ -2474,7 +2474,7 @@ function App() {
                                     </div>
                                     <div className="h-2 overflow-hidden rounded-full bg-slate-200">
                                       <div
-                                        className="h-full rounded-full bg-sky-500 transition-all"
+                                        className="h-full rounded-full bg-sky-500 transition-[width]"
                                         style={{ width: `${item.progressPercent}%` }}
                                       />
                                     </div>

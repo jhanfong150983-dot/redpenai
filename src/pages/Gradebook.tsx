@@ -806,7 +806,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
               <select
                 value={selectedClassroomId}
                 onChange={(e) => setSelectedClassroomId(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none transition-colors focus:border-transparent focus:ring-2 focus:ring-green-500"
                 aria-label="選擇班級"
                 disabled={!hasClassrooms}
               >
@@ -823,7 +823,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
               <select
                 value={selectedFolder}
                 onChange={(e) => setSelectedFolder(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none transition-all focus:border-transparent focus:ring-2 focus:ring-green-500"
+                className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none transition-colors focus:border-transparent focus:ring-2 focus:ring-green-500"
                 aria-label="選擇資料夾"
               >
                 <option value={FOLDER_FILTER_ALL}>全部 ({allScoredAssignments.length})</option>

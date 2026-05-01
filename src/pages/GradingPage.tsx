@@ -895,7 +895,7 @@ function ConsistencyQuestionCard({
           type="button"
           disabled={disabled}
           onClick={() => onDecision(questionId, { source: 'ai_read1', finalAnswer: readAnswer1.studentAnswer, confirmed: true })}
-          className={`flex flex-col gap-0.5 rounded-lg border-2 px-3 py-2.5 text-left text-xs transition-all disabled:cursor-not-allowed ${
+          className={`flex flex-col gap-0.5 rounded-lg border-2 px-3 py-2.5 text-left text-xs transition-colors disabled:cursor-not-allowed ${
             decision?.source === 'ai_read1'
               ? 'border-purple-500 bg-purple-50 shadow-sm'
               : 'border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50/40'
@@ -916,7 +916,7 @@ function ConsistencyQuestionCard({
           type="button"
           disabled={disabled}
           onClick={() => onDecision(questionId, { source: 'ai_read2', finalAnswer: readAnswer2.studentAnswer, confirmed: true })}
-          className={`flex flex-col gap-0.5 rounded-lg border-2 px-3 py-2.5 text-left text-xs transition-all disabled:cursor-not-allowed ${
+          className={`flex flex-col gap-0.5 rounded-lg border-2 px-3 py-2.5 text-left text-xs transition-colors disabled:cursor-not-allowed ${
             decision?.source === 'ai_read2'
               ? 'border-purple-500 bg-purple-50 shadow-sm'
               : 'border-gray-200 bg-white hover:border-purple-300 hover:bg-purple-50/40'
@@ -937,7 +937,7 @@ function ConsistencyQuestionCard({
           type="button"
           disabled={disabled}
           onClick={() => onDecision(questionId, { source: 'blank', finalAnswer: '', confirmed: true })}
-          className={`flex items-center justify-center rounded-lg border-2 px-3 py-2.5 text-xs font-semibold transition-all disabled:cursor-not-allowed ${
+          className={`flex items-center justify-center rounded-lg border-2 px-3 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
             decision?.source === 'blank'
               ? 'border-gray-400 bg-gray-100 text-gray-700 shadow-sm'
               : 'border-gray-200 bg-white text-gray-500 hover:border-gray-400 hover:bg-gray-50'
@@ -951,7 +951,7 @@ function ConsistencyQuestionCard({
           type="button"
           disabled={disabled}
           onClick={() => onDecision(questionId, { source: 'unrecognizable', finalAnswer: '無法辨識', confirmed: true })}
-          className={`flex items-center justify-center rounded-lg border-2 px-3 py-2.5 text-xs font-semibold transition-all disabled:cursor-not-allowed ${
+          className={`flex items-center justify-center rounded-lg border-2 px-3 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
             decision?.source === 'unrecognizable'
               ? 'border-red-400 bg-red-50 text-red-700 shadow-sm'
               : 'border-gray-200 bg-white text-red-500 hover:border-red-300 hover:bg-red-50/40'
@@ -966,7 +966,7 @@ function ConsistencyQuestionCard({
             type="button"
             disabled={disabled}
             onClick={!disabled ? switchToManual : undefined}
-            className={`w-full rounded-lg border-2 px-3 py-2.5 text-left text-xs font-semibold transition-all disabled:cursor-not-allowed ${
+            className={`w-full rounded-lg border-2 px-3 py-2.5 text-left text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
               decision?.source === 'manual'
                 ? 'border-blue-400 bg-blue-50 text-blue-800 shadow-sm'
                 : 'border-gray-200 bg-white text-blue-600 hover:border-blue-300 hover:bg-blue-50/40'
@@ -3582,7 +3582,7 @@ export default function GradingPage({
               </button>
               <button
                 onClick={executeGrading}
-                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 transition-all font-medium"
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 transition-colors font-medium"
               >
                 開始批改
               </button>
@@ -3883,7 +3883,7 @@ export default function GradingPage({
                             if (!submission || status === 'missing') return
                             setSelectedSubmission({ submission, student })
                           }}
-                          className={`w-full rounded-xl border-2 p-0 overflow-hidden transition-all ${
+                          className={`w-full rounded-xl border-2 p-0 overflow-hidden transition-colors ${
                             selectedSubmission?.submission.id === submission?.id ? 'border-blue-500 ring-2 ring-blue-200' :
                             needsReview ? 'border-amber-400 ring-1 ring-amber-200' :
                             status === 'graded' ? 'border-green-300' :
@@ -3966,7 +3966,7 @@ export default function GradingPage({
             return (
               <div
                 key={student.id}
-                className="bg-white rounded-xl hover:border-slate-300 border border-slate-200 transition-all cursor-pointer group flex flex-col"
+                className="bg-white rounded-xl hover:border-slate-300 border border-slate-200 transition-colors cursor-pointer group flex flex-col"
                 onClick={() => {
                   if (!submission) return
                   setSelectedSubmission({ submission, student })

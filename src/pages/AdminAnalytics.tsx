@@ -103,7 +103,7 @@ function BarChart24h({ data }: { data: { hour: number; count: number }[] }) {
         {data.map(d => (
           <div
             key={d.hour}
-            className="flex-1 rounded-t bg-amber-400 transition-all"
+            className="flex-1 rounded-t bg-amber-400 transition-[height]"
             style={{ height: `${Math.max((d.count / max) * BAR_H, d.count > 0 ? 3 : 0)}px` }}
             title={`${d.hour}時: ${d.count}份`}
           />

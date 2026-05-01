@@ -2805,7 +2805,7 @@ export default function AssignmentSetup({
                             }
                             handleFolderDropReorder(e, folder)
                           }}
-                          className={`rounded-xl border bg-white transition-all ${
+                          className={`rounded-xl border bg-white transition-colors ${
                             isAssignmentDropTarget
                               ? 'border-green-400 bg-green-50'
                               : isFolderReorderTarget
@@ -3048,7 +3048,7 @@ export default function AssignmentSetup({
                     value={assignmentTitle}
                     onChange={(e) => setAssignmentTitle(e.target.value)}
                     placeholder="例：數學習作第 6 回"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-colors"
                     disabled={isSubmitting}
                   />
                 </div>
@@ -3059,7 +3059,7 @@ export default function AssignmentSetup({
                     data-tutorial="assignment-classroom"
                     value={selectedClassroomId}
                     onChange={(e) => setSelectedClassroomId(e.target.value)}
-                    className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all ${modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'}`}
+                    className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-colors ${modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'}`}
                     disabled={isSubmitting || modalMode === 'edit'}
                   >
                     {classrooms.map((classroom) => (
@@ -3089,7 +3089,7 @@ export default function AssignmentSetup({
                       data-tutorial="assignment-domain"
                       value={assignmentDomain}
                       onChange={(e) => setAssignmentDomain(e.target.value)}
-                      className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all ${modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-gray-300' : `bg-white ${!assignmentDomain ? 'border-amber-400' : 'border-gray-300'}`}`}
+                      className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-colors ${modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-gray-300' : `bg-white ${!assignmentDomain ? 'border-amber-400' : 'border-gray-300'}`}`}
                       disabled={isSubmitting || modalMode === 'edit'}
                     >
                       <option value="">請選擇</option>
@@ -3105,7 +3105,7 @@ export default function AssignmentSetup({
                       value={createAnswerSheetMode}
                       onChange={(e) => setCreateAnswerSheetMode(e.target.value as 'with_questions' | 'answer_only')}
                       disabled={isSubmitting || isExtractingAnswerKey || modalMode === 'edit'}
-                      className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all ${
+                      className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-colors ${
                         modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'
                       }`}
                     >
@@ -3326,7 +3326,7 @@ export default function AssignmentSetup({
                                 key={level}
                                 type="button"
                                 onClick={() => setCreateStrictness(level)}
-                                className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-all ${
+                                className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-colors ${
                                   createStrictness === level
                                     ? 'border-green-500 bg-green-50 text-green-800'
                                     : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
@@ -3350,7 +3350,7 @@ export default function AssignmentSetup({
                                   key={rule}
                                   type="button"
                                   onClick={() => setCreateFractionRule(rule)}
-                                  className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-all ${
+                                  className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-colors ${
                                     createFractionRule === rule
                                       ? 'border-green-500 bg-green-50 text-green-800'
                                       : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
@@ -3371,7 +3371,7 @@ export default function AssignmentSetup({
                             <label className="block text-sm font-medium text-slate-700">英語專屬規則</label>
 
                             {/* 標點符號檢查 */}
-                            <div className={`rounded-xl border-2 px-4 py-3 transition-all ${createEnPunctuationCheck ? 'border-green-500 bg-green-50' : 'border-slate-200 bg-white'}`}>
+                            <div className={`rounded-xl border-2 px-4 py-3 transition-colors ${createEnPunctuationCheck ? 'border-green-500 bg-green-50' : 'border-slate-200 bg-white'}`}>
                               <label className="flex items-center justify-between cursor-pointer">
                                 <div className="flex items-center gap-3">
                                   <input
@@ -3398,7 +3398,7 @@ export default function AssignmentSetup({
                             </div>
 
                             {/* 單字順序/缺漏檢查 */}
-                            <div className={`rounded-xl border-2 px-4 py-3 transition-all ${createEnWordOrderCheck ? 'border-green-500 bg-green-50' : 'border-slate-200 bg-white'}`}>
+                            <div className={`rounded-xl border-2 px-4 py-3 transition-colors ${createEnWordOrderCheck ? 'border-green-500 bg-green-50' : 'border-slate-200 bg-white'}`}>
                               <label className="flex items-center justify-between cursor-pointer">
                                 <div className="flex items-center gap-3">
                                   <input
@@ -3507,7 +3507,7 @@ export default function AssignmentSetup({
                 <select
                   value={editingClassroomId}
                   onChange={(e) => setEditingClassroomId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-colors bg-white"
                   disabled={isSavingAnswerKey}
                 >
                   <option value="">請選擇</option>
@@ -3526,7 +3526,7 @@ export default function AssignmentSetup({
                 <select
                   value={editingDomain}
                   onChange={(e) => setEditingDomain(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-all bg-white"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-colors bg-white"
                   disabled={isSavingAnswerKey}
                 >
                   <option value="">請選擇</option>
