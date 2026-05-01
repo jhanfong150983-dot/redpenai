@@ -1681,6 +1681,8 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                           handleStudentRowChange(row.tempId, 'email', e.target.value)
                         }
                         placeholder="student@example.com"
+                        autoComplete="off"
+                        spellCheck={false}
                         className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                         disabled={isStudentSaving}
                       />
