@@ -1,6 +1,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import Button from '@/components/ui/Button'
 import {
   ArrowLeft,
   Loader,
@@ -3684,23 +3685,24 @@ export default function GradingPage({
                 待複核 {needsReviewCount}
               </button>
             )}
-            <button
+            <Button
+              variant="outline"
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
               重新整理
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="outline"
               onClick={handleToggleSelectAll}
               disabled={isBusy || !inkSessionReady || submissions.size === 0}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CheckSquare className="w-5 h-5" />
               {selectedSubmissionIds.size > 0 ? '取消全選' : '全選'}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               onClick={handleGradeAll}
               disabled={
                 isGrading ||
@@ -3711,15 +3713,14 @@ export default function GradingPage({
                 !inkSessionReady ||
                 answerKeyStatus === 'deleted'
               }
-              className="inline-flex items-center gap-2 rounded-lg border border-green-600 bg-green-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isCheckingCorrectionState ? (
                 <Loader className="w-5 h-5 animate-spin" />
               ) : (
                 <Sparkles className="w-5 h-5" />
               )}
-              {isCheckingCorrectionState ? '檢查訂正狀態...' : gradeActionLabel}
-            </button>
+              {isCheckingCorrectionState ? '檢查訂正狀態…' : gradeActionLabel}
+            </Button>
           </div>
         </div>
 

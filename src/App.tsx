@@ -40,6 +40,7 @@ const AdminUserDetail = lazy(() => import('@/pages/AdminUserDetail'))
 const TeacherPreferences = lazy(() => import('@/pages/TeacherPreferences'))
 
 import SyncIndicator from '@/components/SyncIndicator'
+import Button from '@/components/ui/Button'
 import GlobalSyncBar from '@/components/GlobalSyncBar'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { checkWebPSupport } from '@/lib/webpSupport'
@@ -1493,14 +1494,14 @@ function App() {
                 >
                   重新抓取資料
                 </button>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
                   disabled={isLoggingOut}
                   onClick={handleLogout}
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-all duration-200 hover:bg-slate-50 active:scale-95 disabled:opacity-70 disabled:cursor-wait"
                 >
-                  {isLoggingOut ? '登出中...' : '重新登入'}
-                </button>
+                  {isLoggingOut ? '登出中…' : '重新登入'}
+                </Button>
               </div>
             </>
           )}

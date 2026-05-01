@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, type ChangeEvent, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import Button from '@/components/ui/Button'
 import {
   BookOpen,
   Plus,
@@ -3441,24 +3442,24 @@ export default function AssignmentSetup({
                     <p className="text-xs text-green-600">所有必填欄位已完成，可建立作業。</p>
                   )}
                   <div className="flex items-center gap-3">
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
                     onClick={() => {
                       setIsCreateModalOpen(false)
                       resetForm()
                     }}
-                    className="rounded-lg border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-50"
                   >
                     取消
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="submit"
+                    variant="primary"
                     data-tutorial="assignment-submit"
                     disabled={isSubmitting || getMissingFields.length > 0}
-                    className="rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {isSubmitting ? (modalMode === 'edit' ? '儲存中…' : '建立中…') : (modalMode === 'edit' ? '儲存變更' : '建立作業')}
-                  </button>
+                  </Button>
                 </div>
                 </div>
               </div>
@@ -3665,15 +3666,16 @@ export default function AssignmentSetup({
             </div>
 
             <div className="px-4 py-3 border-t border-gray-200 bg-white rounded-b-2xl flex items-center justify-end gap-2">
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={closeAnswerKeyModal}
-                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
               >
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="primary"
                 onClick={() => {
                   console.log(`🔘 [答案解析] 儲存按鈕被點擊`)
                   console.log(`📊 [答案解析] 當前狀態:`, {
@@ -3686,10 +3688,9 @@ export default function AssignmentSetup({
                   saveAnswerKey()
                 }}
                 disabled={isSavingAnswerKey}
-                className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 {isSavingAnswerKey ? '儲存中…' : '儲存'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -3778,24 +3779,24 @@ export default function AssignmentSetup({
             </div>
 
             <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => setIsCopyModalOpen(false)}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
                 disabled={isSubmitting}
               >
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="primary"
                 onClick={handleCopyAssignment}
                 disabled={isSubmitting || !targetClassroomId}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? (
                   <>
                     <Loader className="w-4 h-4 animate-spin" />
-                    複製中...
+                    複製中…
                   </>
                 ) : (
                   <>
@@ -3803,7 +3804,7 @@ export default function AssignmentSetup({
                     確認複製
                   </>
                 )}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -3893,26 +3894,26 @@ export default function AssignmentSetup({
             </div>
 
             <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <button
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => {
                   setIsCreateFolderModalOpen(false)
                   setNewFolderName('')
                   setNewFolderError('')
                 }}
-                className="px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
               >
                 取消
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="primary"
                 onClick={handleCreateFolder}
                 disabled={!newFolderName.trim() || !!newFolderError}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
                 <Plus className="w-4 h-4" />
                 建立資料夾
-              </button>
+              </Button>
             </div>
           </div>
         </div>
