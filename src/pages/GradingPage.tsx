@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '@/components/ui/Button'
+import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import {
   ArrowLeft,
   Loader,
@@ -981,7 +982,7 @@ function ConsistencyQuestionCard({
               disabled={disabled}
               placeholder={isCalcType ? '輸入最終答案（不需要寫算式）' : '輸入答案…'}
               className="mt-1.5 w-full rounded-lg border border-blue-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50 resize-y"
-              autoFocus
+              autoFocus={shouldAutoFocusOnDesktop()}
               onChange={(e) => {
                 setManualInput(e.target.value)
                 onDecision(questionId, {

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
+import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
 import { compressImageFile } from '@/lib/imageCompression'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric } from '@/lib/db'
@@ -847,7 +848,7 @@ export default function AnswerKeyUnifiedModal({
                     ) : (
                       <input
                         type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-                        placeholder="例如：數習P.42-43" autoFocus
+                        placeholder="例如：數習P.42-43" autoFocus={shouldAutoFocusOnDesktop()}
                         className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
                       />
                     )}

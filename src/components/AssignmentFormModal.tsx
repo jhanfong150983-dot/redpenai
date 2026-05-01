@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
+import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -379,7 +380,7 @@ export default function AssignmentFormModal({
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder="例如：114學年社會期中考"
-                      autoFocus={mode === 'create'}
+                      autoFocus={mode === 'create' && shouldAutoFocusOnDesktop()}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
                     />
                   </div>

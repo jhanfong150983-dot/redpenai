@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, type ChangeEvent, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '@/components/ui/Button'
+import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import {
   BookOpen,
   Plus,
@@ -2401,7 +2402,7 @@ export default function AssignmentSetup({
         <div className="flex items-center gap-1">
           {editingId === assignment.id ? (
             <input
-              autoFocus
+              autoFocus={shouldAutoFocusOnDesktop()}
               type="text"
               value={editingTitle}
               onChange={(e) => setEditingTitle(e.target.value)}
@@ -2827,7 +2828,7 @@ export default function AssignmentSetup({
                               {editingFolderId === folder ? (
                                 <div className="flex-1 flex flex-col gap-1">
                                   <input
-                                    autoFocus
+                                    autoFocus={shouldAutoFocusOnDesktop()}
                                     type="text"
                                     value={editingFolderName}
                                     onChange={(e) => {
@@ -3872,7 +3873,7 @@ export default function AssignmentSetup({
                   } rounded-lg text-sm focus:outline-none focus:ring-2 ${
                     newFolderError ? 'focus:ring-red-500' : 'focus:ring-green-500'
                   } focus:border-transparent`}
-                  autoFocus
+                  autoFocus={shouldAutoFocusOnDesktop()}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && newFolderName.trim() && !newFolderError) {
                       handleCreateFolder()

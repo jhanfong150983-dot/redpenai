@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Button from '@/components/ui/Button'
+import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import {
   Plus, Search, BookOpen, Pencil, Trash2, FileUp, Loader2,
   Folder, ChevronDown, ChevronRight, Edit2, Download, Copy
@@ -602,7 +603,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
           {editingTitleId === t.id ? (
-            <input autoFocus type="text" value={editingTitleValue}
+            <input autoFocus={shouldAutoFocusOnDesktop()} type="text" value={editingTitleValue}
               onChange={(e) => setEditingTitleValue(e.target.value)}
               onBlur={() => void saveEditTitle(t.id)}
               onKeyDown={(e) => { if (e.key === 'Enter') void saveEditTitle(t.id); else if (e.key === 'Escape') setEditingTitleId(null) }}
@@ -726,7 +727,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
                       <div className="flex items-center justify-between gap-2">
                         {editingFolderId === folder ? (
                           <div className="flex-1 flex flex-col gap-1">
-                            <input autoFocus type="text" value={editingFolderName}
+                            <input autoFocus={shouldAutoFocusOnDesktop()} type="text" value={editingFolderName}
                               onChange={(e) => { setEditingFolderName(e.target.value); setEditingFolderError('') }}
                               onBlur={() => void handleCommitFolderEdit()}
                               onKeyDown={(e) => { if (e.key === 'Enter') void handleCommitFolderEdit(); else if (e.key === 'Escape') { setEditingFolderId(null); setEditingFolderError('') } }}
@@ -799,7 +800,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             </div>
             <div className="px-6 py-4">
               <input type="text" value={newFolderName} onChange={(e) => { setNewFolderName(e.target.value); setNewFolderError('') }}
-                placeholder="例如：段考、小考、作業" autoFocus
+                placeholder="例如：段考、小考、作業" autoFocus={shouldAutoFocusOnDesktop()}
                 onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateFolder() }}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100" />
               {newFolderError && <p className="mt-1 text-xs text-red-600">{newFolderError}</p>}
@@ -845,7 +846,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             <div className="px-6 py-4">
               <p className="text-xs text-gray-500 mb-3">輸入其他老師分享的短碼，即可匯入答案卷到你的答案庫。</p>
               <input type="text" value={importCode} onChange={(e) => { setImportCode(e.target.value.toUpperCase()); setImportError('') }}
-                placeholder="例如：AK-3F8X2A" autoFocus
+                placeholder="例如：AK-3F8X2A" autoFocus={shouldAutoFocusOnDesktop()}
                 onKeyDown={(e) => { if (e.key === 'Enter') void handleImportByCode() }}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono text-center tracking-widest focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100" />
               {importError && <p className="mt-2 text-xs text-red-600">{importError}</p>}

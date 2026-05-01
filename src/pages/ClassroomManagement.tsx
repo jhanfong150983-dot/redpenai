@@ -14,6 +14,7 @@ import {
   ChevronRight
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
+import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { db, generateId } from '@/lib/db'
 import { requestSync, SYNC_COMPLETE_EVENT_NAME } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
@@ -1085,7 +1086,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
           <div className="flex items-center gap-1">
             {editingId === item.classroom.id ? (
               <input
-                autoFocus
+                autoFocus={shouldAutoFocusOnDesktop()}
                 type="text"
                 value={editingName}
                 onChange={(e) => setEditingName(e.target.value)}
@@ -1319,7 +1320,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                             {editingFolderId === folder ? (
                               <div className="flex flex-1 flex-col gap-1">
                                 <input
-                                  autoFocus
+                                  autoFocus={shouldAutoFocusOnDesktop()}
                                   type="text"
                                   value={editingFolderName}
                                   onChange={(e) => {
@@ -1811,7 +1812,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                   } rounded-lg text-sm focus:outline-none focus:ring-2 ${
                     newFolderError ? 'focus:ring-red-500' : 'focus:ring-green-500'
                   } focus:border-transparent`}
-                  autoFocus
+                  autoFocus={shouldAutoFocusOnDesktop()}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && newFolderName.trim() && !newFolderError) {
                       handleCreateFolder()

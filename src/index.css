@@ -28,3 +28,20 @@
     background-position: -1px -1px;
   }
 }
+
+/* P3-1：尊重作業系統「減少動態」設定，幫助前庭敏感 / 偏頭痛 / 動暈症使用者
+   例外：loading spinner（animate-spin）保留，因為它是功能性「進行中」指示器 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-spin {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
+}

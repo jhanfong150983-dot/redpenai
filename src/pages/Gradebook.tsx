@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, Download, Info, Plus, RotateCcw, X } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
+import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { requestSync, SYNC_COMPLETE_EVENT_NAME, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
@@ -1070,7 +1071,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                                 inputMode="numeric"
                                 pattern="[0-9]*"
                                 defaultValue={cell.score ?? ''}
-                                autoFocus
+                                autoFocus={shouldAutoFocusOnDesktop()}
                                 onFocus={(e) => e.target.select()}
                                 onBlur={(e) => {
                                   const raw = e.target.value.trim()
