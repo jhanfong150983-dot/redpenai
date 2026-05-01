@@ -144,7 +144,7 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
               <p className="text-red-600 mb-4">{error || '无法载入数据'}</p>
               <button
                 onClick={onBack}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
               >
                 返回列表
               </button>
@@ -179,7 +179,7 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
 
           {/* Profile Overview */}
           <div className="flex items-start gap-6">
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-500 to-indigo-600 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
               {detail.profile.name?.charAt(0).toUpperCase() || detail.profile.email?.charAt(0).toUpperCase() || '?'}
             </div>
             <div className="flex-1">
@@ -241,14 +241,14 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
                       flex items-center gap-2 px-6 py-4 border-b-2 transition-colors flex-1
                       ${
                         isActive
-                          ? 'border-blue-600 text-blue-600 font-semibold bg-blue-50'
+                          ? 'border-green-600 text-green-600 font-semibold bg-green-50'
                           : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                       }
                     `}
                   >
                     <Icon className="w-4 h-4" />
                     <span className="text-sm">{tab.label}</span>
-                    <span className={`px-2 py-0.5 rounded-full text-xs ${isActive ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                    <span className={`px-2 py-0.5 rounded-full text-xs ${isActive ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'}`}>
                       {tab.count}
                     </span>
                   </button>
@@ -331,7 +331,7 @@ function AssignmentsList({ assignments, formatDate }: { assignments: AssignmentD
                 <div className="flex items-center gap-2">
                   <div className="flex-1 max-w-[100px] h-2 bg-gray-200 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-blue-600 rounded-full transition-all"
+                      className="h-full bg-green-600 rounded-full transition-all"
                       style={{ width: `${assignment.gradingProgress}%` }}
                     />
                   </div>

@@ -2937,10 +2937,10 @@ export default function AssignmentSetup({
             ref={createAssignmentModalScrollRef}
             className="flex max-h-[92dvh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl ring-1 ring-black/5"
           >
-            <div className="flex-shrink-0 border-b border-slate-200 bg-gradient-to-r from-emerald-50 via-white to-cyan-50 px-4 py-4 sm:px-6">
+            <div className="flex-shrink-0 border-b border-slate-200 bg-gradient-to-r from-green-50 via-white to-cyan-50 px-4 py-4 sm:px-6">
               <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-green-700">
                   Assignment Builder
                 </p>
                 <h2 className="mt-1 text-xl font-semibold text-slate-900">{modalMode === 'edit' ? '編輯作業設定' : '新增作業'}</h2>
@@ -2979,42 +2979,42 @@ export default function AssignmentSetup({
                       <div className="mt-3 space-y-2 text-xs">
                         <div className="flex items-center justify-between">
                           <span className="text-slate-600">作業標題</span>
-                          <span className={`rounded-full px-2 py-0.5 font-medium ${assignmentTitle.trim() ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                          <span className={`rounded-full px-2 py-0.5 font-medium ${assignmentTitle.trim() ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}>
                             {assignmentTitle.trim() ? '完成' : '待填'}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-slate-600">指派班級</span>
-                          <span className={`rounded-full px-2 py-0.5 font-medium ${selectedClassroomId ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                          <span className={`rounded-full px-2 py-0.5 font-medium ${selectedClassroomId ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}>
                             {selectedClassroomId ? '完成' : '待填'}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-slate-600">作業領域</span>
-                          <span className={`rounded-full px-2 py-0.5 font-medium ${assignmentDomain ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                          <span className={`rounded-full px-2 py-0.5 font-medium ${assignmentDomain ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}>
                             {assignmentDomain ? '完成' : '待填'}
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-slate-600">標準答案</span>
-                          <span className={`rounded-full px-2 py-0.5 font-medium ${answerKey ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                          <span className={`rounded-full px-2 py-0.5 font-medium ${answerKey ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}>
                             {answerKey ? '完成' : '待填'}
                           </span>
                         </div>
                       </div>
                     </div>
-                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                      <p className="text-xs font-semibold text-emerald-800">目前設定</p>
-                      <p className="mt-1 text-sm font-medium text-emerald-900">
+                    <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
+                      <p className="text-xs font-semibold text-green-800">目前設定</p>
+                      <p className="mt-1 text-sm font-medium text-green-900">
                         {classrooms.find((classroom) => classroom.id === selectedClassroomId)?.name || '尚未指定班級'}
                       </p>
-                      <p className="mt-2 text-xs text-emerald-700">
+                      <p className="mt-2 text-xs text-green-700">
                         批改嚴格度：{createStrictnessLabels[createStrictness]}
                       </p>
                       {createScoringMode === 'unscored' ? (
-                        <p className="mt-1 text-xs text-emerald-700">分數：不計分數</p>
+                        <p className="mt-1 text-xs text-green-700">分數：不計分數</p>
                       ) : createScoreMode !== 'ai_auto' && (
-                        <p className="mt-1 text-xs text-emerald-700">
+                        <p className="mt-1 text-xs text-green-700">
                           計分模式：{createScoreModeLabels[createScoreMode]}
                           {createScoreMode === 'fixed_per_question' && `（每題 ${createFixedPerScore} 分）`}
                           {createScoreMode === 'fixed_total' && `（總分 ${createFixedTotal} 分）`}
@@ -3022,7 +3022,7 @@ export default function AssignmentSetup({
                         </p>
                       )}
                       {createWizardPages.length > 0 && (
-                        <p className="mt-2 text-xs text-emerald-700">已上傳答案卷 {createWizardPages.length} 頁</p>
+                        <p className="mt-2 text-xs text-green-700">已上傳答案卷 {createWizardPages.length} 頁</p>
                       )}
                     </div>
                   </aside>
@@ -3158,7 +3158,7 @@ export default function AssignmentSetup({
                       onClick={() => { setCreateScoringMode('unscored'); setCreateScoreMode('') }}
                       className={`px-4 py-2 font-medium transition-colors ${
                         createScoringMode === 'unscored'
-                          ? 'bg-emerald-600 text-white'
+                          ? 'bg-green-600 text-white'
                           : 'bg-white text-slate-600 hover:bg-slate-50'
                       }`}
                     >
@@ -3169,7 +3169,7 @@ export default function AssignmentSetup({
                       onClick={() => { if (createScoringMode !== 'scored') { setCreateScoringMode('scored'); setCreateScoreMode('ai_auto') } }}
                       className={`px-4 py-2 font-medium transition-colors ${
                         createScoringMode === 'scored'
-                          ? 'bg-emerald-600 text-white'
+                          ? 'bg-green-600 text-white'
                           : 'bg-white text-slate-600 hover:bg-slate-50'
                       }`}
                     >
@@ -3193,7 +3193,7 @@ export default function AssignmentSetup({
                             }}
                             className={`px-3 py-2 transition-colors whitespace-nowrap ${
                               createScoreMode === mode
-                                ? 'bg-emerald-600 text-white font-medium'
+                                ? 'bg-green-600 text-white font-medium'
                                 : 'bg-white text-slate-600 hover:bg-slate-50'
                             }`}
                           >
@@ -3247,7 +3247,7 @@ export default function AssignmentSetup({
                   multiple
                   onChange={handleAnswerKeyFileChange}
                   disabled={isSubmitting || isExtractingAnswerKey}
-                  className="min-w-0 w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+                  className="min-w-0 w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
                 />
                 <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                   <p className="text-xs font-semibold text-slate-700">提醒</p>
@@ -3258,7 +3258,7 @@ export default function AssignmentSetup({
                 </div>
                 <div className="flex items-center gap-2">
                   {isExtractingAnswerKey && (
-                    <span className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-100 text-emerald-700 text-sm">
+                    <span className="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-green-100 text-green-700 text-sm">
                       <Loader className="w-4 h-4 animate-spin" />
                       AI 解析中…
                     </span>
@@ -3327,7 +3327,7 @@ export default function AssignmentSetup({
                                 onClick={() => setCreateStrictness(level)}
                                 className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-all ${
                                   createStrictness === level
-                                    ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                                    ? 'border-green-500 bg-green-50 text-green-800'
                                     : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                                 }`}
                               >
@@ -3351,7 +3351,7 @@ export default function AssignmentSetup({
                                   onClick={() => setCreateFractionRule(rule)}
                                   className={`flex flex-col items-center gap-1 rounded-xl border-2 px-3 py-3 text-center transition-all ${
                                     createFractionRule === rule
-                                      ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
+                                      ? 'border-green-500 bg-green-50 text-green-800'
                                       : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                                   }`}
                                 >
@@ -3370,14 +3370,14 @@ export default function AssignmentSetup({
                             <label className="block text-sm font-medium text-slate-700">英語專屬規則</label>
 
                             {/* 標點符號檢查 */}
-                            <div className={`rounded-xl border-2 px-4 py-3 transition-all ${createEnPunctuationCheck ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                            <div className={`rounded-xl border-2 px-4 py-3 transition-all ${createEnPunctuationCheck ? 'border-green-500 bg-green-50' : 'border-slate-200 bg-white'}`}>
                               <label className="flex items-center justify-between cursor-pointer">
                                 <div className="flex items-center gap-3">
                                   <input
                                     type="checkbox"
                                     checked={createEnPunctuationCheck}
                                     onChange={(e) => setCreateEnPunctuationCheck(e.target.checked)}
-                                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                    className="h-4 w-4 rounded border-slate-300 text-green-600 focus:ring-green-500"
                                   />
                                   <div>
                                     <span className="text-sm font-semibold text-slate-800">標點符號檢查</span>
@@ -3397,14 +3397,14 @@ export default function AssignmentSetup({
                             </div>
 
                             {/* 單字順序/缺漏檢查 */}
-                            <div className={`rounded-xl border-2 px-4 py-3 transition-all ${createEnWordOrderCheck ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+                            <div className={`rounded-xl border-2 px-4 py-3 transition-all ${createEnWordOrderCheck ? 'border-green-500 bg-green-50' : 'border-slate-200 bg-white'}`}>
                               <label className="flex items-center justify-between cursor-pointer">
                                 <div className="flex items-center gap-3">
                                   <input
                                     type="checkbox"
                                     checked={createEnWordOrderCheck}
                                     onChange={(e) => setCreateEnWordOrderCheck(e.target.checked)}
-                                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                    className="h-4 w-4 rounded border-slate-300 text-green-600 focus:ring-green-500"
                                   />
                                   <div>
                                     <span className="text-sm font-semibold text-slate-800">單字順序 / 缺漏檢查</span>
@@ -3438,7 +3438,7 @@ export default function AssignmentSetup({
                       缺少：{getMissingFields.join('、')}
                     </p>
                   ) : (
-                    <p className="text-xs text-emerald-600">所有必填欄位已完成，可建立作業。</p>
+                    <p className="text-xs text-green-600">所有必填欄位已完成，可建立作業。</p>
                   )}
                   <div className="flex items-center gap-3">
                   <button
@@ -3455,7 +3455,7 @@ export default function AssignmentSetup({
                     type="submit"
                     data-tutorial="assignment-submit"
                     disabled={isSubmitting || getMissingFields.length > 0}
-                    className="rounded-lg bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    className="rounded-lg bg-green-600 px-4 py-2 text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                   >
                     {isSubmitting ? (modalMode === 'edit' ? '儲存中…' : '建立中…') : (modalMode === 'edit' ? '儲存變更' : '建立作業')}
                   </button>

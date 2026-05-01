@@ -266,7 +266,7 @@ function SortableBatchCard({
       <div
         {...attributes}
         {...listeners}
-        className="border-2 border-slate-200 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing bg-white hover:border-emerald-400 transition-colors"
+        className="border-2 border-slate-200 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing bg-white hover:border-green-400 transition-colors"
       >
         <div className="bg-slate-50 px-3 py-1.5 text-xs text-slate-600 font-medium flex items-center justify-between">
           <span>第 {position + 1} 頁</span>
@@ -1086,7 +1086,7 @@ export default function UnifiedImportPage({
     if (!source) return ''
     if (source.startsWith('student'))
       return 'bg-blue-500 text-white'
-    return 'bg-emerald-500 text-white'
+    return 'bg-green-500 text-white'
   }
 
   // ── Preview ─────────────────────────────────────────────────────────────
@@ -1397,7 +1397,7 @@ export default function UnifiedImportPage({
                   onClick={() => handleCardClick(student)}
                   className={`relative w-full aspect-[3/4] rounded-xl border-2 overflow-hidden transition-colors ${
                     hasSubmission
-                      ? 'border-emerald-300 bg-white hover:border-emerald-400'
+                      ? 'border-green-300 bg-white hover:border-green-400'
                       : 'border-slate-200 bg-white hover:border-slate-400'
                   } ${isSaving ? 'opacity-50' : ''}`}
                 >
@@ -1407,7 +1407,7 @@ export default function UnifiedImportPage({
                       <SubmissionThumbnail submission={info.submission} />
                       {/* Completion badge */}
                       <div className="absolute top-1 left-1">
-                        <CheckCircle className="w-5 h-5 text-emerald-500 drop-shadow" />
+                        <CheckCircle className="w-5 h-5 text-green-500 drop-shadow" />
                       </div>
                     </>
                   ) : (
@@ -1467,7 +1467,7 @@ export default function UnifiedImportPage({
                         onClick={() => triggerPhotoUpload(student)}
                         className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                       >
-                        <ImageIcon className="w-4 h-4 text-emerald-500" />
+                        <ImageIcon className="w-4 h-4 text-green-500" />
                         上傳照片
                       </button>
                       <button
@@ -1492,10 +1492,10 @@ export default function UnifiedImportPage({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4 text-sm">
             <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" />
+              <span className="w-3 h-3 rounded-full bg-green-500 inline-block" />
               <span className="text-slate-600">
                 已完成{' '}
-                <span className="font-semibold text-emerald-600">
+                <span className="font-semibold text-green-600">
                   {completedCount}
                 </span>
               </span>
@@ -1514,7 +1514,7 @@ export default function UnifiedImportPage({
             <button
               type="button"
               onClick={() => onUploadComplete?.()}
-              className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 transition-colors"
+              className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-xl hover:bg-green-700 transition-colors"
             >
               前往批改
             </button>
@@ -1654,7 +1654,7 @@ export default function UnifiedImportPage({
                       }}
                       className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                     >
-                      <RefreshCw className="w-4 h-4 text-emerald-500" />
+                      <RefreshCw className="w-4 h-4 text-green-500" />
                       重新上傳照片
                     </button>
                     <button
@@ -1805,7 +1805,7 @@ export default function UnifiedImportPage({
                     套用到全部學生
                   </button>
                   {batchApplyFeedback && (
-                    <span className="text-xs text-emerald-600 font-medium">{batchApplyFeedback}</span>
+                    <span className="text-xs text-green-600 font-medium">{batchApplyFeedback}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2">
@@ -1819,7 +1819,7 @@ export default function UnifiedImportPage({
                   <button
                     type="button"
                     onClick={handleBatchPreviewConfirm}
-                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors"
+                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-green-600 text-sm font-semibold text-white hover:bg-green-700 transition-colors"
                   >
                     確認匯入
                   </button>
@@ -1931,7 +1931,7 @@ export default function UnifiedImportPage({
                       type="button"
                       disabled={isUploadPreviewSaving || hasOrientationError}
                       onClick={handleUploadPreviewConfirm}
-                      className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-sm font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300 transition-colors"
+                      className="flex items-center gap-2 px-5 py-2 rounded-xl bg-green-600 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-slate-300 transition-colors"
                     >
                       {isUploadPreviewSaving && <Loader className="w-4 h-4 animate-spin" />}
                       {hasOrientationError ? '請先修正方向' : '確認上傳'}

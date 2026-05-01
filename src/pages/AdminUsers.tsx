@@ -272,8 +272,8 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-amber-100 rounded-xl">
-              <Shield className="w-7 h-7 text-amber-600" />
+            <div className="p-3 bg-green-100 rounded-xl">
+              <Shield className="w-7 h-7 text-green-600" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">使用者統計</h1>
@@ -302,7 +302,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="搜尋姓名、Email、ID"
-              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
             />
           </div>
           <div className="text-xs text-gray-500">
@@ -323,7 +323,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
               onClick={() => setStatusFilter(tab.key)}
               className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
                 statusFilter === tab.key
-                  ? 'bg-amber-100 border-amber-400 text-amber-700 font-medium'
+                  ? 'bg-green-100 border-green-400 text-green-700 font-medium'
                   : 'border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}
             >
@@ -495,7 +495,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                     <button
                       type="button"
                       onClick={(e) => toggleStudents(user.userId, e)}
-                      className="w-full flex items-center justify-between px-4 py-2 bg-amber-50 hover:bg-amber-100 border-t border-amber-100 transition-colors text-xs font-medium text-amber-700"
+                      className="w-full flex items-center justify-between px-4 py-2 bg-green-50 hover:bg-green-100 border-t border-green-100 transition-colors text-xs font-medium text-green-700"
                     >
                       <span className="flex items-center gap-1.5">
                         <GraduationCap className="w-3.5 h-3.5" />
@@ -507,7 +507,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                     </button>
 
                     {expandedStudents.has(user.userId) && (
-                      <div className="px-3 pb-3 pt-1 bg-amber-50" onClick={(e) => e.stopPropagation()}>
+                      <div className="px-3 pb-3 pt-1 bg-green-50" onClick={(e) => e.stopPropagation()}>
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="text-gray-500">
@@ -520,7 +520,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                           </thead>
                           <tbody>
                             {user.students?.map(s => (
-                              <tr key={s.studentId} className="border-t border-amber-100">
+                              <tr key={s.studentId} className="border-t border-green-100">
                                 <td className="py-1 px-1 font-medium text-gray-800">{s.studentName}</td>
                                 <td className="py-1 px-1 text-gray-500">{s.classroomName || '—'}</td>
                                 <td className="py-1 px-1 text-right font-semibold text-blue-700">{s.submissionCount}</td>
@@ -587,7 +587,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                   <select
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                     disabled={isSaving}
                   >
                     <option value="user">一般使用者</option>
@@ -601,7 +601,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                   <select
                     value={permissionTier}
                     onChange={(e) => setPermissionTier(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                     disabled={isSaving}
                   >
                     <option value="basic">Basic</option>
@@ -630,7 +630,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                         onClick={() => handleSelectBalanceMode(mode)}
                         className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
                           active
-                            ? 'bg-amber-100 border-amber-400 text-amber-700'
+                            ? 'bg-green-100 border-green-400 text-green-700'
                             : 'border-gray-200 text-gray-600 hover:bg-gray-50'
                         }`}
                         disabled={isSaving}
@@ -647,7 +647,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                       value={balanceValue}
                       onChange={(e) => setBalanceValue(e.target.value)}
                       placeholder={balanceMode === 'set' ? '設定為指定點數' : '輸入增減數量'}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                       min={balanceMode === 'set' ? 0 : undefined}
                       step={1}
                       disabled={isSaving}
@@ -670,7 +670,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                   value={adminNote}
                   onChange={(e) => setAdminNote(e.target.value)}
                   placeholder="可記錄付款方式、聯繫備註等"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   disabled={isSaving}
                 />
               </div>
@@ -698,7 +698,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                 <button
                   type="button"
                   onClick={handleSave}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                   disabled={isSaving}
                 >
                   {isSaving ? (

@@ -70,7 +70,7 @@ const STATUS_COLORS: Record<string, string> = {
   insufficient_samples: 'bg-slate-100 text-slate-600',
   running: 'bg-blue-100 text-blue-700',
   failed: 'bg-red-100 text-red-700',
-  locked: 'bg-purple-100 text-purple-700'
+  locked: 'bg-green-100 text-green-700'
 }
 
 export default function AdminTags({ onBack }: AdminTagsProps) {
@@ -395,8 +395,8 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
         <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-purple-100 rounded-xl">
-                <Tags className="w-7 h-7 text-purple-600" />
+              <div className="p-3 bg-green-100 rounded-xl">
+                <Tags className="w-7 h-7 text-green-600" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">標籤字典管理</h1>
@@ -424,7 +424,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="搜尋作業名稱 / ID / 老師 ID"
-                className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
               />
             </div>
             <input
@@ -432,12 +432,12 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
               value={ownerFilter}
               onChange={(e) => setOwnerFilter(e.target.value)}
               placeholder="篩選 owner_id"
-              className="w-full md:w-64 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className="w-full md:w-64 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
             />
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full md:w-40 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className="w-full md:w-40 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
             >
               <option value="all">全部狀態</option>
               <option value="pending">等待中</option>
@@ -578,7 +578,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                               樣本 {assignment.sample_count ?? 0}
                             </span>
                             {assignment.manual_locked && (
-                              <span className="px-2 py-1 rounded-full bg-purple-100 text-purple-700 inline-flex items-center gap-1">
+                              <span className="px-2 py-1 rounded-full bg-green-100 text-green-700 inline-flex items-center gap-1">
                                 <Lock className="w-3 h-3" />
                                 鎖定
                               </span>
@@ -621,7 +621,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                           <button
                             type="button"
                             onClick={() => openOverride(assignment)}
-                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-purple-200 text-purple-700 text-sm hover:bg-purple-50"
+                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-green-200 text-green-700 text-sm hover:bg-green-50"
                             disabled={isRunning}
                           >
                             <Lock className="w-4 h-4" />
@@ -696,7 +696,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                   type="text"
                   value={editLabel}
                   onChange={(e) => setEditLabel(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   disabled={tagSaving}
                 />
               </div>
@@ -707,7 +707,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                 <select
                   value={editStatus}
                   onChange={(e) => setEditStatus(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   disabled={tagSaving}
                 >
                   <option value="active">active</option>
@@ -722,7 +722,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                 <select
                   value={editMergeId}
                   onChange={(e) => setEditMergeId(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   disabled={tagSaving}
                 >
                   <option value="">不合併</option>
@@ -749,7 +749,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
               <button
                 type="button"
                 onClick={handleSaveTag}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 disabled={tagSaving}
               >
                 {tagSaving ? (
@@ -809,7 +809,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                   value={overrideText}
                   onChange={(e) => setOverrideText(e.target.value)}
                   placeholder="例如：\n概念性錯誤,12\n審題錯誤,5"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                   disabled={overrideSaving}
                 />
               </div>
@@ -836,7 +836,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
               <button
                 type="button"
                 onClick={handleSaveOverride}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 disabled={overrideSaving}
               >
                 {overrideSaving ? (

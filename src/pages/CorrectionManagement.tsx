@@ -548,7 +548,7 @@ export default function CorrectionManagement({
               type="button"
               onClick={() => void handleDispatchSelected()}
               disabled={isDispatchBusy || isLoading || !dashboard || selectedDispatchCount === 0}
-              className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               {isDispatchBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               <Send className="h-4 w-4" />
@@ -579,9 +579,9 @@ export default function CorrectionManagement({
             <p className="text-xs text-violet-700">訂正進行中</p>
             <p className="mt-1 text-2xl font-bold text-violet-700">{stats.correctionActiveCount}</p>
           </div>
-          <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
-            <p className="text-xs text-sky-700">待派發</p>
-            <p className="mt-1 text-2xl font-bold text-sky-700">{stats.dispatchReadyCount}</p>
+          <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+            <p className="text-xs text-green-700">待派發</p>
+            <p className="mt-1 text-2xl font-bold text-green-700">{stats.dispatchReadyCount}</p>
           </div>
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
             <p className="text-xs text-emerald-700">訂正完成</p>
@@ -639,7 +639,7 @@ export default function CorrectionManagement({
                 onChange={handleToggleSelectAll}
                 disabled={isDispatchBusy || isLoading || dispatchableStudentIds.length === 0}
                 aria-label="全選可派發學生"
-                className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+                className="h-4 w-4 rounded border-slate-300 text-green-600 focus:ring-green-500 disabled:cursor-not-allowed disabled:opacity-50"
               />
             </div>
             <div>座號</div>
@@ -678,7 +678,7 @@ export default function CorrectionManagement({
                       onChange={() => handleToggleStudentSelection(student.studentId)}
                       disabled={(!canDispatchStudent(student) && !canStopStudent(student)) || isDispatchBusy || isLoading}
                       aria-label={`勾選 ${student.name}`}
-                      className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="h-4 w-4 rounded border-slate-300 text-green-600 focus:ring-green-500 disabled:cursor-not-allowed disabled:opacity-50"
                     />
                   </div>
                   <div className="font-semibold text-slate-700">

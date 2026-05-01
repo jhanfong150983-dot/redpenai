@@ -104,7 +104,7 @@ function getPackageScheduleStatus(pkg: InkPackage) {
   if (endsAt && !Number.isNaN(endsAt.getTime()) && endsAt <= now) {
     return { label: '已結束', color: 'bg-gray-100 text-gray-500' }
   }
-  return { label: '進行中', color: 'bg-emerald-50 text-emerald-700' }
+  return { label: '進行中', color: 'bg-green-50 text-green-700' }
 }
 
 function normalizeOrderStatus(status: string) {
@@ -114,7 +114,7 @@ function normalizeOrderStatus(status: string) {
 function statusMeta(status: string) {
   const normalized = normalizeOrderStatus(status)
   if (normalized === 'paid') {
-    return { label: '已完成', color: 'text-emerald-600 bg-emerald-50', icon: CheckCircle }
+    return { label: '已完成', color: 'text-green-600 bg-green-50', icon: CheckCircle }
   }
   if (normalized === 'pending') {
     return { label: '金流確認中', color: 'text-amber-600 bg-amber-50', icon: RefreshCw }
@@ -461,7 +461,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
             </div>
           )}
           {packageMessage && (
-            <div className="mt-4 p-3 bg-emerald-50 border border-emerald-200 text-sm text-emerald-700 rounded-xl">
+            <div className="mt-4 p-3 bg-green-50 border border-green-200 text-sm text-green-700 rounded-xl">
               {packageMessage}
             </div>
           )}
@@ -478,7 +478,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                   setNewPackage((prev) => ({ ...prev, label: e.target.value }))
                 }
                 placeholder="例如：標準補充"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 disabled={isPackageSaving}
               />
             </div>
@@ -493,7 +493,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                   setNewPackage((prev) => ({ ...prev, drops: e.target.value }))
                 }
                 placeholder="例如：100"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 min={1}
                 disabled={isPackageSaving}
               />
@@ -509,7 +509,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                   setNewPackage((prev) => ({ ...prev, bonusDrops: e.target.value }))
                 }
                 placeholder="例如：10"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 min={0}
                 disabled={isPackageSaving}
               />
@@ -525,7 +525,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                   setNewPackage((prev) => ({ ...prev, sortOrder: e.target.value }))
                 }
                 placeholder="例如：1"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 disabled={isPackageSaving}
               />
             </div>
@@ -539,7 +539,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                 onChange={(e) =>
                   setNewPackage((prev) => ({ ...prev, startsAt: e.target.value }))
                 }
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 disabled={isPackageSaving}
               />
             </div>
@@ -553,7 +553,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                 onChange={(e) =>
                   setNewPackage((prev) => ({ ...prev, endsAt: e.target.value }))
                 }
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 disabled={isPackageSaving}
               />
             </div>
@@ -571,7 +571,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                   }))
                 }
                 placeholder="顯示於使用者頁面的說明"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 disabled={isPackageSaving}
               />
             </div>
@@ -585,7 +585,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                 onChange={(e) =>
                   setNewPackage((prev) => ({ ...prev, isActive: e.target.checked }))
                 }
-                className="w-4 h-4 text-sky-600 border-gray-300 rounded"
+                className="w-4 h-4 text-green-600 border-gray-300 rounded"
                 disabled={isPackageSaving}
               />
               啟用此方案
@@ -593,7 +593,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
             <button
               type="button"
               onClick={handleCreatePackage}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
               disabled={isPackageSaving}
             >
               {isPackageSaving ? (
@@ -638,7 +638,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                                   prev ? { ...prev, label: e.target.value } : prev
                                 )
                               }
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                               disabled={isPackageSaving}
                             />
                           </div>
@@ -654,7 +654,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                                   prev ? { ...prev, drops: e.target.value } : prev
                                 )
                               }
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                               min={1}
                               disabled={isPackageSaving}
                             />
@@ -671,7 +671,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                                   prev ? { ...prev, bonusDrops: e.target.value } : prev
                                 )
                               }
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                               min={0}
                               disabled={isPackageSaving}
                             />
@@ -688,7 +688,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                                   prev ? { ...prev, sortOrder: e.target.value } : prev
                                 )
                               }
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                               disabled={isPackageSaving}
                             />
                           </div>
@@ -704,7 +704,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                                   prev ? { ...prev, startsAt: e.target.value } : prev
                                 )
                               }
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                               disabled={isPackageSaving}
                             />
                           </div>
@@ -720,7 +720,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                                   prev ? { ...prev, endsAt: e.target.value } : prev
                                 )
                               }
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                               disabled={isPackageSaving}
                             />
                           </div>
@@ -738,7 +738,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                                     : prev
                                 )
                               }
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                               disabled={isPackageSaving}
                             />
                           </div>
@@ -754,7 +754,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                                       : prev
                                   )
                                 }
-                                className="w-4 h-4 text-sky-600 border-gray-300 rounded"
+                                className="w-4 h-4 text-green-600 border-gray-300 rounded"
                                 disabled={isPackageSaving}
                               />
                               啟用此方案
@@ -771,7 +771,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                               <button
                                 type="button"
                                 onClick={handleUpdatePackage}
-                                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
                                 disabled={isPackageSaving}
                               >
                                 {isPackageSaving ? (
@@ -822,7 +822,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                             <span
                               className={`px-2 py-1 rounded-full text-xs font-medium ${
                                 pkg.is_active
-                                  ? 'bg-emerald-50 text-emerald-700'
+                                  ? 'bg-green-50 text-green-700'
                                   : 'bg-gray-100 text-gray-500'
                               }`}
                             >
@@ -858,8 +858,8 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
         <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="p-3 bg-sky-100 rounded-xl">
-                <Receipt className="w-7 h-7 text-sky-600" />
+              <div className="p-3 bg-green-100 rounded-xl">
+                <Receipt className="w-7 h-7 text-green-600" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">訂單管理</h1>
@@ -887,7 +887,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="搜尋訂單 ID / Email / 使用者"
-                className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
               />
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
@@ -898,7 +898,7 @@ export default function AdminOrders({ onBack }: AdminOrdersProps) {
                   onClick={() => setStatusFilter(status)}
                   className={`px-3 py-1.5 rounded-full border ${
                     statusFilter === status
-                      ? 'border-sky-400 bg-sky-50 text-sky-700'
+                      ? 'border-green-400 bg-green-50 text-green-700'
                       : 'border-gray-200 text-gray-600 hover:bg-gray-50'
                   }`}
                 >

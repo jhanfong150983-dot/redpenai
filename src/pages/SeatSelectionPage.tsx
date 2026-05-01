@@ -148,8 +148,8 @@ export default function SeatSelectionPage({
       return {
         kind: 'teacher' as const,
         isComplete: true,
-        cardClass: 'border border-emerald-600 bg-emerald-500 text-white shadow-md',
-        checkClass: 'text-white bg-emerald-600'
+        cardClass: 'border border-green-600 bg-green-500 text-white shadow-md',
+        checkClass: 'text-white bg-green-600'
       }
     }
 
@@ -209,7 +209,7 @@ export default function SeatSelectionPage({
           </p>
           <div className="mt-3 flex items-center gap-4 text-sm">
             <div className="flex items-center gap-2">
-              <div className="h-4 w-4 rounded border border-emerald-600 bg-emerald-500"></div>
+              <div className="h-4 w-4 rounded border border-green-600 bg-green-500"></div>
               <span className="text-gray-600">已完成（老師來源）</span>
             </div>
             <div className="flex items-center gap-2">
@@ -282,7 +282,7 @@ export default function SeatSelectionPage({
           <div className="text-sm">
             <p className="text-gray-600">
               已完成：
-              <span className="font-bold text-emerald-600 ml-1">{completedCount}</span>
+              <span className="font-bold text-green-600 ml-1">{completedCount}</span>
               <span className="mx-1 text-slate-300">|</span>
               未完成：
               <span className="font-bold text-slate-600 ml-1">{incompleteCount}</span>
