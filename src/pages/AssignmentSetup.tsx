@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, type ChangeEvent, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '@/components/ui/Button'
+import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import {
   BookOpen,
@@ -3082,47 +3083,46 @@ export default function AssignmentSetup({
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">2</span>
                       </div>
                       <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="assignmentDomain" className="block text-sm font-medium text-gray-700 mb-2">領域</label>
-                    <select
-                      id="assignmentDomain"
-                      data-tutorial="assignment-domain"
-                      value={assignmentDomain}
-                      onChange={(e) => setAssignmentDomain(e.target.value)}
-                      className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-colors ${modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-gray-300' : `bg-white ${!assignmentDomain ? 'border-amber-400' : 'border-gray-300'}`}`}
-                      disabled={isSubmitting || modalMode === 'edit'}
-                    >
-                      <option value="">請選擇</option>
-                      {domainOptions.map((d) => (
-                        <option key={d.value} value={d.value}>{d.label}</option>
-                      ))}
-                    </select>
-                    {modalMode === 'edit' && <p className="mt-1 text-xs text-slate-400">領域在建立後無法更改</p>}
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">答案卷模式</label>
-                    <select
+                <div>
+                  <label htmlFor="assignmentDomain" className="block text-sm font-medium text-gray-700 mb-2">領域</label>
+                  <select
+                    id="assignmentDomain"
+                    data-tutorial="assignment-domain"
+                    value={assignmentDomain}
+                    onChange={(e) => setAssignmentDomain(e.target.value)}
+                    className={`w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-colors ${modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed border-gray-300' : `bg-white ${!assignmentDomain ? 'border-amber-400' : 'border-gray-300'}`}`}
+                    disabled={isSubmitting || modalMode === 'edit'}
+                  >
+                    <option value="">請選擇</option>
+                    {domainOptions.map((d) => (
+                      <option key={d.value} value={d.value}>{d.label}</option>
+                    ))}
+                  </select>
+                  {modalMode === 'edit' && <p className="mt-1 text-xs text-slate-400">領域在建立後無法更改</p>}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">答案卷模式</label>
+                  {modalMode === 'edit' ? (
+                    <p className="text-sm text-gray-700 px-3 py-2.5 bg-slate-100 rounded-xl border border-gray-300">
+                      {createAnswerSheetMode === 'with_questions' ? '一般模式（題目帶答案）' : '答案卷模式（題本分開）'}
+                    </p>
+                  ) : (
+                    <AnswerSheetModeSelector
                       value={createAnswerSheetMode}
-                      onChange={(e) => setCreateAnswerSheetMode(e.target.value as 'with_questions' | 'answer_only')}
-                      disabled={isSubmitting || isExtractingAnswerKey || modalMode === 'edit'}
-                      className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-colors ${
-                        modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'
-                      }`}
-                    >
-                      <option value="with_questions">帶題目</option>
-                      <option value="answer_only">純答案卷（題本分開）</option>
-                    </select>
-                    {modalMode === 'edit' && <p className="mt-1 text-xs text-slate-400">答案卷模式在建立後無法更改</p>}
-                  </div>
+                      onChange={setCreateAnswerSheetMode}
+                      disabled={isSubmitting || isExtractingAnswerKey}
+                    />
+                  )}
+                  {modalMode === 'edit' && <p className="mt-1 text-xs text-slate-400">答案卷模式在建立後無法更改</p>}
                 </div>
 
               {/* 題本上傳（純答案卷模式） */}
               {createAnswerSheetMode === 'answer_only' && modalMode === 'create' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    上傳題本 <span className="text-xs text-slate-400">（學生看到的題目頁面，用於錯誤解說）</span>
+                <div className="rounded-xl border border-blue-200 bg-blue-50/30 p-4">
+                  <label className="block text-sm font-semibold text-blue-900 mb-1">
+                    📚 上傳題本 <span className="text-[11px] px-1.5 py-0.5 ml-1 bg-blue-100 text-blue-700 rounded font-medium">建議上傳</span>
                   </label>
+                  <p className="text-xs text-slate-500 mb-3">學生會看到的乾淨題目卷（沒有答案的版本）。用於 AI 產出錯題講解和領域診斷報告。</p>
                   <input
                     type="file"
                     accept="image/*,.pdf"
@@ -3141,11 +3141,14 @@ export default function AssignmentSetup({
                       }
                       setQuestionBookletBlobs(blobs)
                     }}
-                    className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
+                    className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200"
                   />
                   {questionBookletBlobs.length > 0 && (
-                    <p className="mt-1 text-xs text-green-600">已選取 {questionBookletBlobs.length} 頁題本圖</p>
+                    <p className="mt-1 text-xs text-green-600">✓ 已選取 {questionBookletBlobs.length} 頁題本圖</p>
                   )}
+                  <div className="mt-3 px-3 py-2 bg-amber-50 border-l-2 border-amber-400 rounded text-xs text-amber-800">
+                    💡 不上傳題本仍可批改，但學生只會收到通用引導（如「答案不正確，請仔細思考」），且無法產出領域診斷報告。
+                  </div>
                 </div>
               )}
 

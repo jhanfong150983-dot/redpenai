@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
+import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
 import { compressImageFile } from '@/lib/imageCompression'
@@ -200,7 +201,6 @@ export default function AnswerKeyUnifiedModal({
   const [docType] = useState<'worksheet' | 'exam'>(initialDocType)
   const [folder] = useState(initialFolder)
   const [answerSheetMode, setAnswerSheetMode] = useState<'with_questions' | 'answer_only'>(initialAnswerSheetMode)
-  const [questionBookletBlobs, setQuestionBookletBlobs] = useState<Blob[]>([])
 
   const metadataValid = title.trim() !== '' && domain !== ''
 
@@ -221,6 +221,23 @@ export default function AnswerKeyUnifiedModal({
   const [fileError, setFileError] = useState<string | null>(null)
   const [uploadedPages, setUploadedPages] = useState<Array<{ index: number; url: string; blob: Blob }>>([])
   const [pageItems, setPageItems] = useState<PageItem[]>([])
+
+  // ── Step 2 (answer_only only): 題本上傳 + 排序狀態 ────────────────────────
+  const bookletFileInputRef = useRef<HTMLInputElement>(null)
+  const bookletAddFileInputRef = useRef<HTMLInputElement>(null)
+  const [isProcessingBooklet, setIsProcessingBooklet] = useState(false)
+  const [bookletFileError, setBookletFileError] = useState<string | null>(null)
+  const [bookletPages, setBookletPages] = useState<Array<{ index: number; url: string; blob: Blob }>>([])
+  const [bookletPageItems, setBookletPageItems] = useState<PageItem[]>([])
+
+  useEffect(() => {
+    setBookletPageItems(bookletPages.map((p) => ({
+      id: `booklet-page-${p.index}`,
+      originalIndex: p.index,
+      url: p.url,
+      rotation: 0,
+    })))
+  }, [bookletPages])
 
   // Init page items from uploaded pages
   useEffect(() => {
@@ -353,6 +370,93 @@ export default function AnswerKeyUnifiedModal({
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uploadedPages])
+
+  // ── 題本 (booklet) upload handlers — 純答案卷模式專用 ───────────────────
+  const ingestBookletFiles = async (files: File[], appendMode = false) => {
+    if (files.length === 0) return
+    setBookletFileError(null)
+    setIsProcessingBooklet(true)
+    try {
+      const blobs: Blob[] = []
+      for (const file of files) {
+        const ft = getFileType(file)
+        if (ft === 'pdf') { blobs.push(...await convertPdfToImages(file, { scale: 1.5, quality: 0.7 })) }
+        else if (ft === 'image') { blobs.push(await fileToBlob(file)) }
+        else { setBookletFileError(`不支援的檔案格式：${file.name}`); return }
+      }
+      if (blobs.length === 0) { setBookletFileError('沒有可用的圖片'); return }
+      const compressed = await Promise.all(blobs.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
+      if (appendMode) {
+        const startIdx = bookletPages.length
+        const newPages = compressed.map((blob, i) => ({ index: startIdx + i, blob, url: URL.createObjectURL(blob) }))
+        setBookletPages(prev => [...prev, ...newPages])
+      } else {
+        bookletPages.forEach(p => URL.revokeObjectURL(p.url))
+        const pages = compressed.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) }))
+        setBookletPages(pages)
+      }
+    } catch (err) {
+      setBookletFileError(err instanceof Error ? err.message : '檔案處理失敗')
+    } finally {
+      setIsProcessingBooklet(false)
+    }
+  }
+
+  const handleBookletFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    await ingestBookletFiles(files, false)
+  }
+
+  const handleBookletAddFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    await ingestBookletFiles(files, true)
+  }
+
+  const handleBookletDeleteAll = () => {
+    bookletPages.forEach(p => URL.revokeObjectURL(p.url))
+    setBookletPages([])
+    setBookletPageItems([])
+  }
+
+  const handleBookletDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      setBookletPageItems((prev) => {
+        const oldIdx = prev.findIndex((i) => i.id === active.id)
+        const newIdx = prev.findIndex((i) => i.id === over.id)
+        return arrayMove(prev, oldIdx, newIdx)
+      })
+    }
+  }, [])
+
+  const handleBookletRotateOne = useCallback((id: string) => {
+    setBookletPageItems((prev) => prev.map((item) => item.id === id ? { ...item, rotation: (item.rotation + 90) % 360 } : item))
+  }, [])
+
+  const handleBookletDeletePage = useCallback((id: string) => {
+    setBookletPageItems((prev) => {
+      const next = prev.filter((item) => item.id !== id)
+      if (next.length === 0) {
+        bookletPages.forEach(p => URL.revokeObjectURL(p.url))
+        setBookletPages([])
+      }
+      return next
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookletPages])
+
+  // 切換到 with_questions 模式時清空題本（避免殘留）
+  useEffect(() => {
+    if (answerSheetMode === 'with_questions' && bookletPages.length > 0) {
+      bookletPages.forEach(p => URL.revokeObjectURL(p.url))
+      setBookletPages([])
+      setBookletPageItems([])
+      setBookletFileError(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answerSheetMode])
 
   // When page items change (reorder/rotate/delete), reset upload_order completion if it was set
   // Skip reset when update comes from post-extraction sync
@@ -680,13 +784,32 @@ export default function AnswerKeyUnifiedModal({
         totalScore: editingKey.questions.reduce((s, q) => s + (q.maxScore ?? 0), 0),
       }
       const domainValue = domain === '國語（測試中）' ? '國語' : (domain || '其他')
+
+      // 產出題本最終 blobs：依 bookletPageItems 排序並套用 rotation
+      let finalBookletBlobs: Blob[] = []
+      if (answerSheetMode === 'answer_only' && bookletPageItems.length > 0) {
+        const orderedBookletBlobs = bookletPageItems.map((item) => {
+          const orig = bookletPages.find((p) => p.index === item.originalIndex)!
+          return { blob: orig.blob, rotation: item.rotation }
+        })
+        try {
+          const { rotateImageBlob } = await import('../lib/imageCompression')
+          finalBookletBlobs = await Promise.all(orderedBookletBlobs.map(async ({ blob, rotation }) =>
+            rotation !== 0 ? await rotateImageBlob(blob, rotation) : blob
+          ))
+        } catch (err) {
+          console.warn('[UnifiedModal] booklet rotation failed, using originals:', err)
+          finalBookletBlobs = orderedBookletBlobs.map(({ blob }) => blob)
+        }
+      }
+
       await onSave(updatedKey, extractedImageBlobs, {
         title: title.trim(),
         domain: domainValue,
         docType,
         folder,
         answerSheetMode,
-        questionBookletBlobs,
+        questionBookletBlobs: finalBookletBlobs,
       })
     } finally {
       setIsSaving(false)
@@ -697,6 +820,7 @@ export default function AnswerKeyUnifiedModal({
   useEffect(() => {
     return () => {
       uploadedPages.forEach(p => URL.revokeObjectURL(p.url))
+      bookletPages.forEach(p => URL.revokeObjectURL(p.url))
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -872,69 +996,18 @@ export default function AnswerKeyUnifiedModal({
                     )}
                   </div>
 
-                  {/* 答案卷模式 — segmented control */}
+                  {/* 答案卷模式 — 卡片式選擇器 */}
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">答案卷模式</label>
                     {editMode ? (
-                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{answerSheetMode === 'with_questions' ? '帶題目' : '純答案卷（題本分開）'}</p>
+                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{answerSheetMode === 'with_questions' ? '一般模式（題目帶答案）' : '答案卷模式（題本分開）'}</p>
                     ) : (
-                      <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
-                        <button
-                          type="button"
-                          onClick={() => setAnswerSheetMode('with_questions')}
-                          className={`px-5 py-2 text-sm font-medium transition-colors ${
-                            answerSheetMode === 'with_questions'
-                              ? 'bg-green-600 text-white'
-                              : 'bg-white text-gray-600 hover:bg-gray-50'
-                          }`}
-                        >
-                          帶題目
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setAnswerSheetMode('answer_only')}
-                          className={`px-5 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
-                            answerSheetMode === 'answer_only'
-                              ? 'bg-green-600 text-white'
-                              : 'bg-white text-gray-600 hover:bg-gray-50'
-                          }`}
-                        >
-                          純答案卷（題本分開）
-                        </button>
-                      </div>
+                      <AnswerSheetModeSelector
+                        value={answerSheetMode}
+                        onChange={setAnswerSheetMode}
+                      />
                     )}
                   </div>
-
-                  {/* 題本上傳（純答案卷模式，僅新建） */}
-                  {!editMode && answerSheetMode === 'answer_only' && (
-                    <div>
-                      <label className="block text-base font-semibold text-gray-800 mb-1">
-                        上傳題本
-                      </label>
-                      <p className="text-xs text-slate-500 mb-2">學生看到的題目頁面，用於錯誤解說</p>
-                      <input
-                        type="file" accept="image/*,.pdf" multiple
-                        onChange={async (e) => {
-                          const files = Array.from(e.target.files || [])
-                          if (files.length === 0) return
-                          const blobs: Blob[] = []
-                          for (const file of files) {
-                            if (file.type === 'application/pdf') {
-                              const pages = await convertPdfToImages(file)
-                              blobs.push(...pages)
-                            } else {
-                              blobs.push(file)
-                            }
-                          }
-                          setQuestionBookletBlobs(blobs)
-                        }}
-                        className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-green-50 file:text-green-700 hover:file:bg-green-100"
-                      />
-                      {questionBookletBlobs.length > 0 && (
-                        <p className="mt-1 text-xs text-green-600">已選取 {questionBookletBlobs.length} 頁題本圖</p>
-                      )}
-                    </div>
-                  )}
 
                   {/* 提示 */}
                   {!editMode && !metadataValid && (
@@ -982,9 +1055,16 @@ export default function AnswerKeyUnifiedModal({
                     </>
                   ) : (
                     /* ── Create mode: full upload + reorder ── */
-                    <>
-                      {/* Upload area */}
-                      <div className="mb-4 shrink-0">
+                    <div className="flex flex-col gap-6">
+                      {/* ── 答案卷區塊（永遠顯示） ── */}
+                      <section className="rounded-xl border border-rose-200 bg-rose-50/30 p-4">
+                        <div className="flex items-baseline justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-rose-900">📑 答案卷</h3>
+                            <span className="text-[11px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-medium">必傳</span>
+                            <span className="text-xs text-gray-500">— 你自己寫好標準答案的版本</span>
+                          </div>
+                        </div>
                         <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />
                         <input ref={addFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleAddFiles} />
                         {pageItems.length === 0 ? (
@@ -992,7 +1072,7 @@ export default function AnswerKeyUnifiedModal({
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
                             disabled={isProcessingFiles}
-                            className="w-full border-2 border-dashed border-gray-300 rounded-xl py-12 flex flex-col items-center gap-3 text-gray-500 hover:border-green-400 hover:text-green-600 hover:bg-green-50/30 transition-colors"
+                            className="w-full border-2 border-dashed border-rose-300 rounded-xl py-10 flex flex-col items-center gap-3 text-rose-500 hover:border-rose-400 hover:bg-rose-50/60 transition-colors bg-white"
                           >
                             {isProcessingFiles ? (
                               <Loader2 className="w-8 h-8 animate-spin" />
@@ -1002,17 +1082,17 @@ export default function AnswerKeyUnifiedModal({
                             <span className="text-sm font-medium">
                               {isProcessingFiles ? '處理中…' : '點擊上傳答案卷圖片或 PDF'}
                             </span>
-                            <span className="text-xs text-gray-400">支援多檔上傳</span>
+                            <span className="text-xs text-rose-400/80">支援多檔上傳</span>
                           </button>
                         ) : (
-                          <div className="flex items-center justify-between">
+                          <div className="flex items-center justify-between mb-3">
                             <span className="text-sm text-gray-600">共 {pageItems.length} 頁，拖曳調整順序</span>
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
                                 onClick={() => addFileInputRef.current?.click()}
                                 disabled={isProcessingFiles}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                               >
                                 {isProcessingFiles ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                                 新增檔案
@@ -1020,7 +1100,7 @@ export default function AnswerKeyUnifiedModal({
                               <button
                                 type="button"
                                 onClick={handleDeleteAllPages}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
                               >
                                 <Trash2 className="w-3.5 h-3.5" /> 全部刪除
                               </button>
@@ -1030,11 +1110,8 @@ export default function AnswerKeyUnifiedModal({
                         {fileError && (
                           <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{fileError}</div>
                         )}
-                      </div>
 
-                      {/* Page order grid */}
-                      {pageItems.length > 0 && (
-                        <div className="flex-1 min-h-0 overflow-y-auto">
+                        {pageItems.length > 0 && (
                           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                             <SortableContext items={pageItems.map((i) => i.id)} strategy={rectSortingStrategy}>
                               <div
@@ -1047,9 +1124,86 @@ export default function AnswerKeyUnifiedModal({
                               </div>
                             </SortableContext>
                           </DndContext>
-                        </div>
+                        )}
+                      </section>
+
+                      {/* ── 題本區塊（僅 answer_only 模式顯示） ── */}
+                      {answerSheetMode === 'answer_only' && (
+                        <section className="rounded-xl border border-blue-200 bg-blue-50/30 p-4">
+                          <div className="flex items-baseline justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <h3 className="text-sm font-semibold text-blue-900">📚 題本</h3>
+                              <span className="text-[11px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">建議上傳</span>
+                              <span className="text-xs text-gray-500">— 學生看的乾淨題目卷</span>
+                            </div>
+                          </div>
+                          <input ref={bookletFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleBookletFileChange} />
+                          <input ref={bookletAddFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleBookletAddFiles} />
+                          {bookletPageItems.length === 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => bookletFileInputRef.current?.click()}
+                              disabled={isProcessingBooklet}
+                              className="w-full border-2 border-dashed border-blue-300 rounded-xl py-10 flex flex-col items-center gap-3 text-blue-500 hover:border-blue-400 hover:bg-blue-50/60 transition-colors bg-white"
+                            >
+                              {isProcessingBooklet ? (
+                                <Loader2 className="w-8 h-8 animate-spin" />
+                              ) : (
+                                <Upload className="w-8 h-8" />
+                              )}
+                              <span className="text-sm font-medium">
+                                {isProcessingBooklet ? '處理中…' : '點擊上傳題本圖片或 PDF'}
+                              </span>
+                              <span className="text-xs text-blue-400/80">支援多檔上傳</span>
+                            </button>
+                          ) : (
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-sm text-gray-600">共 {bookletPageItems.length} 頁，拖曳調整順序</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => bookletAddFileInputRef.current?.click()}
+                                  disabled={isProcessingBooklet}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                  {isProcessingBooklet ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                                  新增檔案
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={handleBookletDeleteAll}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" /> 全部刪除
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                          {bookletFileError && (
+                            <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{bookletFileError}</div>
+                          )}
+
+                          {bookletPageItems.length > 0 && (
+                            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleBookletDragEnd}>
+                              <SortableContext items={bookletPageItems.map((i) => i.id)} strategy={rectSortingStrategy}>
+                                <div
+                                  className="grid gap-4"
+                                  style={{ gridTemplateColumns: `repeat(${Math.min(bookletPageItems.length, 2)}, minmax(0, 1fr))` }}
+                                >
+                                  {bookletPageItems.map((item) => (
+                                    <SortablePageCard key={item.id} item={item} onRotate={handleBookletRotateOne} onDelete={handleBookletDeletePage} canDelete />
+                                  ))}
+                                </div>
+                              </SortableContext>
+                            </DndContext>
+                          )}
+
+                          <div className="mt-3 px-3 py-2 bg-amber-50 border-l-2 border-amber-400 rounded text-xs text-amber-800">
+                            💡 不上傳題本仍可批改與計分，但學生端只會收到「答案不正確，請仔細思考」這類通用引導，且無法產出領域診斷報告。
+                          </div>
+                        </section>
                       )}
-                    </>
+                    </div>
                   )}
 
                   {/* 已解析狀態：從 ③ 退回時顯示「重新解析」secondary（不改頁面也想重做用） */}
