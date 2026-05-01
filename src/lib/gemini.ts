@@ -922,7 +922,6 @@ function buildGlobalTaskAndFormat(): string {
     "orderMode": "strict",                   // strict | unordered
     "unorderedGroupId": "1",                 // orderMode=unordered 時必填（同組共用）
     "maxScore": 5,                           // 滿分
-    "answerBbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.05},
     "anchorHint": "比率列中有印刷括號（　）/180的空格，位於欄標題「三國演義」正下方",
     "tablePosition": {"col": 4, "row": 3, "totalCols": 8, "totalRows": 3},
 
@@ -990,26 +989,7 @@ function buildGlobalTaskAndFormat(): string {
 - 配分：圖片有就用，無則估計（是非/選擇 2-5 分，簡答 5-8 分，申論 8-15 分）。⚠️ AI 估計的配分必須為整數（禁止小數）。
 - rubricsDimensions 配分規則：每個 dimension 的 maxScore 必須為整數，且所有 dimension 的 maxScore 總和必須等於該題的 maxScore。將 maxScore 盡量均分到各 dimension；若無法整除，將餘數分配給第一個 dimension。例如：maxScore=4, 2 個 dimension → 各 2 分；maxScore=5, 2 個 dimension → 3 分 + 2 分。
 - totalScore = 所有 maxScore 總和
-- answerBbox：每題必填。**這是 grounded bbox**：先讀出 answer 欄位的文字，再標記你剛才視覺識別到那些文字／符號的所在位置。
-  - 規則：answerBbox 必須是你**已經看見並讀取**的文字的邊框，不是猜測答題區的位置。
-  - x/y 為左上角，w/h 為寬高，均為 0-1 之間的歸一化座標（相對於所在頁面圖片的寬高）。
-  - ⚠️ 絕對禁止輸出像素座標（如 x: 376, y: 313）。所有題型（包含 diagram_draw、diagram_color、word_problem、calculation）的 x/y/w/h 都必須在 0-1 範圍內。若不確定，寧可省略 answerBbox。
-  - 多頁試卷：bbox 相對於該題所在的那一張圖片。
-  - do NOT output placeholder or estimated coordinates — only output coordinates you can ground to specific visible characters.
-  - word_problem 例外：answerBbox 必須涵蓋**整個作答區域**——從最上方的列式/算式行，一路框到最末行的「答：___」或「A：___」。⚠️ 不可只框「答：」那一行，計算步驟也必須在框內。
-  - calculation 例外：answerBbox 必須涵蓋**所有算式行**——橫式、直式、最終數值結果，全部框在同一個 bbox 內。
-  - multi_fill 例外：每個子題的 answerBbox 對應你讀到那個格子內的文字位置（不含鄰格）。
-  - matching（group_context）：answerBbox 必須涵蓋**整個連連看區域**——左欄所有項目、右欄所有選項、以及中間所有連接線，全部框在同一個 bbox 內。不可只框右欄文字，連線本身就是答案，必須完整包含。
-  - 🚨 compound_*_with_explain 例外（含 compound_circle_with_explain / compound_check_with_explain / compound_writein_with_explain）：
-    answerBbox **必須涵蓋整題作答區**——從圈選/勾選/代號的位置（括號 ( ) 或方框 □ 的左上角）一路框到理由說明文字的**最末一行最末一字**（含逗號、句號等標點）。
-    ⚠️ 絕對禁止只框圈選區、絕對禁止只框理由區。複合題的 bbox 必須一起框 ⇒ 學生答案的兩個部分必須都在框內。
-    ⚠️ 自我檢查：bbox 內應同時看見「(選項/選項)」+「因為...」整段文字。如果只看到其中一個 → bbox 飄了，重新標。
-  - 🚨 compound_judge_with_correction 例外：bbox 必須涵蓋括號 ○/✗ 區 + 改正寫字區，兩個都要在框內。
-  - 🚨 compound_judge_with_explain 例外：bbox 必須涵蓋判斷括號（對/不對 或 ○/✗）+ 理由說明區（從「為什麼？」到理由文字最末字），兩個都要在框內。
-  - 🚨 compound_chain_table 例外：bbox 必須涵蓋整個 row（該行所有 cells），從第一格到最後一格框成一個 bbox。
-  - 🚨 multi_check_other 例外：bbox 必須涵蓋一列方框 □ + 「其他：___」開放欄，整題框。
-  ⚠️ 每題 bbox 根據實際視覺位置獨立標記，禁止為避免重疊而偏移座標。
-  ⚠️ 若該題的 answer 文字在圖上無法視覺定位，請省略 answerBbox。
+- answerBbox：**不需要輸出**。bbox 由獨立的 ANSWER_KEY_LOCATE 階段負責標記，本階段請專注在題目辨識、答案抽取、題型分類、配分。
 - anchorHint：每題必填（除 word_problem / calculation / map_symbol / grid_geometry / connect_dots / diagram_draw / diagram_color 外）。用 1-2 句中文描述此答案格附近最能唯一識別其位置的印刷特徵：
   - fill_blank 單格：描述緊鄰的題幹關鍵字或括號前後的文字，例如「括號前為「一定能，可能」，括號後接「大於1」」
   - fill_blank 多格（multi_fill / 表格子題）：優先描述格子本身的視覺外觀（印刷格式、括號樣式、預留空白），再以欄標題或列標題作為輔助定位。例如：「比率列中有印刷括號（　）/180的空格，位於欄標題「三國演義」正下方」「票數列中對應「金銀島」欄的空白數字格」。禁止只寫欄標題文字（如「欄標題為「三國演義」的格子」），因為欄標題本身不是答案格。
@@ -1026,7 +1006,7 @@ function buildGlobalTaskAndFormat(): string {
   3. 數水平格線（含上下外框）：從上到下依序編號 H1, H2, H3, ..., H(M+1)。M+1 條水平線 = M 列
   4. 第 C 欄 = V(C) 與 V(C+1) 之間的空間。第 R 列 = H(R) 與 H(R+1) 之間的空間
   5. totalCols = 垂直格線數 - 1。totalRows = 水平格線數 - 1
-  6. 目標格的 bbox = 左邊界 V(col), 上邊界 H(row), 寬 = V(col+1) - V(col), 高 = H(row+1) - H(row)
+  6. 目標格的位置 = 左邊界 V(col), 上邊界 H(row), 寬 = V(col+1) - V(col), 高 = H(row+1) - H(row)
 
   ⚠️ 自我驗證：數完後，讀取第 1 列各欄的標題文字，列出 col1=「X」, col2=「Y」, ... 的對應表，確認欄數與 totalCols 一致，且每個答案格的 col 對應到正確的欄標題。若不符，重新計數。
 
@@ -1084,7 +1064,7 @@ function buildGlobalTaskAndFormat(): string {
   - 黑色的格子是印刷結構，不屬於答案，不可含入 answer 欄位
 
 ⚠️ 詳細題型分類見下方 Decision Tree + Type Specs（共 25 種 type，分 4 個 bucket）。
-按「學生作答方式」分類，每個 type 有獨立的視覺特徵、answer 格式、bbox 規則。
+按「學生作答方式」分類，每個 type 有獨立的視覺特徵與 answer 格式。
 `.trim()
 }
 
@@ -1190,17 +1170,18 @@ Q2-D：哪一種組合？  [7 選 1]
 1. 先看顏色 → 找紅色內容（學生需填部分）
 2. 看答題區的視覺結構 → 括號／方框／底線／工作區
 3. 看學生實際動作 → 依決策樹判斷
-4. 套用該 type 的 bbox 規則與 answer 格式（見 Type Specs）
+4. 套用該 type 的 answer 格式（見 Type Specs）
 `.trim()
 }
 
-// Part 3：每個 type 的精確定義（含 bbox 規則）
-// 25 種 type，每個自帶視覺特徵 + answer 格式 + bbox 範圍
+// Part 3：每個 type 的精確定義
+// 25 種 type，每個自帶視覺特徵 + answer 格式
 function buildTypeSpecs(): string {
   return `
 【Type Specs — 25 種題型完整定義】
 
-每個 type 包含：視覺特徵 / 學生動作 / answer 欄位格式 / bbox 涵蓋範圍 / 範例。
+每個 type 包含：視覺特徵 / 學生動作 / answer 欄位格式 / 範例。
+（answerBbox 由 ANSWER_KEY_LOCATE 階段標記，不在本階段輸出）
 
 ═══════════════ Bucket A：精確比對 ═══════════════
 
@@ -1208,74 +1189,62 @@ function buildTypeSpecs(): string {
   視覺：題號前空括號 (   )；括號外另有 A/B/C/D 等選項清單
   動作：學生在空括號內寫一個代號
   answer：單一代號 — "A" / "甲" / "①" / "1"
-  bbox：緊框括號 + 小邊距（25-35% 頁寬），不框題幹
 
 ▸ multi_choice 「多選選擇題」
   視覺：題號前空括號；題目說「可複選」「選出所有正確的」
   動作：學生在空括號內寫多個代號（逗號分隔）
   answer：多代號用 "," 連接 — "A,C" / "①,③"
-  bbox：緊框括號 + 小邊距
 
 ▸ circle_select_one 「圈選題」
   視覺：括號內預印多個選項，以 ／ 或 ， 分隔（如 (同意／不同意)、(大於／等於／小於)）
   動作：學生用圈/底線/劃掉等筆跡標記其中一個選項
   answer：被標記選項的文字 — "同意" / "等於"（純文字，不含括號或分隔符）
-  bbox：必含全部印刷選項文字 + 圈選筆跡，不能只框筆跡
 
 ▸ circle_select_many 「多選圈選題」
   視覺：同 circle_select_one，但學生標記多個選項
   動作：圈/標記多個預印選項
   answer：多選項用 "," 連接 — "同意,大於"
-  bbox：同 circle_select_one
 
 ▸ single_check 「勾選題」
   視覺：一列方框 □ + 各對應選項文字（如 □父親 □母親 □祖父）
   動作：學生在一個 □ 內打勾/打叉/塗黑
   answer：1-based 位置編號 — "1" / "2" / "3"...（純數字，不含 □、勾號、選項文字）
-  bbox：整列方框 + 對應選項文字
 
 ▸ multi_check 「多選勾選題」
   視覺：一列方框 □ + 選項；題目說「請勾出所有」
   動作：學生在多個 □ 內打勾
   answer：多位置編號用 "," 連接 — "1,3"
-  bbox：整列方框 + 選項
 
 ▸ true_false 「是非題」
   視覺：單一括號 (   ) 接在敘述句後
   動作：學生在括號內手寫 ○ / ✗ / 對 / 錯 / 是 / 否
   answer：統一 "○" 或 "✗"
-  bbox：緊框括號
 
 ▸ fill_blank 「填空題」
   視覺：____ ／ □ ／ 表格儲存格 + 紅色手寫文字
   動作：學生在空格內填寫一個值（含單位）
   answer：完整正解含單位 — "15 公分" / "彰" / "ㄓㄤ"
-  bbox：緊框該空格 + 紅色文字
   ⚠️ 直式分數格特例：上下格紅色 → "上格/下格"（如 "3/4"）；只有上格紅 → "上格值"
 
 ▸ multi_fill 「多項填空題」
   視覺：多個空白框（非 □ 勾選框）+ 紅色代號
   動作：學生在多個格子內填代號（如 ㄅ、ㄇ、ㄉ），順序無關
   answer：代號集合 — "ㄅ、ㄇ、ㄉ"（每子題各自一個 answer）
-  bbox：每子題獨立 bbox，緊框該格
 
 ▸ matching 「連連看」
   視覺：左欄項目 + 右欄選項 + 紅色連線
   動作：學生連線（1對1 / 1對多 / 多對多）
   answer：每子題填對應右欄文字 — "2公尺/秒"
-  bbox：整個連連看區（左欄 + 右欄 + 連線）為單一 bbox
 
 ▸ ordering 「排序題」
   視覺：一列待排序項目 + 紅色序號 1-N
   動作：學生在格內填序號表示順序
   answer：序號集合 — "3,1,4,2"
-  bbox：整體一個 bbox（涵蓋所有排序格）
 
 ▸ mark_in_text 「圈詞題」
   視覺：一段文章 + 紅色圈/底線散布其中（如「請在文中圈出所有名詞」）
   動作：學生在文中圈出特定詞語
   answer：列出所有被圈詞語 — "桌子,椅子,書本"
-  bbox：涵蓋整個文章區域，可框大一點以含上下文
 
 ▸ calculation 「計算題」（A bucket — 只看最終答案，過程交 Accessor 自行判斷）
   視覺：印刷算式或情境 + 工作區 + 紅色橫式/直式算式（無「答：」答句行）
@@ -1283,7 +1252,6 @@ function buildTypeSpecs(): string {
   answer：純數值正解（不含單位）— "360" / "3/4" / "8.75"
   ⚠️ 不需要 rubricsDimensions（過程交 Accessor 處理）
   ⚠️ 即使括號內只有單一值，只要學生在下方寫了算式步驟，仍歸 calculation
-  bbox：從第一行算式 → 框到最終答案，所有算式行（橫式 + 直式 + 結果）整個範圍
 
 ▸ word_problem 「應用題」（A bucket — 只看最終答案，過程交 Accessor 自行判斷）
   視覺：情境敘述 + 工作區 + 紅色算式 + 「答：___」或「A：___」答句行
@@ -1293,7 +1261,6 @@ function buildTypeSpecs(): string {
        不對：「答：8.75 公里/時」（不要寫 prefix）
   ⚠️ 不需要 rubricsDimensions（過程交 Accessor 處理）
   ⚠️ 與 calculation 差別：是否有「答：」答句行
-  bbox：從第一行算式 → 框到最末「答：」行整個範圍
 
 ═══════════════ Bucket B：容多元 ═══════════════
 
@@ -1301,13 +1268,11 @@ function buildTypeSpecs(): string {
   視覺：空格 + 紅色答案，題目可接受多種寫法（造詞、近義詞）
   動作：學生填一個值，可有多種接受答案
   欄位：referenceAnswer = 範例答案；acceptableAnswers = 所有可接受答案陣列
-  bbox：緊框該空格
 
 ▸ map_fill 「填圖題」
   視覺：地圖 + 多個標記位置 + 紅色名稱
   動作：學生在地圖上多個位置填寫地名/國名
   欄位：referenceAnswer 描述位置-名稱對應；acceptableAnswers 列出所有正確名稱
-  bbox：整張地圖 + 周邊標記
 
 ═══════════════ Bucket C：Rubric ═══════════════
 
@@ -1315,7 +1280,6 @@ function buildTypeSpecs(): string {
   視覺：大空白區 + 紅色文字段落
   動作：學生寫文字自由說明
   欄位：referenceAnswer + rubricsDimensions（至少兩維，如「核心結論」+「作答依據」）
-  bbox：整個答題區
 
   ⚠️ calculation / word_problem 已搬到 Bucket A（精確比對，只看最終答案）。詳見 Bucket A 區段。
 
@@ -1324,21 +1288,18 @@ function buildTypeSpecs(): string {
   動作：學生在地圖某位置畫符號
   欄位：referenceAnswer + rubricsDimensions: [符號正確性, 位置精準度]
   referenceAnswer 範例：「颱風符號，位置：23.5°N 緯線以南、121°E 經線以東的格子（右下格）」
-  bbox：整張地圖 + 題幹
 
 ▸ grid_geometry 「格線幾何繪製題」
   視覺：格線紙 + 紅色繪製的幾何圖形（三角形、平行四邊形等）
   動作：學生在格線紙上依條件畫幾何圖形
   欄位：referenceAnswer + rubricsDimensions: [圖形正確性, 邊長/角度精準度]
   referenceAnswer 範例：「圖形：正方形，大小：邊長 3 格，位置：從第 1 列第 2 格開始」
-  bbox：整個格線區 + 題幹
 
 ▸ connect_dots 「連點繪圖題」
   視覺：點陣 + 紅色連線形成圖形
   動作：學生把指定點連起來形成圖形
   欄位：referenceAnswer + rubricsDimensions: [連線正確性, 圖形完整性]
   referenceAnswer 範例：「連線：1→2→3→4→5，形成圖形：Z 字形」
-  bbox：整個點陣區 + 題幹
 
 ▸ diagram_draw 「圖表繪製題」
   視覺：預印格線/圓 + 紅色繪製
@@ -1347,14 +1308,12 @@ function buildTypeSpecs(): string {
   referenceAnswer 範例：
    - 圓餅圖：「番茄汁 2/5, 紅蘿蔔汁 1/10, 蘋果汁 3/20, 葡萄汁 1/4」（每扇形「標籤 比率」）
    - 長條圖：「一月 50, 二月 30, 三月 45, 四月 60」（每長條「標籤 高度/數值」）
-  bbox：整個圖表繪製區 + 題幹
 
 ▸ diagram_color 「塗色題」
   視覺：預印圖形 + 紅色塗色
   動作：學生在預印圖形上塗色（如分數塗色）
   欄位：referenceAnswer + rubricsDimensions: [塗色比例, 塗色位置, 塗色完整性]
   referenceAnswer 範例：「塗色：第 1 個圓完整，第 2 個圓左側 2/3，第 3 個圓未塗」
-  bbox：整個塗色區 + 題幹
 
 ═══════════════ Bucket D：複合題（部分之間有依存關係）═══════════════
 
@@ -1378,10 +1337,6 @@ function buildTypeSpecs(): string {
     rubricsDimensions:
       [{name:"圈選", criteria:"必須圈選正確選項"},
        {name:"理由", criteria:"說明的理由能支持正確選項，邏輯合理"}]
-  🚨 bbox：必須從括號的左上角 → 框到理由文字最末一字（含標點）。
-        bbox 內必須同時包含「(選項/選項)」+「因為...」整段。
-        ❌ 禁止只框括號（漏掉理由）；❌ 禁止只框理由（漏掉括號）。
-        ✅ 自我檢查：框出來能看到兩個部分嗎？看不到 → 重新標。
 
 ▸ compound_check_with_explain 「勾選說明題」
   視覺：方框 □ 列 + 勾選 + 下方理由區
@@ -1389,7 +1344,6 @@ function buildTypeSpecs(): string {
   欄位寫法同 compound_circle_with_explain（自選/必選兩種情境）
   answer = 勾選位置編號（必選時）or "" or "自選"（自選時）
   referenceAnswer = "[選項]，因為[理由]"
-  🚨 bbox：必須從第一個方框 □ → 框到理由文字最末一字。bbox 內同時包含「□ 選項 □ 選項...」+「因為...」。
 
 ▸ compound_writein_with_explain 「寫入說明題」
   視覺：空括號 + 代號 + 下方理由區
@@ -1397,20 +1351,17 @@ function buildTypeSpecs(): string {
   欄位寫法同 compound_circle_with_explain
   answer = 代號（必選時）or ""（自選時）
   referenceAnswer = "[選項]，因為[理由]"
-  🚨 bbox：必須從空括號 ( ) → 框到理由文字最末一字。bbox 內同時包含括號 + 寫的代號 + 整段理由。
 
 ▸ multi_check_other 「複選含其他題」
   視覺：一列 □ + 最後一個 □ 後接「其他：___」開放欄
   動作：勾多個固定選項 + 在「其他」欄寫開放文字（若勾了其他）
   欄位：answer = 固定選項中被勾的位置編號（不含其他）；
         referenceAnswer = 其他欄寫的文字（若勾且有寫，去掉「答案僅供參考」備注）
-  🚨 bbox：必須從第一個方框 → 框到「其他：___」開放欄末端。bbox 內包含全部方框 + 其他欄。
 
 ▸ compound_judge_with_correction 「判斷改正題」
   視覺：敘述句 + 括號 ○/✗ + 改正空白
   動作：對的打 ○、錯的打 ✗，錯的還要**改正錯的部分**（改正取決於判斷）
   欄位：answer = "○" 或 "✗"；referenceAnswer = 正確改寫文字（改錯字／改錯數值）
-  🚨 bbox：必須從括號 → 框到改正寫字區末端。bbox 內包含括號 ○/✗ + 改正文字。
 
 ▸ compound_judge_with_explain 「判斷說明題」
   視覺：敘述句 + 「對不對？」括號（學生寫對/不對 或 ○/✗）+ 「為什麼？」括號或空白（學生寫理由）
@@ -1430,8 +1381,6 @@ function buildTypeSpecs(): string {
     rubricsDimensions:
       [{name:"判斷", criteria:"必須判斷為[正確答案]"},
        {name:"理由", criteria:"理由能支持正確判斷，邏輯合理"}]
-  🚨 bbox：必須從第一個括號（對不對？）→ 框到理由文字最末一字。
-        bbox 內必須同時包含「(對/不對)」+「為什麼？(理由...)」整段。
 
 ▸ compound_chain_table 「表格連動題」
   視覺：表格格式，多個 cell（每 cell 不同欄位類型，如人物/事件/影響）
@@ -1452,7 +1401,6 @@ function buildTypeSpecs(): string {
         例：name="具體事件"，criteria="舉出**所填人物**做的、與[類別]相關的具體事件"
             name="影響"，criteria="說明**該事件**對臺灣的具體影響"
   orderMode：通常是 strict（列由印刷的「類別」label 固定）
-  bbox：整 row 框起來（涵蓋該行所有 cell）
   範例（社會表格題）：
     題目：「請完成下面的表格（貢獻 / 人物 / 具體事件 / 影響）」
     第 1 列「經濟發展」→ id="5-1", questionCategory="compound_chain_table"
@@ -1469,7 +1417,7 @@ function buildTypeSpecs(): string {
 ❌ 禁止用語言/學科知識補答案
 ❌ 禁止修正錯字、不美化字跡
 ❌ 禁止創造圖中沒有的內容
-⚠️ 寧可標 "?" 或省略 answerBbox，也不要猜測。
+⚠️ 寧可標 "?"，也不要猜測。
 `.trim()
 }
 
@@ -1649,7 +1597,6 @@ function buildDomainRefinements(domain: string = '其他'): string {
     1.「選擇」 criteria: "有填入清單中任一有效項目即可"
     2.「理由說明」 criteria: "說明所選項目的影響或理由，內容合理且與所選相符"
   ⚠️ 任選題鐵律：每行 criteria 不可包含特定項目名稱（見上方通用鐵律）
-  ⚠️ answerBbox 必須涵蓋整行（選擇欄 + 說明欄）
 
 ▸ 圖表代號填入題（multi_fill 特化）：
   - 在地圖/流程圖/示意圖的空白框中填入代號（非地名，如 ㄅ、ㄆ、ㄇ 或 甲、乙）
@@ -1748,7 +1695,7 @@ function buildAnswerKeyPrompt(domain?: string): string {
   const typeSpecs = buildTypeSpecs()
   const domainRefinements = buildDomainRefinements(domain || '其他')
 
-  // 順序：通則 → 決策樹 → 25 type specs（含 bbox） → 領域加成
+  // 順序：通則 → 決策樹 → 25 type specs → 領域加成
   return [taskAndFormat, decisionTree, typeSpecs, domainRefinements].filter(Boolean).join('\n\n')
 }
 
@@ -4107,8 +4054,8 @@ export async function extractAnswerKeyFromImages(
   console.log('📥 [AnswerKey raw response]', text)
   let result = normalizeAnswerKeyShortAnswerDimensions(JSON.parse(text) as AnswerKey, opts?.domain)
 
-  // 像素 bbox 偵測：AI 有時對大面積題型（diagram_draw/diagram_color/word_problem）回傳像素座標而非 0-1 正規化
-  // 任何 x/y/w/h > 2 即視為像素座標，清除 answerBbox 避免排序錯亂
+  // 像素 bbox 防禦：locate AI 偶爾會無視 prompt 回傳像素座標。
+  // 任何 x/y/w/h > 2 即視為像素座標，清除 answerBbox 避免前端 overlay 飄到畫面外。
   for (const q of result.questions) {
     const b = q.answerBbox
     if (b && (b.x > 2 || b.y > 2 || b.w > 2 || b.h > 2)) {
