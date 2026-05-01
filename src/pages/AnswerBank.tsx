@@ -634,7 +634,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         <button type="button" onClick={() => handleEdit(t)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-blue-300 hover:text-blue-600" title="編輯答案卷">
           <Pencil className="h-4 w-4" />
         </button>
-        <button type="button" onClick={() => void handleDelete(t.id)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-red-300 hover:text-red-600" title="刪除答案卷">
+        <button type="button" onClick={() => void handleDelete(t.id)} aria-label="刪除答案卷" className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-red-300 hover:text-red-600" title="刪除答案卷">
           <Trash2 className="h-4 w-4" />
         </button>
       </div>

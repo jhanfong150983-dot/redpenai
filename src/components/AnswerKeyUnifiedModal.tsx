@@ -77,11 +77,11 @@ function SortablePageCard({ item, onRotate, onDelete, canDelete }: { item: PageI
           <img src={item.url} alt={`第 ${item.originalIndex + 1} 頁`} className="w-full h-full object-contain" style={{ transform: `rotate(${item.rotation}deg)` }} draggable={false} />
         </div>
       </div>
-      <button type="button" onClick={(e) => { e.stopPropagation(); onRotate(item.id) }} className="absolute top-9 right-1 p-1.5 rounded-full bg-white/90 border border-gray-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-100" title="旋轉 90°">
+      <button type="button" onClick={(e) => { e.stopPropagation(); onRotate(item.id) }} aria-label="旋轉 90 度" className="absolute top-9 right-1 p-1.5 rounded-full bg-white/90 border border-gray-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-100" title="旋轉 90°">
         <RotateCw className="w-3.5 h-3.5 text-gray-600" />
       </button>
       {canDelete && (
-        <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(item.id) }} className="absolute top-9 left-1 p-1.5 rounded-full bg-white/90 border border-red-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50" title="刪除此頁">
+        <button type="button" onClick={(e) => { e.stopPropagation(); onDelete(item.id) }} aria-label="刪除此頁" className="absolute top-9 left-1 p-1.5 rounded-full bg-white/90 border border-red-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50" title="刪除此頁">
           <Trash2 className="w-3.5 h-3.5 text-red-500" />
         </button>
       )}
@@ -1217,7 +1217,7 @@ export default function AnswerKeyUnifiedModal({
                                 <NumericInput className="w-16 px-2 py-1 border border-gray-300 rounded text-right" value={selectedQuestion.maxScore} allowDecimal onChange={(v) => updateField(selectedIdx, 'maxScore', v)} />
                               </div>
                             )}
-                            <button type="button" onClick={() => removeQuestion(selectedIdx)} className="mt-4 p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500">
+                            <button type="button" onClick={() => removeQuestion(selectedIdx)} aria-label="刪除此題" className="mt-4 p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
@@ -1267,7 +1267,7 @@ export default function AnswerKeyUnifiedModal({
                                 {(selectedQuestion.acceptableAnswers ?? []).map((ans, ansIdx) => (
                                   <div key={ansIdx} className="flex items-center gap-2 mb-1">
                                     <input className="flex-1 px-2 py-1 border border-gray-300 rounded" value={ans} onChange={(e) => updateAcceptableAnswer(selectedIdx, ansIdx, e.target.value)} />
-                                    <button type="button" onClick={() => removeAcceptableAnswer(selectedIdx, ansIdx)} className="p-1 text-gray-400 hover:text-red-500"><X className="w-3 h-3" /></button>
+                                    <button type="button" onClick={() => removeAcceptableAnswer(selectedIdx, ansIdx)} aria-label="移除此答案" className="p-1 text-gray-400 hover:text-red-500"><X className="w-3 h-3" /></button>
                                   </div>
                                 ))}
                               </div>
@@ -1299,7 +1299,7 @@ export default function AnswerKeyUnifiedModal({
                                         {scoringMode !== 'unscored' && (
                                           <NumericInput className="w-14 px-2 py-1 border border-gray-300 rounded text-right" value={dim.maxScore} allowDecimal onChange={(v) => updateDimension(selectedIdx, dIdx, 'maxScore', v)} />
                                         )}
-                                        <button type="button" onClick={() => removeDimension(selectedIdx, dIdx)} className="p-1 text-gray-400 hover:text-red-500"><X className="w-3 h-3" /></button>
+                                        <button type="button" onClick={() => removeDimension(selectedIdx, dIdx)} aria-label="移除此維度" className="p-1 text-gray-400 hover:text-red-500"><X className="w-3 h-3" /></button>
                                       </div>
                                       <textarea rows={2} placeholder="評分標準" className="w-full px-2 py-1 border border-gray-300 rounded text-xs" value={dim.criteria ?? ''} onChange={(e) => updateDimension(selectedIdx, dIdx, 'criteria', e.target.value)} />
                                     </div>

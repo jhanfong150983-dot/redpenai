@@ -201,7 +201,7 @@ export default function ImportConfigDialog({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
           <h2 className="text-lg font-semibold text-gray-900">📂 匯入設定</h2>
-          <button type="button" onClick={onCancel} className="p-2 rounded-full hover:bg-gray-100">
+          <button type="button" onClick={onCancel} aria-label="關閉" className="p-2 rounded-full hover:bg-gray-100">
             <X className="w-5 h-5 text-gray-500" />
           </button>
         </div>
