@@ -1783,7 +1783,7 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
 3. **section 標題**指出大致題型範疇，但每格的 questionCategory 最終由「答案內容」決定。
 4. **空格也要建立題目項**（answer 為空），讓老師之後手動填入。
 
-## 1. questionCategory 規則（必須使用以下 4 種之一）
+## 1. questionCategory 規則（必須使用以下 5 種之一）
 
 【規則優先順序】section header 優先於答案內容；答案內容只在 section 不能決定時使用。
 
@@ -1793,6 +1793,7 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
   → 這類題目用 referenceAnswer 欄位（不是 answer），並必填 rubricsDimensions
   → 例外：若該 section 中某題答案明顯是單一字母（A-E）或選項，仍可用 single_choice
 - 「單選題」「多選題」「多重選擇題」「複選」section → 對應 single_choice / multi_choice
+- 「是非題」「判斷題」「True/False」「正誤判斷」section → 對應 true_false
 - 「填充題」「填空題」「非選擇題」「非選」section → 對應 fill_blank
 
 ### 1B. 答案內容輔助判斷（當 section 不能決定時）
@@ -1800,16 +1801,26 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
 |---|---|---|
 | 單一英文字母 A–E | single_choice | "C"、"A" |
 | 多個字母（逗號分隔或連寫） | multi_choice | "B,C"、"BC"、"A、D" |
+| ○ / ✓ / 對 / Y / T 等「正確」符號 | true_false | "○"、"對"、"T" |
+| ✗ / × / 錯 / N / F 等「錯誤」符號 | true_false | "✗"、"錯"、"F" |
 | 純數字、公式、含單位的數值 | fill_blank | "240A"、"4/3 B"、"1.0×10⁻²"、"μ₀i/4(1/a-1/b)" |
 | 多行推導、長段文字、解釋 | short_answer | "因 a+b=0 故..." |
 | 空白 | 看 section：簡答／混合 → short_answer；其他 → fill_blank | "" |
 
+⚠️ true_false 與 single_choice 區分：T/F 兩個字母在「是非題」section 中是 true_false（"T"=對、"F"=錯）；在「單選題」section 中可能是選項代號 → single_choice。**section header 永遠優先**。
+
 ### 1C. 欄位選擇規則（重要）
-- single_choice / multi_choice / fill_blank → 答案放 answer 欄位
+- single_choice / multi_choice / fill_blank / true_false → 答案放 answer 欄位
 - short_answer → 答案放 referenceAnswer 欄位（不是 answer），且必填 rubricsDimensions
 - 即使老師寫的 short_answer 文字很短（如「一樣大」「正確」），仍是 referenceAnswer
 
-⚠️ 名稱必須完全一致：single_choice / multi_choice / fill_blank / short_answer。
+### 1D. true_false 答案標準化
+不論老師寫什麼符號，answer 欄位請統一輸出：
+- 對 / 正確 / ○ / ✓ / Y / T → 統一輸出 "○"
+- 錯 / 不正確 / ✗ / × / N / F → 統一輸出 "✗"
+（讓批改階段不用處理多種符號變體）
+
+⚠️ 名稱必須完全一致：single_choice / multi_choice / fill_blank / short_answer / true_false。
    禁止使用 fill_variants、circle_select_one、compound_* 或其他舊系統名稱。
 
 ## 2. 題號規則
@@ -1891,6 +1902,15 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
       "maxScore": 5,
       "answerBbox": {"x": 0.085, "y": 0.345, "w": 0.155, "h": 0.067},
       "anchorHint": "位於『二、多重選擇題』表格第 1 格"
+    },
+    {
+      "id": "3-1",
+      "idPath": ["3","1"],
+      "questionCategory": "true_false",
+      "answer": "○",
+      "maxScore": 2,
+      "answerBbox": {"x": 0.135, "y": 0.430, "w": 0.085, "h": 0.060},
+      "anchorHint": "位於『三、是非題』表格第 1 格（老師寫「對」→ 統一輸出「○」）"
     },
     {
       "id": "3-2",
