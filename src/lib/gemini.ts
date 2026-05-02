@@ -4750,14 +4750,29 @@ async function locateAnswerOnlyBboxesAcrossPages(
 // ─── answer_only 專用 classify（client-side per-question 視覺搜尋）─────────────
 
 function buildClassifyAnswerOnlyPrompt(questions: import('./db').AnswerKeyQuestion[]): string {
-  const specs = questions.map(q => ({
-    questionId: q.id,
-    anchorHint: q.anchorHint ?? '',
-    referenceAnswer: (typeof (q as any).answer === 'string' && (q as any).answer)
+  const specs = questions.map(q => {
+    const segments = String(q.id).split('-')
+    const sectionIdx = parseInt(segments[0], 10)
+    const headerNum = parseInt(segments[1], 10)
+    const isSubCell = segments.length >= 3
+    const subCellIdx = isSubCell ? parseInt(segments[2], 10) : undefined
+    // count siblings to get subCellTotal
+    const prefix = segments.slice(0, 2).join('-')
+    const subCellTotal = isSubCell
+      ? questions.filter(qq => String(qq.id).startsWith(prefix + '-')).length
+      : undefined
+    const refAnswer = (typeof (q as any).answer === 'string' && (q as any).answer)
       || (typeof q.referenceAnswer === 'string' && q.referenceAnswer)
-      || '',
-    questionCategory: q.questionCategory ?? ''
-  }))
+      || ''
+    return {
+      questionId: q.id,
+      sectionIndex: sectionIdx,
+      tableHeaderNumber: headerNum,
+      ...(isSubCell ? { subCellIndex: subCellIdx, subCellTotal } : {}),
+      referenceAnswer: refAnswer,
+      questionCategory: q.questionCategory ?? ''
+    }
+  })
 
   return `You are stage CLASSIFY (answer_only mode).
 任務：在這張「純答題卡」學生答案圖片上，為每一個格子找出 answerBbox，並讀出該格的學生字跡。
@@ -4769,23 +4784,34 @@ ${JSON.stringify(specs)}
 
 ═══════════════ 逐格操作流程（每題必做，不可跳過）═══════════════
 對每一題，依序執行：
-Step 1【導航】用 anchorHint 找到對應的 section 和格子位置（如「一、單選題第 5 格」）
-Step 2【閱讀】眼睛移到那個格子，讀出格子裡學生寫了什麼 → 填入 observed（空白格填 ""）
-Step 3【定框】根據「那個格子」的印刷邊框畫出 answerBbox
 
-⚠️ 關鍵：Step 2 強制要你真正看到那格的內容，之後的 bbox 才是視覺定位，不是算術推算。
-   observed 與 referenceAnswer 不同是正常的——學生可能答錯或空白。
+Step 1【找 Section】找到頁面上第 sectionIndex 個大題區塊的表格
+  （答題卡通常有「一、單選題」「二、多選題」「三、非選題」等區塊，依序對應 sectionIndex 1, 2, 3...）
+
+Step 2【找欄位】在該表格最上方的 header row（印刷有數字的那一列），
+  視覺搜尋印刷數字「tableHeaderNumber」，定位到那一欄
+
+Step 3【閱讀】眼睛往下移到 tableHeaderNumber 欄位的答案格，讀出學生寫了什麼 → 填入 observed
+  - 空白格 → observed = ""
+  - 若有 subCellIndex / subCellTotal：該欄底下被分成 subCellTotal 個子格，
+    取第 subCellIndex 個（1=最左或最上）
+  - referenceAnswer 只是參考，學生可能答錯或空白，observed 以實際看到的為準
+
+Step 4【定框】框出 Step 3 看到的那個格子的 □ 邊界 → answerBbox
+
+⚠️ 核心原則：你必須先在圖上找到印刷數字「tableHeaderNumber」，才能確定欄位位置。
+   禁止用「section 寬度 ÷ 欄數」算術推算 x 座標 — 每欄必須視覺定位。
 
 ═══════════════ bbox 規則（box 方框型）═══════════════
 - bbox 框 □ 整個邊界 + 內部學生筆跡（或空格子的印刷邊框）
 - 四邊各向外推 3-5% 頁寬（避免切到 □ 邊框）
-- 禁止框到題號 header 列（如表格第一列的「1, 2, 3...12」印刷題號）
+- 禁止框到 header row（數字列）本身
 - 禁止框到相鄰格子的內容
-- 空白格：仍然框出格子視覺邊界，嚴禁漂移到相鄰有字的格子
+- 空白格仍須框出格子邊界，嚴禁漂移到相鄰有字的格子
 
-🚨 Sub-cell：ID 4 段（如 "3-1-1"）= 父欄的子格，比主欄窄很多
-- 3-1-1 在左、3-1-2 在中、3-1-3 在右（或上/中/下，視版面而定）
-- 每個子格 bbox 必須各自獨立
+🚨 Sub-cell（subCellIndex 存在時）：
+- 父欄被切成 subCellTotal 個子格，每個子格比主欄窄很多
+- 子格各自獨立框，不可給相同的 bbox
 
 ═══════════════ 座標格式（強制）═══════════════
 - bbox = { "x": 0.12, "y": 0.34, "w": 0.20, "h": 0.08 }
@@ -4797,9 +4823,9 @@ Step 3【定框】根據「那個格子」的印刷邊框畫出 answerBbox
 回傳純 JSON，不要 Markdown：
 {
   "locations": [
-    { "questionId": "1-10", "observed": "A", "answerBbox": { "x": 0.12, "y": 0.34, "w": 0.08, "h": 0.06 } },
-    { "questionId": "1-11", "observed": "E", "answerBbox": { "x": 0.20, "y": 0.34, "w": 0.08, "h": 0.06 } },
-    { "questionId": "1-12", "observed": "",  "answerBbox": { "x": 0.28, "y": 0.34, "w": 0.08, "h": 0.06 } }
+    { "questionId": "1-10", "observed": "A", "answerBbox": { "x": 0.70, "y": 0.13, "w": 0.08, "h": 0.08 } },
+    { "questionId": "1-11", "observed": "E", "answerBbox": { "x": 0.79, "y": 0.13, "w": 0.08, "h": 0.08 } },
+    { "questionId": "3-1-1", "observed": "0",  "answerBbox": { "x": 0.10, "y": 0.55, "w": 0.04, "h": 0.07 } }
   ]
 }`.trim()
 }
