@@ -4747,6 +4747,132 @@ async function locateAnswerOnlyBboxesAcrossPages(
   return merged
 }
 
+// ─── answer_only 專用 classify（client-side per-question 視覺搜尋）─────────────
+
+function buildClassifyAnswerOnlyPrompt(questions: import('./db').AnswerKeyQuestion[]): string {
+  const specs = questions.map(q => ({
+    questionId: q.id,
+    anchorHint: q.anchorHint ?? '',
+    referenceAnswer: (typeof (q as any).answer === 'string' && (q as any).answer)
+      || (typeof q.referenceAnswer === 'string' && q.referenceAnswer)
+      || '',
+    questionCategory: q.questionCategory ?? ''
+  }))
+
+  return `You are stage CLASSIFY (answer_only mode).
+任務：在這張「純答題卡」學生答案圖片上，為每一個格子找出 answerBbox。
+
+這張卡只有答案格和題號，沒有題幹文字。每格可能有學生手寫字跡，也可能空白。
+
+Question Specs:
+${JSON.stringify(specs)}
+
+═══════════════ 搜尋方式（逐題）═══════════════
+對每一題：
+1. 用 anchorHint 確認格子在哪個 section、哪個位置（如「一、單選題第 5 格」）
+2. referenceAnswer 是標準答案提示，學生可能寫類似字跡、也可能寫錯、也可能空白 — 僅供確認位置參考
+3. 不論格子是否有字跡，一律框出格子的 □ 邊界
+
+⚠️ 空白格：學生沒寫也必須框出格子的視覺位置，嚴禁因格子空白就漂移到相鄰有字的格子。
+
+═══════════════ bbox 規則（box 方框型，全部格子通用）═══════════════
+- bbox 框 □ 整個邊界 + 內部學生筆跡（或空格子的印刷邊框）
+- 四邊各向外推 3-5% 頁寬（避免切到 □ 邊框）
+- 禁止框到題號 header 列（如表格第一列的「1, 2, 3...12」印刷題號）
+- 禁止框到相鄰格子的內容
+
+🚨 Sub-cell：ID 4 段（如 "3-1-1"）= 父欄的子格，比主欄窄很多
+- 3-1-1 在左、3-1-2 在中、3-1-3 在右（或上/中/下，視版面而定）
+- 每個子格 bbox 必須各自獨立，絕對不可給相同的框
+
+═══════════════ 座標格式（強制）═══════════════
+- bbox = { "x": 0.12, "y": 0.34, "w": 0.20, "h": 0.08 }
+- (x,y) = 左上角；全部為 0-1 之間的歸一化座標
+- ⚠️ 絕對禁止輸出像素座標（x/y/w/h 必須在 0-1 範圍內）
+- 視覺定位失敗 → 直接 omit answerBbox（不要硬給空框）
+
+═══════════════ Output ═══════════════
+回傳純 JSON，不要 Markdown：
+{
+  "locations": [
+    { "questionId": "1-1", "answerBbox": { "x": 0.12, "y": 0.34, "w": 0.08, "h": 0.06 } }
+  ]
+}`.trim()
+}
+
+async function classifyAnswerOnlyBboxesOnPage(
+  questions: import('./db').AnswerKeyQuestion[],
+  imageBlob: Blob
+): Promise<Map<string, NormalizedBbox>> {
+  const bboxMap = new Map<string, NormalizedBbox>()
+  if (questions.length === 0) return bboxMap
+
+  const prompt = buildClassifyAnswerOnlyPrompt(questions)
+  const imageBase64 = await blobToBase64(imageBlob)
+  const mimeType = imageBlob.type || 'image/jpeg'
+  const parts: GeminiRequestPart[] = [
+    prompt,
+    { inlineData: { mimeType, data: imageBase64 } }
+  ]
+  try {
+    const text = (await generateGeminiText(currentModelName, parts, {
+      routeKey: 'answer_key.locate'
+    })).replace(/```json|```/g, '').trim()
+    const parsed = JSON.parse(text) as { locations?: Array<{ questionId: string; answerBbox?: unknown }> }
+    if (!Array.isArray(parsed?.locations)) return bboxMap
+    for (const loc of parsed.locations) {
+      const qId = String(loc?.questionId ?? '').trim()
+      if (!qId) continue
+      if (!isValidLocateBbox(loc.answerBbox)) {
+        if (loc.answerBbox) {
+          console.warn(`[classify.answer_only] dropped invalid bbox for ${qId}:`, loc.answerBbox)
+        }
+        continue
+      }
+      bboxMap.set(qId, loc.answerBbox as NormalizedBbox)
+    }
+  } catch (err) {
+    console.warn('[classify.answer_only] page failed:', err instanceof Error ? err.message : err)
+  }
+  return bboxMap
+}
+
+async function classifyAnswerOnlyBboxesAcrossPages(
+  questions: import('./db').AnswerKeyQuestion[],
+  imageBlobs: Blob[]
+): Promise<Map<string, NormalizedBbox>> {
+  // answer_only classify：pageIndex 固定為 0（學生答題卡通常單張）
+  const byPage = new Map<number, import('./db').AnswerKeyQuestion[]>()
+  for (const q of questions) {
+    const pageIdx = typeof q.pageIndex === 'number' ? q.pageIndex : 0
+    if (!byPage.has(pageIdx)) byPage.set(pageIdx, [])
+    byPage.get(pageIdx)!.push(q)
+  }
+
+  const startedAt = Date.now()
+  console.log(`📍 [classify.answer_only] 開始並行定位 ${byPage.size} 頁...`)
+
+  const results = await Promise.all(
+    Array.from(byPage.entries()).map(async ([pageIdx, pageQuestions]) => {
+      const blob = imageBlobs[pageIdx]
+      if (!blob) {
+        console.warn(`[classify.answer_only] page ${pageIdx} 無對應圖片，跳過`)
+        return new Map<string, NormalizedBbox>()
+      }
+      return classifyAnswerOnlyBboxesOnPage(pageQuestions, blob)
+    })
+  )
+
+  const merged = new Map<string, NormalizedBbox>()
+  for (const m of results) {
+    for (const [k, v] of m) merged.set(k, v)
+  }
+
+  const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
+  console.log(`📍 [classify.answer_only] 完成：${merged.size}/${questions.length} 題定位成功（${elapsed}s）`)
+  return merged
+}
+
 // Canvas 裁切：對每題 bbox，在對應頁面圖上裁出 jpeg data URL
 async function cropAnswerKeyQuestionsOnCanvas(
   questions: import('./db').AnswerKeyQuestion[],
@@ -5095,6 +5221,26 @@ export async function gradePhaseA(
   const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
 
+  // answer_only：先在 client 做 per-question 視覺 bbox 偵測，結果傳為 bboxOverrides
+  // → server 收到後直接跳過 AI classify，用這批 bbox 做 crop → read
+  let bboxOverrides: Array<{ questionId: string; answerBbox: NormalizedBbox | null; corrected?: boolean }> | undefined
+  if (answerSheetMode === 'answer_only' && normalizedAnswerKey.questions.length > 0) {
+    try {
+      const bboxMap = await classifyAnswerOnlyBboxesAcrossPages(
+        normalizedAnswerKey.questions,
+        [submissionImageBlob]
+      )
+      bboxOverrides = normalizedAnswerKey.questions.map(q => ({
+        questionId: q.id,
+        answerBbox: bboxMap.get(q.id) ?? null,
+        corrected: true
+      }))
+      console.log(`📍 [classify.answer_only] client-side 完成：${bboxMap.size}/${normalizedAnswerKey.questions.length} 題 → bboxOverrides`)
+    } catch (err) {
+      console.warn('[classify.answer_only] 失敗，fallback 到 server AI classify:', err instanceof Error ? err.message : err)
+    }
+  }
+
   const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'phase-a')
   const imageBase64 = await blobToBase64(compressed)
   const mimeType = compressed.type || submissionImageBlob.type || 'image/jpeg'
@@ -5110,7 +5256,8 @@ export async function gradePhaseA(
     ...(assignmentId ? { assignmentId } : {}),
     ...(submissionId ? { submissionId } : {}),
     ...(classifyCorrections && classifyCorrections.length > 0 ? { classifyCorrections } : {}),
-    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
+    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {}),
+    ...(bboxOverrides ? { bboxOverrides } : {})
   })
 
   let response = await fetch(geminiProxyUrl, {
