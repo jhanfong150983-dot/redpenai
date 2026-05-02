@@ -1836,53 +1836,19 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
 - "位於『三、非選題』第 1 大題的子格 (2)"
 - "位於『四、混合題』第 1 格"
 
-## 4. answerBbox（必填）— 一律用 box（方框）格式
+## 4. answerBbox — 本階段不輸出
+bbox 定位由後續的 locate.answer_only 階段視覺搜尋決定。
+❌ 禁止在 questions 裡輸出 answerBbox 欄位；輸出了也會被系統忽略。
 
-⚠️ **重要心智模型**：答題卡的每一格 = 一個 fill_blank box 格子，不論 questionCategory 是什麼。
-即使 questionCategory 是 single_choice / multi_choice / short_answer，bbox 規則都一樣：「框格子的方框邊界 + 內部寫的內容」。
+## 4B. ⚠️ Sub-cell ID 結構（重要）
 
-【box 方框型 bbox 規則】
-- bbox 框 □ 整個邊界 + 內部紅字（含算式中的 ×/+/− 等運算符）
-- 🚨 邊距：bbox **不要緊貼 □**，四邊各向外推 3-5% 頁寬，避免切到 □ 邊框或紅字尾巴
-- 對 short_answer 多行作答區：bbox 範圍要包含整個寫字區塊（縱向可能較高）
+當表格中某個主欄底下被細分成多個子格時，ID 使用 4 段格式：
+- "3-1-1", "3-1-2", "3-1-3" → section 3，大題 1，子格 1/2/3
+- idPath 對應：["3","1","1"]、["3","1","2"]、["3","1","3"]
+- anchorHint 要標明「位於『三、非選題』第 1 大題的子格 (1)/(2)/(3)」
 
-範例：
-  □ 邊界 x=0.40~0.48, y=0.20~0.28
-  → bbox.x = 0.40 - 0.04 = 0.36
-  → bbox.x + w = 0.48 + 0.04 = 0.52，所以 bbox.w = 0.16
-  → bbox.y = 0.20 - 0.02 = 0.18
-  → bbox.y + h = 0.28 + 0.02 = 0.30，所以 bbox.h = 0.12
-
-🚨 共通規則：
-- 印刷標題、題號 header（如表格第一列的「1, 2, 3, ..., 12」）必須在 bbox **之外**
-- 鄰格的內容必須在 bbox **之外**
-- 同一 section 同 row 的 bbox 高度應該一致（除非 short_answer 縱向較高）
-
-❌ 常見 bug：
-- bbox 太小（h < 0.02）→ 切到 □ 邊框上，crop 出來只有一條線
-- bbox 含到上方 header row 的題號數字 → 切錯題
-- bbox 跨進鄰格 → 切到別人的答案
-
-## 4B. ⚠️ Sub-cell 子格寬度推算（極重要 — 算錯整列會集體飄移）
-
-當你看到題目 ID 有 3 個或更多 segment、且共享前綴，就是 sub-cell（父欄被切成的子格）。
-
-**判斷規則**：
-- "3-1-1", "3-1-2", "3-1-3" → 共享前綴 "3-1" → 它們是父欄 3-1 的 3 個子格
-- "3-2", "3-3", "3-4" → 都是 2-segment → 它們是 3-1 的同層 siblings（主欄）
-- 父欄 "3-1" 的視覺寬度 = sibling "3-2", "3-3" 等的視覺寬度（header 上面看就知道，每個 header 主欄等寬）
-
-**bbox 寬度計算**：
-- 子格寬度 = 父欄寬度 / N（N = 子格數，從卷子數出來：父欄底下被分成幾格）
-- 範例：section 3 有 6 個 header（1, 2, 3, 4, 5, 6），每欄寬 0.15。header「1」底下分 3 個子格 → 每子格寬 = 0.15 / 3 = 0.05
-
-**子格切分方向**（看卷子）：
-- 橫切（左→右排列）：3-1-1 左、3-1-2 中、3-1-3 右；y 相同、寬度 = 父欄寬/N
-- 直切（上→下排列）：3-1-1 上、3-1-2 中、3-1-3 下；x 相同、寬度 = 父欄寬度
-
-**🚨 嚴禁**：把 sub-cells（"3-1-1", "3-1-2", "3-1-3"）當成「跟主欄同寬」的獨立格子。
-這會把 3 個 0.15 寬的格子塞進 1 個主欄的位置，擠壓後面 3-2、3-3 等的 bbox，
-整列向右系統性漂移，造成 read 階段全部讀錯。
+🚨 嚴禁把 sub-cell 子格（3-1-1 等）視為與主欄同層（誤用 3-1, 3-2, 3-3 來表示）。
+   正確做法：父欄若本身也有答案用 3-1；子格用 3-1-1, 3-1-2, 3-1-3。
 
 ## 5. maxScore 推論
 - 優先從 section 標題抓「每題 X 分」（例：「一、單選題（12題 每題4分 共48分）」→ 每題 4 分）
@@ -1912,7 +1878,6 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
       "questionCategory": "single_choice",
       "answer": "C",
       "maxScore": 4,
-      "answerBbox": {"x": 0.113, "y": 0.239, "w": 0.078, "h": 0.081},
       "anchorHint": "位於『一、單選題』表格第 1 格"
     },
     {
@@ -1921,7 +1886,6 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
       "questionCategory": "multi_choice",
       "answer": "B,C",
       "maxScore": 5,
-      "answerBbox": {"x": 0.085, "y": 0.345, "w": 0.155, "h": 0.067},
       "anchorHint": "位於『二、多重選擇題』表格第 1 格"
     },
     {
@@ -1930,7 +1894,6 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
       "questionCategory": "true_false",
       "answer": "○",
       "maxScore": 2,
-      "answerBbox": {"x": 0.135, "y": 0.430, "w": 0.085, "h": 0.060},
       "anchorHint": "位於『三、是非題』表格第 1 格（老師寫「對」→ 統一輸出「○」）"
     },
     {
@@ -1939,7 +1902,6 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
       "questionCategory": "fill_blank",
       "answer": "240A",
       "maxScore": 5,
-      "answerBbox": {"x": 0.245, "y": 0.620, "w": 0.13, "h": 0.065},
       "anchorHint": "位於『三、非選題』表格第 2 格"
     },
     {
@@ -1952,7 +1914,6 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
         {"name": "結論表達", "maxScore": 2, "criteria": "明確寫出比較結論"}
       ],
       "maxScore": 4,
-      "answerBbox": {"x": 0.30, "y": 0.78, "w": 0.30, "h": 0.10},
       "anchorHint": "位於『四、混合題』第 2 格"
     },
     {
@@ -1965,7 +1926,6 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
         {"name": "結論表達", "maxScore": 2, "criteria": "得到具體結果並標注單位"}
       ],
       "maxScore": 4,
-      "answerBbox": {"x": 0.62, "y": 0.78, "w": 0.30, "h": 0.10},
       "anchorHint": "位於『四、混合題』第 3 格"
     }
   ],
@@ -4664,6 +4624,129 @@ async function locateAnswerKeyBboxesAcrossPages(
   return merged
 }
 
+// ─── answer_only 專用 locate ────────────────────────────────────────────────
+
+function buildAnswerKeyLocateAnswerOnlyPrompt(questions: import('./db').AnswerKeyQuestion[]): string {
+  const specs = questions.map(q => ({
+    questionId: q.id,
+    anchorHint: q.anchorHint ?? '',
+    answerText: (typeof (q as any).answer === 'string' && (q as any).answer)
+      || (typeof q.referenceAnswer === 'string' && q.referenceAnswer)
+      || '',
+    questionCategory: q.questionCategory ?? ''
+  }))
+
+  return `You are stage ANSWER_KEY_LOCATE (answer_only mode).
+任務：在這張「純答題卡」圖片上，為每一個格子找出 answerBbox — 包含答案文字的方框格子。
+
+Question Specs:
+${JSON.stringify(specs)}
+
+═══════════════ 搜尋方式（逐題）═══════════════
+對每一題：
+1. 用 anchorHint 確認格子在哪個 section、哪個位置（如「一、單選題第 5 格」）
+2. 用 answerText 在格子裡確認目視到對應的答案文字
+3. 框出這個格子的 □ 邊界
+
+═══════════════ bbox 規則（box 方框型，全部格子通用）═══════════════
+- bbox 框 □ 整個邊界 + 內部答案文字
+- 四邊各向外推 3-5% 頁寬（避免切到 □ 邊框）
+- 禁止框到題號 header 列（如表格第一列的「1, 2, 3...12」印刷題號）
+- 禁止框到相鄰格子的內容
+
+🚨 Sub-cell 注意：若題目 ID 是 4 段（如 "3-1-1"），表示它是父欄的子格：
+- 子格比主欄窄很多（主欄寬 / 子格數）
+- 3-1-1 在左、3-1-2 在中、3-1-3 在右（或上/中/下，視版面而定）
+- 每個子格的 bbox 必須各自獨立，絕對不可給相同的框
+
+═══════════════ 座標格式（強制）═══════════════
+- bbox = { "x": 0.12, "y": 0.34, "w": 0.20, "h": 0.08 }
+- (x,y) = 左上角；全部為 0-1 之間的歸一化座標
+- ⚠️ 絕對禁止輸出像素座標（x/y/w/h 必須在 0-1 範圍內）
+- 視覺定位失敗 → 直接 omit answerBbox（不要硬給空框）
+
+═══════════════ Output ═══════════════
+回傳純 JSON，不要 Markdown：
+{
+  "locations": [
+    { "questionId": "1-1", "answerBbox": { "x": 0.12, "y": 0.34, "w": 0.08, "h": 0.06 } }
+  ]
+}`.trim()
+}
+
+async function locateAnswerOnlyBboxesOnPage(
+  questions: import('./db').AnswerKeyQuestion[],
+  imageBlob: Blob
+): Promise<Map<string, NormalizedBbox>> {
+  const bboxMap = new Map<string, NormalizedBbox>()
+  if (questions.length === 0) return bboxMap
+
+  const prompt = buildAnswerKeyLocateAnswerOnlyPrompt(questions)
+  const imageBase64 = await blobToBase64(imageBlob)
+  const mimeType = imageBlob.type || 'image/jpeg'
+  const parts: GeminiRequestPart[] = [
+    prompt,
+    { inlineData: { mimeType, data: imageBase64 } }
+  ]
+  try {
+    const text = (await generateGeminiText(currentModelName, parts, {
+      routeKey: 'answer_key.locate'
+    })).replace(/```json|```/g, '').trim()
+    const parsed = JSON.parse(text) as { locations?: Array<{ questionId: string; answerBbox?: unknown }> }
+    if (!Array.isArray(parsed?.locations)) return bboxMap
+    for (const loc of parsed.locations) {
+      const qId = String(loc?.questionId ?? '').trim()
+      if (!qId) continue
+      if (!isValidLocateBbox(loc.answerBbox)) {
+        if (loc.answerBbox) {
+          console.warn(`[locate.answer_only] dropped invalid bbox for ${qId}:`, loc.answerBbox)
+        }
+        continue
+      }
+      bboxMap.set(qId, loc.answerBbox as NormalizedBbox)
+    }
+  } catch (err) {
+    console.warn('[locate.answer_only] page failed:', err instanceof Error ? err.message : err)
+  }
+  return bboxMap
+}
+
+async function locateAnswerOnlyBboxesAcrossPages(
+  questions: import('./db').AnswerKeyQuestion[],
+  imageBlobs: Blob[]
+): Promise<Map<string, NormalizedBbox>> {
+  // answer_only 模式：pageIndex 已被上游強制設為 0（單張）或正確值（多張），直接信任
+  const byPage = new Map<number, import('./db').AnswerKeyQuestion[]>()
+  for (const q of questions) {
+    const pageIdx = typeof q.pageIndex === 'number' ? q.pageIndex : 0
+    if (!byPage.has(pageIdx)) byPage.set(pageIdx, [])
+    byPage.get(pageIdx)!.push(q)
+  }
+
+  const startedAt = Date.now()
+  console.log(`📍 [locate.answer_only] 開始並行定位 ${byPage.size} 頁...`)
+
+  const results = await Promise.all(
+    Array.from(byPage.entries()).map(async ([pageIdx, pageQuestions]) => {
+      const blob = imageBlobs[pageIdx]
+      if (!blob) {
+        console.warn(`[locate.answer_only] page ${pageIdx} 無對應圖片，跳過`)
+        return new Map<string, NormalizedBbox>()
+      }
+      return locateAnswerOnlyBboxesOnPage(pageQuestions, blob)
+    })
+  )
+
+  const merged = new Map<string, NormalizedBbox>()
+  for (const m of results) {
+    for (const [k, v] of m) merged.set(k, v)
+  }
+
+  const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
+  console.log(`📍 [locate.answer_only] 完成：${merged.size}/${questions.length} 題定位成功（${elapsed}s）`)
+  return merged
+}
+
 // Canvas 裁切：對每題 bbox，在對應頁面圖上裁出 jpeg data URL
 async function cropAnswerKeyQuestionsOnCanvas(
   questions: import('./db').AnswerKeyQuestion[],
@@ -4855,24 +4938,17 @@ export async function extractAnswerKeyFromImages(
   console.log(`✅ 成功提取 ${result.questions.length} 題，總分 ${result.totalScore}`)
 
   // ─── Phase 2: locate（並行 per-page）+ Phase 3: canvas crop ──────────────
-  // answer_only 模式：skip locate，直接信任 extract 階段給的 answerBbox（box-format 規則已在 extract prompt）
-  // 一般模式：仍走 locate（25 type 規則靠紅字當錨點，比 extract 的 grid 推算更準）
+  // answer_only 模式：走 locateAnswerOnlyBboxesAcrossPages（per-question 視覺搜尋，anchorHint + answerText 雙錨）
+  // 一般模式：走 locateAnswerKeyBboxesAcrossPages（25 type 規則）
   if (result.questions.length > 0 && answerSheetImages.length > 0) {
     try {
       const bboxMap = isAnswerOnly
-        ? new Map<string, NormalizedBbox>(
-            result.questions
-              .filter(q => q.answerBbox)
-              .map(q => [q.id, q.answerBbox as NormalizedBbox])
-          )
+        ? await locateAnswerOnlyBboxesAcrossPages(result.questions, answerSheetImages)
         : await locateAnswerKeyBboxesAcrossPages(result.questions, answerSheetImages)
-      // 寫回 answerBbox（answer_only 已經有了，這裡 no-op；一般模式用 locate 結果覆寫）
+      // 寫回 answerBbox
       for (const q of result.questions) {
         const bbox = bboxMap.get(q.id)
         if (bbox) q.answerBbox = bbox
-      }
-      if (isAnswerOnly) {
-        console.log(`✂️ [extract.answer_only] skip locate, use ${bboxMap.size}/${result.questions.length} bboxes from extract`)
       }
       // canvas 裁切 → cropImageUrl
       const cropMap = await cropAnswerKeyQuestionsOnCanvas(result.questions, bboxMap, answerSheetImages)
