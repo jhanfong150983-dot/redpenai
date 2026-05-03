@@ -515,7 +515,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [uploadDrafts, setUploadDrafts] = useState<Record<string, File[]>>({})
   const [previewedDraftSignatures, setPreviewedDraftSignatures] = useState<Record<string, string>>({})
   const [previewModal, setPreviewModal] = useState<PreviewModalState>(null)
-  const [previewCoverage, setPreviewCoverage] = useState<Record<number, import('../lib/coverageCheck').CoverageResult>>({}) // 每頁滿版狀態
   const [retakePageIdx, setRetakePageIdx] = useState<number | null>(null) // 重拍模式：要取代的頁面 index
   const [cameraMode, setCameraMode] = useState<StudentCameraMode>(null)
   const [cameraAssignmentId, setCameraAssignmentId] = useState('')
@@ -706,27 +705,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     () => previewFiles.map((file) => URL.createObjectURL(file)),
     [previewFiles]
   )
-
-  // 預覽開啟時，檢查每頁的滿版狀態
-  useEffect(() => {
-    if (!previewModal || previewFiles.length === 0) {
-      setPreviewCoverage({})
-      return
-    }
-    (async () => {
-      const { checkCoverage } = await import('../lib/coverageCheck')
-      type CR = import('../lib/coverageCheck').CoverageResult
-      const results: Record<number, CR> = {}
-      for (let i = 0; i < previewFiles.length; i++) {
-        try {
-          results[i] = await checkCoverage(previewFiles[i])
-        } catch {
-          results[i] = { ok: true, top: 'aligned', bottom: 'aligned' } // 檢查失敗就當通過
-        }
-      }
-      setPreviewCoverage(results)
-    })()
-  }, [previewFiles, previewModal])
 
   const rotatePreviewImage = useCallback(
     async (direction: 'clockwise' | 'counterclockwise') => {
@@ -1958,29 +1936,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       {previewModal && previewFiles.length > 0 && (() => {
         const assignment = uploadAssignments.find(a => a.id === previewModal.assignmentId)
         const orientations = assignment?.pageOrientations || []
-        const hasAnyError = previewFiles.some((_, i) => previewCoverage[i] && previewCoverage[i].ok === false)
         const currentIdx = previewModal.index
         const expectedOri = orientations[currentIdx]
-        const currentCoverage = previewCoverage[currentIdx]
-        const hasCoverageError = currentCoverage && currentCoverage.ok === false
-
-        // 把 top/bottom 的狀態轉成具體訊息
-        const buildCoverageMessage = (): string => {
-          if (!currentCoverage || currentCoverage.ok) return ''
-          const topShort = currentCoverage.top === 'short'
-          const bottomShort = currentCoverage.bottom === 'short'
-          if (topShort && bottomShort) {
-            return '⚠ 作業上下都未到引導框，請拉近裝置或對齊框線後重拍'
-          }
-          if (topShort) {
-            return '⚠ 作業上方未到引導框，請對齊上方框線後重拍'
-          }
-          if (bottomShort) {
-            return '⚠ 作業下方未到引導框，請對齊下方框線後重拍'
-          }
-          return '⚠ 作業未對齊引導框，請重新拍攝'
-        }
-        const coverageMessage = buildCoverageMessage()
 
         return (
           <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 p-4">
@@ -2004,16 +1961,12 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 </span>
               </div>
 
-              {/* 方向提示 + 滿版狀態 */}
-              <div className={`px-4 py-2 text-center border-b ${
-                hasCoverageError ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'
-              }`}>
-                <span className={`text-xs font-medium ${hasCoverageError ? 'text-red-700' : 'text-blue-700'}`}>
-                  {hasCoverageError
-                    ? coverageMessage
-                    : expectedOri
-                      ? `第 ${currentIdx + 1} 頁應為${expectedOri === 'portrait' ? '直拍 📱' : '橫拍 📱'}，如方向不對請使用下方旋轉按鈕調整`
-                      : `第 ${currentIdx + 1} 頁 ✓`
+              {/* 方向提示 */}
+              <div className="px-4 py-2 text-center border-b bg-blue-50 border-blue-200">
+                <span className="text-xs font-medium text-blue-700">
+                  {expectedOri
+                    ? `第 ${currentIdx + 1} 頁應為${expectedOri === 'portrait' ? '直拍 📱' : '橫拍 📱'}，如方向不對請使用下方旋轉按鈕調整`
+                    : `第 ${currentIdx + 1} 頁 ✓`
                   }
                 </span>
               </div>
@@ -2078,11 +2031,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                       setPreviewModal(null)
                       openCamera('upload', previewModal.assignmentId)
                     }}
-                    className={`inline-flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium transition-colors ${
-                      hasCoverageError
-                        ? 'bg-red-600 text-white hover:bg-red-700'
-                        : 'border-2 border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
+                    className="inline-flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium transition-colors border-2 border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                   >
                     <Camera className="h-4 w-4" />
                     重新拍攝第 {currentIdx + 1} 頁
@@ -2100,9 +2049,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         className={`w-8 h-8 rounded-full text-xs font-semibold border-2 transition-colors ${
                           i === currentIdx
                             ? 'border-blue-500 bg-blue-500 text-white scale-110'
-                            : previewCoverage[i] && previewCoverage[i].ok === false
-                              ? 'border-red-400 bg-red-50 text-red-700'
-                              : 'border-green-400 bg-green-50 text-green-700'
+                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
                         }`}
                       >
                         {i + 1}
@@ -2115,7 +2062,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 <div className="flex justify-center">
                   <button
                     type="button"
-                    disabled={hasAnyError}
                     onClick={() => {
                       if (!previewModal) return
                       setPreviewedDraftSignatures((prev) => ({
@@ -2126,9 +2072,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                       }))
                       setPreviewModal(null)
                     }}
-                    className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                    className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
                   >
-                    {hasAnyError ? '請先修正問題頁面' : '確認完成，準備送出'}
+                    確認完成，準備送出
                   </button>
                 </div>
               </div>
