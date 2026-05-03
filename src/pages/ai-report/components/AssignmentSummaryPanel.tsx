@@ -86,8 +86,9 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry }: Assig
 
   if (!data) {
     return (
-      <div className="card" style={{ padding: '1.5rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
-        沒有可用的報告
+      <div className="card" style={{ padding: '1.5rem', fontSize: '0.875rem' }}>
+        <div style={{ color: 'var(--muted)', marginBottom: onRetry ? '0.75rem' : 0 }}>尚未生成作業診斷性快報</div>
+        {onRetry && <RetryButton onRetry={onRetry} label='生成報告' />}
       </div>
     )
   }
@@ -122,8 +123,12 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry }: Assig
 
   if (data.status === 'failed') {
     return (
-      <div className="card" style={{ padding: '1.5rem', color: 'var(--muted)', fontSize: '0.875rem' }}>
-        沒有可用的報告
+      <div className="card" style={{ padding: '1.5rem', fontSize: '0.875rem' }}>
+        <div style={{ color: '#b91c1c', fontWeight: 600, marginBottom: '0.25rem' }}>報告生成失敗</div>
+        {data.error_message && (
+          <div style={{ color: 'var(--muted)', marginBottom: onRetry ? '0.75rem' : 0 }}>{data.error_message}</div>
+        )}
+        {onRetry && <RetryButton onRetry={onRetry} label='重新生成' />}
       </div>
     )
   }

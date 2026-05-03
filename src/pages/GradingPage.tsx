@@ -3788,18 +3788,8 @@ export default function GradingPage({
               setIsGrading(true)
               // 等待所有背景 Accessor Promise 完成
               await Promise.all(backgroundPhaseBPromises.current)
-              // 生成報告（切換 phase 讓 overlay 顯示「生成報告」階段）
-              console.log('✅ 全部 Accessor 完成，生成報告')
-              setGradingPhase('report_running')
-              setGradingMessage('正在生成作業學情報告…')
-              try {
-                await fetch('/api/data/refresh-assignment-summary', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  credentials: 'include',
-                  body: JSON.stringify({ assignmentId: assignment?.id })
-                })
-              } catch { /* 報告失敗不影響批改 */ }
+              // 報告生成已與批改分離，由使用者在 AI Report 頁面手動觸發
+              console.log('✅ 全部 Accessor 完成')
               setBatchPhaseAEntries([])
               setGradingPhase('idle')
               setIsGrading(false)
