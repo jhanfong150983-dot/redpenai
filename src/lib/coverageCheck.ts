@@ -24,39 +24,48 @@ function stats(values: number[]): { mean: number; stdDev: number } {
   return { mean, stdDev: Math.sqrt(variance) }
 }
 
+function isPaperLike(area: { mean: number; stdDev: number }): boolean {
+  // 白邊：亮且均勻
+  if (area.mean > 200 && area.stdDev < 12) return true
+  // 紙張內文：亮（紙張白底）+ 大反差（黑墨內文）
+  if (area.mean > 160 && area.stdDev > 35) return true
+  return false
+}
+
 function checkEdge(line: number[], padding: number[]): boolean {
-  if (line.length === 0) return true
-  if (padding.length === 0) return true
+  if (line.length === 0 || padding.length === 0) return true
 
   const l = stats(line)
   const p = stats(padding)
 
-  // 紙張邊的特徵：比背景亮 + 比背景單純（白邊一片，環境總是有紋理/光影）
-  // 條件 A（亮度）：框線比框外明顯亮 → 是紙張邊
-  const brighter = l.mean - p.mean > 10
-  // 條件 B（單純度）：框線比框外明顯單純 → 是紙張邊
-  const moreUniform = p.stdDev - l.stdDev > 10
+  // padding（框外 2% 安全距離）必須是背景。
+  // 如果 padding 也是紙張 → 代表紙張超出引導框線了 → 不過
+  if (isPaperLike(p)) return false
 
-  // 任一成立即視為紙張在框線位置（背景幾乎不可能同時比白紙更亮且更單純）
-  return brighter || moreUniform
+  // 框線位置必須是紙張。
+  // 如果是紙張 → 對齊成功 → 過；否則（仍是背景）→ 紙張沒到框線 → 不過
+  return isPaperLike(l)
 }
 
 /**
- * 檢查紙張是否觸及引導框上下緣。
+ * 檢查紙張是否「剛好」觸及引導框上下緣。
  *
- * 拍照裁切時保留 PAD=2% 安全距離，因此裁切圖的：
- *   - 最外圍 ~2.35% 是「框外背景區」（padding）
- *   - ~2.35% 處那條線就是學生看到的引導框線
+ * 理想裁切圖長相：
+ *   [2.35% 背景（PAD）]
+ *   [─── 框線 ───]
+ *   [    紙張    ]
+ *   [─── 框線 ───]
+ *   [2.35% 背景（PAD）]
  *
- * 利用紙張邊（白邊）相對於背景的兩個固定特徵判斷：
- *   1. 比背景**亮**（白邊接近 220，背景通常 < 200）
- *   2. 比背景**單純**（白邊 stdDev 接近 0，背景有桌面紋理/光影/物件）
- * 任一條件明顯成立 → 視為紙張在框線位置；否則 → 沒紙張。
+ * 兩個必要條件：
+ *   1. padding（框外）必須是背景，不能是紙張 → 否則代表紙張超出框線
+ *   2. 框線位置必須是紙張 → 否則代表紙張沒到框線
+ * 兩者都滿足才算對齊；任一不符 → 不過。
  *
  * 計算：FRAME_LINE_RATIO = PAD / (1 - FRAME_T - FRAME_B + 2*PAD)
  *                       = 0.02 / 0.85 ≈ 0.0235
  *
- * @returns true = 上下都觸及框線，false = 至少一邊未到框線
+ * @returns true = 上下都剛好對齊，false = 至少一邊不對齊（超出或未到）
  */
 export async function checkCoverage(imageBlob: Blob): Promise<boolean> {
   const bitmap = await createImageBitmap(imageBlob)
