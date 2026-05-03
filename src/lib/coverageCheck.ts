@@ -25,16 +25,15 @@ function checkEdge(line: number[], padding: number[]): boolean {
     ? padding.reduce((s, v) => s + v, 0) / padding.length
     : lineMean
 
-  // 條件 A：框線位置 vs 框外亮度差 > 30 → 紙張邊在框線位置（最強訊號）
-  // 不論紙張邊是白邊或深色 header，跟桌面比一定有差
-  if (Math.abs(lineMean - padMean) > 30) return true
+  // 條件 A：框線位置 vs 框外亮度差 > 20 → 紙張邊在框線位置
+  if (Math.abs(lineMean - padMean) > 20) return true
 
-  // 條件 B：框線位置 stdDev > 40 → 紙張有印刷內容（白底+黑墨）
+  // 條件 B：框線位置 stdDev > 20 → 紙張內部有內容/變化
+  // 取樣厚度 3% 一定會包含到內文線條/文字，所以小的 stdDev 也算通過
   const variance = line.reduce((s, v) => s + (v - lineMean) ** 2, 0) / line.length
   const stdDev = Math.sqrt(variance)
-  if (stdDev > 40) return true
+  if (stdDev > 20) return true
 
-  // 兩條件都不成立：框線跟框外是同一片均勻區域 → 沒有紙張邊
   return false
 }
 
@@ -68,11 +67,12 @@ export async function checkCoverage(imageBlob: Blob): Promise<boolean> {
   bitmap.close()
 
   const FRAME_LINE_RATIO = 0.0235  // 引導框線在裁切圖中的相對位置
-  const SAMPLE_HEIGHT = 3           // 框線位置取樣 3 排像素
+  // 取樣厚度 = 圖片高度的 3%（從框線位置往內看一段距離），白邊外通常會有內文線條
+  const SAMPLE_HEIGHT = Math.max(3, Math.round(h * 0.03))
   const topLineY = Math.round(h * FRAME_LINE_RATIO)
   const bottomLineY = h - topLineY - SAMPLE_HEIGHT
 
-  // 上：框線位置取 3 排，框外 padding 取 topLineY 排（框線之上整片）
+  // 上：框線位置取樣，框外 padding 取 topLineY 排（框線之上整片）
   const topLine = collectEdgeBrightness(ctx, 0, topLineY, w, SAMPLE_HEIGHT)
   const topPadding = collectEdgeBrightness(ctx, 0, 0, w, topLineY)
 
