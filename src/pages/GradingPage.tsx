@@ -1338,7 +1338,7 @@ export default function GradingPage({
       setGradingStartTime(Date.now())
       setGradingProgress({ current: 0, total: entries.length })
     }
-    setPhaseBTotalCount(prev => prev + entries.length)
+    if (!background) setPhaseBTotalCount(prev => prev + entries.length)
     setCompletedReviewCount(0)
 
     let successCount = 0
@@ -1567,22 +1567,6 @@ export default function GradingPage({
       }
     }
 
-    // 同步等待作業報告生成（只在前台模式執行，背景模式跳過）
-    if (successCount > 0 && !stopRequestedRef.current && !background) {
-      setGradingPhase('report_running')
-      setGradingMessage('正在生成作業學情報告…')
-      try {
-        await fetch('/api/data/refresh-assignment-summary', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ assignmentId })
-        })
-      } catch {
-        // 報告生成失敗不影響批改結果，靜默處理
-      }
-    }
-
     // 合併品質檢查失敗到結果摘要
     const qualityFails = postRetryWarnings
     const qualityFailReasons = qualityFails.map((f) => `${f.studentLabel}：${f.unreadCount} 題無法讀取，建議重新批改`)
@@ -1612,9 +1596,28 @@ export default function GradingPage({
     // 背景模式：只累加 phaseBScoredCount（已在上面做了），不動 UI 狀態
   }, [batchPhaseAEntries, students])
 
-  // ─── Accessor 完成監聽（已改為 Promise.all，useEffect 不再需要） ──────────
-  // 完成判定和清理在 onAllDone 和 executeBatchPhaseB(前台) 中處理
+  // ─── 背景 Accessor 完成監聽：phaseBScoredCount 達到 total 時關閉 loading ───
   useEffect(() => {
+    if (gradingPhase !== 'phase_b_running') return
+    if (phaseBTotalCount === 0) return
+    if (phaseBScoredCount < phaseBTotalCount) return
+    // 全部背景 Accessor 完成
+    const total = phaseBTotalCount
+    setBatchPhaseAEntries([])
+    setGradingPhase('idle')
+    setIsGrading(false)
+    setGradingProgress({ current: 0, total: 0 })
+    setGradeResultNotice({
+      stopped: false,
+      successCount: total,
+      failCount: 0,
+      totalCount: total,
+      failReasons: [],
+      failedEntries: [],
+    })
+    setPhaseBScoredCount(0)
+    setPhaseBTotalCount(0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phaseBScoredCount, phaseBTotalCount, gradingPhase])
 
   // ─── Batch Decision: 老師對單題的決策 ────────────────────────────────────
@@ -3770,31 +3773,13 @@ export default function GradingPage({
                 )
               )
             }}
-            onAllDone={async () => {
+            onAllDone={() => {
               console.log('✅ 全部審查完成，等待背景 Accessor')
+              // total 由此確立，useEffect 監聽 phaseBScoredCount === phaseBTotalCount 自動關閉 loading
+              setPhaseBTotalCount(batchPhaseAEntries.length)
               setGradingPhase('phase_b_running')
               setGradingMessage('AI 批改評分中…')
               setIsGrading(true)
-              // 等待所有背景 Accessor Promise 完成
-              await Promise.all(backgroundPhaseBPromises.current)
-              // 報告生成已與批改分離，由使用者在 AI Report 頁面手動觸發
-              console.log('✅ 全部 Accessor 完成')
-              setBatchPhaseAEntries([])
-              setGradingPhase('idle')
-              setIsGrading(false)
-              setGradingProgress({ current: 0, total: 0 })
-              // 用 batchPhaseAEntries.length 而非 phaseBTotalCount — 避免 closure 拿到過期 state
-              const totalStudents = batchPhaseAEntries.length
-              setGradeResultNotice({
-                stopped: false,
-                successCount: totalStudents,
-                failCount: 0,
-                totalCount: totalStudents,
-                failReasons: [],
-                failedEntries: [],
-              })
-              setPhaseBScoredCount(0)
-              setPhaseBTotalCount(0)
             }}
             phaseBScoredCount={phaseBScoredCount}
             phaseBTotalCount={phaseBTotalCount}
