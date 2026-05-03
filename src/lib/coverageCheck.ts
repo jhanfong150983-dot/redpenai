@@ -32,10 +32,10 @@ function checkEdge(brightness: number[]): boolean {
 }
 
 /**
- * 檢查圖片長邊是否滿版。
- * 直拍（portrait）：檢查上下邊
- * 橫拍（landscape）：檢查左右邊
- * @returns true = 長邊滿版，false = 長邊有背景
+ * 檢查圖片是否滿版（上下邊有紙張內容）。
+ * A4 紙張長寬比（直 0.71:1、橫 1.41:1）皆比引導框更窄，
+ * 因此不論直拍或橫拍，紙張都是貼著上下邊、左右允許有背景。
+ * @returns true = 上下滿版，false = 上下有背景
  */
 export async function checkCoverage(imageBlob: Blob): Promise<boolean> {
   const bitmap = await createImageBitmap(imageBlob)
@@ -50,17 +50,9 @@ export async function checkCoverage(imageBlob: Blob): Promise<boolean> {
   bitmap.close()
 
   const EDGE = 3 // 最外圍 3 排像素
-  const isPortrait = h > w
 
-  if (isPortrait) {
-    // 直拍：只檢查上下邊（長邊）
-    const topOk = checkEdge(collectEdgeBrightness(ctx, 0, 0, w, EDGE))
-    const bottomOk = checkEdge(collectEdgeBrightness(ctx, 0, h - EDGE, w, EDGE))
-    return topOk && bottomOk
-  } else {
-    // 橫拍：只檢查左右邊（長邊）
-    const leftOk = checkEdge(collectEdgeBrightness(ctx, 0, 0, EDGE, h))
-    const rightOk = checkEdge(collectEdgeBrightness(ctx, w - EDGE, 0, EDGE, h))
-    return leftOk && rightOk
-  }
+  // 直拍與橫拍都只檢查上下邊
+  const topOk = checkEdge(collectEdgeBrightness(ctx, 0, 0, w, EDGE))
+  const bottomOk = checkEdge(collectEdgeBrightness(ctx, 0, h - EDGE, w, EDGE))
+  return topOk && bottomOk
 }

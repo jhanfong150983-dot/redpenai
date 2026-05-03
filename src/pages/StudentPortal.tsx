@@ -1307,6 +1307,11 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         name={overview?.student?.name || '學生'}
         pagesPerStudent={cameraRequiredPages}
         currentPageCount={capturedBlobs.length}
+        requiredOrientation={
+          currentCameraAssignment?.pageOrientations?.[
+            retakePageIdx !== null ? retakePageIdx : capturedBlobs.length
+          ] ?? undefined
+        }
         onCaptureComplete={handleCameraCaptureComplete}
         onBack={() => {
           setCameraMode(null)

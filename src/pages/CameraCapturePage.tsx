@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import Webcam from 'react-webcam'
-import { Camera, ArrowLeft, Loader, AlertCircle, CheckCircle, CameraOff, RefreshCw } from 'lucide-react'
+import { Camera, ArrowLeft, Loader, AlertCircle, CheckCircle, CameraOff, RefreshCw, Smartphone } from 'lucide-react'
 import { compressImage } from '@/lib/imageCompression'
 import CameraGuideOverlay from '@/components/CameraGuideOverlay'
 import { useGyroscope } from '@/hooks/useGyroscope'
@@ -11,6 +11,7 @@ interface CameraCapturePageProps {
   name: string
   pagesPerStudent: number
   currentPageCount: number
+  requiredOrientation?: 'portrait' | 'landscape'
   onCaptureComplete: (imageBlob: Blob) => void
   onBack: () => void
 }
@@ -22,6 +23,7 @@ export default function CameraCapturePage({
   name,
   pagesPerStudent,
   currentPageCount,
+  requiredOrientation,
   onCaptureComplete,
   onBack
 }: CameraCapturePageProps) {
@@ -50,6 +52,11 @@ export default function CameraCapturePage({
 
   // unavailable = 陀螺儀不支援，不套用限制
   const gyroBlocking = gyro.tiltStatus !== 'unavailable' && !captureReady
+
+  // 裝置方向與此頁要求不符時封鎖拍照
+  const orientationBlocked = !!requiredOrientation &&
+    ((requiredOrientation === 'landscape' && !isLandscape) ||
+     (requiredOrientation === 'portrait' && isLandscape))
 
   // 調試：檢查 props
   useEffect(() => {
@@ -263,6 +270,29 @@ export default function CameraCapturePage({
         </div>
       )}
 
+      {/* 方向不符提示（通過閘門後才顯示） */}
+      {!cameraError && !showGate && orientationBlocked && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-black/85 px-6 text-center">
+          <div className="relative mb-6 flex items-center justify-center w-24 h-24">
+            <Smartphone
+              className={`w-14 h-14 text-sky-300 transition-transform duration-500 ${
+                requiredOrientation === 'landscape' ? 'rotate-90' : 'rotate-0'
+              }`}
+            />
+            <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center">
+              <RefreshCw className="w-4 h-4 text-sky-400 animate-spin" style={{ animationDuration: '2s' }} />
+            </div>
+          </div>
+          <h2 className="text-lg font-bold text-white mb-2">
+            請將裝置轉為{requiredOrientation === 'landscape' ? '橫向' : '直向'}
+          </h2>
+          <p className="text-sm text-slate-300 leading-relaxed">
+            此頁需要{requiredOrientation === 'landscape' ? '橫拍' : '直拍'}，<br />
+            轉好後拍照按鈕即會出現。
+          </p>
+        </div>
+      )}
+
       {/* 相機授權失敗畫面 */}
       {cameraError && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-slate-900 px-6 text-center">
@@ -411,8 +441,8 @@ export default function CameraCapturePage({
         </div>
       )}
 
-      {/* 操作按鈕（授權失敗時隱藏） */}
-      {!cameraError && (
+      {/* 操作按鈕（授權失敗或方向不符時隱藏） */}
+      {!cameraError && !orientationBlocked && (
         <div
           className={`absolute ${
             isLandscape
