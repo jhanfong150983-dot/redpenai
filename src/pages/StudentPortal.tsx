@@ -1963,7 +1963,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         const hasCoverageError = previewCoverage[currentIdx] === false
 
         return (
-          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-4">
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 p-4">
             <div className="relative w-full max-w-5xl overflow-y-auto rounded-xl bg-white shadow-2xl" style={{ maxHeight: 'calc(100vh - 2rem)' }}>
               {/* Header */}
               <button
