@@ -20,10 +20,13 @@ function collectEdgeBrightness(
 function checkEdge(brightness: number[]): boolean {
   const n = brightness.length
   if (n === 0) return true
-  // 印刷紙張邊緣有格線/框線時 stdDev 會很高，不適合用來判斷
-  // 只看暗像素比例：超過一半是暗像素才視為深色背景
+  const mean = brightness.reduce((s, v) => s + v, 0) / n
+  const variance = brightness.reduce((s, v) => s + (v - mean) ** 2, 0) / n
+  const stdDev = Math.sqrt(variance)
   const darkRatio = brightness.filter(b => b < 60).length / n
-  return darkRatio < 0.5
+  // 通過條件：暗像素 < 25%（白紙邊）或 stdDev > 40（紙張+黑墨高反差）
+  // 純色深背景兩個條件都不滿足，會被擋下
+  return darkRatio < 0.25 || stdDev > 40
 }
 
 /**
