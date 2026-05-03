@@ -17,29 +17,40 @@ function collectEdgeBrightness(
   return brightness
 }
 
-function checkEdge(brightness: number[]): boolean {
-  const n = brightness.length
-  if (n === 0) return true
-  const mean = brightness.reduce((s, v) => s + v, 0) / n
-  const variance = brightness.reduce((s, v) => s + (v - mean) ** 2, 0) / n
+function checkEdge(line: number[], padding: number[]): boolean {
+  if (line.length === 0) return true
+
+  const lineMean = line.reduce((s, v) => s + v, 0) / line.length
+  const padMean = padding.length > 0
+    ? padding.reduce((s, v) => s + v, 0) / padding.length
+    : lineMean
+
+  // 條件 A：框線位置 vs 框外亮度差 > 30 → 紙張邊在框線位置（最強訊號）
+  // 不論紙張邊是白邊或深色 header，跟桌面比一定有差
+  if (Math.abs(lineMean - padMean) > 30) return true
+
+  // 條件 B：框線位置 stdDev > 40 → 紙張有印刷內容（白底+黑墨）
+  const variance = line.reduce((s, v) => s + (v - lineMean) ** 2, 0) / line.length
   const stdDev = Math.sqrt(variance)
-  const darkRatio = brightness.filter(b => b < 60).length / n
-  // 通過條件：暗像素 < 25%（白紙邊）或 stdDev > 40（紙張+黑墨高反差）
-  // 純色深背景兩個條件都不滿足，會被擋下
-  return darkRatio < 0.25 || stdDev > 40
+  if (stdDev > 40) return true
+
+  // 兩條件都不成立：框線跟框外是同一片均勻區域 → 沒有紙張邊
+  return false
 }
 
 /**
  * 檢查紙張是否觸及引導框上下緣。
  *
- * CameraCapturePage 拍照時，引導框外保留 PAD=2% 安全距離一起裁進來，
- * 所以裁切圖最邊邊 ~2.35% 是「框外」的背景區，不能用來判斷。
- * 改成檢查「引導框線位置」那 3 排像素：
- *   - 紙張對齊或超過框線 → 該位置是紙張內容 → 通過
- *   - 紙張沒到框線 → 該位置仍是背景 → 失敗
+ * 拍照裁切時保留 PAD=2% 安全距離，因此裁切圖的：
+ *   - 最外圍 ~2.35% 是「框外背景區」（padding）
+ *   - ~2.35% 處那條線就是學生看到的引導框線
+ *
+ * 採「比對」判斷而非絕對亮度：
+ *   - 紙張對齊框線 → 框外是桌面、框線位置是紙張 → 兩者亮度差大 → 通過
+ *   - 紙張沒到框線 → 兩者都是同一片桌面 → 亮度幾乎相同 → 失敗
+ * 這樣不論桌面是亮是暗、紙張邊是白邊或深色 header，都能正確判斷。
  *
  * 計算：FRAME_LINE_RATIO = PAD / (1 - FRAME_T - FRAME_B + 2*PAD)
- *                       = 0.02 / (1 - 0.05 - 0.14 + 0.04)
  *                       = 0.02 / 0.85 ≈ 0.0235
  *
  * @returns true = 上下都觸及框線，false = 至少一邊未到框線
@@ -57,11 +68,19 @@ export async function checkCoverage(imageBlob: Blob): Promise<boolean> {
   bitmap.close()
 
   const FRAME_LINE_RATIO = 0.0235  // 引導框線在裁切圖中的相對位置
-  const SAMPLE_HEIGHT = 3           // 取樣 3 排像素
-  const topY = Math.round(h * FRAME_LINE_RATIO)
-  const bottomY = h - topY - SAMPLE_HEIGHT
+  const SAMPLE_HEIGHT = 3           // 框線位置取樣 3 排像素
+  const topLineY = Math.round(h * FRAME_LINE_RATIO)
+  const bottomLineY = h - topLineY - SAMPLE_HEIGHT
 
-  const topOk = checkEdge(collectEdgeBrightness(ctx, 0, topY, w, SAMPLE_HEIGHT))
-  const bottomOk = checkEdge(collectEdgeBrightness(ctx, 0, bottomY, w, SAMPLE_HEIGHT))
+  // 上：框線位置取 3 排，框外 padding 取 topLineY 排（框線之上整片）
+  const topLine = collectEdgeBrightness(ctx, 0, topLineY, w, SAMPLE_HEIGHT)
+  const topPadding = collectEdgeBrightness(ctx, 0, 0, w, topLineY)
+
+  // 下：對稱
+  const bottomLine = collectEdgeBrightness(ctx, 0, bottomLineY, w, SAMPLE_HEIGHT)
+  const bottomPadding = collectEdgeBrightness(ctx, 0, h - topLineY, w, topLineY)
+
+  const topOk = checkEdge(topLine, topPadding)
+  const bottomOk = checkEdge(bottomLine, bottomPadding)
   return topOk && bottomOk
 }
