@@ -17,24 +17,28 @@ function collectEdgeBrightness(
   return brightness
 }
 
+function stats(values: number[]): { mean: number; stdDev: number } {
+  if (values.length === 0) return { mean: 0, stdDev: 0 }
+  const mean = values.reduce((s, v) => s + v, 0) / values.length
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length
+  return { mean, stdDev: Math.sqrt(variance) }
+}
+
 function checkEdge(line: number[], padding: number[]): boolean {
   if (line.length === 0) return true
+  if (padding.length === 0) return true
 
-  const lineMean = line.reduce((s, v) => s + v, 0) / line.length
-  const padMean = padding.length > 0
-    ? padding.reduce((s, v) => s + v, 0) / padding.length
-    : lineMean
+  const l = stats(line)
+  const p = stats(padding)
 
-  // 條件 A：框線位置 vs 框外亮度差 > 20 → 紙張邊在框線位置
-  if (Math.abs(lineMean - padMean) > 20) return true
+  // 紙張邊的特徵：比背景亮 + 比背景單純（白邊一片，環境總是有紋理/光影）
+  // 條件 A（亮度）：框線比框外明顯亮 → 是紙張邊
+  const brighter = l.mean - p.mean > 10
+  // 條件 B（單純度）：框線比框外明顯單純 → 是紙張邊
+  const moreUniform = p.stdDev - l.stdDev > 10
 
-  // 條件 B：框線位置 stdDev > 20 → 紙張內部有內容/變化
-  // 取樣厚度 3% 一定會包含到內文線條/文字，所以小的 stdDev 也算通過
-  const variance = line.reduce((s, v) => s + (v - lineMean) ** 2, 0) / line.length
-  const stdDev = Math.sqrt(variance)
-  if (stdDev > 20) return true
-
-  return false
+  // 任一成立即視為紙張在框線位置（背景幾乎不可能同時比白紙更亮且更單純）
+  return brighter || moreUniform
 }
 
 /**
@@ -44,10 +48,10 @@ function checkEdge(line: number[], padding: number[]): boolean {
  *   - 最外圍 ~2.35% 是「框外背景區」（padding）
  *   - ~2.35% 處那條線就是學生看到的引導框線
  *
- * 採「比對」判斷而非絕對亮度：
- *   - 紙張對齊框線 → 框外是桌面、框線位置是紙張 → 兩者亮度差大 → 通過
- *   - 紙張沒到框線 → 兩者都是同一片桌面 → 亮度幾乎相同 → 失敗
- * 這樣不論桌面是亮是暗、紙張邊是白邊或深色 header，都能正確判斷。
+ * 利用紙張邊（白邊）相對於背景的兩個固定特徵判斷：
+ *   1. 比背景**亮**（白邊接近 220，背景通常 < 200）
+ *   2. 比背景**單純**（白邊 stdDev 接近 0，背景有桌面紋理/光影/物件）
+ * 任一條件明顯成立 → 視為紙張在框線位置；否則 → 沒紙張。
  *
  * 計算：FRAME_LINE_RATIO = PAD / (1 - FRAME_T - FRAME_B + 2*PAD)
  *                       = 0.02 / 0.85 ≈ 0.0235
