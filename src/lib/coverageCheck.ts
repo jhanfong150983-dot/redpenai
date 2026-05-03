@@ -32,19 +32,28 @@ function isPaperLike(area: { mean: number; stdDev: number }): boolean {
   return false
 }
 
-function checkEdge(line: number[], padding: number[]): boolean {
-  if (line.length === 0 || padding.length === 0) return true
+type SideStatus = 'aligned' | 'exceeded' | 'short'
+
+function checkSide(line: number[], padding: number[]): SideStatus {
+  if (line.length === 0 || padding.length === 0) return 'aligned'
 
   const l = stats(line)
   const p = stats(padding)
 
-  // padding（框外 2% 安全距離）必須是背景。
-  // 如果 padding 也是紙張 → 代表紙張超出引導框線了 → 不過
-  if (isPaperLike(p)) return false
+  // padding（框外 2% 安全距離）是紙張 → 紙張超出引導框線
+  if (isPaperLike(p)) return 'exceeded'
 
-  // 框線位置必須是紙張。
-  // 如果是紙張 → 對齊成功 → 過；否則（仍是背景）→ 紙張沒到框線 → 不過
-  return isPaperLike(l)
+  // 框線位置是紙張 → 對齊
+  if (isPaperLike(l)) return 'aligned'
+
+  // 都不是紙張 → 紙張沒到框線
+  return 'short'
+}
+
+export type CoverageResult = {
+  ok: boolean
+  top: SideStatus
+  bottom: SideStatus
 }
 
 /**
@@ -57,17 +66,13 @@ function checkEdge(line: number[], padding: number[]): boolean {
  *   [─── 框線 ───]
  *   [2.35% 背景（PAD）]
  *
- * 兩個必要條件：
- *   1. padding（框外）必須是背景，不能是紙張 → 否則代表紙張超出框線
- *   2. 框線位置必須是紙張 → 否則代表紙張沒到框線
- * 兩者都滿足才算對齊；任一不符 → 不過。
- *
- * 計算：FRAME_LINE_RATIO = PAD / (1 - FRAME_T - FRAME_B + 2*PAD)
- *                       = 0.02 / 0.85 ≈ 0.0235
- *
- * @returns true = 上下都剛好對齊，false = 至少一邊不對齊（超出或未到）
+ * 每一邊有三種狀態：
+ *   - aligned：padding 是背景、框線位置是紙張 → 剛好對齊
+ *   - exceeded：padding 已是紙張 → 紙張超出框線
+ *   - short：padding 是背景、框線位置仍是背景 → 紙張沒到框線
+ * 兩邊都 aligned 才算過。
  */
-export async function checkCoverage(imageBlob: Blob): Promise<boolean> {
+export async function checkCoverage(imageBlob: Blob): Promise<CoverageResult> {
   const bitmap = await createImageBitmap(imageBlob)
   const w = bitmap.width
   const h = bitmap.height
@@ -80,20 +85,16 @@ export async function checkCoverage(imageBlob: Blob): Promise<boolean> {
   bitmap.close()
 
   const FRAME_LINE_RATIO = 0.0235  // 引導框線在裁切圖中的相對位置
-  // 取樣厚度 = 圖片高度的 3%（從框線位置往內看一段距離），白邊外通常會有內文線條
   const SAMPLE_HEIGHT = Math.max(3, Math.round(h * 0.03))
   const topLineY = Math.round(h * FRAME_LINE_RATIO)
   const bottomLineY = h - topLineY - SAMPLE_HEIGHT
 
-  // 上：框線位置取樣，框外 padding 取 topLineY 排（框線之上整片）
   const topLine = collectEdgeBrightness(ctx, 0, topLineY, w, SAMPLE_HEIGHT)
   const topPadding = collectEdgeBrightness(ctx, 0, 0, w, topLineY)
-
-  // 下：對稱
   const bottomLine = collectEdgeBrightness(ctx, 0, bottomLineY, w, SAMPLE_HEIGHT)
   const bottomPadding = collectEdgeBrightness(ctx, 0, h - topLineY, w, topLineY)
 
-  const topOk = checkEdge(topLine, topPadding)
-  const bottomOk = checkEdge(bottomLine, bottomPadding)
-  return topOk && bottomOk
+  const top = checkSide(topLine, topPadding)
+  const bottom = checkSide(bottomLine, bottomPadding)
+  return { ok: top === 'aligned' && bottom === 'aligned', top, bottom }
 }

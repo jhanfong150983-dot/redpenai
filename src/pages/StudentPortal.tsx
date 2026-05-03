@@ -515,7 +515,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [uploadDrafts, setUploadDrafts] = useState<Record<string, File[]>>({})
   const [previewedDraftSignatures, setPreviewedDraftSignatures] = useState<Record<string, string>>({})
   const [previewModal, setPreviewModal] = useState<PreviewModalState>(null)
-  const [previewCoverage, setPreviewCoverage] = useState<Record<number, boolean>>({}) // 每頁滿版狀態
+  const [previewCoverage, setPreviewCoverage] = useState<Record<number, import('../lib/coverageCheck').CoverageResult>>({}) // 每頁滿版狀態
   const [retakePageIdx, setRetakePageIdx] = useState<number | null>(null) // 重拍模式：要取代的頁面 index
   const [cameraMode, setCameraMode] = useState<StudentCameraMode>(null)
   const [cameraAssignmentId, setCameraAssignmentId] = useState('')
@@ -715,12 +715,13 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     }
     (async () => {
       const { checkCoverage } = await import('../lib/coverageCheck')
-      const results: Record<number, boolean> = {}
+      type CR = import('../lib/coverageCheck').CoverageResult
+      const results: Record<number, CR> = {}
       for (let i = 0; i < previewFiles.length; i++) {
         try {
           results[i] = await checkCoverage(previewFiles[i])
         } catch {
-          results[i] = true // 檢查失敗就當通過
+          results[i] = { ok: true, top: 'aligned', bottom: 'aligned' } // 檢查失敗就當通過
         }
       }
       setPreviewCoverage(results)
@@ -1957,10 +1958,36 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       {previewModal && previewFiles.length > 0 && (() => {
         const assignment = uploadAssignments.find(a => a.id === previewModal.assignmentId)
         const orientations = assignment?.pageOrientations || []
-        const hasAnyError = previewFiles.some((_, i) => previewCoverage[i] === false)
+        const hasAnyError = previewFiles.some((_, i) => previewCoverage[i] && previewCoverage[i].ok === false)
         const currentIdx = previewModal.index
         const expectedOri = orientations[currentIdx]
-        const hasCoverageError = previewCoverage[currentIdx] === false
+        const currentCoverage = previewCoverage[currentIdx]
+        const hasCoverageError = currentCoverage && currentCoverage.ok === false
+
+        // 把 top/bottom 的狀態轉成具體訊息
+        const buildCoverageMessage = (): string => {
+          if (!currentCoverage || currentCoverage.ok) return ''
+          const labels: Record<'exceeded' | 'short', string> = {
+            exceeded: '超出引導框',
+            short: '未到引導框'
+          }
+          const issues: string[] = []
+          if (currentCoverage.top !== 'aligned') {
+            issues.push(`上方${labels[currentCoverage.top]}`)
+          }
+          if (currentCoverage.bottom !== 'aligned') {
+            issues.push(`下方${labels[currentCoverage.bottom]}`)
+          }
+          // 兩邊都同種狀態 → 給對應的修正建議
+          if (currentCoverage.top === 'exceeded' && currentCoverage.bottom === 'exceeded') {
+            return '⚠ 作業上下都超出引導框，請拉遠裝置後重拍'
+          }
+          if (currentCoverage.top === 'short' && currentCoverage.bottom === 'short') {
+            return '⚠ 作業上下都未到引導框，請拉近裝置後重拍'
+          }
+          return `⚠ 作業${issues.join('、')}，請重新對齊後重拍`
+        }
+        const coverageMessage = buildCoverageMessage()
 
         return (
           <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 p-4">
@@ -1990,7 +2017,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               }`}>
                 <span className={`text-xs font-medium ${hasCoverageError ? 'text-red-700' : 'text-blue-700'}`}>
                   {hasCoverageError
-                    ? '⚠ 作業未填滿畫面，請重新拍攝此頁'
+                    ? coverageMessage
                     : expectedOri
                       ? `第 ${currentIdx + 1} 頁應為${expectedOri === 'portrait' ? '直拍 📱' : '橫拍 📱'}，如方向不對請使用下方旋轉按鈕調整`
                       : `第 ${currentIdx + 1} 頁 ✓`
@@ -2080,7 +2107,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         className={`w-8 h-8 rounded-full text-xs font-semibold border-2 transition-colors ${
                           i === currentIdx
                             ? 'border-blue-500 bg-blue-500 text-white scale-110'
-                            : previewCoverage[i] === false
+                            : previewCoverage[i] && previewCoverage[i].ok === false
                               ? 'border-red-400 bg-red-50 text-red-700'
                               : 'border-green-400 bg-green-50 text-green-700'
                         }`}
