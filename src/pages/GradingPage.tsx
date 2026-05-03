@@ -490,7 +490,7 @@ function PipelineStage({ index, label, sublabel, status }: PipelineStageProps) {
 
 
 interface GradingPipelineOverlayProps {
-  phase: 'phase_a_running' | 'phase_b_running' | 'report_running'
+  phase: 'phase_a_running' | 'phase_b_running'
   phaseAProgress: { current: number; total: number }
   phaseBProgress: { current: number; total: number }
   phaseANeedsReviewCount: number
@@ -511,25 +511,19 @@ function GradingPipelineOverlay({
   onStop,
 }: GradingPipelineOverlayProps) {
   const isPhaseA = phase === 'phase_a_running'
-  const isReport = phase === 'report_running'
   const isAfterPhaseA = !isPhaseA
 
   const stageA: PipelineStageStatus = isPhaseA ? 'active' : 'done'
   const stageReview: PipelineStageStatus = isAfterPhaseA ? 'done' : 'pending'
-  const stageB: PipelineStageStatus = isAfterPhaseA ? (isReport ? 'done' : 'active') : 'pending'
-  const stageReport: PipelineStageStatus = isReport ? 'active' : 'pending'
+  const stageB: PipelineStageStatus = isAfterPhaseA ? 'active' : 'pending'
 
   const aPercent = phaseAProgress.total > 0
     ? Math.round((phaseAProgress.current / phaseAProgress.total) * 100)
     : 0
-  const aLabel = isPhaseA
-    ? `${aPercent}%`
-    : '100%'
-  const bLabel = !isAfterPhaseA
-    ? (phaseBProgress.total > 0 ? `${phaseBProgress.current}/${phaseBProgress.total}` : '批改中…')
-    : isReport
-      ? `${phaseBProgress.total}/${phaseBProgress.total}`
-      : (phaseBProgress.total > 0 ? `${phaseBProgress.current}/${phaseBProgress.total}` : '批改中…')
+  const aLabel = isPhaseA ? `${aPercent}%` : '100%'
+  const bLabel = phaseBProgress.total > 0
+    ? `${phaseBProgress.current}/${phaseBProgress.total}`
+    : '批改中…'
 
   const reviewLabel = phaseANeedsReviewCount > 0
     ? `需審查 ${phaseANeedsReviewCount}/${phaseATotalQuestionCount} 題`
@@ -561,7 +555,6 @@ function GradingPipelineOverlay({
           <PipelineStage index={1} label="擷取學生答案" sublabel={aLabel} status={stageA} />
           <PipelineStage index={2} label="教師人工審查" sublabel={reviewLabel} status={stageReview} />
           <PipelineStage index={3} label="AI批改評分" sublabel={bLabel} status={stageB} />
-          <PipelineStage index={4} label="生成作業報告" sublabel={isReport ? '生成中…' : '等待中'} status={stageReport} />
         </div>
 
         {/* 人工審查提醒（Phase A 執行中且已有需審查題目） */}
@@ -593,10 +586,10 @@ function GradingPipelineOverlay({
           )
         })()}
 
-        {/* Stop button（報告生成中不提供停止，批改已完成） */}
+        {/* Stop button */}
         <button
           onClick={onStop}
-          disabled={stopRequested || isReport}
+          disabled={stopRequested}
           style={{
             padding: '0.5rem 1.75rem', borderRadius: '0.75rem', border: 'none',
             cursor: stopRequested ? 'not-allowed' : 'pointer',
@@ -3734,14 +3727,10 @@ export default function GradingPage({
           </div>
         )}
 
-        {/* Grading pipeline overlay (下載圖片、Phase A、Phase B、生成報告 統一顯示遮罩) */}
-        {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'phase_b_running' || gradingPhase === 'report_running') && (
+        {/* Grading pipeline overlay (下載圖片、Phase A、Phase B 統一顯示遮罩) */}
+        {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'phase_b_running') && (
           <GradingPipelineOverlay
-            phase={
-              gradingPhase === 'phase_b_running' ? 'phase_b_running'
-              : gradingPhase === 'report_running' ? 'report_running'
-              : 'phase_a_running'
-            }
+            phase={gradingPhase === 'phase_b_running' ? 'phase_b_running' : 'phase_a_running'}
             phaseAProgress={
               isDownloading
                 ? downloadProgress
@@ -3750,7 +3739,7 @@ export default function GradingPage({
                   : { current: gradingProgress.total, total: gradingProgress.total }
             }
             phaseBProgress={
-              gradingPhase === 'phase_b_running' || gradingPhase === 'report_running'
+              gradingPhase === 'phase_b_running'
                 ? { current: phaseBScoredCount, total: phaseBTotalCount || batchPhaseAEntries.length }
                 : { current: 0, total: batchPhaseAEntries.length }
             }
