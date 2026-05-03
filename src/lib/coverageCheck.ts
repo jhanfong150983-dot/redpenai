@@ -1,9 +1,8 @@
 /**
  * coverageCheck.ts
  *
- * 檢查照片是否滿版（紙張是否填滿畫面的長邊）。
- * 直拍：只檢查上下邊（長邊），左右允許有背景（作業可能比框窄）
- * 橫拍：只檢查左右邊（長邊），上下允許有背景
+ * 檢查紙張是否觸及引導框線（與拍攝時學生看到的框線一致）。
+ * 不論直拍橫拍，A4 紙張比框窄，永遠是貼上下邊；左右允許有背景。
  */
 
 function collectEdgeBrightness(
@@ -28,10 +27,19 @@ function checkEdge(brightness: number[]): boolean {
 }
 
 /**
- * 檢查圖片是否滿版（上下邊有紙張內容）。
- * A4 紙張長寬比（直 0.71:1、橫 1.41:1）皆比引導框更窄，
- * 因此不論直拍或橫拍，紙張都是貼著上下邊、左右允許有背景。
- * @returns true = 上下滿版，false = 上下有背景
+ * 檢查紙張是否觸及引導框上下緣。
+ *
+ * CameraCapturePage 拍照時，引導框外保留 PAD=2% 安全距離一起裁進來，
+ * 所以裁切圖最邊邊 ~2.35% 是「框外」的背景區，不能用來判斷。
+ * 改成檢查「引導框線位置」那 3 排像素：
+ *   - 紙張對齊或超過框線 → 該位置是紙張內容 → 通過
+ *   - 紙張沒到框線 → 該位置仍是背景 → 失敗
+ *
+ * 計算：FRAME_LINE_RATIO = PAD / (1 - FRAME_T - FRAME_B + 2*PAD)
+ *                       = 0.02 / (1 - 0.05 - 0.14 + 0.04)
+ *                       = 0.02 / 0.85 ≈ 0.0235
+ *
+ * @returns true = 上下都觸及框線，false = 至少一邊未到框線
  */
 export async function checkCoverage(imageBlob: Blob): Promise<boolean> {
   const bitmap = await createImageBitmap(imageBlob)
@@ -45,10 +53,12 @@ export async function checkCoverage(imageBlob: Blob): Promise<boolean> {
   ctx.drawImage(bitmap, 0, 0)
   bitmap.close()
 
-  const EDGE = 3 // 最外圍 3 排像素
+  const FRAME_LINE_RATIO = 0.0235  // 引導框線在裁切圖中的相對位置
+  const SAMPLE_HEIGHT = 3           // 取樣 3 排像素
+  const topY = Math.round(h * FRAME_LINE_RATIO)
+  const bottomY = h - topY - SAMPLE_HEIGHT
 
-  // 直拍與橫拍都只檢查上下邊
-  const topOk = checkEdge(collectEdgeBrightness(ctx, 0, 0, w, EDGE))
-  const bottomOk = checkEdge(collectEdgeBrightness(ctx, 0, h - EDGE, w, EDGE))
+  const topOk = checkEdge(collectEdgeBrightness(ctx, 0, topY, w, SAMPLE_HEIGHT))
+  const bottomOk = checkEdge(collectEdgeBrightness(ctx, 0, bottomY, w, SAMPLE_HEIGHT))
   return topOk && bottomOk
 }
