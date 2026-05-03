@@ -274,6 +274,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     error_message?: string | null
   } | null>(null)
   const [assignmentSummaryLoading, setAssignmentSummaryLoading] = useState(false)
+  const [latestGradedAt, setLatestGradedAt] = useState<string | null>(null)
 
   // Fetch assignment error summary when assignment changes
   const fetchAssignmentSummary = useCallback((assignmentId: string) => {
@@ -282,8 +283,11 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
       credentials: 'include'
     })
       .then(r => r.json())
-      .then(data => { setAssignmentSummary(data?.summary ?? null) })
-      .catch(() => { setAssignmentSummary(null) })
+      .then(data => {
+        setAssignmentSummary(data?.summary ?? null)
+        setLatestGradedAt(data?.latestGradedAt ?? null)
+      })
+      .catch(() => { setAssignmentSummary(null); setLatestGradedAt(null) })
       .finally(() => { setAssignmentSummaryLoading(false) })
   }, [])
 
@@ -931,6 +935,11 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 data={assignmentSummary as Parameters<typeof AssignmentSummaryPanel>[0]['data']}
                 loading={assignmentSummaryLoading}
                 onRetry={handleRetryAssignmentSummary}
+                isStale={Boolean(
+                  latestGradedAt &&
+                  assignmentSummary?.updated_at &&
+                  new Date(latestGradedAt) > new Date(assignmentSummary.updated_at)
+                )}
               />
             </section>
           )}

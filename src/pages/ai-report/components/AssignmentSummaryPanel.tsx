@@ -31,6 +31,7 @@ type AssignmentSummaryPanelProps = {
   data: AssignmentSummaryData | null
   loading: boolean
   onRetry?: () => void
+  isStale?: boolean
 }
 
 function SuggestionBox({ suggestion }: { suggestion: string }) {
@@ -73,7 +74,7 @@ function RetryButton({ onRetry, label = '重新生成' }: { onRetry: () => void;
   )
 }
 
-export default function AssignmentSummaryPanel({ data, loading, onRetry }: AssignmentSummaryPanelProps) {
+export default function AssignmentSummaryPanel({ data, loading, onRetry, isStale }: AssignmentSummaryPanelProps) {
   const [expanded, setExpanded] = useState(false)
 
   if (loading) {
@@ -145,6 +146,25 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry }: Assig
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {isStale && onRetry && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '0.6rem 1rem', background: '#fffbeb', border: '1px solid #fcd34d',
+          borderRadius: '0.5rem', fontSize: '0.825rem',
+        }}>
+          <span style={{ color: '#92400e' }}>⚠️ 批改記錄已更新，目前顯示的是舊報告</span>
+          <button
+            onClick={onRetry}
+            style={{
+              padding: '0.3rem 0.85rem', background: '#d97706', color: '#fff',
+              border: 'none', borderRadius: '0.4rem', fontSize: '0.8rem',
+              fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', marginLeft: '1rem',
+            }}
+          >
+            重新生成報告
+          </button>
+        </div>
+      )}
 
       {/* 1. 主要：班級錯誤摘要 */}
       <div className="card" style={{ padding: '1.25rem 1.5rem' }}>
