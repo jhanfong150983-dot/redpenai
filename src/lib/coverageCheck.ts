@@ -32,22 +32,12 @@ function isPaperLike(area: { mean: number; stdDev: number }): boolean {
   return false
 }
 
-type SideStatus = 'aligned' | 'exceeded' | 'short'
+type SideStatus = 'aligned' | 'short'
 
-function checkSide(line: number[], padding: number[]): SideStatus {
-  if (line.length === 0 || padding.length === 0) return 'aligned'
-
-  const l = stats(line)
-  const p = stats(padding)
-
-  // padding（框外 2% 安全距離）是紙張 → 紙張超出引導框線
-  if (isPaperLike(p)) return 'exceeded'
-
-  // 框線位置是紙張 → 對齊
-  if (isPaperLike(l)) return 'aligned'
-
-  // 都不是紙張 → 紙張沒到框線
-  return 'short'
+function checkSide(line: number[]): SideStatus {
+  if (line.length === 0) return 'aligned'
+  // 框線位置是紙張 → 對齊（含略為超出的情況，padding 不檢查）
+  return isPaperLike(stats(line)) ? 'aligned' : 'short'
 }
 
 export type CoverageResult = {
@@ -57,20 +47,15 @@ export type CoverageResult = {
 }
 
 /**
- * 檢查紙張是否「剛好」觸及引導框上下緣。
+ * 檢查紙張是否觸及引導框上下緣。
  *
- * 理想裁切圖長相：
- *   [2.35% 背景（PAD）]
- *   [─── 框線 ───]
- *   [    紙張    ]
- *   [─── 框線 ───]
- *   [2.35% 背景（PAD）]
+ * 只檢查「框線位置」是否為紙張：
+ *   - aligned：框線位置是紙張（紙張剛好到框線、或略為超出都算）
+ *   - short：框線位置仍是背景（紙張沒到框線）
+ * 不檢查 padding，因為紙張略為超出框線是可接受的。
  *
- * 每一邊有三種狀態：
- *   - aligned：padding 是背景、框線位置是紙張 → 剛好對齊
- *   - exceeded：padding 已是紙張 → 紙張超出框線
- *   - short：padding 是背景、框線位置仍是背景 → 紙張沒到框線
- * 兩邊都 aligned 才算過。
+ * 計算：FRAME_LINE_RATIO = PAD / (1 - FRAME_T - FRAME_B + 2*PAD)
+ *                       = 0.02 / 0.85 ≈ 0.0235
  */
 export async function checkCoverage(imageBlob: Blob): Promise<CoverageResult> {
   const bitmap = await createImageBitmap(imageBlob)
@@ -84,17 +69,15 @@ export async function checkCoverage(imageBlob: Blob): Promise<CoverageResult> {
   ctx.drawImage(bitmap, 0, 0)
   bitmap.close()
 
-  const FRAME_LINE_RATIO = 0.0235  // 引導框線在裁切圖中的相對位置
+  const FRAME_LINE_RATIO = 0.0235
   const SAMPLE_HEIGHT = Math.max(3, Math.round(h * 0.03))
   const topLineY = Math.round(h * FRAME_LINE_RATIO)
   const bottomLineY = h - topLineY - SAMPLE_HEIGHT
 
   const topLine = collectEdgeBrightness(ctx, 0, topLineY, w, SAMPLE_HEIGHT)
-  const topPadding = collectEdgeBrightness(ctx, 0, 0, w, topLineY)
   const bottomLine = collectEdgeBrightness(ctx, 0, bottomLineY, w, SAMPLE_HEIGHT)
-  const bottomPadding = collectEdgeBrightness(ctx, 0, h - topLineY, w, topLineY)
 
-  const top = checkSide(topLine, topPadding)
-  const bottom = checkSide(bottomLine, bottomPadding)
+  const top = checkSide(topLine)
+  const bottom = checkSide(bottomLine)
   return { ok: top === 'aligned' && bottom === 'aligned', top, bottom }
 }

@@ -1967,25 +1967,18 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         // 把 top/bottom 的狀態轉成具體訊息
         const buildCoverageMessage = (): string => {
           if (!currentCoverage || currentCoverage.ok) return ''
-          const labels: Record<'exceeded' | 'short', string> = {
-            exceeded: '超出引導框',
-            short: '未到引導框'
+          const topShort = currentCoverage.top === 'short'
+          const bottomShort = currentCoverage.bottom === 'short'
+          if (topShort && bottomShort) {
+            return '⚠ 作業上下都未到引導框，請拉近裝置或對齊框線後重拍'
           }
-          const issues: string[] = []
-          if (currentCoverage.top !== 'aligned') {
-            issues.push(`上方${labels[currentCoverage.top]}`)
+          if (topShort) {
+            return '⚠ 作業上方未到引導框，請對齊上方框線後重拍'
           }
-          if (currentCoverage.bottom !== 'aligned') {
-            issues.push(`下方${labels[currentCoverage.bottom]}`)
+          if (bottomShort) {
+            return '⚠ 作業下方未到引導框，請對齊下方框線後重拍'
           }
-          // 兩邊都同種狀態 → 給對應的修正建議
-          if (currentCoverage.top === 'exceeded' && currentCoverage.bottom === 'exceeded') {
-            return '⚠ 作業上下都超出引導框，請拉遠裝置後重拍'
-          }
-          if (currentCoverage.top === 'short' && currentCoverage.bottom === 'short') {
-            return '⚠ 作業上下都未到引導框，請拉近裝置後重拍'
-          }
-          return `⚠ 作業${issues.join('、')}，請重新對齊後重拍`
+          return '⚠ 作業未對齊引導框，請重新拍攝'
         }
         const coverageMessage = buildCoverageMessage()
 
