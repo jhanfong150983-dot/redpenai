@@ -940,7 +940,6 @@ function buildGlobalTaskAndFormat(): string {
     "unorderedGroupId": "1",                 // orderMode=unordered 時必填（同組共用）
     "maxScore": 5,                           // 滿分
     "anchorHint": "比率列中有印刷括號（　）/180的空格，位於欄標題「三國演義」正下方",
-    "tablePosition": {"col": 4, "row": 3, "totalCols": 8, "totalRows": 3},
 
     // ─── 答案欄位（依 bucket 不同）───
     // bucket="A"：精確比對，必填 answer（格式見 Type Specs 各 type）
@@ -1012,30 +1011,7 @@ function buildGlobalTaskAndFormat(): string {
   - fill_blank 多格（multi_fill / 表格子題）：優先描述格子本身的視覺外觀（印刷格式、括號樣式、預留空白），再以欄標題或列標題作為輔助定位。例如：「比率列中有印刷括號（　）/180的空格，位於欄標題「三國演義」正下方」「票數列中對應「金銀島」欄的空白數字格」。禁止只寫欄標題文字（如「欄標題為「三國演義」的格子」），因為欄標題本身不是答案格。
   - single_choice / single_check：描述題幹第一句關鍵字，例如「題幹開頭為「擲出來的點數和可能大於1嗎」」
   - 目標：描述應具體到能唯一定位該格，避免使用位置詞（「左邊第三格」→ 改用欄標題）
-- tablePosition（表格內的答案格專用，補充欄位）：
-  ⚠️ 優先順序：顏色規則 > tablePosition。必須先通過顏色判斷（**答案色**內容 = 答案；印刷主色內容不是答案），確認該格是答案格後，才補上 tablePosition。印刷主色的已知值（如表格中已填好的數字、印刷的範例值）不是答案格，不建題，也不輸出 tablePosition。
-  - 僅當答案格位於表格（有可見的格線/欄列結構）中時才輸出
-
-  【格線計數法】（answer_key.extract 和 classify 共用規則，必須完全一致）
-  步驟：
-  1. 找到表格的外框邊界（最外圍的格線）
-  2. 數垂直格線（含左右外框）：從左到右依序編號 V1, V2, V3, ..., V(N+1)。N+1 條垂直線 = N 欄
-  3. 數水平格線（含上下外框）：從上到下依序編號 H1, H2, H3, ..., H(M+1)。M+1 條水平線 = M 列
-  4. 第 C 欄 = V(C) 與 V(C+1) 之間的空間。第 R 列 = H(R) 與 H(R+1) 之間的空間
-  5. totalCols = 垂直格線數 - 1。totalRows = 水平格線數 - 1
-  6. 目標格的位置 = 左邊界 V(col), 上邊界 H(row), 寬 = V(col+1) - V(col), 高 = H(row+1) - H(row)
-
-  ⚠️ 自我驗證：數完後，讀取第 1 列各欄的標題文字，列出 col1=「X」, col2=「Y」, ... 的對應表，確認欄數與 totalCols 一致，且每個答案格的 col 對應到正確的欄標題。若不符，重新計數。
-
-  欄位定義：
-  - col: 欄位序號（1-based），依格線計數法
-  - row: 列序號（1-based），依格線計數法
-  - totalCols: 垂直格線數 - 1
-  - totalRows: 水平格線數 - 1
-  - colspan: 若此格橫跨多欄，填實際跨欄數（預設 1，可省略）
-  - rowspan: 若此格縱跨多列，填實際跨列數（預設 1，可省略）
-  - 同一表格的所有子題必須共用相同的 totalCols / totalRows
-  - 非表格題不需輸出 tablePosition
+- 表格題：請使用 table_cell type（整張表合成 1 題 + cells 陣列），不要逐格建題
 - 無法辨識時回傳 {"questions": [], "totalScore": 0}
 
 【題號層級（idPath）】
@@ -1302,7 +1278,7 @@ function buildTypeSpecs(): string {
 ▸ table_cell 「表格題（群組批改）」
   視覺：規則表格（多列×多欄、清晰格線）+ 部分 cells 內有紅色手寫答案
   動作：學生在表格內多個 cells 填值（每 cell 1 值，數字/文字均可）
-  ⭐ 整張表格作為「1 題」，不要拆成多子題（與舊 fill_blank+tablePosition 不同）
+  ⭐ 整張表格作為「1 題」，不要拆成多子題
 
   必填欄位：
     - id：給整張表（如 "2-6-1"，依大題印刷號）
@@ -1339,7 +1315,6 @@ function buildTypeSpecs(): string {
     }
 
   ⚠️ 一張答案卷裡多個獨立表格 → 每張表各 1 個 table_cell question（id 各自編號）
-  ⚠️ 不要輸出 tablePosition（這是舊欄位、與 table_cell 互斥）
   ⚠️ 不要在 cells 陣列裡 pre-fill header 列／已預印數值（cells 只放需要學生填寫的格子）
   ⚠️ 若表格只有 1 個答案格 → 用 fill_blank 不用 table_cell（table_cell 必須有 ≥ 2 個 answer cells）
 
@@ -1906,12 +1881,7 @@ bbox 定位由後續的 locate.answer_only 階段視覺搜尋決定。
 - 都沒寫 → 預設 1
 - short_answer：必填 rubricsDimensions（兩維度：作答依據 + 結論表達），兩維度 maxScore 加總 = 該題 maxScore
 
-## 6. ⚠️ 不要輸出 tablePosition
-答題卡每格本身就是一題、ID 已經帶位置資訊（"1-1" = 第 1 section 第 1 題），
-**禁止輸出 tablePosition 欄位**。tablePosition 是一般模式為「混在大表格裡的題目」設計的，
-在本模式下會誤觸 server 端的 offset 校正邏輯，反而把正確的 box bbox 蓋掉。
-
-## 7. _layoutDetected（必填，且要在 questions 之前生成）
+## 6. _layoutDetected（必填，且要在 questions 之前生成）
 陣列長度 = 上傳照片張數，每張一個元素：
 - "answer-only-single-section"：整張照片只有一個 section
 - "answer-only-multi-section"：整張照片含多個 section（如單選+多選+非選都在同一張）
