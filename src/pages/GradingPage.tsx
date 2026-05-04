@@ -2249,7 +2249,9 @@ export default function GradingPage({
                 ? d.isCorrect
                 : d.maxScore
                   ? Number(d.score) >= Number(d.maxScore)
-                  : false
+                  : false,
+            // table_cell 群組批改：保留每 cell 對錯細節（人工複核 UI 用）
+            cellResults: Array.isArray(d.cellResults) ? d.cellResults : undefined
           }))
         )
       } else {
@@ -4457,6 +4459,48 @@ export default function GradingPage({
                                 {d.reason || '—'}
                               </span>
                             </div>
+
+                            {/* table_cell 群組批改：顯示每 cell 對錯細節 */}
+                            {Array.isArray(d.cellResults) && d.cellResults.length > 0 && (
+                              <div className="mt-2 border-t border-gray-200 pt-2">
+                                <div className="text-[11px] font-semibold text-gray-600 mb-1.5">每格對錯：</div>
+                                <div className="space-y-1">
+                                  {d.cellResults.map((cr: any, ci: number) => (
+                                    <div
+                                      key={`${cr.row}-${cr.col}-${ci}`}
+                                      className={`flex items-center gap-2 px-2 py-1 rounded text-[11px] ${
+                                        cr.correct
+                                          ? 'bg-green-50 border border-green-100'
+                                          : 'bg-red-50 border border-red-100'
+                                      }`}
+                                    >
+                                      <span className="shrink-0 font-semibold w-4 text-center">
+                                        {cr.correct ? '✓' : '✗'}
+                                      </span>
+                                      <span className="shrink-0 text-gray-500 min-w-[3rem]">
+                                        {cr.label || `r${cr.row}c${cr.col}`}
+                                      </span>
+                                      <span className="shrink-0 text-gray-700">
+                                        學生：<span className="font-medium">{cr.student || '（空）'}</span>
+                                      </span>
+                                      {!cr.correct && (
+                                        <>
+                                          <span className="shrink-0 text-gray-400">→</span>
+                                          <span className="shrink-0 text-gray-700">
+                                            正解：<span className="font-medium text-green-700">{cr.expected}</span>
+                                          </span>
+                                          {cr.reason && (
+                                            <span className="shrink-0 text-red-600 ml-auto truncate">
+                                              {cr.reason}
+                                            </span>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )
                       })}
