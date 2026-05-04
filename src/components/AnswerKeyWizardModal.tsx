@@ -208,26 +208,23 @@ export default function AnswerKeyWizardModal({
         return { index: newIdx, url: orig.url, blob: orig.blob, rotation: item.rotation }
       })
 
-      // 先應用老師的手動旋轉（90°/180°/270°），再做透視校正（並行處理）
-      setLoadingMsg('校正圖片角度…')
-      try {
-        const [{ rotateImageBlob }, { correctPerspective }] = await Promise.all([
-          import('../lib/imageCompression'),
-          import('../lib/perspectiveCorrection')
-        ])
-        await Promise.all(orderedBlobs.map(async (item) => {
-          // 旋轉
-          if (item.rotation !== 0) {
-            item.blob = await rotateImageBlob(item.blob, item.rotation)
-          }
-          // 透視校正
-          const oldUrl = item.url
-          item.blob = await correctPerspective(item.blob)
-          URL.revokeObjectURL(oldUrl)
-          item.url = URL.createObjectURL(item.blob)
-        }))
-      } catch (err) {
-        console.warn('[AnswerKeyWizard] perspective correction failed, using originals:', err)
+      // 答案卷上傳必為 PDF / 掃描檔，無透視問題 → 跳過透視校正省 Gemini API 成本。
+      // 只做老師手動旋轉（90°/180°/270°）。
+      if (orderedBlobs.some((item) => item.rotation !== 0)) {
+        setLoadingMsg('校正圖片角度…')
+        try {
+          const { rotateImageBlob } = await import('../lib/imageCompression')
+          await Promise.all(orderedBlobs.map(async (item) => {
+            if (item.rotation !== 0) {
+              item.blob = await rotateImageBlob(item.blob, item.rotation)
+              const oldUrl = item.url
+              URL.revokeObjectURL(oldUrl)
+              item.url = URL.createObjectURL(item.blob)
+            }
+          }))
+        } catch (err) {
+          console.warn('[AnswerKeyWizard] rotation failed, using originals:', err)
+        }
       }
 
       const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setLoadingMsg)

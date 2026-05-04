@@ -511,28 +511,27 @@ export default function AnswerKeyUnifiedModal({
         return { index: newIdx, url: orig.url, blob: orig.blob, rotation: item.rotation }
       })
 
-      // Apply rotation + perspective correction
+      // Apply rotation only — answer key uploads are PDF / scans (no perspective issue),
+      // so skip perspective correction to save Gemini API call cost.
       const total = orderedBlobs.length
-      setExtractionMsg(`校正圖片角度 (0/${total})…`)
-      try {
-        const [{ rotateImageBlob }, { correctPerspective }] = await Promise.all([
-          import('../lib/imageCompression'),
-          import('../lib/perspectiveCorrection')
-        ])
-        let done = 0
-        await Promise.all(orderedBlobs.map(async (item) => {
-          if (item.rotation !== 0) {
-            item.blob = await rotateImageBlob(item.blob, item.rotation)
-          }
-          const oldUrl = item.url
-          item.blob = await correctPerspective(item.blob)
-          URL.revokeObjectURL(oldUrl)
-          item.url = URL.createObjectURL(item.blob)
-          done += 1
-          setExtractionMsg(`校正圖片角度 (${done}/${total})…`)
-        }))
-      } catch (err) {
-        console.warn('[UnifiedModal] perspective correction failed, using originals:', err)
+      if (orderedBlobs.some((item) => item.rotation !== 0)) {
+        setExtractionMsg(`校正圖片角度 (0/${total})…`)
+        try {
+          const { rotateImageBlob } = await import('../lib/imageCompression')
+          let done = 0
+          await Promise.all(orderedBlobs.map(async (item) => {
+            if (item.rotation !== 0) {
+              item.blob = await rotateImageBlob(item.blob, item.rotation)
+              const oldUrl = item.url
+              URL.revokeObjectURL(oldUrl)
+              item.url = URL.createObjectURL(item.blob)
+            }
+            done += 1
+            setExtractionMsg(`校正圖片角度 (${done}/${total})…`)
+          }))
+        } catch (err) {
+          console.warn('[UnifiedModal] rotation failed, using originals:', err)
+        }
       }
       setExtractionMsg('擷取答案中，請稍候…')
 
