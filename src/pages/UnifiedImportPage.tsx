@@ -530,13 +530,23 @@ export default function UnifiedImportPage({
           const studentId = selectedStudent?.id
           if (studentId) {
             setSavingStudentId(studentId)
-            saveStudentSubmission(
-              assignmentId,
-              studentId,
-              next,
-              avoidBlobStorage,
-              'teacher_camera',
-            )
+            // 相機拍攝有透視 → 跑校正後再存
+            ;(async () => {
+              let correctedPages = next
+              try {
+                const { correctPerspectiveMultiple } = await import('../lib/perspectiveCorrection')
+                correctedPages = await correctPerspectiveMultiple(next)
+              } catch (err) {
+                console.warn('[UnifiedImport-camera] perspective correction failed, using originals:', err)
+              }
+              return saveStudentSubmission(
+                assignmentId,
+                studentId,
+                correctedPages,
+                avoidBlobStorage,
+                'teacher_camera',
+              )
+            })()
               .then(() => {
                 requestSync()
                 return loadData()
