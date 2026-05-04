@@ -123,6 +123,24 @@ async function runWithConcurrency<T, R>(
   })
 }
 
+// 偵測「教師手動批改」stub submission：source=teacher_camera、status=graded、無圖、無批改結果。
+// 由 /api/data/manual-grade 建立，代表老師宣告已批改但沒有實際影像/評分。
+function isManualGradeStub(submission?: Submission) {
+  if (!submission) return false
+  if (submission.status !== 'graded') return false
+  if (submission.source !== 'teacher_camera') return false
+  if (submission.gradingResult) return false
+  const hasImage =
+    Boolean(submission.imageBase64) ||
+    (submission.imageBlob?.size ?? 0) > 0 ||
+    Boolean(submission.imageUrl) ||
+    Boolean(submission.thumbUrl) ||
+    Boolean(submission.thumbnailBase64) ||
+    (submission.thumbnailBlob?.size ?? 0) > 0 ||
+    Boolean(submission.thumbnailUrl)
+  return !hasImage
+}
+
 function getSubmissionSourceVisual(submission?: Submission) {
   const source = submission?.source
   if (source === 'student_upload' || source === 'student_correction') {
@@ -1222,13 +1240,6 @@ export default function GradingPage({
     null
   )
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
-  const manualGradedKey = `manual_graded_${assignmentId}`
-  const [manuallyGradedStudentIds, setManuallyGradedStudentIds] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem(manualGradedKey)
-      return stored ? new Set<string>(JSON.parse(stored) as string[]) : new Set<string>()
-    } catch { return new Set<string>() }
-  })
   const [manualGradingStudentId, setManualGradingStudentId] = useState<string | null>(null)
 
   // 🆕 進度詳情
@@ -2289,12 +2300,9 @@ export default function GradingPage({
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data?.error || '手動標記失敗')
-      setManuallyGradedStudentIds((prev) => {
-        const next = new Set([...prev, student.id])
-        try { localStorage.setItem(manualGradedKey, JSON.stringify([...next])) } catch { /* ignore */ }
-        return next
-      })
-      void syncAndReload()
+      // 等同步把 server 端建立的 stub submission 拉回本地，UI 才能顯示「已完成批改」
+      // 而不是 flicker 回「尚未繳交」。
+      await syncAndReload()
     } catch (err) {
       setError(err instanceof Error ? err.message : '手動標記失敗')
     } finally {
@@ -3830,6 +3838,7 @@ export default function GradingPage({
                       : (typeof maxScore === 'number' && maxScore > 0 ? scoreValue < maxScore * 0.8 : scoreValue < 60)
                     const needsReview = isSubmissionNeedsReview(gradingResult)
                     const isSelected = selectedSubmissionIds.has(submission?.id ?? '')
+                    const isStub = isManualGradeStub(submission)
                     return (
                       <div key={student.id} className="relative">
                         {/* 勾選框 */}
@@ -3845,7 +3854,7 @@ export default function GradingPage({
                         )}
                         <button
                           onClick={() => {
-                            if (!submission || status === 'missing') return
+                            if (!submission || status === 'missing' || isStub) return
                             setSelectedSubmission({ submission, student })
                           }}
                           className={`w-full rounded-xl border-2 p-0 overflow-hidden transition-colors ${
@@ -3858,11 +3867,16 @@ export default function GradingPage({
                         >
                           <div className="relative aspect-[3/4] bg-gray-100">
                             <SubmissionThumbnail submission={submission} />
-                            {status === 'graded' && (
+                            {status === 'graded' && !isStub && (
                               <div className={`absolute top-1 right-1 rounded-full px-2 py-0.5 text-xs font-bold text-white shadow ${
                                 isLowScore ? 'bg-red-500' : 'bg-green-500'
                               }`}>
                                 {isUnscoredAssignment && correctSummary ? `${correctSummary.correct}/${correctSummary.total}` : `${scoreValue}分`}
+                              </div>
+                            )}
+                            {isStub && (
+                              <div className="absolute top-1 right-1 rounded-full bg-emerald-500 px-2 py-0.5 text-xs font-bold text-white shadow">
+                                已批改
                               </div>
                             )}
                             {needsReview && (
@@ -3871,7 +3885,7 @@ export default function GradingPage({
                           </div>
                           <div className="px-2 py-2 text-left">
                             <p className="text-sm font-semibold text-gray-900">{student.seatNumber} {student.name}</p>
-                            {status !== 'missing' && <p className={`text-[11px] font-medium ${sourceVisual.textClass}`}>{sourceVisual.label}</p>}
+                            {status !== 'missing' && <p className={`text-[11px] font-medium ${sourceVisual.textClass}`}>{isStub ? '老師手動標記' : sourceVisual.label}</p>}
                             {submission?.id && <p className="text-[9px] text-gray-300 font-mono cursor-pointer hover:text-gray-500 truncate" title={submission.id} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(submission.id) }}>{submission.id.slice(-8)}</p>}
                           </div>
                         </button>
@@ -3904,6 +3918,7 @@ export default function GradingPage({
             const hasGradingResult = isUnscoredAssignment
               ? !!correctSummary
               : !!gradingResult && typeof gradingResult.totalScore === 'number'
+            const isStub = isManualGradeStub(submission)
             const showResultBadge =
               hasGradingResult && (status === 'graded' || status === 'synced')
             const needsReview = showResultBadge && isSubmissionNeedsReview(gradingResult)
@@ -3933,13 +3948,18 @@ export default function GradingPage({
                 key={student.id}
                 className="bg-white rounded-xl hover:border-slate-300 border border-slate-200 transition-colors cursor-pointer group flex flex-col"
                 onClick={() => {
-                  if (!submission) return
+                  if (!submission || isStub) return
                   setSelectedSubmission({ submission, student })
                 }}
               >
                 <div className="relative">
                   <div className="aspect-[4/3] bg-gray-100 rounded-t-xl overflow-hidden flex items-center justify-center relative">
                     <SubmissionThumbnail submission={submission} />
+                    {isStub && (
+                      <div className="absolute top-2 right-2 px-2 py-1 bg-emerald-500 text-white rounded-full text-xs font-semibold shadow">
+                        已批改
+                      </div>
+                    )}
                     {showResultBadge && gradingResult && (
                       <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
                         {needsReview ? (
@@ -4026,11 +4046,11 @@ export default function GradingPage({
                   </div>
                   {status !== 'missing' && (
                     <p className={`text-[11px] font-medium ${sourceVisual.textClass}`}>
-                      {sourceVisual.label}
+                      {isStub ? '老師手動標記' : sourceVisual.label}
                     </p>
                   )}
                   {submission?.id && <p className="text-[9px] text-gray-300 font-mono cursor-pointer hover:text-gray-500 truncate" title={submission.id} onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(submission.id) }}>{submission.id.slice(-8)}</p>}
-                  {status === 'missing' && !manuallyGradedStudentIds.has(student.id) && (
+                  {status === 'missing' && (
                     <div className="flex items-center justify-between mt-1">
                       <p className="text-xs text-gray-500">尚未繳交</p>
                       <button
@@ -4043,7 +4063,7 @@ export default function GradingPage({
                       </button>
                     </div>
                   )}
-                  {manuallyGradedStudentIds.has(student.id) && (
+                  {isManualGradeStub(submission) && (
                     <p className="text-xs font-medium text-emerald-600 mt-1">已完成批改</p>
                   )}
                 </div>
