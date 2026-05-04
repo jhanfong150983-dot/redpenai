@@ -448,7 +448,9 @@ export default function AnswerKeyWizardModal({
   // effect early-return、後續 deps 變動連鎖觸發失效的 race condition。再編輯時 imageBlobs 由父層
   // 非同步下載填入，只要 editingKey + imageBlobs 都進入 state，就會即時重生 crop dataURL。
   useEffect(() => {
-    const bbox = bboxDraft ?? selectedQuestion?.referenceBbox ?? null
+    // 與 activeBbox（畫框 UI）保持一致的優先序：bboxDraft > referenceBbox > answerBbox
+    // referenceBbox 是老師手動框；answerBbox 是 AI 自動標記。沒有手動框時用 AI 框切。
+    const bbox = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
     const pageIdx = selectedQuestion?.pageIndex
       ?? Math.max(0, (parseInt(String(selectedQuestion?.id ?? '').split('-')[0], 10) || 1) - 1)
     const blob = imageBlobs[pageIdx] ?? imageBlobs[0] ?? null

@@ -614,7 +614,9 @@ export default function AnswerKeyUnifiedModal({
   // 只要 editingKey + extractedImageBlobs 都進入 state，這個 effect 就會即時重生 crop dataURL。
   useEffect(() => {
     const selectedQuestion = editingKey?.questions[selectedIdx] ?? null
-    const bbox = bboxDraft ?? selectedQuestion?.referenceBbox ?? null
+    // 與 activeBbox（畫框 UI）保持一致的優先序：bboxDraft > referenceBbox > answerBbox
+    // referenceBbox 是老師手動框；answerBbox 是 AI 自動標記。沒有手動框時用 AI 框切。
+    const bbox = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
     const pageIdx = selectedQuestion?.pageIndex
       ?? Math.max(0, (parseInt(String(selectedQuestion?.id ?? '').split('-')[0], 10) || 1) - 1)
     const blob = extractedImageBlobs[pageIdx] ?? extractedImageBlobs[0] ?? null
