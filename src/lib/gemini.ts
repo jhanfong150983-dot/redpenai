@@ -4338,12 +4338,21 @@ interface LocateSpec {
   bboxPolicy: 'full_image' | 'group_context' | 'question_context'
   bboxGroupId?: string
   answerText?: string
+  // table_cell 專用：給 AI 表頭錨點以視覺定位整表外輪廓
+  tableMeta?: {
+    rowHeaders?: string[]
+    colHeaders?: string[]
+    totalRows: number
+    totalCols: number
+  }
+  cellAnchors?: string  // human-readable 描述要找的 cells（如「r3c2 蘋果, r3c3 櫻桃, ...」）
 }
 
 const LOCATE_VALID_TYPES = new Set([
   // Bucket A
   'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
   'single_check', 'multi_check', 'true_false', 'fill_blank', 'multi_fill',
+  'table_cell',
   'matching', 'ordering', 'mark_in_text',
   'calculation', 'word_problem',
   // Bucket B
@@ -4397,6 +4406,22 @@ function buildLocateSpecs(questions: import('./db').AnswerKeyQuestion[]): Locate
       || (typeof q.referenceAnswer === 'string' && q.referenceAnswer)
       || ''
     if (answerText) spec.answerText = answerText
+    // table_cell：帶 tableMeta 跟 cells 描述（AI 用印刷表頭+答案內容當錨點定位整表）
+    if (q.questionCategory === 'table_cell') {
+      if (q.tableMeta) {
+        spec.tableMeta = {
+          rowHeaders: q.tableMeta.rowHeaders,
+          colHeaders: q.tableMeta.colHeaders,
+          totalRows: q.tableMeta.totalRows,
+          totalCols: q.tableMeta.totalCols
+        }
+      }
+      if (Array.isArray(q.cells) && q.cells.length > 0) {
+        spec.cellAnchors = q.cells
+          .map((c) => `r${c.row}c${c.col}${c.label ? `(${c.label})` : ''}=${c.answer || '?'}`)
+          .join(', ')
+      }
+    }
     return spec
   })
 }
@@ -4636,7 +4661,12 @@ async function locateAnswerKeyBboxesOnPage(
 ): Promise<Map<string, NormalizedBbox>> {
   const bboxMap = new Map<string, NormalizedBbox>()
   // 只 locate 有 answerText 的題目（locate 用 answerText 當視覺錨點）
+  // table_cell 的答案在 cells[].answer 而非 q.answer，要單獨判斷
   const locatableQ = questions.filter((q) => {
+    if (q.questionCategory === 'table_cell') {
+      // 至少 1 個 cell 有非空 answer 就算 locatable
+      return Array.isArray(q.cells) && q.cells.some((c) => typeof c?.answer === 'string' && c.answer.trim())
+    }
     const text = (typeof q.answer === 'string' && q.answer)
       || (typeof q.referenceAnswer === 'string' && q.referenceAnswer)
     return Boolean(text)
