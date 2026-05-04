@@ -5246,7 +5246,8 @@ export async function gradePhaseA(
   assignmentId?: string,
   classifyCorrections?: ClassifyCorrection[],
   answerSheetMode?: 'with_questions' | 'answer_only',
-  submissionId?: string
+  submissionId?: string,
+  submissionSource?: string
 ): Promise<PhaseAResult> {
   const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
@@ -5285,6 +5286,7 @@ export async function gradePhaseA(
     ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
     ...(assignmentId ? { assignmentId } : {}),
     ...(submissionId ? { submissionId } : {}),
+    ...(submissionSource ? { submissionSource } : {}),
     ...(classifyCorrections && classifyCorrections.length > 0 ? { classifyCorrections } : {}),
     ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {}),
     ...(bboxOverrides ? { bboxOverrides } : {})
