@@ -585,6 +585,14 @@ export default function AnswerKeyWizardModal({
                     {(() => {
                       const PLACEHOLDER_ANSWERS = ['?', '？', '未知', 'unknown', 'N/A']
                       const missingCount = editingKey.questions.filter(q => {
+                        // table_cell：看 cells 是否至少 1 格有非空 answer
+                        if (q.questionCategory === 'table_cell') {
+                          const hasAny = Array.isArray(q.cells) && q.cells.some((c) => {
+                            const ca = (c?.answer ?? '').trim()
+                            return ca && !PLACEHOLDER_ANSWERS.includes(ca)
+                          })
+                          return !hasAny
+                        }
                         const a = (q.answer ?? '').trim()
                         const r = (q.referenceAnswer ?? '').trim()
                         return (!a || PLACEHOLDER_ANSWERS.includes(a)) && (!r || PLACEHOLDER_ANSWERS.includes(r))

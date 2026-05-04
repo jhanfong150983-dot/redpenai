@@ -4108,6 +4108,7 @@ const AK_VALID_CATEGORIES = new Set([
   // Bucket A
   'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
   'single_check', 'multi_check', 'true_false', 'fill_blank', 'multi_fill',
+  'table_cell',
   'matching', 'ordering', 'mark_in_text',
   // Bucket B
   'fill_variants', 'map_fill',
@@ -4126,9 +4127,10 @@ const AK_VALID_CATEGORIES = new Set([
 // 驗證邏輯：answer 或 referenceAnswer 至少一個有值（非 placeholder）
 // 注意：compound_chain_table 不在此列，因為它沒有單一 answer（純 rubric）
 const AK_ANSWER_REQUIRED = new Set([
-  // Bucket A 全部（含新加入的 calculation / word_problem）
+  // Bucket A 全部（含新加入的 calculation / word_problem / table_cell）
   'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
   'single_check', 'multi_check', 'true_false', 'fill_blank', 'multi_fill',
+  'table_cell',      // A bucket：answer 在 cells[].answer（quality gate 特殊處理）
   'matching', 'ordering', 'mark_in_text',
   'calculation',     // A bucket：answer = 純數值（過程交 Accessor）
   'word_problem',    // A bucket：answer = 含單位最終值（不含「答：」前綴）
@@ -4236,6 +4238,15 @@ function checkAnswerKeyQuality(ak: AnswerKey, pageCount?: number): { shouldRetry
   let missingAnswer = 0
   for (const q of questions) {
     if (!q.questionCategory || !AK_ANSWER_REQUIRED.has(q.questionCategory)) continue
+    // table_cell：看 cells 是否至少 1 格有非空 answer
+    if (q.questionCategory === 'table_cell') {
+      const hasAny = Array.isArray(q.cells) && q.cells.some((c) => {
+        const ca = (c?.answer ?? '').trim()
+        return ca && !PLACEHOLDER_ANSWERS.has(ca)
+      })
+      if (!hasAny) missingAnswer++
+      continue
+    }
     const ans = (q.answer ?? '').trim()
     const ref = (q.referenceAnswer ?? '').trim()
     if ((!ans || PLACEHOLDER_ANSWERS.has(ans)) && (!ref || PLACEHOLDER_ANSWERS.has(ref))) missingAnswer++
