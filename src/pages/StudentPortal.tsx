@@ -15,11 +15,18 @@ import {
   Clock,
   ZoomIn,
   ZoomOut,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react'
 import { blobToBase64, compressToTargetBytes } from '@/lib/imageCompression'
 import { safeToBlobWithFallback } from '@/lib/canvasToBlob'
 import { getSubmissionImageUrl } from '@/lib/utils'
 import { buildApiUrl } from '@/lib/api-base'
+import {
+  validatePhotos,
+  type PageValidationResult,
+  type PageInput,
+} from '@/lib/photoValidation'
 import CameraCapturePage from './CameraCapturePage'
 
 type StudentTab = 'overview' | 'upload' | 'correction'
@@ -113,6 +120,15 @@ interface StudentPortalProps {
 
 function buildDraftSignature(files: File[]) {
   return files.map((file) => `${file.name}:${file.size}:${file.lastModified}`).join('|')
+}
+
+function pageSignature(file: File): string {
+  return `${file.name}:${file.size}:${file.lastModified}`
+}
+
+interface ValidatedDraft {
+  draftSignature: string
+  pages: Array<{ sig: string; result: PageValidationResult }>
 }
 
 async function mergeImagesVertically(files: (File | Blob)[]): Promise<Blob> {
@@ -513,7 +529,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [correctionAssignmentId, setCorrectionAssignmentId] = useState('')
   const [selectedFiles, setSelectedFiles] = useState<File[]>([])
   const [uploadDrafts, setUploadDrafts] = useState<Record<string, File[]>>({})
-  const [previewedDraftSignatures, setPreviewedDraftSignatures] = useState<Record<string, string>>({})
+  const [validatedDrafts, setValidatedDrafts] = useState<Record<string, ValidatedDraft>>({})
+  const [validatingAsgId, setValidatingAsgId] = useState<string | null>(null)
+  const [validationError, setValidationError] = useState<string | null>(null)
   const [previewModal, setPreviewModal] = useState<PreviewModalState>(null)
   const [retakePageIdx, setRetakePageIdx] = useState<number | null>(null) // 重拍模式：要取代的頁面 index
   const [cameraMode, setCameraMode] = useState<StudentCameraMode>(null)
@@ -522,7 +540,6 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [correctionCameraQuestionId, setCorrectionCameraQuestionId] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submittingMode, setSubmittingMode] = useState<'upload' | 'correction' | null>(null)
-  const [submittingStep, setSubmittingStep] = useState<'correcting' | 'uploading'>('uploading')
   const [showCorrectionSubmitConfirm, setShowCorrectionSubmitConfirm] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const initialTabSetRef = useRef(false)
@@ -720,26 +737,24 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
 
       try {
         const rotatedFile = await rotateImageFile(targetFile, direction)
-        let nextFilesSnapshot: File[] | null = null
 
         setUploadDrafts((prev) => {
           const current = prev[assignmentId] || []
           if (!current[index]) return prev
           const nextFiles = [...current]
           nextFiles[index] = rotatedFile
-          nextFilesSnapshot = nextFiles
           return {
             ...prev,
             [assignmentId]: nextFiles
           }
         })
-
-        if (nextFilesSnapshot) {
-          setPreviewedDraftSignatures((prev) => ({
-            ...prev,
-            [assignmentId]: buildDraftSignature(nextFilesSnapshot as File[])
-          }))
-        }
+        // 旋轉改變了該頁的 file identity → 該頁的驗證快取失效。
+        // 使用者需要重新點「確認完成」才會解鎖送出。
+        setValidatedDrafts((prev) => {
+          const next = { ...prev }
+          delete next[assignmentId]
+          return next
+        })
       } catch (err) {
         setError(err instanceof Error ? err.message : '旋轉照片失敗')
       } finally {
@@ -748,6 +763,57 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     },
     [isRotatingPreview, previewModal, uploadDrafts]
   )
+
+  const handleConfirmPreview = useCallback(async () => {
+    if (!previewModal) return
+    const asgId = previewModal.assignmentId
+    const files = uploadDrafts[asgId] || []
+    if (files.length === 0) return
+
+    setValidatingAsgId(asgId)
+    setValidationError(null)
+    setError(null)
+
+    try {
+      const prev = validatedDrafts[asgId]
+      const inputs: PageInput[] = files.map((file, i) => {
+        const sig = pageSignature(file)
+        const cachedPage = prev?.pages[i]
+        const cached =
+          cachedPage?.sig === sig && cachedPage.result.ok
+            ? cachedPage.result
+            : undefined
+        return { blob: file, cached }
+      })
+
+      const result = await validatePhotos(inputs)
+
+      setValidatedDrafts((s) => ({
+        ...s,
+        [asgId]: {
+          draftSignature: buildDraftSignature(files),
+          pages: files.map((file, i) => ({
+            sig: pageSignature(file),
+            result: result.perPage[i],
+          })),
+        },
+      }))
+
+      if (result.ok) {
+        setPreviewModal(null)
+      } else {
+        const firstBad = result.perPage.findIndex((p) => !p.ok)
+        if (firstBad >= 0) {
+          setPreviewModal({ assignmentId: asgId, index: firstBad })
+        }
+      }
+    } catch (err) {
+      console.error('[StudentPortal] photo validation failed:', err)
+      setValidationError(err instanceof Error ? err.message : '檢查失敗，請再試一次')
+    } finally {
+      setValidatingAsgId(null)
+    }
+  }, [previewModal, uploadDrafts, validatedDrafts])
 
   useEffect(() => {
     return () => {
@@ -979,7 +1045,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           ...drafts,
           [cameraAssignmentId]: files
         }))
-        setPreviewedDraftSignatures((prev) => {
+        setValidatedDrafts((prev) => {
           const next = { ...prev }
           delete next[cameraAssignmentId]
           return next
@@ -1056,9 +1122,13 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       }
 
       const draftSignature = buildDraftSignature(files)
-      const previewedSignature = previewedDraftSignatures[assignment.id]
-      if (!previewedSignature || previewedSignature !== draftSignature) {
-        setError('請先點擊「預覽作業」確認後再送出')
+      const validated = validatedDrafts[assignment.id]
+      if (!validated || validated.draftSignature !== draftSignature) {
+        setError('請先點擊「預覽作業」並完成檢查後再送出')
+        return
+      }
+      if (!validated.pages.every((p) => p.result.ok)) {
+        setError('預覽檢查未通過，請重拍標示有問題的頁面')
         return
       }
     }
@@ -1142,23 +1212,16 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         }
       }
 
-      // 透視校正：每張照片獨立校正，再合併（upload 模式才校正，correction 不需要）
+      // 透視校正已在預覽階段（「確認完成」）完成，這裡直接用驗證快取的校正後 blob。
       let filesToMerge: (File | Blob)[] = mergedFiles
       if (mode === 'upload' && mergedFiles.length > 0) {
-        setSubmittingStep('correcting')
-        try {
-          const { correctPerspectiveMultiple } = await import('../lib/perspectiveCorrection')
-          filesToMerge = await correctPerspectiveMultiple(mergedFiles)
-        } catch (err) {
-          console.warn('[StudentPortal] perspective correction failed:', err)
-          // 校正失敗 → 提示學生重新送出
-          setSubmittingStep('uploading')
-          setIsSubmitting(false)
-          setSubmittingMode(null)
-          setError('照片處理失敗，請稍候再按一次送出。如果持續失敗，請通知老師。')
-          return
+        const validated = validatedDrafts[assignment.id]
+        if (validated && validated.draftSignature === buildDraftSignature(files)) {
+          filesToMerge = mergedFiles.map((file, i) => {
+            const corrected = validated.pages[i]?.result.correctedBlob
+            return corrected || file
+          })
         }
-        setSubmittingStep('uploading')
       }
 
       const mergeTarget = mode === 'correction' ? CORRECTION_MERGE_TARGET_BYTES : 2_000_000
@@ -1245,7 +1308,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           delete next[assignment.id]
           return next
         })
-        setPreviewedDraftSignatures((prev) => {
+        setValidatedDrafts((prev) => {
           const next = { ...prev }
           delete next[assignment.id]
           return next
@@ -1499,13 +1562,19 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 }
                 const isLocked = Boolean(item.uploadLocked) || !item.canUpload
                 const draftSignature = buildDraftSignature(draftFiles)
-                const hasPreviewedCurrentDraft =
+                const validated = validatedDrafts[item.id]
+                const isCurrentDraftValidated =
                   draftFiles.length > 0 &&
-                  previewedDraftSignatures[item.id] === draftSignature
+                  validated?.draftSignature === draftSignature
+                const validationOk =
+                  isCurrentDraftValidated &&
+                  validated.pages.every((p) => p.result.ok)
+                const validationFailed =
+                  isCurrentDraftValidated && !validationOk
                 const canSubmit =
                   draftFiles.length === requiredPages &&
                   !isLocked &&
-                  hasPreviewedCurrentDraft
+                  validationOk
                 return (
                   <article
                     key={item.id}
@@ -1534,9 +1603,21 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                             {item.uploadLockedReason || '作業已鎖定，請聯繫老師解除後再上傳'}
                           </p>
                         )}
-                        {!isLocked && draftFiles.length === requiredPages && !hasPreviewedCurrentDraft && (
+                        {!isLocked && draftFiles.length === requiredPages && !isCurrentDraftValidated && (
                           <p className="mt-1 text-xs text-amber-700">
-                            請先按「預覽作業」確認內容後，才能送出。
+                            請先按「預覽作業」並完成檢查，才能送出。
+                          </p>
+                        )}
+                        {validationFailed && (
+                          <p className="mt-1 inline-flex items-center gap-1 text-xs text-rose-600">
+                            <AlertTriangle className="h-3 w-3" />
+                            照片檢查未通過，請按「預覽作業」查看並重拍有問題的頁面。
+                          </p>
+                        )}
+                        {validationOk && (
+                          <p className="mt-1 inline-flex items-center gap-1 text-xs text-emerald-600">
+                            <CheckCircle2 className="h-3 w-3" />
+                            照片檢查通過，可以送出。
                           </p>
                         )}
                       </div>
@@ -1915,18 +1996,12 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               <Loader2 className="h-5 w-5 animate-spin text-sky-700" />
             </div>
             <p className="text-base font-semibold text-slate-900">
-              {submittingMode === 'correction'
-                ? '訂正上傳中'
-                : submittingStep === 'correcting'
-                  ? '照片處理中'
-                  : '作業送出中'}
+              {submittingMode === 'correction' ? '訂正上傳中' : '作業送出中'}
             </p>
             <p className="mt-1 text-sm text-slate-600">
               {submittingMode === 'correction'
                 ? '正在上傳照片，上傳完成後 AI 將自動排隊批改。'
-                : submittingStep === 'correcting'
-                  ? '正在校正照片角度，請稍候…'
-                  : '請勿離開此頁，系統正在送出本次作業。'}
+                : '請勿離開此頁，系統正在送出本次作業。'}
             </p>
           </div>
         </div>
@@ -1938,6 +2013,22 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         const orientations = assignment?.pageOrientations || []
         const currentIdx = previewModal.index
         const expectedOri = orientations[currentIdx]
+
+        // 取出當前 draft 的驗證快照（若 signature 已變動則視為未驗證）
+        const currentDraftSig = buildDraftSignature(previewFiles)
+        const currentValidated = validatedDrafts[previewModal.assignmentId]
+        const isValidatedSnapshot =
+          currentValidated?.draftSignature === currentDraftSig
+        const pageStatus = (i: number): 'ok' | 'fail' | 'pending' => {
+          if (!isValidatedSnapshot) return 'pending'
+          const r = currentValidated.pages[i]?.result
+          if (!r) return 'pending'
+          return r.ok ? 'ok' : 'fail'
+        }
+        const currentPageResult = isValidatedSnapshot
+          ? currentValidated.pages[currentIdx]?.result
+          : null
+        const isValidating = validatingAsgId === previewModal.assignmentId
 
         return (
           <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 p-4">
@@ -2038,43 +2129,77 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                   </button>
                 </div>
 
-                {/* 頁面狀態指示器 */}
-                {previewFiles.length > 1 && (
-                  <div className="flex items-center justify-center gap-2">
-                    {previewFiles.map((_, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => setPreviewModal(prev => prev ? { ...prev, index: i } : prev)}
-                        className={`w-8 h-8 rounded-full text-xs font-semibold border-2 transition-colors ${
-                          i === currentIdx
-                            ? 'border-blue-500 bg-blue-500 text-white scale-110'
-                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
-                        }`}
-                      >
-                        {i + 1}
-                      </button>
-                    ))}
+                {/* 當前頁的驗證錯誤 */}
+                {currentPageResult && !currentPageResult.ok && currentPageResult.errors.length > 0 && (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
+                      <div className="flex-1 space-y-1">
+                        <p className="text-sm font-semibold text-rose-900">
+                          第 {currentIdx + 1} 頁需要重拍：
+                        </p>
+                        <ul className="list-disc pl-5 text-xs text-rose-800 space-y-0.5">
+                          {currentPageResult.errors.map((e, i) => (
+                            <li key={i}>{e.message}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
                   </div>
                 )}
 
-                {/* 確認送出 */}
+                {/* 驗證系統錯誤（網路或 API 失敗） */}
+                {validationError && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+                    {validationError}
+                  </div>
+                )}
+
+                {/* 頁面狀態指示器（紅 / 綠 / 灰） */}
+                {previewFiles.length > 1 && (
+                  <div className="flex items-center justify-center gap-2">
+                    {previewFiles.map((_, i) => {
+                      const status = pageStatus(i)
+                      const baseColor =
+                        i === currentIdx
+                          ? 'border-blue-500 bg-blue-500 text-white scale-110'
+                          : status === 'ok'
+                            ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:border-emerald-500'
+                            : status === 'fail'
+                              ? 'border-rose-400 bg-rose-50 text-rose-700 hover:border-rose-500'
+                              : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setPreviewModal(prev => prev ? { ...prev, index: i } : prev)}
+                          className={`w-8 h-8 rounded-full text-xs font-semibold border-2 transition-colors ${baseColor}`}
+                        >
+                          {i + 1}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* 確認 / 重新檢查按鈕 */}
                 <div className="flex justify-center">
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!previewModal) return
-                      setPreviewedDraftSignatures((prev) => ({
-                        ...prev,
-                        [previewModal.assignmentId]: buildDraftSignature(
-                          uploadDrafts[previewModal.assignmentId] || []
-                        )
-                      }))
-                      setPreviewModal(null)
-                    }}
-                    className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+                    onClick={() => void handleConfirmPreview()}
+                    disabled={isValidating}
+                    className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-green-400"
                   >
-                    確認完成，準備送出
+                    {isValidating ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        檢查中…
+                      </>
+                    ) : isValidatedSnapshot && !currentValidated.pages.every((p) => p.result.ok) ? (
+                      '重新檢查'
+                    ) : (
+                      '確認完成，準備送出'
+                    )}
                   </button>
                 </div>
               </div>

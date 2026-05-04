@@ -1,4 +1,5 @@
 import type { TiltStatus } from '@/hooks/useGyroscope'
+import { CAMERA_FRAME } from '@/lib/cameraGuide'
 
 /**
  * 相機拍照引導層（純視覺元件）：
@@ -72,8 +73,13 @@ export default function CameraGuideOverlay({
       {/* ── 引導框 ── */}
       <div className="absolute inset-0 z-[5] pointer-events-none">
         <div
-          className="absolute left-[3%] right-[3%] top-[5%] bottom-[14%]"
-          style={{ maxWidth: '94%', maxHeight: '81%' }}
+          className="absolute"
+          style={{
+            left: `${CAMERA_FRAME.LEFT * 100}%`,
+            right: `${CAMERA_FRAME.RIGHT * 100}%`,
+            top: `${CAMERA_FRAME.TOP * 100}%`,
+            bottom: `${CAMERA_FRAME.BOTTOM * 100}%`,
+          }}
         >
           {/* 半透明底色 */}
           <div className={`absolute inset-0 rounded-lg transition-colors duration-300 ${bgOverlay}`} />

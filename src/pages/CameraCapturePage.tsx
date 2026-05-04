@@ -111,43 +111,9 @@ export default function CameraCapturePage({
         throw new Error('無法擷取影像')
       }
 
-      // 裁切引導框範圍（與 CameraGuideOverlay 的框比例一致）
-      // 框：left 3%, right 3%, top 5%, bottom 14%
-      const FRAME_L = 0.03, FRAME_R = 0.03, FRAME_T = 0.05, FRAME_B = 0.14
-      // 安全距離：框線外再保留 2% 螢幕寬/高，避免貼框時切到作業邊緣
-      const PAD = 0.02
-      const croppedSrc = await new Promise<string>((resolve) => {
-        const img = new Image()
-        img.onload = () => {
-          const imgW = img.naturalWidth
-          const imgH = img.naturalHeight
-          const screenW = window.innerWidth
-          const screenH = window.innerHeight
-          // object-cover: 縮放使圖片完全覆蓋螢幕，多餘部分裁掉，居中對齊
-          const s = Math.max(screenW / imgW, screenH / imgH)
-          const leftCrop = (imgW * s - screenW) / 2  // display px cropped from left
-          const topCrop  = (imgH * s - screenH) / 2  // display px cropped from top
-          // 框在螢幕上的位置（screen px），向外擴展 PAD 安全距離
-          const fL = screenW * (FRAME_L - PAD)
-          const fT = screenH * (FRAME_T - PAD)
-          const fR = screenW * (1 - FRAME_R + PAD)
-          const fB = screenH * (1 - FRAME_B + PAD)
-          // 映射回原圖座標，夾在原圖範圍內
-          const cropX = Math.round(Math.max(0, (fL + leftCrop) / s))
-          const cropY = Math.round(Math.max(0, (fT + topCrop)  / s))
-          const cropW = Math.round(Math.min(imgW - cropX, (fR - fL) / s))
-          const cropH = Math.round(Math.min(imgH - cropY, (fB - fT) / s))
-          const canvas = document.createElement('canvas')
-          canvas.width  = cropW
-          canvas.height = cropH
-          canvas.getContext('2d')!.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH)
-          resolve(canvas.toDataURL('image/jpeg', 0.92))
-        }
-        img.src = imageSrc
-      })
-
-      // 壓縮圖片（格式自動檢測：桌面用WebP，平板用JPEG）
-      const compressed = await compressImage(croppedSrc, {
+      // 不再依引導框硬裁；引導框只作為對齊提示，
+      // 紙張邊界由後續 correctPerspective 用 AI 找四角處理。
+      const compressed = await compressImage(imageSrc, {
         maxWidth: 2000,
         quality: 0.85
       })
