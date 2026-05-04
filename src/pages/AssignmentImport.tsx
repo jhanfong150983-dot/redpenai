@@ -758,18 +758,11 @@ export default function AssignmentImport({
 
         if (pageBlobs.length === 0) continue
 
-        // 透視校正：每頁獨立校正，再合併
-        let correctedBlobs = pageBlobs
-        try {
-          const { correctPerspectiveMultiple } = await import('../lib/perspectiveCorrection')
-          correctedBlobs = await correctPerspectiveMultiple(pageBlobs)
-        } catch (err) {
-          console.warn('[AssignmentImport] perspective correction failed, using originals:', err)
-        }
-
-        const mergeResult = correctedBlobs.length === 1
-          ? { blob: correctedBlobs[0], pageBreaks: [] as number[] }
-          : await mergePageBlobs(correctedBlobs)
+        // AssignmentImport 只接受 PDF（input accept="application/pdf"），無相機透視問題，
+        // 跳過 correctPerspectiveMultiple 省 N × Gemini detect_corners API call。
+        const mergeResult = pageBlobs.length === 1
+          ? { blob: pageBlobs[0], pageBreaks: [] as number[] }
+          : await mergePageBlobs(pageBlobs)
         let imageBlob = mergeResult.blob
         const pageBreaks = mergeResult.pageBreaks
 

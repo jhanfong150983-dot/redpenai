@@ -646,13 +646,15 @@ export default function UnifiedImportPage({
         }),
       )
 
-      // 透視校正（每頁獨立，並行）
+      // 透視校正：上傳照片需要校正（手機相片有透視）；PDF 已是平面掃描，跳過省成本
       let correctedBlobs = rotatedBlobs
-      try {
-        const { correctPerspectiveMultiple } = await import('../lib/perspectiveCorrection')
-        correctedBlobs = await correctPerspectiveMultiple(rotatedBlobs)
-      } catch (err) {
-        console.warn('[UnifiedImport] perspective correction failed, using originals:', err)
+      if (uploadPreviewSource !== 'teacher_scan') {
+        try {
+          const { correctPerspectiveMultiple } = await import('../lib/perspectiveCorrection')
+          correctedBlobs = await correctPerspectiveMultiple(rotatedBlobs)
+        } catch (err) {
+          console.warn('[UnifiedImport] perspective correction failed, using originals:', err)
+        }
       }
 
       await saveStudentSubmission(
