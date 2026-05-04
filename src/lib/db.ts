@@ -44,8 +44,9 @@ export type QuestionCategory =
   | 'single_check'         // 勾選題：□ 打勾 1 個
   | 'multi_check'          // 多選勾選題：□ 打勾多個
   | 'true_false'           // 是非題：括號內手寫 ○ 或 ✗
-  | 'fill_blank'           // 填空題：____ ／ □ ／ 表格儲存格 填 1 個值
+  | 'fill_blank'           // 填空題：____ ／ □ 填 1 個值（單行底線/方框/括號，不含表格儲存格）
   | 'multi_fill'           // 多項填空題：多空格填多值（順序無關）
+  | 'table_cell'           // 表格題（群組評分）：規則表格多 cell 共用 1 個整表 bbox，AI 一次讀整表回傳每 cell 值；分數依答對 cell 比例給分
   | 'matching'             // 連連看：1對1/1對多/多對多 連線
   | 'ordering'             // 排序題：在格內填序號 1-N
   | 'mark_in_text'         // 圈詞題：在文章中圈出特定詞語
@@ -84,6 +85,8 @@ export const QUESTION_CATEGORY_TO_BUCKET: Record<QuestionCategory, QuestionBucke
   true_false: 'A',
   fill_blank: 'A',
   multi_fill: 'A',
+  table_cell: 'A',
+
   matching: 'A',
   ordering: 'A',
   mark_in_text: 'A',
@@ -244,6 +247,7 @@ export interface AnswerKeyQuestion {
 
   // 表格座標定位（由 answer_key.extract 產生）
   // 用於 classify 階段精準定位表格中的答案格，比 anchorHint 更可靠
+  // ⚠️ legacy: 新 table_cell 群組批改 type 已不使用此欄位；保留供舊 fill_blank+tablePosition 既有資料
   tablePosition?: {
     col: number      // 欄位序號（1-based，含標題欄，從最左邊開始）
     row: number      // 列序號（1-based，含標題列，從最上面開始）
@@ -252,6 +256,21 @@ export interface AnswerKeyQuestion {
     colspan?: number  // 合併欄數（預設 1）
     rowspan?: number  // 合併列數（預設 1）
   }
+
+  // table_cell 群組批改題型專用欄位（questionCategory='table_cell'）
+  // 整張規則表格作為一題，answerBbox 框整表（不框單格），AI 一次讀整表回傳每 cell 值
+  tableMeta?: {
+    rowHeaders?: string[]  // 列標題（如 ["水果種類","人數(人)","百分率"]）
+    colHeaders?: string[]  // 欄標題（如 ["", "蘋果","櫻桃","草莓","西瓜"]）
+    totalRows: number      // 含 header 總列數
+    totalCols: number      // 含 header 總欄數
+  }
+  cells?: Array<{
+    row: number       // 1-based（含 header 列）
+    col: number       // 1-based（含 header 欄）
+    label?: string    // 此 cell 對應的 header label（給 AI/UI 顯示用，如「百分率·蘋果」）
+    answer: string    // 此 cell 的標準答案
+  }>
 
 }
 
@@ -395,6 +414,18 @@ export interface GradingDetail {
   answerCropImageUrl?: string
   mistakeTypeCodes?: string[]
   studentGuidance?: string
+
+  // table_cell 群組批改題型專用：每 cell 對錯細節
+  // 整題 score = (correctCount / cells.length) * maxScore
+  cellResults?: Array<{
+    row: number
+    col: number
+    label?: string         // 對應 header label（顯示用）
+    student: string        // AI 從整表 crop 讀到的學生答案
+    expected: string       // 標準答案
+    correct: boolean       // 是否正確
+    reason?: string        // 答錯原因（單位錯、數值錯等）
+  }>
   // 批改時嵌入的 108 課綱概念標記（來自 assignment.conceptTags，批改當下凍結）
   conceptCode?: string
   conceptLabel?: string

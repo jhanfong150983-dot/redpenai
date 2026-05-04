@@ -1159,8 +1159,14 @@ Q2-A：學生主要動作是什麼？  [8 選 1]
       • 有 work area + 學生實際寫了算式步驟 → 走「填值+算式」分支
 
    ─ 純填值（無算式步驟）：
-   ├─ 一個值 → fill_blank
-   └─ 多個值（順序無關）→ multi_fill
+   ⭐ 優先檢查：答案位置是否在「規則表格內某 cell」？
+      判斷準則（同時滿足）：
+      ① 周圍有完整格線（橫線+豎線形成多列×多欄網格）
+      ② 該答案是表格內多個答案 cell 的其中一個（不是孤立的單格表格）
+      ③ 同一張表格還有其他答案 cells
+   ├─ 是 → table_cell（**整張表合成 1 題**，不要拆成多題；見 type spec 細節）
+   ├─ 否（_____ 底線、( ) 括號、□ 方框、孤立 cell）→ 一個值 → fill_blank
+   └─ 否，多個值（順序無關）→ multi_fill
 
    ─ 填值 + 算式步驟（數學題型）：
    ├─ 無「答：」答句行 → calculation（只看最終值，純數值正解）
@@ -1292,6 +1298,50 @@ function buildTypeSpecs(): string {
   視覺：多個空白框（非 □ 勾選框）+ 紅色代號
   動作：學生在多個格子內填代號（如 ㄅ、ㄇ、ㄉ），順序無關
   answer：代號集合 — "ㄅ、ㄇ、ㄉ"（每子題各自一個 answer）
+
+▸ table_cell 「表格題（群組批改）」
+  視覺：規則表格（多列×多欄、清晰格線）+ 部分 cells 內有紅色手寫答案
+  動作：學生在表格內多個 cells 填值（每 cell 1 值，數字/文字均可）
+  ⭐ 整張表格作為「1 題」，不要拆成多子題（與舊 fill_blank+tablePosition 不同）
+
+  必填欄位：
+    - id：給整張表（如 "2-6-1"，依大題印刷號）
+    - questionCategory：'table_cell'
+    - maxScore：整題總分（建議預設 = 答案 cells 數，老師可調）
+    - answerBbox：**整張表的外框 bbox**（從表格最上格線到最下格線、最左到最右）
+    - tableMeta:
+        rowHeaders: 列標題陣列（如 ["水果種類","人數(人)","百分率"]）
+        colHeaders: 欄標題陣列，第 0 欄通常為列標題欄留空（如 ["", "蘋果","櫻桃","草莓","西瓜"]）
+        totalRows: 含 header 總列數
+        totalCols: 含 header 總欄數
+    - cells: 答案 cells 陣列，每元素：
+        { row: 1-based, col: 1-based, label: "對應 header 簡短描述", answer: "標準答案" }
+        ⚠️ 只列「需要學生填的 cells」，不列已預印的 header / 已給數值
+        ⚠️ row/col 含 header 計數（第 1 列通常是欄標題列）
+
+  範例：「水果統計表」3×5（含 header），學生要填第 3 列百分率（4 個 cells）：
+    {
+      "id": "2-6-1",
+      "questionCategory": "table_cell",
+      "maxScore": 4,
+      "answerBbox": { "x": 0.04, "y": 0.10, "w": 0.45, "h": 0.18 },
+      "tableMeta": {
+        "rowHeaders": ["水果種類", "人數(人)", "百分率"],
+        "colHeaders": ["", "蘋果", "櫻桃", "草莓", "西瓜"],
+        "totalRows": 3, "totalCols": 5
+      },
+      "cells": [
+        { "row": 3, "col": 2, "label": "蘋果", "answer": "27%" },
+        { "row": 3, "col": 3, "label": "櫻桃", "answer": "24%" },
+        { "row": 3, "col": 4, "label": "草莓", "answer": "26%" },
+        { "row": 3, "col": 5, "label": "西瓜", "answer": "23%" }
+      ]
+    }
+
+  ⚠️ 一張答案卷裡多個獨立表格 → 每張表各 1 個 table_cell question（id 各自編號）
+  ⚠️ 不要輸出 tablePosition（這是舊欄位、與 table_cell 互斥）
+  ⚠️ 不要在 cells 陣列裡 pre-fill header 列／已預印數值（cells 只放需要學生填寫的格子）
+  ⚠️ 若表格只有 1 個答案格 → 用 fill_blank 不用 table_cell（table_cell 必須有 ≥ 2 個 answer cells）
 
 ▸ matching 「連連看」
   視覺：左欄項目 + 右欄選項 + 紅色連線
@@ -2052,6 +2102,39 @@ function ensureShortAnswerRubricsDimensions(question: AnswerKeyQuestion): Answer
   }
 }
 
+/**
+ * table_cell 群組批改題型 normalize：
+ * - 確保 cells 陣列有效（每元素含 row/col/answer）
+ * - maxScore 沒填 → 預設 = cells.length（一格一分）
+ * - 移除 legacy tablePosition（與 table_cell 互斥）
+ */
+function normalizeTableCellQuestion(question: AnswerKeyQuestion): AnswerKeyQuestion {
+  if (question.questionCategory !== 'table_cell') return question
+
+  const cells = Array.isArray(question.cells) ? question.cells : []
+  const validCells = cells
+    .filter((c) => c && Number.isFinite(c.row) && Number.isFinite(c.col) && typeof c.answer === 'string')
+    .map((c) => ({
+      row: Math.max(1, Math.floor(Number(c.row))),
+      col: Math.max(1, Math.floor(Number(c.col))),
+      label: typeof c.label === 'string' ? c.label.trim() : undefined,
+      answer: String(c.answer).trim()
+    }))
+
+  // maxScore 沒填或為 0 → 預設一格一分
+  const incomingMax = Number(question.maxScore)
+  const maxScore = Number.isFinite(incomingMax) && incomingMax > 0
+    ? incomingMax
+    : validCells.length
+
+  return {
+    ...question,
+    cells: validCells,
+    maxScore,
+    tablePosition: undefined  // 與 table_cell 互斥，避免 server 又走 table-position median
+  }
+}
+
 function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: string): AnswerKey {
   void domain
   const questions = Array.isArray(answerKey?.questions) ? answerKey.questions : []
@@ -2061,6 +2144,7 @@ function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: 
     let q = ensureShortAnswerRubricsDimensions(question)
     q = normalizeChoiceAnswerSymbols(q)
     q = sanitizeUnorderedCriteria(q)
+    q = normalizeTableCellQuestion(q)
     return q
   })
 
