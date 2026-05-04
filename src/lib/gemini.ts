@@ -4443,6 +4443,12 @@ ${JSON.stringify(specs)}
 - multi_fill 「多項填空題」：每子題獨立一個 bbox，TIGHT crop ONLY 該格的單一值，不含鄰格
   ⚠️ 子題 bbox 絕對禁止重疊
   ORDERING：子題 ID 依 TOP-TO-BOTTOM 為主、LEFT-TO-RIGHT 為輔
+- table_cell 「表格題（群組批改）」：bbox 框**整張表格外輪廓**（從最上格線到最下格線、最左格線到最右格線）
+  ⚠️ 不要只框某一 cell，也不要拆 N 個 bbox
+  ⚠️ 必須涵蓋所有 header（列標題列 + 欄標題欄）+ 所有答案 cells
+  ⚠️ 上下左右各加少許邊距（約 0.005~0.01）讓格線完整入框
+  ⚠️ bbox.h 應該是「整表高度」，通常 0.10~0.30 之間，不會 < 0.05
+  範例：3 列 × 5 欄水果統計表 → bbox 框整個 3×5 網格
 - matching 「連連看」(group_context)：整個連連看區為單一 bbox — 左欄所有項目 + 右欄所有選項 + 中間所有連線
   ⚠️ 不可只框右欄文字 — 連線本身就是答案，必須完整包含
 - ordering 「排序題」：整體一個 bbox，涵蓋所有排序格
