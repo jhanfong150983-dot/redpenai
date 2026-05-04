@@ -416,6 +416,9 @@ export interface GradingResult {
   details?: GradingDetail[]
   needsReview?: boolean
   reviewReasons?: string[]
+  // 老師手動點過「標記已複核」後設 true，讓 isSubmissionNeedsReview 直接 short-circuit 回 false，
+  // 避免 details 中仍有 studentAnswer='未作答' 導致警告框繼續顯示
+  manuallyReviewed?: boolean
 }
 
 export interface AnswerExtractionCorrection {

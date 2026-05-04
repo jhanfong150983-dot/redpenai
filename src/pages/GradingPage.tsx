@@ -203,8 +203,11 @@ function formatDisplayQuestionId(questionId?: string | null) {
 }
 
 /** 判斷該份批改結果是否需要老師複核（相容舊資料） */
-function isSubmissionNeedsReview(gradingResult?: { needsReview?: boolean; details?: Array<{ studentAnswer?: string }> }): boolean {
+function isSubmissionNeedsReview(gradingResult?: { needsReview?: boolean; manuallyReviewed?: boolean; details?: Array<{ studentAnswer?: string }> }): boolean {
   if (!gradingResult) return false
+  // 老師手動點過「標記已複核」→ 直接視為不需複核，不再看 details
+  // 否則只清 needsReview flag 還是會被 details 中的「未作答」字串拉回 true（按鈕看似沒反應）
+  if (gradingResult.manuallyReviewed) return false
   if (gradingResult.needsReview) return true
   const details = gradingResult.details ?? []
   return details.some((d) => d.studentAnswer === '未作答' || d.studentAnswer === '無法辨識')
@@ -3371,11 +3374,19 @@ export default function GradingPage({
       if (details.some((detail: any) => Number(detail?.confidence) < 80)) {
         derived.add('信心偏低')
       }
-      if (details.some((detail: any) => detail?.studentAnswer === 'AI無法辨識' || detail?.studentAnswer === '無法辨識')) {
-        derived.add('有題目無法辨識')
+      const unreadableIds = details
+        .filter((detail: any) => detail?.studentAnswer === 'AI無法辨識' || detail?.studentAnswer === '無法辨識')
+        .map((detail: any) => formatDisplayQuestionId(detail?.questionId) || detail?.questionId)
+        .filter(Boolean)
+      if (unreadableIds.length > 0) {
+        derived.add(`第 ${unreadableIds.join('、')} 題無法辨識`)
       }
-      if (details.some((detail: any) => detail?.studentAnswer === '未作答')) {
-        derived.add('有題目辨識為未作答')
+      const blankIds = details
+        .filter((detail: any) => detail?.studentAnswer === '未作答')
+        .map((detail: any) => formatDisplayQuestionId(detail?.questionId) || detail?.questionId)
+        .filter(Boolean)
+      if (blankIds.length > 0) {
+        derived.add(`第 ${blankIds.join('、')} 題辨識為未作答`)
       }
       return Array.from(derived)
     },
@@ -4266,7 +4277,8 @@ export default function GradingPage({
                           const newGradingResult = {
                             ...submission.gradingResult,
                             needsReview: false,
-                            reviewReasons: []
+                            reviewReasons: [],
+                            manuallyReviewed: true
                           }
                           const totalScore = typeof newGradingResult.totalScore === 'number' ? newGradingResult.totalScore : undefined
                           const confirmNow = Date.now()
