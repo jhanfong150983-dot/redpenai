@@ -349,7 +349,8 @@ export function useSync(options: UseSyncOptions = {}) {
           imageBase64,
           contentType,
           thumbBase64,
-          thumbContentType
+          thumbContentType,
+          source: submission.source
         })
       }).finally(() => clearTimeout(submissionAbortTimer))
 

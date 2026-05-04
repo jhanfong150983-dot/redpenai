@@ -504,6 +504,7 @@ export default function ScannerPage({
           assignmentId,
           studentId: studentId,
           status: 'scanned',
+          source: 'teacher_camera',
           imageBase64: imageBase64,  // Safari 備用
           ...(avoidBlobStorage ? {} : { imageBlob: mergedBlob }),
           ...(pageBreaks.length > 0 ? { pageBreaks } : {}),

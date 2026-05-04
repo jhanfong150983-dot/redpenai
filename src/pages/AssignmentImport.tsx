@@ -826,6 +826,7 @@ export default function AssignmentImport({
           assignmentId: assignment.id,
           studentId: mapping.studentId,
           status: 'scanned',
+          source: 'teacher_scan',
           imageBase64,
           ...(avoidBlobStorage ? {} : { imageBlob }),
           // 新增縮圖欄位
