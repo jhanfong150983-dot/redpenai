@@ -5441,7 +5441,8 @@ export async function gradePhaseB(
   domain?: string,
   assignmentId?: string,
   answerSheetMode?: 'with_questions' | 'answer_only',
-  submissionId?: string
+  submissionId?: string,
+  gradeBand?: 'k9' | 'high'
 ): Promise<GradingResult> {
   const { sessionId: inkSessionId } = await ensureInkSessionFresh()
 
@@ -5469,7 +5470,8 @@ export async function gradePhaseB(
     ...(domain ? { domain } : {}),
     ...(assignmentId ? { assignmentId } : {}),
     ...(submissionId ? { submissionId } : {}),
-    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
+    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {}),
+    ...(gradeBand ? { gradeBand } : {})
   })
 
   let response = await fetch(geminiProxyUrl, {

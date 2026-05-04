@@ -1355,6 +1355,13 @@ export default function GradingPage({
     if (!background) setPhaseBTotalCount(prev => prev + entries.length)
     setCompletedReviewCount(0)
 
+    // 多選題依年級分流：高中（10-12）走大考中心固定扣 2 分；國小國中或抓不到 grade → 'k9'（現行公式）
+    // 一份作業對應一個 classroom，整批共用 gradeBand
+    const phaseBClassroom = assignment?.classroomId
+      ? await db.classrooms.get(assignment.classroomId)
+      : null
+    const phaseBGradeBand: 'k9' | 'high' = (phaseBClassroom?.grade ?? 0) >= 10 ? 'high' : 'k9'
+
     let successCount = 0
     let failCount = 0
     let completedB = 0
@@ -1376,7 +1383,7 @@ export default function GradingPage({
             finalAnswerSource: src === 'blank' ? 'manual' : src,
           }
         })
-        const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode, entry.submissionId)
+        const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode, entry.submissionId, phaseBGradeBand)
         return { entry, gradingResult }
       },
       async (_i, result, err) => {
@@ -1526,7 +1533,7 @@ export default function GradingPage({
               finalAnswerSource: src === 'blank' ? 'manual' : src,
             }
           })
-          const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode, entry.submissionId)
+          const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode, entry.submissionId, phaseBGradeBand)
           const totalScore = typeof gradingResult.totalScore === 'number' ? gradingResult.totalScore : 0
           const retryGradedAt = Date.now()
           await db.submissions.update(entry.submissionId, {
