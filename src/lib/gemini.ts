@@ -4977,10 +4977,13 @@ export async function extractAnswerKeyFromImages(
   const bookletImages = isAnswerOnly && Array.isArray(opts?.bookletImages) ? opts!.bookletImages! : []
   const hasBooklet = bookletImages.length > 0
   // startPage: page number of the first image in this batch (1-based, default 1)
-  // totalPages: total pages across ALL batches — determines whether page prefix is needed
+  // totalPages: total pages across ALL batches
+  // needsPagePrefix: 一律加頁碼前綴，避免單張答案卷上有多大題（一/二/三/四）時 AI 用「印刷大題號」當第一段，
+  //   導致 server fallback (staged-grading.js:5099) 把印刷大題號當頁碼誤拆圖。
+  //   單張時前綴固定 "1-"，多張時依序 "1-" / "2-" / ...
   const startPage = opts?.startPage ?? 1
   const totalPages = opts?.totalPages ?? answerSheetImages.length
-  const needsPagePrefix = totalPages > 1
+  const needsPagePrefix = true
 
   console.log(`🧾 開始從 ${answerSheetImages.length} 張圖片${isInferMode ? '推論（空白作業模式）' : (isAnswerOnly ? '抽取（純答題卡模式）' : '抽取（解答圖模式）')} AnswerKey... startPage=${startPage} totalPages=${totalPages}${hasBooklet ? ` + 題本 ${bookletImages.length} 頁（用於 short_answer rubric 推導）` : ''}`)
 
@@ -5003,11 +5006,12 @@ export async function extractAnswerKeyFromImages(
       }).join('；')
     : ''
 
+  const isSingleImage = answerSheetImages.length === 1
   const multiImageNote = isInferMode
     ? `【多張圖片處理】\n- 你會收到 ${answerSheetImages.length} 張空白作業圖片\n- 請從所有圖片中推論所有題目的正確答案，合併成完整 AnswerKey${pageIdRule}`
-    : needsPagePrefix
-      ? `【多張圖片處理 - 多頁模式】\n- 你會收到 ${answerSheetImages.length} 張答案卷圖片，每張照片有獨立的 ID 前綴：${pagePrefixList}\n- ⚠️ 嚴格禁止把第 2 張以後的題目用 "1-" 開頭，必須依照上方對應關係填入正確前綴\n- 請從所有圖片中提取題目，合併成一個完整的 AnswerKey${pageIdRule}\n- totalScore 是所有圖片中所有題目的 maxScore 總和`
-      : `【多張圖片處理】\n- 你會收到 ${answerSheetImages.length} 張答案卷圖片\n- 這些圖片是同一份作業的不同頁面\n- 請從所有圖片中提取題目，合併成一個完整的 AnswerKey\n- totalScore 是所有圖片中所有題目的 maxScore 總和`
+    : isSingleImage
+      ? `【單張答案卷】\n- 你會收到 1 張答案卷圖片\n- ID 前綴一律為 "1-"（即使卷上印有多個大題編號，第一段也固定是 1）\n- totalScore 是所有題目的 maxScore 總和${pageIdRule}`
+      : `【多張圖片處理 - 多頁模式】\n- 你會收到 ${answerSheetImages.length} 張答案卷圖片，每張照片有獨立的 ID 前綴：${pagePrefixList}\n- ⚠️ 嚴格禁止把第 2 張以後的題目用 "1-" 開頭，必須依照上方對應關係填入正確前綴\n- 請從所有圖片中提取題目，合併成一個完整的 AnswerKey${pageIdRule}\n- totalScore 是所有圖片中所有題目的 maxScore 總和`
   const multiImagePrompt = `${prompt}\n\n${multiImageNote}`.trim()
 
   // 準備多圖片請求（每張照片前插入頁碼標記，讓 AI 明確知道頁碼）
