@@ -402,7 +402,7 @@ export default function UnifiedImportPage({
   const [uploadPreviewBlobs, setUploadPreviewBlobs] = useState<Blob[]>([])
   const [uploadPreviewUrls, setUploadPreviewUrls] = useState<string[]>([])
   const [uploadPreviewRotations, setUploadPreviewRotations] = useState<number[]>([])
-  const [uploadPreviewSource, setUploadPreviewSource] = useState<string>('teacher_student_upload')
+  const [uploadPreviewSource, setUploadPreviewSource] = useState<string>('teacher_camera')
   const [isUploadPreviewSaving, setIsUploadPreviewSaving] = useState(false)
   // 拖曳排序用的 items（id 清單，對應 uploadPreviewBlobs/Urls/Rotations 的索引）
   const [uploadPreviewOrder, setUploadPreviewOrder] = useState<string[]>([])
@@ -599,7 +599,7 @@ export default function UnifiedImportPage({
         setUploadPreviewRotations(new Array(blobs.length).fill(0))
         setUploadPreviewOrder(blobs.map((_, i) => `page-${i}`))
         setUploadPreviewSource(
-          fileType === 'pdf' ? 'teacher_scan' : 'teacher_student_upload',
+          fileType === 'pdf' ? 'teacher_scan' : 'teacher_camera',
         )
       } catch (err) {
         console.error('上傳失敗:', err)
@@ -715,7 +715,7 @@ export default function UnifiedImportPage({
       setUploadPreviewUrls(urls)
       setUploadPreviewRotations(new Array(blobs.length).fill(0))
       setUploadPreviewOrder(blobs.map((_, i) => `page-${i}`))
-      setUploadPreviewSource('teacher_student_upload')
+      setUploadPreviewSource('teacher_camera')
     },
     [pagesPerStudent],
   )
