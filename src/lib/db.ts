@@ -127,7 +127,7 @@ export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
   true_false: '是非題',
   fill_blank: '填空題',
   multi_fill: '多項填空題',
-  table_cell: '表格題（群組批改）',
+  table_cell: '表格題',
   matching: '連連看',
   ordering: '排序題',
   mark_in_text: '圈詞題',

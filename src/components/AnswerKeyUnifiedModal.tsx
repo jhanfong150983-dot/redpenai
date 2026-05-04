@@ -676,6 +676,20 @@ export default function AnswerKeyUnifiedModal({
     setSelectedIdx(editingKey ? editingKey.questions.length : 0)
   }
 
+  // table_cell：更新某 cell 的 answer
+  const updateTableCellAnswer = (qIdx: number, cellIdx: number, value: string) => {
+    setEditingKey((prev) => {
+      if (!prev) return prev
+      return { ...prev, questions: prev.questions.map((q, i) => {
+        if (i !== qIdx) return q
+        const cells = [...(q.cells ?? [])]
+        if (!cells[cellIdx]) return q
+        cells[cellIdx] = { ...cells[cellIdx], answer: value }
+        return { ...q, cells }
+      }) }
+    })
+  }
+
   const addAcceptableAnswer = (idx: number) => {
     setEditingKey((prev) => {
       if (!prev) return prev
@@ -787,7 +801,8 @@ export default function AnswerKeyUnifiedModal({
   const selectedBucket = QUESTION_CATEGORY_TO_BUCKET[selectedCategory] ?? 'A'
   // UI 模式（依 bucket 顯示對應欄位）：
   // A = answer 標準答案、B = reference + acceptable、C = reference + rubric、D = answer + reference + rubric
-  const showAnswerField = selectedBucket === 'A' || selectedBucket === 'D'
+  const showTableCells = selectedCategory === 'table_cell'
+  const showAnswerField = (selectedBucket === 'A' || selectedBucket === 'D') && !showTableCells
   const showAcceptableAnswers = selectedBucket === 'B'
   const showRubric = selectedBucket === 'C' || selectedBucket === 'D'
   const activeBbox: NormalizedBbox | null = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
@@ -1322,10 +1337,19 @@ export default function AnswerKeyUnifiedModal({
                         const PLACEHOLDER_ANSWERS = ['?', '？', '未知', 'unknown', 'N/A']
                         const ans = (q.answer ?? '').trim()
                         const ref = (q.referenceAnswer ?? '').trim()
+                        // table_cell：答案在 cells[].answer，每 cell 至少 1 個非空才算有答案
+                        const isTableCellQ = q.questionCategory === 'table_cell'
+                        const tableCellHasAnswer = isTableCellQ && Array.isArray(q.cells)
+                          && q.cells.some((c) => {
+                            const ca = (c?.answer ?? '').trim()
+                            return ca && !PLACEHOLDER_ANSWERS.includes(ca)
+                          })
                         // AI 漏填答案就警示（含 short_answer / word_problem / calculation —
                         // 這三類也必填 answer 或 referenceAnswer）
-                        const answerMissing = (!ans || PLACEHOLDER_ANSWERS.includes(ans))
-                          && (!ref || PLACEHOLDER_ANSWERS.includes(ref))
+                        const answerMissing = isTableCellQ
+                          ? !tableCellHasAnswer
+                          : ((!ans || PLACEHOLDER_ANSWERS.includes(ans))
+                            && (!ref || PLACEHOLDER_ANSWERS.includes(ref)))
                         const hasWarn = vocabWarn || multiFillWarn || answerMissing
                         const isSelected = idx === selectedIdx
                         return (
@@ -1471,6 +1495,44 @@ export default function AnswerKeyUnifiedModal({
                                 onChange={(e) => updateField(selectedIdx, 'answer', e.target.value)}
                                 placeholder={selectedCategory === 'multi_choice' ? '例如：A,C' : (selectedCategory === 'multi_check' || selectedCategory === 'multi_check_other') ? '例如：①,③' : ''}
                               />
+                            </div>
+                          )}
+
+                          {/* table_cell：每 cell 標準答案編輯 */}
+                          {showTableCells && (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-500 text-xs">表格答案 ({(selectedQuestion.cells ?? []).length} 格)</span>
+                                {selectedQuestion.tableMeta && (
+                                  <span className="text-[10px] text-gray-400">
+                                    表 {selectedQuestion.tableMeta.totalRows}×{selectedQuestion.tableMeta.totalCols}
+                                  </span>
+                                )}
+                              </div>
+                              {(selectedQuestion.cells ?? []).length === 0 ? (
+                                <div className="text-xs text-red-600 px-2 py-1 bg-red-50 rounded">
+                                  ❌ 沒有 cells（AI 解析失敗，請重新解析或手動編輯）
+                                </div>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  {(selectedQuestion.cells ?? []).map((cell, cIdx) => (
+                                    <div key={`${cell.row}-${cell.col}-${cIdx}`} className="flex items-center gap-2">
+                                      <span className="text-[10px] text-gray-400 w-12 shrink-0 tabular-nums">
+                                        r{cell.row}c{cell.col}
+                                      </span>
+                                      <span className="text-xs text-gray-700 w-16 shrink-0 truncate" title={cell.label}>
+                                        {cell.label || '—'}
+                                      </span>
+                                      <input
+                                        className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                                        value={cell.answer ?? ''}
+                                        onChange={(e) => updateTableCellAnswer(selectedIdx, cIdx, e.target.value)}
+                                        placeholder="標準答案"
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
 
