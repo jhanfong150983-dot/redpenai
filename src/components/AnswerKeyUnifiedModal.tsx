@@ -609,34 +609,45 @@ export default function AnswerKeyUnifiedModal({
   useEffect(() => { setIsDrawingBbox(false); setManualCropUrl(null) }, [selectedIdx])
 
   // Canvas crop
+  // 直接從 blob 切，不依賴 imageObjUrl state — 避免 imageObjUrl 還沒 ready 時 effect early-return、
+  // 之後 deps 變動連鎖觸發失效的 race condition。再編輯時 extractedImageBlobs 由父層非同步下載填入，
+  // 只要 editingKey + extractedImageBlobs 都進入 state，這個 effect 就會即時重生 crop dataURL。
   useEffect(() => {
     const selectedQuestion = editingKey?.questions[selectedIdx] ?? null
     const bbox = bboxDraft ?? selectedQuestion?.referenceBbox ?? null
-    if (!bbox || !imageObjUrl) { setManualCropUrl(null); return }
+    const pageIdx = selectedQuestion?.pageIndex
+      ?? Math.max(0, (parseInt(String(selectedQuestion?.id ?? '').split('-')[0], 10) || 1) - 1)
+    const blob = extractedImageBlobs[pageIdx] ?? extractedImageBlobs[0] ?? null
+    if (!bbox || !blob) { setManualCropUrl(null); return }
     let cancelled = false
+    const url = URL.createObjectURL(blob)
     const img = new window.Image()
     img.onload = () => {
-      if (cancelled) return
-      const canvas = document.createElement('canvas')
-      const pad = 0.015
-      const px = Math.max(0, bbox.x - pad)
-      const py = Math.max(0, bbox.y - pad)
-      const pw = Math.min(1 - px, bbox.w + pad * 2)
-      const ph = Math.min(1 - py, bbox.h + pad * 2)
-      const sx = Math.round(img.naturalWidth * px)
-      const sy = Math.round(img.naturalHeight * py)
-      const sw = Math.max(1, Math.round(img.naturalWidth * pw))
-      const sh = Math.max(1, Math.round(img.naturalHeight * ph))
-      canvas.width = sw; canvas.height = sh
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
-      if (!cancelled) setManualCropUrl(canvas.toDataURL('image/jpeg', 0.92))
+      if (cancelled) { URL.revokeObjectURL(url); return }
+      try {
+        const canvas = document.createElement('canvas')
+        const pad = 0.015
+        const px = Math.max(0, bbox.x - pad)
+        const py = Math.max(0, bbox.y - pad)
+        const pw = Math.min(1 - px, bbox.w + pad * 2)
+        const ph = Math.min(1 - py, bbox.h + pad * 2)
+        const sx = Math.round(img.naturalWidth * px)
+        const sy = Math.round(img.naturalHeight * py)
+        const sw = Math.max(1, Math.round(img.naturalWidth * pw))
+        const sh = Math.max(1, Math.round(img.naturalHeight * ph))
+        canvas.width = sw; canvas.height = sh
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
+        setManualCropUrl(canvas.toDataURL('image/jpeg', 0.92))
+      } finally {
+        URL.revokeObjectURL(url)
+      }
     }
-    img.src = imageObjUrl
+    img.onerror = () => URL.revokeObjectURL(url)
+    img.src = url
     return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bboxDraft, editingKey?.questions[selectedIdx]?.referenceBbox, imageObjUrl])
+  }, [bboxDraft, selectedIdx, editingKey, extractedImageBlobs])
 
   // Question editing helpers
   const updateField = (idx: number, field: keyof AnswerKeyQuestion, value: unknown) => {

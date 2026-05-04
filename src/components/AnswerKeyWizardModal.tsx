@@ -444,36 +444,45 @@ export default function AnswerKeyWizardModal({
   // Reset drawing mode and manual crop when switching questions
   useEffect(() => { setIsDrawingBbox(false); setManualCropUrl(null) }, [selectedIdx])
 
-  // Canvas crop — recalculates on bboxDraft (while drawing) or referenceBbox (after confirmed)
-  // referenceBbox is used as fallback so the crop persists after bboxDraft is cleared on mouseUp
+  // Canvas crop — 直接從 blob 切，不依賴 imageObjUrl state，避免 imageObjUrl 還沒 ready 時
+  // effect early-return、後續 deps 變動連鎖觸發失效的 race condition。再編輯時 imageBlobs 由父層
+  // 非同步下載填入，只要 editingKey + imageBlobs 都進入 state，就會即時重生 crop dataURL。
   useEffect(() => {
     const bbox = bboxDraft ?? selectedQuestion?.referenceBbox ?? null
-    if (!bbox || !imageObjUrl) { setManualCropUrl(null); return }
+    const pageIdx = selectedQuestion?.pageIndex
+      ?? Math.max(0, (parseInt(String(selectedQuestion?.id ?? '').split('-')[0], 10) || 1) - 1)
+    const blob = imageBlobs[pageIdx] ?? imageBlobs[0] ?? null
+    if (!bbox || !blob) { setManualCropUrl(null); return }
     let cancelled = false
+    const url = URL.createObjectURL(blob)
     const img = new window.Image()
     img.onload = () => {
-      if (cancelled) return
-      const canvas = document.createElement('canvas')
-      const pad = 0.015
-      const px = Math.max(0, bbox.x - pad)
-      const py = Math.max(0, bbox.y - pad)
-      const pw = Math.min(1 - px, bbox.w + pad * 2)
-      const ph = Math.min(1 - py, bbox.h + pad * 2)
-      const sx = Math.round(img.naturalWidth * px)
-      const sy = Math.round(img.naturalHeight * py)
-      const sw = Math.max(1, Math.round(img.naturalWidth * pw))
-      const sh = Math.max(1, Math.round(img.naturalHeight * ph))
-      canvas.width = sw
-      canvas.height = sh
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
-      if (!cancelled) setManualCropUrl(canvas.toDataURL('image/jpeg', 0.92))
+      if (cancelled) { URL.revokeObjectURL(url); return }
+      try {
+        const canvas = document.createElement('canvas')
+        const pad = 0.015
+        const px = Math.max(0, bbox.x - pad)
+        const py = Math.max(0, bbox.y - pad)
+        const pw = Math.min(1 - px, bbox.w + pad * 2)
+        const ph = Math.min(1 - py, bbox.h + pad * 2)
+        const sx = Math.round(img.naturalWidth * px)
+        const sy = Math.round(img.naturalHeight * py)
+        const sw = Math.max(1, Math.round(img.naturalWidth * pw))
+        const sh = Math.max(1, Math.round(img.naturalHeight * ph))
+        canvas.width = sw
+        canvas.height = sh
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
+        setManualCropUrl(canvas.toDataURL('image/jpeg', 0.92))
+      } finally {
+        URL.revokeObjectURL(url)
+      }
     }
-    img.src = imageObjUrl
+    img.onerror = () => URL.revokeObjectURL(url)
+    img.src = url
     return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bboxDraft, selectedQuestion?.referenceBbox, imageObjUrl])
+  }, [bboxDraft, selectedIdx, editingKey, imageBlobs, selectedQuestion])
 
   const stepTitle: Record<WizardStep, string> = {
     page_order: '調整頁面順序',
