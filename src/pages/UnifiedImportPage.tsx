@@ -530,14 +530,14 @@ export default function UnifiedImportPage({
           const studentId = selectedStudent?.id
           if (studentId) {
             setSavingStudentId(studentId)
-            // 相機拍攝有透視 → 跑校正後再存
+            // 相機拍攝有引導框 → 用 CAMERA_FRAME 比例固定裁切（凸顯考卷）
             ;(async () => {
               let correctedPages = next
               try {
-                const { correctPerspectiveMultiple } = await import('../lib/perspectiveCorrection')
-                correctedPages = await correctPerspectiveMultiple(next)
+                const { cropToCameraFrame } = await import('../lib/perspectiveCorrection')
+                correctedPages = await Promise.all(next.map(cropToCameraFrame))
               } catch (err) {
-                console.warn('[UnifiedImport-camera] perspective correction failed, using originals:', err)
+                console.warn('[UnifiedImport-camera] frame crop failed, using originals:', err)
               }
               return saveStudentSubmission(
                 assignmentId,

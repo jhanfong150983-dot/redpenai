@@ -26,7 +26,6 @@ const AssignmentList = lazy(() => import('@/pages/AssignmentList'))
 const GradingPage = lazy(() => import('@/pages/GradingPage'))
 const AssignmentImport = lazy(() => import('@/pages/AssignmentImport'))
 const AssignmentImportSelect = lazy(() => import('@/pages/AssignmentImportSelect'))
-const AssignmentScanImport = lazy(() => import('@/pages/AssignmentScanImport'))
 const UnifiedImportPage = lazy(() => import('@/pages/UnifiedImportPage'))
 const CorrectionSelect = lazy(() => import('@/pages/CorrectionSelect'))
 const CorrectionManagement = lazy(() => import('@/pages/CorrectionManagement'))
@@ -68,7 +67,6 @@ type Page =
   | 'assignment-setup'
   | 'answer-bank'
   | 'assignment-import-select'
-  | 'assignment-scan'
   | 'grading-list'
   | 'grading'
   | 'batch-grading'
@@ -208,7 +206,6 @@ const URL_SYNCABLE_PAGES: readonly Page[] = [
   'assignment-setup',
   'answer-bank',
   'assignment-import-select',
-  'assignment-scan',
   'grading-list',
   'grading',
   'batch-grading',
@@ -1056,7 +1053,7 @@ function App() {
   const isStudent = viewMode === 'student'
 
   useEffect(() => {
-    if (!isStudent && currentPage !== 'assignment-scan' && currentPage !== 'unified-import' && isCameraCaptureMode) {
+    if (!isStudent && currentPage !== 'unified-import' && isCameraCaptureMode) {
       setIsCameraCaptureMode(false)
     }
   }, [currentPage, isCameraCaptureMode, isStudent])
@@ -1670,7 +1667,7 @@ function App() {
       case 'overview': return currentPage === 'home'
       case 'answer-bank': return currentPage === 'answer-bank'
       case 'assignment-setup': return currentPage === 'assignment-setup'
-      case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'assignment-import', 'assignment-scan', 'unified-import', 'correction-select', 'correction'].includes(currentPage)
+      case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'assignment-import', 'unified-import', 'correction-select', 'correction'].includes(currentPage)
       case 'gradebook': return currentPage === 'gradebook'
       case 'report': return false
       case 'classroom-management': return currentPage === 'classroom-management'
@@ -2306,17 +2303,6 @@ function App() {
                   embedded
                   onBack={() => setCurrentPage('home')}
                   campus1Binding={auth.user.campus1Binding}
-                />
-              ) : currentPage === 'assignment-scan' && selectedAssignmentId ? (
-                <AssignmentScanImport
-                  embedded
-                  assignmentId={selectedAssignmentId}
-                  onBack={() => {
-                    setSelectedAssignmentId('')
-                    setCurrentPage('grading')
-                  }}
-                  onUploadComplete={() => setCurrentPage('grading')}
-                  onCaptureModeChange={setIsCameraCaptureMode}
                 />
               ) : (
                 <>
