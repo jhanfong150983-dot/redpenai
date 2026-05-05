@@ -3,11 +3,12 @@
  *
  * 學生端拍照後的批次驗證 + 透視校正整合層。
  *
- * 4 項檢查：
+ * 5 項檢查：
  *   1. 四角偵測成功（detectDocumentCorners 回傳非 null）
- *   2. 四角在引導框內（容許溢出 FRAME_TOLERANCE）
- *   3. 紙張面積佔比 ≥ MIN_PAPER_AREA_RATIO
- *   4. 與其他頁不重複（pHash Hamming distance ≥ DUPLICATE_HASH_THRESHOLD）
+ *   2. 紙張未被相機畫面切到（無角落座標 = 0 或 1）
+ *   3. 四角在引導框內（容許溢出 FRAME_TOLERANCE）
+ *   4. 紙張面積佔比 ≥ MIN_PAPER_AREA_RATIO
+ *   5. 與其他頁不重複（pHash Hamming distance ≥ DUPLICATE_HASH_THRESHOLD）
  *
  * 全部通過才回傳 correctedBlob，UI 應用這個 blob 取代原圖供送出使用。
  */
@@ -29,7 +30,8 @@ import {
 
 export type ValidationErrorType =
   | 'no_corners'        // AI 偵測不到紙張四角
-  | 'out_of_frame'      // 四角超出引導框
+  | 'cropped_by_camera' // 紙張被相機畫面切到（任一角座標 = 0 或 1）
+  | 'out_of_frame'      // 四角超出引導框（在相機內但偏離框線）
   | 'too_small'         // 紙張在畫面中佔比太低（拍太遠）
   | 'duplicate'         // 與其他頁照片重複
 
@@ -163,7 +165,17 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
     return { errors, corners: null, hash, correctedBlob: null }
   }
 
-  // Check 2: 四角在引導框內（含容許值）
+  // Check 2: 紙張未被相機畫面切到
+  // AI 看到紙張角超出畫面時，依 prompt 指示會 clamp 座標到 0 或 1
+  // → 任一座標 ≤ 0.001 或 ≥ 0.999 = 紙張超出相機畫面
+  if (isCroppedByCamera(corners)) {
+    errors.push({
+      type: 'cropped_by_camera',
+      message: '作業超出相機畫面，請拉遠紙張並重新對齊框線拍攝',
+    })
+  }
+
+  // Check 3: 四角在引導框內（含容許值）
   if (!cornersInFrame(corners)) {
     errors.push({
       type: 'out_of_frame',
@@ -171,7 +183,7 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
     })
   }
 
-  // Check 3: 紙張面積佔比
+  // Check 4: 紙張面積佔比
   const areaRatio = quadrilateralArea(corners)
   if (areaRatio < MIN_PAPER_AREA_RATIO) {
     errors.push({
@@ -194,6 +206,23 @@ function cornersInFrame(c: DocumentCorners): boolean {
 
   const points = [c.topLeft, c.topRight, c.bottomLeft, c.bottomRight]
   return points.every((p) => p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY)
+}
+
+/**
+ * 檢查紙張是否被相機畫面切到。
+ *
+ * AI prompt 規定：若紙張角超出相機畫面（cropped），把座標 clamp 到 0 或 1。
+ * → 任一座標 ≤ 0.001 或 ≥ 0.999 表示「AI 看不到完整邊」= 紙張被切。
+ *
+ * 0.001 容忍 floating-point 雜訊；正常對齊引導框拍攝會回 (0.03, 0.05) 這種值，
+ * 不會碰邊。
+ */
+function isCroppedByCamera(c: DocumentCorners): boolean {
+  const points = [c.topLeft, c.topRight, c.bottomLeft, c.bottomRight]
+  const EDGE = 0.001
+  return points.some((p) =>
+    p.x <= EDGE || p.x >= 1 - EDGE || p.y <= EDGE || p.y >= 1 - EDGE
+  )
 }
 
 /**
