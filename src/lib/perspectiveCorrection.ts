@@ -217,27 +217,47 @@ export async function applyPerspectiveTransform(
   const dst = dstImageData.data
   const src = srcData.data
 
+  // Bilinear 插值：每個輸出 pixel 取 source 4 鄰近 pixel 加權平均
+  // 比 nearest-neighbor 銳利很多，是任何 production-grade 透視校正的最低標準。
+  const srcWLast = srcW - 1
+  const srcHLast = srcH - 1
+
   for (let dy = 0; dy < dstH; dy++) {
     for (let dx = 0; dx < dstW; dx++) {
-      // 反向映射：目標像素 → 來源像素
+      // 反向映射：目標像素 → 來源像素（小數座標）
       const [sx, sy] = applyMatrix(matrix, dx, dy)
-      const sxi = Math.round(sx)
-      const syi = Math.round(sy)
-
       const dstIdx = (dy * dstW + dx) * 4
-      if (sxi >= 0 && sxi < srcW && syi >= 0 && syi < srcH) {
-        const srcIdx = (syi * srcW + sxi) * 4
-        dst[dstIdx] = src[srcIdx]
-        dst[dstIdx + 1] = src[srcIdx + 1]
-        dst[dstIdx + 2] = src[srcIdx + 2]
-        dst[dstIdx + 3] = src[srcIdx + 3]
-      } else {
-        // 超出範圍填白色
+
+      // 完全超出來源範圍 → 填白色
+      if (sx < 0 || sx > srcWLast || sy < 0 || sy > srcHLast) {
         dst[dstIdx] = 255
         dst[dstIdx + 1] = 255
         dst[dstIdx + 2] = 255
         dst[dstIdx + 3] = 255
+        continue
       }
+
+      // Bilinear: 取 4 鄰近 pixel + 加權
+      const x0 = Math.floor(sx)
+      const y0 = Math.floor(sy)
+      const x1 = Math.min(x0 + 1, srcWLast)
+      const y1 = Math.min(y0 + 1, srcHLast)
+      const fx = sx - x0
+      const fy = sy - y0
+      const w00 = (1 - fx) * (1 - fy)
+      const w10 = fx * (1 - fy)
+      const w01 = (1 - fx) * fy
+      const w11 = fx * fy
+
+      const i00 = (y0 * srcW + x0) * 4
+      const i10 = (y0 * srcW + x1) * 4
+      const i01 = (y1 * srcW + x0) * 4
+      const i11 = (y1 * srcW + x1) * 4
+
+      dst[dstIdx]     = src[i00]     * w00 + src[i10]     * w10 + src[i01]     * w01 + src[i11]     * w11
+      dst[dstIdx + 1] = src[i00 + 1] * w00 + src[i10 + 1] * w10 + src[i01 + 1] * w01 + src[i11 + 1] * w11
+      dst[dstIdx + 2] = src[i00 + 2] * w00 + src[i10 + 2] * w10 + src[i01 + 2] * w01 + src[i11 + 2] * w11
+      dst[dstIdx + 3] = src[i00 + 3] * w00 + src[i10 + 3] * w10 + src[i01 + 3] * w01 + src[i11 + 3] * w11
     }
   }
 
