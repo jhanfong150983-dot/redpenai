@@ -9,6 +9,7 @@
  */
 
 import { ensureInkSessionFresh, setInkSessionId, startInkSession } from './ink-session'
+import { CAMERA_FRAME } from './cameraGuide'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -400,6 +401,57 @@ export async function cropToCornersBounds(
   ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH)
 
   console.log(`📐 [cropToCornersBounds] ${w}x${h} → ${cropW}x${cropH} (saved ${(100 - cropW * cropH / (w * h) * 100).toFixed(0)}%)`)
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => blob ? resolve(blob) : reject(new Error('canvas.toBlob failed')),
+      'image/jpeg',
+      0.95
+    )
+  })
+}
+
+/**
+ * 老師端拍照固定比例裁切：依 CAMERA_FRAME 引導框比例裁切，
+ * outward 加 3% padding 避免切到紙張。
+ *
+ * 用途：老師拍照時引導框與螢幕對齊，但拍出來的圖含框外背景（狀態列、按鈕區）。
+ * 此函式直接以螢幕引導框比例 + safety padding 裁切，不需 AI 偵測。
+ *
+ * 純 1:1 像素複製（不縮放、不插值），畫質無損；JPEG re-encode quality 0.95。
+ */
+export async function cropToCameraFrame(imageBlob: Blob): Promise<Blob> {
+  const PADDING = 0.03
+  const xMin = Math.max(0, CAMERA_FRAME.LEFT - PADDING)
+  const xMax = Math.min(1, 1 - CAMERA_FRAME.RIGHT + PADDING)
+  const yMin = Math.max(0, CAMERA_FRAME.TOP - PADDING)
+  const yMax = Math.min(1, 1 - CAMERA_FRAME.BOTTOM + PADDING)
+
+  if (xMax - xMin > 0.97 && yMax - yMin > 0.97) {
+    return imageBlob
+  }
+
+  const img = await loadImage(imageBlob)
+  const w = img.naturalWidth
+  const h = img.naturalHeight
+  const cropX = Math.round(xMin * w)
+  const cropY = Math.round(yMin * h)
+  const cropW = Math.round((xMax - xMin) * w)
+  const cropH = Math.round((yMax - yMin) * h)
+
+  if (cropW <= 0 || cropH <= 0) {
+    console.warn('📐 [cropToCameraFrame] invalid crop dims, fallback to original')
+    return imageBlob
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = cropW
+  canvas.height = cropH
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return imageBlob
+  ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH)
+
+  console.log(`📐 [cropToCameraFrame] ${w}x${h} → ${cropW}x${cropH}`)
 
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(

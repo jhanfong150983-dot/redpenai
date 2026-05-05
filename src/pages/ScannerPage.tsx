@@ -275,12 +275,12 @@ export default function ScannerPage({
 
       console.log(`✅ 最終大小: ${(finalBlob.size / 1024).toFixed(2)} KB`)
 
-      // 3. 透視校正
+      // 3. 依引導框固定比例裁切（凸顯考卷、去除框外背景）
       try {
-        const { correctPerspective } = await import('../lib/perspectiveCorrection')
-        finalBlob = await correctPerspective(finalBlob)
+        const { cropToCameraFrame } = await import('../lib/perspectiveCorrection')
+        finalBlob = await cropToCameraFrame(finalBlob)
       } catch (err) {
-        console.warn('[ScannerPage] capture perspective correction failed, using original:', err)
+        console.warn('[ScannerPage] capture frame crop failed, using original:', err)
       }
 
       // 4. 暫存圖片

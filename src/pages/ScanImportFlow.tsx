@@ -211,13 +211,22 @@ export default function ScanImportFlow({
     setCurrentView('capture')
   }
 
-  const handleCaptureComplete = (imageBlob: Blob) => {
+  const handleCaptureComplete = async (imageBlob: Blob) => {
     if (!selectedStudent) return
+
+    // 依引導框固定比例裁切（凸顯考卷、去除框外背景）
+    let finalBlob = imageBlob
+    try {
+      const { cropToCameraFrame } = await import('../lib/perspectiveCorrection')
+      finalBlob = await cropToCameraFrame(imageBlob)
+    } catch (err) {
+      console.warn('[ScanImportFlow] frame crop failed, using original:', err)
+    }
 
     setCapturedData((prev) => {
       const newMap = new Map(prev)
       const existing = newMap.get(selectedStudent.id) || []
-      const updated = [...existing, imageBlob]
+      const updated = [...existing, finalBlob]
       newMap.set(selectedStudent.id, updated)
       return newMap
     })
