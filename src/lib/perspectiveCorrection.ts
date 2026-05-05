@@ -8,7 +8,7 @@
  * 整合入口：correctPerspective()
  */
 
-import { ensureInkSessionFresh } from './ink-session'
+import { ensureInkSessionFresh, setInkSessionId } from './ink-session'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -101,10 +101,12 @@ export async function detectDocumentCorners(imageBlob: Blob): Promise<DocumentCo
 
     let response = await callProxy(inkSessionId)
 
-    // 409 = ink session 失效（過期或被 server 端關閉）→ retry 不帶 session
+    // 409 = ink session 失效（過期或被 server 端關閉）→ 清 cache + retry 不帶 session
     // 老師走 admin bypass、學生走餘額檢查；不再因為 stale session 直接判 fail
+    // 清 cache 避免後續呼叫（如批次驗證 3 張照片）一直拿 stale ID 重複失敗
     if (response.status === 409 && inkSessionId) {
-      console.warn('[perspectiveCorrection] detectCorners: ink session invalid, retrying without session')
+      console.warn('[perspectiveCorrection] detectCorners: ink session invalid, clearing cache and retrying without session')
+      setInkSessionId(null)  // 清掉 stale sessionId，下一張照片不會再帶它
       response = await callProxy(null)
     }
 
