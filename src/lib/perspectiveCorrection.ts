@@ -79,23 +79,34 @@ export async function detectDocumentCorners(imageBlob: Blob): Promise<DocumentCo
       // 學生端沒有 ink session 權限，靜默忽略
     }
 
-    const response = await fetch(geminiProxyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        model: currentModelName,
-        contents: [{
-          role: 'user',
-          parts: [
-            { inlineData: { mimeType, data: base64 } },
-            { text: DETECT_CORNERS_PROMPT }
-          ]
-        }],
-        ...(inkSessionId ? { inkSessionId } : {}),
-        routeKey: 'perspective.detect_corners'
+    const callProxy = async (sid: string | null) => {
+      return fetch(geminiProxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          model: currentModelName,
+          contents: [{
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType, data: base64 } },
+              { text: DETECT_CORNERS_PROMPT }
+            ]
+          }],
+          ...(sid ? { inkSessionId: sid } : {}),
+          routeKey: 'perspective.detect_corners'
+        })
       })
-    })
+    }
+
+    let response = await callProxy(inkSessionId)
+
+    // 409 = ink session 失效（過期或被 server 端關閉）→ retry 不帶 session
+    // 老師走 admin bypass、學生走餘額檢查；不再因為 stale session 直接判 fail
+    if (response.status === 409 && inkSessionId) {
+      console.warn('[perspectiveCorrection] detectCorners: ink session invalid, retrying without session')
+      response = await callProxy(null)
+    }
 
     if (!response.ok) {
       console.warn(`[perspectiveCorrection] detectCorners failed: HTTP ${response.status}`)
