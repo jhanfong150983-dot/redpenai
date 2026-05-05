@@ -25,4 +25,6 @@ export const MIN_PAPER_AREA_RATIO = 0.25
 
 // pHash 重複判斷的 Hamming distance 閾值
 // 64-bit hash，距離 < 此值視為重複照片。
-export const DUPLICATE_HASH_THRESHOLD = 8
+// 8 太嚴擋不住「同一頁拍兩次但角度/光線略差」的 case；
+// 12 容忍 ~19% bit 差異，仍能避開「同習作不同題目」的誤殺。
+export const DUPLICATE_HASH_THRESHOLD = 12
