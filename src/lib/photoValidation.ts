@@ -14,6 +14,7 @@
 
 import {
   detectDocumentCorners,
+  cropToCornersBounds,
   type DocumentCorners,
 } from './perspectiveCorrection'
 import { computePerceptualHash, hammingDistance } from './perceptualHash'
@@ -90,10 +91,18 @@ export async function validatePhotos(pages: PageInput[]): Promise<ValidationResu
 
       const ok = errors.length === 0
 
-      // 透視變換已停用：實測任何插值（nearest/bilinear/bicubic）都會柔化中文字、
-      // 底線、選項方框等細節，影響 OCR/classify/read 準確率。
-      // 通過驗證的照片直接用原圖，保留最佳畫質。
-      const correctedBlob: Blob | null = ok ? pages[i].blob : null
+      // 通過驗證 → 裁切到「四角 bounding box + 5% padding」減少背景，
+      // 但不做透視變換（純 1:1 像素複製，不縮放、不插值，畫質無損）。
+      // 失敗 case 直接 fallback 原圖。
+      let correctedBlob: Blob | null = null
+      if (ok && raw.corners) {
+        try {
+          correctedBlob = await cropToCornersBounds(pages[i].blob, raw.corners, 0.05)
+        } catch (err) {
+          console.warn(`[photoValidation] crop failed for page ${i + 1}, fallback to original:`, err)
+          correctedBlob = pages[i].blob
+        }
+      }
 
       return {
         index: i,

@@ -341,6 +341,67 @@ function addPadding(corners: DocumentCorners, ratio: number): DocumentCorners {
   }
 }
 
+/**
+ * 把照片裁切到「AI 偵測到的紙張四角 bounding box」+ padding。
+ *
+ * 純 1:1 像素複製（drawImage source/dest 同寬高），**不做透視變換、不縮放、不插值**，
+ * 因此完全不會糊。最後 canvas.toBlob 會做一次 JPEG re-encode（quality 0.95）。
+ *
+ * @param imageBlob 原圖
+ * @param corners AI 偵測到的四角（normalized [0,1]）
+ * @param paddingRatio 四邊各加多少 padding（normalized，預設 5%）
+ * @returns 裁切後的 Blob；若計算出的裁切框無效則回原圖
+ */
+export async function cropToCornersBounds(
+  imageBlob: Blob,
+  corners: DocumentCorners,
+  paddingRatio = 0.05
+): Promise<Blob> {
+  const xs = [corners.topLeft.x, corners.topRight.x, corners.bottomLeft.x, corners.bottomRight.x]
+  const ys = [corners.topLeft.y, corners.topRight.y, corners.bottomLeft.y, corners.bottomRight.y]
+  const xMin = Math.max(0, Math.min(...xs) - paddingRatio)
+  const xMax = Math.min(1, Math.max(...xs) + paddingRatio)
+  const yMin = Math.max(0, Math.min(...ys) - paddingRatio)
+  const yMax = Math.min(1, Math.max(...ys) + paddingRatio)
+
+  // 安全檢查：若裁切範圍幾乎是整張圖（紙張本來就佔滿）→ 直接回原圖
+  if (xMax - xMin > 0.97 && yMax - yMin > 0.97) {
+    console.log('📐 [cropToCornersBounds] paper fills frame, skip crop')
+    return imageBlob
+  }
+
+  const img = await loadImage(imageBlob)
+  const w = img.naturalWidth
+  const h = img.naturalHeight
+  const cropX = Math.round(xMin * w)
+  const cropY = Math.round(yMin * h)
+  const cropW = Math.round((xMax - xMin) * w)
+  const cropH = Math.round((yMax - yMin) * h)
+
+  if (cropW <= 0 || cropH <= 0) {
+    console.warn('📐 [cropToCornersBounds] invalid crop dims, fallback to original')
+    return imageBlob
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = cropW
+  canvas.height = cropH
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return imageBlob
+  // 1:1 像素複製（source/dest 同寬高 → 不縮放、不插值）
+  ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH)
+
+  console.log(`📐 [cropToCornersBounds] ${w}x${h} → ${cropW}x${cropH} (saved ${(100 - cropW * cropH / (w * h) * 100).toFixed(0)}%)`)
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => blob ? resolve(blob) : reject(new Error('canvas.toBlob failed')),
+      'image/jpeg',
+      0.95
+    )
+  })
+}
+
 async function loadImage(blob: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob)
