@@ -34,28 +34,31 @@ const PADDING_RATIO = 0.02  // 2%
 
 // ─── 1. 偵測紙張四角（Gemini API）─────────────────────────────────────────
 
-const DETECT_CORNERS_PROMPT = `You are a document edge detector. This photo was taken by a phone camera aimed at a paper document on a desk/table.
+const DETECT_CORNERS_PROMPT = `You are a document edge detector. Photos are taken via a camera guide overlay
+that asks students to ALIGN the paper edges with a guide frame. The paper typically
+fills most of the camera frame — this is EXPECTED, not a failure.
 
-YOUR TASK: Find the exact 4 corners where the WHITE PAPER meets the BACKGROUND (desk, table, or other surface).
+YOUR TASK: Find the 4 corners of the paper document.
 
-CRITICAL RULES:
-- The paper is WHITE or light-colored. The background (desk/table) is a DIFFERENT color or texture.
-- Look for the CONTRAST BOUNDARY between the paper edge and the background.
-- The paper may be tilted, rotated, or at an angle — that's expected.
-- Even if the paper fills MOST of the image, there is usually some background visible at the edges or corners. Find where the paper ENDS and the background BEGINS.
-- Return coordinates as normalized values (0-1) relative to the image width and height.
-- topLeft = the paper corner closest to the top-left of the image.
-- topRight = the paper corner closest to the top-right of the image.
-- bottomLeft = the paper corner closest to the bottom-left of the image.
-- bottomRight = the paper corner closest to the bottom-right of the image.
-- If the paper edge is partially outside the image frame (cropped), estimate where the corner would be at the image boundary.
-- If there is truly NO visible background at all (the paper completely fills the frame with zero background), return null.
-- If there are multiple papers, detect the LARGEST one.
+RULES:
+- The paper is WHITE or light-colored.
+- Even if the paper fills 90%+ of the image, ALWAYS estimate the 4 corners.
+  Just use coordinates near the image edges (e.g., topLeft ≈ (0.01, 0.01)).
+- The paper may be tilted, rotated, or at an angle — that's normal.
+- topLeft = paper corner closest to top-left of image.
+- topRight = paper corner closest to top-right.
+- bottomLeft = paper corner closest to bottom-left.
+- bottomRight = paper corner closest to bottom-right.
+- If a corner is outside the visible image area (cropped),
+  use the image boundary coordinate (clamp to 0 or 1).
+- If multiple papers, detect the LARGEST.
+- ONLY return null if there is truly NO recognizable rectangular paper at all
+  (e.g., the photo shows only a hand, ground, or unrelated scene with no paper visible).
 
 OUTPUT FORMAT (strict JSON, no markdown):
 {"topLeft":{"x":0.05,"y":0.03},"topRight":{"x":0.95,"y":0.02},"bottomLeft":{"x":0.04,"y":0.97},"bottomRight":{"x":0.96,"y":0.98}}
 
-Or if truly no background visible:
+Or if no paper at all:
 null`
 
 /**
