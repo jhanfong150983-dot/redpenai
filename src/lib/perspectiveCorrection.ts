@@ -275,22 +275,20 @@ export async function applyPerspectiveTransform(
 // ─── 3. 整合入口 ────────────────────────────────────────────────────────────
 
 /**
- * 透視校正主函數：偵測四角 → 加 padding → 透視變換 → 回傳校正後 Blob。
- * 如果偵測失敗，回傳原圖。
+ * 透視校正主函數：**已停用實際變換**，永遠回原圖。
+ *
+ * 為什麼停用：
+ * - 任何透視變換都會引入插值（即使 bilinear/bicubic）— 對中文字、底線、選項
+ *   方框的細節會柔化，影響後續 OCR / classify / read 階段的準確率
+ * - 實測 bilinear 仍然不如原圖清楚
+ *
+ * 為什麼保留 detectDocumentCorners 呼叫：
+ * - photoValidation.ts 用此偵測「學生有沒有把作業拍進框線內」
+ * - 此函式只剩 log 用途，實際照片不變
  */
 export async function correctPerspective(imageBlob: Blob): Promise<Blob> {
-  console.log(`📐 [perspectiveCorrection] start, size=${(imageBlob.size / 1024).toFixed(0)}KB`)
-
-  const corners = await detectDocumentCorners(imageBlob)
-  if (!corners) {
-    console.log('📐 [perspectiveCorrection] corners not detected, using original image')
-    return imageBlob
-  }
-
-  // 如果四角幾乎在圖片邊緣（掃描或已裁切好的圖片），仍然做變換以統一處理
-  const corrected = await applyPerspectiveTransform(imageBlob, corners)
-  console.log(`📐 [perspectiveCorrection] done, output size=${(corrected.size / 1024).toFixed(0)}KB`)
-  return corrected
+  console.log(`📐 [perspectiveCorrection] start, size=${(imageBlob.size / 1024).toFixed(0)}KB (transform disabled, returning original)`)
+  return imageBlob
 }
 
 /**
