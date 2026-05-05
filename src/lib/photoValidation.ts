@@ -14,7 +14,6 @@
 
 import {
   detectDocumentCorners,
-  applyPerspectiveTransform,
   type DocumentCorners,
 } from './perspectiveCorrection'
 import { computePerceptualHash, hammingDistance } from './perceptualHash'
@@ -91,22 +90,16 @@ export async function validatePhotos(pages: PageInput[]): Promise<ValidationResu
 
       const ok = errors.length === 0
 
-      // 通過才做 warp（warp 是純前端 CPU，沒過就省下來）
-      let correctedBlob: Blob | null = raw.correctedBlob
-      if (ok && !correctedBlob && raw.corners) {
-        try {
-          correctedBlob = await applyPerspectiveTransform(pages[i].blob, raw.corners)
-        } catch (err) {
-          console.warn(`[photoValidation] warp failed for page ${i + 1}:`, err)
-          correctedBlob = pages[i].blob  // fallback 用原圖
-        }
-      }
+      // 透視變換已停用：實測任何插值（nearest/bilinear/bicubic）都會柔化中文字、
+      // 底線、選項方框等細節，影響 OCR/classify/read 準確率。
+      // 通過驗證的照片直接用原圖，保留最佳畫質。
+      const correctedBlob: Blob | null = ok ? pages[i].blob : null
 
       return {
         index: i,
         ok,
         errors,
-        correctedBlob: ok ? correctedBlob : null,
+        correctedBlob,
         corners: raw.corners,
         hash: raw.hash,
       }
