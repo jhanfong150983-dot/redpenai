@@ -8,7 +8,7 @@
  * 整合入口：correctPerspective()
  */
 
-import { ensureInkSessionFresh, setInkSessionId } from './ink-session'
+import { ensureInkSessionFresh, setInkSessionId, startInkSession } from './ink-session'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -101,13 +101,19 @@ export async function detectDocumentCorners(imageBlob: Blob): Promise<DocumentCo
 
     let response = await callProxy(inkSessionId)
 
-    // 409 = ink session 失效（過期或被 server 端關閉）→ 清 cache + retry 不帶 session
-    // 老師走 admin bypass、學生走餘額檢查；不再因為 stale session 直接判 fail
-    // 清 cache 避免後續呼叫（如批次驗證 3 張照片）一直拿 stale ID 重複失敗
+    // 409 = ink session 失效（過期或被 server 端關閉）
+    // 沿用 gemini.ts:534-543 的標準 retry pattern：清 cache → 建新 session → retry
+    // 這樣計費路徑跟正規批改/訂正流程一致（不走 admin/balance fallback）
     if (response.status === 409 && inkSessionId) {
-      console.warn('[perspectiveCorrection] detectCorners: ink session invalid, clearing cache and retrying without session')
-      setInkSessionId(null)  // 清掉 stale sessionId，下一張照片不會再帶它
-      response = await callProxy(null)
+      console.warn('[perspectiveCorrection] detectCorners: ink session invalid, creating new session and retrying')
+      setInkSessionId(null)  // 清掉 stale sessionId
+      try {
+        const { sessionId: newSessionId } = await startInkSession()
+        response = await callProxy(newSessionId)  // 用新的有效 session retry
+      } catch (sessionErr) {
+        console.warn('[perspectiveCorrection] detectCorners: failed to create new session, retrying without session', sessionErr)
+        response = await callProxy(null)  // 建 session 失敗 → fallback 不帶 session（admin/balance）
+      }
     }
 
     if (!response.ok) {
