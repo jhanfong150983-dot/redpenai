@@ -530,23 +530,14 @@ export default function UnifiedImportPage({
           const studentId = selectedStudent?.id
           if (studentId) {
             setSavingStudentId(studentId)
-            // 相機拍攝有引導框 → 用 CAMERA_FRAME 比例固定裁切（凸顯考卷）
-            ;(async () => {
-              let correctedPages = next
-              try {
-                const { cropToCameraFrame } = await import('../lib/perspectiveCorrection')
-                correctedPages = await Promise.all(next.map(cropToCameraFrame))
-              } catch (err) {
-                console.warn('[UnifiedImport-camera] frame crop failed, using originals:', err)
-              }
-              return saveStudentSubmission(
-                assignmentId,
-                studentId,
-                correctedPages,
-                avoidBlobStorage,
-                'teacher_camera',
-              )
-            })()
+            // 裁切已在 CameraCapturePage 拍照當下做（applyFrameCrop=true），這裡直接存
+            saveStudentSubmission(
+              assignmentId,
+              studentId,
+              next,
+              avoidBlobStorage,
+              'teacher_camera',
+            )
               .then(() => {
                 requestSync()
                 return loadData()
@@ -1282,6 +1273,7 @@ export default function UnifiedImportPage({
         name={selectedStudent.name}
         pagesPerStudent={pagesPerStudent}
         currentPageCount={capturedPages.length}
+        applyFrameCrop
         onCaptureComplete={handleCaptureComplete}
         onBack={handleCameraBack}
       />

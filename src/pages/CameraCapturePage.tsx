@@ -12,6 +12,8 @@ interface CameraCapturePageProps {
   pagesPerStudent: number
   currentPageCount: number
   requiredOrientation?: 'portrait' | 'landscape'
+  /** 老師端：拍照當下立刻依 CAMERA_FRAME 引導框比例裁切（學生端走 AI 偵測，不需要） */
+  applyFrameCrop?: boolean
   onCaptureComplete: (imageBlob: Blob) => void
   onBack: () => void
 }
@@ -24,6 +26,7 @@ export default function CameraCapturePage({
   pagesPerStudent,
   currentPageCount,
   requiredOrientation,
+  applyFrameCrop = false,
   onCaptureComplete,
   onBack
 }: CameraCapturePageProps) {
@@ -111,18 +114,30 @@ export default function CameraCapturePage({
         throw new Error('無法擷取影像')
       }
 
-      // 不再依引導框硬裁；引導框只作為對齊提示，
-      // 紙張邊界由後續 correctPerspective 用 AI 找四角處理。
-      const compressed = await compressImage(imageSrc, {
+      // 學生端：引導框只作為對齊提示，紙張邊界由 AI 偵測四角處理
+      // 老師端：當下用 viewport 反算 object-cover，套 CAMERA_FRAME 比例裁切
+      let processed = await compressImage(imageSrc, {
         maxWidth: 2000,
         quality: 0.85
       })
+
+      if (applyFrameCrop) {
+        try {
+          const { cropToCameraFrame } = await import('../lib/perspectiveCorrection')
+          processed = await cropToCameraFrame(processed, {
+            width: window.innerWidth,
+            height: window.innerHeight,
+          })
+        } catch (err) {
+          console.warn('[CameraCapturePage] frame crop failed, using original:', err)
+        }
+      }
 
       // 成功動畫
       setCaptureSuccess(true)
       setTimeout(() => {
         setCaptureSuccess(false)
-        onCaptureComplete(compressed)
+        onCaptureComplete(processed)
       }, 500)
     } catch (error) {
       console.error('拍照失敗:', error)
@@ -130,7 +145,7 @@ export default function CameraCapturePage({
     } finally {
       setIsProcessing(false)
     }
-  }, [onCaptureComplete])
+  }, [onCaptureComplete, applyFrameCrop])
 
 
   const actionBase =

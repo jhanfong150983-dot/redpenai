@@ -415,29 +415,54 @@ export async function cropToCornersBounds(
  * 老師端拍照固定比例裁切：依 CAMERA_FRAME 引導框比例裁切，
  * outward 加 3% padding 避免切到紙張。
  *
- * 用途：老師拍照時引導框與螢幕對齊，但拍出來的圖含框外背景（狀態列、按鈕區）。
- * 此函式直接以螢幕引導框比例 + safety padding 裁切，不需 AI 偵測。
+ * 重點：實拍圖（webcam constraint 1920×1080）方向不一定等於螢幕方向，
+ * 需先用 viewport 反算 object-cover 後「螢幕能看到的那塊」在實拍圖中的範圍，
+ * 再把 CAMERA_FRAME 投影到那塊上。沒給 viewport 則退回 naive 直接套（向後相容）。
  *
  * 純 1:1 像素複製（不縮放、不插值），畫質無損；JPEG re-encode quality 0.95。
  */
-export async function cropToCameraFrame(imageBlob: Blob): Promise<Blob> {
+export async function cropToCameraFrame(
+  imageBlob: Blob,
+  viewport?: { width: number; height: number }
+): Promise<Blob> {
   const PADDING = 0.03
-  const xMin = Math.max(0, CAMERA_FRAME.LEFT - PADDING)
-  const xMax = Math.min(1, 1 - CAMERA_FRAME.RIGHT + PADDING)
-  const yMin = Math.max(0, CAMERA_FRAME.TOP - PADDING)
-  const yMax = Math.min(1, 1 - CAMERA_FRAME.BOTTOM + PADDING)
+
+  const img = await loadImage(imageBlob)
+  const pW = img.naturalWidth
+  const pH = img.naturalHeight
+
+  // Step 1: 用 object-cover 反向投影，算出螢幕可見區域在實拍圖中的 normalized 範圍
+  let visX = 0, visY = 0, visW = 1, visH = 1
+  if (viewport && viewport.width > 0 && viewport.height > 0) {
+    const photoAspect = pW / pH
+    const viewportAspect = viewport.width / viewport.height
+    if (photoAspect > viewportAspect) {
+      // 圖比較寬 → object-cover scale by height，左右被裁
+      const visibleRatio = viewportAspect / photoAspect
+      visX = (1 - visibleRatio) / 2
+      visW = visibleRatio
+    } else if (photoAspect < viewportAspect) {
+      // 圖比較高 → scale by width，上下被裁
+      const visibleRatio = photoAspect / viewportAspect
+      visY = (1 - visibleRatio) / 2
+      visH = visibleRatio
+    }
+  }
+
+  // Step 2: 把 CAMERA_FRAME 投影到可見區域內，再 outward 加 padding
+  const xMin = Math.max(0, visX + CAMERA_FRAME.LEFT * visW - PADDING)
+  const xMax = Math.min(1, visX + (1 - CAMERA_FRAME.RIGHT) * visW + PADDING)
+  const yMin = Math.max(0, visY + CAMERA_FRAME.TOP * visH - PADDING)
+  const yMax = Math.min(1, visY + (1 - CAMERA_FRAME.BOTTOM) * visH + PADDING)
 
   if (xMax - xMin > 0.97 && yMax - yMin > 0.97) {
     return imageBlob
   }
 
-  const img = await loadImage(imageBlob)
-  const w = img.naturalWidth
-  const h = img.naturalHeight
-  const cropX = Math.round(xMin * w)
-  const cropY = Math.round(yMin * h)
-  const cropW = Math.round((xMax - xMin) * w)
-  const cropH = Math.round((yMax - yMin) * h)
+  const cropX = Math.round(xMin * pW)
+  const cropY = Math.round(yMin * pH)
+  const cropW = Math.round((xMax - xMin) * pW)
+  const cropH = Math.round((yMax - yMin) * pH)
 
   if (cropW <= 0 || cropH <= 0) {
     console.warn('📐 [cropToCameraFrame] invalid crop dims, fallback to original')
@@ -451,7 +476,7 @@ export async function cropToCameraFrame(imageBlob: Blob): Promise<Blob> {
   if (!ctx) return imageBlob
   ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH)
 
-  console.log(`📐 [cropToCameraFrame] ${w}x${h} → ${cropW}x${cropH}`)
+  console.log(`📐 [cropToCameraFrame] photo=${pW}x${pH} viewport=${viewport?.width ?? 'n/a'}x${viewport?.height ?? 'n/a'} → ${cropW}x${cropH}`)
 
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
