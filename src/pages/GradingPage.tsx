@@ -178,8 +178,6 @@ function getSubmissionSourceVisual(submission?: Submission) {
   }
 }
 
-const LOW_CONFIDENCE_THRESHOLD = 90
-
 const STAGE_LABEL_MAP: Record<string, string> = {
   ReadAnswer: '答案抄寫',
   ReadAnswerFinalOnly: '最終答案抄寫',
@@ -3339,40 +3337,7 @@ export default function GradingPage({
     return { correct, total, ratio: correct / total }
   }
 
-  const getSubmissionConfidenceAverage = (result?: Submission['gradingResult']) => {
-    if (!result?.details || !Array.isArray(result.details)) return null
-
-    const values = result.details
-      .map((detail: any) => {
-        const value = Number(detail?.confidence)
-        return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : null
-      })
-      .filter((value: number | null): value is number => value !== null)
-
-    if (values.length === 0) return null
-    return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
-  }
-
-  const getSubmissionMinConfidenceInfo = (result?: Submission['gradingResult']) => {
-    if (!result?.details || !Array.isArray(result.details)) return null
-
-    let minValue: number | null = null
-    let minQuestionId: string | null = null
-
-    result.details.forEach((detail: any, index: number) => {
-      const rawValue = Number(detail?.confidence)
-      if (!Number.isFinite(rawValue)) return
-      const value = Math.min(100, Math.max(0, rawValue))
-
-      if (minValue === null || value < minValue) {
-        minValue = value
-        minQuestionId = detail?.questionId ?? `#${index + 1}`
-      }
-    })
-
-    if (minValue === null) return null
-    return { value: Math.round(minValue), questionId: minQuestionId }
-  }
+  // 信心顯示停用後 getSubmissionConfidenceAverage / getSubmissionMinConfidenceInfo 已不需要、移除
 
   const getDisplayReviewReasons = useCallback(
     (submission: Submission) => {
@@ -3390,9 +3355,7 @@ export default function GradingPage({
       const derived = new Set<string>()
       const details = submission.gradingResult?.details ?? []
 
-      if (details.some((detail: any) => Number(detail?.confidence) < 80)) {
-        derived.add('信心偏低')
-      }
+      // 「信心偏低」derive reason 已停用 — 信心數字無實質意義
       const unreadableIds = details
         .filter((detail: any) => detail?.studentAnswer === 'AI無法辨識' || detail?.studentAnswer === '無法辨識')
         .map((detail: any) => formatDisplayQuestionId(detail?.questionId) || detail?.questionId)
@@ -3406,9 +3369,6 @@ export default function GradingPage({
     []
   )
 
-  const formatQuestionId = (questionId?: string | null) => {
-    return formatDisplayQuestionId(questionId)
-  }
 
 
   const sortedStudents = useMemo(() => {
@@ -3433,23 +3393,8 @@ export default function GradingPage({
   const selectedReviewReasons = selectedSubmission
     ? getDisplayReviewReasons(selectedSubmission.submission)
     : []
-  const selectedMinConfidence = selectedSubmission?.submission.gradingResult
-    ? getSubmissionMinConfidenceInfo(selectedSubmission.submission.gradingResult)
-    : null
-  const selectedConfidenceAverage = selectedSubmission?.submission.gradingResult
-    ? getSubmissionConfidenceAverage(selectedSubmission.submission.gradingResult)
-    : null
-  const selectedConfidenceLabel =
-    selectedMinConfidence && selectedMinConfidence.value < LOW_CONFIDENCE_THRESHOLD
-      ? `最低信心 ${selectedMinConfidence.value}%${
-          selectedMinConfidence.questionId
-            ? `（第${formatQuestionId(selectedMinConfidence.questionId)}題）`
-            : ''
-        }`
-      : typeof selectedConfidenceAverage === 'number' &&
-          selectedConfidenceAverage < LOW_CONFIDENCE_THRESHOLD
-        ? `平均信心 ${selectedConfidenceAverage}%`
-        : null
+  // 信心顯示已停用（沒有實質意義、徒增老師認知負擔）
+  const selectedConfidenceLabel = null
 
   if (isLoading) {
     return (
@@ -3961,23 +3906,8 @@ export default function GradingPage({
             const resultBadgeText = isUnscoredAssignment
               ? (correctSummary ? `${correctSummary.correct}/${correctSummary.total}` : '')
               : `${scoreValue} 分`
-            const minConfidence = needsReview && gradingResult
-              ? getSubmissionMinConfidenceInfo(gradingResult)
-              : null
-            const confidenceAverage = needsReview && gradingResult
-              ? getSubmissionConfidenceAverage(gradingResult)
-              : null
-            const confidenceHint = needsReview
-              ? minConfidence
-                ? minConfidence.value < LOW_CONFIDENCE_THRESHOLD
-                  ? `最低信心 ${minConfidence.value}%`
-                  : null
-                : typeof confidenceAverage === 'number'
-                  ? confidenceAverage < LOW_CONFIDENCE_THRESHOLD
-                    ? `平均信心 ${confidenceAverage}%`
-                    : null
-                  : null
-              : null
+            // 信心顯示已停用
+            const confidenceHint = null
 
             return (
               <div
@@ -4373,11 +4303,6 @@ export default function GradingPage({
                         const isCorrect = safeMax > 0 ? safeScore >= safeMax : false
                         const isPartial = !isCorrect && safeScore > 0 && safeMax > 0
                         const isUnscored = assignment?.scoringMode === 'unscored'
-                        const confidenceValue = Number.isFinite(Number(d.confidence))
-                          ? Math.min(100, Math.max(0, Number(d.confidence)))
-                          : null
-                        const showConfidence =
-                          typeof confidenceValue === 'number' && confidenceValue < 100
                         const questionId = d.questionId || `#${i + 1}`
 
                         return (
@@ -4390,17 +4315,6 @@ export default function GradingPage({
                                 <span className="font-semibold text-gray-800">
                                   題目 {questionId}
                                 </span>
-                                {showConfidence && (
-                                  <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                                      confidenceValue < 80
-                                        ? 'bg-red-100 text-red-700 border border-red-200'
-                                        : 'bg-amber-100 text-amber-700 border border-amber-200'
-                                    }`}
-                                  >
-                                    信心 {confidenceValue}%
-                                  </span>
-                                )}
                               </div>
                               <div
                                 className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
