@@ -206,11 +206,11 @@ function formatDisplayQuestionId(questionId?: string | null) {
 function isSubmissionNeedsReview(gradingResult?: { needsReview?: boolean; manuallyReviewed?: boolean; details?: Array<{ studentAnswer?: string }> }): boolean {
   if (!gradingResult) return false
   // 老師手動點過「標記已複核」→ 直接視為不需複核，不再看 details
-  // 否則只清 needsReview flag 還是會被 details 中的「未作答」字串拉回 true（按鈕看似沒反應）
   if (gradingResult.manuallyReviewed) return false
   if (gradingResult.needsReview) return true
   const details = gradingResult.details ?? []
-  return details.some((d) => d.studentAnswer === '未作答' || d.studentAnswer === '無法辨識')
+  // 只有「無法辨識」(unreadable) 拉回 needs review；「未作答」(blank) 是學生明確沒寫，不需老師確認
+  return details.some((d) => d.studentAnswer === '無法辨識' || d.studentAnswer === 'AI無法辨識')
 }
 
 function toUserFriendlyReviewReason(rawReason: string) {
@@ -3390,13 +3390,7 @@ export default function GradingPage({
       if (unreadableIds.length > 0) {
         derived.add(`第 ${unreadableIds.join('、')} 題無法辨識`)
       }
-      const blankIds = details
-        .filter((detail: any) => detail?.studentAnswer === '未作答')
-        .map((detail: any) => formatDisplayQuestionId(detail?.questionId) || detail?.questionId)
-        .filter(Boolean)
-      if (blankIds.length > 0) {
-        derived.add(`第 ${blankIds.join('、')} 題辨識為未作答`)
-      }
+      // 「未作答」（學生明確沒寫）不再列為需要複核理由 — 學生既然空白就空白、不用老師確認
       return Array.from(derived)
     },
     []
