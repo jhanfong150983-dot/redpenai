@@ -203,13 +203,21 @@ function formatDisplayQuestionId(questionId?: string | null) {
 }
 
 /** 判斷該份批改結果是否需要老師複核（相容舊資料） */
-function isSubmissionNeedsReview(gradingResult?: { needsReview?: boolean; manuallyReviewed?: boolean; details?: Array<{ studentAnswer?: string }> }): boolean {
+function isSubmissionNeedsReview(gradingResult?: { needsReview?: boolean; manuallyReviewed?: boolean; details?: Array<{ studentAnswer?: string }>; reviewReasons?: string[] }): boolean {
   if (!gradingResult) return false
-  // 老師手動點過「標記已複核」→ 直接視為不需複核，不再看 details
+  // 老師手動點過「標記已複核」→ 直接視為不需複核
   if (gradingResult.manuallyReviewed) return false
-  if (gradingResult.needsReview) return true
+  // 「未作答」全是學生明確沒寫，不需老師確認 → 過濾掉純「未作答」reasons
+  const isBlankReason = (r: string) =>
+    !!r && (r.includes('辨識為未作答') || r.includes('題未作答'))
+  const reasons = gradingResult.reviewReasons || []
+  const meaningfulReasons = reasons.filter((r) => !isBlankReason(r))
+  if (gradingResult.needsReview) {
+    // 若 server 標記 needsReview 但 reasons 全都是「未作答」相關 → 視為不需複核（老的 grading 紀錄）
+    if (reasons.length > 0 && meaningfulReasons.length === 0) return false
+    return true
+  }
   const details = gradingResult.details ?? []
-  // 只有「無法辨識」(unreadable) 拉回 needs review；「未作答」(blank) 是學生明確沒寫，不需老師確認
   return details.some((d) => d.studentAnswer === '無法辨識' || d.studentAnswer === 'AI無法辨識')
 }
 
@@ -3373,7 +3381,9 @@ export default function GradingPage({
         const parsed = reasons
           .map((reason) => toUserFriendlyReviewReason(reason))
           .map((reason) => reason.trim())
-          .filter((reason) => reason.length > 0)
+          // 過濾掉「未作答」相關 reason（學生明確沒寫不需老師確認）
+          // 包含舊批改紀錄存的「辨識為未作答，請確認」也一併不顯示
+          .filter((reason) => reason.length > 0 && !reason.includes('辨識為未作答') && !reason.includes('題未作答'))
         return Array.from(new Set(parsed))
       }
 
