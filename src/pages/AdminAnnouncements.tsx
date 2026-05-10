@@ -52,16 +52,18 @@ function formatDisplay(iso: string | null): string {
   return d.toLocaleString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-function isCurrentlyVisible(a: Announcement): boolean {
-  if (!a.active) return false
+type DisplayStatus = 'visible' | 'not-started' | 'expired' | 'inactive'
+
+function getDisplayStatus(a: Announcement): DisplayStatus {
+  if (!a.active) return 'inactive'
   const now = Date.now()
   const start = new Date(a.starts_at).getTime()
-  if (Number.isFinite(start) && now < start) return false
+  if (Number.isFinite(start) && now < start) return 'not-started'
   if (a.ends_at) {
     const end = new Date(a.ends_at).getTime()
-    if (Number.isFinite(end) && now > end) return false
+    if (Number.isFinite(end) && now > end) return 'expired'
   }
-  return true
+  return 'visible'
 }
 
 export default function AdminAnnouncements() {
@@ -117,6 +119,12 @@ export default function AdminAnnouncements() {
       setSubmitError('標題不可為空')
       return
     }
+    const startsAtIso = localInputToIso(form.startsAt)
+    const endsAtIso = form.endsAt ? localInputToIso(form.endsAt) : null
+    if (endsAtIso && startsAtIso && new Date(endsAtIso).getTime() <= new Date(startsAtIso).getTime()) {
+      setSubmitError('結束時間必須晚於開始時間（留空 = 永久）')
+      return
+    }
     setSubmitting(true)
     setSubmitError(null)
     try {
@@ -125,8 +133,8 @@ export default function AdminAnnouncements() {
         title: form.title.trim(),
         body: form.body,
         active: form.active,
-        startsAt: localInputToIso(form.startsAt),
-        endsAt: form.endsAt ? localInputToIso(form.endsAt) : null
+        startsAt: startsAtIso,
+        endsAt: endsAtIso
       }
       const res = await fetch('/api/admin/announcements?action=announcements', {
         method: form.id ? 'PATCH' : 'POST',
@@ -312,7 +320,7 @@ export default function AdminAnnouncements() {
         {!loading && list.length > 0 && (
           <div className="space-y-3">
             {list.map((a) => {
-              const visible = isCurrentlyVisible(a)
+              const status = getDisplayStatus(a)
               const isEditing = form.id === a.id
               return (
                 <div
@@ -320,7 +328,7 @@ export default function AdminAnnouncements() {
                   className={`border rounded-lg p-3 transition-colors ${
                     isEditing
                       ? 'border-blue-400 bg-blue-50/30'
-                      : visible
+                      : status === 'visible'
                       ? 'border-green-300 bg-green-50/30'
                       : 'border-gray-200 bg-gray-50/50'
                   }`}
@@ -329,11 +337,16 @@ export default function AdminAnnouncements() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-semibold text-gray-900 truncate">{a.title}</span>
-                        {visible ? (
+                        {status === 'visible' && (
                           <span className="text-[10px] px-1.5 py-0.5 bg-green-600 text-white rounded font-medium">顯示中</span>
-                        ) : a.active ? (
-                          <span className="text-[10px] px-1.5 py-0.5 bg-amber-500 text-white rounded font-medium">未到時間 / 已過期</span>
-                        ) : (
+                        )}
+                        {status === 'not-started' && (
+                          <span className="text-[10px] px-1.5 py-0.5 bg-sky-500 text-white rounded font-medium">未開始</span>
+                        )}
+                        {status === 'expired' && (
+                          <span className="text-[10px] px-1.5 py-0.5 bg-amber-500 text-white rounded font-medium">已過期</span>
+                        )}
+                        {status === 'inactive' && (
                           <span className="text-[10px] px-1.5 py-0.5 bg-gray-400 text-white rounded font-medium">停用</span>
                         )}
                       </div>
