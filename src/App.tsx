@@ -369,6 +369,7 @@ function App() {
   const [isIpDisclaimerOpen, setIsIpDisclaimerOpen] = useState(false)
   const [isTermsOpen, setIsTermsOpen] = useState(false)
   const [isPrivacyOpen, setIsPrivacyOpen] = useState(false)
+  const [announcement, setAnnouncement] = useState<{ id: string; title: string; body: string } | null>(null)
   const [urlPageHandled, setUrlPageHandled] = useState(false)
   const [hasPaidOrder, setHasPaidOrder] = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
@@ -773,6 +774,37 @@ function App() {
     initialSyncStudentId,
     initialSyncRetryNonce
   ])
+
+  // 登入後拉一次目前 active 公告，有的話彈 modal（每次登入都彈、不記憶 dismissal）
+  useEffect(() => {
+    if (auth.status !== 'authenticated') {
+      setAnnouncement(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(buildApiUrl('/api/data/announcement-active?action=announcement-active'), {
+          credentials: 'include'
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        if (cancelled) return
+        if (data?.announcement?.id) {
+          setAnnouncement({
+            id: data.announcement.id,
+            title: data.announcement.title || '',
+            body: data.announcement.body || ''
+          })
+        }
+      } catch {
+        // graceful：拉不到就不彈
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [auth.status])
 
   // 應用啟動時檢測 WebP 支持（用於平板Chrome兼容性）
   useEffect(() => {
@@ -2639,6 +2671,37 @@ function App() {
               <p>
                 未經事前書面同意，任何人不得以任何形式重製、改作、散布、公開傳輸、展示、出版或作商業使用；僅限於合法且必要之個人瀏覽或學習用途之合理使用，不構成授權。
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {announcement && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="announcement-title">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h2 id="announcement-title" className="text-base font-semibold text-gray-900 truncate">
+                {announcement.title}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setAnnouncement(null)}
+                className="p-1 rounded-full hover:bg-gray-100 text-gray-500 flex-shrink-0"
+                aria-label="關閉"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap overflow-y-auto max-h-[60vh]">
+              {announcement.body || '（無內容）'}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setAnnouncement(null)}
+                className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700"
+              >
+                我知道了
+              </button>
             </div>
           </div>
         </div>
