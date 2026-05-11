@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import Button from '@/components/ui/Button'
 import {
   BookOpen,
@@ -13,7 +13,10 @@ import {
   ClipboardCheck,
   Settings,
   CheckSquare,
-  Layers
+  Layers,
+  ChevronDown,
+  ChevronRight,
+  Edit2
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { type GradingSettingsValues } from '@/components/GradingSettingsPanel'
@@ -21,6 +24,8 @@ import AssignmentFormModal, { type AssignmentFormData } from '@/components/Assig
 import { db, generateId, getBucket, QUESTION_CATEGORY_LABELS } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
+import { checkFolderNameUnique } from '@/lib/utils'
+import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import type {
   AnswerKey,
   AnswerKeyTemplate,
@@ -32,6 +37,26 @@ import type {
 } from '@/lib/db'
 
 type ViewMode = 'class' | 'cross-class'
+
+// 跟 AssignmentSetup / AnswerBank 共用同一組 localStorage key，
+// 拖曳過的順序在兩邊看到的結果一致。
+const getAssignmentOrderStorageKey = (classroomId: string) =>
+  `redpen-assignment-order-${classroomId}`
+const getFolderOrderStorageKey = (classroomId: string) =>
+  `redpen-assignment-folder-order-${classroomId}`
+
+const reorderList = <T,>(list: T[], draggedItem: T, targetItem: T): T[] => {
+  const fromIndex = list.indexOf(draggedItem)
+  const toIndex = list.indexOf(targetItem)
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return list
+  const next = [...list]
+  const [item] = next.splice(fromIndex, 1)
+  next.splice(toIndex, 0, item)
+  return next
+}
+
+const isSameStringArray = (a: string[], b: string[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index])
 
 interface AssignmentListProps {
   onBack?: () => void
@@ -82,6 +107,22 @@ export default function AssignmentList({
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [batchSelectedIds, setBatchSelectedIds] = useState<Set<string>>(new Set())
 
+  // ── 資料夾分組 / 拖曳（與 AssignmentSetup 行為一致）─────────────────
+  const [expandedFolders, setExpandedFolders] = useState<string[]>([])
+  const [assignmentOrder, setAssignmentOrder] = useState<string[]>([])
+  const [folderOrder, setFolderOrder] = useState<string[]>([])
+  const [draggedAssignmentId, setDraggedAssignmentId] = useState<string | null>(null)
+  const [draggedFolderName, setDraggedFolderName] = useState<string | null>(null)
+  const [dropTargetFolder, setDropTargetFolder] = useState<string | null>(null)
+  const [dragOverAssignmentId, setDragOverAssignmentId] = useState<string | null>(null)
+  const [dragOverFolderName, setDragOverFolderName] = useState<string | null>(null)
+  const [isCreateFolderModalOpen, setIsCreateFolderModalOpen] = useState(false)
+  const [newFolderName, setNewFolderName] = useState('')
+  const [newFolderError, setNewFolderError] = useState('')
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
+  const [editingFolderName, setEditingFolderName] = useState('')
+  const [editingFolderError, setEditingFolderError] = useState('')
+
   const classAssignments = useMemo(() => {
     if (!selectedClassroomId) return assignments
     return assignments.filter((a) => a.classroomId === selectedClassroomId)
@@ -102,14 +143,38 @@ export default function AssignmentList({
     return allFolders.sort()
   }, [classAssignments, emptyFolders])
 
-  const filteredAssignments = useMemo(() => {
-    if (!selectedClassroomId) return classAssignments
-    if (selectedFolder === '__all__') return classAssignments
-    if (selectedFolder === '__uncategorized__') {
-      return classAssignments.filter((a) => !a.folder)
+  // 套用老師自訂的資料夾排序（folderOrder 來自 localStorage）
+  const orderedFolders = useMemo(() => {
+    const listed = folderOrder.filter((folder) => usedFolders.includes(folder))
+    const missing = usedFolders.filter((folder) => !listed.includes(folder))
+    return [...listed, ...missing]
+  }, [folderOrder, usedFolders])
+
+  // 套用老師自訂的作業排序
+  const orderedClassAssignments = useMemo(() => {
+    const byId = new Map(classAssignments.map((a) => [a.id, a]))
+    const listed = assignmentOrder
+      .map((id) => byId.get(id))
+      .filter((item): item is AssignmentWithMeta => !!item)
+    const missing = classAssignments.filter((a) => !assignmentOrder.includes(a.id))
+    return [...listed, ...missing]
+  }, [classAssignments, assignmentOrder])
+
+  const uncategorizedAssignments = useMemo(
+    () => orderedClassAssignments.filter((a) => !a.folder),
+    [orderedClassAssignments]
+  )
+
+  const assignmentsByFolder = useMemo(() => {
+    const map = new Map<string, AssignmentWithMeta[]>()
+    for (const folder of orderedFolders) map.set(folder, [])
+    for (const assignment of orderedClassAssignments) {
+      if (!assignment.folder) continue
+      if (!map.has(assignment.folder)) map.set(assignment.folder, [])
+      map.get(assignment.folder)?.push(assignment)
     }
-    return classAssignments.filter((a) => a.folder === selectedFolder)
-  }, [classAssignments, selectedClassroomId, selectedFolder])
+    return map
+  }, [orderedClassAssignments, orderedFolders])
 
   const rubricLabels: Rubric['levels'][number]['label'][] = [
     '優秀',
@@ -778,16 +843,352 @@ export default function AssignmentList({
   }, [onClassroomChange, selectedClassroomId])
 
   useEffect(() => {
-    if (selectedFolder === '__uncategorized__') return
-    if (selectedFolder !== '__all__' && selectedFolder !== '__uncategorized__' && !usedFolders.includes(selectedFolder)) {
-      setSelectedFolder('__all__')
-    }
-  }, [selectedFolder, usedFolders])
-
-  useEffect(() => {
     if (!onFolderChange) return
     onFolderChange(selectedFolder)
   }, [onFolderChange, selectedFolder])
+
+  // 換班級時，從 localStorage 載入該班級的作業順序
+  useEffect(() => {
+    if (!selectedClassroomId) {
+      setAssignmentOrder([])
+      return
+    }
+    const allIds = classAssignments.map((a) => a.id)
+    const idSet = new Set(allIds)
+    let savedIds: string[] = []
+    try {
+      const raw = localStorage.getItem(getAssignmentOrderStorageKey(selectedClassroomId))
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          savedIds = parsed.filter((item): item is string => typeof item === 'string')
+        }
+      }
+    } catch {
+      savedIds = []
+    }
+    const listed = savedIds.filter((id) => idSet.has(id))
+    const missing = allIds.filter((id) => !listed.includes(id))
+    const next = [...listed, ...missing]
+    setAssignmentOrder((prev) => (isSameStringArray(prev, next) ? prev : next))
+  }, [selectedClassroomId, classAssignments])
+
+  // 換班級時，從 localStorage 載入該班級的資料夾順序
+  useEffect(() => {
+    if (!selectedClassroomId) {
+      setFolderOrder([])
+      return
+    }
+    let savedFolders: string[] = []
+    try {
+      const raw = localStorage.getItem(getFolderOrderStorageKey(selectedClassroomId))
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (Array.isArray(parsed)) {
+          savedFolders = parsed.filter((item): item is string => typeof item === 'string')
+        }
+      }
+    } catch {
+      savedFolders = []
+    }
+    const listed = savedFolders.filter((folder) => usedFolders.includes(folder))
+    const missing = usedFolders.filter((folder) => !listed.includes(folder))
+    const next = [...listed, ...missing]
+    setFolderOrder((prev) => (isSameStringArray(prev, next) ? prev : next))
+  }, [selectedClassroomId, usedFolders])
+
+  useEffect(() => {
+    if (!selectedClassroomId) return
+    localStorage.setItem(
+      getAssignmentOrderStorageKey(selectedClassroomId),
+      JSON.stringify(assignmentOrder)
+    )
+  }, [selectedClassroomId, assignmentOrder])
+
+  useEffect(() => {
+    if (!selectedClassroomId) return
+    localStorage.setItem(
+      getFolderOrderStorageKey(selectedClassroomId),
+      JSON.stringify(folderOrder)
+    )
+  }, [selectedClassroomId, folderOrder])
+
+  // expandedFolders 過濾掉已不存在的資料夾
+  useEffect(() => {
+    setExpandedFolders((prev) => prev.filter((folder) => orderedFolders.includes(folder)))
+  }, [orderedFolders])
+
+  // 預設把所有資料夾展開（首次進入時）；後續老師手動調整就尊重老師的選擇
+  const [didInitExpanded, setDidInitExpanded] = useState(false)
+  useEffect(() => {
+    if (didInitExpanded) return
+    if (orderedFolders.length === 0) return
+    setExpandedFolders(orderedFolders)
+    setDidInitExpanded(true)
+  }, [orderedFolders, didInitExpanded])
+
+  const toggleFolderExpanded = (folder: string) => {
+    setExpandedFolders((prev) =>
+      prev.includes(folder) ? prev.filter((f) => f !== folder) : [...prev, folder]
+    )
+  }
+
+  // ── 拖放處理器（與 AssignmentSetup 行為一致）───────────────────────
+  const handleDragStart = (assignmentId: string) => {
+    setDraggedFolderName(null)
+    setDraggedAssignmentId(assignmentId)
+  }
+
+  const handleDragEnd = () => {
+    setDraggedAssignmentId(null)
+    setDraggedFolderName(null)
+    setDropTargetFolder(null)
+    setDragOverAssignmentId(null)
+    setDragOverFolderName(null)
+  }
+
+  const handleDragOver = (e: DragEvent, targetFolder: string) => {
+    if (!draggedAssignmentId) return
+    e.preventDefault()
+    setDropTargetFolder(targetFolder)
+  }
+
+  const handleDragLeave = () => {
+    setDropTargetFolder(null)
+  }
+
+  const handleDrop = async (e: DragEvent, targetFolder: string) => {
+    e.preventDefault()
+    if (!draggedAssignmentId) return
+
+    const assignment = assignments.find((a) => a.id === draggedAssignmentId)
+    if (!assignment) return
+
+    const newFolder = targetFolder === '__uncategorized__' ? undefined : targetFolder
+
+    try {
+      await db.assignments.update(draggedAssignmentId, { folder: newFolder })
+      setAssignments((prev) =>
+        prev.map((a) => (a.id === draggedAssignmentId ? { ...a, folder: newFolder } : a))
+      )
+      if (newFolder) {
+        setExpandedFolders((prev) => (prev.includes(newFolder) ? prev : [...prev, newFolder]))
+        setSelectedFolder(newFolder)
+      } else {
+        setSelectedFolder('__uncategorized__')
+      }
+      requestSync()
+    } catch (error) {
+      console.error('更新資料夾失敗:', error)
+    } finally {
+      setDraggedAssignmentId(null)
+      setDropTargetFolder(null)
+      setDragOverAssignmentId(null)
+    }
+  }
+
+  const handleFolderDragStart = (folder: string) => {
+    if (editingFolderId === folder) return
+    setDraggedAssignmentId(null)
+    setDraggedFolderName(folder)
+  }
+
+  const handleFolderDragOver = (e: DragEvent, folder: string) => {
+    if (!draggedFolderName || draggedFolderName === folder) return
+    e.preventDefault()
+    setDragOverFolderName(folder)
+  }
+
+  const handleFolderDropReorder = (e: DragEvent, folder: string) => {
+    e.stopPropagation()
+    if (!draggedFolderName || draggedFolderName === folder) return
+    e.preventDefault()
+    setFolderOrder((prev) => {
+      const base = [...new Set([...prev, ...orderedFolders])]
+      return reorderList(base, draggedFolderName, folder)
+    })
+    setDragOverFolderName(null)
+  }
+
+  const handleAssignmentCardDragOver = (e: DragEvent, targetAssignmentId: string) => {
+    if (!draggedAssignmentId || draggedAssignmentId === targetAssignmentId) return
+    e.preventDefault()
+    setDragOverAssignmentId(targetAssignmentId)
+  }
+
+  const handleAssignmentCardDrop = async (e: DragEvent, targetAssignmentId: string) => {
+    e.stopPropagation()
+    e.preventDefault()
+    if (!draggedAssignmentId || draggedAssignmentId === targetAssignmentId) return
+
+    const dragged = assignments.find((item) => item.id === draggedAssignmentId)
+    const target = assignments.find((item) => item.id === targetAssignmentId)
+    if (!dragged || !target) return
+
+    try {
+      if (dragged.folder !== target.folder) {
+        await db.assignments.update(draggedAssignmentId, { folder: target.folder })
+        setAssignments((prev) =>
+          prev.map((item) =>
+            item.id === draggedAssignmentId ? { ...item, folder: target.folder } : item
+          )
+        )
+        requestSync()
+      }
+      setAssignmentOrder((prev) => {
+        const base = [...new Set([...prev, ...orderedClassAssignments.map((item) => item.id)])]
+        return reorderList(base, draggedAssignmentId, targetAssignmentId)
+      })
+      if (target.folder) {
+        setExpandedFolders((prev) =>
+          prev.includes(target.folder as string) ? prev : [...prev, target.folder as string]
+        )
+        setSelectedFolder(target.folder)
+      } else {
+        setSelectedFolder('__uncategorized__')
+      }
+    } catch (error) {
+      console.error('調整作業順序失敗:', error)
+    } finally {
+      setDraggedAssignmentId(null)
+      setDropTargetFolder(null)
+      setDragOverAssignmentId(null)
+    }
+  }
+
+  // ── 資料夾管理 ────────────────────────────────────────────────────
+  const handleCreateFolder = async () => {
+    const trimmedName = newFolderName.trim()
+    if (!trimmedName) {
+      setNewFolderError('請輸入資料夾名稱')
+      return
+    }
+    if (!selectedClassroomId) {
+      setNewFolderError('請先選擇班級')
+      return
+    }
+    const folderCheck = await checkFolderNameUnique(trimmedName, 'assignment', selectedClassroomId)
+    if (!folderCheck.isUnique) {
+      setNewFolderError(`此資料夾名稱已被${folderCheck.usedBy}使用`)
+      return
+    }
+    try {
+      const newFolder: AssignmentFolder = {
+        id: generateId(),
+        name: trimmedName,
+        type: 'assignment',
+        classroomId: selectedClassroomId,
+        updatedAt: Date.now()
+      }
+      await db.folders.add(newFolder)
+      setAssignmentFolders((prev) => [...prev, newFolder])
+      requestSync()
+      setIsCreateFolderModalOpen(false)
+      setSelectedFolder(trimmedName)
+      setExpandedFolders((prev) => (prev.includes(trimmedName) ? prev : [...prev, trimmedName]))
+      setNewFolderName('')
+      setNewFolderError('')
+    } catch (error) {
+      console.error('建立資料夾失敗:', error)
+      setNewFolderError('建立資料夾失敗')
+    }
+  }
+
+  const handleCommitFolderEdit = async () => {
+    const oldName = editingFolderId
+    const newName = editingFolderName.trim()
+    if (!oldName) return
+    if (!newName) {
+      setEditingFolderError('資料夾名稱不能為空')
+      return
+    }
+    if (newName === oldName) {
+      setEditingFolderId(null)
+      setEditingFolderName('')
+      setEditingFolderError('')
+      return
+    }
+    const check = await checkFolderNameUnique(newName, 'assignment', selectedClassroomId)
+    if (!check.isUnique) {
+      setEditingFolderError(`此資料夾名稱已被${check.usedBy}使用`)
+      return
+    }
+    try {
+      // 1) 更新所有歸到此資料夾的作業
+      const affected = assignments.filter((a) => a.folder === oldName)
+      for (const a of affected) {
+        await db.assignments.update(a.id, { folder: newName })
+      }
+      setAssignments((prev) =>
+        prev.map((a) => (a.folder === oldName ? { ...a, folder: newName } : a))
+      )
+      // 2) 更新空資料夾記錄（folders table）
+      const emptyRows = await db.folders
+        .where('[type+classroomId+name]')
+        .equals(['assignment', selectedClassroomId, oldName])
+        .toArray()
+      for (const row of emptyRows) {
+        await db.folders.update(row.id, { name: newName })
+      }
+      setAssignmentFolders((prev) =>
+        prev.map((f) =>
+          f.classroomId === selectedClassroomId && f.name === oldName
+            ? { ...f, name: newName }
+            : f
+        )
+      )
+      // 3) 更新排序記錄
+      setFolderOrder((prev) => prev.map((f) => (f === oldName ? newName : f)))
+      setExpandedFolders((prev) => prev.map((f) => (f === oldName ? newName : f)))
+      if (selectedFolder === oldName) setSelectedFolder(newName)
+      requestSync()
+      setEditingFolderId(null)
+      setEditingFolderName('')
+      setEditingFolderError('')
+    } catch (error) {
+      console.error('重新命名資料夾失敗:', error)
+      setEditingFolderError('重新命名失敗')
+    }
+  }
+
+  const handleDeleteFolder = async (folder: string) => {
+    const inFolder = assignments.filter((a) => a.folder === folder)
+    if (inFolder.length > 0) {
+      const ok = window.confirm(
+        `資料夾「${folder}」內有 ${inFolder.length} 份作業，刪除後這些作業會回到「未分類」。確定？`
+      )
+      if (!ok) return
+    } else {
+      const ok = window.confirm(`刪除資料夾「${folder}」？`)
+      if (!ok) return
+    }
+    try {
+      // 把作業的 folder 清空
+      for (const a of inFolder) {
+        await db.assignments.update(a.id, { folder: undefined })
+      }
+      setAssignments((prev) =>
+        prev.map((a) => (a.folder === folder ? { ...a, folder: undefined } : a))
+      )
+      // 移除空資料夾記錄
+      const emptyRows = await db.folders
+        .where('[type+classroomId+name]')
+        .equals(['assignment', selectedClassroomId, folder])
+        .toArray()
+      for (const row of emptyRows) {
+        await db.folders.delete(row.id)
+      }
+      setAssignmentFolders((prev) =>
+        prev.filter((f) => !(f.classroomId === selectedClassroomId && f.name === folder))
+      )
+      setFolderOrder((prev) => prev.filter((f) => f !== folder))
+      setExpandedFolders((prev) => prev.filter((f) => f !== folder))
+      if (selectedFolder === folder) setSelectedFolder('__all__')
+      requestSync()
+    } catch (error) {
+      console.error('刪除資料夾失敗:', error)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -795,6 +1196,113 @@ export default function AssignmentList({
         <div className="text-center">
           <Loader className="w-12 h-12 text-purple-600 mx-auto mb-4 animate-spin" />
           <p className="text-gray-600">載入作業列表中…</p>
+        </div>
+      </div>
+    )
+  }
+
+  const renderAssignmentCard = (assignment: AssignmentWithMeta) => {
+    const isDragging = draggedAssignmentId === assignment.id
+    const isDragOver = dragOverAssignmentId === assignment.id
+    return (
+      <div
+        key={assignment.id}
+        draggable
+        onDragStart={() => handleDragStart(assignment.id)}
+        onDragOver={(e) => handleAssignmentCardDragOver(e, assignment.id)}
+        onDragLeave={() => {
+          if (dragOverAssignmentId === assignment.id) setDragOverAssignmentId(null)
+        }}
+        onDrop={(e) => void handleAssignmentCardDrop(e, assignment.id)}
+        onDragEnd={handleDragEnd}
+        className={`w-full rounded-xl border bg-white px-4 py-4 text-left transition-colors ${
+          isDragOver
+            ? 'border-green-400 ring-1 ring-green-300'
+            : 'border-slate-200 hover:border-slate-300'
+        } ${isDragging ? 'opacity-50 cursor-grabbing' : 'cursor-grab'}`}
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex items-center gap-2">
+              <h3 className="text-base font-semibold text-gray-900">
+                {assignment.title}
+              </h3>
+              <button
+                type="button"
+                onClick={() => openSettingsModal(assignment)}
+                className={
+                  isAnswerKeyMissing(assignment)
+                    ? 'rounded-full p-1 text-red-500 bg-red-50 ring-1 ring-red-200 transition-colors hover:bg-red-100 hover:text-red-600 animate-pulse'
+                    : 'rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600'
+                }
+                title={
+                  isAnswerKeyDeleted(assignment) ? '答案卷已刪除，請重新選擇'
+                  : !assignment.answerKey ? '尚未設定答案卷，點此前往設定'
+                  : '批改設定 / 更換答案卷'
+                }
+              >
+                <Settings className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600">
+              {assignment.classroom?.name || '未知班級'} · 共 {assignment.totalPages} 頁 ·
+              已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
+            </p>
+            {isAnswerKeyDeleted(assignment) ? (
+              <p className="mt-1 text-xs text-red-500">
+                答案卷已刪除，請重新選擇答案卷。
+              </p>
+            ) : !assignment.answerKey ? (
+              <p className="mt-1 text-xs text-red-500">
+                尚未設定標準答案，AI 批改將無法使用。
+              </p>
+            ) : null}
+          </div>
+
+          <div className="max-w-[58vw] self-center overflow-x-auto">
+            <div className="flex items-center justify-end gap-2 whitespace-nowrap pb-1">
+              <button
+                type="button"
+                onClick={() => onSelectScanImport?.(assignment.id)}
+                className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                <Upload className="h-4 w-4" />
+                <span className="text-center leading-tight">匯入作業</span>
+              </button>
+
+              <span className="px-1 text-slate-300">›</span>
+
+              <button
+                type="button"
+                onClick={() => onSelectAssignment?.(assignment.id)}
+                disabled={!assignment.answerKey || (assignment.uploadedCount ?? 0) < 1}
+                className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
+                  !assignment.answerKey || (assignment.uploadedCount ?? 0) < 1
+                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <Sparkles className="h-4 w-4" />
+                <span className="text-center leading-tight">AI批改</span>
+              </button>
+
+              <span className="px-1 text-slate-300">›</span>
+
+              <button
+                type="button"
+                onClick={() => onSelectCorrection?.(assignment.id)}
+                disabled={!canUseCorrection || (assignment.gradedCount ?? 0) < 1}
+                className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
+                  !canUseCorrection || (assignment.gradedCount ?? 0) < 1
+                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                    : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <ClipboardCheck className="h-4 w-4" />
+                <span className="text-center leading-tight">訂正作業</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -819,25 +1327,39 @@ export default function AssignmentList({
           <div className="flex items-center justify-between gap-3">
             <h1 className="text-2xl font-semibold text-gray-900">作業批改</h1>
             {viewMode === 'class' && selectedClassroomId && (
-              <button
-                type="button"
-                onClick={() => {
-                  setCreateTitle('')
-                  setCreateAnswerKeyFolder('')
-                  setCreateSelectedAnswerKeyId('')
-                  setCreateStrictness('standard')
-                  setCreateScoringMode('scored')
-                  setCreateFractionRule('require_simplified')
-                  setCreateEnPunctuationCheck(false)
-                  setCreateEnWordOrderCheck(false)
-                  setCreateFolder(selectedFolder === '__all__' || selectedFolder === '__uncategorized__' ? '' : selectedFolder)
-                  setShowCreateModal(true)
-                }}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700 active:scale-95"
-              >
-                <Plus className="h-4 w-4" />
-                新增作業
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewFolderName('')
+                    setNewFolderError('')
+                    setIsCreateFolderModalOpen(true)
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 active:scale-95"
+                >
+                  <Folder className="h-4 w-4" />
+                  新增資料夾
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCreateTitle('')
+                    setCreateAnswerKeyFolder('')
+                    setCreateSelectedAnswerKeyId('')
+                    setCreateStrictness('standard')
+                    setCreateScoringMode('scored')
+                    setCreateFractionRule('require_simplified')
+                    setCreateEnPunctuationCheck(false)
+                    setCreateEnWordOrderCheck(false)
+                    setCreateFolder(selectedFolder === '__all__' || selectedFolder === '__uncategorized__' ? '' : selectedFolder)
+                    setShowCreateModal(true)
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700 active:scale-95"
+                >
+                  <Plus className="h-4 w-4" />
+                  新增作業
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -866,56 +1388,24 @@ export default function AssignmentList({
           </div>
         )}
 
-        {/* 班級模式：選擇班級 + 資料夾 */}
+        {/* 班級模式：選擇班級 */}
         {viewMode === 'class' && classrooms.length > 0 && (
           <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 md:p-5">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">
-                  <Users className="mr-1 inline h-4 w-4" />
-                  選擇班級
-                </label>
-                <select
-                  value={selectedClassroomId}
-                  onChange={(e) => setSelectedClassroomId(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-transparent focus:ring-2 focus:ring-green-500"
-                >
-                  {classrooms.map((classroom) => (
-                    <option key={classroom.id} value={classroom.id}>
-                      {classroom.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">
-                  <Folder className="mr-1 inline h-4 w-4" />
-                  選擇資料夾
-                </label>
-                <select
-                  value={selectedFolder}
-                  onChange={(e) => setSelectedFolder(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-transparent focus:ring-2 focus:ring-green-500"
-                >
-                  <option value="__all__">
-                    全部 ({classAssignments.length})
-                  </option>
-                  {usedFolders.map((folder) => {
-                    const count = classAssignments.filter((a) => a.folder === folder).length
-                    return (
-                      <option key={folder} value={folder}>
-                        {folder} ({count})
-                      </option>
-                    )
-                  })}
-                  {classAssignments.some((a) => !a.folder) && (
-                    <option value="__uncategorized__">
-                      未分類 ({classAssignments.filter((a) => !a.folder).length})
-                    </option>
-                  )}
-                </select>
-              </div>
-            </div>
+            <label className="mb-2 block text-sm font-medium text-gray-700">
+              <Users className="mr-1 inline h-4 w-4" />
+              選擇班級
+            </label>
+            <select
+              value={selectedClassroomId}
+              onChange={(e) => setSelectedClassroomId(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-transparent focus:ring-2 focus:ring-green-500"
+            >
+              {classrooms.map((classroom) => (
+                <option key={classroom.id} value={classroom.id}>
+                  {classroom.name}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 
@@ -1081,7 +1571,7 @@ export default function AssignmentList({
           </div>
         )}
 
-        {/* 班級模式：作業列表 */}
+        {/* 班級模式：作業列表（資料夾分組） */}
         {viewMode === 'class' && (assignments.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -1089,111 +1579,177 @@ export default function AssignmentList({
               尚未建立任何作業
             </h3>
             <p className="text-gray-600 mb-6">
-              請先到「作業管理」建立作業與標準答案，再回到這裡進行 AI 批改。
-            </p>
-          </div>
-        ) : filteredAssignments.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
-            <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              此資料夾中沒有作業
-            </h3>
-            <p className="text-gray-600 mb-6">
-              請選擇其他班級或資料夾。
+              點右上「新增作業」建立作業與標準答案，再開始 AI 批改。
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {filteredAssignments.map((assignment) => (
-              <div
-                key={assignment.id}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-4 text-left transition-colors hover:border-slate-300"
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-1 flex items-center gap-2">
-                      <h3 className="text-base font-semibold text-gray-900">
-                        {assignment.title}
-                      </h3>
-                      <button
-                        type="button"
-                        onClick={() => openSettingsModal(assignment)}
-                        className={
-                          isAnswerKeyMissing(assignment)
-                            ? 'rounded-full p-1 text-red-500 bg-red-50 ring-1 ring-red-200 transition-colors hover:bg-red-100 hover:text-red-600 animate-pulse'
-                            : 'rounded-full p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600'
-                        }
-                        title={
-                          isAnswerKeyDeleted(assignment) ? '答案卷已刪除，請重新選擇'
-                          : !assignment.answerKey ? '尚未設定答案卷，點此前往設定'
-                          : '批改設定 / 更換答案卷'
-                        }
-                      >
-                        <Settings className="h-4 w-4" />
-                      </button>
+          <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
+            <div className="space-y-6">
+              {/* 未分類區塊 */}
+              <section>
+                <div
+                  onDragOver={(e) => handleDragOver(e, '__uncategorized__')}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => void handleDrop(e, '__uncategorized__')}
+                  className={`rounded-lg p-2 -m-2 transition-colors ${
+                    dropTargetFolder === '__uncategorized__' ? 'bg-green-50/70' : ''
+                  }`}
+                >
+                  {uncategorizedAssignments.length === 0 ? (
+                    <p className="text-sm text-gray-500 px-1">未分類區尚無作業（拖曳作業卡片到此處可以取消分類）。</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {uncategorizedAssignments.map((a) => renderAssignmentCard(a))}
                     </div>
-                    <p className="text-sm text-gray-600">
-                      {assignment.classroom?.name || '未知班級'} · 共 {assignment.totalPages} 頁 ·
-                      已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
-                    </p>
-                    {isAnswerKeyDeleted(assignment) ? (
-                      <p className="mt-1 text-xs text-red-500">
-                        答案卷已刪除，請重新選擇答案卷。
-                      </p>
-                    ) : !assignment.answerKey ? (
-                      <p className="mt-1 text-xs text-red-500">
-                        尚未設定標準答案，AI 批改將無法使用。
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="max-w-[58vw] self-center overflow-x-auto">
-                    <div className="flex items-center justify-end gap-2 whitespace-nowrap pb-1">
-                    <button
-                      type="button"
-                      onClick={() => onSelectScanImport?.(assignment.id)}
-                      className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
-                    >
-                      <Upload className="h-4 w-4" />
-                      <span className="text-center leading-tight">匯入作業</span>
-                    </button>
-
-                    <span className="px-1 text-slate-300">›</span>
-
-                    <button
-                      type="button"
-                      onClick={() => onSelectAssignment?.(assignment.id)}
-                      disabled={!assignment.answerKey || (assignment.uploadedCount ?? 0) < 1}
-                      className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
-                        !assignment.answerKey || (assignment.uploadedCount ?? 0) < 1
-                          ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      <span className="text-center leading-tight">AI批改</span>
-                    </button>
-
-                    <span className="px-1 text-slate-300">›</span>
-
-                    <button
-                      type="button"
-                      onClick={() => onSelectCorrection?.(assignment.id)}
-                      disabled={!canUseCorrection || (assignment.gradedCount ?? 0) < 1}
-                      className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
-                        !canUseCorrection || (assignment.gradedCount ?? 0) < 1
-                          ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <ClipboardCheck className="h-4 w-4" />
-                      <span className="text-center leading-tight">訂正作業</span>
-                    </button>
-                    </div>
-                  </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              </section>
+
+              {/* 資料夾列表 */}
+              {orderedFolders.length > 0 && (
+                <section>
+                  <div className="space-y-3">
+                    {orderedFolders.map((folder) => {
+                      const folderAssignments = assignmentsByFolder.get(folder) ?? []
+                      const isExpanded = expandedFolders.includes(folder)
+                      const isAssignmentDropTarget =
+                        !!draggedAssignmentId && dropTargetFolder === folder
+                      const isFolderReorderTarget =
+                        !!draggedFolderName && dragOverFolderName === folder
+
+                      return (
+                        <div
+                          key={folder}
+                          draggable={editingFolderId !== folder}
+                          onDragStart={() => handleFolderDragStart(folder)}
+                          onDragEnd={handleDragEnd}
+                          onDragOver={(e) => {
+                            handleDragOver(e, folder)
+                            handleFolderDragOver(e, folder)
+                          }}
+                          onDragLeave={() => {
+                            handleDragLeave()
+                            if (dragOverFolderName === folder) setDragOverFolderName(null)
+                          }}
+                          onDrop={(e) => {
+                            if (draggedAssignmentId) {
+                              void handleDrop(e, folder)
+                              return
+                            }
+                            handleFolderDropReorder(e, folder)
+                          }}
+                          className={`rounded-xl border bg-white transition-colors ${
+                            isAssignmentDropTarget
+                              ? 'border-green-400 bg-green-50'
+                              : isFolderReorderTarget
+                                ? 'border-blue-400 bg-blue-50/60'
+                                : 'border-slate-200'
+                          } ${
+                            draggedFolderName === folder
+                              ? 'opacity-60 cursor-grabbing'
+                              : editingFolderId === folder
+                                ? ''
+                                : 'cursor-grab'
+                          }`}
+                        >
+                          <div className="px-3 py-3">
+                            <div className="flex items-center justify-between gap-2">
+                              {editingFolderId === folder ? (
+                                <div className="flex-1 flex flex-col gap-1">
+                                  <input
+                                    autoFocus={shouldAutoFocusOnDesktop()}
+                                    type="text"
+                                    value={editingFolderName}
+                                    onChange={(e) => {
+                                      setEditingFolderName(e.target.value)
+                                      setEditingFolderError('')
+                                    }}
+                                    onBlur={() => void handleCommitFolderEdit()}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') void handleCommitFolderEdit()
+                                      else if (e.key === 'Escape') {
+                                        setEditingFolderId(null)
+                                        setEditingFolderName('')
+                                        setEditingFolderError('')
+                                      }
+                                    }}
+                                    placeholder="例如：段考、小考"
+                                    className="px-2 py-1 border border-green-300 rounded text-sm w-full focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                                  />
+                                  {editingFolderError && (
+                                    <p className="text-xs text-red-600">{editingFolderError}</p>
+                                  )}
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleFolderExpanded(folder)}
+                                  className="flex-1 min-w-0 text-left flex items-center gap-2"
+                                >
+                                  {isExpanded ? (
+                                    <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                  ) : (
+                                    <ChevronRight className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                  )}
+                                  <Folder className="w-4 h-4 text-gray-500 flex-shrink-0" />
+                                  <span className="font-medium text-gray-900 truncate">
+                                    {folder}
+                                  </span>
+                                  <span className="text-xs text-gray-500 ml-auto">
+                                    {folderAssignments.length} 份
+                                  </span>
+                                </button>
+                              )}
+                              <div className="flex items-center gap-1">
+                                {editingFolderId !== folder && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setEditingFolderId(folder)
+                                      setEditingFolderName(folder)
+                                      setEditingFolderError('')
+                                    }}
+                                    className="p-1.5 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                                    title="重新命名"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    void handleDeleteFolder(folder)
+                                  }}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                  title="刪除資料夾"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          {isExpanded && (
+                            <div className="border-t border-gray-100 px-3 py-3 bg-gray-50/40">
+                              {folderAssignments.length === 0 ? (
+                                <p className="text-sm text-gray-500 px-1">
+                                  此資料夾沒有作業（拖曳作業卡片到此處）。
+                                </p>
+                              ) : (
+                                <div className="space-y-2">
+                                  {folderAssignments.map((a) => renderAssignmentCard(a))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </section>
+              )}
+            </div>
           </div>
         ))}
       </div>
@@ -1577,6 +2133,109 @@ export default function AssignmentList({
   
           answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, folder: t.folder, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined, pageOrientations: t.pageOrientations }))}
         />
+      )}
+
+      {/* 新建資料夾對話框 */}
+      {isCreateFolderModalOpen && (
+        <div
+          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={() => {
+            setIsCreateFolderModalOpen(false)
+            setNewFolderName('')
+            setNewFolderError('')
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <h2 className="text-base font-semibold text-gray-900">新建資料夾</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCreateFolderModalOpen(false)
+                  setNewFolderName('')
+                  setNewFolderError('')
+                }}
+                className="p-1 rounded-full hover:bg-gray-100 text-gray-500"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  資料夾名稱 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={newFolderName}
+                  onChange={async (e) => {
+                    const value = e.target.value
+                    setNewFolderName(value)
+                    setNewFolderError('')
+                    if (value.trim()) {
+                      const result = await checkFolderNameUnique(
+                        value.trim(),
+                        'assignment',
+                        selectedClassroomId
+                      )
+                      if (!result.isUnique) {
+                        setNewFolderError(`此資料夾名稱已被${result.usedBy}使用`)
+                      }
+                    }
+                  }}
+                  placeholder="例如：段考、小考、作業"
+                  className={`w-full px-3 py-2 border ${
+                    newFolderError ? 'border-red-300' : 'border-gray-300'
+                  } rounded-lg text-sm focus:outline-none focus:ring-2 ${
+                    newFolderError ? 'focus:ring-red-500' : 'focus:ring-green-500'
+                  } focus:border-transparent`}
+                  autoFocus={shouldAutoFocusOnDesktop()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newFolderName.trim() && !newFolderError) {
+                      void handleCreateFolder()
+                    }
+                  }}
+                />
+                {newFolderError && (
+                  <p className="mt-1 text-xs text-red-600">{newFolderError}</p>
+                )}
+              </div>
+
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-xs text-gray-700">
+                  建立資料夾後，可將作業卡片拖曳到資料夾中進行分類。
+                </p>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsCreateFolderModalOpen(false)
+                  setNewFolderName('')
+                  setNewFolderError('')
+                }}
+              >
+                取消
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={() => void handleCreateFolder()}
+                disabled={!newFolderName.trim() || !!newFolderError}
+              >
+                <Plus className="w-4 h-4" />
+                建立資料夾
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

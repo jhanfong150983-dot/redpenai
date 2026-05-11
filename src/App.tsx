@@ -1715,10 +1715,6 @@ function App() {
     )
   }
 
-  const openAssignmentSetup = () => {
-    if (!confirmLeaveGrading()) return
-    setCurrentPage('assignment-setup')
-  }
   const openOverview = () => {
     if (!confirmLeaveGrading()) return
     setCurrentPage('home')
@@ -2421,10 +2417,10 @@ function App() {
                           <p className="text-sm text-slate-600">目前沒有待辦作業。點上方「作業批改」建立第一份作業。</p>
                           <button
                             type="button"
-                            onClick={openAssignmentSetup}
+                            onClick={openGrading}
                             className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
                           >
-                            前往作業建立
+                            前往作業批改
                           </button>
                         </div>
                       ) : (
