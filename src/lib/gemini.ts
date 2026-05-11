@@ -1009,7 +1009,27 @@ function buildGlobalTaskAndFormat(): string {
 - anchorHint：每題必填（除 word_problem / calculation / map_symbol / grid_geometry / connect_dots / diagram_draw / diagram_color 外）。用 1-2 句中文描述此答案格附近最能唯一識別其位置的印刷特徵：
   - fill_blank 單格：描述緊鄰的題幹關鍵字或括號前後的文字，例如「括號前為「一定能，可能」，括號後接「大於1」」
   - fill_blank 多格（multi_fill / 表格子題）：優先描述格子本身的視覺外觀（印刷格式、括號樣式、預留空白），再以欄標題或列標題作為輔助定位。例如：「比率列中有印刷括號（　）/180的空格，位於欄標題「三國演義」正下方」「票數列中對應「金銀島」欄的空白數字格」。禁止只寫欄標題文字（如「欄標題為「三國演義」的格子」），因為欄標題本身不是答案格。
-  - single_choice / single_check：描述題幹第一句關鍵字，例如「題幹開頭為「擲出來的點數和可能大於1嗎」」
+  - single_choice / single_check / multi_choice / true_false：**強制使用結構化格式**：
+    「位於『<section 標題>』第 N 小題題號前的括號內」
+    （N 為該題在 section 內的序號、非全卷流水號）
+
+    <section 標題> 必須從卷面找出該題所屬大段的標題，常見格式：
+    * 「題組一」「題組二」「題組三」…
+    * 「壹、選擇題」「貳、是非題」「一、單選題」「二、多重選擇」…
+    * 「Part A」「Part B」「Section 1」…
+
+    🚨 同一卷若有多個 section（不論大標題是否明顯），**每一題的 anchorHint 都必須帶 section 標題**：
+    - 若 section 標題明確印在卷上 → 直接用該標題
+    - 若**第一個** section 沒明確大標題、但後面 section 有（例如卷上看到「題組二」、推測前面是「題組一」）→ 推測補上「題組一」
+    - 若整卷只有單一連續選擇題 section、可用「壹、選擇題」或實際印刷的 section 名
+
+    ❌ 錯誤示範：「題幹開頭為「擲出來的點數和可能大於1嗎」」（沒 section + 沒題號結構）
+    ❌ 錯誤示範：「位於第3小題題號前的括號內」（缺 section 標題）
+    ✅ 正確示範：「位於『題組一』第3小題題號前的括號內」
+    ✅ 正確示範：「位於『壹、選擇題』第7小題題號前的括號內」
+    ✅ 正確示範：「位於『Part A』第2小題題號前的括號內」
+
+    這個格式給後續 bbox 定位 stage 用、必須嚴格遵守、不可改寫成描述性文字。
   - 目標：描述應具體到能唯一定位該格，避免使用位置詞（「左邊第三格」→ 改用欄標題）
 - 表格題：請使用 table_cell type（整張表合成 1 題 + cells 陣列），不要逐格建題
 - 無法辨識時回傳 {"questions": [], "totalScore": 0}
