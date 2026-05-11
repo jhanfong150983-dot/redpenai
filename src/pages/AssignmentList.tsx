@@ -1585,26 +1585,6 @@ export default function AssignmentList({
         ) : (
           <div className="rounded-xl border border-slate-200 bg-white p-4 md:p-5">
             <div className="space-y-6">
-              {/* 未分類區塊 */}
-              <section>
-                <div
-                  onDragOver={(e) => handleDragOver(e, '__uncategorized__')}
-                  onDragLeave={handleDragLeave}
-                  onDrop={(e) => void handleDrop(e, '__uncategorized__')}
-                  className={`rounded-lg p-2 -m-2 transition-colors ${
-                    dropTargetFolder === '__uncategorized__' ? 'bg-green-50/70' : ''
-                  }`}
-                >
-                  {uncategorizedAssignments.length === 0 ? (
-                    <p className="text-sm text-gray-500 px-1">未分類區尚無作業（拖曳作業卡片到此處可以取消分類）。</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {uncategorizedAssignments.map((a) => renderAssignmentCard(a))}
-                    </div>
-                  )}
-                </div>
-              </section>
-
               {/* 資料夾列表 */}
               {orderedFolders.length > 0 && (
                 <section>
@@ -1749,6 +1729,26 @@ export default function AssignmentList({
                   </div>
                 </section>
               )}
+
+              {/* 未分類區塊（放在資料夾下方） */}
+              <section>
+                <div
+                  onDragOver={(e) => handleDragOver(e, '__uncategorized__')}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => void handleDrop(e, '__uncategorized__')}
+                  className={`rounded-lg p-2 -m-2 transition-colors ${
+                    dropTargetFolder === '__uncategorized__' ? 'bg-green-50/70' : ''
+                  }`}
+                >
+                  {uncategorizedAssignments.length === 0 ? (
+                    <p className="text-sm text-gray-500 px-1">未分類區尚無作業（拖曳作業卡片到此處可以取消分類）。</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {uncategorizedAssignments.map((a) => renderAssignmentCard(a))}
+                    </div>
+                  )}
+                </div>
+              </section>
             </div>
           </div>
         ))}
