@@ -918,14 +918,8 @@ export default function AssignmentList({
     setExpandedFolders((prev) => prev.filter((folder) => orderedFolders.includes(folder)))
   }, [orderedFolders])
 
-  // 預設把所有資料夾展開（首次進入時）；後續老師手動調整就尊重老師的選擇
-  const [didInitExpanded, setDidInitExpanded] = useState(false)
-  useEffect(() => {
-    if (didInitExpanded) return
-    if (orderedFolders.length === 0) return
-    setExpandedFolders(orderedFolders)
-    setDidInitExpanded(true)
-  }, [orderedFolders, didInitExpanded])
+  // 進頁面時所有資料夾預設闔起來（expandedFolders 初始為 []）；
+  // 老師點開、或拖曳作業到資料夾時才會自動展開那一個。
 
   const toggleFolderExpanded = (folder: string) => {
     setExpandedFolders((prev) =>
