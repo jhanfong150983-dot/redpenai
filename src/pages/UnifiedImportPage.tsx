@@ -832,11 +832,9 @@ export default function UnifiedImportPage({
         const fileSizeMB = (file.size / 1024 / 1024).toFixed(1)
         setBatchProgress(`正在轉換 PDF（${fi + 1}/${totalFiles}）：${file.name}（${fileSizeMB}MB）`)
         const blobs = await convertPdfToImages(file, {
-          scale: 1,
-          quality: 0.6,
-          maxWidth: 1400,
-          minWidth: 1000,
-          hardMinWidth: 900,
+          // 用 convertPdfToImages 預設（scale=2、minWidth=1400、hardMinWidth=1280）
+          // 確保 OCR 能讀到小字 header（如「題組一」彩色 box）。
+          // 舊版用 scale=1 降規格、學生卷只剩 842 wide、PaddleOCR 對小字漏讀。
           onProgress: (current, total) => {
             setBatchProgress(`正在轉換 PDF（${fi + 1}/${totalFiles}）：${file.name} — 第 ${current}/${total} 頁`)
           }
