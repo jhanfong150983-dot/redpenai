@@ -3971,6 +3971,12 @@ export default function GradingPage({
                     if (cs === 'correction_pending_review') return <p className="text-xs font-medium text-violet-600 mt-1">待複查</p>
                     if (cs === 'correction_passed') return <p className="text-xs font-medium text-emerald-600 mt-1">已完成訂正</p>
                     if (cs === 'correction_failed') return <p className="text-xs font-medium text-rose-600 mt-1">訂正未通過</p>
+                    // 已批改 + 有錯題 + 未進入訂正流程 → 提示老師可派發
+                    // 全對學生（mistakes 為空）維持空白、不增加雜訊
+                    const mistakeCount = submission?.gradingResult?.mistakes?.length ?? 0
+                    if (submission?.status === 'graded' && mistakeCount > 0 && !isManualGradeStub(submission)) {
+                      return <p className="text-xs font-medium text-orange-500 mt-1">未派發訂正（{mistakeCount} 題）</p>
+                    }
                     return null
                   })()}
                 </div>
