@@ -1249,6 +1249,8 @@ export default function GradingPage({
   )
   const [isRevokingCorrection, setIsRevokingCorrection] = useState(false)
   const [revokeError, setRevokeError] = useState<string | null>(null)
+  // 守門 modal 被關掉之前、被擋下的批改流程從哪繼續。退回成功後呼叫此 ref 恢復流程。
+  const pendingGradeResumeRef = useRef<(() => void) | null>(null)
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
   const [manualGradingStudentId, setManualGradingStudentId] = useState<string | null>(null)
 
@@ -1923,8 +1925,11 @@ export default function GradingPage({
           setRevokeError('沒有可退回的訂正、可能已被其他操作清除、請關閉視窗重試')
           return
         }
-        // 全員退回成功
+        // 全員退回成功 — 若先前有 grading 流程被擋下、自動接續（不要老師再按一次批改）
+        const resume = pendingGradeResumeRef.current
+        pendingGradeResumeRef.current = null
         setCorrectionGuardModal(null)
+        resume?.()
       } catch (err) {
         setRevokeError(err instanceof Error ? err.message : '退回失敗')
       } finally {
@@ -2510,12 +2515,21 @@ export default function GradingPage({
       return
     }
 
+    const regrade = candidates.some((s) => s.status === 'graded')
+
+    // 預先設好 resume：守門 modal「全部退回訂正」成功後直接進確認對話框、
+    // 不用老師再回去按一次「批改」。
+    pendingGradeResumeRef.current = () => {
+      setGradeCandidates(candidates)
+      setIsRegrade(regrade)
+      setShowGradeConfirm(true)
+    }
     const canProceed = await ensureNoCorrectionConflict(candidates)
     if (!canProceed) {
+      // modal 已開、ref 等退回後恢復
       return
     }
-
-    const regrade = candidates.some((s) => s.status === 'graded')
+    pendingGradeResumeRef.current = null
 
     // 🆕 顯示確認對話框
     setGradeCandidates(candidates)
@@ -3432,18 +3446,9 @@ export default function GradingPage({
                           className="text-sm text-amber-900 flex items-center justify-between gap-2"
                         >
                           <span className="truncate">{seatText} {item.name}</span>
-                          <div className="shrink-0 flex items-center gap-2">
-                            <span className="text-xs rounded bg-white border border-amber-200 px-2 py-0.5">
-                              {statusLabel}
-                            </span>
-                            <button
-                              onClick={() => void handleRevokeCorrection([item.studentId])}
-                              disabled={isRevokingCorrection}
-                              className="text-xs rounded bg-rose-50 border border-rose-200 text-rose-700 px-2 py-0.5 hover:bg-rose-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              退回
-                            </button>
-                          </div>
+                          <span className="shrink-0 text-xs rounded bg-white border border-amber-200 px-2 py-0.5">
+                            {statusLabel}
+                          </span>
                         </div>
                       )
                     })}
@@ -3459,7 +3464,10 @@ export default function GradingPage({
 
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => setCorrectionGuardModal(null)}
+                onClick={() => {
+                  pendingGradeResumeRef.current = null
+                  setCorrectionGuardModal(null)
+                }}
                 disabled={isRevokingCorrection}
                 className="px-4 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors disabled:opacity-50"
               >
@@ -3477,7 +3485,7 @@ export default function GradingPage({
                     className="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
                   >
                     {isRevokingCorrection && <Loader className="w-4 h-4 animate-spin" />}
-                    全部退回訂正
+                    全部退回訂正並繼續批改
                   </button>
                 )}
             </div>
