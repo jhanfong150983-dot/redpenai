@@ -1216,6 +1216,8 @@ export default function GradingPage({
   const skipInkSessionCleanupRef = useRef(import.meta.env.DEV)
   const correctionStatusByStudentIdRef = useRef<Map<string, string>>(new Map())
   const correctionStatusFetchedAtRef = useRef(0)
+  // 卡片顯示用：跟 ref 同步、但用 state 觸發 re-render
+  const [correctionStatusByStudent, setCorrectionStatusByStudent] = useState<Record<string, string>>({})
 
   const [selectedSubmission, setSelectedSubmission] = useState<{
     submission: Submission
@@ -1806,8 +1808,20 @@ export default function GradingPage({
 
     correctionStatusByStudentIdRef.current = nextMap
     correctionStatusFetchedAtRef.current = Date.now()
+    // 同步進 state 觸發卡片 re-render
+    setCorrectionStatusByStudent(Object.fromEntries(nextMap))
     return nextMap
   }, [assignmentId])
+
+  // 卡片顯示用 prefetch：mount 進來 + 視窗 focus 回來各拉一次
+  // 失敗 silently、卡片就少顯示 badge、不擋批改（批改路徑另有 ensureNoCorrectionConflict 守門）
+  useEffect(() => {
+    if (!assignmentId) return
+    void fetchCorrectionStatusByStudentId().catch(() => {})
+    const onFocus = () => { void fetchCorrectionStatusByStudentId().catch(() => {}) }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [assignmentId, fetchCorrectionStatusByStudentId])
 
   const collectCorrectionBlockedStudents = useCallback(
     (candidateSubs: Submission[], statusMap: Map<string, string>) => {
@@ -3866,6 +3880,15 @@ export default function GradingPage({
                   {isManualGradeStub(submission) && (
                     <p className="text-xs font-medium text-emerald-600 mt-1">已完成批改</p>
                   )}
+                  {(() => {
+                    const cs = correctionStatusByStudent[student.id]
+                    if (cs === 'correction_required') return <p className="text-xs font-medium text-amber-600 mt-1">待訂正</p>
+                    if (cs === 'correction_in_progress') return <p className="text-xs font-medium text-blue-600 mt-1">訂正中</p>
+                    if (cs === 'correction_pending_review') return <p className="text-xs font-medium text-violet-600 mt-1">待複查</p>
+                    if (cs === 'correction_passed') return <p className="text-xs font-medium text-emerald-600 mt-1">已完成訂正</p>
+                    if (cs === 'correction_failed') return <p className="text-xs font-medium text-rose-600 mt-1">訂正未通過</p>
+                    return null
+                  })()}
                 </div>
               </div>
             )
