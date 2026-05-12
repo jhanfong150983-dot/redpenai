@@ -10,18 +10,22 @@ const PORTRAIT_WORKSHEET = '/photo-guide/worksheet_portrait.jpg'
 const LANDSCAPE_WORKSHEET = '/photo-guide/worksheet_landscape.jpg'
 
 export default function PhotoGuideModal({ open, onClose }: PhotoGuideModalProps) {
-  // 用 viewport 寬度判斷直/橫版（< 640px 用直版）
-  const [isMobile, setIsMobile] = useState(() => {
+  // 用 viewport aspect ratio 判斷直/橫版（高 > 寬 = 裝置直握 → 直版）
+  // 涵蓋手機直/橫 + iPad 直/橫 + 桌機（永遠橫版）
+  const [isPortrait, setIsPortrait] = useState(() => {
     if (typeof window === 'undefined') return false
-    return window.matchMedia('(max-width: 640px)').matches
+    return window.innerHeight > window.innerWidth
   })
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const mq = window.matchMedia('(max-width: 640px)')
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
+    const update = () => setIsPortrait(window.innerHeight > window.innerWidth)
+    window.addEventListener('resize', update)
+    window.addEventListener('orientationchange', update)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('orientationchange', update)
+    }
   }, [])
 
   // ESC 鍵關閉
@@ -43,10 +47,10 @@ export default function PhotoGuideModal({ open, onClose }: PhotoGuideModalProps)
     >
       <style>{PHOTO_GUIDE_CSS}</style>
       <div
-        className={isMobile ? 'pg-modal pg-mobile' : 'pg-modal pg-desktop'}
+        className={isPortrait ? 'pg-modal pg-mobile' : 'pg-modal pg-desktop'}
         onClick={(e) => e.stopPropagation()}
       >
-        {isMobile ? <MobileLayout onClose={onClose} /> : <DesktopLayout onClose={onClose} />}
+        {isPortrait ? <MobileLayout onClose={onClose} /> : <DesktopLayout onClose={onClose} />}
       </div>
     </div>
   )
@@ -217,10 +221,10 @@ const PHOTO_GUIDE_CSS = `
 .pg-ex { text-align: center; }
 .pg-ex-label { margin-top: 6px; font-size: 13px; color: #0f172a; font-weight: 700; }
 
-/* mobile portrait */
+/* portrait modal (手機直 + iPad 直) */
 .pg-mobile {
-  width: min(390px, 100vw);
-  height: min(844px, 96vh);
+  width: min(480px, 94vw);
+  height: min(900px, 94vh);
   border-radius: 22px;
 }
 .pg-header-mobile {
