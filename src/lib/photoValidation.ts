@@ -101,7 +101,7 @@ export async function validatePhotos(pages: PageInput[]): Promise<ValidationResu
       if (dupIdx !== undefined) {
         errors.push({
           type: 'duplicate',
-          message: `與第 ${dupIdx.otherIndex + 1} 頁照片過於相似，可能拍到同一頁`,
+          message: `這頁和第 ${dupIdx.otherIndex + 1} 頁長得幾乎一樣，可能拍到同一頁了。請確認你有翻頁、再重新拍這一頁。`,
           duplicateWithIndex: dupIdx.otherIndex,
           duplicateDistance: dupIdx.distance,
         })
@@ -127,13 +127,13 @@ export async function validatePhotos(pages: PageInput[]): Promise<ValidationResu
         if (effectiveWidth < MIN_EFFECTIVE_WIDTH_BLOCK) {
           errors.push({
             type: 'low_resolution',
-            message: `作業區域解析度過低（${effectiveWidth}px），AI 將無法正確識別內容，請換用解析度較高的設備或拍近一點重拍`,
+            message: '作業在照片裡太模糊了。先試試把手機更靠近作業、讓紙張填滿畫面再拍一次。如果還是不行，可能要換新一點的手機或請老師幫你上傳。',
             effectiveWidth,
           })
         } else if (effectiveWidth < MIN_EFFECTIVE_WIDTH_WARN) {
           warnings.push({
             type: 'low_resolution_warn',
-            message: `作業區域解析度偏低（${effectiveWidth}px），建議拍近一點以提升 AI 識別準確度（仍可送出）`,
+            message: '照片有點不夠清楚、批改可能會看錯字。建議手機靠近作業重拍一次比較準（不重拍也能送出）。',
             effectiveWidth,
           })
         }
@@ -199,7 +199,7 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
   if (!corners) {
     errors.push({
       type: 'no_corners',
-      message: '系統無法辨識作業紙張的邊緣，請在較亮的環境下重拍',
+      message: '找不到作業紙張的邊。請把作業攤平放在乾淨的桌面上，移到光線比較亮的地方再拍一次。',
     })
     return { errors, corners: null, hash, correctedBlob: null }
   }
@@ -210,7 +210,7 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
   if (isCroppedByCamera(corners)) {
     errors.push({
       type: 'cropped_by_camera',
-      message: '作業超出相機畫面，請拉遠紙張並重新對齊框線拍攝',
+      message: '作業有一邊跑出畫面外。請把手機拿遠一點，看到整張作業紙都進畫面，再重新拍一次。',
     })
   }
 
@@ -218,7 +218,7 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
   if (!cornersInFrame(corners)) {
     errors.push({
       type: 'out_of_frame',
-      message: '作業有部分超出引導框，請重新對齊框線拍攝',
+      message: '作業沒有對齊框線。請把作業紙的 4 個角對準畫面上的虛線框，再按拍照。',
     })
   }
 
@@ -227,7 +227,7 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
   if (areaRatio < MIN_PAPER_AREA_RATIO) {
     errors.push({
       type: 'too_small',
-      message: '作業在畫面中太小，請拍近一點讓紙張填滿引導框',
+      message: '作業離鏡頭太遠了。請把手機靠近作業、讓紙張填滿框線，再重拍。',
       paperAreaRatio: areaRatio,
     })
   }
