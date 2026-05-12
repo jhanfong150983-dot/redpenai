@@ -9,6 +9,16 @@ type OverviewData = {
   avg_ocr_match_rate: number | null
   stuck_correction_count: number
   daily: Array<{ day: string; count: number; review_rate: number; avg_review: number }>
+  by_assignment: Array<{
+    assignment_id: string
+    title: string
+    mode: string | null
+    submissions: number
+    pages: number
+    inline: number
+    matched: number
+    rate: number | null
+  }>
 }
 
 type AssignmentInfo = {
@@ -271,6 +281,50 @@ function OverviewView({ data }: { data: OverviewData }) {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <h3 className="font-semibold text-slate-900 mb-3">按作業拆解 OCR-assist 命中率</h3>
+        {data.by_assignment.length === 0 ? (
+          <p className="text-sm text-slate-500">無資料</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 border-b">
+                <th className="py-2">作業</th>
+                <th>模式</th>
+                <th>份數</th>
+                <th>頁數</th>
+                <th>inline / matched</th>
+                <th>命中率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.by_assignment.map((a) => {
+                const lowRate = a.rate != null && a.rate < 0.5
+                const noData = a.rate == null
+                return (
+                  <tr key={a.assignment_id} className="border-b last:border-0">
+                    <td className="py-2 max-w-[280px] truncate" title={a.title}>{a.title}</td>
+                    <td className="text-xs">
+                      <span className={`px-1.5 py-0.5 rounded font-mono ${
+                        a.mode === 'answer_only' ? 'bg-violet-100 text-violet-700' :
+                        a.mode === 'with_questions' ? 'bg-sky-100 text-sky-700' :
+                        'bg-slate-100 text-slate-500'
+                      }`}>{a.mode || 'legacy'}</span>
+                    </td>
+                    <td>{a.submissions}</td>
+                    <td>{a.pages}</td>
+                    <td className="font-mono text-xs">{a.inline} / {a.matched}</td>
+                    <td className={`font-semibold ${lowRate ? 'text-rose-600' : noData ? 'text-slate-400' : 'text-emerald-700'}`}>
+                      {a.rate != null ? (a.rate * 100).toFixed(0) + '%' : '-'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   )
