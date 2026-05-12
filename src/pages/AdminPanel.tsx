@@ -1,17 +1,18 @@
 import { useState } from 'react'
-import { ArrowLeft, Users, Receipt, BarChart3, Megaphone } from 'lucide-react'
+import { ArrowLeft, Users, Receipt, BarChart3, Megaphone, Activity } from 'lucide-react'
 import AdminUsers from './AdminUsers'
 import AdminOrders from './AdminOrders'
 import AdminAnalytics from './AdminAnalytics'
 import AdminAnnouncements from './AdminAnnouncements'
+import AdminQuality from './AdminQuality'
 
 type AdminPanelProps = {
   onBack: () => void
   onNavigateToDetail?: (userId: string) => void
-  initialTab?: 'users' | 'orders' | 'analytics' | 'announcements'
+  initialTab?: 'users' | 'orders' | 'analytics' | 'announcements' | 'quality'
 }
 
-type TabType = 'users' | 'orders' | 'analytics' | 'announcements'
+type TabType = 'users' | 'orders' | 'analytics' | 'announcements' | 'quality'
 
 export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'users' }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab)
@@ -21,6 +22,7 @@ export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'u
     { id: 'orders' as TabType, label: '訂單管理', icon: Receipt, color: 'text-sky-600' },
     { id: 'analytics' as TabType, label: '使用情形', icon: BarChart3, color: 'text-purple-600' },
     { id: 'announcements' as TabType, label: '公告管理', icon: Megaphone, color: 'text-blue-600' },
+    { id: 'quality' as TabType, label: '批改品質', icon: Activity, color: 'text-emerald-600' },
   ]
 
   const renderContent = () => {
@@ -33,6 +35,8 @@ export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'u
         return <AdminAnalytics />
       case 'announcements':
         return <AdminAnnouncements />
+      case 'quality':
+        return <AdminQuality />
       default:
         return null
     }
