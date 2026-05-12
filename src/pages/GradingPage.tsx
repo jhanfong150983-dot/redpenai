@@ -1892,20 +1892,38 @@ export default function GradingPage({
         })
         const data = await response.json().catch(() => ({}))
         if (!response.ok) {
-          const blocked = Array.isArray(data?.blockedStudents) ? data.blockedStudents : []
-          if (blocked.length > 0) {
-            const names = blocked
-              .map(
-                (b: { seatNumber?: number; name?: string }) =>
-                  `${b.seatNumber ?? '?'}號 ${b.name ?? ''}`
-              )
-              .join('、')
-            throw new Error(`下列學生的訂正稿正在 AI 重批中、無法退回：${names}`)
-          }
           throw new Error(data?.error || '退回失敗、請稍後再試')
         }
-        // 成功：刷新 status map（讓卡片 + ensureNoCorrectionConflict 都看到最新）
+        // 即使 HTTP 200、後端仍可能回 blockedStudents（訂正稿在 AI 重批中無法退回）
+        const blocked = Array.isArray(data?.blockedStudents) ? data.blockedStudents : []
+        const recalledCount = Number(data?.recalledCount) || 0
+        const blockedNames = blocked
+          .map(
+            (b: { seatNumber?: number; name?: string }) =>
+              `${b.seatNumber ?? '?'}號 ${b.name ?? ''}`
+          )
+          .join('、')
+
+        // 先刷新 status map（即使有 blocked、有退回的部分也要反映出來）
         await fetchCorrectionStatusByStudentId().catch(() => {})
+
+        if (recalledCount === 0 && blocked.length > 0) {
+          // 全員無法退回、modal 保持開、顯示具體錯誤
+          throw new Error(`無法退回：${blockedNames} 的訂正稿正在 AI 重批中、請等批改完成或到「作業訂正看板」處理`)
+        }
+        if (recalledCount > 0 && blocked.length > 0) {
+          // 部分成功、保留 modal 顯示哪些沒退回
+          setRevokeError(
+            `已退回 ${recalledCount} 位、但下列學生仍無法退回（AI 重批中）：${blockedNames}`
+          )
+          return
+        }
+        if (recalledCount === 0 && blocked.length === 0) {
+          // 沒退到任何人、可能本來就沒在 correction 狀態（race condition）
+          setRevokeError('沒有可退回的訂正、可能已被其他操作清除、請關閉視窗重試')
+          return
+        }
+        // 全員退回成功
         setCorrectionGuardModal(null)
       } catch (err) {
         setRevokeError(err instanceof Error ? err.message : '退回失敗')
