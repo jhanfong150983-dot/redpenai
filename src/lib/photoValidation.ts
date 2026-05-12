@@ -24,6 +24,8 @@ import {
   FRAME_TOLERANCE,
   MIN_PAPER_AREA_RATIO,
   DUPLICATE_HASH_THRESHOLD,
+  MIN_EFFECTIVE_WIDTH_BLOCK,
+  MIN_EFFECTIVE_WIDTH_WARN,
 } from './cameraGuide'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -34,22 +36,35 @@ export type ValidationErrorType =
   | 'out_of_frame'      // 四角超出引導框（在相機內但偏離框線）
   | 'too_small'         // 紙張在畫面中佔比太低（拍太遠）
   | 'duplicate'         // 與其他頁照片重複
+  | 'low_resolution'    // 校正後 worksheet 區域寬度低於閾值（拍太遠 / 鏡頭差 / 已壓縮過）
+
+export type ValidationWarningType =
+  | 'low_resolution_warn'  // 校正後寬度在 warn 區間：允許上傳但 UI 提示可重拍取得更佳識別
 
 export interface ValidationError {
   type: ValidationErrorType
   message: string
   // 額外 metadata（依 type 不同）
   paperAreaRatio?: number
+  effectiveWidth?: number
   duplicateWithIndex?: number
   duplicateDistance?: number
+}
+
+export interface ValidationWarning {
+  type: ValidationWarningType
+  message: string
+  effectiveWidth?: number
 }
 
 export interface PageValidationResult {
   index: number
   ok: boolean
   errors: ValidationError[]
+  warnings: ValidationWarning[]
   // 通過時提供：校正後的 blob，可直接拿去送出
   correctedBlob: Blob | null
+  effectiveWidth: number | null  // 校正後 worksheet 區域寬度（px），null 表示未測或測失敗
   // metadata（cache 用，下次驗證可沿用）
   corners: DocumentCorners | null
   hash: string | null
@@ -81,6 +96,7 @@ export async function validatePhotos(pages: PageInput[]): Promise<ValidationResu
   const perPage = await Promise.all(
     perPageRaw.map(async (raw, i) => {
       const errors: ValidationError[] = [...raw.errors]
+      const warnings: ValidationWarning[] = []
       const dupIdx = duplicateMap.get(i)
       if (dupIdx !== undefined) {
         errors.push({
@@ -91,26 +107,49 @@ export async function validatePhotos(pages: PageInput[]): Promise<ValidationResu
         })
       }
 
-      const ok = errors.length === 0
-
-      // 通過驗證 → 裁切到「四角 bounding box + 5% padding」減少背景，
-      // 但不做透視變換（純 1:1 像素複製，不縮放、不插值，畫質無損）。
-      // 失敗 case 直接 fallback 原圖。
+      // 先做裁切（即使後續可能因解析度被擋下，也要量出實際寬度回報）
       let correctedBlob: Blob | null = null
-      if (ok && raw.corners) {
+      let effectiveWidth: number | null = null
+      const noPreErrors = errors.length === 0
+      if (noPreErrors && raw.corners) {
         try {
           correctedBlob = await cropToCornersBounds(pages[i].blob, raw.corners, 0.05)
+          effectiveWidth = await measureBlobWidth(correctedBlob)
         } catch (err) {
           console.warn(`[photoValidation] crop failed for page ${i + 1}, fallback to original:`, err)
           correctedBlob = pages[i].blob
+          effectiveWidth = await measureBlobWidth(correctedBlob).catch(() => null)
         }
       }
+
+      // 解析度檢查（在所有其他檢查通過後才看；前面已被擋下就不重複提示）
+      if (noPreErrors && effectiveWidth !== null) {
+        if (effectiveWidth < MIN_EFFECTIVE_WIDTH_BLOCK) {
+          errors.push({
+            type: 'low_resolution',
+            message: `作業區域解析度過低（${effectiveWidth}px），AI 將無法正確識別內容，請換用解析度較高的設備或拍近一點重拍`,
+            effectiveWidth,
+          })
+        } else if (effectiveWidth < MIN_EFFECTIVE_WIDTH_WARN) {
+          warnings.push({
+            type: 'low_resolution_warn',
+            message: `作業區域解析度偏低（${effectiveWidth}px），建議拍近一點以提升 AI 識別準確度（仍可送出）`,
+            effectiveWidth,
+          })
+        }
+      }
+
+      const ok = errors.length === 0
+      // 若被 low_resolution block 擋下，仍提供 correctedBlob = null 讓 UI 不誤用
+      if (!ok) correctedBlob = null
 
       return {
         index: i,
         ok,
         errors,
+        warnings,
         correctedBlob,
+        effectiveWidth,
         corners: raw.corners,
         hash: raw.hash,
       }
@@ -194,6 +233,24 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
   }
 
   return { errors, corners, hash, correctedBlob: null }
+}
+
+// ─── Width measurement ─────────────────────────────────────────────────────
+
+/**
+ * 量 Blob 圖片的像素寬度。失敗回 null（不擋上傳、由上層決定）。
+ * 用於檢查 cropToCornersBounds 後 worksheet 區域實際是不是夠 OCR 用。
+ */
+async function measureBlobWidth(blob: Blob): Promise<number | null> {
+  try {
+    const bmp = await createImageBitmap(blob)
+    const w = bmp.width
+    bmp.close()
+    return w
+  } catch (err) {
+    console.warn('[photoValidation] measureBlobWidth failed:', err)
+    return null
+  }
 }
 
 // ─── Geometry helpers ───────────────────────────────────────────────────────

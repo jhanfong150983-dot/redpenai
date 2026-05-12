@@ -28,3 +28,15 @@ export const MIN_PAPER_AREA_RATIO = 0.25
 // 8 太嚴擋不住「同一頁拍兩次但角度/光線略差」的 case；
 // 12 容忍 ~19% bit 差異，仍能避開「同習作不同題目」的誤殺。
 export const DUPLICATE_HASH_THRESHOLD = 12
+
+// 裁切後（cropToCornersBounds 之後）worksheet 區域的最低像素寬度。
+// 低於 BLOCK_PX 拒絕上傳、BLOCK_PX~WARN_PX 之間給黃色警告但允許繼續。
+//
+// 為什麼這數字：
+// - A4 短邊 21cm；1500px wide ≈ 180 dpi，PaddleOCR 中文小字穩定區
+// - 實證社會 1 號 1344 wide 9/9 命中；數練 643 wide 7/9（OCR 漏抓 row）
+// - 1000 是「OCR 開始掉 row」的臨界、設為 block 下限
+// - 1500 是「OCR 穩定」的下限、設為 warn → ok 邊界
+// 任何學生機（≥ 4MP）裁完背景剩下的 worksheet 區域都該 ≥ 1500、實務上幾乎不會擋到。
+export const MIN_EFFECTIVE_WIDTH_BLOCK = 1000
+export const MIN_EFFECTIVE_WIDTH_WARN = 1500

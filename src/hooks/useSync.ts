@@ -68,12 +68,16 @@ const shrinkBase64Payload = async (
     return { ...normalized, updated: false }
   }
 
+  // 統一壓縮策略：固定 maxWidth=1600（OCR 友善的解析度下限），只調 quality。
+  // 為什麼不再階梯式降寬：學生卷常因手寫多/線條密 jpeg 壓縮不好，原策略會把卷子砍到 800
+  // 寬導致 OCR 抓不到 row。前端 photoValidation 已擋下校正後 < 1000 寬的照片，所以這裡
+  // 上游不會丟超低解析度的圖進來。
   const strategies = [
-    { maxWidth: 1400, quality: 0.75 },
-    { maxWidth: 1200, quality: 0.7 },
-    { maxWidth: 1024, quality: 0.65 },
-    { maxWidth: 900, quality: 0.6 },
-    { maxWidth: 800, quality: 0.55 }
+    { maxWidth: 1600, quality: 0.78 },
+    { maxWidth: 1600, quality: 0.68 },
+    { maxWidth: 1600, quality: 0.58 },
+    { maxWidth: 1600, quality: 0.48 },
+    { maxWidth: 1600, quality: 0.4 }
   ]
 
   let currentDataUrl = normalized.dataUrl

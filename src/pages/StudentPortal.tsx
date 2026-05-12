@@ -2019,11 +2019,13 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         const currentValidated = validatedDrafts[previewModal.assignmentId]
         const isValidatedSnapshot =
           currentValidated?.draftSignature === currentDraftSig
-        const pageStatus = (i: number): 'ok' | 'fail' | 'pending' => {
+        const pageStatus = (i: number): 'ok' | 'warn' | 'fail' | 'pending' => {
           if (!isValidatedSnapshot) return 'pending'
           const r = currentValidated.pages[i]?.result
           if (!r) return 'pending'
-          return r.ok ? 'ok' : 'fail'
+          if (!r.ok) return 'fail'
+          if ((r.warnings ?? []).length > 0) return 'warn'
+          return 'ok'
         }
         const currentPageResult = isValidatedSnapshot
           ? currentValidated.pages[currentIdx]?.result
@@ -2148,6 +2150,25 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                   </div>
                 )}
 
+                {/* 當前頁的警告（允許上傳但建議重拍） */}
+                {currentPageResult && currentPageResult.ok && (currentPageResult.warnings ?? []).length > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+                      <div className="flex-1 space-y-1">
+                        <p className="text-sm font-semibold text-amber-900">
+                          第 {currentIdx + 1} 頁建議重拍（仍可送出）：
+                        </p>
+                        <ul className="list-disc pl-5 text-xs text-amber-800 space-y-0.5">
+                          {(currentPageResult.warnings ?? []).map((w, i) => (
+                            <li key={i}>{w.message}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* 驗證系統錯誤（網路或 API 失敗） */}
                 {validationError && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
@@ -2165,9 +2186,11 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                           ? 'border-blue-500 bg-blue-500 text-white scale-110'
                           : status === 'ok'
                             ? 'border-emerald-400 bg-emerald-50 text-emerald-700 hover:border-emerald-500'
-                            : status === 'fail'
-                              ? 'border-rose-400 bg-rose-50 text-rose-700 hover:border-rose-500'
-                              : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
+                            : status === 'warn'
+                              ? 'border-amber-400 bg-amber-50 text-amber-700 hover:border-amber-500'
+                              : status === 'fail'
+                                ? 'border-rose-400 bg-rose-50 text-rose-700 hover:border-rose-500'
+                                : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
                       return (
                         <button
                           key={i}
