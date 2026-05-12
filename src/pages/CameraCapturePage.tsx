@@ -1,8 +1,9 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import Webcam from 'react-webcam'
-import { Camera, ArrowLeft, Loader, AlertCircle, CheckCircle, CameraOff, RefreshCw, Smartphone } from 'lucide-react'
+import { Camera, ArrowLeft, Loader, AlertCircle, CheckCircle, CameraOff, RefreshCw, Smartphone, HelpCircle } from 'lucide-react'
 import { compressImage } from '@/lib/imageCompression'
 import CameraGuideOverlay from '@/components/CameraGuideOverlay'
+import PhotoGuideModal from '@/components/PhotoGuideModal'
 import { useGyroscope } from '@/hooks/useGyroscope'
 
 interface CameraCapturePageProps {
@@ -39,6 +40,8 @@ export default function CameraCapturePage({
   const [webcamKey, setWebcamKey] = useState(0)
   const [retryCount, setRetryCount] = useState(0)
   const [showGate, setShowGate] = useState(true)
+  // 拍照說明書：每次開相機頁就跳出、可隨時關閉、之後可從右上 ? 再開
+  const [showPhotoGuide, setShowPhotoGuide] = useState(true)
 
   const gyro = useGyroscope()
 
@@ -389,9 +392,20 @@ export default function CameraCapturePage({
               <ArrowLeft className="w-5 h-5" />
               <span className="font-medium">返回選擇</span>
             </button>
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"></div>
-              <span className="text-sm font-medium">拍攝中</span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowPhotoGuide(true)}
+                className="flex items-center gap-1.5 text-white hover:text-white/80 transition-colors"
+                aria-label="拍照說明"
+              >
+                <HelpCircle className="w-5 h-5" />
+                <span className="text-sm font-medium hidden sm:inline">拍照說明</span>
+              </button>
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse"></div>
+                <span className="text-sm font-medium">拍攝中</span>
+              </div>
             </div>
           </div>
         </div>
@@ -451,6 +465,9 @@ export default function CameraCapturePage({
           </div>
         </div>
       )}
+
+      {/* 拍照說明書 modal（每次開相機自動跳、可關閉、右上 ? 可重新開） */}
+      <PhotoGuideModal open={showPhotoGuide} onClose={() => setShowPhotoGuide(false)} />
     </div>
   )
 }
