@@ -1247,6 +1247,8 @@ export default function GradingPage({
   const [correctionGuardModal, setCorrectionGuardModal] = useState<CorrectionGuardModalState | null>(
     null
   )
+  const [isRevokingCorrection, setIsRevokingCorrection] = useState(false)
+  const [revokeError, setRevokeError] = useState<string | null>(null)
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
   const [manualGradingStudentId, setManualGradingStudentId] = useState<string | null>(null)
 
@@ -1854,6 +1856,7 @@ export default function GradingPage({
 
   const openCorrectionGuardModal = useCallback(
     (title: string, description: string, blockedStudents: CorrectionBlockedStudent[] = []) => {
+      setRevokeError(null)
       setCorrectionGuardModal({
         title,
         description,
@@ -1861,6 +1864,56 @@ export default function GradingPage({
       })
     },
     []
+  )
+
+  // 從守門 modal 直接呼叫 correction-dispatch-toggle stop、退回指定學生的訂正
+  // 後端已有 guard：學生的訂正稿正在 AI re-check 時不能退回、會回 blocked list
+  const handleRevokeCorrection = useCallback(
+    async (studentIds: string[]) => {
+      if (studentIds.length === 0) return
+      const ok = window.confirm(
+        `確定退回 ${studentIds.length} 位學生的訂正？\n\n` +
+          '學生已輸入的訂正內容會保留，但派發狀態歸零，老師可重新批改原作業。\n' +
+          '若學生正在訂正頁面、需重新整理才會看到狀態變更。'
+      )
+      if (!ok) return
+      setIsRevokingCorrection(true)
+      setRevokeError(null)
+      try {
+        const response = await fetch('/api/data/correction-dispatch-toggle', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            assignmentId,
+            action: 'stop',
+            studentIds
+          })
+        })
+        const data = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          const blocked = Array.isArray(data?.blockedStudents) ? data.blockedStudents : []
+          if (blocked.length > 0) {
+            const names = blocked
+              .map(
+                (b: { seatNumber?: number; name?: string }) =>
+                  `${b.seatNumber ?? '?'}號 ${b.name ?? ''}`
+              )
+              .join('、')
+            throw new Error(`下列學生的訂正稿正在 AI 重批中、無法退回：${names}`)
+          }
+          throw new Error(data?.error || '退回失敗、請稍後再試')
+        }
+        // 成功：刷新 status map（讓卡片 + ensureNoCorrectionConflict 都看到最新）
+        await fetchCorrectionStatusByStudentId().catch(() => {})
+        setCorrectionGuardModal(null)
+      } catch (err) {
+        setRevokeError(err instanceof Error ? err.message : '退回失敗')
+      } finally {
+        setIsRevokingCorrection(false)
+      }
+    },
+    [assignmentId, fetchCorrectionStatusByStudentId]
   )
 
   const ensureNoCorrectionConflict = useCallback(
@@ -3361,9 +3414,18 @@ export default function GradingPage({
                           className="text-sm text-amber-900 flex items-center justify-between gap-2"
                         >
                           <span className="truncate">{seatText} {item.name}</span>
-                          <span className="shrink-0 text-xs rounded bg-white border border-amber-200 px-2 py-0.5">
-                            {statusLabel}
-                          </span>
+                          <div className="shrink-0 flex items-center gap-2">
+                            <span className="text-xs rounded bg-white border border-amber-200 px-2 py-0.5">
+                              {statusLabel}
+                            </span>
+                            <button
+                              onClick={() => void handleRevokeCorrection([item.studentId])}
+                              disabled={isRevokingCorrection}
+                              className="text-xs rounded bg-rose-50 border border-rose-200 text-rose-700 px-2 py-0.5 hover:bg-rose-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              退回
+                            </button>
+                          </div>
                         </div>
                       )
                     })}
@@ -3371,13 +3433,35 @@ export default function GradingPage({
                 </div>
               )}
 
-            <div className="flex justify-end">
+            {revokeError && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 mb-4 text-xs text-rose-700">
+                {revokeError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
               <button
                 onClick={() => setCorrectionGuardModal(null)}
-                className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-700 transition-colors"
+                disabled={isRevokingCorrection}
+                className="px-4 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors disabled:opacity-50"
               >
                 知道了
               </button>
+              {Array.isArray(correctionGuardModal.blockedStudents) &&
+                correctionGuardModal.blockedStudents.length > 0 && (
+                  <button
+                    onClick={() =>
+                      void handleRevokeCorrection(
+                        (correctionGuardModal.blockedStudents || []).map((b) => b.studentId)
+                      )
+                    }
+                    disabled={isRevokingCorrection}
+                    className="px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                  >
+                    {isRevokingCorrection && <Loader className="w-4 h-4 animate-spin" />}
+                    全部退回訂正
+                  </button>
+                )}
             </div>
           </div>
         </div>
