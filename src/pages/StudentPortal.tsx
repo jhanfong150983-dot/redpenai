@@ -1224,7 +1224,10 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         }
       }
 
-      const mergeTarget = mode === 'correction' ? CORRECTION_MERGE_TARGET_BYTES : 2_000_000
+      // 2026-05-13 拉高 upload 模式的目標、儘量保留畫質
+      // Vercel function body 上限 4.5 MB、扣 JSON overhead + base64 1.33x 膨脹後、原圖 ≤ 3 MB 是安全值
+      // correction 模式仍維持小檔（120 KB）、跟訂正 batch payload 大小有關、不動
+      const mergeTarget = mode === 'correction' ? CORRECTION_MERGE_TARGET_BYTES : 3_000_000
       const mergeMaxWidth = mode === 'correction' ? 1200 : 2000
       const merged = await mergeImagesVertically(filesToMerge)
       const compressed = await compressToTargetBytes(merged, mergeTarget, { maxWidth: mergeMaxWidth })

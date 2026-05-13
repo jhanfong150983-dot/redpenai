@@ -55,8 +55,11 @@ const normalizeBase64Payload = (
   }
 }
 
-const MAX_SUBMISSION_BASE64_LENGTH = 2_700_000
-const HARD_MAX_SUBMISSION_BASE64_LENGTH = 1_600_000
+// 2026-05-13 拉高、儘量不壓縮、給學生上傳清晰照片
+// 4_000_000 chars base64 ≈ 3 MB 原始檔（Vercel function body 4.5 MB 限制下的安全值）
+// HARD = 413 retry 時的目標、稍小留 buffer 但仍比舊版（1.6M ~ 1.2 MB）大很多
+const MAX_SUBMISSION_BASE64_LENGTH = 4_000_000
+const HARD_MAX_SUBMISSION_BASE64_LENGTH = 3_500_000
 
 const shrinkBase64Payload = async (
   dataUrl: string,
@@ -68,16 +71,14 @@ const shrinkBase64Payload = async (
     return { ...normalized, updated: false }
   }
 
-  // 統一壓縮策略：固定 maxWidth=1600（OCR 友善的解析度下限），只調 quality。
-  // 為什麼不再階梯式降寬：學生卷常因手寫多/線條密 jpeg 壓縮不好，原策略會把卷子砍到 800
-  // 寬導致 OCR 抓不到 row。前端 photoValidation 已擋下校正後 < 1000 寬的照片，所以這裡
-  // 上游不會丟超低解析度的圖進來。
+  // 2026-05-13 壓縮策略改成「儘量保留畫質、quality 不低於 0.82」
+  // 寬度不大幅降（從 2000 → 1800 / 1600）、quality 保持高、優先放大檔案上限
+  // 仍超過再降 quality、但下限拉到 0.82（之前 0.4）
   const strategies = [
-    { maxWidth: 1600, quality: 0.78 },
-    { maxWidth: 1600, quality: 0.68 },
-    { maxWidth: 1600, quality: 0.58 },
-    { maxWidth: 1600, quality: 0.48 },
-    { maxWidth: 1600, quality: 0.4 }
+    { maxWidth: 2000, quality: 0.92 },
+    { maxWidth: 2000, quality: 0.88 },
+    { maxWidth: 1800, quality: 0.85 },
+    { maxWidth: 1600, quality: 0.82 }
   ]
 
   let currentDataUrl = normalized.dataUrl

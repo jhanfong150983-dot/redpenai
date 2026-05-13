@@ -234,11 +234,13 @@ export async function compressToTargetBytes(
   if (blob.size <= targetBytes) return blob
 
   // 預設參數
+  // 2026-05-13 quality 下限拉到 0.85、避免「為了塞檔案大小硬壓爛畫質」
+  // 撐不到目標檔案大小寧可送大檔（call site 已確保不會撞 Vercel 4.5 MB 上限）
   const maxWidth = opts.maxWidth ?? 1600
   const supportsWebP = getWebPSupportSync()
   const defaultFormat = supportsWebP ? 'image/webp' : 'image/jpeg'
   const format = opts.format ?? defaultFormat
-  const qualities = opts.qualities ?? [0.82, 0.75, 0.68, 0.6]
+  const qualities = opts.qualities ?? [0.92, 0.88, 0.85]
 
   const bmp = await createImageBitmap(blob)
 
