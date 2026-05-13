@@ -119,9 +119,11 @@ export default function CameraCapturePage({
 
       // 學生端：引導框只作為對齊提示，紙張邊界由 AI 偵測四角處理
       // 老師端：當下用 viewport 反算 object-cover，套 CAMERA_FRAME 比例裁切
+      // 2026-05-14 quality 0.85 → 0.92：起點品質拉高、下游 compressToTargetBytes 仍會兜底
+      // 維持 maxWidth 2000、跟 mergeMaxWidth / saveStudentSubmission 路徑一致
       let processed = await compressImage(imageSrc, {
         maxWidth: 2000,
-        quality: 0.85
+        quality: 0.92
       })
 
       if (applyFrameCrop) {
