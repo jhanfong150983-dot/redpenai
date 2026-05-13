@@ -32,11 +32,14 @@ export const DUPLICATE_HASH_THRESHOLD = 12
 // 裁切後（cropToCornersBounds 之後）worksheet 區域的最低像素寬度。
 // 低於 BLOCK_PX 拒絕上傳、BLOCK_PX~WARN_PX 之間給黃色警告但允許繼續。
 //
-// 為什麼這數字：
-// - A4 短邊 21cm；1500px wide ≈ 180 dpi，PaddleOCR 中文小字穩定區
-// - 實證社會 1 號 1344 wide 9/9 命中；數練 643 wide 7/9（OCR 漏抓 row）
-// - 1000 是「OCR 開始掉 row」的臨界、設為 block 下限
-// - 1500 是「OCR 穩定」的下限、設為 warn → ok 邊界
-// 任何學生機（≥ 4MP）裁完背景剩下的 worksheet 區域都該 ≥ 1500、實務上幾乎不會擋到。
-export const MIN_EFFECTIVE_WIDTH_BLOCK = 1000
-export const MIN_EFFECTIVE_WIDTH_WARN = 1500
+// 2026-05-13 調整：實際部署後發現大量學生（含正常拍）被擋下、推測平板/手機端
+// 經透視校正 + JPEG/WebP 壓縮後寬度比預期低、原本 1000 太緊。
+// 暫時 BLOCK=0 = 不擋任何照片、只用 WARN 提示學生「可能模糊」、讓老師端收件後檢視。
+// 等收集到「真實 production 寬度分布」+「成功/失敗 OCR 案例」資料、再決定要不要重設 BLOCK。
+//
+// 歷史閾值規劃（先記著、未來調回時參考）：
+// - 1500 = OCR 穩定門檻
+// - 1000 = OCR 開始掉 row 臨界
+// - 800  = 720p 視訊串流上限、再低 OCR 大致全廢
+export const MIN_EFFECTIVE_WIDTH_BLOCK = 0     // 暫時關閉硬擋、避免誤殺
+export const MIN_EFFECTIVE_WIDTH_WARN = 1200   // 警告閾值放寬到 1200、讓警告不要太常跳
