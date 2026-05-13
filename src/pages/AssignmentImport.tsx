@@ -40,8 +40,9 @@ import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-stora
 import ImportConfigDialog, { type PdfFileInfo, interleavePdfPages } from '@/components/ImportConfigDialog'
 import { mergePageBlobs } from '@/lib/image-merge'
 
-// 目標檔案大小上限（1.5MB）
-const TARGET_MAX_BYTES = 1.9 * 1024 * 1024
+// 目標檔案大小上限：3 MB（對齊學生端 useSync 的 4 MB base64 上限，留 0.5 MB buffer 給 Vercel 4.5 MB 邊界）
+// 2026-05-14 從 1.9 MB 拉到 3 MB——答案卷是 AI 批改的真理依據，不該壓得比學生卷還兇
+const TARGET_MAX_BYTES = 3 * 1024 * 1024
 
 // ── 可排序頁面卡片 ────────────────────────────────────────────────────────────
 

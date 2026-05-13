@@ -72,8 +72,9 @@ interface StudentSubmissionInfo {
   source?: string
 }
 
-// 目標檔案大小上限
-const TARGET_MAX_BYTES = 1.9 * 1024 * 1024
+// 目標檔案大小上限：3 MB（對齊學生端，留 0.5 MB buffer 給 Vercel 4.5 MB 邊界）
+// 2026-05-14 從 1.9 MB 拉到 3 MB——批次匯入也吃同一條 useSync 路徑、不該比學生卷壓更兇
+const TARGET_MAX_BYTES = 3 * 1024 * 1024
 
 // ── Helper: save a single student submission ──────────────────────────────────
 
