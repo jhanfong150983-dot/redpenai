@@ -32,14 +32,18 @@ export const DUPLICATE_HASH_THRESHOLD = 12
 // 裁切後（cropToCornersBounds 之後）worksheet 區域的最低像素寬度。
 // 低於 BLOCK_PX 拒絕上傳、BLOCK_PX~WARN_PX 之間給黃色警告但允許繼續。
 //
-// 2026-05-13 調整：實際部署後發現大量學生（含正常拍）被擋下、推測平板/手機端
-// 經透視校正 + JPEG/WebP 壓縮後寬度比預期低、原本 1000 太緊。
-// 暫時 BLOCK=0 = 不擋任何照片、只用 WARN 提示學生「可能模糊」、讓老師端收件後檢視。
-// 等收集到「真實 production 寬度分布」+「成功/失敗 OCR 案例」資料、再決定要不要重設 BLOCK。
+// 2026-05-13 重新校準：原本的 1000/1500 是<b>以相機畫面整體當分母</b>算的、忽略了
+// 學生實際對齊的是「引導框」而非整個畫面。引導框因 aspect ratio mismatch + object-cover
+// 顯示、實際只佔相機畫面 55-67% 左右。所以一個完美對齊引導框的學生、裁切後寬度
+// 也只有 ~1056 px、會被原本 1500 WARN 誤判為「模糊」。
 //
-// 歷史閾值規劃（先記著、未來調回時參考）：
-// - 1500 = OCR 穩定門檻
-// - 1000 = OCR 開始掉 row 臨界
-// - 800  = 720p 視訊串流上限、再低 OCR 大致全廢
-export const MIN_EFFECTIVE_WIDTH_BLOCK = 0     // 暫時關閉硬擋、避免誤殺
-export const MIN_EFFECTIVE_WIDTH_WARN = 1200   // 警告閾值放寬到 1200、讓警告不要太常跳
+// 重新校準的對應表（以「裁切後寬度」對應「對齊狀況」）：
+// - >= 1000 → 對齊極好（罕見）
+// - 700~999 → 對齊良好、正常水準
+// - 500~699 → 拍遠了 / 沒貼框、值得提醒重拍
+// - < 500   → 拍超遠 / 紙張很小、強烈建議重拍
+//
+// 為避免誤殺、不擋任何照片（BLOCK=0）。
+// WARN=700 = 對齊不佳才警告、正常對齊不打擾。
+export const MIN_EFFECTIVE_WIDTH_BLOCK = 0     // 不擋
+export const MIN_EFFECTIVE_WIDTH_WARN = 700    // 對齊不佳才警告
