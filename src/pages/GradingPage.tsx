@@ -442,6 +442,75 @@ interface BatchPhaseAEntry {
   imageBlob: Blob
 }
 
+// ─── Peer baseline outlier detection (post-batch revisit) ──────────────────
+// 用 batch 內其他已成功的 sub 算 per-qid bbox median 當基準、
+// 檢查當前 sub 是否有大量 bbox 跟基準明顯不同（partial 或全 shift）。
+// 設計理由：classify 階段不用 ref bbox（紙張對齊風險）、改用 cross-sub peer
+// 作為 outlier 偵測訊號。只在 answer_only 模式啟用。
+
+function _median(arr: number[]): number {
+  if (arr.length === 0) return 0
+  const s = [...arr].sort((a, b) => a - b)
+  return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2
+}
+
+type Bbox = { x: number; y: number; w: number; h: number }
+
+function computePeerBaseline(entries: BatchPhaseAEntry[], excludeSubId: string): Map<string, Bbox> {
+  const bboxesByQid = new Map<string, Bbox[]>()
+  for (const entry of entries) {
+    if (entry.submissionId === excludeSubId) continue
+    for (const qr of entry.phaseAResult.questionResults) {
+      const bb = qr.answerBbox as Bbox | undefined
+      if (!bb || typeof bb.x !== 'number') continue
+      if (!bboxesByQid.has(qr.questionId)) bboxesByQid.set(qr.questionId, [])
+      bboxesByQid.get(qr.questionId)!.push(bb)
+    }
+  }
+  const baseline = new Map<string, Bbox>()
+  for (const [qid, list] of bboxesByQid) {
+    baseline.set(qid, {
+      x: _median(list.map((b) => b.x)),
+      y: _median(list.map((b) => b.y)),
+      w: _median(list.map((b) => b.w)),
+      h: _median(list.map((b) => b.h)),
+    })
+  }
+  return baseline
+}
+
+function checkPeerOutliers(
+  entry: BatchPhaseAEntry,
+  peerBaseline: Map<string, Bbox>,
+  threshold = 0.025,
+  minOutlierCount = 10
+): { trip: boolean; outlierCount: number; outlierQids: string[]; metrics: { dy_med: number; dx_med: number } } {
+  // 只看 dy：AI classify 在 dx 方向變異很大（注釋類 handwriting-sizing），dx outlier 雜訊太多。
+  // dy 變異較小、shifted case 通常 dy 一致偏移 — 用 dy 訊號乾淨很多。
+  // minOutlierCount=10：代表至少整個 section（10 題）一致偏、不會被零星 AI 變異誤判。
+  const outlierQids: string[] = []
+  const dys: number[] = []
+  const dxs: number[] = []
+  for (const qr of entry.phaseAResult.questionResults) {
+    const bb = qr.answerBbox as Bbox | undefined
+    const peer = peerBaseline.get(qr.questionId)
+    if (!bb || !peer) continue
+    const dy = bb.y - peer.y
+    const dx = bb.x - peer.x
+    dys.push(dy)
+    dxs.push(dx)
+    if (Math.abs(dy) > threshold) {
+      outlierQids.push(qr.questionId)
+    }
+  }
+  return {
+    trip: outlierQids.length >= minOutlierCount,
+    outlierCount: outlierQids.length,
+    outlierQids,
+    metrics: { dy_med: +_median(dys).toFixed(4), dx_med: +_median(dxs).toFixed(4) },
+  }
+}
+
 // SubmissionThumbnail extracted to @/components/SubmissionThumbnail.tsx
 
 // ─── ForensicSupportBadge ─────────────────────────────────────────────────────
@@ -3144,9 +3213,135 @@ export default function GradingPage({
         const qualityFailIds = new Set(phaseAQualityFails.map((f) => f.submissionId))
         const phaseAFailureIds = new Set(phaseAFailures.map((f) => f.submissionId))
         const excludeIds = new Set([...qualityFailIds, ...phaseAFailureIds])
-        const validEntries = excludeIds.size > 0
+        let validEntries = excludeIds.size > 0
           ? entries.filter((e) => !excludeIds.has(e.submissionId) && !e.phaseAResult.pipelineFailure)
           : entries
+
+        // ── Post-batch peer baseline 比對（answer_only only）──
+        // 用 batch 內其他 sub 的 bbox median 當基準、回頭檢查每份是否有 partial/全 shift。
+        // 跳過條件：非 answer_only、validEntries < 5（peer 太少不可靠）。
+        // 失敗動作：retry 整個 Phase A 一次、仍 outlier → grading_failed。
+        if (assignment?.answerSheetMode === 'answer_only' && validEntries.length >= 5 && !stopRequestedRef.current) {
+          setGradingMessage('Peer baseline 比對中…')
+          const peerOutlierTrips: Array<{ entry: BatchPhaseAEntry; outlierCount: number; outlierQids: string[] }> = []
+          for (const entry of validEntries) {
+            const baseline = computePeerBaseline(validEntries, entry.submissionId)
+            if (baseline.size < 3) continue
+            const result = checkPeerOutliers(entry, baseline)
+            if (result.trip) {
+              peerOutlierTrips.push({ entry, outlierCount: result.outlierCount, outlierQids: result.outlierQids })
+              console.warn(`[PeerCheck] ${entry.submissionId} 偵測到 ${result.outlierCount} 個 outlier qids`, result.outlierQids.slice(0, 5))
+            }
+          }
+
+          if (peerOutlierTrips.length > 0) {
+            setGradingMessage(`Peer 異常 ${peerOutlierTrips.length} 份、重跑 Phase A 中…`)
+            const retriedResults = new Map<string, PhaseAResult>()
+            await runWithConcurrency(
+              peerOutlierTrips,
+              3,
+              2000,
+              async (item) => {
+                if (stopRequestedRef.current) return null
+                const sub = toGrade.find((s) => s.id === item.entry.submissionId)
+                if (!sub?.imageBlob) return null
+                console.log(`📄 [PeerCheck retry] student=${sub.studentId}`)
+                const phaseAResult = await gradePhaseA(
+                  sub.imageBlob,
+                  assignment.answerKey!,
+                  sub.pageBreaks,
+                  assignment.domain,
+                  assignment.id,
+                  undefined,
+                  assignment.answerSheetMode,
+                  sub.id,
+                  sub.source
+                )
+                return { item, phaseAResult }
+              },
+              (_i, result, err) => {
+                if (!result) {
+                  if (err) console.error('[PeerCheck retry] failed:', err)
+                  return
+                }
+                const { item, phaseAResult } = result
+                retriedResults.set(item.entry.submissionId, phaseAResult)
+              },
+              stopRequestedRef
+            )
+
+            // 處理 retry 結果：更新 validEntries 或加進 phaseAFailures
+            const newFailureIds = new Set<string>()
+            for (const item of peerOutlierTrips) {
+              const newResult = retriedResults.get(item.entry.submissionId)
+              if (!newResult) continue  // retry 沒回來
+
+              // retry 本身炸開（pipelineFailure）→ 用該 failure
+              if (newResult.pipelineFailure) {
+                phaseAFailures.push({ submissionId: item.entry.submissionId, studentId: item.entry.studentId, failure: newResult.pipelineFailure })
+                newFailureIds.add(item.entry.submissionId)
+                continue
+              }
+
+              // 用新結果建構臨時 entry、再驗 peer
+              const tempEntry: BatchPhaseAEntry = { ...item.entry, phaseAResult: newResult }
+              const baseline = computePeerBaseline(validEntries.filter((e) => e.submissionId !== item.entry.submissionId), item.entry.submissionId)
+              const recheck = checkPeerOutliers(tempEntry, baseline)
+
+              if (recheck.trip) {
+                // 仍 outlier → grading_failed
+                const failure: import('@/lib/gemini').PipelineFailure = {
+                  stage: 'classify',
+                  reasonCode: 'CLASSIFY_BBOX_PEER_OUTLIER',
+                  userMessage: '批改失敗：這份作業的答題框跟其他學生的位置明顯不同，可能 AI 框錯位置。',
+                  userAction: '請重新批改這份作業（再跑一次 AI 通常能修正）。',
+                  technical: { metrics: { outlierCount: recheck.outlierCount, dy_med: recheck.metrics.dy_med, dx_med: recheck.metrics.dx_med } as Record<string, unknown> }
+                }
+                phaseAFailures.push({ submissionId: item.entry.submissionId, studentId: item.entry.studentId, failure })
+                newFailureIds.add(item.entry.submissionId)
+                const failureGradingResult = { pipelineFailure: failure } as unknown as import('@/lib/db').GradingResult
+                void db.submissions.update(item.entry.submissionId, {
+                  status: 'grading_failed',
+                  gradingResult: failureGradingResult,
+                  updatedAt: Date.now(),
+                }).catch(() => {})
+                fetch(buildApiUrl('/api/data/save-grading'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({
+                    submissions: [{ id: item.entry.submissionId, status: 'grading_failed', gradingResult: { pipelineFailure: failure } }],
+                  }),
+                }).catch(() => {})
+                console.warn(`[PeerCheck] ${item.entry.submissionId} retry 後仍 outlier、grading_failed`)
+              } else {
+                // retry passed → 在 validEntries 裡替換成新結果
+                const idx = validEntries.findIndex((e) => e.submissionId === item.entry.submissionId)
+                if (idx >= 0) {
+                  // 重新 build decisions
+                  const decisions = new Map<string, ConsistencyDecision>()
+                  for (const qr of newResult.questionResults) {
+                    const arbiter = qr.arbiterResult
+                    if (arbiter && arbiter.arbiterStatus !== 'needs_review') {
+                      const isCalcType = qr.questionType === 'calculation' || qr.questionType === 'word_problem'
+                      const fullAnswer = isCalcType ? qr.readAnswer1.studentAnswer : (arbiter.finalAnswer ?? qr.readAnswer1.studentAnswer)
+                      decisions.set(qr.questionId, { questionId: qr.questionId, source: 'ai_arbiter', finalAnswer: fullAnswer, confirmed: true })
+                    } else if (!arbiter && qr.consistencyStatus === 'stable') {
+                      decisions.set(qr.questionId, { questionId: qr.questionId, source: 'ai_read1', finalAnswer: qr.readAnswer1.studentAnswer, confirmed: true })
+                    }
+                  }
+                  validEntries[idx] = { ...validEntries[idx], phaseAResult: newResult, decisions }
+                }
+                console.log(`[PeerCheck] ${item.entry.submissionId} retry 後 OK`)
+              }
+            }
+
+            if (newFailureIds.size > 0) {
+              validEntries = validEntries.filter((e) => !newFailureIds.has(e.submissionId))
+            }
+          }
+        }
+
         setBatchPhaseAEntries(validEntries)
         setPendingPhaseAFailures(phaseAFailures)
 
