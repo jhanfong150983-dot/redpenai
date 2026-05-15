@@ -47,16 +47,20 @@ type BboxData = {
   ocr_coverage_zero: Array<{ submissionId: string; qid: string }>
 }
 
+type ReadExample = { submissionId: string; qid: string; a1: string; a2: string; ai3Consistent?: boolean | null }
 type ReadData = {
   assignmentId: string
   total_submissions: number
   total_questions: number
+  // raw AI1/AI2 字串差異拆解（診斷、不等於送 review）
   diff_breakdown: { identical: number; format_only: number; one_blank: number; substantive: number }
-  format_only_rate: number
-  estimated_false_review: number
-  format_examples: Array<{ submissionId: string; qid: string; a1: string; a2: string }>
-  blank_examples: Array<{ submissionId: string; qid: string; a1: string; a2: string }>
-  substantive_examples: Array<{ submissionId: string; qid: string; a1: string; a2: string }>
+  // AI3 真實送 review 數
+  ai3_inconsistent_total: number
+  ai3_inconsistent_by_diff: { identical: number; format_only: number; one_blank: number; substantive: number }
+  format_examples: ReadExample[]
+  blank_examples: ReadExample[]
+  substantive_examples: ReadExample[]
+  ai3_missed_format_examples: Array<{ submissionId: string; qid: string; a1: string; a2: string }>
   submission_review_ranking: Array<{ submissionId: string; needs_review_count: number }>
 }
 
@@ -444,37 +448,43 @@ function BboxView({ data }: { data: BboxData }) {
 
 function ReadView({ data }: { data: ReadData }) {
   const total = data.total_questions || 1
+  const ai3MissedFormat = data.ai3_inconsistent_by_diff?.format_only ?? 0
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Metric label="總題數" value={data.total_questions.toString()} sub={`${data.total_submissions} 份`} />
         <Metric
-          label="格式假警報"
-          value={data.diff_breakdown.format_only.toString()}
-          sub={`占 ${(data.format_only_rate * 100).toFixed(1)}%、可 normalize 砍掉`}
-          warn={data.format_only_rate > 0.05}
+          label="AI3 實際送 review"
+          value={data.ai3_inconsistent_total.toString()}
+          sub="真正排隊給老師複核的題數"
+          warn={data.ai3_inconsistent_total > total * 0.1}
         />
         <Metric
-          label="一邊未作答"
-          value={data.diff_breakdown.one_blank.toString()}
-          sub="classify 框錯訊號"
-          warn={data.diff_breakdown.one_blank > 5}
+          label="AI1/AI2 raw 差異率"
+          value={`${(((data.diff_breakdown.format_only + data.diff_breakdown.one_blank + data.diff_breakdown.substantive) / total) * 100).toFixed(1)}%`}
+          sub="診斷指標、AI3 會自動 normalize 大半"
         />
         <Metric
-          label="真實質性不一致"
-          value={data.diff_breakdown.substantive.toString()}
-          sub="這才該進 review"
+          label="AI3 漏 normalize 的 format diff"
+          value={ai3MissedFormat.toString()}
+          sub={ai3MissedFormat > 0 ? '這才是「應該砍但沒砍」的 review' : '無、AI3 處理乾淨'}
+          warn={ai3MissedFormat > 0}
         />
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="font-semibold text-slate-900 mb-3">不一致分布</h3>
+        <h3 className="font-semibold text-slate-900 mb-1">AI1/AI2 raw 差異拆解 × AI3 決策</h3>
+        <p className="text-xs text-slate-500 mb-3">
+          左欄是 raw 字串差異統計（純診斷）、右欄是 AI3 真實送 review 的數量。
+          AI3 設計上會把 format_only 跟計算步驟差異 normalize 掉、所以 raw 差異多 ≠ review 多。
+        </p>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs text-slate-500 border-b">
               <th className="py-2">類型</th>
-              <th>數量</th>
+              <th>raw 數量</th>
               <th>占總題比例</th>
+              <th>AI3 送 review</th>
             </tr>
           </thead>
           <tbody>
@@ -483,6 +493,9 @@ function ReadView({ data }: { data: ReadData }) {
                 <td className="py-2 font-mono text-xs">{k}</td>
                 <td>{data.diff_breakdown[k]}</td>
                 <td>{((data.diff_breakdown[k] / total) * 100).toFixed(1)}%</td>
+                <td className={data.ai3_inconsistent_by_diff[k] > 0 ? 'text-rose-600 font-semibold' : 'text-slate-500'}>
+                  {data.ai3_inconsistent_by_diff[k]}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -490,10 +503,24 @@ function ReadView({ data }: { data: ReadData }) {
       </div>
 
       <div className="grid md:grid-cols-3 gap-3">
-        <ExampleBox title={`格式偽不一致 (${data.format_examples.length})`} examples={data.format_examples} color="amber" />
+        <ExampleBox title={`格式差異 raw (${data.format_examples.length})`} examples={data.format_examples} color="amber" />
         <ExampleBox title={`一邊未作答 (${data.blank_examples.length})`} examples={data.blank_examples} color="violet" />
-        <ExampleBox title={`真不一致 (${data.substantive_examples.length})`} examples={data.substantive_examples} color="rose" />
+        <ExampleBox title={`內容不一致 (${data.substantive_examples.length})`} examples={data.substantive_examples} color="rose" />
       </div>
+
+      {data.ai3_missed_format_examples && data.ai3_missed_format_examples.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <h3 className="font-semibold text-amber-900 mb-2">⚠️ AI3 漏 normalize 的格式差異</h3>
+          <p className="text-xs text-amber-700 mb-3">
+            這些是 raw 比對為純格式差異、但 AI3 仍判 inconsistent 送 review 的 case。值得 prompt 調整。
+          </p>
+          <ExampleBox
+            title={`漏網之魚 (${data.ai3_missed_format_examples.length})`}
+            examples={data.ai3_missed_format_examples}
+            color="amber"
+          />
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-slate-200 p-4">
         <h3 className="font-semibold text-slate-900 mb-3">needsReview 最多的 top 10</h3>
