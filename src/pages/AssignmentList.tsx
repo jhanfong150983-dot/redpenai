@@ -2057,8 +2057,9 @@ export default function AssignmentList({
       />
 
       {/* 批改設定 Modal（統一元件） */}
-      {settingsAssignment && (
+      {showSettingsModal && settingsAssignment && (
         <AssignmentFormModal
+          key={settingsAssignment.id}
           mode="edit"
           open={showSettingsModal}
           onClose={() => setShowSettingsModal(false)}
