@@ -51,6 +51,19 @@ const DOMAIN_COLORS: Record<string, string> = {
   '其他': 'bg-gray-100 text-gray-600',
 }
 
+// 領域排序：國、數、社、自、英、其他
+const DOMAIN_SORT_ORDER = ['國語', '數學', '社會', '自然', '英語', '其他']
+const domainRank = (d?: string): number => {
+  const idx = DOMAIN_SORT_ORDER.indexOf(d || '其他')
+  return idx === -1 ? DOMAIN_SORT_ORDER.length : idx
+}
+const sortByDomainThenName = <T extends { domain?: string; name: string }>(items: T[]): T[] =>
+  [...items].sort((a, b) => {
+    const da = domainRank(a.domain || '其他'), db = domainRank(b.domain || '其他')
+    if (da !== db) return da - db
+    return a.name.localeCompare(b.name, 'zh-Hant')
+  })
+
 function DomainBadge({ domain }: { domain: string }) {
   const cls = DOMAIN_COLORS[domain] || DOMAIN_COLORS['其他']
   return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{domain || '未設定'}</span>
@@ -60,6 +73,7 @@ function DomainBadge({ domain }: { domain: string }) {
 
 export default function AnswerBank(_props: AnswerBankProps) {
   const [templates, setTemplates] = useState<AnswerKeyTemplate[]>([])
+  const [usedTemplateIds, setUsedTemplateIds] = useState<Set<string>>(new Set())
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterDomain, setFilterDomain] = useState('')
@@ -158,13 +172,20 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   const loadData = useCallback(async () => {
     try {
-      const [allTemplates, allFolders] = await Promise.all([
+      const [allTemplates, allFolders, allAssignments] = await Promise.all([
         db.answerKeyTemplates.toArray(),
         db.folders.where('type').equals('assignment').toArray(),
+        db.assignments.toArray(),
       ])
       setTemplates(allTemplates)
       const folderNames = allFolders.map((f) => f.name)
       setEmptyFolders(folderNames)
+      // 計算實際被作業引用的 templateId
+      const used = new Set<string>()
+      for (const a of allAssignments) {
+        if (a.answerKeyTemplateId) used.add(a.answerKeyTemplateId)
+      }
+      setUsedTemplateIds(used)
     } catch (err) {
       console.error('Failed to load answer bank data', err)
     } finally {
@@ -202,7 +223,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       const q = searchQuery.trim().toLowerCase()
       items = items.filter((t) => t.name.toLowerCase().includes(q))
     }
-    return items
+    return sortByDomainThenName(items)
   }, [answerKeyItems, filterDomain, searchQuery])
 
   const itemsByFolder = useMemo(() => {
@@ -214,12 +235,16 @@ export default function AnswerBank(_props: AnswerBankProps) {
       if (searchQuery.trim() && !item.name.toLowerCase().includes(searchQuery.trim().toLowerCase())) continue
       map.get(item.folder)?.push(item)
     }
+    // 對每個 folder 內的項目按領域排序
+    for (const [folder, items] of map) {
+      map.set(folder, sortByDomainThenName(items))
+    }
     return map
   }, [answerKeyItems, orderedFolders, filterDomain, searchQuery])
 
   const allDomains = useMemo(() => {
     const domains = new Set(answerKeyItems.map((t) => t.domain || '其他'))
-    return Array.from(domains).sort()
+    return Array.from(domains).sort((a, b) => domainRank(a) - domainRank(b))
   }, [answerKeyItems])
 
   // ── Folder order persistence ───────────────────────────────────────────────
@@ -626,6 +651,14 @@ export default function AnswerBank(_props: AnswerBankProps) {
             </>
           )}
           <DomainBadge domain={t.domain || '其他'} />
+          {!usedTemplateIds.has(t.id) && (
+            <span
+              className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 border border-orange-200"
+              title="沒有任何班級作業引用這份答案卷"
+            >
+              未使用
+            </span>
+          )}
         </div>
         <p className="mt-0.5 text-xs text-slate-500">
           {t.answerKey.questions.length} 題 · 總分 {t.answerKey.totalScore}
