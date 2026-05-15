@@ -759,7 +759,10 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = '成績匯出.csv'
+    // 檔名用班級名稱、移除作業系統不安全字元
+    const classroomName = classrooms.find((c) => c.id === selectedClassroomId)?.name?.trim() || '成績匯出'
+    const safeName = classroomName.replace(/[\\/:*?"<>|]/g, '_')
+    a.download = `${safeName}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
