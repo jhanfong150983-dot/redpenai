@@ -30,7 +30,8 @@ import {
   isGeminiAvailable,
   type PhaseAResult,
   type PhaseAQuestionResult,
-  type FinalAnswer
+  type FinalAnswer,
+  type PipelineFailure
 } from '@/lib/gemini'
 import { buildApiUrl } from '@/lib/api-base'
 import { startInkSession, closeInkSession, getInkSessionId } from '@/lib/ink-session'
@@ -1268,6 +1269,8 @@ export default function GradingPage({
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
   const backgroundPhaseBPromises = useRef<Promise<void>[]>([])
   const [batchPhaseAEntries, setBatchPhaseAEntries] = useState<BatchPhaseAEntry[]>([])
+  // 跨 review UI 持有 Phase A pipeline 失敗（最終 dialog 才會顯示）
+  const [pendingPhaseAFailures, setPendingPhaseAFailures] = useState<Array<{ submissionId: string; studentId: string; failure: PipelineFailure }>>([])
   const [phaseANeedsReviewCount, setPhaseANeedsReviewCount] = useState(0)
   const [phaseATotalQuestionCount, setPhaseATotalQuestionCount] = useState(0)
   // qualityCheckRetryCount removed — quality checks are now internal (server-side)
@@ -1350,7 +1353,11 @@ export default function GradingPage({
   const [phaseBScoredCount, setPhaseBScoredCount] = useState(0)
   const [phaseBTotalCount, setPhaseBTotalCount] = useState(0)
 
-  const executeBatchPhaseB = useCallback(async (entriesToProcess?: BatchPhaseAEntry[], background = false) => {
+  const executeBatchPhaseB = useCallback(async (
+    entriesToProcess?: BatchPhaseAEntry[],
+    background = false,
+    upstreamPhaseAFailures?: Array<{ submissionId: string; studentId: string; failure: PipelineFailure }>
+  ) => {
     const entries = entriesToProcess ?? batchPhaseAEntries
     if (entries.length === 0) return
 
@@ -1601,7 +1608,15 @@ export default function GradingPage({
     const qualityFails = postRetryWarnings
     const qualityFailReasons = qualityFails.map((f) => `${f.studentLabel}：${f.unreadCount} 題無法讀取，建議重新批改`)
     const qualityFailedEntries = qualityFails.map((f) => batchPhaseAEntries.find((e) => e.submissionId === f.submissionId)).filter(Boolean) as BatchPhaseAEntry[]
-    const totalEntries = entries.length + qualityFails.length
+
+    // 合併 Phase A pipeline 失敗（classify/read/arbiter retry 後仍 FAIL）
+    const upstreamFails = upstreamPhaseAFailures ?? []
+    const upstreamFailReasons = upstreamFails.map((f) => {
+      const stu = students.find((s) => s.id === f.studentId)
+      const label = stu ? `${stu.seatNumber}號 ${stu.name}` : f.submissionId.slice(0, 8)
+      return `${label}：${f.failure.userMessage} ${f.failure.userAction}`
+    })
+    const totalEntries = entries.length + qualityFails.length + upstreamFails.length
 
     if (!background) {
       // 前台模式：清理狀態，顯示結果通知
@@ -1614,9 +1629,9 @@ export default function GradingPage({
       setGradeResultNotice({
         stopped: stopRequestedRef.current,
         successCount,
-        failCount: failCount + qualityFails.length,
+        failCount: failCount + qualityFails.length + upstreamFails.length,
         totalCount: totalEntries,
-        failReasons: [...failReasons, ...qualityFailReasons],
+        failReasons: [...failReasons, ...qualityFailReasons, ...upstreamFailReasons],
         failedEntries: [...failedEntries, ...qualityFailedEntries],
       })
       setStopRequested(false)
@@ -1633,16 +1648,24 @@ export default function GradingPage({
     if (phaseBScoredCount < phaseBTotalCount) return
     // 全部背景 Accessor 完成
     const total = phaseBTotalCount
+    // 加入 Phase A 失敗（classify/read/arbiter retry 後仍 FAIL）— review UI 路徑也要顯示
+    const upstreamFails = pendingPhaseAFailures
+    const upstreamFailReasons = upstreamFails.map((f) => {
+      const stu = students.find((s) => s.id === f.studentId)
+      const label = stu ? `${stu.seatNumber}號 ${stu.name}` : f.submissionId.slice(0, 8)
+      return `${label}：${f.failure.userMessage} ${f.failure.userAction}`
+    })
     setBatchPhaseAEntries([])
+    setPendingPhaseAFailures([])
     setGradingPhase('idle')
     setIsGrading(false)
     setGradingProgress({ current: 0, total: 0 })
     setGradeResultNotice({
       stopped: false,
       successCount: total,
-      failCount: 0,
-      totalCount: total,
-      failReasons: [],
+      failCount: upstreamFails.length,
+      totalCount: total + upstreamFails.length,
+      failReasons: upstreamFailReasons,
       failedEntries: [],
     })
     setPhaseBScoredCount(0)
@@ -2692,6 +2715,8 @@ export default function GradingPage({
       // OCR-assist 已直接消除 classify drift、median 是它上線前的補救手段、現在用不到
       setGradingMessage('讀取答案中…')
       const entries: BatchPhaseAEntry[] = []
+      // Phase A pipeline 失敗（classify/read/arbiter retry 後仍 FAIL）— 不進 entries、不進 Phase B
+      const phaseAFailures: Array<{ submissionId: string; studentId: string; failure: PipelineFailure }> = []
       let completedA = 0
 
       await runWithConcurrency(
@@ -2722,6 +2747,30 @@ export default function GradingPage({
             return
           }
           const { sub, phaseAResult } = result
+
+          // ── Phase A 失敗：classify/read/arbiter retry 後仍 FAIL ──
+          // 不進 entries、不送 Phase B、寫 grading_failed 到 DB、留訊息給最終 dialog
+          if (phaseAResult.pipelineFailure) {
+            const failure = phaseAResult.pipelineFailure
+            phaseAFailures.push({ submissionId: sub.id, studentId: sub.studentId, failure })
+            const failureGradingResult = { pipelineFailure: failure } as unknown as import('@/lib/db').GradingResult
+            void db.submissions.update(sub.id, {
+              status: 'grading_failed',
+              gradingResult: failureGradingResult,
+              updatedAt: Date.now(),
+            }).catch(() => {})
+            fetch(buildApiUrl('/api/data/save-grading'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                submissions: [{ id: sub.id, status: 'grading_failed', gradingResult: { pipelineFailure: failure } }],
+              }),
+            }).catch(() => {})
+            console.warn(`[PhaseA] ${sub.id} FAILED at ${failure.stage}: ${failure.reasonCode}`, failure.technical)
+            return
+          }
+
           const student = students.find((s) => s.id === sub.studentId)
           if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
           // 即時統計需審查「題數」
@@ -3019,6 +3068,34 @@ export default function GradingPage({
             (_i, result, err) => {
               if (!result) { if (err) console.error('[QualityCheck] retry failed:', err); return }
               const { idx, phaseAResult } = result
+
+              // 品質重跑時也可能 pipeline FAIL（罕見，但要處理）
+              // 注意：不能 splice entries（會打亂 indicesToRetry 的 idx）；改成保留 phaseAResult 含 pipelineFailure、
+              // 之後組 validEntries 時再 filter 掉
+              if (phaseAResult.pipelineFailure) {
+                const failedEntry = entries[idx]
+                const failure = phaseAResult.pipelineFailure
+                phaseAFailures.push({ submissionId: failedEntry.submissionId, studentId: failedEntry.studentId, failure })
+                const failureGradingResult = { pipelineFailure: failure } as unknown as import('@/lib/db').GradingResult
+                void db.submissions.update(failedEntry.submissionId, {
+                  status: 'grading_failed',
+                  gradingResult: failureGradingResult,
+                  updatedAt: Date.now(),
+                }).catch(() => {})
+                fetch(buildApiUrl('/api/data/save-grading'), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({
+                    submissions: [{ id: failedEntry.submissionId, status: 'grading_failed', gradingResult: { pipelineFailure: failure } }],
+                  }),
+                }).catch(() => {})
+                // 標記這個 entry 為失敗（保留 phaseAResult，含 pipelineFailure），之後 filter
+                entries[idx] = { ...failedEntry, phaseAResult }
+                console.warn(`[PhaseA-retry] ${failedEntry.submissionId} FAILED at ${failure.stage}: ${failure.reasonCode}`)
+                return
+              }
+
               const decisions = new Map<string, ConsistencyDecision>()
               for (const qr of phaseAResult.questionResults) {
                 const arbiter = qr.arbiterResult
@@ -3063,12 +3140,15 @@ export default function GradingPage({
         }
         setPostRetryWarnings(phaseAQualityFails)
 
-        // 從批次中移除品質失敗的 submissions（它們會在 Phase B 結果中顯示為失敗）
+        // 從批次中移除品質失敗 + Phase A pipeline 失敗的 submissions
         const qualityFailIds = new Set(phaseAQualityFails.map((f) => f.submissionId))
-        const validEntries = qualityFailIds.size > 0
-          ? entries.filter((e) => !qualityFailIds.has(e.submissionId))
+        const phaseAFailureIds = new Set(phaseAFailures.map((f) => f.submissionId))
+        const excludeIds = new Set([...qualityFailIds, ...phaseAFailureIds])
+        const validEntries = excludeIds.size > 0
+          ? entries.filter((e) => !excludeIds.has(e.submissionId) && !e.phaseAResult.pipelineFailure)
           : entries
         setBatchPhaseAEntries(validEntries)
+        setPendingPhaseAFailures(phaseAFailures)
 
         // ── 穩定學生立刻送 Accessor（背景） ──
         const isNeedsReview = (e: BatchPhaseAEntry) =>
@@ -3081,7 +3161,7 @@ export default function GradingPage({
         if (reviewEntries.length === 0) {
           // 全部穩定，不需審查 → 前台跑全部 Accessor
           console.log('✅ 全部穩定，直接進入 Phase B')
-          void executeBatchPhaseB(validEntries)
+          void executeBatchPhaseB(validEntries, false, phaseAFailures)
         } else {
           // 穩定學生背景先跑 Accessor
           backgroundPhaseBPromises.current = []

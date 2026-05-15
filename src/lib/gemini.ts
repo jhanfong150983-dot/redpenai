@@ -244,8 +244,17 @@ export interface PhaseAContext {
   stagedLogLevel?: string
 }
 
+export interface PipelineFailure {
+  stage: 'classify' | 'read' | 'arbiter'
+  reasonCode: string
+  userMessage: string   // 老師看的中文說明
+  userAction: string    // 建議的處置方式
+  technical?: { warnings?: string[]; metrics?: Record<string, unknown> }  // 收合給工程師看
+}
+
 export interface PhaseAResult {
-  phaseAComplete: true
+  phaseAComplete: boolean
+  pipelineFailure?: PipelineFailure  // 設定時表示 Phase A 失敗、不可進 Phase B
   questionResults: PhaseAQuestionResult[]
   stableCount: number
   diffCount: number

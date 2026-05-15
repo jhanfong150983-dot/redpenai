@@ -371,7 +371,7 @@ export interface AnswerKeyTemplate {
   updatedAt?: number
 }
 
-export type SubmissionStatus = 'missing' | 'scanned' | 'synced' | 'graded'
+export type SubmissionStatus = 'missing' | 'scanned' | 'synced' | 'graded' | 'grading_failed'
 
 /**
  * 每題批改細節
@@ -451,6 +451,18 @@ export interface GradingResult {
   // 老師手動點過「標記已複核」後設 true，讓 isSubmissionNeedsReview 直接 short-circuit 回 false，
   // 避免 details 中仍有 studentAnswer='未作答' 導致警告框繼續顯示
   manuallyReviewed?: boolean
+}
+
+// Phase A pipeline 失敗：classify / read / arbiter 階段 retry 後仍 FAIL、整份未批改。
+// 寫進 submissions.grading_result（不走 GradingResult shape — 沒有 score / mistakes / details）。
+export interface PipelineFailureResult {
+  pipelineFailure: {
+    stage: 'classify' | 'read' | 'arbiter'
+    reasonCode: string
+    userMessage: string
+    userAction: string
+    technical?: { warnings?: string[]; metrics?: Record<string, unknown> }
+  }
 }
 
 export interface AnswerExtractionCorrection {
