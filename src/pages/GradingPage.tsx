@@ -651,30 +651,48 @@ function GradingPipelineOverlay({
           <PipelineStage index={3} label="AI批改評分" sublabel={bLabel} status={stageB} />
         </div>
 
-        {/* 人工審查提醒（Phase A 執行中且已有需審查題目） */}
-        {isPhaseA && phaseANeedsReviewCount > 0 && (() => {
-          const count = phaseANeedsReviewCount
-          const level = count >= 20 ? 'high' : count >= 5 ? 'medium' : 'low'
-          const colors = {
-            low:    { bg: '#fffbeb', border: '#fcd34d', title: '#92400e', sub: '#b45309' },
-            medium: { bg: '#fff7ed', border: '#fb923c', title: '#c2410c', sub: '#ea580c' },
-            high:   { bg: '#fef2f2', border: '#f87171', title: '#991b1b', sub: '#dc2626' },
+        {/* 人工審查提醒（Phase A 執行中且已有需審查題目）
+            用「AI 自動處理率」正向敘事、級別依比例而非絕對數、避免大班大量題目時嚇到老師 */}
+        {isPhaseA && phaseANeedsReviewCount > 0 && phaseATotalQuestionCount > 0 && (() => {
+          const reviewCount = phaseANeedsReviewCount
+          const total = phaseATotalQuestionCount
+          const autoCount = Math.max(0, total - reviewCount)
+          const reviewRatio = reviewCount / total
+          const autoPercent = (autoCount / total * 100).toFixed(1)
+
+          let level: 'excellent' | 'normal' | 'attention' | 'concerning' | 'critical'
+          if (reviewRatio < 0.05) level = 'excellent'
+          else if (reviewRatio < 0.15) level = 'normal'
+          else if (reviewRatio < 0.30) level = 'attention'
+          else if (reviewRatio < 0.60) level = 'concerning'
+          else level = 'critical'
+
+          const palette = {
+            excellent:  { bg: '#f0fdf4', border: '#86efac', title: '#166534', sub: '#16a34a', icon: '🎯' },
+            normal:     { bg: '#eff6ff', border: '#93c5fd', title: '#1e40af', sub: '#2563eb', icon: '✅' },
+            attention:  { bg: '#fffbeb', border: '#fcd34d', title: '#92400e', sub: '#b45309', icon: '👀' },
+            concerning: { bg: '#fff7ed', border: '#fb923c', title: '#c2410c', sub: '#ea580c', icon: '⚠️' },
+            critical:   { bg: '#fef2f2', border: '#f87171', title: '#991b1b', sub: '#dc2626', icon: '🛑' },
           }[level]
-          const tips = {
-            low:    '擷取完成後請回來確認答案，再開始 AI 批改',
-            medium: '數量偏多，建議提醒學生書寫工整以減少人工審查喔～',
-            high:   '數量較多！強烈建議要求學生字跡工整，可大幅減少人工審查 ><',
+
+          const tip = {
+            excellent:  '完成後請來確認少數題目、即可開始批改',
+            normal:     '完成後請來確認、再開始批改',
+            attention:  '字跡稍多較難辨識、完成後請確認',
+            concerning: '字跡偏難辨識、或可提醒學生書寫工整',
+            critical:   '需審查比例過高、建議檢查掃描品質或答題卡狀態',
           }[level]
+
           return (
             <div style={{
-              background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: '0.75rem',
+              background: palette.bg, border: `1px solid ${palette.border}`, borderRadius: '0.75rem',
               padding: '0.6rem 1rem', textAlign: 'center', width: '100%',
             }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, color: colors.title }}>
-                ⚠️ 已發現 {count} 題需要人工審查
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: palette.title }}>
+                {palette.icon} AI 已自動處理 {autoCount.toLocaleString()} 題（{autoPercent}%）
               </div>
-              <div style={{ fontSize: '0.72rem', color: colors.sub, marginTop: '0.2rem' }}>
-                {tips}
+              <div style={{ fontSize: '0.78rem', color: palette.sub, marginTop: '0.25rem' }}>
+                剩 {reviewCount.toLocaleString()} 題需老師確認 · {tip}
               </div>
             </div>
           )
