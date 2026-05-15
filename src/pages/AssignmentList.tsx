@@ -24,7 +24,7 @@ import AssignmentFormModal, { type AssignmentFormData } from '@/components/Assig
 import { db, generateId, getBucket, QUESTION_CATEGORY_LABELS } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
-import { checkFolderNameUnique } from '@/lib/utils'
+import { checkFolderNameUnique, sortByDomainThenName } from '@/lib/utils'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import type {
   AnswerKey,
@@ -344,7 +344,7 @@ export default function AssignmentList({
   }, [assignments])
 
   const crossClassTemplateOptions = useMemo(() => {
-    return allTemplates
+    const items = allTemplates
       .filter((t) => crossClassTemplates.has(t.id))
       .map((t) => ({
         id: t.id,
@@ -352,7 +352,8 @@ export default function AssignmentList({
         domain: t.domain,
         classCount: crossClassTemplates.get(t.id)?.length ?? 0
       }))
-      .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+    // 按領域排序（國→數→社→自→英→其他）、同領域內按名稱
+    return sortByDomainThenName(items)
   }, [allTemplates, crossClassTemplates])
 
   const crossClassAssignments = useMemo(() => {

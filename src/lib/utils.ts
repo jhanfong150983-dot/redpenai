@@ -12,6 +12,22 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
+ * 領域排序：國語、數學、社會、自然、英語、其他
+ * 共用於 AnswerBank、AssignmentList 等所有需顯示答案卷 / 作業排序的地方
+ */
+export const DOMAIN_SORT_ORDER = ['國語', '數學', '社會', '自然', '英語', '其他']
+export const domainRank = (d?: string): number => {
+  const idx = DOMAIN_SORT_ORDER.indexOf(d || '其他')
+  return idx === -1 ? DOMAIN_SORT_ORDER.length : idx
+}
+export const sortByDomainThenName = <T extends { domain?: string; name: string }>(items: T[]): T[] =>
+  [...items].sort((a, b) => {
+    const da = domainRank(a.domain || '其他'), db = domainRank(b.domain || '其他')
+    if (da !== db) return da - db
+    return a.name.localeCompare(b.name, 'zh-Hant')
+  })
+
+/**
  * 检测是否为 Safari 浏览器
  */
 function isSafari(): boolean {

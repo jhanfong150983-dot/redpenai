@@ -11,7 +11,7 @@ import { requestSync } from '@/lib/sync-events'
 import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages } from '@/lib/gemini'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
-import { checkFolderNameUnique } from '@/lib/utils'
+import { checkFolderNameUnique, domainRank, sortByDomainThenName } from '@/lib/utils'
 import AnswerKeyUnifiedModal from '@/components/AnswerKeyUnifiedModal'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -50,19 +50,6 @@ const DOMAIN_COLORS: Record<string, string> = {
   '自然': 'bg-teal-100 text-teal-700',
   '其他': 'bg-gray-100 text-gray-600',
 }
-
-// 領域排序：國、數、社、自、英、其他
-const DOMAIN_SORT_ORDER = ['國語', '數學', '社會', '自然', '英語', '其他']
-const domainRank = (d?: string): number => {
-  const idx = DOMAIN_SORT_ORDER.indexOf(d || '其他')
-  return idx === -1 ? DOMAIN_SORT_ORDER.length : idx
-}
-const sortByDomainThenName = <T extends { domain?: string; name: string }>(items: T[]): T[] =>
-  [...items].sort((a, b) => {
-    const da = domainRank(a.domain || '其他'), db = domainRank(b.domain || '其他')
-    if (da !== db) return da - db
-    return a.name.localeCompare(b.name, 'zh-Hant')
-  })
 
 function DomainBadge({ domain }: { domain: string }) {
   const cls = DOMAIN_COLORS[domain] || DOMAIN_COLORS['其他']
