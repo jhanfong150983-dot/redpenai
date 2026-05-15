@@ -346,12 +346,19 @@ export default function AssignmentList({
   const crossClassTemplateOptions = useMemo(() => {
     const items = allTemplates
       .filter((t) => crossClassTemplates.has(t.id))
-      .map((t) => ({
-        id: t.id,
-        name: t.name,
-        domain: t.domain,
-        classCount: crossClassTemplates.get(t.id)?.length ?? 0
-      }))
+      .map((t) => {
+        // 算 distinct 班級數（同班多份作業只算 1 班）、不要算作業數
+        const assignmentsUsingTemplate = crossClassTemplates.get(t.id) ?? []
+        const distinctClassroomIds = new Set(assignmentsUsingTemplate.map((a) => a.classroomId))
+        return {
+          id: t.id,
+          name: t.name,
+          domain: t.domain,
+          classCount: distinctClassroomIds.size,
+        }
+      })
+      // 跨班級模式才有意義：只顯示被 ≥ 2 個不同班級共用的答案卷
+      .filter((t) => t.classCount >= 2)
     // 按領域排序（國→數→社→自→英→其他）、同領域內按名稱
     return sortByDomainThenName(items)
   }, [allTemplates, crossClassTemplates])
