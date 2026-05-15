@@ -63,10 +63,31 @@ Or if no paper at all:
 null`
 
 /**
- * 送圖片給 Gemini，偵測答案卷紙張的四個角。
- * 回傳 null 表示偵測失敗（找不到紙張邊界）。
+ * detectDocumentCorners 失敗原因，給上層（photoValidation）做差異化錯誤訊息用。
+ * - insufficient_ink: HTTP 402，學生額度不足，AI 根本沒被呼叫
+ * - http_error: 其他 HTTP 失敗（5xx / 4xx）
+ * - network_error: fetch / base64 等 JS 例外
+ * - invalid_format: AI 回的 JSON 解析失敗、空回應、或 validateCorners 拒絕
+ * - no_paper: AI 明確回 `null`（畫面真的沒有紙張）
  */
-export async function detectDocumentCorners(imageBlob: Blob): Promise<DocumentCorners | null> {
+export type DetectCornersFailReason =
+  | 'insufficient_ink'
+  | 'http_error'
+  | 'network_error'
+  | 'invalid_format'
+  | 'no_paper'
+
+export interface DetectCornersResult {
+  corners: DocumentCorners | null
+  reason?: DetectCornersFailReason
+  httpStatus?: number
+}
+
+/**
+ * 送圖片給 Gemini，偵測答案卷紙張的四個角。
+ * corners === null 表示偵測失敗，reason 標示是哪一條失敗路徑。
+ */
+export async function detectDocumentCorners(imageBlob: Blob): Promise<DetectCornersResult> {
   try {
     const base64 = await blobToBase64Simple(imageBlob)
     const mimeType = imageBlob.type || 'image/jpeg'
@@ -117,35 +138,42 @@ export async function detectDocumentCorners(imageBlob: Blob): Promise<DocumentCo
       }
     }
 
+    // HTTP 402 = 額度不足，proxy 在送進 AI 前就擋住（proxy.js:578-584）
+    // 拆出來獨立處理，讓上層能顯示「請聯絡老師補充額度」而不是誤導學生「重拍」
+    if (response.status === 402) {
+      console.warn(`[perspectiveCorrection] detectCorners: insufficient ink (HTTP 402)`)
+      return { corners: null, reason: 'insufficient_ink', httpStatus: 402 }
+    }
+
     if (!response.ok) {
       console.warn(`[perspectiveCorrection] detectCorners failed: HTTP ${response.status}`)
-      return null
+      return { corners: null, reason: 'http_error', httpStatus: response.status }
     }
 
     const data = await response.json()
     const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text
     if (!text) {
       console.warn('[perspectiveCorrection] detectCorners: empty response')
-      return null
+      return { corners: null, reason: 'invalid_format' }
     }
 
     // 清理 JSON（移除 markdown code block 標記）
     const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
-    if (cleaned === 'null') return null
+    if (cleaned === 'null') return { corners: null, reason: 'no_paper' }
 
     const corners: DocumentCorners = JSON.parse(cleaned)
 
     // 驗證座標合理性
     if (!validateCorners(corners)) {
       console.warn('[perspectiveCorrection] detectCorners: invalid corner coordinates', corners)
-      return null
+      return { corners: null, reason: 'invalid_format' }
     }
 
     console.log(`📐 [perspectiveCorrection] corners detected: TL=(${corners.topLeft.x.toFixed(3)},${corners.topLeft.y.toFixed(3)}) BR=(${corners.bottomRight.x.toFixed(3)},${corners.bottomRight.y.toFixed(3)})`)
-    return corners
+    return { corners }
   } catch (err) {
     console.warn('[perspectiveCorrection] detectCorners error:', err)
-    return null
+    return { corners: null, reason: 'network_error' }
   }
 }
 

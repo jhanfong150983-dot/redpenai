@@ -4,7 +4,8 @@
  * 學生端拍照後的批次驗證 + 透視校正整合層。
  *
  * 5 項檢查：
- *   1. 四角偵測成功（detectDocumentCorners 回傳非 null）
+ *   1. 四角偵測成功（detectDocumentCorners 回 corners 非 null；額度不足 / 服務錯誤
+ *      會走獨立的 insufficient_ink / service_unavailable error type，不誤報成 no_corners）
  *   2. 紙張未被相機畫面切到（無角落座標 = 0 或 1）
  *   3. 四角在引導框內（容許溢出 FRAME_TOLERANCE）
  *   4. 紙張面積佔比 ≥ MIN_PAPER_AREA_RATIO
@@ -17,6 +18,7 @@ import {
   detectDocumentCorners,
   cropToCornersBounds,
   type DocumentCorners,
+  type DetectCornersFailReason,
 } from './perspectiveCorrection'
 import { computePerceptualHash, hammingDistance } from './perceptualHash'
 import {
@@ -31,12 +33,14 @@ import {
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type ValidationErrorType =
-  | 'no_corners'        // AI 偵測不到紙張四角
-  | 'cropped_by_camera' // 紙張被相機畫面切到（任一角座標 = 0 或 1）
-  | 'out_of_frame'      // 四角超出引導框（在相機內但偏離框線）
-  | 'too_small'         // 紙張在畫面中佔比太低（拍太遠）
-  | 'duplicate'         // 與其他頁照片重複
-  | 'low_resolution'    // 校正後 worksheet 區域寬度低於閾值（拍太遠 / 鏡頭差 / 已壓縮過）
+  | 'no_corners'           // AI 偵測不到紙張四角（畫面真的沒紙、或 AI 回的座標不合法）
+  | 'cropped_by_camera'    // 紙張被相機畫面切到（任一角座標 = 0 或 1）
+  | 'out_of_frame'         // 四角超出引導框（在相機內但偏離框線）
+  | 'too_small'            // 紙張在畫面中佔比太低（拍太遠）
+  | 'duplicate'            // 與其他頁照片重複
+  | 'low_resolution'       // 校正後 worksheet 區域寬度低於閾值（拍太遠 / 鏡頭差 / 已壓縮過）
+  | 'insufficient_ink'     // 學生 / 老師額度用完，proxy 回 HTTP 402，AI 沒被呼叫
+  | 'service_unavailable'  // 拍照檢查服務暫時無法使用（其他 HTTP 錯誤、網路錯誤）
 
 export type ValidationWarningType =
   | 'low_resolution_warn'  // 校正後寬度在 warn 區間：允許上傳但 UI 提示可重拍取得更佳識別
@@ -183,10 +187,10 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
   }
 
   // 平行跑 corner detection + hash
-  const [corners, hash] = await Promise.all([
-    detectDocumentCorners(page.blob).catch((err) => {
+  const [detectResult, hash] = await Promise.all([
+    detectDocumentCorners(page.blob).catch((err): { corners: DocumentCorners | null; reason: DetectCornersFailReason } => {
       console.warn(`[photoValidation] detect corners failed for page ${index + 1}:`, err)
-      return null
+      return { corners: null, reason: 'network_error' }
     }),
     computePerceptualHash(page.blob).catch((err) => {
       console.warn(`[photoValidation] hash failed for page ${index + 1}:`, err)
@@ -195,12 +199,10 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
   ])
 
   const errors: ValidationError[] = []
+  const corners = detectResult.corners
 
   if (!corners) {
-    errors.push({
-      type: 'no_corners',
-      message: '找不到作業紙張的邊。請把作業攤平放在乾淨的桌面上，移到光線比較亮的地方再拍一次。',
-    })
+    errors.push(buildDetectFailureError(detectResult.reason))
     return { errors, corners: null, hash, correctedBlob: null }
   }
 
@@ -233,6 +235,37 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
   }
 
   return { errors, corners, hash, correctedBlob: null }
+}
+
+// ─── Detect failure → user-facing error mapping ────────────────────────────
+
+/**
+ * 把 detectDocumentCorners 的失敗 reason 對映成學生看得懂的錯誤訊息。
+ *
+ * 重點：HTTP 402（額度不足）絕對不能誤報成「找不到作業紙張的邊」，否則學生會
+ * 不停重拍永遠不會過。這個函數就是為了根治那條 UX bug 拆出來的。
+ */
+function buildDetectFailureError(reason: DetectCornersFailReason | undefined): ValidationError {
+  switch (reason) {
+    case 'insufficient_ink':
+      return {
+        type: 'insufficient_ink',
+        message: '帳號額度已用完，這頁無法檢查與上傳。請聯絡老師補充額度後再試。',
+      }
+    case 'http_error':
+    case 'network_error':
+      return {
+        type: 'service_unavailable',
+        message: '拍照檢查服務暫時無法使用，請確認網路後再試。如持續無法使用請聯絡老師。',
+      }
+    case 'no_paper':
+    case 'invalid_format':
+    default:
+      return {
+        type: 'no_corners',
+        message: '找不到作業紙張的邊。請把作業攤平放在乾淨的桌面上，移到光線比較亮的地方再拍一次。',
+      }
+  }
 }
 
 // ─── Width measurement ─────────────────────────────────────────────────────
