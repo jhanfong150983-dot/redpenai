@@ -1154,14 +1154,6 @@ export function useSync(options: UseSyncOptions = {}) {
           (a as { grade_weight_percent?: unknown }).grade_weight_percent
         const cloudGradeWeightPercent = toNumber(cloudGradeWeightPercentRaw)
 
-        // 如果雲端有資料，使用雲端的；否則保留本地的
-        const finalFolder = cloudFolder !== undefined ? cloudFolder : localData?.folder
-        const finalScoringMode = cloudScoringMode ?? localData?.scoringMode
-        const finalGradeWeightPercent =
-          cloudGradeWeightPercent !== undefined
-            ? cloudGradeWeightPercent
-            : localData?.gradeWeightPercent
-
         const cloudUpdatedAt = toMillis(
           (a as Assignment & { updatedAt?: unknown }).updatedAt ??
             (a as { updated_at?: unknown }).updated_at
@@ -1169,6 +1161,16 @@ export function useSync(options: UseSyncOptions = {}) {
         const localUpdatedAt = localData?.updatedAt
         // 若本地資料比雲端新或相同（保險起見用 >=，避免時間相等時誤判 local 為舊）
         const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt >= cloudUpdatedAt)
+
+        // 如果雲端有資料，使用雲端的；否則保留本地的
+        // 但 localIsNewer 時優先用 local（解 drag-drop 移到資料夾期間 sync pull 把 folder 蓋回的 bug）
+        const finalFolder = localIsNewer
+          ? localData?.folder
+          : (cloudFolder !== undefined ? cloudFolder : localData?.folder)
+        const finalScoringMode = localIsNewer ? localData?.scoringMode : (cloudScoringMode ?? localData?.scoringMode)
+        const finalGradeWeightPercent = localIsNewer
+          ? localData?.gradeWeightPercent
+          : (cloudGradeWeightPercent !== undefined ? cloudGradeWeightPercent : localData?.gradeWeightPercent)
 
         const cloudConceptTags = (a as Assignment & { conceptTags?: unknown }).conceptTags ?? (a as { concept_tags?: unknown }).concept_tags
         return {
@@ -1277,43 +1279,68 @@ export function useSync(options: UseSyncOptions = {}) {
         }
       })
 
+    // Folders: 加 localIsNewer 保護（解 folder rename 期間 sync 蓋回的 race）
+    // 重用 existingFolders（line 1131 已 query）
+    const localFolderRecordMap = new Map(existingFolders.map((f) => [f.id, f]))
     const normalizedFolders = folders
       .filter((f: any) => f?.id && f?.name && !deletedFolderSet.has(f.id))
-      .map((f: any) => ({
-        id: f.id,
-        name: f.name,
-        type: f.type,
-        classroomId:
-          f.classroomId ??
-          f.classroom_id ??
-          localFolderClassroomMap.get(f.id) ??
-          undefined,
-        updatedAt: toMillis(
+      .map((f: any) => {
+        const localData = localFolderRecordMap.get(f.id)
+        const cloudUpdatedAt = toMillis(
           (f as { updatedAt?: unknown }).updatedAt ??
             (f as { updated_at?: unknown }).updated_at
         )
-      }))
+        const localUpdatedAt = localData?.updatedAt
+        const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt >= cloudUpdatedAt)
+        if (localIsNewer && localData) {
+          return localData
+        }
+        return {
+          id: f.id,
+          name: f.name,
+          type: f.type,
+          classroomId:
+            f.classroomId ??
+            f.classroom_id ??
+            localFolderClassroomMap.get(f.id) ??
+            undefined,
+          updatedAt: cloudUpdatedAt,
+        }
+      })
 
     // Normalize answer key templates from pull
+    // localIsNewer 保護：drag-drop 期間 sync pull 不要把本地剛改的 folder 蓋回
+    const existingTemplates = await db.answerKeyTemplates.toArray()
+    const localTemplateMap = new Map(existingTemplates.map((t) => [t.id, t]))
     const normalizedTemplates = answerKeyTemplatesData
       .filter((t: any) => t?.id && t?.answerKey)
-      .map((t: any) => ({
-        id: t.id,
-        name: t.name ?? '',
-        domain: t.domain ?? undefined,
-        docType: t.docType ?? t.doc_type ?? undefined,
-        folder: t.folder ?? undefined,
-        answerKey: t.answerKey ?? t.answer_key,
-        questionCount: t.questionCount ?? t.question_count ?? t.answerKey?.questions?.length ?? 0,
-        totalScore: t.totalScore ?? t.total_score ?? t.answerKey?.totalScore ?? 0,
-        shareCode: t.shareCode ?? t.share_code ?? undefined,
-        pageOrientations: t.pageOrientations ?? t.page_orientations ?? undefined,
-        answerSheetMode: t.answerSheetMode ?? t.answer_sheet_mode ?? undefined,
-        answerSheetImagePaths: t.answerSheetImagePaths ?? t.answer_sheet_image_paths ?? undefined,
-        questionBookletImagePaths: t.questionBookletImagePaths ?? t.question_booklet_image_paths ?? undefined,
-        version: t.version ?? 1,
-        updatedAt: toMillis(t.updatedAt ?? t.updated_at),
-      }))
+      .map((t: any) => {
+        const localData = localTemplateMap.get(t.id)
+        const cloudUpdatedAt = toMillis(t.updatedAt ?? t.updated_at)
+        const localUpdatedAt = localData?.updatedAt
+        const localIsNewer = !!(localUpdatedAt && cloudUpdatedAt && localUpdatedAt >= cloudUpdatedAt)
+        // localIsNewer：local 比 cloud 新（含等於）→ 整筆 keep local、避免 sync pull 蓋
+        if (localIsNewer && localData) {
+          return localData
+        }
+        return {
+          id: t.id,
+          name: t.name ?? '',
+          domain: t.domain ?? undefined,
+          docType: t.docType ?? t.doc_type ?? undefined,
+          folder: t.folder ?? undefined,
+          answerKey: t.answerKey ?? t.answer_key,
+          questionCount: t.questionCount ?? t.question_count ?? t.answerKey?.questions?.length ?? 0,
+          totalScore: t.totalScore ?? t.total_score ?? t.answerKey?.totalScore ?? 0,
+          shareCode: t.shareCode ?? t.share_code ?? undefined,
+          pageOrientations: t.pageOrientations ?? t.page_orientations ?? undefined,
+          answerSheetMode: t.answerSheetMode ?? t.answer_sheet_mode ?? undefined,
+          answerSheetImagePaths: t.answerSheetImagePaths ?? t.answer_sheet_image_paths ?? undefined,
+          questionBookletImagePaths: t.questionBookletImagePaths ?? t.question_booklet_image_paths ?? undefined,
+          version: t.version ?? 1,
+          updatedAt: cloudUpdatedAt,
+        }
+      })
 
     if (deletedClassroomIds.length > 0) {
       // 防禦性級聯：清理被刪班級的所有子實體
