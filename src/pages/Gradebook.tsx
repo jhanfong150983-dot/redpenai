@@ -724,6 +724,16 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
       updatedAt: now
     })
     setRestorePortal(null)
+    // Push 還原狀態到 server。沒這支 API call 的話、server 還是 manual 分數、
+    // 下次 sync pull 會把本地剛還原的覆蓋回去（user 反映「還原無效」即此 bug）。
+    fetch('/api/data/save-grading', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        submissions: [{ id: submissionId, score: aiScore, scoreSource: 'ai', gradedAt: now }]
+      })
+    }).catch(() => {})
     requestSync()
   }
 
