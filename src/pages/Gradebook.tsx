@@ -4,7 +4,7 @@ import { AlertTriangle, Download, Info, Plus, RotateCcw, X } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
-import { requestSync, SYNC_COMPLETE_EVENT_NAME, waitForSync } from '@/lib/sync-events'
+import { requestSync, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
 import type {
   Assignment,
@@ -105,11 +105,15 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   const [loadKey, setLoadKey] = useState(0)
   const hasPushedScoresRef = useRef(false)
 
-  // sync 完成後重新載入資料
+  // 只在「分頁切回前景」時 refetch（不在 sync 完成時 refetch、避免老師操作時被 API call 打斷）
+  // 原本：每次 sync 完成都 +loadKey → /api/data/get-gradebook-scores 被頻繁呼叫、覆蓋老師本地狀態
+  // 現在：老師在頁面內操作不被打斷；只當切到別頁回來時、才同步一次伺服器最新分數
   useEffect(() => {
-    const handler = () => setLoadKey((k) => k + 1)
-    window.addEventListener(SYNC_COMPLETE_EVENT_NAME, handler)
-    return () => window.removeEventListener(SYNC_COMPLETE_EVENT_NAME, handler)
+    const handler = () => {
+      if (document.visibilityState === 'visible') setLoadKey((k) => k + 1)
+    }
+    document.addEventListener('visibilitychange', handler)
+    return () => document.removeEventListener('visibilitychange', handler)
   }, [])
 
   const hasClassrooms = classrooms.length > 0
