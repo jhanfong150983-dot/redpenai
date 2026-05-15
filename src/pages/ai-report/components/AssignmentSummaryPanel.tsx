@@ -178,6 +178,28 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry, isStale
           <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
             {data.sample_count} 份作業
           </span>
+          {/* 隨時可手動重新生成、用於更換 prompt / 模型 / 上傳新題本後重跑 */}
+          {onRetry && !isStale && (
+            <button
+              onClick={() => {
+                if (window.confirm('確定要重新生成這份學情摘要？')) onRetry()
+              }}
+              style={{
+                marginLeft: 'auto',
+                padding: '0.2rem 0.6rem',
+                background: 'transparent',
+                color: '#6b7280',
+                border: '1px solid #d1d5db',
+                borderRadius: '0.35rem',
+                fontSize: '0.72rem',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+              title="重新生成這份學情摘要"
+            >
+              ↻ 重新生成
+            </button>
+          )}
         </div>
         <p style={{ fontSize: '0.875rem', lineHeight: 1.7, margin: 0, color: '#1f2937' }}>
           {data.class_summary || '無全班共同錯誤。'}
