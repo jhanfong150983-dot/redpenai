@@ -1446,7 +1446,31 @@ export default function GradingPage({
     upstreamPhaseAFailures?: Array<{ submissionId: string; studentId: string; failure: PipelineFailure }>
   ) => {
     const entries = entriesToProcess ?? batchPhaseAEntries
-    if (entries.length === 0) return
+    if (entries.length === 0) {
+      // 🆕 全部 Phase A 失敗時 entries=[]、之前直接 return 導致 spinner 永遠卡住
+      // 改成：有 upstream failures 時、不是 background、清 spinner 並彈失敗 dialog
+      if (!background && upstreamPhaseAFailures && upstreamPhaseAFailures.length > 0) {
+        const failReasons = upstreamPhaseAFailures.map((f) => {
+          const stu = students.find((s) => s.id === f.studentId)
+          const label = stu ? `${stu.seatNumber}號 ${stu.name}` : f.submissionId.slice(0, 8)
+          return `${label}：${f.failure.userMessage} ${f.failure.userAction}`
+        })
+        setBatchPhaseAEntries([])
+        setPendingPhaseAFailures([])
+        setGradingPhase('idle')
+        setIsGrading(false)
+        setGradingProgress({ current: 0, total: 0 })
+        setGradeResultNotice({
+          stopped: false,
+          successCount: 0,
+          failCount: upstreamPhaseAFailures.length,
+          totalCount: upstreamPhaseAFailures.length,
+          failReasons,
+          failedEntries: [],
+        })
+      }
+      return
+    }
 
     if (!background) {
       setGradingPhase('phase_b_running')
