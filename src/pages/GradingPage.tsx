@@ -2603,7 +2603,8 @@ export default function GradingPage({
     Boolean(submission.imageUrl) ||
     Boolean(submission.thumbUrl) ||
     submission.status === 'synced' ||
-    submission.status === 'graded'
+    submission.status === 'graded' ||
+    submission.status === 'grading_failed'
 
   const toggleSubmissionSelection = (submissionId: string) => {
     setSelectedSubmissionIds((prev) => {
@@ -4249,8 +4250,16 @@ export default function GradingPage({
                         已上傳
                       </div>
                     )}
+                    {status === 'grading_failed' && (
+                      <div
+                        className="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded-full text-xs font-semibold shadow"
+                        title="上次批改失敗、可勾選後重新批改"
+                      >
+                        批改失敗
+                      </div>
+                    )}
 
-                    {(status === 'graded' || status === 'synced' || status === 'scanned') &&
+                    {(status === 'graded' || status === 'synced' || status === 'scanned' || status === 'grading_failed') &&
                       submission && (
                         <>
                           <div
