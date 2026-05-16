@@ -2593,10 +2593,17 @@ export default function GradingPage({
     }
   }
 
+  // checkbox 出現條件：本地有圖檔 OR 雲端有圖（status synced/graded、即 server 已存）
+  // 之前只認本地、結果跨裝置 / 重新登入後 Blob/Base64 都沒、但 imageUrl 也沒填、
+  // 即使 status=synced（伺服器有圖）也看不到 checkbox。
+  // 實際批改流程 needPrepare 會自動下載、不用本地有圖也能批。
   const hasSubmissionImage = (submission: Submission) =>
     Boolean(submission.imageBase64) ||
     (submission.imageBlob?.size ?? 0) > 0 ||
-    Boolean(submission.imageUrl)
+    Boolean(submission.imageUrl) ||
+    Boolean(submission.thumbUrl) ||
+    submission.status === 'synced' ||
+    submission.status === 'graded'
 
   const toggleSubmissionSelection = (submissionId: string) => {
     setSelectedSubmissionIds((prev) => {
