@@ -5286,24 +5286,36 @@ export async function gradePhaseA(
     })
   }
 
+  // 500 不一定是 server 錯、可能是 pipelineFailure（quality gate 主動拒絕、body 仍有合法 response）
+  // 必須先 parse body、看到 pipelineFailure 直接回給上層處理（GradingPage.tsx:2840 handler）、
+  // 不要 throw、否則前端 spinner 永遠不結束。
+  const data = await response.json().catch(() => null) as Record<string, unknown> | null
+
+  if (typeof (data as any)?.ink?.balanceAfter === 'number' && Number.isFinite((data as any).ink.balanceAfter)) {
+    dispatchInkBalance((data as any).ink.balanceAfter)
+  }
+
+  // 嘗試從 candidates[0].content.parts[0].text 解析 pipelineFailure（500 也可能有）
+  const text = (data as any)?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
+  if (text) {
+    try {
+      const parsed = JSON.parse(text) as PhaseAResult & { pipelineFailure?: unknown }
+      if (parsed?.pipelineFailure) {
+        // ⚠️ pipelineFailure 是設計上的失敗訊號、不該 throw、回給上層 surface 失敗訊息
+        console.warn('[gradePhaseA] Phase A pipelineFailure', parsed.pipelineFailure)
+        return parsed as PhaseAResult
+      }
+      if (parsed?.phaseAComplete) return parsed
+    } catch (e) {
+      // JSON 解析失敗、fallthrough 到下方 throw
+    }
+  }
+
   if (!response.ok) {
-    const err = await response.json().catch(() => ({})) as Record<string, unknown>
-    throw new Error((err?.error as string) || `Phase A failed: ${response.status}`)
+    const errMsg = (data as any)?.error as string | undefined
+    throw new Error(errMsg || `Phase A failed: ${response.status}`)
   }
-
-  const data = await response.json()
-
-  if (typeof data?.ink?.balanceAfter === 'number' && Number.isFinite(data.ink.balanceAfter)) {
-    dispatchInkBalance(data.ink.balanceAfter)
-  }
-
-  const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text
-  if (!text) throw new Error('Phase A: empty response text')
-
-  const parsed = JSON.parse(text) as PhaseAResult
-  if (!parsed?.phaseAComplete) throw new Error('Phase A: unexpected response format (phaseAComplete missing)')
-
-  return parsed
+  throw new Error('Phase A: unexpected response format (phaseAComplete missing)')
 }
 
 
