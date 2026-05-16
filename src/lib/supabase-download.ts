@@ -8,18 +8,22 @@
  * @param submissionId - 提交紀錄 ID
  * @returns 圖片 Blob
  */
-export async function downloadImageFromSupabase(submissionId: string): Promise<Blob> {
-  try {
-    const params = new URLSearchParams({ submissionId })
+// 下載 timeout（毫秒）：超時拋 AbortError、避免 server hang 時 spinner 卡無限久
+const DOWNLOAD_TIMEOUT_MS = 60_000
 
+export async function downloadImageFromSupabase(submissionId: string): Promise<Blob> {
+  const params = new URLSearchParams({ submissionId })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS)
+  try {
     const response = await fetch(
       `/api/storage/download?${params.toString()}`,
-      { credentials: 'include' }
+      { credentials: 'include', signal: controller.signal }
     )
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}))
-      throw new Error(data?.error || '下載失敗')
+      throw new Error(data?.error || `下載失敗 (status ${response.status})`)
     }
 
     const blob = await response.blob()
@@ -27,8 +31,16 @@ export async function downloadImageFromSupabase(submissionId: string): Promise<B
 
     return blob
   } catch (error) {
+    // AbortError → 改成更有意義的 timeout 訊息
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      const msg = `下載逾時 (${DOWNLOAD_TIMEOUT_MS / 1000}s)、伺服器無回應`
+      console.error(msg, submissionId)
+      throw new Error(msg)
+    }
     console.error('下載圖片失敗:', error)
     throw error
+  } finally {
+    clearTimeout(timer)
   }
 }
 
