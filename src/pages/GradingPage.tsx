@@ -17,7 +17,6 @@ import {
   Trash2,
   CheckCircle2,
   CheckSquare,
-  Eye,
   ChevronRight,
   ChevronLeft,
   ZoomIn
@@ -4327,7 +4326,7 @@ export default function GradingPage({
       {recaptureConfirm && (
         <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold text-gray-900 mb-3">確認重新截取答案</h3>
+            <h3 className="text-lg font-bold text-gray-900 mb-3">確認截取答案</h3>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
               ⚠️ 以下 {recaptureConfirm.cleared.length} 份作業會被**清空既有的學生答案、批改分數、訂正狀態**。
             </div>
@@ -4361,7 +4360,7 @@ export default function GradingPage({
                 }}
                 className="flex-1 px-4 py-3 bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-colors font-medium"
               >
-                確認重新截取
+                確認截取
               </button>
             </div>
           </div>
@@ -4377,7 +4376,7 @@ export default function GradingPage({
             </h3>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
               {gradeBlockModal.reason === 'needs_extract'
-                ? `以下 ${gradeBlockModal.submissions.length} 份作業還沒擷取答案、無法直接批改。請先按「重新截取答案」。`
+                ? `以下 ${gradeBlockModal.submissions.length} 份作業還沒擷取答案、無法直接批改。請先按「截取答案」。`
                 : `以下 ${gradeBlockModal.submissions.length} 份作業有題目 AI 不確定（待複核）、請進入個別作業補答後再批改。`}
             </div>
             <div className="max-h-60 overflow-y-auto mb-4 border border-gray-100 rounded-lg">
@@ -4576,16 +4575,7 @@ export default function GradingPage({
             </p>
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            {/* 🆕 待複核按鈕 */}
-            {needsReviewCount > 0 && (
-              <button
-                onClick={jumpToNextReview}
-                className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-100"
-              >
-                <Eye className="w-5 h-5" />
-                待複核 {needsReviewCount}
-              </button>
-            )}
+            {/* 2026-05-18: 待複核按鈕拿掉、user 在 PR2 設計討論時決定移除（卡片本身會用顏色標出待複核狀態） */}
             <Button
               variant="outline"
               onClick={handleRefresh}
@@ -4626,8 +4616,8 @@ export default function GradingPage({
             >
               <RefreshCw className="w-5 h-5" />
               {selectedSubmissionCount > 0
-                ? `重新截取 (${selectedSubmissionCount})`
-                : '重新截取答案'}
+                ? `截取答案 (${selectedSubmissionCount})`
+                : '截取答案'}
             </Button>
             <Button
               variant={gradeButtonState.variant === 'primary' ? 'primary' : 'outline'}
