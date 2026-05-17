@@ -687,19 +687,19 @@ function PipelineStage({ index, label, sublabel, status }: PipelineStageProps) {
 export type GradingPipelineMode = 'phase_a_only' | 'phase_b_only' | 'both'
 
 export interface PipelineStageProgress {
-  classify: { done: number; total: number }
-  read: { done: number; total: number }
-  arbiter: { done: number; total: number }
-  accessor: { done: number; total: number }
-  explain: { done: number; total: number }
+  classify: { started: number; done: number; total: number }
+  read: { started: number; done: number; total: number }
+  arbiter: { started: number; done: number; total: number }
+  accessor: { started: number; done: number; total: number }
+  explain: { started: number; done: number; total: number }
 }
 
 export const EMPTY_PIPELINE_STAGE_PROGRESS: PipelineStageProgress = {
-  classify: { done: 0, total: 0 },
-  read: { done: 0, total: 0 },
-  arbiter: { done: 0, total: 0 },
-  accessor: { done: 0, total: 0 },
-  explain: { done: 0, total: 0 },
+  classify: { started: 0, done: 0, total: 0 },
+  read: { started: 0, done: 0, total: 0 },
+  arbiter: { started: 0, done: 0, total: 0 },
+  accessor: { started: 0, done: 0, total: 0 },
+  explain: { started: 0, done: 0, total: 0 },
 }
 
 interface GradingPipelineOverlayProps {
@@ -736,32 +736,27 @@ function GradingPipelineOverlay({
   stopRequested,
   onStop,
 }: GradingPipelineOverlayProps) {
-  // 推導每個 stage 狀態：
+  // 推導每個 stage 狀態（pipeline 是並行的、每份 submission 獨立往下跑）：
   //   inactive — 不在本次 run（mode 不涵蓋）
-  //   done     — done === total 且 total > 0
-  //   active   — 前一個 stage 已完成（或本身是第一個 active stage）、本 stage 尚未完成
-  //   pending  — 前一個 stage 還沒完成
-  const stages = STAGE_ORDER.map((stage, idx): { stage: GradingStageName; status: PipelineStageStatus; sublabel: string } => {
+  //   done     — done === total 且 total > 0（全部完成）
+  //   active   — started > 0 但 done < total（至少一份在跑這個 stage）
+  //   pending  — started === 0（還沒有 submission 跑到這個 stage）
+  const stages = STAGE_ORDER.map((stage): { stage: GradingStageName; status: PipelineStageStatus; sublabel: string } => {
     if (!isStageInMode(stage, mode)) {
       return { stage, status: 'inactive', sublabel: '—' }
     }
-    const { done, total } = stageProgress[stage]
+    const { started, done, total } = stageProgress[stage]
     if (total > 0 && done >= total) {
       return { stage, status: 'done', sublabel: `${done}/${total}` }
     }
-    // 找出本次 mode 中第一個 in-mode 的 stage、之前所有 in-mode stage 是否都完成
-    const prevInMode = STAGE_ORDER.slice(0, idx).filter((s) => isStageInMode(s, mode))
-    const allPrevDone = prevInMode.every((s) => {
-      const p = stageProgress[s]
-      return p.total > 0 && p.done >= p.total
-    })
-    if (allPrevDone) {
+    if (started > 0) {
+      // 有人在跑、有人完成 → 顯示 done/total（active）
       return { stage, status: 'active', sublabel: total > 0 ? `${done}/${total}` : '進行中…' }
     }
     return { stage, status: 'pending', sublabel: total > 0 ? `${done}/${total}` : '等待中' }
   })
 
-  // 是否在 Phase A 階段（用來決定要不要顯示需審查提示）
+  // 是否在 Phase A 階段（用來決定要不要顯示需審查提示）— 任一 Phase A stage 還在跑
   const isPhaseA = stages.some(
     (s) => (s.stage === 'classify' || s.stage === 'read' || s.stage === 'arbiter') && s.status === 'active'
   )
@@ -1673,14 +1668,16 @@ export default function GradingPage({
   const [phaseBTotalCount, setPhaseBTotalCount] = useState(0)
 
   // 2026-05-18: 5-stage 進度（classify / read / arbiter / accessor / explain）
-  // 各 stage 的 done = 已完成該 stage 的學生份數、total = 該 stage 預期處理份數（不在本次 mode 則為 0）
+  // started = 已開始該 stage 的份數、done = 已完成的份數、total = 預期處理份數
+  // 因為 pipeline 並行、每份 submission 獨立往下跑、所以多個 stage 可同時 active
   const [pipelineStageProgress, setPipelineStageProgress] = useState<PipelineStageProgress>(EMPTY_PIPELINE_STAGE_PROGRESS)
   const [pipelineMode, setPipelineMode] = useState<GradingPipelineMode>('both')
-  const bumpStageDone = useCallback((stage: GradingStageName) => {
-    setPipelineStageProgress((prev) => ({
-      ...prev,
-      [stage]: { done: prev[stage].done + 1, total: prev[stage].total }
-    }))
+  const bumpStage = useCallback((stage: GradingStageName, event: 'started' | 'completed') => {
+    setPipelineStageProgress((prev) => {
+      const cur = prev[stage]
+      if (event === 'started') return { ...prev, [stage]: { ...cur, started: cur.started + 1 } }
+      return { ...prev, [stage]: { ...cur, done: cur.done + 1 } }
+    })
   }, [])
 
   const executeBatchPhaseB = useCallback(async (
@@ -1722,14 +1719,14 @@ export default function GradingPage({
       setGradingStartTime(Date.now())
       setGradingProgress({ current: 0, total: entries.length })
       // 老路徑（manual review 後或 retry）：overlay 顯示 Phase B 階段（accessor/explain）
-      // gradePhaseB 內部沒 onStage、accessor 階段會 active 直到整批完成、結束時 phase 變 idle 收 overlay
+      // gradePhaseB 內部沒 onStage、人工塞 started=total 讓 accessor 顯示為 active（無法逐份追蹤、視覺上整批當作同時開始）
       setPipelineMode('phase_b_only')
       setPipelineStageProgress({
-        classify: { done: 0, total: 0 },
-        read: { done: 0, total: 0 },
-        arbiter: { done: 0, total: 0 },
-        accessor: { done: 0, total: entries.length },
-        explain: { done: 0, total: entries.length },
+        classify: { started: 0, done: 0, total: 0 },
+        read: { started: 0, done: 0, total: 0 },
+        arbiter: { started: 0, done: 0, total: 0 },
+        accessor: { started: entries.length, done: 0, total: entries.length },
+        explain: { started: 0, done: 0, total: entries.length },
       })
     }
     if (!background) setPhaseBTotalCount(prev => prev + entries.length)
@@ -2947,11 +2944,11 @@ export default function GradingPage({
     // Phase A only mode：classify / read / arbiter 各 total = N、accessor / explain 不在本 run
     setPipelineMode('phase_a_only')
     setPipelineStageProgress({
-      classify: { done: 0, total: candidates.length },
-      read: { done: 0, total: candidates.length },
-      arbiter: { done: 0, total: candidates.length },
-      accessor: { done: 0, total: 0 },
-      explain: { done: 0, total: 0 },
+      classify: { started: 0, done: 0, total: candidates.length },
+      read: { started: 0, done: 0, total: candidates.length },
+      arbiter: { started: 0, done: 0, total: candidates.length },
+      accessor: { started: 0, done: 0, total: 0 },
+      explain: { started: 0, done: 0, total: 0 },
     })
 
     // 圖片準備（同 executeGradeOnlyCache）
@@ -3007,9 +3004,7 @@ export default function GradingPage({
             assignment?.answerSheetMode,
             sub.id,
             sub.source,
-            (stage, event) => {
-              if (event === 'completed') bumpStageDone(stage)
-            }
+            (stage, event) => bumpStage(stage, event)
           )
           if (phaseAResult.pipelineFailure) {
             const stu = students.find((s) => s.id === sub.studentId)
@@ -3156,11 +3151,11 @@ export default function GradingPage({
     // Phase B only mode：accessor / explain 各 total = N
     setPipelineMode('phase_b_only')
     setPipelineStageProgress({
-      classify: { done: 0, total: 0 },
-      read: { done: 0, total: 0 },
-      arbiter: { done: 0, total: 0 },
-      accessor: { done: 0, total: candidates.length },
-      explain: { done: 0, total: candidates.length },
+      classify: { started: 0, done: 0, total: 0 },
+      read: { started: 0, done: 0, total: 0 },
+      arbiter: { started: 0, done: 0, total: 0 },
+      accessor: { started: 0, done: 0, total: candidates.length },
+      explain: { started: 0, done: 0, total: candidates.length },
     })
 
     // 圖片準備（從 cloud 載 / 從 base64 重建）
@@ -3221,9 +3216,7 @@ export default function GradingPage({
             assignment?.answerSheetMode,
             gradeBand,
             sub.finalAnswers as FinalAnswer[] | undefined,
-            (stage, event) => {
-              if (event === 'completed') bumpStageDone(stage)
-            }
+            (stage, event) => bumpStage(stage, event)
           )
           const totalScore = result.totalScore ?? 0
           const gradedAtMs = Date.now()
@@ -3516,14 +3509,14 @@ export default function GradingPage({
       setGradingMessage('定位答案中…')
       setGradingPhase('phase_a_running')
       setPhaseANeedsReviewCount(0)
-      // 5-stage overlay：全程 mode (Phase A → Phase B)、初始 done=0
+      // 5-stage overlay：全程 mode (Phase A → Phase B)、初始 started=0/done=0
       setPipelineMode('both')
       setPipelineStageProgress({
-        classify: { done: 0, total: toGrade.length },
-        read: { done: 0, total: toGrade.length },
-        arbiter: { done: 0, total: toGrade.length },
-        accessor: { done: 0, total: toGrade.length },
-        explain: { done: 0, total: toGrade.length },
+        classify: { started: 0, done: 0, total: toGrade.length },
+        read: { started: 0, done: 0, total: toGrade.length },
+        arbiter: { started: 0, done: 0, total: toGrade.length },
+        accessor: { started: 0, done: 0, total: toGrade.length },
+        explain: { started: 0, done: 0, total: toGrade.length },
       })
 
       // 嘗試從 template 解析 answerKey（若 assignment 沒有直接帶）
@@ -3565,9 +3558,7 @@ export default function GradingPage({
             assignment.answerSheetMode,
             sub.id,
             sub.source,
-            (stage, event) => {
-              if (event === 'completed') bumpStageDone(stage)
-            }
+            (stage, event) => bumpStage(stage, event)
           )
           return { sub, phaseAResult }
         },
