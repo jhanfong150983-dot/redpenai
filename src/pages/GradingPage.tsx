@@ -4079,6 +4079,88 @@ export default function GradingPage({
     stopRequestedRef.current = true
   }
 
+  // 2026-05-18 PR3: 單題學生答案 inline edit、debounce 1s 後 auto save
+  // 寫進 gradingResult.details[i].studentAnswer + final_answers[i] + 雲端 save-final-answers
+  // 已批改的卷子改答案：score 不會自動重算（會在 UI 顯示「分數已過時、建議重新批改」）
+  const studentAnswerSaveTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
+  const handleDetailStudentAnswerChange = (index: number, newAnswer: string) => {
+    if (!selectedSubmission) return
+    // 即時更新 editableDetails（UI 立刻反映）
+    setEditableDetails((prev) => prev.map((d, i) => (i === index ? { ...d, studentAnswer: newAnswer } : d)))
+
+    // Debounce 1s 後 persist
+    const prevTimeout = studentAnswerSaveTimeoutsRef.current.get(index)
+    if (prevTimeout) clearTimeout(prevTimeout)
+    const timeout = setTimeout(async () => {
+      studentAnswerSaveTimeoutsRef.current.delete(index)
+      const subId = selectedSubmission.submission.id
+      const submission = await db.submissions.get(subId)
+      if (!submission) return
+      const latestDetails = (submission.gradingResult as { details?: Array<{ questionId: string; studentAnswer?: string }> } | undefined)?.details
+      const updatedDetails = Array.isArray(latestDetails)
+        ? latestDetails.map((d, i) => (i === index ? { ...d, studentAnswer: newAnswer } : d))
+        : null
+      if (!updatedDetails) return
+      const newGradingResult = { ...(submission.gradingResult || {}), details: updatedDetails } as Submission['gradingResult']
+      // 用所有 details 重建 finalAnswers（保留現有 source、改的那題標 manual）
+      const existingFinalByQid = new Map(
+        (Array.isArray(submission.finalAnswers) ? submission.finalAnswers : []).map((fa) => [fa.questionId, fa])
+      )
+      const newFinalAnswers: FinalAnswer[] = updatedDetails.map((d, i) => {
+        const qid = d.questionId
+        const existing = existingFinalByQid.get(qid)
+        if (i === index) {
+          return {
+            questionId: qid,
+            finalStudentAnswer: newAnswer,
+            finalAnswerSource: 'manual',
+          }
+        }
+        return existing
+          ? {
+              questionId: qid,
+              finalStudentAnswer: existing.finalStudentAnswer,
+              finalAnswerSource: (existing.finalAnswerSource as FinalAnswer['finalAnswerSource']) || 'ai_read1'
+            }
+          : {
+              questionId: qid,
+              finalStudentAnswer: String(d.studentAnswer || ''),
+              finalAnswerSource: 'ai_read1'
+            }
+      })
+      const now = Date.now()
+      await db.submissions.update(subId, {
+        gradingResult: newGradingResult,
+        finalAnswers: newFinalAnswers,
+        updatedAt: now
+      })
+      setSubmissions((prev) => {
+        const next = new Map(prev)
+        const cur = Array.from(prev.values()).find((s) => s.id === subId)
+        if (cur) next.set(cur.studentId, {
+          ...cur,
+          gradingResult: newGradingResult,
+          finalAnswers: newFinalAnswers,
+          updatedAt: now
+        })
+        return next
+      })
+      // 同步 selectedSubmission、detail modal 立刻反映
+      setSelectedSubmission((prev) => prev ? {
+        ...prev,
+        submission: { ...prev.submission, gradingResult: newGradingResult, finalAnswers: newFinalAnswers, updatedAt: now }
+      } : prev)
+      // 寫雲端、fire-and-forget
+      void fetch('/api/data/save-final-answers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ submissions: [{ id: subId, finalAnswers: newFinalAnswers }] })
+      }).catch((err) => console.warn('save-final-answers failed (non-fatal):', err))
+    }, 1000)
+    studentAnswerSaveTimeoutsRef.current.set(index, timeout)
+  }
+
   // 單題得分即時更新（自動重算總分並儲存）
   const handleDetailScoreChange = async (index: number, scoreValue: number) => {
     if (isBusy || isSavingScore) return
@@ -5316,6 +5398,18 @@ export default function GradingPage({
               </div>
 
               <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
+                {/* 2026-05-18 PR4: 分數已過時警示 — 已批改卷、updatedAt > gradedAt 表示老師改過答案 */}
+                {selectedSubmission.submission.status === 'graded' &&
+                  selectedSubmission.submission.gradedAt &&
+                  selectedSubmission.submission.updatedAt &&
+                  selectedSubmission.submission.updatedAt > selectedSubmission.submission.gradedAt + 1000 && (
+                    <div className="rounded-xl border border-purple-200 bg-purple-50 p-3 flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-purple-600" />
+                      <p className="text-sm text-purple-800">
+                        <span className="font-semibold">分數已過時</span>：你改過學生答案、目前分數還是舊版的。回卡片列表按【批改作業】重新評分。
+                      </p>
+                    </div>
+                  )}
                 {/* 🆕 需複核警示 */}
                 {isSubmissionNeedsReview(selectedSubmission.submission.gradingResult) && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
@@ -5518,8 +5612,21 @@ export default function GradingPage({
                                 )}
                               </div>
                             </div>
-                            <div className="flex items-center gap-2 text-gray-700">
-                              <span className="flex-1">學生答案：{d.studentAnswer || '—'}</span>
+                            {/* 2026-05-18 PR3: 學生答案 inline edit、debounce 1s auto save */}
+                            <div className="flex items-start gap-2 text-gray-700">
+                              <span className="shrink-0 mt-0.5">學生答案：</span>
+                              <input
+                                type="text"
+                                className={`flex-1 px-2 py-0.5 rounded border bg-white text-gray-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:cursor-not-allowed ${
+                                  isUnrecognizable ? 'border-rose-300' : 'border-gray-200 hover:border-gray-300'
+                                }`}
+                                value={String(d.studentAnswer ?? '')}
+                                placeholder="（點此編輯）"
+                                disabled={isBusy || isSavingScore}
+                                onChange={(e) => handleDetailStudentAnswerChange(i, e.target.value)}
+                                onFocus={(e) => e.target.select()}
+                                title="輸入後 1 秒自動儲存。已批改的卷子改答案後、會顯示「分數已過時」提示。"
+                              />
                             </div>
 
                             <div className="text-xs text-gray-700 flex items-start gap-2">
