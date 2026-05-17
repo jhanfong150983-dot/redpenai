@@ -5626,20 +5626,32 @@ export default function GradingPage({
                                 )}
                               </div>
                             </div>
-                            {/* 2026-05-18 PR3: 學生答案 inline edit、debounce 1s auto save */}
+                            {/* 2026-05-18 PR3: 學生答案 inline edit、debounce 1s auto save、textarea 自動撐高 */}
                             <div className="flex items-start gap-2 text-gray-700">
                               <span className="shrink-0 mt-0.5">學生答案：</span>
-                              <input
-                                type="text"
-                                className={`flex-1 px-2 py-0.5 rounded border bg-white text-gray-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:cursor-not-allowed ${
+                              <textarea
+                                className={`flex-1 px-2 py-1 rounded border bg-white text-gray-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:cursor-not-allowed resize-none whitespace-pre-wrap break-words ${
                                   isUnrecognizable ? 'border-rose-300' : 'border-gray-200 hover:border-gray-300'
                                 }`}
                                 value={String(d.studentAnswer ?? '')}
                                 placeholder="（點此編輯）"
                                 disabled={isBusy || isSavingScore}
-                                onChange={(e) => handleDetailStudentAnswerChange(i, e.target.value)}
+                                onChange={(e) => {
+                                  handleDetailStudentAnswerChange(i, e.target.value)
+                                  // 即時撐高、不等下次 re-render
+                                  e.target.style.height = 'auto'
+                                  e.target.style.height = e.target.scrollHeight + 'px'
+                                }}
                                 onFocus={(e) => e.target.select()}
-                                title="輸入後 1 秒自動儲存。已批改的卷子改答案後、會顯示「分數已過時」提示。"
+                                // mount/re-render 時依內容撐高、避免 1 行 textarea 蓋掉多行內容
+                                ref={(el) => {
+                                  if (el) {
+                                    el.style.height = 'auto'
+                                    el.style.height = el.scrollHeight + 'px'
+                                  }
+                                }}
+                                rows={1}
+                                title="編輯後 1 秒自動儲存。已批改卷子改答案會自動退回待批改、按【批改作業】重評。"
                               />
                             </div>
 
