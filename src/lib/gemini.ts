@@ -5248,146 +5248,130 @@ export async function gradePhaseA(
   submissionSource?: string
 ): Promise<PhaseAResult> {
   const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
-  const { sessionId: inkSessionId } = await ensureInkSessionFresh()
+  // 2026-05-17: ink session 改在每個 call 之前 ensureInkSessionFresh、不在這裡先拿（拆 3 call 後每個都自己刷一次）
 
   const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'phase-a')
   const imageBase64 = await blobToBase64(compressed)
   const mimeType = compressed.type || submissionImageBlob.type || 'image/jpeg'
 
-  // 2026-05-17: Phase A 拆 2 個 HTTP call（pre-arbiter + arbiter）、解決 290s budget 把 AI3 擠死的痛點
-  //   call 1 — grading.phase_a 帶 phaseAStopBeforeArbiter=true → 跑 OCR+classify+read+pre-overrides、回 _phaseAReadContext
-  //   call 2 — grading.phase_a_arbiter 帶 _phaseAReadContext + 原圖 → 跑 AI3 + 最終 build
-  // 每個 call 各吃自己的 300s budget、AI3 永遠跑得完
+  // 2026-05-17: Phase A 拆 3 個 HTTP call（classify + read + arbiter）、每個 call 各吃 300s budget
+  //   call 1 — grading.phase_a_classify             → OCR + classify + bbox 後處理、回 _phaseAClassifyContext
+  //   call 2 — grading.phase_a (帶 ClassifyContext) → crop + AI1 + AI2 read + pre-overrides、回 _phaseAReadContext
+  //   call 3 — grading.phase_a_arbiter              → AI3 + 最終 build
+  // 解決問題：拆前 5 並行有些 AI1 read 飆 197s 撞 290s budget、現在獨立 300s 後絕對跑得完
 
-  // ── Call 1: pre-arbiter ─────────────────────────────────────────────────
-  const buildPhaseABody = (sid: string | null) => JSON.stringify({
+  // 共用 fetch helper：自動處理 409 (ink session refresh) + 解析 candidates[0]
+  const postPhase = async (body: string): Promise<{ resp: Response; data: any; text: string | undefined }> => {
+    let resp = await fetch(geminiProxyUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body
+    })
+    if (resp.status === 409) {
+      console.warn('[gradePhaseA] Ink session not found (409), refreshing...')
+      setInkSessionId(null)
+      const { sessionId: newSid } = await startInkSession()
+      // 重建 body 帶新 sid（簡單做法：呼叫端要傳新 sid 進來，這裡 fallback 用 newSid 套到舊 body）
+      const reparsed = JSON.parse(body)
+      reparsed.inkSessionId = newSid
+      resp = await fetch(geminiProxyUrl, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(reparsed)
+      })
+    }
+    const data = await resp.json().catch(() => null) as Record<string, unknown> | null
+    if (typeof (data as any)?.ink?.balanceAfter === 'number' && Number.isFinite((data as any).ink.balanceAfter)) {
+      dispatchInkBalance((data as any).ink.balanceAfter)
+    }
+    const text = (data as any)?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
+    return { resp, data, text }
+  }
+
+  const baseBody = (sid: string | null) => ({
     model: currentModelName,
     contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
     ...(sid ? { inkSessionId: sid } : {}),
+    ...(domain ? { domain } : {}),
+    ...(assignmentId ? { assignmentId } : {}),
+    ...(submissionId ? { submissionId } : {}),
+    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
+  })
+
+  // ── Call 1: phase_a_classify ────────────────────────────────────────────
+  const { sessionId: sid1 } = await ensureInkSessionFresh()
+  const body1 = JSON.stringify({
+    ...baseBody(sid1),
+    routeKey: 'grading.phase_a_classify',
+    answerKey: JSON.stringify(normalizedAnswerKey),
+    ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
+    ...(submissionSource ? { submissionSource } : {}),
+    ...(classifyCorrections && classifyCorrections.length > 0 ? { classifyCorrections } : {})
+  })
+  const r1 = await postPhase(body1)
+  let classifyParsed: any = null
+  if (r1.text) { try { classifyParsed = JSON.parse(r1.text) } catch {} }
+
+  if (classifyParsed?.pipelineFailure) {
+    console.warn('[gradePhaseA] classify pipelineFailure', classifyParsed.pipelineFailure)
+    return classifyParsed as PhaseAResult
+  }
+  // 舊版相容：server 一次跑完
+  if (classifyParsed?.phaseAComplete) {
+    console.log('[gradePhaseA] server 一次跑完（舊版相容路徑）')
+    return classifyParsed as PhaseAResult
+  }
+  if (!classifyParsed?.phaseAClassifyComplete || !classifyParsed?._phaseAClassifyContext) {
+    if (!r1.resp.ok) throw new Error((r1.data as any)?.error || `Phase A classify failed: ${r1.resp.status}`)
+    throw new Error('Phase A: classify response missing phaseAClassifyComplete')
+  }
+  console.log('[gradePhaseA] classify 完成 → 進入 read call')
+
+  // ── Call 2: phase_a (read) ──────────────────────────────────────────────
+  const { sessionId: sid2 } = await ensureInkSessionFresh()
+  const body2 = JSON.stringify({
+    ...baseBody(sid2),
     routeKey: 'grading.phase_a',
     answerKey: JSON.stringify(normalizedAnswerKey),
-    phaseAStopBeforeArbiter: true,  // 🆕 觸發 server 跑完 read 後早退
-    ...(domain ? { domain } : {}),
-    ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
-    ...(assignmentId ? { assignmentId } : {}),
-    ...(submissionId ? { submissionId } : {}),
-    ...(submissionSource ? { submissionSource } : {}),
-    ...(classifyCorrections && classifyCorrections.length > 0 ? { classifyCorrections } : {}),
-    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
+    phaseAStopBeforeArbiter: true,
+    _phaseAClassifyContext: classifyParsed._phaseAClassifyContext,
+    ...(submissionSource ? { submissionSource } : {})
   })
+  const r2 = await postPhase(body2)
+  let readParsed: any = null
+  if (r2.text) { try { readParsed = JSON.parse(r2.text) } catch {} }
 
-  let response = await fetch(geminiProxyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: buildPhaseABody(inkSessionId)
-  })
-
-  if (response.status === 409) {
-    console.warn('[gradePhaseA] Ink session not found (409), creating new session and retrying...')
-    setInkSessionId(null)
-    const { sessionId: newSessionId } = await startInkSession()
-    response = await fetch(geminiProxyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: buildPhaseABody(newSessionId)
-    })
+  if (readParsed?.pipelineFailure) {
+    console.warn('[gradePhaseA] read pipelineFailure', readParsed.pipelineFailure)
+    return readParsed as PhaseAResult
   }
-
-  const data = await response.json().catch(() => null) as Record<string, unknown> | null
-
-  if (typeof (data as any)?.ink?.balanceAfter === 'number' && Number.isFinite((data as any).ink.balanceAfter)) {
-    dispatchInkBalance((data as any).ink.balanceAfter)
+  if (readParsed?.phaseAComplete) {
+    console.log('[gradePhaseA] read 階段一次跑到底（含 arbiter）— 舊版相容')
+    return readParsed as PhaseAResult
   }
-
-  const text = (data as any)?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
-  let preArbiterParsed: (PhaseAResult & { pipelineFailure?: unknown; phaseAReadyForArbiter?: boolean; _phaseAReadContext?: unknown }) | null = null
-  if (text) {
-    try {
-      preArbiterParsed = JSON.parse(text)
-    } catch (e) {
-      // fallthrough
-    }
+  if (!readParsed?.phaseAReadyForArbiter || !readParsed?._phaseAReadContext) {
+    if (!r2.resp.ok) throw new Error((r2.data as any)?.error || `Phase A read failed: ${r2.resp.status}`)
+    throw new Error('Phase A: read response missing phaseAReadyForArbiter')
   }
+  console.log('[gradePhaseA] read 完成 → 進入 arbiter call')
 
-  if (preArbiterParsed?.pipelineFailure) {
-    console.warn('[gradePhaseA] Phase A (pre-arbiter) pipelineFailure', preArbiterParsed.pipelineFailure)
-    return preArbiterParsed as PhaseAResult
-  }
-
-  // 若 server 沒回 phaseAReadyForArbiter（舊版相容、或單一 call 跑完直接回 phaseAComplete）
-  if (preArbiterParsed?.phaseAComplete) {
-    console.log('[gradePhaseA] server 一次跑完（舊版相容路徑）')
-    return preArbiterParsed as PhaseAResult
-  }
-
-  if (!preArbiterParsed?.phaseAReadyForArbiter || !preArbiterParsed?._phaseAReadContext) {
-    if (!response.ok) {
-      const errMsg = (data as any)?.error as string | undefined
-      throw new Error(errMsg || `Phase A pre-arbiter failed: ${response.status}`)
-    }
-    throw new Error('Phase A: pre-arbiter response missing phaseAReadyForArbiter')
-  }
-
-  console.log('[gradePhaseA] pre-arbiter 完成、進入 arbiter call')
-
-  // ── Call 2: arbiter ────────────────────────────────────────────────────
-  const { sessionId: arbiterSessionId } = await ensureInkSessionFresh()
-  const buildArbiterBody = (sid: string | null) => JSON.stringify({
-    model: currentModelName,
-    contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
-    ...(sid ? { inkSessionId: sid } : {}),
+  // ── Call 3: phase_a_arbiter ─────────────────────────────────────────────
+  const { sessionId: sid3 } = await ensureInkSessionFresh()
+  const body3 = JSON.stringify({
+    ...baseBody(sid3),
     routeKey: 'grading.phase_a_arbiter',
-    _phaseAReadContext: preArbiterParsed._phaseAReadContext,
-    ...(assignmentId ? { assignmentId } : {}),
-    ...(submissionId ? { submissionId } : {}),
-    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
+    _phaseAReadContext: readParsed._phaseAReadContext
   })
+  const r3 = await postPhase(body3)
 
-  let arbiterResponse = await fetch(geminiProxyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: buildArbiterBody(arbiterSessionId)
-  })
-
-  if (arbiterResponse.status === 409) {
-    console.warn('[gradePhaseA] arbiter call 409、重新取 ink session...')
-    setInkSessionId(null)
-    const { sessionId: newSessionId } = await startInkSession()
-    arbiterResponse = await fetch(geminiProxyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: buildArbiterBody(newSessionId)
-    })
-  }
-
-  const arbiterData = await arbiterResponse.json().catch(() => null) as Record<string, unknown> | null
-
-  if (typeof (arbiterData as any)?.ink?.balanceAfter === 'number' && Number.isFinite((arbiterData as any).ink.balanceAfter)) {
-    dispatchInkBalance((arbiterData as any).ink.balanceAfter)
-  }
-
-  const arbiterText = (arbiterData as any)?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
-  if (arbiterText) {
+  if (r3.text) {
     try {
-      const arbiterParsed = JSON.parse(arbiterText) as PhaseAResult & { pipelineFailure?: unknown }
+      const arbiterParsed = JSON.parse(r3.text) as PhaseAResult & { pipelineFailure?: unknown }
       if (arbiterParsed?.pipelineFailure) {
         console.warn('[gradePhaseA] arbiter pipelineFailure', arbiterParsed.pipelineFailure)
         return arbiterParsed as PhaseAResult
       }
       if (arbiterParsed?.phaseAComplete) return arbiterParsed
-    } catch (e) {
-      // fallthrough
-    }
+    } catch {}
   }
 
-  if (!arbiterResponse.ok) {
-    const errMsg = (arbiterData as any)?.error as string | undefined
-    throw new Error(errMsg || `Phase A arbiter failed: ${arbiterResponse.status}`)
-  }
+  if (!r3.resp.ok) throw new Error((r3.data as any)?.error || `Phase A arbiter failed: ${r3.resp.status}`)
   throw new Error('Phase A arbiter: unexpected response format (phaseAComplete missing)')
 }
 
