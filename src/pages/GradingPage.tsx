@@ -5311,12 +5311,10 @@ export default function GradingPage({
                         const isPartial = !isCorrect && safeScore > 0 && safeMax > 0
                         const isUnscored = assignment?.scoringMode === 'unscored'
                         const questionId = d.questionId || `#${i + 1}`
-                        // 2026-05-18: Phase A only 完成（status=synced + 有 details 但無 score）→ 顯示「未批改」
-                        // 不要顯示 ✗ 0/0 誤導老師以為「答錯 0 分」
-                        const isNotGradedYet =
-                          selectedSubmission.submission.status !== 'graded' &&
-                          (d.score === undefined || d.score === null) &&
-                          (d.maxScore === undefined || d.maxScore === null)
+                        // 2026-05-18: Phase A only 完成（status !== 'graded'）→ 顯示「未批改」
+                        // 不管 score/maxScore 是不是 0、只要狀態還沒到 graded、就算未批改
+                        // 涵蓋舊資料 score=0/maxScore=0 跟新資料 score=undefined 兩種情況
+                        const isNotGradedYet = selectedSubmission.submission.status !== 'graded'
 
                         return (
                           <div
