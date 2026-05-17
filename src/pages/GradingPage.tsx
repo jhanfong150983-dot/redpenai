@@ -5443,11 +5443,17 @@ export default function GradingPage({
                         // 不管 score/maxScore 是不是 0、只要狀態還沒到 graded、就算未批改
                         // 涵蓋舊資料 score=0/maxScore=0 跟新資料 score=undefined 兩種情況
                         const isNotGradedYet = selectedSubmission.submission.status !== 'graded'
+                        // 2026-05-18: 學生答案是「無法辨識」→ 卡片底色標紅、老師一眼看到要再複核哪一題
+                        const isUnrecognizable = String(d.studentAnswer || '').trim() === '無法辨識'
 
                         return (
                           <div
                             key={questionId}
-                            className="border border-gray-200 rounded-lg p-3 bg-gray-50 text-xs space-y-2"
+                            className={`border rounded-lg p-3 text-xs space-y-2 ${
+                              isUnrecognizable
+                                ? 'border-rose-300 bg-rose-50'  // 紅底紅框、強烈視覺提示
+                                : 'border-gray-200 bg-gray-50'
+                            }`}
                           >
                             <div className="flex justify-between items-center gap-2">
                               <div className="flex items-center gap-2">
