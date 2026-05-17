@@ -4880,18 +4880,16 @@ export default function GradingPage({
                     ? scoreValue < maxScore * 0.8
                     : scoreValue < 60
                 )
-            const hasGradingResult = isUnscoredAssignment
-              ? !!correctSummary
-              : !!gradingResult && typeof gradingResult.totalScore === 'number'
             const isStub = isManualGradeStub(submission)
-            const showResultBadge =
-              hasGradingResult && (status === 'graded' || status === 'synced')
-            const needsReview = showResultBadge && isSubmissionNeedsReview(gradingResult)
+            // 2026-05-18: 卡片 badge 改用 deriveCardStage 統一決定、不再用零散 hasGradingResult / showResultBadge 邏輯
+            // 避免舊資料 totalScore=0 還顯示「0 分」、Phase A 完成卻看不到「待批改」狀態
+            const cardStage = deriveCardStage(submission)
+            const showResultBadge = cardStage === 'graded'
+            const needsReview = cardStage === 'pending_review'
+            const pendingGrading = cardStage === 'pending_grading'
             const resultBadgeText = isUnscoredAssignment
               ? (correctSummary ? `${correctSummary.correct}/${correctSummary.total}` : '')
               : `${scoreValue} 分`
-            // 信心顯示已停用
-            const confidenceHint = null
 
             return (
               <div
@@ -4910,30 +4908,42 @@ export default function GradingPage({
                         已批改
                       </div>
                     )}
-                    {showResultBadge && gradingResult && (
+                    {/* 2026-05-18: badge 統一用 deriveCardStage 結果分支 */}
+                    {showResultBadge && (
                       <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
-                        {needsReview ? (
-                          <>
-                            <div className="px-2 py-1 rounded-full text-xs font-bold shadow bg-amber-100 text-amber-700 border border-amber-200">
-                              需複核
-                            </div>
-                            {confidenceHint && (
-                              <div className="text-[10px] text-amber-700">
-                                {confidenceHint}
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          <div
-                            className={`px-2 py-1 rounded-full text-xs font-bold shadow ${
-                              !isLowScore
-                                ? 'bg-green-500 text-white'
-                                : 'bg-red-500 text-white'
-                            }`}
-                          >
-                            {resultBadgeText}
-                          </div>
-                        )}
+                        <div
+                          className={`px-2 py-1 rounded-full text-xs font-bold shadow ${
+                            !isLowScore ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+                          }`}
+                        >
+                          {resultBadgeText}
+                        </div>
+                      </div>
+                    )}
+                    {needsReview && (
+                      <div className="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold shadow bg-amber-100 text-amber-700 border border-amber-200">
+                        待複核
+                      </div>
+                    )}
+                    {pendingGrading && (
+                      <div className="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold shadow bg-blue-100 text-blue-700 border border-blue-200">
+                        待批改
+                      </div>
+                    )}
+                    {cardStage === 'phase_a_failed' && (
+                      <div
+                        className="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded-full text-xs font-semibold shadow"
+                        title="擷取失敗、可重新截取答案"
+                      >
+                        擷取失敗
+                      </div>
+                    )}
+                    {cardStage === 'phase_b_failed' && (
+                      <div
+                        className="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded-full text-xs font-semibold shadow"
+                        title="批改失敗、可重新批改"
+                      >
+                        批改失敗
                       </div>
                     )}
                     {status === 'scanned' && (
@@ -4941,22 +4951,9 @@ export default function GradingPage({
                         已掃描
                       </div>
                     )}
-                    {status === 'synced' && !showResultBadge && (
+                    {cardStage === 'not_extracted' && status === 'synced' && (
                       <div className="absolute top-2 right-2 px-2 py-1 bg-purple-500 text-white rounded-full text-xs font-semibold shadow">
                         已上傳
-                      </div>
-                    )}
-                    {status === 'synced' && showResultBadge && (
-                      <div className="absolute bottom-2 right-2 px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full text-[10px] font-semibold shadow">
-                        已上傳
-                      </div>
-                    )}
-                    {status === 'grading_failed' && (
-                      <div
-                        className="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded-full text-xs font-semibold shadow"
-                        title="上次批改失敗、可勾選後重新批改"
-                      >
-                        批改失敗
                       </div>
                     )}
 
