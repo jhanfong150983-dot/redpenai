@@ -159,16 +159,27 @@ export function deriveCardStage(sub: Submission | undefined): CardStage {
   // 規則：
   //   - 全部題目都有 finalAnswer 且沒有「無法辨識」→ 待批改
   //   - 任一題目「無法辨識」或缺答案 → 待複核（老師標記要再看）
+  // 完整性檢查依序 fallback：phaseAState.questionIds > gradingResult.details.length
+  // （phaseAState 可能還沒從 server sync 下來、用 details 當備援）
   const finalAnswers = sub.finalAnswers
-  const phaseAQuestionIds = sub.phaseAState?.questionIds
-  if (Array.isArray(finalAnswers) && finalAnswers.length > 0 && Array.isArray(phaseAQuestionIds) && phaseAQuestionIds.length > 0) {
-    const finalByQid = new Map(finalAnswers.map((fa) => [fa.questionId, fa.finalStudentAnswer]))
-    const hasUnrecognizable = finalAnswers.some(
-      (fa) => (fa.finalStudentAnswer || '').trim() === '無法辨識'
-    )
-    const missingCount = phaseAQuestionIds.filter((qid) => !finalByQid.has(qid)).length
-    if (hasUnrecognizable || missingCount > 0) return 'pending_review'
-    return 'pending_grading'
+  if (Array.isArray(finalAnswers) && finalAnswers.length > 0) {
+    const phaseAQuestionIds = sub.phaseAState?.questionIds
+    const detailsArr = (sub.gradingResult as { details?: Array<{ questionId: string }> } | undefined)?.details
+    const expectedQids: string[] | null = Array.isArray(phaseAQuestionIds) && phaseAQuestionIds.length > 0
+      ? phaseAQuestionIds
+      : Array.isArray(detailsArr) && detailsArr.length > 0
+        ? detailsArr.map((d) => d.questionId).filter(Boolean)
+        : null
+
+    if (expectedQids && expectedQids.length > 0) {
+      const finalByQid = new Map(finalAnswers.map((fa) => [fa.questionId, fa.finalStudentAnswer]))
+      const hasUnrecognizable = finalAnswers.some(
+        (fa) => (fa.finalStudentAnswer || '').trim() === '無法辨識'
+      )
+      const missingCount = expectedQids.filter((qid) => !finalByQid.has(qid)).length
+      if (hasUnrecognizable || missingCount > 0) return 'pending_review'
+      return 'pending_grading'
+    }
   }
 
   // 沒 final_answers → 從 phase_a_state.arbiterDecisions 判斷（Phase A 跑完、老師還沒審查）
