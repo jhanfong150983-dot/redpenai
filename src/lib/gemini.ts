@@ -5254,12 +5254,19 @@ export async function gradePhaseA(
   const imageBase64 = await blobToBase64(compressed)
   const mimeType = compressed.type || submissionImageBlob.type || 'image/jpeg'
 
+  // 2026-05-17: Phase A 拆 2 個 HTTP call（pre-arbiter + arbiter）、解決 290s budget 把 AI3 擠死的痛點
+  //   call 1 — grading.phase_a 帶 phaseAStopBeforeArbiter=true → 跑 OCR+classify+read+pre-overrides、回 _phaseAReadContext
+  //   call 2 — grading.phase_a_arbiter 帶 _phaseAReadContext + 原圖 → 跑 AI3 + 最終 build
+  // 每個 call 各吃自己的 300s budget、AI3 永遠跑得完
+
+  // ── Call 1: pre-arbiter ─────────────────────────────────────────────────
   const buildPhaseABody = (sid: string | null) => JSON.stringify({
     model: currentModelName,
     contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
     ...(sid ? { inkSessionId: sid } : {}),
     routeKey: 'grading.phase_a',
     answerKey: JSON.stringify(normalizedAnswerKey),
+    phaseAStopBeforeArbiter: true,  // 🆕 觸發 server 跑完 read 後早退
     ...(domain ? { domain } : {}),
     ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
     ...(assignmentId ? { assignmentId } : {}),
@@ -5288,36 +5295,100 @@ export async function gradePhaseA(
     })
   }
 
-  // 500 不一定是 server 錯、可能是 pipelineFailure（quality gate 主動拒絕、body 仍有合法 response）
-  // 必須先 parse body、看到 pipelineFailure 直接回給上層處理（GradingPage.tsx:2840 handler）、
-  // 不要 throw、否則前端 spinner 永遠不結束。
   const data = await response.json().catch(() => null) as Record<string, unknown> | null
 
   if (typeof (data as any)?.ink?.balanceAfter === 'number' && Number.isFinite((data as any).ink.balanceAfter)) {
     dispatchInkBalance((data as any).ink.balanceAfter)
   }
 
-  // 嘗試從 candidates[0].content.parts[0].text 解析 pipelineFailure（500 也可能有）
   const text = (data as any)?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
+  let preArbiterParsed: (PhaseAResult & { pipelineFailure?: unknown; phaseAReadyForArbiter?: boolean; _phaseAReadContext?: unknown }) | null = null
   if (text) {
     try {
-      const parsed = JSON.parse(text) as PhaseAResult & { pipelineFailure?: unknown }
-      if (parsed?.pipelineFailure) {
-        // ⚠️ pipelineFailure 是設計上的失敗訊號、不該 throw、回給上層 surface 失敗訊息
-        console.warn('[gradePhaseA] Phase A pipelineFailure', parsed.pipelineFailure)
-        return parsed as PhaseAResult
-      }
-      if (parsed?.phaseAComplete) return parsed
+      preArbiterParsed = JSON.parse(text)
     } catch (e) {
-      // JSON 解析失敗、fallthrough 到下方 throw
+      // fallthrough
     }
   }
 
-  if (!response.ok) {
-    const errMsg = (data as any)?.error as string | undefined
-    throw new Error(errMsg || `Phase A failed: ${response.status}`)
+  if (preArbiterParsed?.pipelineFailure) {
+    console.warn('[gradePhaseA] Phase A (pre-arbiter) pipelineFailure', preArbiterParsed.pipelineFailure)
+    return preArbiterParsed as PhaseAResult
   }
-  throw new Error('Phase A: unexpected response format (phaseAComplete missing)')
+
+  // 若 server 沒回 phaseAReadyForArbiter（舊版相容、或單一 call 跑完直接回 phaseAComplete）
+  if (preArbiterParsed?.phaseAComplete) {
+    console.log('[gradePhaseA] server 一次跑完（舊版相容路徑）')
+    return preArbiterParsed as PhaseAResult
+  }
+
+  if (!preArbiterParsed?.phaseAReadyForArbiter || !preArbiterParsed?._phaseAReadContext) {
+    if (!response.ok) {
+      const errMsg = (data as any)?.error as string | undefined
+      throw new Error(errMsg || `Phase A pre-arbiter failed: ${response.status}`)
+    }
+    throw new Error('Phase A: pre-arbiter response missing phaseAReadyForArbiter')
+  }
+
+  console.log('[gradePhaseA] pre-arbiter 完成、進入 arbiter call')
+
+  // ── Call 2: arbiter ────────────────────────────────────────────────────
+  const { sessionId: arbiterSessionId } = await ensureInkSessionFresh()
+  const buildArbiterBody = (sid: string | null) => JSON.stringify({
+    model: currentModelName,
+    contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
+    ...(sid ? { inkSessionId: sid } : {}),
+    routeKey: 'grading.phase_a_arbiter',
+    _phaseAReadContext: preArbiterParsed._phaseAReadContext,
+    ...(assignmentId ? { assignmentId } : {}),
+    ...(submissionId ? { submissionId } : {}),
+    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
+  })
+
+  let arbiterResponse = await fetch(geminiProxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: buildArbiterBody(arbiterSessionId)
+  })
+
+  if (arbiterResponse.status === 409) {
+    console.warn('[gradePhaseA] arbiter call 409、重新取 ink session...')
+    setInkSessionId(null)
+    const { sessionId: newSessionId } = await startInkSession()
+    arbiterResponse = await fetch(geminiProxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: buildArbiterBody(newSessionId)
+    })
+  }
+
+  const arbiterData = await arbiterResponse.json().catch(() => null) as Record<string, unknown> | null
+
+  if (typeof (arbiterData as any)?.ink?.balanceAfter === 'number' && Number.isFinite((arbiterData as any).ink.balanceAfter)) {
+    dispatchInkBalance((arbiterData as any).ink.balanceAfter)
+  }
+
+  const arbiterText = (arbiterData as any)?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
+  if (arbiterText) {
+    try {
+      const arbiterParsed = JSON.parse(arbiterText) as PhaseAResult & { pipelineFailure?: unknown }
+      if (arbiterParsed?.pipelineFailure) {
+        console.warn('[gradePhaseA] arbiter pipelineFailure', arbiterParsed.pipelineFailure)
+        return arbiterParsed as PhaseAResult
+      }
+      if (arbiterParsed?.phaseAComplete) return arbiterParsed
+    } catch (e) {
+      // fallthrough
+    }
+  }
+
+  if (!arbiterResponse.ok) {
+    const errMsg = (arbiterData as any)?.error as string | undefined
+    throw new Error(errMsg || `Phase A arbiter failed: ${arbiterResponse.status}`)
+  }
+  throw new Error('Phase A arbiter: unexpected response format (phaseAComplete missing)')
 }
 
 
