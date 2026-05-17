@@ -4780,17 +4780,51 @@ export default function GradingPage({
                     finalAnswerSource: src === 'blank' ? 'manual' : src,
                   }
                 })
-                // 寫 local Dexie + setSubmissions
-                void db.submissions.update(entry.submissionId, {
-                  finalAnswers,
-                  updatedAt: Date.now()
-                })
+                // 2026-05-18: 同步把老師選的最終答案寫進 gradingResult.details[].studentAnswer、
+                // detail modal 立刻能看到「學生答案：無法辨識 / 老師選的答案」、不要還顯示舊的 AI 讀取結果
+                const finalAnswersByQid = new Map(finalAnswers.map((fa) => [fa.questionId, fa]))
                 setSubmissions((prev) => {
                   const next = new Map(prev)
                   const cur = Array.from(prev.values()).find((s) => s.id === entry.submissionId)
-                  if (cur) next.set(cur.studentId, { ...cur, finalAnswers, updatedAt: Date.now() })
+                  if (cur) {
+                    const existingDetails = (cur.gradingResult as { details?: Array<{ questionId: string; studentAnswer?: string }> } | undefined)?.details
+                    const updatedDetails = Array.isArray(existingDetails)
+                      ? existingDetails.map((d) => {
+                          const fa = finalAnswersByQid.get(d.questionId)
+                          return fa ? { ...d, studentAnswer: fa.finalStudentAnswer } : d
+                        })
+                      : existingDetails
+                    const updatedGradingResult = updatedDetails
+                      ? { ...(cur.gradingResult || {}), details: updatedDetails } as Submission['gradingResult']
+                      : cur.gradingResult
+                    next.set(cur.studentId, {
+                      ...cur,
+                      finalAnswers,
+                      gradingResult: updatedGradingResult,
+                      updatedAt: Date.now()
+                    })
+                  }
                   return next
                 })
+                // 寫 local Dexie（含更新後的 details）
+                void (async () => {
+                  const subFromDb = await db.submissions.get(entry.submissionId)
+                  const existingDetails = (subFromDb?.gradingResult as { details?: Array<{ questionId: string; studentAnswer?: string }> } | undefined)?.details
+                  const updatedDetails = Array.isArray(existingDetails)
+                    ? existingDetails.map((d) => {
+                        const fa = finalAnswersByQid.get(d.questionId)
+                        return fa ? { ...d, studentAnswer: fa.finalStudentAnswer } : d
+                      })
+                    : existingDetails
+                  const updatedGradingResult = updatedDetails && subFromDb?.gradingResult
+                    ? { ...subFromDb.gradingResult, details: updatedDetails }
+                    : subFromDb?.gradingResult
+                  await db.submissions.update(entry.submissionId, {
+                    finalAnswers,
+                    gradingResult: updatedGradingResult as Submission['gradingResult'],
+                    updatedAt: Date.now()
+                  })
+                })().catch((err) => console.warn('Dexie update failed:', err))
                 // 寫 server（不接 Phase B）
                 void fetch('/api/data/save-final-answers', {
                   method: 'POST',
