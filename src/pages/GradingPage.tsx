@@ -2840,7 +2840,7 @@ export default function GradingPage({
 
       await runWithConcurrency(
         toGrade,
-        3,  // Phase A 每人最多 4 requests，靠 stagger 錯開避免同時爆發
+        5,  // 2026-05-17: 3→5、Vercel Pro 1000 concurrent 不擋、瓶頸看 Vertex quota 跟 OCR server
         2000, // 每個學生錯開 2 秒，讓前一個學生的 Gemini 請求先被接收
         async (sub, _idx) => {
           if (stopRequestedRef.current) return null
