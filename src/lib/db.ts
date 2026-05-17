@@ -374,6 +374,38 @@ export interface AnswerKeyTemplate {
 export type SubmissionStatus = 'missing' | 'scanned' | 'synced' | 'graded' | 'grading_failed'
 
 /**
+ * 2026-05-17: Phase A 完成後的可序列化狀態（client 側 IndexedDB / sync from Supabase）
+ * 對應 server-side `submissions.phase_a_state` jsonb
+ */
+export interface PhaseAStateCached {
+  version?: number
+  pipelineRunId?: string
+  stagedLogLevel?: string
+  model?: string
+  answerKey?: unknown
+  questionIds?: string[]
+  classifyResult?: unknown
+  readAnswer1?: Array<{ questionId: string; status: string; answer: string }>
+  readAnswer2?: Array<{ questionId: string; status: string; answer: string }>
+  arbiterDecisions?: Array<{
+    questionId: string
+    arbiterStatus?: string
+    finalAnswer?: string
+    consistent?: boolean
+  }>
+  savedAt?: string
+}
+
+/**
+ * 2026-05-17: 老師確認 / 補答後的最終答案（每題一筆）
+ */
+export interface FinalAnswerCached {
+  questionId: string
+  finalStudentAnswer: string
+  finalAnswerSource?: 'ai_read1' | 'ai_read2' | 'manual' | 'arbiter' | 'blank'
+}
+
+/**
  * 每題批改細節
  */
 export interface GradingDetail {
@@ -510,6 +542,13 @@ export interface Submission {
   gradingResult?: GradingResult
   mistakesCount?: number  // 雲端同步的錯題數量（避免傳輸完整 gradingResult）
   gradedAt?: number
+
+  // 2026-05-17: Phase A / Phase B 分離設計（PR1 後端、PR2 前端）
+  // phaseAState: Phase A 完成的可序列化狀態（answerKey / questionIds / classifyResult / read1 / read2 / arbiterDecisions）
+  // finalAnswers: 老師確認/補答後的最終答案（Phase B 用這個算分）
+  // 兩者都從 submissions table 同步進來、用於卡片狀態計算（待複核 / 待批改）跟「重新批改」(fromCache) 觸發
+  phaseAState?: PhaseAStateCached
+  finalAnswers?: FinalAnswerCached[]
 
   // 訂正管理：教師手動紀錄訂正次數
   correctionCount?: number

@@ -121,6 +121,78 @@ async function runWithConcurrency<T, R>(
   })
 }
 
+// 2026-05-17: Phase A / Phase B 分離設計——卡片狀態枚舉
+// 對應到 user 截圖的 status badge：未繳交 / 未擷取 / 擷取失敗 / 待複核 / 待批改 / 批改失敗 / XX 分
+export type CardStage =
+  | 'not_submitted'    // 未繳交（無圖、無 submission）
+  | 'not_extracted'    // 未擷取（首次、無 phase_a_state）
+  | 'phase_a_failed'   // 擷取失敗（pipelineFailure 在 Phase A）
+  | 'pending_review'   // 待複核（有題目 AI 沒讀好 / arbiter 標 needs_review）
+  | 'pending_grading'  // 待批改（所有題目都有 final answer、未 Phase B）
+  | 'phase_b_failed'   // 批改失敗（pipelineFailure 在 Phase B）
+  | 'graded'           // XX 分（Phase B 完成）
+  | 'manual_marked'    // 手動標記已批改（無圖 stub）
+
+/**
+ * 2026-05-17: 從 Submission 衍生卡片狀態
+ * 用於：卡片 badge / 動態按鈕邏輯 / Modal 攜截檢查
+ */
+export function deriveCardStage(sub: Submission | undefined): CardStage {
+  if (!sub) return 'not_submitted'
+  if (isManualGradeStub(sub)) return 'manual_marked'
+
+  // 'missing' / 'scanned' 沒實際圖
+  if (sub.status === 'missing') return 'not_submitted'
+
+  // pipelineFailure 分流：stage 在 Phase A 還是 Phase B
+  const failure = (sub.gradingResult as { pipelineFailure?: { stage?: string } } | undefined)?.pipelineFailure
+  if (sub.status === 'grading_failed' && failure?.stage) {
+    const stage = failure.stage
+    const isPhaseBStage = stage === 'accessor' || stage === 'explain' || stage === 'phase_b'
+    return isPhaseBStage ? 'phase_b_failed' : 'phase_a_failed'
+  }
+
+  // XX 分：明確 graded + 有 score
+  if (sub.status === 'graded' && sub.score != null) return 'graded'
+
+  // 從 phase_a_state 判斷 待複核 vs 待批改
+  const phaseAState = sub.phaseAState
+  if (phaseAState?.arbiterDecisions && phaseAState.arbiterDecisions.length > 0) {
+    const hasNeedsReview = phaseAState.arbiterDecisions.some(
+      (d) => d.arbiterStatus === 'needs_review'
+    )
+    return hasNeedsReview ? 'pending_review' : 'pending_grading'
+  }
+
+  // 從舊 gradingResult.details 判斷（向下相容：舊資料沒 phase_a_state、但有 gradingResult）
+  const details = (sub.gradingResult as { details?: Array<{ arbiterResult?: { arbiterStatus?: string } }> } | undefined)?.details
+  if (Array.isArray(details) && details.length > 0) {
+    const hasNeedsReview = details.some(
+      (d) => d.arbiterResult?.arbiterStatus === 'needs_review'
+    )
+    return hasNeedsReview ? 'pending_review' : 'pending_grading'
+  }
+
+  // synced 但無批改 / 無 phase_a_state → 未擷取
+  if (sub.status === 'synced' || sub.status === 'scanned') return 'not_extracted'
+
+  return 'not_extracted'
+}
+
+/**
+ * 中文 label（給 badge / Modal 列表用）
+ */
+export const CARD_STAGE_LABEL: Record<CardStage, string> = {
+  not_submitted: '未繳交',
+  not_extracted: '未擷取',
+  phase_a_failed: '擷取失敗',
+  pending_review: '待複核',
+  pending_grading: '待批改',
+  phase_b_failed: '批改失敗',
+  graded: '已批改',
+  manual_marked: '手動標記已批改'
+}
+
 // 偵測「教師手動批改」stub submission：source=teacher_camera、status=graded、無圖、無批改結果。
 // 由 /api/data/manual-grade 建立，代表老師宣告已批改但沒有實際影像/評分。
 function isManualGradeStub(submission?: Submission) {
@@ -1375,8 +1447,85 @@ export default function GradingPage({
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
   const isBusy = isGrading || isDownloading
   const selectedSubmissionCount = selectedSubmissionIds.size
-  const gradeActionLabel =
-    selectedSubmissionCount > 0 ? `批次批改 (${selectedSubmissionCount})` : '全部批改'
+
+  // 2026-05-17: Phase A / Phase B 分離設計——卡片狀態彙總（給按鈕邏輯用）
+  // 規則：無勾選 = 全部（排除未繳交 + 手動標記）、有勾選 = 對勾選
+  const stageAggregates = useMemo(() => {
+    const allSubs = Array.from(submissions.values())
+    const hasSelection = selectedSubmissionIds.size > 0
+    const inScope = hasSelection
+      ? allSubs.filter((s) => selectedSubmissionIds.has(s.id))
+      : allSubs.filter((s) => {
+          const stage = deriveCardStage(s)
+          // 全部批改情境排除：未繳交 / 手動標記
+          return stage !== 'not_submitted' && stage !== 'manual_marked'
+        })
+
+    const stageList: CardStage[] = []
+    const stageMap: Record<CardStage, Submission[]> = {
+      not_submitted: [], not_extracted: [], phase_a_failed: [],
+      pending_review: [], pending_grading: [], phase_b_failed: [],
+      graded: [], manual_marked: []
+    }
+    for (const sub of inScope) {
+      const stage = deriveCardStage(sub)
+      stageList.push(stage)
+      stageMap[stage].push(sub)
+    }
+
+    return {
+      hasSelection,
+      inScope,
+      stageMap,
+      counts: {
+        not_extracted: stageMap.not_extracted.length,
+        phase_a_failed: stageMap.phase_a_failed.length,
+        pending_review: stageMap.pending_review.length,
+        pending_grading: stageMap.pending_grading.length,
+        phase_b_failed: stageMap.phase_b_failed.length,
+        graded: stageMap.graded.length
+      }
+    }
+  }, [submissions, selectedSubmissionIds])
+
+  // 2026-05-17: 「重新截取」按鈕變身規則
+  // 🟢 primary：有 未擷取 / 擷取失敗 卡片
+  // 🟡 secondary（emit warning modal）：有 待複核 / 待批改 / 已批改 / 批改失敗
+  // 🔘 disabled：空（無 in-scope 卡片）
+  const recaptureButtonState = useMemo(() => {
+    const { counts, inScope } = stageAggregates
+    if (inScope.length === 0) return { variant: 'disabled' as const, needsWarning: false }
+    const hasFreshWork = counts.not_extracted > 0 || counts.phase_a_failed > 0
+    const hasDataToClear = counts.pending_review > 0 || counts.pending_grading > 0
+      || counts.graded > 0 || counts.phase_b_failed > 0
+    return {
+      variant: hasFreshWork ? ('primary' as const) : ('secondary' as const),
+      needsWarning: hasDataToClear
+    }
+  }, [stageAggregates])
+
+  // 2026-05-17: 「批改作業」按鈕變身規則
+  // 🚫 block + modal：有 未擷取 / 擷取失敗 卡片（必須先截取）
+  // 🚫 block + modal：有 待複核（必須先補答）
+  // 🟢 primary：有 待批改（happy path）
+  // 🟡 warning modal：有 已批改 / 批改失敗（會覆寫舊分數）
+  // 🔘 disabled：空
+  const gradeButtonState = useMemo(() => {
+    const { counts, inScope } = stageAggregates
+    if (inScope.length === 0) return { variant: 'disabled' as const, block: null as null | 'needs_extract' | 'needs_review', needsWarning: false }
+    if (counts.not_extracted > 0 || counts.phase_a_failed > 0) {
+      return { variant: 'secondary' as const, block: 'needs_extract' as const, needsWarning: false }
+    }
+    if (counts.pending_review > 0) {
+      return { variant: 'secondary' as const, block: 'needs_review' as const, needsWarning: false }
+    }
+    if (counts.pending_grading > 0) {
+      const hasOverwrite = counts.graded > 0 || counts.phase_b_failed > 0
+      return { variant: 'primary' as const, block: null, needsWarning: hasOverwrite }
+    }
+    // 只剩 已批改 / 批改失敗 → secondary + warning
+    return { variant: 'secondary' as const, block: null, needsWarning: true }
+  }, [stageAggregates])
   
   // 🆕 計算待複核數量
   const needsReviewCount = useMemo(() => {
@@ -2631,6 +2780,81 @@ export default function GradingPage({
     }
   }
 
+  // 2026-05-17: Phase A / Phase B 分離設計
+  // - 重新截取（Phase A only）警告 modal：列出會清空哪幾份卡片的批改紀錄
+  // - 批改作業 block modal: 需先截取 / 需先補答
+  // - 批改作業 warning modal: 會覆寫已批改的分數
+  const [recaptureConfirm, setRecaptureConfirm] = useState<{
+    submissions: Submission[]
+    cleared: Submission[]  // 會被清空批改紀錄的
+  } | null>(null)
+  const [gradeBlockModal, setGradeBlockModal] = useState<{
+    reason: 'needs_extract' | 'needs_review'
+    submissions: Submission[]
+  } | null>(null)
+  const [gradeOverwriteConfirm, setGradeOverwriteConfirm] = useState<{
+    submissions: Submission[]
+    overwriting: Submission[]  // 會被覆寫的（已批改 / 批改失敗）
+  } | null>(null)
+
+  // 2026-05-17: Phase A only 入口（重新截取按鈕）
+  // 步驟：1. 檢查 in-scope 卡片狀態  2. 若會清資料、跳警告 modal  3. 否則直接走 handleGradeAll（暫時 fallback）
+  // TODO PR2-5: 改成只跑 Phase A、不接 Phase B
+  const handleRecaptureAll = async () => {
+    if (recaptureButtonState.variant === 'disabled') return
+    const { inScope, stageMap } = stageAggregates
+    if (inScope.length === 0) {
+      alert('沒有可截取的作業')
+      return
+    }
+    if (recaptureButtonState.needsWarning) {
+      const cleared = [
+        ...stageMap.pending_review,
+        ...stageMap.pending_grading,
+        ...stageMap.graded,
+        ...stageMap.phase_b_failed
+      ]
+      setRecaptureConfirm({ submissions: inScope, cleared })
+      return
+    }
+    // 無清空風險、直接跑（沿用 handleGradeAll 的 ink/correction 檢查 + executeGrading）
+    // TODO PR2-5: 改成 phase A only
+    await handleGradeAll()
+  }
+
+  // 2026-05-17: Phase B only 入口（批改作業按鈕）
+  // 步驟：1. 檢查 in-scope 卡片狀態  2. 若需先截取或補答、block modal  3. 若會覆寫、warning modal  4. 否則直接跑
+  // TODO PR2-5: 改成只跑 Phase B（fromCache）、不重跑 Phase A
+  const handleGradeOnly = async () => {
+    if (gradeButtonState.variant === 'disabled') return
+    const { inScope, stageMap } = stageAggregates
+    if (inScope.length === 0) {
+      alert('沒有可批改的作業')
+      return
+    }
+    if (gradeButtonState.block === 'needs_extract') {
+      setGradeBlockModal({
+        reason: 'needs_extract',
+        submissions: [...stageMap.not_extracted, ...stageMap.phase_a_failed]
+      })
+      return
+    }
+    if (gradeButtonState.block === 'needs_review') {
+      setGradeBlockModal({ reason: 'needs_review', submissions: stageMap.pending_review })
+      return
+    }
+    if (gradeButtonState.needsWarning) {
+      setGradeOverwriteConfirm({
+        submissions: inScope,
+        overwriting: [...stageMap.graded, ...stageMap.phase_b_failed]
+      })
+      return
+    }
+    // 無風險、直接跑
+    // TODO PR2-5: 改成 phase B only fromCache
+    await handleGradeAll()
+  }
+
   const handleGradeAll = async () => {
     if (inkSessionError) {
       alert(inkSessionError)
@@ -3818,6 +4042,133 @@ export default function GradingPage({
         </div>
       )}
 
+      {/* 2026-05-17: 重新截取警告 modal（會清掉已批改紀錄） */}
+      {recaptureConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-3">確認重新截取答案</h3>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
+              ⚠️ 以下 {recaptureConfirm.cleared.length} 份作業會被**清空既有的學生答案、批改分數、訂正狀態**。
+            </div>
+            <div className="max-h-60 overflow-y-auto mb-4 border border-gray-100 rounded-lg">
+              <ul className="text-sm divide-y divide-gray-100">
+                {recaptureConfirm.cleared.map((sub) => {
+                  const stu = students.find((s) => s.id === sub.studentId)
+                  const stage = deriveCardStage(sub)
+                  return (
+                    <li key={sub.id} className="px-3 py-2 flex justify-between items-center">
+                      <span className="text-gray-700">{stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)}</span>
+                      <span className="text-xs text-gray-500">{CARD_STAGE_LABEL[stage]}{sub.score != null ? `（${sub.score}分）` : ''}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+            <div className="text-xs text-gray-500 mb-4">共 {recaptureConfirm.submissions.length} 份要截取（含 {recaptureConfirm.cleared.length} 份要清空）</div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setRecaptureConfirm(null)}
+                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  setRecaptureConfirm(null)
+                  // TODO PR2-5: 改成 phase A only
+                  void handleGradeAll()
+                }}
+                className="flex-1 px-4 py-3 bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-colors font-medium"
+              >
+                確認重新截取
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2026-05-17: 批改作業 block modal（先補答 / 先截取） */}
+      {gradeBlockModal && (
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-3">
+              {gradeBlockModal.reason === 'needs_extract' ? '請先截取答案' : '請先補答 / 確認'}
+            </h3>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
+              {gradeBlockModal.reason === 'needs_extract'
+                ? `以下 ${gradeBlockModal.submissions.length} 份作業還沒擷取答案、無法直接批改。請先按「重新截取答案」。`
+                : `以下 ${gradeBlockModal.submissions.length} 份作業有題目 AI 不確定（待複核）、請進入個別作業補答後再批改。`}
+            </div>
+            <div className="max-h-60 overflow-y-auto mb-4 border border-gray-100 rounded-lg">
+              <ul className="text-sm divide-y divide-gray-100">
+                {gradeBlockModal.submissions.map((sub) => {
+                  const stu = students.find((s) => s.id === sub.studentId)
+                  const stage = deriveCardStage(sub)
+                  return (
+                    <li key={sub.id} className="px-3 py-2 flex justify-between items-center">
+                      <span className="text-gray-700">{stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)}</span>
+                      <span className="text-xs text-gray-500">{CARD_STAGE_LABEL[stage]}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setGradeBlockModal(null)}
+                className="flex-1 px-4 py-3 bg-slate-900 text-white rounded-xl hover:bg-slate-700 transition-colors font-medium"
+              >
+                了解
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2026-05-17: 批改作業覆寫警告 modal */}
+      {gradeOverwriteConfirm && (
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-3">確認重新批改</h3>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
+              ⚠️ 以下 {gradeOverwriteConfirm.overwriting.length} 份作業已批改過、會被覆寫新分數。
+            </div>
+            <div className="max-h-60 overflow-y-auto mb-4 border border-gray-100 rounded-lg">
+              <ul className="text-sm divide-y divide-gray-100">
+                {gradeOverwriteConfirm.overwriting.map((sub) => {
+                  const stu = students.find((s) => s.id === sub.studentId)
+                  return (
+                    <li key={sub.id} className="px-3 py-2 flex justify-between items-center">
+                      <span className="text-gray-700">{stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)}</span>
+                      <span className="text-xs text-gray-500">{sub.score != null ? `${sub.score}分` : '失敗'}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+            <div className="text-xs text-gray-500 mb-4">共 {gradeOverwriteConfirm.submissions.length} 份要批改（含 {gradeOverwriteConfirm.overwriting.length} 份要覆寫）</div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setGradeOverwriteConfirm(null)}
+                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  setGradeOverwriteConfirm(null)
+                  // TODO PR2-5: 改成 phase B only fromCache
+                  void handleGradeAll()
+                }}
+                className="flex-1 px-4 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors font-medium"
+              >
+                確認重新批改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 🆕 確認對話框 */}
       {showGradeConfirm && (
         <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
@@ -3970,10 +4321,18 @@ export default function GradingPage({
               <CheckSquare className="w-5 h-5" />
               {selectedSubmissionIds.size > 0 ? '取消全選' : '全選'}
             </Button>
+            {/*
+              2026-05-17: Phase A / Phase B 分離設計——把單一「全部批改」拆成兩顆動態按鈕：
+              【🔄 重新截取答案】= 只跑 Phase A（含警告 Modal 攔截、避免清掉已批改資料）
+              【✓ 批改作業】     = 只跑 Phase B（用 cached phase_a_state，不重跑 Phase A）
+
+              按鈕顏色依 stageAggregates 動態變化：primary / secondary / disabled
+            */}
             <Button
-              variant="primary"
-              onClick={handleGradeAll}
+              variant={recaptureButtonState.variant === 'primary' ? 'primary' : 'outline'}
+              onClick={handleRecaptureAll}
               disabled={
+                recaptureButtonState.variant === 'disabled' ||
                 isGrading ||
                 isDownloading ||
                 isRefreshing ||
@@ -3982,13 +4341,38 @@ export default function GradingPage({
                 !inkSessionReady ||
                 answerKeyStatus === 'deleted'
               }
+              title="截取每題的學生答案（Phase A）。會清空已有的批改紀錄。"
+            >
+              <RefreshCw className="w-5 h-5" />
+              {selectedSubmissionCount > 0
+                ? `重新截取 (${selectedSubmissionCount})`
+                : '重新截取答案'}
+            </Button>
+            <Button
+              variant={gradeButtonState.variant === 'primary' ? 'primary' : 'outline'}
+              onClick={handleGradeOnly}
+              disabled={
+                gradeButtonState.variant === 'disabled' ||
+                isGrading ||
+                isDownloading ||
+                isRefreshing ||
+                isCheckingCorrectionState ||
+                !isGeminiAvailable ||
+                !inkSessionReady ||
+                answerKeyStatus === 'deleted'
+              }
+              title="只跑批改（Phase B）。需要已有讀取結果（待批改狀態）。"
             >
               {isCheckingCorrectionState ? (
                 <Loader className="w-5 h-5 animate-spin" />
               ) : (
                 <Sparkles className="w-5 h-5" />
               )}
-              {isCheckingCorrectionState ? '檢查訂正狀態…' : gradeActionLabel}
+              {isCheckingCorrectionState
+                ? '檢查訂正狀態…'
+                : selectedSubmissionCount > 0
+                  ? `批改作業 (${selectedSubmissionCount})`
+                  : '批改作業'}
             </Button>
           </div>
         </div>

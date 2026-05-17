@@ -915,7 +915,10 @@ export function useSync(options: UseSyncOptions = {}) {
           score: sub.score,
           aiScore: sub.aiScore,
           scoreSource: sub.scoreSource,
-          feedback: sub.feedback
+          feedback: sub.feedback,
+          // 2026-05-17: Phase A / Phase B 分離設計
+          phaseAState: sub.phaseAState,
+          finalAnswers: sub.finalAnswers
         }
       ])
     )
@@ -1037,7 +1040,17 @@ export function useSync(options: UseSyncOptions = {}) {
             (sub as Submission & { thumbnailUrl?: string }).thumbnailUrl ??
             (sub as { thumbnail_url?: string }).thumbnail_url ??
             local?.thumbnailUrl,
-          updatedAt: toMillis(sub.updatedAt ?? (sub as { updated_at?: unknown }).updated_at) || undefined
+          updatedAt: toMillis(sub.updatedAt ?? (sub as { updated_at?: unknown }).updated_at) || undefined,
+          // 2026-05-17: Phase A / Phase B 分離設計 — 同步 phase_a_state + final_answers from Supabase
+          // 用於卡片狀態計算（待複核 / 待批改）跟「重新批改」(fromCache) 觸發
+          phaseAState:
+            (sub as Submission & { phaseAState?: unknown }).phaseAState as Submission['phaseAState']
+            ?? (sub as { phase_a_state?: unknown }).phase_a_state as Submission['phaseAState']
+            ?? local?.phaseAState,
+          finalAnswers:
+            (sub as Submission & { finalAnswers?: unknown }).finalAnswers as Submission['finalAnswers']
+            ?? (sub as { final_answers?: unknown }).final_answers as Submission['finalAnswers']
+            ?? local?.finalAnswers
         }
       })
 
