@@ -155,7 +155,23 @@ export function deriveCardStage(sub: Submission | undefined): CardStage {
   // XX 分：明確 graded + 有 score
   if (sub.status === 'graded' && sub.score != null) return 'graded'
 
-  // 從 phase_a_state 判斷 待複核 vs 待批改
+  // 2026-05-18: 優先看 final_answers（老師審查確認後的最終答案）
+  // 規則：
+  //   - 全部題目都有 finalAnswer 且沒有「無法辨識」→ 待批改
+  //   - 任一題目「無法辨識」或缺答案 → 待複核（老師標記要再看）
+  const finalAnswers = sub.finalAnswers
+  const phaseAQuestionIds = sub.phaseAState?.questionIds
+  if (Array.isArray(finalAnswers) && finalAnswers.length > 0 && Array.isArray(phaseAQuestionIds) && phaseAQuestionIds.length > 0) {
+    const finalByQid = new Map(finalAnswers.map((fa) => [fa.questionId, fa.finalStudentAnswer]))
+    const hasUnrecognizable = finalAnswers.some(
+      (fa) => (fa.finalStudentAnswer || '').trim() === '無法辨識'
+    )
+    const missingCount = phaseAQuestionIds.filter((qid) => !finalByQid.has(qid)).length
+    if (hasUnrecognizable || missingCount > 0) return 'pending_review'
+    return 'pending_grading'
+  }
+
+  // 沒 final_answers → 從 phase_a_state.arbiterDecisions 判斷（Phase A 跑完、老師還沒審查）
   const phaseAState = sub.phaseAState
   if (phaseAState?.arbiterDecisions && phaseAState.arbiterDecisions.length > 0) {
     const hasNeedsReview = phaseAState.arbiterDecisions.some(
