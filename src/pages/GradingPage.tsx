@@ -469,6 +469,20 @@ type GradeResultNotice = {
   failedEntries: BatchPhaseAEntry[]
 }
 
+// 2026-05-18: Phase A only mode 專用 summary
+//   - 觸發時機：執行「截取答案」→ Phase A 全部完成（含人工審查或無需審查）
+//   - 跟 GradeResultNotice 分開：Phase A 沒有「重新批改」概念、失敗動作叫「重新讀取」
+//   - failedCandidates：Phase A pipelineFailure 的 Submission、按鈕重跑 executeRecaptureOnly
+type PhaseAResultNotice = {
+  stopped: boolean
+  successCount: number        // Phase A 成功（含通過審查）的份數
+  failCount: number           // Phase A pipelineFailure 的份數
+  needsReviewedCount: number  // 進審查頁的份數（已被老師審查完）
+  totalCount: number
+  failReasons: string[]
+  failedCandidates: Submission[]  // 失敗的 Submission、按鈕重跑 executeRecaptureOnly
+}
+
 /**
  * 從 Base64 重建 Blob（自動修復損壞的 Base64）
  */
@@ -1486,6 +1500,15 @@ export default function GradingPage({
   // 守門 modal 被關掉之前、被擋下的批改流程從哪繼續。退回成功後呼叫此 ref 恢復流程。
   const pendingGradeResumeRef = useRef<(() => void) | null>(null)
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
+  const [phaseAResultNotice, setPhaseAResultNotice] = useState<PhaseAResultNotice | null>(null)
+  // 跑 Phase A 過程的計數先 stash、等審查全部完成才一起包 notice 顯示
+  const phaseAStashRef = useRef<{
+    successCount: number
+    failCount: number
+    totalCount: number
+    failReasons: string[]
+    failedCandidates: Submission[]
+  } | null>(null)
   const [manualGradingStudentId, setManualGradingStudentId] = useState<string | null>(null)
 
   // 🆕 進度詳情
@@ -2978,6 +3001,7 @@ export default function GradingPage({
     let successCount = 0
     let failCount = 0
     const failReasons: string[] = []
+    const failedCandidates: Submission[] = []  // 失敗的 Submission、收尾 notice 提供「重新讀取」按鈕
     const ANSWER_KEY = assignment.answerKey  // narrowed for closure
     // 2026-05-18: 收集成功的 Phase A 結果、跑完判斷有沒有 needs_review、有就帶老師進審查頁
     const successfulEntries: BatchPhaseAEntry[] = []
@@ -2991,6 +3015,7 @@ export default function GradingPage({
           const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
           failReasons.push(`${label}: 無圖片`)
           failCount++
+          failedCandidates.push(sub)
           return null
         }
         try {
@@ -3011,6 +3036,7 @@ export default function GradingPage({
             const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
             failReasons.push(`${label}: ${phaseAResult.pipelineFailure.userMessage}`)
             failCount++
+            failedCandidates.push(sub)
             // 寫入失敗 status、phaseAState 由 server 端 buildFailureReturn 寫入（PR1）
             const failedGradingResult = { pipelineFailure: phaseAResult.pipelineFailure } as unknown as Submission['gradingResult']
             const failedAtMs = Date.now()
@@ -3090,6 +3116,7 @@ export default function GradingPage({
           const msg = err instanceof Error ? err.message : String(err)
           failReasons.push(`${label}: ${msg}`)
           failCount++
+          failedCandidates.push(sub)
           console.error(`[recaptureOnly] failed for ${sub.id}:`, err)
           return null
         }
@@ -3105,6 +3132,15 @@ export default function GradingPage({
     setCurrentGradingStudent('')
     requestSync()  // 拉 server 寫的 phase_a_state 回來、卡片才會顯示 待複核/待批改
 
+    // 把 Phase A 計數先 stash、若進審查頁、審查結束時再包成 notice 顯示
+    phaseAStashRef.current = {
+      successCount,
+      failCount,
+      totalCount: candidates.length,
+      failReasons: failReasons.slice(0, 10),
+      failedCandidates,
+    }
+
     // 2026-05-18: 篩出有 needs_review 的 entries、若有 → 進審查頁（不接 Phase B）
     const needsReviewEntries = successfulEntries.filter((entry) =>
       entry.phaseAResult.questionResults.some((qr) => qr.arbiterResult?.arbiterStatus === 'needs_review')
@@ -3114,17 +3150,20 @@ export default function GradingPage({
       phaseAOnlyReviewModeRef.current = true  // 標記 review-only mode、callbacks 不接 Phase B
       setBatchPhaseAEntries(needsReviewEntries)
       setGradingPhase('awaiting_review')
-      // 不顯示 gradeResultNotice、讓老師直接進審查
+      // 不顯示 notice、讓老師直接進審查；審查全部完成時用 stash 包 Phase A notice
     } else {
+      // 無 needs_review 直接收尾、顯示 Phase A 完成 notice
       setGradingPhase('idle')
-      setGradeResultNotice({
+      setPhaseAResultNotice({
         stopped: stopRequestedRef.current,
         successCount,
         failCount,
+        needsReviewedCount: 0,
         totalCount: candidates.length,
         failReasons: failReasons.slice(0, 10),
-        failedEntries: [],
+        failedCandidates,
       })
+      phaseAStashRef.current = null
     }
   }, [
     inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students
@@ -4799,6 +4838,78 @@ export default function GradingPage({
         </div>
       )}
 
+      {phaseAResultNotice && (
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-xl w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">
+              {phaseAResultNotice.stopped ? '已停止讀取' : '答案讀取完成'}
+            </h3>
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <span className="text-gray-600">成功讀取</span>
+                <span className="font-semibold text-emerald-600">{phaseAResultNotice.successCount} 份</span>
+              </div>
+              {phaseAResultNotice.needsReviewedCount > 0 && (
+                <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                  <span className="text-gray-600">已完成審查</span>
+                  <span className="font-semibold text-indigo-600">{phaseAResultNotice.needsReviewedCount} 份</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <span className="text-gray-600">讀取失敗</span>
+                <span className="font-semibold text-rose-600">{phaseAResultNotice.failCount} 份</span>
+              </div>
+              <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                <span className="text-gray-600">總作業數</span>
+                <span className="font-semibold text-gray-900">{phaseAResultNotice.totalCount} 份</span>
+              </div>
+              {phaseAResultNotice.failReasons.length > 0 && (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+                  <p className="text-sm font-medium text-rose-700 mb-2">失敗原因</p>
+                  <ul className="space-y-1 max-h-44 overflow-y-auto pr-1">
+                    {phaseAResultNotice.failReasons.map((reason, index) => (
+                      <li key={`${index}-${reason}`} className="text-sm text-rose-700 break-words leading-relaxed">
+                        {index + 1}. {reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {phaseAResultNotice.stopped && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                  你已手動停止讀取，系統僅保留已完成的部分。
+                </div>
+              )}
+              {phaseAResultNotice.successCount > 0 && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  讀取完成的作業可按「批改作業」開始正式評分。
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              {phaseAResultNotice.failedCandidates.length > 0 && (
+                <button
+                  onClick={() => {
+                    const toRetry = phaseAResultNotice.failedCandidates
+                    setPhaseAResultNotice(null)
+                    void executeRecaptureOnly(toRetry)
+                  }}
+                  className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-medium text-white hover:bg-rose-700 transition-colors"
+                >
+                  重新讀取失敗的 {phaseAResultNotice.failedCandidates.length} 份
+                </button>
+              )}
+              <button
+                onClick={() => setPhaseAResultNotice(null)}
+                className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-700 transition-colors"
+              >
+                關閉
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {gradeResultNotice && (
         <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-xl w-full mx-4">
@@ -5069,11 +5180,26 @@ export default function GradingPage({
             onAllDone={() => {
               if (phaseAOnlyReviewModeRef.current) {
                 console.log('✅ 全部審查完成（review only mode）、回卡片列表、不接 Phase B')
+                const reviewedCount = batchPhaseAEntries.length
                 phaseAOnlyReviewModeRef.current = false
                 setBatchPhaseAEntries([])
                 setGradingPhase('idle')
                 setIsGrading(false)
                 requestSync()  // 拉最新 final_answers
+                // 用 stash 包 Phase A 完成 notice
+                const stash = phaseAStashRef.current
+                if (stash) {
+                  setPhaseAResultNotice({
+                    stopped: false,
+                    successCount: stash.successCount,
+                    failCount: stash.failCount,
+                    needsReviewedCount: reviewedCount,
+                    totalCount: stash.totalCount,
+                    failReasons: stash.failReasons,
+                    failedCandidates: stash.failedCandidates,
+                  })
+                  phaseAStashRef.current = null
+                }
               } else {
                 console.log('✅ 全部審查完成，等待背景 Accessor')
                 setPhaseBTotalCount(batchPhaseAEntries.length)
