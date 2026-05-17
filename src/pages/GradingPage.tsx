@@ -4129,34 +4129,60 @@ export default function GradingPage({
             }
       })
       const now = Date.now()
-      await db.submissions.update(subId, {
+      // 2026-05-18: 動到答案 = 卡片自動回退到「待批改」、score / aiScore / gradedAt 清掉
+      // 老師看卡片狀態就知道要重評、不需要 banner 提示
+      // 對應 user 的設計精神：「動答案就要重批改」、避免「graded 但分數過時」這中間態
+      const isCurrentlyGraded = submission.status === 'graded'
+      const updatedSubFields: Partial<Submission> = {
         gradingResult: newGradingResult,
         finalAnswers: newFinalAnswers,
-        updatedAt: now
-      })
+        updatedAt: now,
+        ...(isCurrentlyGraded ? {
+          status: 'synced' as const,
+          score: undefined,
+          aiScore: undefined,
+          scoreSource: undefined,
+          gradedAt: undefined
+        } : {})
+      }
+      await db.submissions.update(subId, updatedSubFields)
       setSubmissions((prev) => {
         const next = new Map(prev)
         const cur = Array.from(prev.values()).find((s) => s.id === subId)
-        if (cur) next.set(cur.studentId, {
-          ...cur,
-          gradingResult: newGradingResult,
-          finalAnswers: newFinalAnswers,
-          updatedAt: now
-        })
+        if (cur) next.set(cur.studentId, { ...cur, ...updatedSubFields })
         return next
       })
       // 同步 selectedSubmission、detail modal 立刻反映
       setSelectedSubmission((prev) => prev ? {
         ...prev,
-        submission: { ...prev.submission, gradingResult: newGradingResult, finalAnswers: newFinalAnswers, updatedAt: now }
+        submission: { ...prev.submission, ...updatedSubFields }
       } : prev)
-      // 寫雲端、fire-and-forget
+      // 寫雲端：final_answers 寫進去（save-grading 也順便清 score、若卡片從 graded 退回）
       void fetch('/api/data/save-final-answers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ submissions: [{ id: subId, finalAnswers: newFinalAnswers }] })
       }).catch((err) => console.warn('save-final-answers failed (non-fatal):', err))
+      // 若卡片從 graded 退回 synced、也要通知 server 清 score / status
+      if (isCurrentlyGraded) {
+        void fetch('/api/data/save-grading', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            submissions: [{
+              id: subId,
+              status: 'synced',
+              score: null,
+              aiScore: null,
+              scoreSource: null,
+              gradedAt: null,
+              gradingResult: newGradingResult
+            }]
+          })
+        }).catch((err) => console.warn('save-grading (revert) failed (non-fatal):', err))
+      }
     }, 1000)
     studentAnswerSaveTimeoutsRef.current.set(index, timeout)
   }
@@ -5398,18 +5424,6 @@ export default function GradingPage({
               </div>
 
               <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
-                {/* 2026-05-18 PR4: 分數已過時警示 — 已批改卷、updatedAt > gradedAt 表示老師改過答案 */}
-                {selectedSubmission.submission.status === 'graded' &&
-                  selectedSubmission.submission.gradedAt &&
-                  selectedSubmission.submission.updatedAt &&
-                  selectedSubmission.submission.updatedAt > selectedSubmission.submission.gradedAt + 1000 && (
-                    <div className="rounded-xl border border-purple-200 bg-purple-50 p-3 flex items-start gap-2">
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-purple-600" />
-                      <p className="text-sm text-purple-800">
-                        <span className="font-semibold">分數已過時</span>：你改過學生答案、目前分數還是舊版的。回卡片列表按【批改作業】重新評分。
-                      </p>
-                    </div>
-                  )}
                 {/* 🆕 需複核警示 */}
                 {isSubmissionNeedsReview(selectedSubmission.submission.gradingResult) && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
