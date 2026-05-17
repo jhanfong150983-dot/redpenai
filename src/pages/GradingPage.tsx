@@ -31,7 +31,8 @@ import {
   type PhaseAResult,
   type PhaseAQuestionResult,
   type FinalAnswer,
-  type PipelineFailure
+  type PipelineFailure,
+  type GradingStageName
 } from '@/lib/gemini'
 import { buildApiUrl } from '@/lib/api-base'
 import { startInkSession, closeInkSession, getInkSessionId } from '@/lib/ink-session'
@@ -635,8 +636,9 @@ function ForensicSupportBadge({ support }: { support?: string }) {
 
 // ─── GradingPipelineOverlay ───────────────────────────────────────────────────
 // Full-screen lock mask + floating modal card shown during Phase A / Phase B
+// 2026-05-18: 5 階段顯示（classify / read / arbiter / accessor / explain）
 
-type PipelineStageStatus = 'pending' | 'active' | 'done'
+type PipelineStageStatus = 'pending' | 'active' | 'done' | 'inactive'
 
 interface PipelineStageProps {
   index: number
@@ -650,42 +652,59 @@ function PipelineStage({ index, label, sublabel, status }: PipelineStageProps) {
     pending: { circle: '#e5e7eb', text: '#9ca3af', sub: '#d1d5db' },
     active: { circle: '#7c3aed', text: '#374151', sub: '#6b7280' },
     done: { circle: '#16a34a', text: '#374151', sub: '#6b7280' },
+    inactive: { circle: '#f3f4f6', text: '#d1d5db', sub: '#e5e7eb' },
   }
   const c = colors[status]
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.4rem', minWidth: '90px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.35rem', minWidth: '72px', flex: 1 }}>
       <div style={{
-        width: '2.5rem', height: '2.5rem', borderRadius: '50%',
+        width: '2.25rem', height: '2.25rem', borderRadius: '50%',
         background: c.circle,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         position: 'relative',
         boxShadow: status === 'active' ? '0 0 0 4px #ede9fe' : undefined,
       }}>
         {status === 'done' ? (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12" />
           </svg>
         ) : status === 'active' ? (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1.2s linear infinite' }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1.2s linear infinite' }}>
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
           </svg>
         ) : (
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#9ca3af' }}>{index}</span>
+          <span style={{ fontSize: '0.7rem', fontWeight: 700, color: status === 'inactive' ? '#d1d5db' : '#9ca3af' }}>{index}</span>
         )}
       </div>
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: c.text, whiteSpace: 'nowrap' }}>{label}</div>
-        <div style={{ fontSize: '0.7rem', color: c.sub, marginTop: '0.1rem', whiteSpace: 'nowrap' }}>{sublabel}</div>
+        <div style={{ fontSize: '0.72rem', fontWeight: 700, color: c.text, whiteSpace: 'nowrap' }}>{label}</div>
+        <div style={{ fontSize: '0.65rem', color: c.sub, marginTop: '0.1rem', whiteSpace: 'nowrap' }}>{sublabel}</div>
       </div>
     </div>
   )
 }
 
+export type GradingPipelineMode = 'phase_a_only' | 'phase_b_only' | 'both'
+
+export interface PipelineStageProgress {
+  classify: { done: number; total: number }
+  read: { done: number; total: number }
+  arbiter: { done: number; total: number }
+  accessor: { done: number; total: number }
+  explain: { done: number; total: number }
+}
+
+export const EMPTY_PIPELINE_STAGE_PROGRESS: PipelineStageProgress = {
+  classify: { done: 0, total: 0 },
+  read: { done: 0, total: 0 },
+  arbiter: { done: 0, total: 0 },
+  accessor: { done: 0, total: 0 },
+  explain: { done: 0, total: 0 },
+}
 
 interface GradingPipelineOverlayProps {
-  phase: 'phase_a_running' | 'phase_b_running'
-  phaseAProgress: { current: number; total: number }
-  phaseBProgress: { current: number; total: number }
+  mode: GradingPipelineMode
+  stageProgress: PipelineStageProgress
   phaseANeedsReviewCount: number
   phaseATotalQuestionCount: number
   gradingMessage: string
@@ -693,34 +712,59 @@ interface GradingPipelineOverlayProps {
   onStop: () => void
 }
 
+const STAGE_ORDER: GradingStageName[] = ['classify', 'read', 'arbiter', 'accessor', 'explain']
+const STAGE_LABELS: Record<GradingStageName, string> = {
+  classify: '版面掃描',
+  read: '讀取答案',
+  arbiter: '仔細校對',
+  accessor: '批改評分',
+  explain: '生成引導',
+}
+
+function isStageInMode(stage: GradingStageName, mode: GradingPipelineMode): boolean {
+  if (mode === 'phase_a_only') return stage === 'classify' || stage === 'read' || stage === 'arbiter'
+  if (mode === 'phase_b_only') return stage === 'accessor' || stage === 'explain'
+  return true
+}
+
 function GradingPipelineOverlay({
-  phase,
-  phaseAProgress,
-  phaseBProgress,
+  mode,
+  stageProgress,
   phaseANeedsReviewCount,
   phaseATotalQuestionCount,
   gradingMessage,
   stopRequested,
   onStop,
 }: GradingPipelineOverlayProps) {
-  const isPhaseA = phase === 'phase_a_running'
-  const isAfterPhaseA = !isPhaseA
+  // 推導每個 stage 狀態：
+  //   inactive — 不在本次 run（mode 不涵蓋）
+  //   done     — done === total 且 total > 0
+  //   active   — 前一個 stage 已完成（或本身是第一個 active stage）、本 stage 尚未完成
+  //   pending  — 前一個 stage 還沒完成
+  const stages = STAGE_ORDER.map((stage, idx): { stage: GradingStageName; status: PipelineStageStatus; sublabel: string } => {
+    if (!isStageInMode(stage, mode)) {
+      return { stage, status: 'inactive', sublabel: '—' }
+    }
+    const { done, total } = stageProgress[stage]
+    if (total > 0 && done >= total) {
+      return { stage, status: 'done', sublabel: `${done}/${total}` }
+    }
+    // 找出本次 mode 中第一個 in-mode 的 stage、之前所有 in-mode stage 是否都完成
+    const prevInMode = STAGE_ORDER.slice(0, idx).filter((s) => isStageInMode(s, mode))
+    const allPrevDone = prevInMode.every((s) => {
+      const p = stageProgress[s]
+      return p.total > 0 && p.done >= p.total
+    })
+    if (allPrevDone) {
+      return { stage, status: 'active', sublabel: total > 0 ? `${done}/${total}` : '進行中…' }
+    }
+    return { stage, status: 'pending', sublabel: total > 0 ? `${done}/${total}` : '等待中' }
+  })
 
-  const stageA: PipelineStageStatus = isPhaseA ? 'active' : 'done'
-  const stageReview: PipelineStageStatus = isAfterPhaseA ? 'done' : 'pending'
-  const stageB: PipelineStageStatus = isAfterPhaseA ? 'active' : 'pending'
-
-  const aPercent = phaseAProgress.total > 0
-    ? Math.round((phaseAProgress.current / phaseAProgress.total) * 100)
-    : 0
-  const aLabel = isPhaseA ? `${aPercent}%` : '100%'
-  const bLabel = phaseBProgress.total > 0
-    ? `${phaseBProgress.current}/${phaseBProgress.total}`
-    : '批改中…'
-
-  const reviewLabel = phaseANeedsReviewCount > 0
-    ? `需審查 ${phaseANeedsReviewCount}/${phaseATotalQuestionCount} 題`
-    : isPhaseA ? '統計中…' : '已確認'
+  // 是否在 Phase A 階段（用來決定要不要顯示需審查提示）
+  const isPhaseA = stages.some(
+    (s) => (s.stage === 'classify' || s.stage === 'read' || s.stage === 'arbiter') && s.status === 'active'
+  )
 
   return (
     <>
@@ -734,7 +778,7 @@ function GradingPipelineOverlay({
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
         zIndex: 9999, background: '#fff', borderRadius: '1.25rem',
         boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
-        padding: '2rem 2.5rem', minWidth: '520px', maxWidth: '90vw',
+        padding: '2rem 2.5rem', minWidth: '560px', maxWidth: '90vw',
         display: 'flex', flexDirection: 'column', gap: '1.5rem', alignItems: 'center',
       }}>
         {/* Title */}
@@ -743,11 +787,17 @@ function GradingPipelineOverlay({
           <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>{gradingMessage}</div>
         </div>
 
-        {/* Pipeline stages */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'center', width: '100%', padding: '0 0.25rem', gap: '0.75rem' }}>
-          <PipelineStage index={1} label="擷取學生答案" sublabel={aLabel} status={stageA} />
-          <PipelineStage index={2} label="教師人工審查" sublabel={reviewLabel} status={stageReview} />
-          <PipelineStage index={3} label="AI批改評分" sublabel={bLabel} status={stageB} />
+        {/* Pipeline stages — 5 階段 */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%', padding: '0 0.25rem', gap: '0.25rem' }}>
+          {stages.map((s, i) => (
+            <PipelineStage
+              key={s.stage}
+              index={i + 1}
+              label={STAGE_LABELS[s.stage]}
+              sublabel={s.sublabel}
+              status={s.status}
+            />
+          ))}
         </div>
 
         {/* 人工審查提醒（Phase A 執行中且已有需審查題目）
@@ -1391,8 +1441,10 @@ export default function GradingPage({
   const [isGrading, setIsGrading] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [isCheckingCorrectionState, setIsCheckingCorrectionState] = useState(false)
-  const [gradingProgress, setGradingProgress] = useState({ current: 0, total: 0 })
-  const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0 })
+  // 2026-05-18: gradingProgress / downloadProgress 已被 pipelineStageProgress 取代、
+  // 只保留 setter（內部某些 batch loop 還在呼叫、移除會擴散到太多地方）
+  const [, setGradingProgress] = useState({ current: 0, total: 0 })
+  const [, setDownloadProgress] = useState({ current: 0, total: 0 })
   const [error, setError] = useState<string | null>(null)
   const [inkSessionReady, setInkSessionReady] = useState(false)
   const [inkSessionError, setInkSessionError] = useState<string | null>(null)
@@ -1620,6 +1672,17 @@ export default function GradingPage({
   const [phaseBScoredCount, setPhaseBScoredCount] = useState(0)
   const [phaseBTotalCount, setPhaseBTotalCount] = useState(0)
 
+  // 2026-05-18: 5-stage 進度（classify / read / arbiter / accessor / explain）
+  // 各 stage 的 done = 已完成該 stage 的學生份數、total = 該 stage 預期處理份數（不在本次 mode 則為 0）
+  const [pipelineStageProgress, setPipelineStageProgress] = useState<PipelineStageProgress>(EMPTY_PIPELINE_STAGE_PROGRESS)
+  const [pipelineMode, setPipelineMode] = useState<GradingPipelineMode>('both')
+  const bumpStageDone = useCallback((stage: GradingStageName) => {
+    setPipelineStageProgress((prev) => ({
+      ...prev,
+      [stage]: { done: prev[stage].done + 1, total: prev[stage].total }
+    }))
+  }, [])
+
   const executeBatchPhaseB = useCallback(async (
     entriesToProcess?: BatchPhaseAEntry[],
     background = false,
@@ -1658,6 +1721,16 @@ export default function GradingPage({
       setIsGrading(true)
       setGradingStartTime(Date.now())
       setGradingProgress({ current: 0, total: entries.length })
+      // 老路徑（manual review 後或 retry）：overlay 顯示 Phase B 階段（accessor/explain）
+      // gradePhaseB 內部沒 onStage、accessor 階段會 active 直到整批完成、結束時 phase 變 idle 收 overlay
+      setPipelineMode('phase_b_only')
+      setPipelineStageProgress({
+        classify: { done: 0, total: 0 },
+        read: { done: 0, total: 0 },
+        arbiter: { done: 0, total: 0 },
+        accessor: { done: 0, total: entries.length },
+        explain: { done: 0, total: entries.length },
+      })
     }
     if (!background) setPhaseBTotalCount(prev => prev + entries.length)
     setCompletedReviewCount(0)
@@ -2871,6 +2944,15 @@ export default function GradingPage({
     stopRequestedRef.current = false
     setGradingProgress({ current: 0, total: candidates.length })
     setGradingStartTime(Date.now())
+    // Phase A only mode：classify / read / arbiter 各 total = N、accessor / explain 不在本 run
+    setPipelineMode('phase_a_only')
+    setPipelineStageProgress({
+      classify: { done: 0, total: candidates.length },
+      read: { done: 0, total: candidates.length },
+      arbiter: { done: 0, total: candidates.length },
+      accessor: { done: 0, total: 0 },
+      explain: { done: 0, total: 0 },
+    })
 
     // 圖片準備（同 executeGradeOnlyCache）
     const needPrepare = candidates.filter((s) => !s.imageBlob)
@@ -2924,7 +3006,10 @@ export default function GradingPage({
             undefined,  // classifyCorrections — 重新截取不帶老師舊修正
             assignment?.answerSheetMode,
             sub.id,
-            sub.source
+            sub.source,
+            (stage, event) => {
+              if (event === 'completed') bumpStageDone(stage)
+            }
           )
           if (phaseAResult.pipelineFailure) {
             const stu = students.find((s) => s.id === sub.studentId)
@@ -3068,6 +3153,15 @@ export default function GradingPage({
     setPhaseBTotalCount(candidates.length)
     setPhaseBScoredCount(0)
     setGradingStartTime(Date.now())
+    // Phase B only mode：accessor / explain 各 total = N
+    setPipelineMode('phase_b_only')
+    setPipelineStageProgress({
+      classify: { done: 0, total: 0 },
+      read: { done: 0, total: 0 },
+      arbiter: { done: 0, total: 0 },
+      accessor: { done: 0, total: candidates.length },
+      explain: { done: 0, total: candidates.length },
+    })
 
     // 圖片準備（從 cloud 載 / 從 base64 重建）
     const needPrepare = candidates.filter((s) => !s.imageBlob)
@@ -3126,7 +3220,10 @@ export default function GradingPage({
             assignment?.domain,
             assignment?.answerSheetMode,
             gradeBand,
-            sub.finalAnswers as FinalAnswer[] | undefined
+            sub.finalAnswers as FinalAnswer[] | undefined,
+            (stage, event) => {
+              if (event === 'completed') bumpStageDone(stage)
+            }
           )
           const totalScore = result.totalScore ?? 0
           const gradedAtMs = Date.now()
@@ -3419,6 +3516,15 @@ export default function GradingPage({
       setGradingMessage('定位答案中…')
       setGradingPhase('phase_a_running')
       setPhaseANeedsReviewCount(0)
+      // 5-stage overlay：全程 mode (Phase A → Phase B)、初始 done=0
+      setPipelineMode('both')
+      setPipelineStageProgress({
+        classify: { done: 0, total: toGrade.length },
+        read: { done: 0, total: toGrade.length },
+        arbiter: { done: 0, total: toGrade.length },
+        accessor: { done: 0, total: toGrade.length },
+        explain: { done: 0, total: toGrade.length },
+      })
 
       // 嘗試從 template 解析 answerKey（若 assignment 沒有直接帶）
       if (!assignment?.answerKey && assignment?.answerKeyTemplateId) {
@@ -3458,7 +3564,10 @@ export default function GradingPage({
             undefined,
             assignment.answerSheetMode,
             sub.id,
-            sub.source
+            sub.source,
+            (stage, event) => {
+              if (event === 'completed') bumpStageDone(stage)
+            }
           )
           return { sub, phaseAResult }
         },
@@ -4868,19 +4977,8 @@ export default function GradingPage({
         {/* Grading pipeline overlay (下載圖片、Phase A、Phase B 統一顯示遮罩) */}
         {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'phase_b_running') && (
           <GradingPipelineOverlay
-            phase={gradingPhase === 'phase_b_running' ? 'phase_b_running' : 'phase_a_running'}
-            phaseAProgress={
-              isDownloading
-                ? downloadProgress
-                : gradingPhase === 'phase_a_running'
-                  ? gradingProgress
-                  : { current: gradingProgress.total, total: gradingProgress.total }
-            }
-            phaseBProgress={
-              gradingPhase === 'phase_b_running'
-                ? { current: phaseBScoredCount, total: phaseBTotalCount || batchPhaseAEntries.length }
-                : { current: 0, total: batchPhaseAEntries.length }
-            }
+            mode={pipelineMode}
+            stageProgress={pipelineStageProgress}
             phaseANeedsReviewCount={phaseANeedsReviewCount}
             phaseATotalQuestionCount={phaseATotalQuestionCount}
             gradingMessage={isDownloading ? '正在下載學生作業圖片…' : gradingMessage}

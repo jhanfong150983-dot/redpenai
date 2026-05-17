@@ -269,6 +269,16 @@ export interface FinalAnswer {
   finalAnswerSource: 'ai_read1' | 'ai_read2' | 'ai_arbiter' | 'manual' | 'unrecognizable'
 }
 
+// 2026-05-18: 5-stage 進度回報、給 UI overlay 顯示「目前跑到第幾階段」
+//   classify  = Phase A call 1（版面掃描）
+//   read      = Phase A call 2（讀取答案 AI1+AI2）
+//   arbiter   = Phase A call 3（仔細校對 AI3）
+//   accessor  = Phase B call 1（批改評分）
+//   explain   = Phase B call 2（生成引導）
+export type GradingStageName = 'classify' | 'read' | 'arbiter' | 'accessor' | 'explain'
+export type GradingStageEvent = 'started' | 'completed'
+export type GradingStageCallback = (stage: GradingStageName, event: GradingStageEvent) => void
+
 // 🆕 AnswerKey 緩存引用（用於跨請求共享）
 let cachedAnswerKeyHash: string | null = null
 let cachedAnswerKeyJson: string | null = null
@@ -5245,7 +5255,8 @@ export async function gradePhaseA(
   classifyCorrections?: ClassifyCorrection[],
   answerSheetMode?: 'with_questions' | 'answer_only',
   submissionId?: string,
-  submissionSource?: string
+  submissionSource?: string,
+  onStage?: GradingStageCallback
 ): Promise<PhaseAResult> {
   const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
   // 2026-05-17: ink session 改在每個 call 之前 ensureInkSessionFresh、不在這裡先拿（拆 3 call 後每個都自己刷一次）
@@ -5295,6 +5306,7 @@ export async function gradePhaseA(
   })
 
   // ── Call 1: phase_a_classify ────────────────────────────────────────────
+  onStage?.('classify', 'started')
   const { sessionId: sid1 } = await ensureInkSessionFresh()
   const body1 = JSON.stringify({
     ...baseBody(sid1),
@@ -5315,15 +5327,22 @@ export async function gradePhaseA(
   // 舊版相容：server 一次跑完
   if (classifyParsed?.phaseAComplete) {
     console.log('[gradePhaseA] server 一次跑完（舊版相容路徑）')
+    onStage?.('classify', 'completed')
+    onStage?.('read', 'started')
+    onStage?.('read', 'completed')
+    onStage?.('arbiter', 'started')
+    onStage?.('arbiter', 'completed')
     return classifyParsed as PhaseAResult
   }
   if (!classifyParsed?.phaseAClassifyComplete || !classifyParsed?._phaseAClassifyContext) {
     if (!r1.resp.ok) throw new Error((r1.data as any)?.error || `Phase A classify failed: ${r1.resp.status}`)
     throw new Error('Phase A: classify response missing phaseAClassifyComplete')
   }
+  onStage?.('classify', 'completed')
   console.log('[gradePhaseA] classify 完成 → 進入 read call')
 
   // ── Call 2: phase_a (read) ──────────────────────────────────────────────
+  onStage?.('read', 'started')
   const { sessionId: sid2 } = await ensureInkSessionFresh()
   const body2 = JSON.stringify({
     ...baseBody(sid2),
@@ -5343,15 +5362,20 @@ export async function gradePhaseA(
   }
   if (readParsed?.phaseAComplete) {
     console.log('[gradePhaseA] read 階段一次跑到底（含 arbiter）— 舊版相容')
+    onStage?.('read', 'completed')
+    onStage?.('arbiter', 'started')
+    onStage?.('arbiter', 'completed')
     return readParsed as PhaseAResult
   }
   if (!readParsed?.phaseAReadyForArbiter || !readParsed?._phaseAReadContext) {
     if (!r2.resp.ok) throw new Error((r2.data as any)?.error || `Phase A read failed: ${r2.resp.status}`)
     throw new Error('Phase A: read response missing phaseAReadyForArbiter')
   }
+  onStage?.('read', 'completed')
   console.log('[gradePhaseA] read 完成 → 進入 arbiter call')
 
   // ── Call 3: phase_a_arbiter ─────────────────────────────────────────────
+  onStage?.('arbiter', 'started')
   const { sessionId: sid3 } = await ensureInkSessionFresh()
   const body3 = JSON.stringify({
     ...baseBody(sid3),
@@ -5367,7 +5391,10 @@ export async function gradePhaseA(
         console.warn('[gradePhaseA] arbiter pipelineFailure', arbiterParsed.pipelineFailure)
         return arbiterParsed as PhaseAResult
       }
-      if (arbiterParsed?.phaseAComplete) return arbiterParsed
+      if (arbiterParsed?.phaseAComplete) {
+        onStage?.('arbiter', 'completed')
+        return arbiterParsed
+      }
     } catch {}
   }
 
@@ -5492,19 +5519,43 @@ export async function gradePhaseBFromCache(
   domain?: string,
   answerSheetMode?: 'with_questions' | 'answer_only',
   gradeBand?: 'k9' | 'high',
-  finalAnswersOverride?: FinalAnswer[]
+  finalAnswersOverride?: FinalAnswer[],
+  onStage?: GradingStageCallback
 ): Promise<GradingResult> {
-  const { sessionId: inkSessionId } = await ensureInkSessionFresh()
-
   const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'phase-b-cache')
   const imageBase64 = await blobToBase64(compressed)
   const mimeType = compressed.type || submissionImageBlob.type || 'image/jpeg'
 
-  const buildBody = (sid: string | null) => JSON.stringify({
+  // 2026-05-18: Phase B 拆 2 個 HTTP call（accessor + explain）、各吃獨立 budget、loading UI 可分階段顯示
+  //   call 1 — grading.phase_b_accessor  → 批改評分、回 _phaseBAccessorContext
+  //   call 2 — grading.phase_b_explain   → 生成引導、回最終 GradingResult
+
+  const postPhaseB = async (body: string): Promise<{ resp: Response; data: any; text: string | undefined }> => {
+    let resp = await fetch(geminiProxyUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body
+    })
+    if (resp.status === 409) {
+      console.warn('[gradePhaseBFromCache] Ink session 409、刷新後重試...')
+      setInkSessionId(null)
+      const { sessionId: newSid } = await startInkSession()
+      const reparsed = JSON.parse(body)
+      reparsed.inkSessionId = newSid
+      resp = await fetch(geminiProxyUrl, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(reparsed)
+      })
+    }
+    const data = await resp.json().catch(() => null) as Record<string, unknown> | null
+    if (typeof (data as any)?.ink?.balanceAfter === 'number' && Number.isFinite((data as any).ink.balanceAfter)) {
+      dispatchInkBalance((data as any).ink.balanceAfter)
+    }
+    const text = (data as any)?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
+    return { resp, data, text }
+  }
+
+  const baseBody = (sid: string | null) => ({
     model: currentModelName,
     contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
     ...(sid ? { inkSessionId: sid } : {}),
-    routeKey: 'grading.phase_b',
     fromCache: true,
     submissionId,
     ...(finalAnswersOverride && finalAnswersOverride.length > 0 ? { finalAnswers: finalAnswersOverride } : {}),
@@ -5514,41 +5565,57 @@ export async function gradePhaseBFromCache(
     ...(gradeBand ? { gradeBand } : {})
   })
 
-  let response = await fetch(geminiProxyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: buildBody(inkSessionId)
+  // ── Call 1: phase_b_accessor ────────────────────────────────────────────
+  onStage?.('accessor', 'started')
+  const { sessionId: sid1 } = await ensureInkSessionFresh()
+  const body1 = JSON.stringify({
+    ...baseBody(sid1),
+    routeKey: 'grading.phase_b_accessor'
   })
-
-  if (response.status === 409) {
-    console.warn('[gradePhaseBFromCache] Ink session 409、刷新後重試...')
-    setInkSessionId(null)
-    const { sessionId: newSessionId } = await startInkSession()
-    response = await fetch(geminiProxyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: buildBody(newSessionId)
-    })
-  }
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({})) as Record<string, unknown>
-    let errMsg = `Phase B fromCache failed: ${response.status}`
+  const r1 = await postPhaseB(body1)
+  if (!r1.resp.ok) {
+    const err = (r1.data as any) || {}
+    let errMsg = `Phase B accessor failed: ${r1.resp.status}`
     if (typeof err?.error === 'string' && err.error) errMsg = err.error
     throw new Error(errMsg)
   }
-
-  const data = await response.json()
-  if (typeof data?.ink?.balanceAfter === 'number' && Number.isFinite(data.ink.balanceAfter)) {
-    dispatchInkBalance(data.ink.balanceAfter)
+  if (!r1.text) throw new Error('Phase B accessor: empty response text')
+  let accessorParsed: any = null
+  try { accessorParsed = JSON.parse(r1.text.replace(/```json|```/g, '').trim()) } catch {
+    throw new Error('Phase B accessor: 無法解析回傳 JSON')
   }
+  // 舊版相容：server 一次跑完（沒拆 accessor/explain）
+  if (accessorParsed?.totalScore !== undefined || accessorParsed?.details !== undefined) {
+    onStage?.('accessor', 'completed')
+    onStage?.('explain', 'started')
+    onStage?.('explain', 'completed')
+    console.log('[gradePhaseBFromCache] server 一次跑完（舊版相容路徑）')
+    return accessorParsed as GradingResult
+  }
+  if (!accessorParsed?.phaseBAccessorComplete || !accessorParsed?._phaseBAccessorContext) {
+    throw new Error('Phase B accessor: 回傳缺少 _phaseBAccessorContext')
+  }
+  onStage?.('accessor', 'completed')
+  console.log('[gradePhaseBFromCache] accessor 完成 → 進入 explain call')
 
-  const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text
-  if (!text) throw new Error('Phase B fromCache: empty response text')
-
-  const parsed = JSON.parse(text.replace(/```json|```/g, '').trim()) as GradingResult
+  // ── Call 2: phase_b_explain ─────────────────────────────────────────────
+  onStage?.('explain', 'started')
+  const { sessionId: sid2 } = await ensureInkSessionFresh()
+  const body2 = JSON.stringify({
+    ...baseBody(sid2),
+    routeKey: 'grading.phase_b_explain',
+    _phaseBAccessorContext: accessorParsed._phaseBAccessorContext
+  })
+  const r2 = await postPhaseB(body2)
+  if (!r2.resp.ok) {
+    const err = (r2.data as any) || {}
+    let errMsg = `Phase B explain failed: ${r2.resp.status}`
+    if (typeof err?.error === 'string' && err.error) errMsg = err.error
+    throw new Error(errMsg)
+  }
+  if (!r2.text) throw new Error('Phase B explain: empty response text')
+  const parsed = JSON.parse(r2.text.replace(/```json|```/g, '').trim()) as GradingResult
+  onStage?.('explain', 'completed')
   return parsed
 }
 
