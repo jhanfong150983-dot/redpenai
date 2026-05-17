@@ -2921,14 +2921,13 @@ export default function GradingPage({
           }
           // Phase A 成功、server 已寫 phase_a_state、local 等 sync 拉回
           // 同時把 questionResults 暫存到 local gradingResult.details、讓 detail modal 立刻能看
+          // 2026-05-18: Phase A only 不寫 score/maxScore/isCorrect、avoid modal 誤顯示「答錯 0/0」
+          // status='synced' + score=undefined 讓 modal 知道「還沒批改」、用「未批改」badge 取代分數
           const detailsFromPhaseA = phaseAResult.questionResults.map((qr) => ({
             questionId: qr.questionId,
             questionType: qr.questionType,
             studentAnswer: qr.arbiterResult?.finalAnswer || qr.readAnswer1?.studentAnswer || '',
-            isCorrect: false,
-            score: 0,
-            maxScore: 0,
-            reason: '',
+            // 故意不設 score / maxScore / isCorrect / reason — 等 Phase B 跑完才填
             readAnswer1: qr.readAnswer1,
             readAnswer2: qr.readAnswer2,
             arbiterResult: qr.arbiterResult,
@@ -2936,7 +2935,8 @@ export default function GradingPage({
             answerBbox: qr.answerBbox,
             answerCropImageUrl: qr.answerCropImageUrl,
           }))
-          const phaseAGradingResult = { details: detailsFromPhaseA, totalScore: 0 } as unknown as Submission['gradingResult']
+          // 不設 totalScore（修法後）— 等 Phase B 跑完才有
+          const phaseAGradingResult = { details: detailsFromPhaseA } as unknown as Submission['gradingResult']
           const updatedAtMs = Date.now()
           await db.submissions.update(sub.id, {
             status: 'synced',  // 待批改 / 待複核（細狀態由 deriveCardStage 從 phase_a_state 算）
@@ -5311,6 +5311,12 @@ export default function GradingPage({
                         const isPartial = !isCorrect && safeScore > 0 && safeMax > 0
                         const isUnscored = assignment?.scoringMode === 'unscored'
                         const questionId = d.questionId || `#${i + 1}`
+                        // 2026-05-18: Phase A only 完成（status=synced + 有 details 但無 score）→ 顯示「未批改」
+                        // 不要顯示 ✗ 0/0 誤導老師以為「答錯 0 分」
+                        const isNotGradedYet =
+                          selectedSubmission.submission.status !== 'graded' &&
+                          (d.score === undefined || d.score === null) &&
+                          (d.maxScore === undefined || d.maxScore === null)
 
                         return (
                           <div
@@ -5325,15 +5331,21 @@ export default function GradingPage({
                               </div>
                               <div
                                 className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                                  isCorrect
-                                    ? 'bg-green-100 text-green-700'
-                                    : isPartial
-                                      ? 'bg-amber-100 text-amber-700'
-                                      : 'bg-red-100 text-red-700'
+                                  isNotGradedYet
+                                    ? 'bg-slate-100 text-slate-600'
+                                    : isCorrect
+                                      ? 'bg-green-100 text-green-700'
+                                      : isPartial
+                                        ? 'bg-amber-100 text-amber-700'
+                                        : 'bg-red-100 text-red-700'
                                 }`}
                               >
-                                <span>{isCorrect ? '✓' : isPartial ? '△' : '✗'}</span>
-                                {!isUnscored && (
+                                {isNotGradedYet ? (
+                                  <span>未批改</span>
+                                ) : (
+                                  <span>{isCorrect ? '✓' : isPartial ? '△' : '✗'}</span>
+                                )}
+                                {!isUnscored && !isNotGradedYet && (
                                   <>
                                   <input
                                     type="text"
