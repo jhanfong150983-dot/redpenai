@@ -398,11 +398,12 @@ export interface PhaseAStateCached {
 
 /**
  * 2026-05-17: 老師確認 / 補答後的最終答案（每題一筆）
+ * 跟 lib/gemini.ts 的 FinalAnswer 介面相容（後者多 'ai_arbiter' / 'unrecognizable'）
  */
 export interface FinalAnswerCached {
   questionId: string
   finalStudentAnswer: string
-  finalAnswerSource?: 'ai_read1' | 'ai_read2' | 'manual' | 'arbiter' | 'blank'
+  finalAnswerSource?: 'ai_read1' | 'ai_read2' | 'manual' | 'arbiter' | 'ai_arbiter' | 'unrecognizable' | 'blank'
 }
 
 /**

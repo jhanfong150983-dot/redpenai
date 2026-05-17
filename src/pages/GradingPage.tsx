@@ -1428,6 +1428,10 @@ export default function GradingPage({
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
   const backgroundPhaseBPromises = useRef<Promise<void>[]>([])
   const [batchPhaseAEntries, setBatchPhaseAEntries] = useState<BatchPhaseAEntry[]>([])
+  // 2026-05-18: PR3——審查頁的 mode flag。phaseAOnlyReviewMode=true 時、
+  // BatchConsistencyReviewSection 的 callbacks 只存 final_answers、不接 Phase B
+  // executeRecaptureOnly 跑完且有 needs_review 時設成 true
+  const phaseAOnlyReviewModeRef = useRef(false)
   // 跨 review UI 持有 Phase A pipeline 失敗（最終 dialog 才會顯示）
   const [pendingPhaseAFailures, setPendingPhaseAFailures] = useState<Array<{ submissionId: string; studentId: string; failure: PipelineFailure }>>([])
   const [phaseANeedsReviewCount, setPhaseANeedsReviewCount] = useState(0)
@@ -2869,6 +2873,8 @@ export default function GradingPage({
     let failCount = 0
     const failReasons: string[] = []
     const ANSWER_KEY = assignment.answerKey  // narrowed for closure
+    // 2026-05-18: 收集成功的 Phase A 結果、跑完判斷有沒有 needs_review、有就帶老師進審查頁
+    const successfulEntries: BatchPhaseAEntry[] = []
 
     await runWithConcurrency(
       candidates, 5, 2000,
@@ -2961,6 +2967,14 @@ export default function GradingPage({
             })
             return next
           })
+          // 加入成功 entries、供後續判斷是否進審查頁
+          successfulEntries.push({
+            submissionId: sub.id,
+            studentId: sub.studentId,
+            phaseAResult,
+            decisions: new Map(),  // 老師審查時填
+            imageBlob: sub.imageBlob
+          })
           successCount++
           return phaseAResult
         } catch (err) {
@@ -2981,17 +2995,30 @@ export default function GradingPage({
     )
 
     setIsGrading(false)
-    setGradingPhase('idle')
     setCurrentGradingStudent('')
     requestSync()  // 拉 server 寫的 phase_a_state 回來、卡片才會顯示 待複核/待批改
-    setGradeResultNotice({
-      stopped: stopRequestedRef.current,
-      successCount,
-      failCount,
-      totalCount: candidates.length,
-      failReasons: failReasons.slice(0, 10),
-      failedEntries: [],
-    })
+
+    // 2026-05-18: 篩出有 needs_review 的 entries、若有 → 進審查頁（不接 Phase B）
+    const needsReviewEntries = successfulEntries.filter((entry) =>
+      entry.phaseAResult.questionResults.some((qr) => qr.arbiterResult?.arbiterStatus === 'needs_review')
+    )
+    if (needsReviewEntries.length > 0) {
+      console.log(`[recaptureOnly] ${needsReviewEntries.length} 份有 needs_review、進審查頁`)
+      phaseAOnlyReviewModeRef.current = true  // 標記 review-only mode、callbacks 不接 Phase B
+      setBatchPhaseAEntries(needsReviewEntries)
+      setGradingPhase('awaiting_review')
+      // 不顯示 gradeResultNotice、讓老師直接進審查
+    } else {
+      setGradingPhase('idle')
+      setGradeResultNotice({
+        stopped: stopRequestedRef.current,
+        successCount,
+        failCount,
+        totalCount: candidates.length,
+        failReasons: failReasons.slice(0, 10),
+        failedEntries: [],
+      })
+    }
   }, [
     inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students
   ])
@@ -4739,20 +4766,63 @@ export default function GradingPage({
             allStudents={students}
             onDecision={handleBatchDecision}
             onStudentConfirmed={(entry) => {
-              console.log(`✅ 學生 ${entry.studentId} 確認完成，送 Accessor`)
-              backgroundPhaseBPromises.current.push(
-                executeBatchPhaseB([entry], true).catch(err =>
-                  console.error('Student Accessor failed:', err)
+              if (phaseAOnlyReviewModeRef.current) {
+                // 2026-05-18 PR3: review-only mode、只存 final_answers、不接 Phase B
+                console.log(`✅ 學生 ${entry.studentId} 確認完成（review only mode）、存 final_answers`)
+                const finalAnswers: FinalAnswer[] = entry.phaseAResult.questionResults.map((qr) => {
+                  const decision = entry.decisions.get(qr.questionId)
+                  const src = decision?.source ?? 'ai_read1'
+                  return {
+                    questionId: qr.questionId,
+                    finalStudentAnswer: src === 'unrecognizable' ? '無法辨識'
+                      : src === 'blank' ? ''
+                      : (decision?.finalAnswer ?? qr.readAnswer1?.studentAnswer ?? ''),
+                    finalAnswerSource: src === 'blank' ? 'manual' : src,
+                  }
+                })
+                // 寫 local Dexie + setSubmissions
+                void db.submissions.update(entry.submissionId, {
+                  finalAnswers,
+                  updatedAt: Date.now()
+                })
+                setSubmissions((prev) => {
+                  const next = new Map(prev)
+                  const cur = Array.from(prev.values()).find((s) => s.id === entry.submissionId)
+                  if (cur) next.set(cur.studentId, { ...cur, finalAnswers, updatedAt: Date.now() })
+                  return next
+                })
+                // 寫 server（不接 Phase B）
+                void fetch('/api/data/save-final-answers', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({ submissions: [{ id: entry.submissionId, finalAnswers }] })
+                }).catch((err) => console.warn('save-final-answers failed (non-fatal):', err))
+              } else {
+                // 一條龍 legacy mode：背景接 Phase B
+                console.log(`✅ 學生 ${entry.studentId} 確認完成，送 Accessor`)
+                backgroundPhaseBPromises.current.push(
+                  executeBatchPhaseB([entry], true).catch(err =>
+                    console.error('Student Accessor failed:', err)
+                  )
                 )
-              )
+              }
             }}
             onAllDone={() => {
-              console.log('✅ 全部審查完成，等待背景 Accessor')
-              // total 由此確立，useEffect 監聽 phaseBScoredCount === phaseBTotalCount 自動關閉 loading
-              setPhaseBTotalCount(batchPhaseAEntries.length)
-              setGradingPhase('phase_b_running')
-              setGradingMessage('AI 批改評分中…')
-              setIsGrading(true)
+              if (phaseAOnlyReviewModeRef.current) {
+                console.log('✅ 全部審查完成（review only mode）、回卡片列表、不接 Phase B')
+                phaseAOnlyReviewModeRef.current = false
+                setBatchPhaseAEntries([])
+                setGradingPhase('idle')
+                setIsGrading(false)
+                requestSync()  // 拉最新 final_answers
+              } else {
+                console.log('✅ 全部審查完成，等待背景 Accessor')
+                setPhaseBTotalCount(batchPhaseAEntries.length)
+                setGradingPhase('phase_b_running')
+                setGradingMessage('AI 批改評分中…')
+                setIsGrading(true)
+              }
             }}
             phaseBScoredCount={phaseBScoredCount}
             phaseBTotalCount={phaseBTotalCount}
