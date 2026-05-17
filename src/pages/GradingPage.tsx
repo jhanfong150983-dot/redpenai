@@ -2899,10 +2899,23 @@ export default function GradingPage({
             failReasons.push(`${label}: ${phaseAResult.pipelineFailure.userMessage}`)
             failCount++
             // 寫入失敗 status、phaseAState 由 server 端 buildFailureReturn 寫入（PR1）
+            const failedGradingResult = { pipelineFailure: phaseAResult.pipelineFailure } as unknown as Submission['gradingResult']
+            const failedAtMs = Date.now()
             await db.submissions.update(sub.id, {
               status: 'grading_failed',
-              gradingResult: { pipelineFailure: phaseAResult.pipelineFailure } as unknown as Submission['gradingResult'],
-              updatedAt: Date.now()
+              gradingResult: failedGradingResult,
+              updatedAt: failedAtMs
+            })
+            setSubmissions((prev) => {
+              const next = new Map(prev)
+              const cur = Array.from(prev.values()).find((s) => s.id === sub.id)
+              if (cur) next.set(cur.studentId, {
+                ...cur,
+                status: 'grading_failed',
+                gradingResult: failedGradingResult,
+                updatedAt: failedAtMs
+              })
+              return next
             })
             return null
           }
@@ -2923,13 +2936,30 @@ export default function GradingPage({
             answerBbox: qr.answerBbox,
             answerCropImageUrl: qr.answerCropImageUrl,
           }))
+          const phaseAGradingResult = { details: detailsFromPhaseA, totalScore: 0 } as unknown as Submission['gradingResult']
+          const updatedAtMs = Date.now()
           await db.submissions.update(sub.id, {
             status: 'synced',  // 待批改 / 待複核（細狀態由 deriveCardStage 從 phase_a_state 算）
-            gradingResult: { details: detailsFromPhaseA, totalScore: 0 } as unknown as Submission['gradingResult'],
+            gradingResult: phaseAGradingResult,
             score: undefined,
             aiScore: undefined,
             gradedAt: undefined,
-            updatedAt: Date.now()
+            updatedAt: updatedAtMs
+          })
+          // 同步更新 React state、detail modal 立刻看到新資料、不用等 sync
+          setSubmissions((prev) => {
+            const next = new Map(prev)
+            const cur = Array.from(prev.values()).find((s) => s.id === sub.id)
+            if (cur) next.set(cur.studentId, {
+              ...cur,
+              status: 'synced',
+              gradingResult: phaseAGradingResult,
+              score: undefined,
+              aiScore: undefined,
+              gradedAt: undefined,
+              updatedAt: updatedAtMs
+            })
+            return next
           })
           successCount++
           return phaseAResult
@@ -3054,6 +3084,22 @@ export default function GradingPage({
             gradingResult: result,
             gradedAt: gradedAtMs,
             updatedAt: gradedAtMs,
+          })
+          // 同步更新 React state、detail modal 立刻看到新分數
+          setSubmissions((prev) => {
+            const next = new Map(prev)
+            const cur = Array.from(prev.values()).find((s) => s.id === sub.id)
+            if (cur) next.set(cur.studentId, {
+              ...cur,
+              status: 'graded',
+              score: totalScore,
+              aiScore: totalScore,
+              scoreSource: 'ai',
+              gradingResult: result,
+              gradedAt: gradedAtMs,
+              updatedAt: gradedAtMs
+            })
+            return next
           })
           fetch('/api/data/save-grading', {
             method: 'POST',
