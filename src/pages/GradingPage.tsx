@@ -27,6 +27,7 @@ import { requestSync, waitForSync } from '@/lib/sync-events'
 import {
   gradePhaseA,
   gradePhaseB,
+  gradePhaseBFromCache,
   isGeminiAvailable,
   type PhaseAResult,
   type PhaseAQuestionResult,
@@ -2817,14 +2818,292 @@ export default function GradingPage({
       setRecaptureConfirm({ submissions: inScope, cleared })
       return
     }
-    // 無清空風險、直接跑（沿用 handleGradeAll 的 ink/correction 檢查 + executeGrading）
-    // TODO PR2-5: 改成 phase A only
-    await handleGradeAll()
+    // 無清空風險、直接跑 Phase A only
+    await executeRecaptureOnly(inScope)
   }
+
+  // 2026-05-17: Phase A only 執行器
+  // 給 selected/all 候選 submissions 各自跑 Phase A（OCR + classify + read + arbiter）、
+  // 跑完後 server 端寫 phase_a_state（PR1）、不自動接 Phase B。
+  // 對應「重新截取答案」按鈕觸發、適用「想重讀但不想直接批改」的場景。
+  const executeRecaptureOnly = useCallback(async (candidates: Submission[]) => {
+    if (candidates.length === 0) return
+    if (!assignment?.answerKey) { alert('找不到答案卷'); return }
+    if (inkSessionError) { alert(inkSessionError); return }
+    if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
+    if (!isGeminiAvailable) { alert('Gemini 服務未設定'); return }
+
+    setIsGrading(true)
+    setGradingPhase('phase_a_running')
+    setGradingMessage('AI 讀取答案中…')
+    setError(null)
+    setStopRequested(false)
+    stopRequestedRef.current = false
+    setGradingProgress({ current: 0, total: candidates.length })
+    setGradingStartTime(Date.now())
+
+    // 圖片準備（同 executeGradeOnlyCache）
+    const needPrepare = candidates.filter((s) => !s.imageBlob)
+    if (needPrepare.length > 0) {
+      setIsDownloading(true)
+      try {
+        await runWithConcurrency(
+          needPrepare, 5, 0,
+          async (sub) => {
+            if (stopRequestedRef.current) return null
+            try {
+              if (sub.imageBase64) sub.imageBlob = rebuildBlobFromBase64(sub.imageBase64)
+              else sub.imageBlob = await downloadImageFromSupabase(sub.id)
+            } catch (e) { console.error(`圖片準備失敗 ${sub.id}:`, e) }
+            return null
+          },
+          () => {},
+          stopRequestedRef
+        )
+      } finally {
+        setIsDownloading(false)
+      }
+    }
+
+    let completedCount = 0
+    let successCount = 0
+    let failCount = 0
+    const failReasons: string[] = []
+    const ANSWER_KEY = assignment.answerKey  // narrowed for closure
+
+    await runWithConcurrency(
+      candidates, 5, 2000,
+      async (sub) => {
+        if (stopRequestedRef.current) return null
+        if (!sub.imageBlob) {
+          const stu = students.find((s) => s.id === sub.studentId)
+          const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+          failReasons.push(`${label}: 無圖片`)
+          failCount++
+          return null
+        }
+        try {
+          const phaseAResult = await gradePhaseA(
+            sub.imageBlob,
+            ANSWER_KEY,
+            sub.pageBreaks,
+            assignment?.domain,
+            assignment?.id,
+            undefined,  // classifyCorrections — 重新截取不帶老師舊修正
+            assignment?.answerSheetMode,
+            sub.id,
+            sub.source
+          )
+          if (phaseAResult.pipelineFailure) {
+            const stu = students.find((s) => s.id === sub.studentId)
+            const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+            failReasons.push(`${label}: ${phaseAResult.pipelineFailure.userMessage}`)
+            failCount++
+            // 寫入失敗 status、phaseAState 由 server 端 buildFailureReturn 寫入（PR1）
+            await db.submissions.update(sub.id, {
+              status: 'grading_failed',
+              gradingResult: { pipelineFailure: phaseAResult.pipelineFailure } as unknown as Submission['gradingResult'],
+              updatedAt: Date.now()
+            })
+            return null
+          }
+          // Phase A 成功、server 已寫 phase_a_state、local 等 sync 拉回
+          // 同時把 questionResults 暫存到 local gradingResult.details、讓 detail modal 立刻能看
+          const detailsFromPhaseA = phaseAResult.questionResults.map((qr) => ({
+            questionId: qr.questionId,
+            questionType: qr.questionType,
+            studentAnswer: qr.arbiterResult?.finalAnswer || qr.readAnswer1?.studentAnswer || '',
+            isCorrect: false,
+            score: 0,
+            maxScore: 0,
+            reason: '',
+            readAnswer1: qr.readAnswer1,
+            readAnswer2: qr.readAnswer2,
+            arbiterResult: qr.arbiterResult,
+            consistencyStatus: qr.consistencyStatus,
+            answerBbox: qr.answerBbox,
+            answerCropImageUrl: qr.answerCropImageUrl,
+          }))
+          await db.submissions.update(sub.id, {
+            status: 'synced',  // 待批改 / 待複核（細狀態由 deriveCardStage 從 phase_a_state 算）
+            gradingResult: { details: detailsFromPhaseA, totalScore: 0 } as unknown as Submission['gradingResult'],
+            score: undefined,
+            aiScore: undefined,
+            gradedAt: undefined,
+            updatedAt: Date.now()
+          })
+          successCount++
+          return phaseAResult
+        } catch (err) {
+          const stu = students.find((s) => s.id === sub.studentId)
+          const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+          const msg = err instanceof Error ? err.message : String(err)
+          failReasons.push(`${label}: ${msg}`)
+          failCount++
+          console.error(`[recaptureOnly] failed for ${sub.id}:`, err)
+          return null
+        }
+      },
+      (_i, _result) => {
+        completedCount++
+        setGradingProgress({ current: completedCount, total: candidates.length })
+      },
+      stopRequestedRef
+    )
+
+    setIsGrading(false)
+    setGradingPhase('idle')
+    setCurrentGradingStudent('')
+    requestSync()  // 拉 server 寫的 phase_a_state 回來、卡片才會顯示 待複核/待批改
+    setGradeResultNotice({
+      stopped: stopRequestedRef.current,
+      successCount,
+      failCount,
+      totalCount: candidates.length,
+      failReasons: failReasons.slice(0, 10),
+      failedEntries: [],
+    })
+  }, [
+    inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students
+  ])
+
+  // 2026-05-17: Phase B only with fromCache 執行器
+  // 給 selected/all 候選 submissions 各自跑 Phase B（用 server 端 cached phase_a_state）、
+  // 不重跑 Phase A（省 4 min）。對應「批改作業」按鈕觸發。
+  const executeGradeOnlyCache = useCallback(async (candidates: Submission[]) => {
+    if (candidates.length === 0) return
+    if (inkSessionError) { alert(inkSessionError); return }
+    if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
+    if (!isGeminiAvailable) { alert('Gemini 服務未設定'); return }
+
+    setIsGrading(true)
+    setGradingPhase('phase_b_running')
+    setGradingMessage('AI 批改評分中（用快取的讀取結果）…')
+    setError(null)
+    setStopRequested(false)
+    stopRequestedRef.current = false
+    setPhaseBTotalCount(candidates.length)
+    setPhaseBScoredCount(0)
+    setGradingStartTime(Date.now())
+
+    // 圖片準備（從 cloud 載 / 從 base64 重建）
+    const needPrepare = candidates.filter((s) => !s.imageBlob)
+    if (needPrepare.length > 0) {
+      setIsDownloading(true)
+      try {
+        await runWithConcurrency(
+          needPrepare, 5, 0,
+          async (sub) => {
+            if (stopRequestedRef.current) return null
+            try {
+              if (sub.imageBase64) {
+                sub.imageBlob = rebuildBlobFromBase64(sub.imageBase64)
+              } else {
+                sub.imageBlob = await downloadImageFromSupabase(sub.id)
+              }
+            } catch (e) {
+              console.error(`圖片準備失敗 ${sub.id}:`, e)
+            }
+            return null
+          },
+          () => {},
+          stopRequestedRef
+        )
+      } finally {
+        setIsDownloading(false)
+      }
+    }
+
+    const phaseBClassroom = assignment?.classroomId
+      ? await db.classrooms.get(assignment.classroomId)
+      : null
+    const gradeBand: 'k9' | 'high' = (phaseBClassroom?.grade ?? 0) >= 10 ? 'high' : 'k9'
+
+    let completedCount = 0
+    let successCount = 0
+    let failCount = 0
+    const failReasons: string[] = []
+
+    await runWithConcurrency(
+      candidates, 5, 1000,
+      async (sub) => {
+        if (stopRequestedRef.current) return null
+        if (!sub.imageBlob) {
+          const stu = students.find((s) => s.id === sub.studentId)
+          const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+          failReasons.push(`${label}: 無圖片`)
+          failCount++
+          return null
+        }
+        try {
+          const result = await gradePhaseBFromCache(
+            sub.imageBlob,
+            sub.id,
+            assignment?.id,
+            assignment?.domain,
+            assignment?.answerSheetMode,
+            gradeBand,
+            sub.finalAnswers as FinalAnswer[] | undefined
+          )
+          const totalScore = result.totalScore ?? 0
+          const gradedAtMs = Date.now()
+          await db.submissions.update(sub.id, {
+            status: 'graded',
+            score: totalScore,
+            aiScore: totalScore,
+            scoreSource: 'ai',
+            gradingResult: result,
+            gradedAt: gradedAtMs,
+            updatedAt: gradedAtMs,
+          })
+          fetch('/api/data/save-grading', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              submissions: [{
+                id: sub.id, score: totalScore, aiScore: totalScore, scoreSource: 'ai',
+                gradingResult: result, gradedAt: gradedAtMs
+              }]
+            })
+          }).catch(() => {/* non-fatal */})
+          successCount++
+          return result
+        } catch (err) {
+          const stu = students.find((s) => s.id === sub.studentId)
+          const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+          const msg = err instanceof Error ? err.message : String(err)
+          failReasons.push(`${label}: ${msg}`)
+          failCount++
+          console.error(`[gradeOnlyCache] failed for ${sub.id}:`, err)
+          return null
+        }
+      },
+      (_i, _result) => {
+        completedCount++
+        setPhaseBScoredCount(completedCount)
+      },
+      stopRequestedRef
+    )
+
+    setIsGrading(false)
+    setGradingPhase('idle')
+    setCurrentGradingStudent('')
+    requestSync()  // 把 server 端寫的 score / gradingResult 拉回 local
+    setGradeResultNotice({
+      stopped: stopRequestedRef.current,
+      successCount,
+      failCount,
+      totalCount: candidates.length,
+      failReasons: failReasons.slice(0, 10),
+      failedEntries: [],
+    })
+  }, [
+    inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students
+  ])
 
   // 2026-05-17: Phase B only 入口（批改作業按鈕）
   // 步驟：1. 檢查 in-scope 卡片狀態  2. 若需先截取或補答、block modal  3. 若會覆寫、warning modal  4. 否則直接跑
-  // TODO PR2-5: 改成只跑 Phase B（fromCache）、不重跑 Phase A
   const handleGradeOnly = async () => {
     if (gradeButtonState.variant === 'disabled') return
     const { inScope, stageMap } = stageAggregates
@@ -2850,12 +3129,14 @@ export default function GradingPage({
       })
       return
     }
-    // 無風險、直接跑
-    // TODO PR2-5: 改成 phase B only fromCache
-    await handleGradeAll()
+    // 無風險、直接跑 Phase B only (fromCache)
+    await executeGradeOnlyCache(inScope)
   }
 
-  const handleGradeAll = async () => {
+  // 2026-05-17: handleGradeAll 已被 handleRecaptureAll + handleGradeOnly 取代、保留作 legacy fallback。
+  // 暫不從 UI 移除（showGradeConfirm modal 仍引用 executeGrading）、避免大改 delete。
+  // @ts-expect-error TS6133: 暫時 unused、PR4 polish 時清掉
+  const _handleGradeAll = async () => {
     if (inkSessionError) {
       alert(inkSessionError)
       return
@@ -4074,9 +4355,9 @@ export default function GradingPage({
               </button>
               <button
                 onClick={() => {
+                  const candidates = recaptureConfirm.submissions
                   setRecaptureConfirm(null)
-                  // TODO PR2-5: 改成 phase A only
-                  void handleGradeAll()
+                  void executeRecaptureOnly(candidates)
                 }}
                 className="flex-1 px-4 py-3 bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-colors font-medium"
               >
@@ -4156,9 +4437,9 @@ export default function GradingPage({
               </button>
               <button
                 onClick={() => {
+                  const candidates = gradeOverwriteConfirm.submissions
                   setGradeOverwriteConfirm(null)
-                  // TODO PR2-5: 改成 phase B only fromCache
-                  void handleGradeAll()
+                  void executeGradeOnlyCache(candidates)
                 }}
                 className="flex-1 px-4 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors font-medium"
               >

@@ -5473,6 +5473,86 @@ export async function gradePhaseB(
 }
 
 /**
+ * 2026-05-17: Phase B 用 server 端 cached phase_a_state 跑（不重跑 Phase A）
+ *
+ * 用途：「重新批改」按鈕、學生 Phase A 已跑過、最終答案已在 DB（final_answers）、
+ * 老師改 grading 標準 / 編輯了 final_answers 後想重新評分、不需要重跑 4 min 的 read。
+ *
+ * 後端 server 從 submissions.phase_a_state + submissions.final_answers 載入、跑 Phase B、寫結果。
+ *
+ * @param submissionImageBlob 學生作業圖片（給 Explain 階段看）
+ * @param submissionId 要跑哪一份卷子
+ * @param assignmentId 作業 id
+ * @param finalAnswersOverride 可選——若 client 想用即時編輯的 finalAnswers 覆蓋 DB cached 值
+ */
+export async function gradePhaseBFromCache(
+  submissionImageBlob: Blob,
+  submissionId: string,
+  assignmentId?: string,
+  domain?: string,
+  answerSheetMode?: 'with_questions' | 'answer_only',
+  gradeBand?: 'k9' | 'high',
+  finalAnswersOverride?: FinalAnswer[]
+): Promise<GradingResult> {
+  const { sessionId: inkSessionId } = await ensureInkSessionFresh()
+
+  const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'phase-b-cache')
+  const imageBase64 = await blobToBase64(compressed)
+  const mimeType = compressed.type || submissionImageBlob.type || 'image/jpeg'
+
+  const buildBody = (sid: string | null) => JSON.stringify({
+    model: currentModelName,
+    contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
+    ...(sid ? { inkSessionId: sid } : {}),
+    routeKey: 'grading.phase_b',
+    fromCache: true,
+    submissionId,
+    ...(finalAnswersOverride && finalAnswersOverride.length > 0 ? { finalAnswers: finalAnswersOverride } : {}),
+    ...(domain ? { domain } : {}),
+    ...(assignmentId ? { assignmentId } : {}),
+    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {}),
+    ...(gradeBand ? { gradeBand } : {})
+  })
+
+  let response = await fetch(geminiProxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: buildBody(inkSessionId)
+  })
+
+  if (response.status === 409) {
+    console.warn('[gradePhaseBFromCache] Ink session 409、刷新後重試...')
+    setInkSessionId(null)
+    const { sessionId: newSessionId } = await startInkSession()
+    response = await fetch(geminiProxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: buildBody(newSessionId)
+    })
+  }
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({})) as Record<string, unknown>
+    let errMsg = `Phase B fromCache failed: ${response.status}`
+    if (typeof err?.error === 'string' && err.error) errMsg = err.error
+    throw new Error(errMsg)
+  }
+
+  const data = await response.json()
+  if (typeof data?.ink?.balanceAfter === 'number' && Number.isFinite(data.ink.balanceAfter)) {
+    dispatchInkBalance(data.ink.balanceAfter)
+  }
+
+  const text: string = data?.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) throw new Error('Phase B fromCache: empty response text')
+
+  const parsed = JSON.parse(text.replace(/```json|```/g, '').trim()) as GradingResult
+  return parsed
+}
+
+/**
  * 非同步概念標記：對已抽取的答案鍵題目，發送獨立 API 請求取得 108課綱 concept_code
  * 回傳 Record<questionId, { code, label }>，失敗時回傳空物件
  */
