@@ -988,13 +988,68 @@ export function useSync(options: UseSyncOptions = {}) {
             ? sub.gradedAt
             : undefined
 
-        const gradingResult = local?.gradingResult ?? serverGradingResult
+        let gradingResult = local?.gradingResult ?? serverGradingResult
         const score = local?.score ?? serverScore
         const aiScore = local?.aiScore ?? serverAiScore
         const scoreSource = local?.scoreSource ?? serverScoreSource
         const gradedAt = local?.gradedAt ?? serverGradedAt
         // status：本地是 graded 就保持 graded（不被 server 的 synced 覆蓋）
         const finalStatus = (local?.status === 'graded') ? 'graded' : serverStatus
+
+        // 2026-05-17: Phase A / Phase B 分離設計 — 同步 phase_a_state + final_answers from Supabase
+        const phaseAState =
+          (sub as Submission & { phaseAState?: unknown }).phaseAState as Submission['phaseAState']
+          ?? (sub as { phase_a_state?: unknown }).phase_a_state as Submission['phaseAState']
+          ?? local?.phaseAState
+        const finalAnswers =
+          (sub as Submission & { finalAnswers?: unknown }).finalAnswers as Submission['finalAnswers']
+          ?? (sub as { final_answers?: unknown }).final_answers as Submission['finalAnswers']
+          ?? local?.finalAnswers
+
+        // 2026-05-18: 若沒 gradingResult.details 但 phaseAState 有 → 從 phase_a_state 重建 details
+        // 場景：學生卷剛做完 Phase A、還沒進 Phase B、server 只有 phase_a_state 沒 grading_result
+        //       本地清過 site data 後 sync 拉回來時、detail modal 會顯示「暫無題目詳情」
+        //       Phase B fromCache 路徑在 server 也做同樣重建（staged-grading.js line 7853）
+        const psAny = phaseAState as {
+          readAnswer1?: Array<{ questionId: string; status?: string; answer?: string }>
+          readAnswer2?: Array<{ questionId: string; status?: string; answer?: string }>
+          arbiterDecisions?: Array<{ questionId: string; arbiterStatus?: string; finalAnswer?: string; consistent?: boolean }>
+          classifyResult?: { alignedQuestions?: Array<{ questionId: string; questionType?: string; answerBbox?: unknown }> }
+        } | undefined
+        const existingDetails = (gradingResult as { details?: unknown[] } | undefined)?.details
+        const needReconstruct = (!Array.isArray(existingDetails) || existingDetails.length === 0)
+          && psAny
+          && Array.isArray(psAny.classifyResult?.alignedQuestions)
+          && psAny.classifyResult.alignedQuestions.length > 0
+        if (needReconstruct) {
+          const r1ByQid = new Map((psAny!.readAnswer1 ?? []).map((r) => [r.questionId, r]))
+          const r2ByQid = new Map((psAny!.readAnswer2 ?? []).map((r) => [r.questionId, r]))
+          const arbByQid = new Map((psAny!.arbiterDecisions ?? []).map((d) => [d.questionId, d]))
+          const finalByQid = new Map(
+            Array.isArray(finalAnswers)
+              ? finalAnswers.map((fa) => [fa.questionId, fa])
+              : []
+          )
+          const reconstructedDetails = (psAny!.classifyResult!.alignedQuestions ?? []).map((aq) => {
+            const r1 = r1ByQid.get(aq.questionId)
+            const r2 = r2ByQid.get(aq.questionId)
+            const arb = arbByQid.get(aq.questionId)
+            const fa = finalByQid.get(aq.questionId)
+            return {
+              questionId: aq.questionId,
+              questionType: aq.questionType,
+              studentAnswer: fa?.finalStudentAnswer ?? arb?.finalAnswer ?? r1?.answer ?? '',
+              readAnswer1: r1 ? { status: r1.status ?? 'ok', studentAnswer: r1.answer ?? '' } : undefined,
+              readAnswer2: r2 ? { status: r2.status ?? 'ok', studentAnswer: r2.answer ?? '' } : undefined,
+              arbiterResult: arb,
+              consistencyStatus: arb?.consistent === true ? 'stable'
+                : arb?.consistent === false ? 'diff'
+                : 'unstable',
+              answerBbox: aq.answerBbox,
+            }
+          })
+          gradingResult = { details: reconstructedDetails } as unknown as Submission['gradingResult']
+        }
 
         return {
           id: sub.id,
@@ -1041,16 +1096,8 @@ export function useSync(options: UseSyncOptions = {}) {
             (sub as { thumbnail_url?: string }).thumbnail_url ??
             local?.thumbnailUrl,
           updatedAt: toMillis(sub.updatedAt ?? (sub as { updated_at?: unknown }).updated_at) || undefined,
-          // 2026-05-17: Phase A / Phase B 分離設計 — 同步 phase_a_state + final_answers from Supabase
-          // 用於卡片狀態計算（待複核 / 待批改）跟「重新批改」(fromCache) 觸發
-          phaseAState:
-            (sub as Submission & { phaseAState?: unknown }).phaseAState as Submission['phaseAState']
-            ?? (sub as { phase_a_state?: unknown }).phase_a_state as Submission['phaseAState']
-            ?? local?.phaseAState,
-          finalAnswers:
-            (sub as Submission & { finalAnswers?: unknown }).finalAnswers as Submission['finalAnswers']
-            ?? (sub as { final_answers?: unknown }).final_answers as Submission['finalAnswers']
-            ?? local?.finalAnswers
+          phaseAState,
+          finalAnswers
         }
       })
 
