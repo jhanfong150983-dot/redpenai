@@ -997,14 +997,17 @@ export function useSync(options: UseSyncOptions = {}) {
         const finalStatus = (local?.status === 'graded') ? 'graded' : serverStatus
 
         // 2026-05-17: Phase A / Phase B 分離設計 — 同步 phase_a_state + final_answers from Supabase
+        // phaseAState 是 server 端 Phase A 跑完寫的（user 不會直接 edit）→ server 優先
         const phaseAState =
           (sub as Submission & { phaseAState?: unknown }).phaseAState as Submission['phaseAState']
           ?? (sub as { phase_a_state?: unknown }).phase_a_state as Submission['phaseAState']
           ?? local?.phaseAState
-        const finalAnswers =
+        // finalAnswers 是 user 在 detail modal 編輯的 → local 優先（跟 gradingResult 同邏輯）
+        // 原本 server 優先會在「edit→POST 在路上→sync 又跑」的 race 中、把 user 的 edit 覆蓋回舊值
+        const serverFinalAnswers =
           (sub as Submission & { finalAnswers?: unknown }).finalAnswers as Submission['finalAnswers']
           ?? (sub as { final_answers?: unknown }).final_answers as Submission['finalAnswers']
-          ?? local?.finalAnswers
+        const finalAnswers = local?.finalAnswers ?? serverFinalAnswers
 
         // 2026-05-18: 若沒 gradingResult.details 但 phaseAState 有 → 從 phase_a_state 重建 details
         // 場景：學生卷剛做完 Phase A、還沒進 Phase B、server 只有 phase_a_state 沒 grading_result
