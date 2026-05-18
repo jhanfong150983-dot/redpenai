@@ -1517,12 +1517,28 @@ export function useSync(options: UseSyncOptions = {}) {
     const afterPutClassrooms = await db.classrooms.toArray()
     debugLog('📊 bulkPut classrooms 之後的資料:', afterPutClassrooms)
 
+    debugLog('📥 bulkPut students 開始', safeStudents.length)
     await db.students.bulkPut(safeStudents)
+    debugLog('📥 bulkPut assignments 開始', safeAssignments.length)
     await db.assignments.bulkPut(safeAssignments)
+    debugLog('📥 bulkPut gradebookCustomColumns 開始', safeGradebookCustomColumns.length)
     await db.gradebookCustomColumns.bulkPut(safeGradebookCustomColumns)
+    debugLog('📥 bulkPut gradebookCustomScores 開始', safeGradebookCustomScores.length)
     await db.gradebookCustomScores.bulkPut(safeGradebookCustomScores)
+
+    // 2026-05-18: submissions 分批寫入、避免單一 transaction 寫幾百 MB 卡死
+    //   原本一次 210 筆（每筆含 imageBlob/Base64 + 新加的 phase_a_state）會讓 Chrome IDB 卡到 read 都拿不到
+    //   分成每批 30 筆、每個 transaction 小一點、UI 也有機會插進來 read
+    const SUBMISSION_BULK_PUT_CHUNK = 30
+    const writeSubmissionsChunked = async (items: Submission[]) => {
+      for (let i = 0; i < items.length; i += SUBMISSION_BULK_PUT_CHUNK) {
+        const chunk = items.slice(i, i + SUBMISSION_BULK_PUT_CHUNK)
+        debugLog(`📥 bulkPut submissions 批 ${i / SUBMISSION_BULK_PUT_CHUNK + 1}/${Math.ceil(items.length / SUBMISSION_BULK_PUT_CHUNK)}（${chunk.length} 筆）`)
+        await db.submissions.bulkPut(chunk)
+      }
+    }
     try {
-      await db.submissions.bulkPut(safeSubmissions)
+      await writeSubmissionsChunked(safeSubmissions)
     } catch (err) {
       if (isQuotaError(err)) {
         console.warn('⚠️ IndexedDB 儲存空間不足，略過圖片快取後重試寫入 submissions（保留 gradingResult）')
@@ -1531,7 +1547,7 @@ export function useSync(options: UseSyncOptions = {}) {
           ({ imageBlob, imageBase64, thumbnailBlob, thumbnailBase64, ...rest }) => rest as Submission
         )
         try {
-          await db.submissions.bulkPut(stripped)
+          await writeSubmissionsChunked(stripped)
         } catch (err2) {
           if (isQuotaError(err2)) {
             console.warn('⚠️ IndexedDB 儲存空間持續不足，跳過 submissions 本地更新')
@@ -1543,6 +1559,7 @@ export function useSync(options: UseSyncOptions = {}) {
         throw err
       }
     }
+    debugLog('📥 bulkPut submissions 全部完成')
 
     // 再檢查 folders 狀態
     const afterPut = await db.folders.toArray()
