@@ -8,7 +8,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt' 而非 'autoUpdate'：新 SW 不自動接管現有 tab、避免使用者在 modal/上傳/批改流程
+      // 中被自動 reload 踢回首頁。main.tsx onNeedRefresh 已寫好「下次 reload 才生效」邏輯
+      registerType: 'prompt',
       includeAssets: ['logo.png', 'logo.svg'],
 
       manifest: {
@@ -210,8 +212,10 @@ export default defineConfig({
 
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api/, /\.(?:png|jpg|jpeg|svg|gif|webp|js|css)$/],
-        skipWaiting: true,
-        clientsClaim: true
+        // skipWaiting / clientsClaim 故意關掉：新 SW 不強制接管現有 tab
+        // 等使用者下次完整 reload 才升版、避免使用中被踢回首頁（answer_only 模式停留時間長最容易中）
+        skipWaiting: false,
+        clientsClaim: false
       },
 
       devOptions: {
