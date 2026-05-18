@@ -417,12 +417,20 @@ function App() {
         }
       })
       if (!response.ok) {
-        setAuth(prev => prev.status === 'unauthenticated' ? prev : { status: 'unauthenticated' })
+        // 只有明確驗證失敗（401/403）才踢使用者；5xx / 其他狀態保留現有 auth state
+        // 否則使用者在 modal 操作（例如答案卷模式連點兩次選檔對話框、window blur→focus）時、
+        // server 抖一下就被踢回登入頁、modal 跟整個工作流程消失
+        if (response.status === 401 || response.status === 403) {
+          setAuth(prev => prev.status === 'unauthenticated' ? prev : { status: 'unauthenticated' })
+        } else {
+          console.warn('[fetchAuth] /api/auth/me 暫時失敗、保留 auth state:', response.status)
+        }
         return
       }
 
       const data = await response.json()
       if (!data?.user?.id) {
+        // 200 但無 user.id：server 明確「沒登入」訊號 → 踢
         setAuth(prev => prev.status === 'unauthenticated' ? prev : { status: 'unauthenticated' })
         return
       }
@@ -465,7 +473,9 @@ function App() {
       })
     } catch (error) {
       console.error('驗證登入狀態失敗', error)
-      setAuth(prev => prev.status === 'unauthenticated' ? prev : { status: 'unauthenticated', error: '無法連線到伺服器' })
+      // network error / fetch throw：不要把已驗證使用者踢出去（離線、暫時抖動）
+      // 只在首次載入（loading）時改成 unauthenticated（沒辦法走任何流程）
+      setAuth(prev => prev.status === 'loading' ? { status: 'unauthenticated', error: '無法連線到伺服器' } : prev)
     }
   }, [])
 
