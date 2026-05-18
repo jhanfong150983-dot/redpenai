@@ -1448,6 +1448,22 @@ function App() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [currentPage, gradingPagePhase])
 
+  // 拖檔到頁面非拖放區時、阻止瀏覽器預設行為（直接打開檔案、整個 SPA 會被取代、看起來像頁面自己重新整理）
+  // 真正的拖放區（AnswerBank / AssignmentList 等）自己會 preventDefault，事件冒泡到 window 再 preventDefault 一次無害
+  useEffect(() => {
+    const prevent = (e: DragEvent) => {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('dragover', prevent)
+    window.addEventListener('drop', prevent)
+    return () => {
+      window.removeEventListener('dragover', prevent)
+      window.removeEventListener('drop', prevent)
+    }
+  }, [])
+
   useEffect(() => {
     if (auth.status !== 'authenticated') return
     if (currentPage !== 'home') return
