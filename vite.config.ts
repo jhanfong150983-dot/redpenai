@@ -245,7 +245,8 @@ export default defineConfig({
     },
   },
   esbuild: {
-    // 生產環境 build 時移除所有 console.* 與 debugger，避免洩漏系統資訊
-    drop: ['console', 'debugger'],
+    // 2026-05-18: 暫時打開 console、為了診斷 sync 卡住的問題
+    // 之前砍 console 為了避免洩漏系統資訊、debug 完要記得改回 ['console', 'debugger']
+    drop: ['debugger'],
   },
 })
