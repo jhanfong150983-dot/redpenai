@@ -1783,13 +1783,11 @@ export function useSync(options: UseSyncOptions = {}) {
           isSyncing: false,
           error: null
         }))
-        if (!syncQueuedRef.current) {
-          notifySyncComplete({
-            success: false,
-            blocked: true,
-            error: syncBlockedReasonRef.current
-          })
-        }
+        notifySyncComplete({
+          success: false,
+          blocked: true,
+          error: syncBlockedReasonRef.current
+        })
         return
       }
 
@@ -1812,12 +1810,12 @@ export function useSync(options: UseSyncOptions = {}) {
             : null
       }))
 
-      // 只有在沒有排隊中的 sync 時才通知完成。
-      // 若 syncQueuedRef 為 true，表示有另一個 requestSync(true) 在等待，
-      // 需讓排隊的 sync 完成後再通知，確保 waitForSync() 拿到最新資料。
-      if (!syncQueuedRef.current) {
-        notifySyncComplete({ success: true, error: null })
-      }
+      // 2026-05-19: 每次 sync 完成都 notify、不再因為「有排隊中 sync」而壓掉
+      // 原本的 gate 想等所有排隊 sync 跑完才通知、但 waitForSync 是 once listener、
+      // 在頁面載入多個 requestSync 同時排隊的情境下、sync_1 完成壓掉 notify、
+      // sync_2 跑得比 15s timeout 慢就觸發 fallback、loadData 讀到還沒寫完的本地資料
+      // 案例：佳軒老師 1040 submissions、進 GradingPage 看到只有 23/28 學生顯示
+      notifySyncComplete({ success: true, error: null })
     } catch (error) {
       if (isRlsError(error)) {
         markSyncBlocked(error instanceof Error ? error.message : String(error))
