@@ -385,6 +385,11 @@ function App() {
     pendingGradingSubmissions: 0
   })
   const [homeOverviewItems, setHomeOverviewItems] = useState<HomeOverviewItem[]>([])
+  // 防併發：避免多個 trigger（mount / SYNC_COMPLETE / 安全網）同時呼叫 loadHomeOverview
+  const homeOverviewInFlightRef = useRef(false)
+  // 標記是否已成功 load 過至少一次；first load 才顯示 skeleton、後續 refresh
+  // 走背景模式（保留現有資料、不閃 skeleton）
+  const homeOverviewHasLoadedRef = useRef(false)
   const [visibleOverviewCount, setVisibleOverviewCount] = useState(
     OVERVIEW_VISIBLE_STEP
   )
@@ -1132,7 +1137,12 @@ function App() {
   }, [auth, setCurrentPage])
 
   const loadHomeOverview = useCallback(async () => {
-    setHomeOverviewLoading(true)
+    if (homeOverviewInFlightRef.current) return // 已有 load 在跑、不重複發 request
+    homeOverviewInFlightRef.current = true
+    // 第一次才顯示 skeleton；後續 refresh 不動 UI、避免「資料 → skeleton → 資料」閃爍
+    if (!homeOverviewHasLoadedRef.current) {
+      setHomeOverviewLoading(true)
+    }
     try {
       const [assignments, classrooms, students, submissions] = await Promise.all([
         db.assignments.toArray(),
@@ -1367,10 +1377,12 @@ function App() {
 
       setHomeOverviewSummary(summary)
       setHomeOverviewItems(overviewItems)
+      homeOverviewHasLoadedRef.current = true
     } catch (error) {
       console.error('載入作業總覽失敗', error)
     } finally {
       setHomeOverviewLoading(false)
+      homeOverviewInFlightRef.current = false
     }
   }, [])
 
