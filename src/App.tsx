@@ -1539,7 +1539,11 @@ function App() {
     if (auth.status !== 'authenticated') return
     if (currentPage !== 'home') return
 
-    const handleSyncComplete = () => {
+    const handleSyncComplete = (event: Event) => {
+      // useSync 的 skipped 路徑（cooldown / in-flight / 離線）也會 dispatch
+      // SYNC_COMPLETE，但資料根本沒變、不需要重 render；忽略掉。
+      const detail = (event as CustomEvent<SyncCompleteDetail>).detail
+      if (detail?.skipped) return
       void loadHomeOverview()
     }
     window.addEventListener(SYNC_COMPLETE_EVENT_NAME, handleSyncComplete)
