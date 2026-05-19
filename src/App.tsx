@@ -1508,7 +1508,30 @@ function App() {
   useEffect(() => {
     if (auth.status !== 'authenticated') return
     if (currentPage !== 'home') return
-    void loadHomeOverview()
+
+    // 「先空白、sync 完才 render」策略：避免 mount 立刻渲染舊 Dexie、sync 完又
+    // 重新渲染一次造成數字/未完成名單閃跳。
+    // - 上次 sync < 60 秒：local Dexie 夠新、直接 load 不等
+    // - 上次 sync 較久 / 從未 sync：請求 sync 並等 SYNC_COMPLETE 才 load
+    //   8 秒安全網避免離線或 sync 失敗時永遠空白
+    const lastSyncRaw =
+      typeof window !== 'undefined'
+        ? window.localStorage.getItem('redpen-last-sync-at')
+        : null
+    const lastSync = Number(lastSyncRaw)
+    const isFresh =
+      Number.isFinite(lastSync) && lastSync > 0 && Date.now() - lastSync < 60_000
+
+    if (isFresh) {
+      void loadHomeOverview()
+      return
+    }
+
+    requestSync()
+    const safetyTimer = window.setTimeout(() => {
+      void loadHomeOverview()
+    }, 8_000)
+    return () => window.clearTimeout(safetyTimer)
   }, [auth.status, currentPage, loadHomeOverview])
 
   // 每次同步完成後，如果在首頁就重新載入概覽數據
