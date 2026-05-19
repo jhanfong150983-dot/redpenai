@@ -126,6 +126,15 @@ const toNumber = (value: unknown): number | undefined => {
 
 const FOCUS_SYNC_COOLDOWN_MS = 60_000 // 任何 sync 完成後的冷卻期（60 秒）
 const LAST_SYNC_TIME_STORAGE_KEY = 'redpen-last-sync-at'
+// 多個 <SyncIndicator> 各自呼叫 useSync 會建立獨立 instance，refs 不共享。
+// 為了避免初始 loading 畫面 + 主畫面兩個 SyncIndicator 都 autoSync 觸發兩次
+// 完整 sync（每次 8.3 MB），把 in-flight 狀態提升到 module-level、跨 instance 共用。
+const globalSync = {
+  inFlight: false,
+  queued: false,
+  lastStartedAt: 0
+}
+const SYNC_START_COOLDOWN_MS = 3_000 // sync 剛開始 3 秒內、其他 instance 的 autoSync 視為重複、直接 skip
 
 function readPersistedLastSyncTime(): number | null {
   if (typeof window === 'undefined') return null
@@ -151,8 +160,10 @@ export function useSync(options: UseSyncOptions = {}) {
     pendingCount: 0,
     error: null
   })
-  const isSyncingRef = useRef(false)
-  const syncQueuedRef = useRef(false)
+  // isSyncing / syncQueued / lastSyncStartedAt 改放 module-level（檔頭定義）以
+  // 跨多個 useSync instance 共用 — 避免兩個 <SyncIndicator>（初始 loading 畫面
+  // 一個、主畫面一個）各自 autoSync 觸發兩次完整 sync（每次 8.3 MB）
+  // 在 instance 層保留 ref 已不再需要
   const prevOnlineRef = useRef(isOnline)
   const lastFocusSyncRef = useRef(0)
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
@@ -1689,7 +1700,9 @@ export function useSync(options: UseSyncOptions = {}) {
   /**
    * 執行同步
    */
-  const performSync = useCallback(async () => {
+  // skipIfRecent=true：autoSync 用、撞到 in-flight 或冷卻期就完全跳過、不排隊
+  // skipIfRecent=false：手動觸發 / sync event 用、撞到 in-flight 會排隊一次
+  const performSync = useCallback(async (skipIfRecent = false) => {
     if (!isOnline) {
       console.log('📡 [同步] 跳過同步：離線狀態')
       debugLog('離線狀態，跳過同步')
@@ -1702,11 +1715,25 @@ export function useSync(options: UseSyncOptions = {}) {
       return
     }
 
-    if (isSyncingRef.current) {
+    if (globalSync.inFlight) {
+      if (skipIfRecent) {
+        // autoSync 撞到別人正在跑、直接跳過、不排隊（排隊會讓 sync 結束後立刻再跑一次）
+        debugLog('已有 sync 正在進行、autoSync 跳過')
+        notifySyncComplete({ success: false, skipped: true, error: 'in_flight' })
+        return
+      }
       console.log('🔄 [同步] 跳過同步：目前正在同步中，已加入佇列')
       debugLog('目前正在同步中，跳過本次')
-      syncQueuedRef.current = true
+      globalSync.queued = true
       // 不可在此提早宣告完成；需等實際同步流程完成後再通知
+      return
+    }
+
+    // autoSync 在前一輪 sync 剛開始 3 秒內觸發 → 視為 mount 競態、直接 skip。
+    // 覆蓋 initial loading SyncIndicator → 主畫面 SyncIndicator 過渡時的雙觸發場景。
+    if (skipIfRecent && Date.now() - globalSync.lastStartedAt < SYNC_START_COOLDOWN_MS) {
+      debugLog('上次 sync 剛開始 < 3s，跳過本次 mount autoSync')
+      notifySyncComplete({ success: false, skipped: true, error: 'cooldown' })
       return
     }
 
@@ -1723,7 +1750,8 @@ export function useSync(options: UseSyncOptions = {}) {
     }
 
     try {
-      isSyncingRef.current = true
+      globalSync.inFlight = true
+      globalSync.lastStartedAt = Date.now()
       setStatus((prev) => ({ ...prev, isSyncing: true, error: null }))
 
       // 檢查 performSync 開始時的 folders
@@ -1858,9 +1886,9 @@ export function useSync(options: UseSyncOptions = {}) {
         error: message
       })
     } finally {
-      isSyncingRef.current = false
-      if (syncQueuedRef.current) {
-        syncQueuedRef.current = false
+      globalSync.inFlight = false
+      if (globalSync.queued) {
+        globalSync.queued = false
         window.setTimeout(() => {
           void performSync()
         }, 0)
@@ -1881,7 +1909,9 @@ export function useSync(options: UseSyncOptions = {}) {
 
     void updatePendingCount()
     if (isOnline) {
-      void performSync()
+      // skipIfRecent：兩個 SyncIndicator（initial loading + 主畫面）先後 mount
+      // 不重複觸發完整 sync
+      void performSync(true)
     }
   }, [autoSync, isOnline, performSync, updatePendingCount])
 
@@ -1891,7 +1921,7 @@ export function useSync(options: UseSyncOptions = {}) {
     prevOnlineRef.current = isOnline
     if (!wasOnline && isOnline) {
       debugLog('網路恢復，觸發同步')
-      void performSync()
+      void performSync(true)
     }
   }, [isOnline, autoSync, performSync])
 
@@ -1903,7 +1933,7 @@ export function useSync(options: UseSyncOptions = {}) {
       const now = Date.now()
       if (now - lastFocusSyncRef.current < FOCUS_SYNC_COOLDOWN_MS) return
       lastFocusSyncRef.current = now
-      void performSync()
+      void performSync(true)
     }
 
     const handleVisibility = () => {
