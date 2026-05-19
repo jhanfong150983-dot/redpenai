@@ -53,6 +53,12 @@ function showUpdateToast(onApply: () => void) {
     updateBtn.disabled = true
     updateBtn.textContent = '更新中…'
     onApply()
+    // updateSW(true) 內部靠 `controllerchange` 事件決定何時 reload；當新 SW
+    // 已 active 或沒有現任 controller 時這個事件不會觸發、會卡死在「更新中…」。
+    // 1.5s 後不管如何強制 reload 當保險絲（reload 後此 timer 隨頁面消失、無副作用）。
+    setTimeout(() => {
+      window.location.reload()
+    }, 1500)
   })
   toast.appendChild(updateBtn)
 
