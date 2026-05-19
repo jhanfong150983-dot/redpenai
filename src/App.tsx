@@ -197,11 +197,10 @@ const normalizeLoginEntry = (value: unknown): LoginEntryMode | null => {
 }
 
 const OVERVIEW_VISIBLE_STEP = 3
-// 2026-05-19: 8s → 60s。資料量大的老師（佳軒 1040 submissions）first sync 常超過 8s，
-// 8s timeout 觸發錯誤 UI 但背景 sync 還在跑、完成後自動 settleSuccess 進入應用、
-// 體感是「按鈕 flash 一下又自己進去、進去後資料還不完整」。
-// 60s 給足空間、true error 仍然會立刻被 SYNC_COMPLETE event 帶出來顯示。
-const INITIAL_SYNC_TIMEOUT_MS = 60_000
+// 2026-05-19: 8s → 120s。資料量大的老師（佳軒 1040 submissions）first sync 常 10-30s、
+// 慢網路會到 60-90s。120s 是「程式真的死了」的 failsafe、不是「應該等多久」。
+// 即使 timeout 觸發 retry UI、sync 後續 fire success 仍會自動 settleSuccess 進入。
+const INITIAL_SYNC_TIMEOUT_MS = 120_000
 
 // Stage 2 路由：currentPage ↔ URL ?page= 雙向同步
 // 'home' 用無 ?page= 表示；其他 Page 值直接作為 URL slug
@@ -394,9 +393,6 @@ function App() {
   const [initialSyncError, setInitialSyncError] = useState<string | null>(null)
   const [initialSyncRetryNonce, setInitialSyncRetryNonce] = useState(0)
   const [initialSyncElapsedSec, setInitialSyncElapsedSec] = useState(0)
-  // timeout 之後即使 sync 在背景完成、也不自動 settleSuccess（避免 user 看「錯誤 → 自動進入」）
-  // 顯示「同步已完成、按此進入」按鈕、讓使用者明確選擇
-  const [initialSyncCompletedAfterTimeout, setInitialSyncCompletedAfterTimeout] = useState(false)
   const [pendingInk, setPendingInk] = useState<PendingInkSummary>({
     count: 0,
     totalDrops: 0,
@@ -717,7 +713,6 @@ function App() {
       setIsInitialSyncing(false)
       setInitialSyncError(null)
       setInitialSyncElapsedSec(0)
-      setInitialSyncCompletedAfterTimeout(false)
       return
     }
     const isStudentEntry = loginEntry === 'student'
@@ -744,9 +739,7 @@ function App() {
     setIsInitialSyncing(true)
     setInitialSyncError(null)
     setInitialSyncElapsedSec(0)
-    setInitialSyncCompletedAfterTimeout(false)
     let isActive = true
-    let hasTimedOut = false
     const startedAt = Date.now()
 
     const settleSuccess = () => {
@@ -754,22 +747,15 @@ function App() {
       setIsInitialSyncing(false)
       setInitialSyncError(null)
       setInitialSyncElapsedSec(0)
-      setInitialSyncCompletedAfterTimeout(false)
       window.localStorage.setItem(INITIAL_SYNCED_KEY, '1')
     }
 
     const handler = (event: Event) => {
       if (!isActive) return
       const detail = (event as CustomEvent<SyncCompleteDetail>).detail
+      // 成功就直接進入、不管等了多久。使用者要的是「跑完就進去」
+      // （之前讓 user 按按鈕的設計改掉、過度操作）
       if (detail?.success) {
-        // 重點：若 timeout 已觸發、不自動進入；改 set 旗標讓 UI 顯示「已完成、點此進入」
-        // 原 bug：8s timeout 後背景 sync 完成 → settleSuccess → 自動進入 → user 體感「flash + 自動進去」
-        if (hasTimedOut) {
-          // 仍寫 localStorage、下次刷新就能略過 loading；但不立刻離開 UI
-          window.localStorage.setItem(INITIAL_SYNCED_KEY, '1')
-          setInitialSyncCompletedAfterTimeout(true)
-          return
-        }
         settleSuccess()
         return
       }
@@ -795,11 +781,13 @@ function App() {
       setInitialSyncElapsedSec(Math.floor((Date.now() - startedAt) / 1000))
     }, 1000)
 
+    // 長 failsafe：120s 真的沒任何事件回來才算「卡住」、提供 retry 按鈕
+    // 正常 sync 5-30s 完成、慢 sync 30-90s、超過 120s 多半是程式真的死了
+    // 即使 timeout 觸發、UI 顯示出來、若 sync 後續 fire success 仍會自動進入
     const timeoutId = window.setTimeout(() => {
       if (!isActive) return
-      hasTimedOut = true
       setInitialSyncError((prev) =>
-        prev || '首次同步花較久，可能網路較慢或資料量大。可以再等等，或按「重新抓取資料」重試。'
+        prev || '同步等待很久了，可能網路有狀況。可以繼續等、或按「重新抓取資料」重試。'
       )
     }, INITIAL_SYNC_TIMEOUT_MS)
 
@@ -1589,25 +1577,7 @@ function App() {
           <div className="mb-4">
             <SyncIndicator key={`initial-sync-${initialSyncRetryNonce}`} autoSync={true} />
           </div>
-          {initialSyncCompletedAfterTimeout ? (
-            <>
-              <div className="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto mb-3 text-xl">✓</div>
-              <p className="text-emerald-700 text-sm font-medium mb-1">同步已完成</p>
-              <p className="text-gray-500 text-xs mb-4">資料完整、點下方按鈕進入</p>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsInitialSyncing(false)
-                  setInitialSyncError(null)
-                  setInitialSyncCompletedAfterTimeout(false)
-                  setInitialSyncElapsedSec(0)
-                }}
-                className="rounded-lg bg-emerald-600 px-6 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-              >
-                進入應用
-              </button>
-            </>
-          ) : !initialSyncError ? (
+          {!initialSyncError ? (
             <>
               <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
               <p className="text-gray-700 text-sm font-medium mb-1">正在從雲端同步資料</p>
