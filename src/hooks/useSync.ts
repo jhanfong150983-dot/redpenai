@@ -132,9 +132,11 @@ const LAST_SYNC_TIME_STORAGE_KEY = 'redpen-last-sync-at'
 const globalSync = {
   inFlight: false,
   queued: false,
-  lastStartedAt: 0
+  lastFinishedAt: 0
 }
-const SYNC_START_COOLDOWN_MS = 3_000 // sync 剛開始 3 秒內、其他 instance 的 autoSync 視為重複、直接 skip
+// sync 結束 10 秒內、autoSync mount 視為重複（覆蓋 initial loading SyncIndicator
+// → 主畫面 SyncIndicator 過渡時的雙觸發；sync 本身約 5-6 秒、10 秒留 cushion）
+const SYNC_FINISH_COOLDOWN_MS = 10_000
 
 function readPersistedLastSyncTime(): number | null {
   if (typeof window === 'undefined') return null
@@ -1729,10 +1731,15 @@ export function useSync(options: UseSyncOptions = {}) {
       return
     }
 
-    // autoSync 在前一輪 sync 剛開始 3 秒內觸發 → 視為 mount 競態、直接 skip。
+    // autoSync 在前一輪 sync 結束 10 秒內觸發 → 視為 mount 競態、直接 skip。
     // 覆蓋 initial loading SyncIndicator → 主畫面 SyncIndicator 過渡時的雙觸發場景。
-    if (skipIfRecent && Date.now() - globalSync.lastStartedAt < SYNC_START_COOLDOWN_MS) {
-      debugLog('上次 sync 剛開始 < 3s，跳過本次 mount autoSync')
+    // （從 start 改為 end 計時：sync 本身 5-6 秒、從 start 算 3 秒會失效）
+    if (
+      skipIfRecent &&
+      globalSync.lastFinishedAt > 0 &&
+      Date.now() - globalSync.lastFinishedAt < SYNC_FINISH_COOLDOWN_MS
+    ) {
+      debugLog('上次 sync 剛結束 < 10s，跳過本次 mount autoSync')
       notifySyncComplete({ success: false, skipped: true, error: 'cooldown' })
       return
     }
@@ -1751,7 +1758,6 @@ export function useSync(options: UseSyncOptions = {}) {
 
     try {
       globalSync.inFlight = true
-      globalSync.lastStartedAt = Date.now()
       setStatus((prev) => ({ ...prev, isSyncing: true, error: null }))
 
       // 檢查 performSync 開始時的 folders
@@ -1887,6 +1893,7 @@ export function useSync(options: UseSyncOptions = {}) {
       })
     } finally {
       globalSync.inFlight = false
+      globalSync.lastFinishedAt = Date.now()
       if (globalSync.queued) {
         globalSync.queued = false
         window.setTimeout(() => {
