@@ -392,7 +392,6 @@ function App() {
   const [isInitialSyncing, setIsInitialSyncing] = useState(false)
   const [initialSyncError, setInitialSyncError] = useState<string | null>(null)
   const [initialSyncRetryNonce, setInitialSyncRetryNonce] = useState(0)
-  const [initialSyncElapsedSec, setInitialSyncElapsedSec] = useState(0)
   const [pendingInk, setPendingInk] = useState<PendingInkSummary>({
     count: 0,
     totalDrops: 0,
@@ -712,7 +711,6 @@ function App() {
     if (auth.status !== 'authenticated') {
       setIsInitialSyncing(false)
       setInitialSyncError(null)
-      setInitialSyncElapsedSec(0)
       return
     }
     const isStudentEntry = loginEntry === 'student'
@@ -738,15 +736,12 @@ function App() {
 
     setIsInitialSyncing(true)
     setInitialSyncError(null)
-    setInitialSyncElapsedSec(0)
     let isActive = true
-    const startedAt = Date.now()
 
     const settleSuccess = () => {
       if (!isActive) return
       setIsInitialSyncing(false)
       setInitialSyncError(null)
-      setInitialSyncElapsedSec(0)
       window.localStorage.setItem(INITIAL_SYNCED_KEY, '1')
     }
 
@@ -754,7 +749,6 @@ function App() {
       if (!isActive) return
       const detail = (event as CustomEvent<SyncCompleteDetail>).detail
       // 成功就直接進入、不管等了多久。使用者要的是「跑完就進去」
-      // （之前讓 user 按按鈕的設計改掉、過度操作）
       if (detail?.success) {
         settleSuccess()
         return
@@ -775,12 +769,6 @@ function App() {
       }
     }
 
-    // 經過秒數計時、給 UI 顯示「已等候 N 秒」
-    const elapsedTick = window.setInterval(() => {
-      if (!isActive) return
-      setInitialSyncElapsedSec(Math.floor((Date.now() - startedAt) / 1000))
-    }, 1000)
-
     // 長 failsafe：120s 真的沒任何事件回來才算「卡住」、提供 retry 按鈕
     // 正常 sync 5-30s 完成、慢 sync 30-90s、超過 120s 多半是程式真的死了
     // 即使 timeout 觸發、UI 顯示出來、若 sync 後續 fire success 仍會自動進入
@@ -797,7 +785,6 @@ function App() {
     return () => {
       isActive = false
       window.clearTimeout(timeoutId)
-      window.clearInterval(elapsedTick)
       window.removeEventListener(SYNC_COMPLETE_EVENT_NAME, handler)
     }
   }, [
@@ -1573,24 +1560,18 @@ function App() {
   if (isInitialSyncing) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="text-center px-4 max-w-md">
+        <div className="text-center px-4">
           <div className="mb-4">
             <SyncIndicator key={`initial-sync-${initialSyncRetryNonce}`} autoSync={true} />
           </div>
           {!initialSyncError ? (
             <>
               <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-              <p className="text-gray-700 text-sm font-medium mb-1">正在從雲端同步資料</p>
-              <p className="text-gray-500 text-xs">
-                {initialSyncElapsedSec === 0
-                  ? '請稍候…'
-                  : `已等候 ${initialSyncElapsedSec} 秒・資料量大時可能要 30-60 秒、請勿關閉頁面`}
-              </p>
+              <p className="text-gray-600 text-sm">正在載入資料…</p>
             </>
           ) : (
             <>
-              <p className="text-amber-700 text-sm font-medium mb-1">{initialSyncError}</p>
-              <p className="text-gray-500 text-xs mb-4">已等候 {initialSyncElapsedSec} 秒</p>
+              <p className="text-red-600 text-sm font-medium mb-3">{initialSyncError}</p>
               <div className="flex items-center justify-center gap-2">
                 <button
                   type="button"
