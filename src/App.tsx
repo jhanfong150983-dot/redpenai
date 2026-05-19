@@ -510,6 +510,9 @@ function App() {
     window.localStorage.removeItem(LOGIN_ENTRY_STORAGE_KEY)
     window.localStorage.removeItem(CURRENT_USER_ID_KEY)
     window.localStorage.removeItem(INITIAL_SYNCED_KEY)
+    // 清掉 ink session 殘留，避免下個登入的學生繼承上個學生的 sessionId 撞 409 not_found
+    window.sessionStorage.removeItem('rp-ink-session-id')
+    window.sessionStorage.removeItem('rp-ink-session-expires-at')
     // 清除 1Campus 自動同步的 session flag，讓重新登入時能再次觸發
     try {
       const keys = Object.keys(window.sessionStorage)
@@ -1159,7 +1162,8 @@ function App() {
         'correction_required', 'correction_in_progress',
         'correction_pending_review', 'correction_failed'
       ])
-      let serverStatesByAssignment = new Map<string, Map<string, string>>()
+      type ServerStateEntry = { status: string; mistakeCount: number | null }
+      let serverStatesByAssignment = new Map<string, Map<string, ServerStateEntry>>()
       try {
         const assignmentIds = assignments.map((a) => a.id).join(',')
         const stateRes = await fetch(
@@ -1168,11 +1172,20 @@ function App() {
         )
         if (stateRes.ok) {
           const stateData = (await stateRes.json()) as {
-            byAssignment: Record<string, { studentId: string; status: string }[]>
+            byAssignment: Record<
+              string,
+              { studentId: string; status: string; mistakeCount?: number | null }[]
+            >
           }
           for (const [aId, rows] of Object.entries(stateData.byAssignment)) {
-            const map = new Map<string, string>()
-            for (const row of rows) map.set(row.studentId, row.status)
+            const map = new Map<string, ServerStateEntry>()
+            for (const row of rows) {
+              map.set(row.studentId, {
+                status: row.status,
+                mistakeCount:
+                  typeof row.mistakeCount === 'number' ? row.mistakeCount : null
+              })
+            }
             serverStatesByAssignment.set(aId, map)
           }
         }
@@ -1205,10 +1218,16 @@ function App() {
               ? Math.round((gradedCount / denominator) * 100)
               : 0
           const classroomStudents = studentsByClassroom.get(assignment.classroomId) ?? []
-          // Sort ascending by updatedAt so the latest submission wins in the Map
-          const sortedSubmissions = [...relatedSubmissions].sort(
-            (a, b) => (a.updatedAt ?? a.createdAt) - (b.updatedAt ?? b.createdAt)
-          )
+          // Sort ascending by updatedAt so the latest submission wins in the Map.
+          // Exclude student_correction subs: correction outcome is owned by
+          // assignment_student_state (handled above). An orphan correction sub
+          // (e.g. teacher re-graded original to full marks and recalled the
+          // correction) must not shadow the original "graded" status here.
+          const sortedSubmissions = [...relatedSubmissions]
+            .filter((s) => s.source !== 'student_correction')
+            .sort(
+              (a, b) => (a.updatedAt ?? a.createdAt) - (b.updatedAt ?? b.createdAt)
+            )
           const submissionByStudentId = new Map(
             sortedSubmissions.map((s) => [s.studentId, s])
           )
@@ -1221,7 +1240,8 @@ function App() {
           for (const student of classroomStudents) {
             const seat = student.seatNumber
             if (!seat) continue
-            const serverStatus = serverStates?.get(student.id)
+            const serverEntry = serverStates?.get(student.id)
+            const serverStatus = serverEntry?.status
             // correction_passed → fully done regardless of local submission data
             if (serverStatus === 'correction_passed') {
               completedSeatNumbers.push(seat)
@@ -1232,7 +1252,15 @@ function App() {
               incompleteSeatNumbers.push(seat)
               continue
             }
-            // Fall back to local submission for non-correction states
+            // status === 'graded': use server's authoritative mistake count.
+            // Local gradingResult.mistakes can be stale after a server-side
+            // re-grade (sync is local-first for user-edited fields).
+            if (serverStatus === 'graded' && typeof serverEntry?.mistakeCount === 'number') {
+              if (serverEntry.mistakeCount > 0) incompleteSeatNumbers.push(seat)
+              else completedSeatNumbers.push(seat)
+              continue
+            }
+            // Fall back to local submission when no server state row exists
             const sub = submissionByStudentId.get(student.id)
             if (!sub || sub.status === 'missing') {
               notSubmittedSeatNumbers.push(seat)
@@ -1240,11 +1268,7 @@ function App() {
               ungradedSeatNumbers.push(seat)
             } else if (sub.status === 'graded') {
               const mistakesCount = sub.gradingResult?.mistakes?.length ?? sub.mistakesCount ?? 0
-              // 訂正批改若 score=0 且 mistakes=[] 代表照片無效（空白/拍錯），仍視為未完成
-              const isFailedCorrection =
-                sub.source === 'student_correction' && mistakesCount === 0 && (sub.score ?? 0) === 0
-              const hasMistakes = mistakesCount > 0 || isFailedCorrection
-              if (hasMistakes) incompleteSeatNumbers.push(seat)
+              if (mistakesCount > 0) incompleteSeatNumbers.push(seat)
               else completedSeatNumbers.push(seat)
             }
           }
