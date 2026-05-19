@@ -4,11 +4,27 @@ import { RefreshCw, Copy, Check, AlertTriangle, ChevronRight } from 'lucide-reac
 type OverviewData = {
   days_window: number
   total_submissions: number
+  total_questions: number
   review_rate: number
   avg_needs_review: number
   avg_ocr_match_rate: number | null
   stuck_correction_count: number
-  daily: Array<{ day: string; count: number; review_rate: number; avg_review: number }>
+  teacher_unrecognizable_count: number
+  teacher_unrecognizable_rate: number | null
+  submissions_with_final_answers: number
+  dual_unreadable_count: number
+  dual_unreadable_rate: number
+  daily: Array<{
+    day: string
+    count: number
+    review_rate: number
+    avg_review: number
+    total_questions: number
+    teacher_unrecognizable_count: number
+    teacher_unrecognizable_rate: number | null
+    dual_unreadable_count: number
+    dual_unreadable_rate: number
+  }>
   by_assignment: Array<{
     assignment_id: string
     title: string
@@ -47,6 +63,30 @@ type BboxData = {
   ocr_coverage_zero: Array<{ submissionId: string; qid: string }>
 }
 
+type ByTypeRow = {
+  type: string
+  total_questions: number
+  teacher_unrecognizable_count: number
+  teacher_unrecognizable_rate: number | null
+  dual_unreadable_count: number
+  dual_unreadable_rate: number
+  entered_review_count: number
+  entered_review_rate: number
+}
+type ByTypeData = {
+  days_window: number
+  total_submissions: number
+  total_questions: number
+  submissions_with_final_answers: number
+  teacher_unrecognizable_count: number
+  teacher_unrecognizable_rate: number | null
+  dual_unreadable_count: number
+  dual_unreadable_rate: number
+  entered_review_count: number
+  entered_review_rate: number
+  by_type: ByTypeRow[]
+}
+
 type ReadExample = { submissionId: string; qid: string; a1: string; a2: string; ai3Consistent?: boolean | null }
 type ReadData = {
   assignmentId: string
@@ -64,7 +104,7 @@ type ReadData = {
   submission_review_ranking: Array<{ submissionId: string; needs_review_count: number }>
 }
 
-type Tab = 'overview' | 'bbox' | 'read' | 'export'
+type Tab = 'overview' | 'by_type' | 'bbox' | 'read' | 'export'
 
 const API_BASE = '/api/admin/quality'
 
@@ -109,6 +149,7 @@ export default function AdminQuality() {
   const [tab, setTab] = useState<Tab>('overview')
   const [days, setDays] = useState(7)
   const [overview, setOverview] = useState<OverviewData | null>(null)
+  const [byType, setByType] = useState<ByTypeData | null>(null)
   const [assignments, setAssignments] = useState<AssignmentInfo[]>([])
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null)
   const [bbox, setBbox] = useState<BboxData | null>(null)
@@ -132,7 +173,19 @@ export default function AdminQuality() {
     } finally { setLoading(false) }
   }, [days, selectedAssignmentId])
 
+  const loadByType = useCallback(async () => {
+    setLoading(true); setErr(null)
+    try {
+      setByType(await fetchJson<ByTypeData>(`${API_BASE}?mode=by_type&days=${days}`))
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '讀取失敗')
+    } finally { setLoading(false) }
+  }, [days])
+
   useEffect(() => { void loadOverview() }, [loadOverview])
+
+  // by_type 改 days 時要 refetch
+  useEffect(() => { setByType(null) }, [days])
 
   const loadAssignmentData = useCallback(async (mode: 'bbox' | 'read' | 'export') => {
     if (!selectedAssignmentId) return
@@ -151,11 +204,12 @@ export default function AdminQuality() {
   }, [selectedAssignmentId])
 
   useEffect(() => {
+    if (tab === 'by_type' && !byType) void loadByType()
     if (!selectedAssignmentId) return
     if (tab === 'bbox' && !bbox) void loadAssignmentData('bbox')
     if (tab === 'read' && !read) void loadAssignmentData('read')
     if (tab === 'export' && !exportText) void loadAssignmentData('export')
-  }, [tab, selectedAssignmentId, bbox, read, exportText, loadAssignmentData])
+  }, [tab, selectedAssignmentId, bbox, read, exportText, byType, loadAssignmentData, loadByType])
 
   // 切 assignment 時清快取
   useEffect(() => {
@@ -167,7 +221,7 @@ export default function AdminQuality() {
       {/* 工具列 */}
       <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-wrap items-center gap-3">
         <div className="flex gap-2">
-          {(['overview', 'bbox', 'read', 'export'] as Tab[]).map((t) => (
+          {(['overview', 'by_type', 'bbox', 'read', 'export'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -175,11 +229,15 @@ export default function AdminQuality() {
                 tab === t ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               }`}
             >
-              {t === 'overview' ? '系統健康' : t === 'bbox' ? 'BBox 品質' : t === 'read' ? 'Read AI 品質' : '匯出 markdown'}
+              {t === 'overview' ? '系統健康'
+                : t === 'by_type' ? '題型品質'
+                : t === 'bbox' ? 'BBox 品質（debug）'
+                : t === 'read' ? 'Read AI 品質'
+                : '匯出 markdown'}
             </button>
           ))}
         </div>
-        {tab === 'overview' && (
+        {(tab === 'overview' || tab === 'by_type') && (
           <select
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
@@ -190,7 +248,7 @@ export default function AdminQuality() {
             <option value={30}>過去 30 天</option>
           </select>
         )}
-        {tab !== 'overview' && (
+        {tab !== 'overview' && tab !== 'by_type' && (
           <select
             value={selectedAssignmentId || ''}
             onChange={(e) => setSelectedAssignmentId(e.target.value)}
@@ -207,6 +265,7 @@ export default function AdminQuality() {
         <button
           onClick={() => {
             if (tab === 'overview') void loadOverview()
+            else if (tab === 'by_type') void loadByType()
             else if (tab === 'bbox') void loadAssignmentData('bbox')
             else if (tab === 'read') void loadAssignmentData('read')
             else void loadAssignmentData('export')
@@ -228,6 +287,7 @@ export default function AdminQuality() {
 
       {/* 內容區 */}
       {tab === 'overview' && overview && <OverviewView data={overview} />}
+      {tab === 'by_type' && byType && <ByTypeView data={byType} />}
       {tab === 'bbox' && bbox && <BboxView data={bbox} />}
       {tab === 'read' && read && <ReadView data={read} />}
       {tab === 'export' && (
@@ -240,27 +300,55 @@ export default function AdminQuality() {
 // ─── Views ──
 
 function OverviewView({ data }: { data: OverviewData }) {
+  const teacherRate = data.teacher_unrecognizable_rate
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Metric label="批改總數" value={data.total_submissions.toString()} sub={`過去 ${data.days_window} 天`} />
-        <Metric
-          label="需 review 比率"
-          value={(data.review_rate * 100).toFixed(1) + '%'}
-          sub={`平均 ${data.avg_needs_review} 題 / 份`}
-          warn={data.review_rate > 0.2}
-        />
-        <Metric
-          label="OCR-assist 命中"
-          value={data.avg_ocr_match_rate != null ? (data.avg_ocr_match_rate * 100).toFixed(0) + '%' : '-'}
-          sub="所有 matcher 平均"
-        />
-        <Metric
-          label="卡住的訂正稿"
-          value={data.stuck_correction_count.toString()}
-          sub="status=pending_grading"
-          warn={data.stuck_correction_count > 0}
-        />
+      {/* 第一排：ground truth 指標、ML 系統真實品質 */}
+      <div>
+        <p className="text-xs text-slate-500 mb-1.5 px-1">品質指標（題層級）</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Metric
+            label="① 老師標「無法辨識」"
+            value={teacherRate != null ? (teacherRate * 100).toFixed(2) + '%' : '-'}
+            sub={`${data.teacher_unrecognizable_count} / ${data.total_questions} 題（已複核 ${data.submissions_with_final_answers} 份）`}
+            warn={teacherRate != null && teacherRate > 0.03}
+          />
+          <Metric
+            label="①b AI 雙人都讀不出"
+            value={(data.dual_unreadable_rate * 100).toFixed(2) + '%'}
+            sub={`${data.dual_unreadable_count} / ${data.total_questions} 題（bbox 沒框到字的先導指標）`}
+            warn={data.dual_unreadable_rate > 0.03}
+          />
+          <Metric
+            label="② 進 review 比率"
+            value={(data.review_rate * 100).toFixed(1) + '%'}
+            sub={`平均 ${data.avg_needs_review} 題 / 份`}
+            warn={data.review_rate > 0.2}
+          />
+          <Metric
+            label="卡住的訂正稿"
+            value={data.stuck_correction_count.toString()}
+            sub="status=pending_grading"
+            warn={data.stuck_correction_count > 0}
+          />
+        </div>
+      </div>
+
+      {/* 第二排：系統內部 derivative、降為次要 */}
+      <div>
+        <p className="text-xs text-slate-400 mb-1.5 px-1">系統內部診斷（derivative、bbox 對就會中、不是 ground truth）</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Metric
+            label="批改總數"
+            value={data.total_submissions.toString()}
+            sub={`過去 ${data.days_window} 天 / ${data.total_questions} 題`}
+          />
+          <Metric
+            label="OCR-assist 命中"
+            value={data.avg_ocr_match_rate != null ? (data.avg_ocr_match_rate * 100).toFixed(0) + '%' : '-'}
+            sub="derivative、僅供 debug"
+          />
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -270,25 +358,39 @@ function OverviewView({ data }: { data: OverviewData }) {
             <tr className="text-left text-xs text-slate-500 border-b">
               <th className="py-2">日期</th>
               <th>批改數</th>
-              <th>需 review 比率</th>
-              <th>平均 review 題數</th>
+              <th>題數</th>
+              <th>① 老師無法辨識</th>
+              <th>①b 雙人 unreadable</th>
+              <th>② 進 review 比率</th>
             </tr>
           </thead>
           <tbody>
-            {data.daily.map((d) => (
-              <tr key={d.day} className="border-b last:border-0">
-                <td className="py-2 font-mono text-xs">{d.day}</td>
-                <td>{d.count}</td>
-                <td className={d.review_rate > 0.2 ? 'text-rose-600' : ''}>{(d.review_rate * 100).toFixed(1)}%</td>
-                <td>{d.avg_review}</td>
-              </tr>
-            ))}
+            {data.daily.map((d) => {
+              const tRate = d.teacher_unrecognizable_rate
+              return (
+                <tr key={d.day} className="border-b last:border-0">
+                  <td className="py-2 font-mono text-xs">{d.day}</td>
+                  <td>{d.count}</td>
+                  <td className="text-slate-500">{d.total_questions}</td>
+                  <td className={tRate != null && tRate > 0.03 ? 'text-rose-600' : ''}>
+                    {tRate != null ? `${d.teacher_unrecognizable_count} (${(tRate * 100).toFixed(1)}%)` : '-'}
+                  </td>
+                  <td className={d.dual_unreadable_rate > 0.03 ? 'text-rose-600' : ''}>
+                    {`${d.dual_unreadable_count} (${(d.dual_unreadable_rate * 100).toFixed(1)}%)`}
+                  </td>
+                  <td className={d.review_rate > 0.2 ? 'text-rose-600' : ''}>{(d.review_rate * 100).toFixed(1)}%</td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="font-semibold text-slate-900 mb-3">按作業拆解 OCR-assist 命中率</h3>
+      <details className="bg-slate-50 rounded-xl border border-slate-200 p-4 group">
+        <summary className="cursor-pointer text-sm font-medium text-slate-600 hover:text-slate-900 select-none">
+          按作業拆解 OCR-assist 命中率（derivative、bbox 對就會中、僅供 debug）
+        </summary>
+        <div className="mt-3">
         {data.by_assignment.length === 0 ? (
           <p className="text-sm text-slate-500">無資料</p>
         ) : (
@@ -329,7 +431,8 @@ function OverviewView({ data }: { data: OverviewData }) {
             </tbody>
           </table>
         )}
-      </div>
+        </div>
+      </details>
     </div>
   )
 }
@@ -340,6 +443,112 @@ function Metric({ label, value, sub, warn }: { label: string; value: string; sub
       <p className="text-xs text-slate-500">{label}</p>
       <p className={`text-2xl font-bold mt-1 ${warn ? 'text-rose-700' : 'text-slate-900'}`}>{value}</p>
       <p className="text-xs text-slate-400 mt-1">{sub}</p>
+    </div>
+  )
+}
+
+// 中文題型名（顯示用、未知 type 就直接出原 key）
+const TYPE_LABEL: Record<string, string> = {
+  fill_blank: '填空',
+  single_choice: '單選',
+  multiple_choice: '多選',
+  calculation: '計算',
+  word_problem: '應用 / 文字題',
+  matching: '配對',
+  table_cell: '表格 cell',
+  map_fill: '地圖填空',
+  short_answer: '簡答',
+  essay: '作文 / 長題',
+  judgement: '是非',
+  ordering: '排序',
+  unknown: '(未標 type)'
+}
+
+function ByTypeView({ data }: { data: ByTypeData }) {
+  // 取每個指標的最壞 row（用來標紅）
+  const worstTeacher = Math.max(...data.by_type.map((r) => r.teacher_unrecognizable_rate ?? 0), 0)
+  const worstDual = Math.max(...data.by_type.map((r) => r.dual_unreadable_rate), 0)
+  const worstReview = Math.max(...data.by_type.map((r) => r.entered_review_rate), 0)
+
+  return (
+    <div className="space-y-4">
+      {/* 系統總計（cross-check 數字、跟 Overview 一致）*/}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Metric
+          label="總題數"
+          value={data.total_questions.toString()}
+          sub={`${data.total_submissions} 份 / 過去 ${data.days_window} 天`}
+        />
+        <Metric
+          label="① 老師無法辨識"
+          value={data.teacher_unrecognizable_rate != null ? (data.teacher_unrecognizable_rate * 100).toFixed(2) + '%' : '-'}
+          sub={`${data.teacher_unrecognizable_count} 題（已複核 ${data.submissions_with_final_answers} 份）`}
+          warn={data.teacher_unrecognizable_rate != null && data.teacher_unrecognizable_rate > 0.03}
+        />
+        <Metric
+          label="①b 雙人 unreadable"
+          value={(data.dual_unreadable_rate * 100).toFixed(2) + '%'}
+          sub={`${data.dual_unreadable_count} 題`}
+          warn={data.dual_unreadable_rate > 0.03}
+        />
+        <Metric
+          label="② 進 review 率"
+          value={(data.entered_review_rate * 100).toFixed(2) + '%'}
+          sub={`${data.entered_review_count} 題（arbiter inconsistent）`}
+          warn={data.entered_review_rate > 0.1}
+        />
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-4">
+        <h3 className="font-semibold text-slate-900 mb-1">按題型拆解（找哪個題型最弱 / 最不穩）</h3>
+        <p className="text-xs text-slate-500 mb-3">
+          三個 ground-truth 指標。① 是老師最終回饋（bbox 真實品質）、①b 是 AI 雙人投降（bbox 沒框到字的先導指標）、② 是 read 不一致進 review 比例。
+          紅色標示為該欄最差的題型。
+        </p>
+        {data.by_type.length === 0 ? (
+          <p className="text-sm text-slate-500">無資料</p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 border-b">
+                <th className="py-2">題型</th>
+                <th>總題數</th>
+                <th>① 老師無法辨識</th>
+                <th>①b 雙人 unreadable</th>
+                <th>② 進 review</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.by_type.map((r) => {
+                const teacherRate = r.teacher_unrecognizable_rate
+                const isWorstTeacher = teacherRate != null && teacherRate > 0 && teacherRate === worstTeacher
+                const isWorstDual = r.dual_unreadable_rate > 0 && r.dual_unreadable_rate === worstDual
+                const isWorstReview = r.entered_review_rate > 0 && r.entered_review_rate === worstReview
+                return (
+                  <tr key={r.type} className="border-b last:border-0">
+                    <td className="py-2 font-mono text-xs">
+                      {TYPE_LABEL[r.type] || r.type}
+                      <span className="text-slate-400 ml-1.5">{r.type}</span>
+                    </td>
+                    <td className="text-slate-500">{r.total_questions}</td>
+                    <td className={isWorstTeacher ? 'text-rose-600 font-semibold' : ''}>
+                      {teacherRate != null
+                        ? `${r.teacher_unrecognizable_count} (${(teacherRate * 100).toFixed(2)}%)`
+                        : '-'}
+                    </td>
+                    <td className={isWorstDual ? 'text-rose-600 font-semibold' : ''}>
+                      {`${r.dual_unreadable_count} (${(r.dual_unreadable_rate * 100).toFixed(2)}%)`}
+                    </td>
+                    <td className={isWorstReview ? 'text-rose-600 font-semibold' : ''}>
+                      {`${r.entered_review_count} (${(r.entered_review_rate * 100).toFixed(2)}%)`}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   )
 }
