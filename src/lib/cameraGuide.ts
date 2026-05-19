@@ -52,3 +52,18 @@ export const DUPLICATE_HASH_THRESHOLD = 12
 // WARN=700 = 對齊不佳才警告、正常對齊不打擾。
 export const MIN_EFFECTIVE_WIDTH_BLOCK = 0     // 不擋
 export const MIN_EFFECTIVE_WIDTH_WARN = 700    // 對齊不佳才警告
+
+// 銳利度（focus / motion blur）門檻
+// 在 cropToCornersBounds 輸出的 worksheet 區域上、downsample 到 512 寬灰階後、
+// 算 Laplacian abs 的 top 5% 平均（p95 sharpness）
+//
+// 為什麼用 p95 而不是 Laplacian variance：
+//   variance 會被「字寫多寫少」放大；只寫幾題的卷即使對焦清楚、variance 也低
+//   p95 只看最強的邊緣強度、跟內容多寡無關、純測對焦銳利度
+//
+// 2026-05-19 校準（六年4班_數學 31 份 iPad 樣本）：
+//   p95 < 60  = 對焦失敗 / 嚴重手震、老師人工審查都看不清
+//   60-80     = 邊界、勉強可讀
+//   80+       = 正常水準
+// 取 70 = 擋下「老師審查也看不清」的、留邊界值給學生
+export const MIN_SHARPNESS_P95 = 70

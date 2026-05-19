@@ -28,6 +28,7 @@ import {
   DUPLICATE_HASH_THRESHOLD,
   MIN_EFFECTIVE_WIDTH_BLOCK,
   MIN_EFFECTIVE_WIDTH_WARN,
+  MIN_SHARPNESS_P95,
 } from './cameraGuide'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -39,6 +40,7 @@ export type ValidationErrorType =
   | 'too_small'            // 紙張在畫面中佔比太低（拍太遠）
   | 'duplicate'            // 與其他頁照片重複
   | 'low_resolution'       // 校正後 worksheet 區域寬度低於閾值（拍太遠 / 鏡頭差 / 已壓縮過）
+  | 'low_sharpness'        // 對焦失敗 / 手震（iPad 自動對焦常掉、平板手震也比手機嚴重）
   | 'insufficient_ink'     // 學生 / 老師額度用完，proxy 回 HTTP 402，AI 沒被呼叫
   | 'service_unavailable'  // 拍照檢查服務暫時無法使用（其他 HTTP 錯誤、網路錯誤）
 
@@ -53,6 +55,7 @@ export interface ValidationError {
   effectiveWidth?: number
   duplicateWithIndex?: number
   duplicateDistance?: number
+  sharpnessP95?: number
 }
 
 export interface ValidationWarning {
@@ -139,6 +142,19 @@ export async function validatePhotos(pages: PageInput[]): Promise<ValidationResu
             type: 'low_resolution_warn',
             message: '照片有點不夠清楚、批改可能會看錯字。建議手機靠近作業重拍一次比較準（不重拍也能送出）。',
             effectiveWidth,
+          })
+        }
+      }
+
+      // 銳利度檢查（對焦失敗 / 手震）— iPad 自動對焦常掉，靠這層擋
+      // 量 p95 Laplacian（最強 5% 邊緣的平均強度）、跟「字寫多寫少」無關
+      if (noPreErrors && correctedBlob) {
+        const sharpnessP95 = await measureBlobSharpness(correctedBlob)
+        if (sharpnessP95 !== null && sharpnessP95 < MIN_SHARPNESS_P95) {
+          errors.push({
+            type: 'low_sharpness',
+            message: '照片對焦沒對到、看起來糊糊的（老師批改時會認不出字）。請點一下螢幕上的作業讓相機對焦清楚、再拍一次。平板比手機難對焦、可以拿穩一點、距離保持在能看清楚字的位置。',
+            sharpnessP95,
           })
         }
       }
@@ -282,6 +298,59 @@ async function measureBlobWidth(blob: Blob): Promise<number | null> {
     return w
   } catch (err) {
     console.warn('[photoValidation] measureBlobWidth failed:', err)
+    return null
+  }
+}
+
+/**
+ * 量銳利度（focus / motion blur）。
+ *
+ * Downsample 到 512 寬灰階、算 Laplacian abs 的 top 5% 平均（p95 sharpness）。
+ * 用 p95 而不是 variance：variance 會被「字寫多寫少」放大、p95 只看最強邊緣
+ * 強度、跟內容多寡無關、純測對焦銳利度。
+ *
+ * 失敗回 null（不擋）。成功回 ~10-200 範圍的數字，閾值見 MIN_SHARPNESS_P95。
+ */
+async function measureBlobSharpness(blob: Blob): Promise<number | null> {
+  try {
+    const bmp = await createImageBitmap(blob)
+    const targetW = 512
+    const scale = targetW / bmp.width
+    const targetH = Math.max(1, Math.round(bmp.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = targetW
+    canvas.height = targetH
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) {
+      bmp.close()
+      return null
+    }
+    ctx.drawImage(bmp, 0, 0, targetW, targetH)
+    bmp.close()
+    const { data } = ctx.getImageData(0, 0, targetW, targetH)
+    const n = targetW * targetH
+    const gray = new Uint8Array(n)
+    for (let i = 0; i < n; i++) {
+      gray[i] = (data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114) | 0
+    }
+    // 3x3 Laplacian: [0,1,0; 1,-4,1; 0,1,0]、收集絕對值
+    const lap: number[] = []
+    for (let y = 1; y < targetH - 1; y++) {
+      for (let x = 1; x < targetW - 1; x++) {
+        const i = y * targetW + x
+        const v = -4 * gray[i] + gray[i - 1] + gray[i + 1] + gray[i - targetW] + gray[i + targetW]
+        const abs = Math.abs(v)
+        if (abs > 0) lap.push(abs)
+      }
+    }
+    if (lap.length === 0) return null
+    lap.sort((a, b) => b - a)
+    const topN = Math.max(1, Math.floor(lap.length * 0.05))
+    let sum = 0
+    for (let i = 0; i < topN; i++) sum += lap[i]
+    return sum / topN
+  } catch (err) {
+    console.warn('[photoValidation] measureBlobSharpness failed:', err)
     return null
   }
 }
