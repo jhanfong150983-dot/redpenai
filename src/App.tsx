@@ -1287,8 +1287,8 @@ function App() {
           // correctionCount and pendingCorrectionSeatNumbers from server state
           const correctionStudents = serverStates
             ? classroomStudents.filter((s) => {
-                const st = serverStates.get(s.id)
-                return st !== undefined && ACTIVE_CORRECTION_STATUSES.has(st)
+                const status = serverStates.get(s.id)?.status
+                return status !== undefined && ACTIVE_CORRECTION_STATUSES.has(status)
               })
             : []
           const correctionCount = correctionStudents.length
