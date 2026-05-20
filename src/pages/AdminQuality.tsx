@@ -277,9 +277,9 @@ function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
   const [hoveredQid, setHoveredQid] = useState<string | null>(null)
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full flex flex-col min-h-0">
       {/* 卷子標頭 */}
-      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 shrink-0">
         <h2 className="font-semibold text-slate-900">
           {detail.seatNumber != null && (
             <span className="font-mono text-slate-400 mr-1.5">
@@ -298,10 +298,13 @@ function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
         </span>
       </div>
 
-      {/* 左右 layout：原圖 sticky / 右 read */}
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'minmax(360px, 560px) minmax(280px, 1fr)' }}>
-        {/* 左：原圖 + SVG bbox（用 % 座標、避免 viewBox aspect 跑版）*/}
-        <div className="bg-white rounded-xl border border-slate-200 p-2 sticky top-0 self-start">
+      {/* 左右 layout：兩個獨立 scroll container */}
+      <div
+        className="grid gap-3 flex-1 min-h-0"
+        style={{ gridTemplateColumns: 'minmax(360px, 560px) minmax(280px, 1fr)' }}
+      >
+        {/* 左：原圖 + SVG bbox（獨立 scroll）*/}
+        <div className="bg-white rounded-xl border border-slate-200 p-2 overflow-y-auto min-h-0">
           {detail.imageUrl ? (
             <div className="relative">
               <img
@@ -357,8 +360,8 @@ function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
           )}
         </div>
 
-        {/* 右：read 列表 */}
-        <div className="space-y-2">
+        {/* 右：read 列表（獨立 scroll）*/}
+        <div className="space-y-2 overflow-y-auto pr-1 min-h-0">
           {detail.questions.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 p-6 text-sm text-slate-400 text-center">
               無題目資料
