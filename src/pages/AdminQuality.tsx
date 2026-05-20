@@ -1,41 +1,5 @@
-import { useEffect, useState, useCallback } from 'react'
-import { RefreshCw, Copy, Check, AlertTriangle, ChevronRight } from 'lucide-react'
-
-type OverviewData = {
-  days_window: number
-  total_submissions: number
-  total_questions: number
-  review_rate: number
-  avg_needs_review: number
-  avg_ocr_match_rate: number | null
-  stuck_correction_count: number
-  teacher_unrecognizable_count: number
-  teacher_unrecognizable_rate: number | null
-  submissions_with_final_answers: number
-  dual_unreadable_count: number
-  dual_unreadable_rate: number
-  daily: Array<{
-    day: string
-    count: number
-    review_rate: number
-    avg_review: number
-    total_questions: number
-    teacher_unrecognizable_count: number
-    teacher_unrecognizable_rate: number | null
-    dual_unreadable_count: number
-    dual_unreadable_rate: number
-  }>
-  by_assignment: Array<{
-    assignment_id: string
-    title: string
-    mode: string | null
-    submissions: number
-    pages: number
-    inline: number
-    matched: number
-    rate: number | null
-  }>
-}
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { RefreshCw, AlertTriangle, Search, CheckCircle2, XCircle, AlertCircle, FileQuestion } from 'lucide-react'
 
 type AssignmentInfo = {
   id: string
@@ -45,66 +9,44 @@ type AssignmentInfo = {
   log_count: number
 }
 
-type MatcherStat = { matched: number; parsed: number; rate: number | null }
-type BboxData = {
+type SubmissionListItem = {
+  submissionId: string
+  studentId: string | null
+  studentName: string
+  seatNumber: number | null
+  source: string | null
+  status: string | null
+  totalQuestions: number
+  needsReviewCount: number
+  gradedAt: number | null
+}
+
+type QuestionDetail = {
+  qid: string
+  type: string | null
+  page: number
+  bbox: { x: number; y: number; w: number; h: number } | null
+  ai1: { answer: string; status: string | null } | null
+  ai2: { answer: string; status: string | null } | null
+  arbiterConsistent: boolean | null
+  finalAnswer: string | null
+  finalAnswerSource: string | null
+  isMistake: boolean
+}
+
+type SubmissionDetail = {
+  submissionId: string
   assignmentId: string
-  total_submissions: number
-  matcher_stats: Record<string, MatcherStat>
-  qid_stats: Array<{ qid: string; n: number; median_x: number; median_y: number; median_w: number }>
-  outliers: Array<{
-    submissionId: string
-    qid: string
-    dev_x: number
-    dev_y: number
-    your_bbox: { x: number; y: number; w: number; h: number }
-    class_median: { x: number; y: number; w: number }
-  }>
-  submission_outlier_ranking: Array<{ submissionId: string; outlier_count: number }>
-  ocr_coverage_zero: Array<{ submissionId: string; qid: string }>
+  assignmentTitle: string
+  totalPages: number
+  studentName: string
+  seatNumber: number | null
+  source: string | null
+  status: string | null
+  imageUrl: string | null
+  needsReviewCount: number
+  questions: QuestionDetail[]
 }
-
-type ByTypeRow = {
-  type: string
-  total_questions: number
-  teacher_unrecognizable_count: number
-  teacher_unrecognizable_rate: number | null
-  dual_unreadable_count: number
-  dual_unreadable_rate: number
-  entered_review_count: number
-  entered_review_rate: number
-}
-type ByTypeData = {
-  days_window: number
-  total_submissions: number
-  total_questions: number
-  submissions_with_final_answers: number
-  teacher_unrecognizable_count: number
-  teacher_unrecognizable_rate: number | null
-  dual_unreadable_count: number
-  dual_unreadable_rate: number
-  entered_review_count: number
-  entered_review_rate: number
-  by_type: ByTypeRow[]
-}
-
-type ReadExample = { submissionId: string; qid: string; a1: string; a2: string; ai3Consistent?: boolean | null }
-type ReadData = {
-  assignmentId: string
-  total_submissions: number
-  total_questions: number
-  // raw AI1/AI2 字串差異拆解（診斷、不等於送 review）
-  diff_breakdown: { identical: number; format_only: number; one_blank: number; substantive: number }
-  // AI3 真實送 review 數
-  ai3_inconsistent_total: number
-  ai3_inconsistent_by_diff: { identical: number; format_only: number; one_blank: number; substantive: number }
-  format_examples: ReadExample[]
-  blank_examples: ReadExample[]
-  substantive_examples: ReadExample[]
-  ai3_missed_format_examples: Array<{ submissionId: string; qid: string; a1: string; a2: string }>
-  submission_review_ranking: Array<{ submissionId: string; needs_review_count: number }>
-}
-
-type Tab = 'overview' | 'by_type' | 'bbox' | 'read' | 'export'
 
 const API_BASE = '/api/admin/quality'
 
@@ -117,159 +59,110 @@ async function fetchJson<T>(url: string): Promise<T> {
   return res.json()
 }
 
-async function fetchText(url: string): Promise<string> {
-  const res = await fetch(url, { credentials: 'include' })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  return res.text()
+// 依 needs_review / total 比例分等級
+function reviewTier(needs: number, total: number): 'full' | 'high' | 'mid' | 'low' {
+  if (total === 0) return 'full'
+  const rate = needs / total
+  if (rate === 0) return 'full'
+  if (rate < 0.1) return 'high'
+  if (rate < 0.25) return 'mid'
+  return 'low'
 }
 
-function CopyButton({ text, label = '複製' }: { text: string; label?: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <button
-      type="button"
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text)
-          setCopied(true)
-          setTimeout(() => setCopied(false), 2000)
-        } catch {
-          alert('複製失敗')
-        }
-      }}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition-colors"
-    >
-      {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-      {copied ? '已複製' : label}
-    </button>
-  )
+const TIER_BG: Record<'full' | 'high' | 'mid' | 'low', string> = {
+  full: 'bg-emerald-500',
+  high: 'bg-lime-500',
+  mid: 'bg-amber-500',
+  low: 'bg-rose-500'
 }
 
 export default function AdminQuality() {
-  const [tab, setTab] = useState<Tab>('overview')
-  const [days, setDays] = useState(7)
-  const [overview, setOverview] = useState<OverviewData | null>(null)
-  const [byType, setByType] = useState<ByTypeData | null>(null)
   const [assignments, setAssignments] = useState<AssignmentInfo[]>([])
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null)
-  const [bbox, setBbox] = useState<BboxData | null>(null)
-  const [read, setRead] = useState<ReadData | null>(null)
-  const [exportText, setExportText] = useState<string>('')
+  const [submissions, setSubmissions] = useState<SubmissionListItem[]>([])
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<SubmissionDetail | null>(null)
   const [loading, setLoading] = useState(false)
+  const [detailLoading, setDetailLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [filter, setFilter] = useState('')
 
-  const loadOverview = useCallback(async () => {
+  // 1) 載入 assignment 列表
+  useEffect(() => {
     setLoading(true); setErr(null)
-    try {
-      const [o, a] = await Promise.all([
-        fetchJson<OverviewData>(`${API_BASE}?mode=overview&days=${days}`),
-        fetchJson<{ assignments: AssignmentInfo[] }>(`${API_BASE}?mode=assignments&days=${days}`)
-      ])
-      setOverview(o)
-      setAssignments(a.assignments || [])
-      if (!selectedAssignmentId && a.assignments?.[0]) setSelectedAssignmentId(a.assignments[0].id)
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : '讀取失敗')
-    } finally { setLoading(false) }
-  }, [days, selectedAssignmentId])
+    fetchJson<{ assignments: AssignmentInfo[] }>(`${API_BASE}?mode=assignments&days=30`)
+      .then((r) => {
+        setAssignments(r.assignments || [])
+        if (r.assignments?.[0]) setSelectedAssignmentId(r.assignments[0].id)
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : '讀取作業列表失敗'))
+      .finally(() => setLoading(false))
+  }, [])
 
-  const loadByType = useCallback(async () => {
-    setLoading(true); setErr(null)
-    try {
-      setByType(await fetchJson<ByTypeData>(`${API_BASE}?mode=by_type&days=${days}`))
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : '讀取失敗')
-    } finally { setLoading(false) }
-  }, [days])
-
-  useEffect(() => { void loadOverview() }, [loadOverview])
-
-  // by_type 改 days 時要 refetch
-  useEffect(() => { setByType(null) }, [days])
-
-  const loadAssignmentData = useCallback(async (mode: 'bbox' | 'read' | 'export') => {
+  // 2) 切 assignment → 載學生列表
+  const loadSubmissions = useCallback(async () => {
     if (!selectedAssignmentId) return
     setLoading(true); setErr(null)
+    setSubmissions([])
+    setSelectedSubmissionId(null)
+    setDetail(null)
     try {
-      if (mode === 'bbox') {
-        setBbox(await fetchJson<BboxData>(`${API_BASE}?mode=bbox&assignmentId=${selectedAssignmentId}`))
-      } else if (mode === 'read') {
-        setRead(await fetchJson<ReadData>(`${API_BASE}?mode=read&assignmentId=${selectedAssignmentId}`))
-      } else if (mode === 'export') {
-        setExportText(await fetchText(`${API_BASE}?mode=export&assignmentId=${selectedAssignmentId}`))
-      }
+      const r = await fetchJson<{ submissions: SubmissionListItem[] }>(
+        `${API_BASE}?mode=submissions&assignmentId=${selectedAssignmentId}`
+      )
+      setSubmissions(r.submissions || [])
+      if (r.submissions?.[0]) setSelectedSubmissionId(r.submissions[0].submissionId)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : '讀取失敗')
-    } finally { setLoading(false) }
+      setErr(e instanceof Error ? e.message : '讀取學生列表失敗')
+    } finally {
+      setLoading(false)
+    }
   }, [selectedAssignmentId])
 
-  useEffect(() => {
-    if (tab === 'by_type' && !byType) void loadByType()
-    if (!selectedAssignmentId) return
-    if (tab === 'bbox' && !bbox) void loadAssignmentData('bbox')
-    if (tab === 'read' && !read) void loadAssignmentData('read')
-    if (tab === 'export' && !exportText) void loadAssignmentData('export')
-  }, [tab, selectedAssignmentId, bbox, read, exportText, byType, loadAssignmentData, loadByType])
+  useEffect(() => { void loadSubmissions() }, [loadSubmissions])
 
-  // 切 assignment 時清快取
+  // 3) 切學生 → 載 detail
   useEffect(() => {
-    setBbox(null); setRead(null); setExportText('')
-  }, [selectedAssignmentId])
+    if (!selectedSubmissionId) { setDetail(null); return }
+    setDetailLoading(true); setErr(null)
+    fetchJson<SubmissionDetail>(`${API_BASE}?mode=submission_detail&submissionId=${selectedSubmissionId}`)
+      .then(setDetail)
+      .catch((e) => setErr(e instanceof Error ? e.message : '讀取卷子細節失敗'))
+      .finally(() => setDetailLoading(false))
+  }, [selectedSubmissionId])
+
+  const filteredSubmissions = useMemo(() => {
+    if (!filter.trim()) return submissions
+    const f = filter.trim().toLowerCase()
+    return submissions.filter((s) =>
+      s.studentName.toLowerCase().includes(f) ||
+      String(s.seatNumber ?? '').includes(f) ||
+      s.submissionId.toLowerCase().includes(f)
+    )
+  }, [submissions, filter])
 
   return (
-    <div className="space-y-4">
-      {/* 工具列 */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-wrap items-center gap-3">
-        <div className="flex gap-2">
-          {(['overview', 'by_type', 'bbox', 'read', 'export'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                tab === t ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              {t === 'overview' ? '系統健康'
-                : t === 'by_type' ? '題型品質'
-                : t === 'bbox' ? 'BBox 品質（debug）'
-                : t === 'read' ? 'Read AI 品質'
-                : '匯出 markdown'}
-            </button>
+    <div className="flex flex-col h-[calc(100vh-120px)] gap-3">
+      {/* 頂部工具列 */}
+      <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-wrap items-center gap-3">
+        <select
+          value={selectedAssignmentId || ''}
+          onChange={(e) => setSelectedAssignmentId(e.target.value || null)}
+          className="px-3 py-1.5 rounded-lg bg-slate-100 text-sm border-0 min-w-[300px]"
+          disabled={loading && submissions.length === 0}
+        >
+          <option value="">選擇作業…</option>
+          {assignments.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.title} ({a.log_count})
+            </option>
           ))}
-        </div>
-        {(tab === 'overview' || tab === 'by_type') && (
-          <select
-            value={days}
-            onChange={(e) => setDays(Number(e.target.value))}
-            className="ml-2 px-3 py-1.5 rounded-lg bg-slate-100 text-sm border-0 cursor-pointer"
-          >
-            <option value={1}>過去 1 天</option>
-            <option value={7}>過去 7 天</option>
-            <option value={30}>過去 30 天</option>
-          </select>
-        )}
-        {tab !== 'overview' && tab !== 'by_type' && (
-          <select
-            value={selectedAssignmentId || ''}
-            onChange={(e) => setSelectedAssignmentId(e.target.value)}
-            className="ml-2 px-3 py-1.5 rounded-lg bg-slate-100 text-sm border-0 min-w-[280px]"
-          >
-            <option value="">選擇作業…</option>
-            {assignments.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.title} ({a.log_count})
-              </option>
-            ))}
-          </select>
-        )}
+        </select>
+        <span className="text-xs text-slate-500">
+          {submissions.length > 0 && `${submissions.length} 份卷子`}
+        </span>
         <button
-          onClick={() => {
-            if (tab === 'overview') void loadOverview()
-            else if (tab === 'by_type') void loadByType()
-            else if (tab === 'bbox') void loadAssignmentData('bbox')
-            else if (tab === 'read') void loadAssignmentData('read')
-            else void loadAssignmentData('export')
-          }}
+          onClick={() => void loadSubmissions()}
           disabled={loading}
           className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium disabled:opacity-50"
         >
@@ -279,375 +172,81 @@ export default function AdminQuality() {
       </div>
 
       {err && (
-        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-sm text-rose-700 flex items-start gap-2">
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-sm text-rose-700 flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 mt-0.5" />
           {err}
         </div>
       )}
 
-      {/* 內容區 */}
-      {tab === 'overview' && overview && <OverviewView data={overview} />}
-      {tab === 'by_type' && byType && <ByTypeView data={byType} />}
-      {tab === 'bbox' && bbox && <BboxView data={bbox} />}
-      {tab === 'read' && read && <ReadView data={read} />}
-      {tab === 'export' && (
-        <ExportView text={exportText} loading={loading} assignmentId={selectedAssignmentId} />
-      )}
-    </div>
-  )
-}
-
-// ─── Views ──
-
-function OverviewView({ data }: { data: OverviewData }) {
-  const teacherRate = data.teacher_unrecognizable_rate
-  return (
-    <div className="space-y-4">
-      {/* 第一排：ground truth 指標、ML 系統真實品質 */}
-      <div>
-        <p className="text-xs text-slate-500 mb-1.5 px-1">品質指標（題層級）</p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Metric
-            label="① 老師標「無法辨識」"
-            value={teacherRate != null ? (teacherRate * 100).toFixed(2) + '%' : '-'}
-            sub={`${data.teacher_unrecognizable_count} / ${data.total_questions} 題（已複核 ${data.submissions_with_final_answers} 份）`}
-            warn={teacherRate != null && teacherRate > 0.03}
-          />
-          <Metric
-            label="①b AI 雙人都讀不出"
-            value={(data.dual_unreadable_rate * 100).toFixed(2) + '%'}
-            sub={`${data.dual_unreadable_count} / ${data.total_questions} 題（bbox 沒框到字的先導指標）`}
-            warn={data.dual_unreadable_rate > 0.03}
-          />
-          <Metric
-            label="② 進 review 比率"
-            value={(data.review_rate * 100).toFixed(1) + '%'}
-            sub={`平均 ${data.avg_needs_review} 題 / 份`}
-            warn={data.review_rate > 0.2}
-          />
-          <Metric
-            label="卡住的訂正稿"
-            value={data.stuck_correction_count.toString()}
-            sub="status=pending_grading"
-            warn={data.stuck_correction_count > 0}
-          />
-        </div>
-      </div>
-
-      {/* 第二排：系統內部 derivative、降為次要 */}
-      <div>
-        <p className="text-xs text-slate-400 mb-1.5 px-1">系統內部診斷（derivative、bbox 對就會中、不是 ground truth）</p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Metric
-            label="批改總數"
-            value={data.total_submissions.toString()}
-            sub={`過去 ${data.days_window} 天 / ${data.total_questions} 題`}
-          />
-          <Metric
-            label="OCR-assist 命中"
-            value={data.avg_ocr_match_rate != null ? (data.avg_ocr_match_rate * 100).toFixed(0) + '%' : '-'}
-            sub="derivative、僅供 debug"
-          />
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="font-semibold text-slate-900 mb-3">每日批改</h3>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-slate-500 border-b">
-              <th className="py-2">日期</th>
-              <th>批改數</th>
-              <th>題數</th>
-              <th>① 老師無法辨識</th>
-              <th>①b 雙人 unreadable</th>
-              <th>② 進 review 比率</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.daily.map((d) => {
-              const tRate = d.teacher_unrecognizable_rate
-              return (
-                <tr key={d.day} className="border-b last:border-0">
-                  <td className="py-2 font-mono text-xs">{d.day}</td>
-                  <td>{d.count}</td>
-                  <td className="text-slate-500">{d.total_questions}</td>
-                  <td className={tRate != null && tRate > 0.03 ? 'text-rose-600' : ''}>
-                    {tRate != null ? `${d.teacher_unrecognizable_count} (${(tRate * 100).toFixed(1)}%)` : '-'}
-                  </td>
-                  <td className={d.dual_unreadable_rate > 0.03 ? 'text-rose-600' : ''}>
-                    {`${d.dual_unreadable_count} (${(d.dual_unreadable_rate * 100).toFixed(1)}%)`}
-                  </td>
-                  <td className={d.review_rate > 0.2 ? 'text-rose-600' : ''}>{(d.review_rate * 100).toFixed(1)}%</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <details className="bg-slate-50 rounded-xl border border-slate-200 p-4 group">
-        <summary className="cursor-pointer text-sm font-medium text-slate-600 hover:text-slate-900 select-none">
-          按作業拆解 OCR-assist 命中率（derivative、bbox 對就會中、僅供 debug）
-        </summary>
-        <div className="mt-3">
-        {data.by_assignment.length === 0 ? (
-          <p className="text-sm text-slate-500">無資料</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-slate-500 border-b">
-                <th className="py-2">作業</th>
-                <th>模式</th>
-                <th>份數</th>
-                <th>頁數</th>
-                <th>inline / matched</th>
-                <th>命中率</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.by_assignment.map((a) => {
-                const lowRate = a.rate != null && a.rate < 0.5
-                const noData = a.rate == null
+      <div className="flex-1 flex gap-3 min-h-0">
+        {/* 左側 sidebar：學生列表 */}
+        <div className="w-64 shrink-0 bg-white rounded-xl border border-slate-200 flex flex-col min-h-0">
+          <div className="p-3 border-b border-slate-200">
+            <div className="relative">
+              <Search className="absolute left-2 top-2 w-3.5 h-3.5 text-slate-400" />
+              <input
+                type="text"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="搜尋學生 / 座號"
+                className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-slate-100 text-sm border-0"
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {filteredSubmissions.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-8">
+                {loading ? '載入中…' : submissions.length === 0 ? '無資料' : '無符合學生'}
+              </p>
+            ) : (
+              filteredSubmissions.map((s) => {
+                const tier = reviewTier(s.needsReviewCount, s.totalQuestions)
+                const active = s.submissionId === selectedSubmissionId
                 return (
-                  <tr key={a.assignment_id} className="border-b last:border-0">
-                    <td className="py-2 max-w-[280px] truncate" title={a.title}>{a.title}</td>
-                    <td className="text-xs">
-                      <span className={`px-1.5 py-0.5 rounded font-mono ${
-                        a.mode === 'answer_only' ? 'bg-violet-100 text-violet-700' :
-                        a.mode === 'with_questions' ? 'bg-sky-100 text-sky-700' :
-                        'bg-slate-100 text-slate-500'
-                      }`}>{a.mode || 'legacy'}</span>
-                    </td>
-                    <td>{a.submissions}</td>
-                    <td>{a.pages}</td>
-                    <td className="font-mono text-xs">{a.inline} / {a.matched}</td>
-                    <td className={`font-semibold ${lowRate ? 'text-rose-600' : noData ? 'text-slate-400' : 'text-emerald-700'}`}>
-                      {a.rate != null ? (a.rate * 100).toFixed(0) + '%' : '-'}
-                    </td>
-                  </tr>
+                  <button
+                    key={s.submissionId}
+                    onClick={() => setSelectedSubmissionId(s.submissionId)}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 transition-colors ${
+                      active ? 'bg-slate-900 text-white' : 'hover:bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${TIER_BG[tier]}`} />
+                    <span className="text-xs font-mono w-6 shrink-0 opacity-60">
+                      {s.seatNumber != null ? String(s.seatNumber).padStart(2, '0') : '--'}
+                    </span>
+                    <span className="text-sm flex-1 truncate">{s.studentName}</span>
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                        active
+                          ? 'bg-white/20 text-white'
+                          : tier === 'low' ? 'bg-rose-100 text-rose-700'
+                          : tier === 'mid' ? 'bg-amber-100 text-amber-700'
+                          : tier === 'high' ? 'bg-lime-100 text-lime-700'
+                          : 'bg-emerald-100 text-emerald-700'
+                      }`}
+                      title={`${s.needsReviewCount} / ${s.totalQuestions} 題需 review`}
+                    >
+                      {s.needsReviewCount}/{s.totalQuestions}
+                    </span>
+                  </button>
                 )
-              })}
-            </tbody>
-          </table>
-        )}
-        </div>
-      </details>
-    </div>
-  )
-}
-
-function Metric({ label, value, sub, warn }: { label: string; value: string; sub: string; warn?: boolean }) {
-  return (
-    <div className={`bg-white rounded-xl border p-4 ${warn ? 'border-rose-300 bg-rose-50/30' : 'border-slate-200'}`}>
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className={`text-2xl font-bold mt-1 ${warn ? 'text-rose-700' : 'text-slate-900'}`}>{value}</p>
-      <p className="text-xs text-slate-400 mt-1">{sub}</p>
-    </div>
-  )
-}
-
-// 中文題型名（顯示用、未知 type 就直接出原 key）
-const TYPE_LABEL: Record<string, string> = {
-  fill_blank: '填空',
-  single_choice: '單選',
-  multiple_choice: '多選',
-  calculation: '計算',
-  word_problem: '應用 / 文字題',
-  matching: '配對',
-  table_cell: '表格 cell',
-  map_fill: '地圖填空',
-  short_answer: '簡答',
-  essay: '作文 / 長題',
-  judgement: '是非',
-  ordering: '排序',
-  unknown: '(未標 type)'
-}
-
-function ByTypeView({ data }: { data: ByTypeData }) {
-  // 取每個指標的最壞 row（用來標紅）
-  const worstTeacher = Math.max(...data.by_type.map((r) => r.teacher_unrecognizable_rate ?? 0), 0)
-  const worstDual = Math.max(...data.by_type.map((r) => r.dual_unreadable_rate), 0)
-  const worstReview = Math.max(...data.by_type.map((r) => r.entered_review_rate), 0)
-
-  return (
-    <div className="space-y-4">
-      {/* 系統總計（cross-check 數字、跟 Overview 一致）*/}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Metric
-          label="總題數"
-          value={data.total_questions.toString()}
-          sub={`${data.total_submissions} 份 / 過去 ${data.days_window} 天`}
-        />
-        <Metric
-          label="① 老師無法辨識"
-          value={data.teacher_unrecognizable_rate != null ? (data.teacher_unrecognizable_rate * 100).toFixed(2) + '%' : '-'}
-          sub={`${data.teacher_unrecognizable_count} 題（已複核 ${data.submissions_with_final_answers} 份）`}
-          warn={data.teacher_unrecognizable_rate != null && data.teacher_unrecognizable_rate > 0.03}
-        />
-        <Metric
-          label="①b 雙人 unreadable"
-          value={(data.dual_unreadable_rate * 100).toFixed(2) + '%'}
-          sub={`${data.dual_unreadable_count} 題`}
-          warn={data.dual_unreadable_rate > 0.03}
-        />
-        <Metric
-          label="② 進 review 率"
-          value={(data.entered_review_rate * 100).toFixed(2) + '%'}
-          sub={`${data.entered_review_count} 題（arbiter inconsistent）`}
-          warn={data.entered_review_rate > 0.1}
-        />
-      </div>
-
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="font-semibold text-slate-900 mb-1">按題型拆解（找哪個題型最弱 / 最不穩）</h3>
-        <p className="text-xs text-slate-500 mb-3">
-          三個 ground-truth 指標。① 是老師最終回饋（bbox 真實品質）、①b 是 AI 雙人投降（bbox 沒框到字的先導指標）、② 是 read 不一致進 review 比例。
-          紅色標示為該欄最差的題型。
-        </p>
-        {data.by_type.length === 0 ? (
-          <p className="text-sm text-slate-500">無資料</p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-slate-500 border-b">
-                <th className="py-2">題型</th>
-                <th>總題數</th>
-                <th>① 老師無法辨識</th>
-                <th>①b 雙人 unreadable</th>
-                <th>② 進 review</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.by_type.map((r) => {
-                const teacherRate = r.teacher_unrecognizable_rate
-                const isWorstTeacher = teacherRate != null && teacherRate > 0 && teacherRate === worstTeacher
-                const isWorstDual = r.dual_unreadable_rate > 0 && r.dual_unreadable_rate === worstDual
-                const isWorstReview = r.entered_review_rate > 0 && r.entered_review_rate === worstReview
-                return (
-                  <tr key={r.type} className="border-b last:border-0">
-                    <td className="py-2 font-mono text-xs">
-                      {TYPE_LABEL[r.type] || r.type}
-                      <span className="text-slate-400 ml-1.5">{r.type}</span>
-                    </td>
-                    <td className="text-slate-500">{r.total_questions}</td>
-                    <td className={isWorstTeacher ? 'text-rose-600 font-semibold' : ''}>
-                      {teacherRate != null
-                        ? `${r.teacher_unrecognizable_count} (${(teacherRate * 100).toFixed(2)}%)`
-                        : '-'}
-                    </td>
-                    <td className={isWorstDual ? 'text-rose-600 font-semibold' : ''}>
-                      {`${r.dual_unreadable_count} (${(r.dual_unreadable_rate * 100).toFixed(2)}%)`}
-                    </td>
-                    <td className={isWorstReview ? 'text-rose-600 font-semibold' : ''}>
-                      {`${r.entered_review_count} (${(r.entered_review_rate * 100).toFixed(2)}%)`}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function BboxView({ data }: { data: BboxData }) {
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <Metric label="樣本份數" value={data.total_submissions.toString()} sub="此作業批改份數" />
-        <Metric label="outlier 數" value={data.outliers.length.toString()} sub="偏離班級中位數 >6%" warn={data.outliers.length > 5} />
-        <Metric label="OCR coverage=0" value={data.ocr_coverage_zero.length.toString()} sub="classify 框沒包到任何 OCR" warn={data.ocr_coverage_zero.length > 0} />
-      </div>
-
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="font-semibold text-slate-900 mb-3">Matcher 命中率</h3>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-slate-500 border-b">
-              <th className="py-2">matcher</th>
-              <th>matched / parsed</th>
-              <th>rate</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(data.matcher_stats).map(([k, v]) => (
-              <tr key={k} className="border-b last:border-0">
-                <td className="py-2 font-mono text-xs">{k}</td>
-                <td>{v.matched} / {v.parsed}</td>
-                <td className={v.rate != null && v.rate < 0.5 ? 'text-rose-600 font-semibold' : ''}>
-                  {v.rate != null ? (v.rate * 100).toFixed(0) + '%' : '-'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="font-semibold text-slate-900 mb-3">最偏離的 outlier（top 20）</h3>
-        {data.outliers.length === 0 ? (
-          <p className="text-sm text-slate-500">沒有 outlier、班級 bbox 一致性良好。</p>
-        ) : (
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-left text-slate-500 border-b">
-                <th className="py-2">submission</th>
-                <th>qid</th>
-                <th>dev_x</th>
-                <th>dev_y</th>
-                <th>你的 (x, y)</th>
-                <th>中位 (x, y)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.outliers.slice(0, 20).map((o, i) => (
-                <tr key={i} className="border-b last:border-0">
-                  <td className="py-1.5 font-mono">…{o.submissionId.slice(-8)}</td>
-                  <td className="font-mono">{o.qid}</td>
-                  <td className="text-rose-600">{o.dev_x}</td>
-                  <td className="text-rose-600">{o.dev_y}</td>
-                  <td className="font-mono">({o.your_bbox.x}, {o.your_bbox.y})</td>
-                  <td className="font-mono text-slate-500">({o.class_median.x}, {o.class_median.y})</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <h3 className="font-semibold text-slate-900 mb-3">框錯題數 top 10（同一份卷子）</h3>
-          {data.submission_outlier_ranking.length === 0 ? (
-            <p className="text-sm text-slate-500">無</p>
-          ) : (
-            <ul className="space-y-1.5 text-xs">
-              {data.submission_outlier_ranking.map((r) => (
-                <li key={r.submissionId} className="flex justify-between font-mono">
-                  <span>…{r.submissionId.slice(-12)}</span>
-                  <span className="text-rose-600 font-semibold">{r.outlier_count} 題</span>
-                </li>
-              ))}
-            </ul>
-          )}
+              })
+            )}
+          </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <h3 className="font-semibold text-slate-900 mb-3">OCR coverage = 0</h3>
-          {data.ocr_coverage_zero.length === 0 ? (
-            <p className="text-sm text-slate-500">沒有「框到空白區」case ✓</p>
+        {/* 主畫面：viz */}
+        <div className="flex-1 min-w-0 overflow-hidden">
+          {detailLoading ? (
+            <div className="h-full flex items-center justify-center text-sm text-slate-400">
+              載入中…
+            </div>
+          ) : detail ? (
+            <SubmissionViz detail={detail} />
           ) : (
-            <ul className="space-y-1.5 text-xs">
-              {data.ocr_coverage_zero.slice(0, 20).map((c, i) => (
-                <li key={i} className="flex justify-between font-mono">
-                  <span>…{c.submissionId.slice(-12)}</span>
-                  <span className="text-slate-500">{c.qid}</span>
-                </li>
-              ))}
-            </ul>
+            <div className="h-full flex items-center justify-center text-sm text-slate-400">
+              請從左側選擇學生
+            </div>
           )}
         </div>
       </div>
@@ -655,149 +254,248 @@ function BboxView({ data }: { data: BboxData }) {
   )
 }
 
-function ReadView({ data }: { data: ReadData }) {
-  const total = data.total_questions || 1
-  const ai3MissedFormat = data.ai3_inconsistent_by_diff?.format_only ?? 0
+// ─── 視覺化：左原圖+bbox / 右 crop+read ──
+
+function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
+  const imgRef = useRef<HTMLImageElement | null>(null)
+  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
+  const [hoveredQid, setHoveredQid] = useState<string | null>(null)
+
+  // 圖載入後拿 naturalSize
+  const onImgLoad = useCallback(() => {
+    const img = imgRef.current
+    if (img) setImgSize({ w: img.naturalWidth, h: img.naturalHeight })
+  }, [])
+
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <Metric label="總題數" value={data.total_questions.toString()} sub={`${data.total_submissions} 份`} />
-        <Metric
-          label="AI3 實際送 review"
-          value={data.ai3_inconsistent_total.toString()}
-          sub="真正排隊給老師複核的題數"
-          warn={data.ai3_inconsistent_total > total * 0.1}
-        />
-        <Metric
-          label="AI1/AI2 raw 差異率"
-          value={`${(((data.diff_breakdown.format_only + data.diff_breakdown.one_blank + data.diff_breakdown.substantive) / total) * 100).toFixed(1)}%`}
-          sub="診斷指標、AI3 會自動 normalize 大半"
-        />
-        <Metric
-          label="AI3 漏 normalize 的 format diff"
-          value={ai3MissedFormat.toString()}
-          sub={ai3MissedFormat > 0 ? '這才是「應該砍但沒砍」的 review' : '無、AI3 處理乾淨'}
-          warn={ai3MissedFormat > 0}
-        />
+    <div className="h-full overflow-y-auto">
+      {/* 卷子標頭 */}
+      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <h2 className="font-semibold text-slate-900">
+          {detail.seatNumber != null && (
+            <span className="font-mono text-slate-400 mr-1.5">
+              {String(detail.seatNumber).padStart(2, '0')}
+            </span>
+          )}
+          {detail.studentName}
+        </h2>
+        <span className="text-xs text-slate-500">{detail.assignmentTitle}</span>
+        <span className="text-xs font-mono text-slate-400">…{detail.submissionId.slice(-12)}</span>
+        <span className="ml-auto text-xs">
+          <span className="text-slate-500">需 review:</span>{' '}
+          <span className={detail.needsReviewCount > 0 ? 'font-semibold text-rose-600' : 'text-emerald-600'}>
+            {detail.needsReviewCount} / {detail.questions.length}
+          </span>
+        </span>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="font-semibold text-slate-900 mb-1">AI1/AI2 raw 差異拆解 × AI3 決策</h3>
-        <p className="text-xs text-slate-500 mb-3">
-          左欄是 raw 字串差異統計（純診斷）、右欄是 AI3 真實送 review 的數量。
-          AI3 設計上會把 format_only 跟計算步驟差異 normalize 掉、所以 raw 差異多 ≠ review 多。
-        </p>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-slate-500 border-b">
-              <th className="py-2">類型</th>
-              <th>raw 數量</th>
-              <th>占總題比例</th>
-              <th>AI3 送 review</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(['identical', 'format_only', 'one_blank', 'substantive'] as const).map((k) => (
-              <tr key={k} className="border-b last:border-0">
-                <td className="py-2 font-mono text-xs">{k}</td>
-                <td>{data.diff_breakdown[k]}</td>
-                <td>{((data.diff_breakdown[k] / total) * 100).toFixed(1)}%</td>
-                <td className={data.ai3_inconsistent_by_diff[k] > 0 ? 'text-rose-600 font-semibold' : 'text-slate-500'}>
-                  {data.ai3_inconsistent_by_diff[k]}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="grid md:grid-cols-3 gap-3">
-        <ExampleBox title={`格式差異 raw (${data.format_examples.length})`} examples={data.format_examples} color="amber" />
-        <ExampleBox title={`一邊未作答 (${data.blank_examples.length})`} examples={data.blank_examples} color="violet" />
-        <ExampleBox title={`內容不一致 (${data.substantive_examples.length})`} examples={data.substantive_examples} color="rose" />
-      </div>
-
-      {data.ai3_missed_format_examples && data.ai3_missed_format_examples.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-          <h3 className="font-semibold text-amber-900 mb-2">⚠️ AI3 漏 normalize 的格式差異</h3>
-          <p className="text-xs text-amber-700 mb-3">
-            這些是 raw 比對為純格式差異、但 AI3 仍判 inconsistent 送 review 的 case。值得 prompt 調整。
-          </p>
-          <ExampleBox
-            title={`漏網之魚 (${data.ai3_missed_format_examples.length})`}
-            examples={data.ai3_missed_format_examples}
-            color="amber"
-          />
+      {/* 左右 layout：原圖 sticky / 右 crop grid */}
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'minmax(420px, 720px) 1fr' }}>
+        {/* 左：原圖 + SVG bbox */}
+        <div className="bg-white rounded-xl border border-slate-200 p-2 sticky top-0 self-start">
+          {detail.imageUrl ? (
+            <div className="relative">
+              <img
+                ref={imgRef}
+                src={detail.imageUrl}
+                onLoad={onImgLoad}
+                alt="submission"
+                className="block w-full h-auto rounded"
+              />
+              {imgSize && (
+                <svg
+                  viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
+                  preserveAspectRatio="none"
+                  className="absolute inset-0 w-full h-full pointer-events-none"
+                >
+                  {detail.questions.filter((q) => q.bbox).map((q) => {
+                    const b = q.bbox!
+                    const x = b.x * imgSize.w
+                    const y = b.y * imgSize.h
+                    const w = b.w * imgSize.w
+                    const h = b.h * imgSize.h
+                    const hot = q.qid === hoveredQid
+                    const color = q.arbiterConsistent === false
+                      ? '#e11d48'  // rose
+                      : q.isMistake
+                      ? '#f59e0b'  // amber
+                      : '#10b981'  // emerald
+                    return (
+                      <g key={q.qid}>
+                        <rect
+                          x={x} y={y} width={w} height={h}
+                          fill={hot ? color + '33' : 'none'}
+                          stroke={color}
+                          strokeWidth={hot ? 4 : 2}
+                        />
+                        <text
+                          x={x + 4}
+                          y={y + 18}
+                          fontSize={14}
+                          fontWeight="700"
+                          fill={color}
+                          stroke="white"
+                          strokeWidth={3}
+                          paintOrder="stroke"
+                        >
+                          {q.qid}
+                        </text>
+                      </g>
+                    )
+                  })}
+                </svg>
+              )}
+            </div>
+          ) : (
+            <div className="aspect-[3/4] flex items-center justify-center text-sm text-slate-400">
+              無原圖
+            </div>
+          )}
         </div>
-      )}
 
-      <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <h3 className="font-semibold text-slate-900 mb-3">needsReview 最多的 top 10</h3>
-        {data.submission_review_ranking.length === 0 ? (
-          <p className="text-sm text-slate-500">沒有需 review 的份</p>
-        ) : (
-          <ul className="space-y-1.5 text-xs">
-            {data.submission_review_ranking.map((r) => (
-              <li key={r.submissionId} className="flex justify-between font-mono">
-                <span>…{r.submissionId.slice(-12)}</span>
-                <span className="text-rose-600 font-semibold">{r.needs_review_count} 題</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {/* 右：crop grid */}
+        <div className="space-y-2">
+          {detail.questions.length === 0 ? (
+            <div className="bg-white rounded-xl border border-slate-200 p-6 text-sm text-slate-400 text-center">
+              無題目資料
+            </div>
+          ) : (
+            detail.questions.map((q) => (
+              <QuestionCard
+                key={q.qid}
+                question={q}
+                imageUrl={detail.imageUrl}
+                imgSize={imgSize}
+                onHover={setHoveredQid}
+                hovered={hoveredQid === q.qid}
+              />
+            ))
+          )}
+        </div>
       </div>
     </div>
   )
 }
 
-function ExampleBox({ title, examples, color }: { title: string; examples: ReadData['format_examples']; color: 'amber' | 'violet' | 'rose' }) {
-  const cls = color === 'amber' ? 'border-amber-200 bg-amber-50/30'
-            : color === 'violet' ? 'border-violet-200 bg-violet-50/30'
-            : 'border-rose-200 bg-rose-50/30'
-  return (
-    <div className={`rounded-xl border p-4 ${cls}`}>
-      <h3 className="font-semibold text-slate-900 mb-2 text-sm">{title}</h3>
-      {examples.length === 0 ? (
-        <p className="text-xs text-slate-500">無</p>
-      ) : (
-        <ul className="space-y-2 text-xs max-h-80 overflow-y-auto">
-          {examples.slice(0, 10).map((e, i) => (
-            <li key={i} className="font-mono">
-              <div className="text-slate-500 text-[10px]">{e.qid} <span className="text-slate-400">…{e.submissionId.slice(-8)}</span></div>
-              <div>AI1: <span className="font-semibold">{e.a1 || '∅'}</span></div>
-              <div>AI2: <span className="font-semibold">{e.a2 || '∅'}</span></div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  )
-}
+function QuestionCard({
+  question,
+  imageUrl,
+  imgSize,
+  onHover,
+  hovered
+}: {
+  question: QuestionDetail
+  imageUrl: string | null
+  imgSize: { w: number; h: number } | null
+  onHover: (qid: string | null) => void
+  hovered: boolean
+}) {
+  const { qid, type, bbox, ai1, ai2, arbiterConsistent, finalAnswer, finalAnswerSource, isMistake } = question
 
-function ExportView({ text, loading, assignmentId }: { text: string; loading: boolean; assignmentId: string | null }) {
-  if (!assignmentId) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500">
-        請先選擇作業
-      </div>
+  // crop：用 CSS background-image + position/size 切原圖
+  // bbox 是 normalized (0~1)。crop 顯示寬定 320px、按 bbox aspect 算高
+  const CROP_W = 320
+  let cropStyle: React.CSSProperties = { width: CROP_W, height: 60, background: '#f1f5f9' }
+  if (imageUrl && imgSize && bbox && bbox.w > 0 && bbox.h > 0) {
+    const fullW = imgSize.w
+    const fullH = imgSize.h
+    const scale = CROP_W / (bbox.w * fullW)
+    const cropH = bbox.h * fullH * scale
+    cropStyle = {
+      width: CROP_W,
+      height: Math.max(36, cropH),
+      backgroundImage: `url(${imageUrl})`,
+      backgroundRepeat: 'no-repeat',
+      backgroundSize: `${fullW * scale}px ${fullH * scale}px`,
+      backgroundPosition: `-${bbox.x * fullW * scale}px -${bbox.y * fullH * scale}px`
+    }
+  }
+
+  const consistencyBadge =
+    arbiterConsistent === false ? (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">
+        <XCircle className="w-3 h-3" /> 送 review
+      </span>
+    ) : arbiterConsistent === true ? (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+        <CheckCircle2 className="w-3 h-3" /> 一致
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+        <FileQuestion className="w-3 h-3" /> 無 arbiter
+      </span>
     )
-  }
-  if (loading && !text) {
-    return <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500">產生中…</div>
-  }
-  if (!text) return null
+
+  const a1 = ai1?.answer ?? ''
+  const a2 = ai2?.answer ?? ''
+  const a1Unreadable = ai1?.status === 'unreadable'
+  const a2Unreadable = ai2?.status === 'unreadable'
+  const sameAnswer = a1 === a2
+
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between bg-white rounded-xl border border-slate-200 p-3">
-        <p className="text-sm text-slate-600">
-          <ChevronRight className="w-4 h-4 inline" />
-          下方文字可直接複製貼給 AI 助理討論
-        </p>
-        <CopyButton text={text} label="複製全部" />
+    <div
+      className={`bg-white rounded-xl border p-2.5 transition-colors ${
+        hovered ? 'border-slate-900 shadow-md' : 'border-slate-200'
+      }`}
+      onMouseEnter={() => onHover(qid)}
+      onMouseLeave={() => onHover(null)}
+    >
+      <div className="flex items-baseline gap-2 mb-1.5">
+        <span className="font-mono text-sm font-semibold">{qid}</span>
+        {type && <span className="text-[10px] font-mono text-slate-400">{type}</span>}
+        <div className="ml-auto flex items-center gap-1.5">
+          {isMistake && (
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+              答錯
+            </span>
+          )}
+          {consistencyBadge}
+        </div>
       </div>
-      <div className="bg-slate-900 rounded-xl p-4 overflow-x-auto">
-        <pre className="text-xs text-slate-100 whitespace-pre-wrap break-words font-mono leading-relaxed">{text}</pre>
+
+      <div className="flex gap-3">
+        {/* crop */}
+        <div className="shrink-0 border border-slate-300 rounded overflow-hidden" style={cropStyle} />
+
+        {/* read 結果 */}
+        <div className="flex-1 min-w-0 text-xs space-y-1 font-mono">
+          <ReadLine label="AI1" answer={a1} unreadable={a1Unreadable} highlight={!sameAnswer} />
+          <ReadLine label="AI2" answer={a2} unreadable={a2Unreadable} highlight={!sameAnswer} />
+          {finalAnswer != null && (
+            <div className="flex gap-2 pt-1 mt-1 border-t border-slate-100">
+              <span className="text-slate-500 shrink-0">最終</span>
+              <span className="font-semibold text-slate-900 break-all">{finalAnswer || '∅'}</span>
+              {finalAnswerSource && (
+                <span className="ml-auto text-[10px] text-slate-400 shrink-0">{finalAnswerSource}</span>
+              )}
+            </div>
+          )}
+        </div>
       </div>
+    </div>
+  )
+}
+
+function ReadLine({
+  label, answer, unreadable, highlight
+}: {
+  label: string
+  answer: string
+  unreadable: boolean
+  highlight: boolean
+}) {
+  return (
+    <div className="flex gap-2">
+      <span className="text-slate-500 shrink-0 w-8">{label}</span>
+      {unreadable ? (
+        <span className="inline-flex items-center gap-1 text-rose-600">
+          <AlertCircle className="w-3 h-3" /> unreadable
+        </span>
+      ) : (
+        <span className={`break-all ${highlight ? 'text-rose-700 font-semibold' : 'text-slate-900'}`}>
+          {answer || <span className="text-slate-300">∅</span>}
+        </span>
+      )}
     </div>
   )
 }
