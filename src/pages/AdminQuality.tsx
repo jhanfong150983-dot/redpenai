@@ -19,6 +19,20 @@ type SubmissionListItem = {
   totalQuestions: number
   needsReviewCount: number
   gradedAt: number | null
+  runCount: number
+  phaseACount: number
+  phaseBCount: number
+}
+
+type RunInfo = {
+  pipelineRunId: string | null
+  phase: 'phase_a' | 'phase_b' | string
+  model: string | null
+  createdAt: string
+  needsReviewCount: number | null
+  totalScore: number | null
+  hasPhaseAData: boolean
+  isSelected: boolean
 }
 
 type QuestionDetail = {
@@ -46,6 +60,8 @@ type SubmissionDetail = {
   status: string | null
   imageUrl: string | null
   needsReviewCount: number
+  selectedPipelineRunId: string | null
+  runs: RunInfo[]
   questions: QuestionDetail[]
 }
 
@@ -130,15 +146,19 @@ export default function AdminQuality() {
 
   useEffect(() => { void loadSubmissions() }, [loadSubmissions])
 
-  // 3) 切學生 → 載 detail
+  // 3) 切學生 → 載 detail（pinnedRunId 不為 null 時用該特定 run、否則用最新 Phase A）
+  const [pinnedRunId, setPinnedRunId] = useState<string | null>(null)
+  // 切學生時清掉 pin
+  useEffect(() => { setPinnedRunId(null) }, [selectedSubmissionId])
   useEffect(() => {
     if (!selectedSubmissionId) { setDetail(null); return }
     setDetailLoading(true); setErr(null)
-    fetchJson<SubmissionDetail>(`${API_BASE}?mode=submission_detail&submissionId=${selectedSubmissionId}`)
+    const runParam = pinnedRunId ? `&pipelineRunId=${encodeURIComponent(pinnedRunId)}` : ''
+    fetchJson<SubmissionDetail>(`${API_BASE}?mode=submission_detail&submissionId=${selectedSubmissionId}${runParam}`)
       .then(setDetail)
       .catch((e) => setErr(e instanceof Error ? e.message : '讀取卷子細節失敗'))
       .finally(() => setDetailLoading(false))
-  }, [selectedSubmissionId])
+  }, [selectedSubmissionId, pinnedRunId])
 
   const filteredSubmissions = useMemo(() => {
     if (!filter.trim()) return submissions
@@ -232,8 +252,18 @@ export default function AdminQuality() {
                       {s.seatNumber != null ? String(s.seatNumber).padStart(2, '0') : '--'}
                     </span>
                     <span className="text-sm flex-1 truncate">{s.studentName}</span>
+                    {s.runCount > 2 && (
+                      <span
+                        className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
+                          active ? 'bg-white/20 text-white' : 'bg-sky-100 text-sky-700'
+                        }`}
+                        title={`重跑過：Phase A ${s.phaseACount} 次 / Phase B ${s.phaseBCount} 次（總 ${s.runCount} 筆 log）`}
+                      >
+                        ↻{s.runCount}
+                      </span>
+                    )}
                     <span
-                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
                         active
                           ? 'bg-white/20 text-white'
                           : tier === 'low' ? 'bg-rose-100 text-rose-700'
@@ -259,7 +289,7 @@ export default function AdminQuality() {
               載入中…
             </div>
           ) : detail ? (
-            <SubmissionViz detail={detail} />
+            <SubmissionViz detail={detail} pinnedRunId={pinnedRunId} onPinRun={setPinnedRunId} />
           ) : (
             <div className="h-full flex items-center justify-center text-sm text-slate-400">
               請從左側選擇學生
@@ -273,8 +303,17 @@ export default function AdminQuality() {
 
 // ─── 視覺化：左原圖+bbox / 右 read ──
 
-function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
+function SubmissionViz({
+  detail, pinnedRunId, onPinRun
+}: {
+  detail: SubmissionDetail
+  pinnedRunId: string | null
+  onPinRun: (runId: string | null) => void
+}) {
   const [hoveredQid, setHoveredQid] = useState<string | null>(null)
+  // Phase A runs（hasPhaseAData）才可切 viz、Phase B 只顯示
+  const phaseARuns = detail.runs.filter((r) => r.hasPhaseAData)
+  const hasMultipleRuns = detail.runs.length > 2
 
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -297,6 +336,60 @@ function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
           </span>
         </span>
       </div>
+
+      {/* 批改紀錄：>2 筆 log 才顯示（預設一份卷 1A+1B = 2 筆是正常的）*/}
+      {hasMultipleRuns && (
+        <div className="bg-white rounded-xl border border-slate-200 p-2 mb-3 shrink-0">
+          <div className="flex items-center gap-2 mb-1.5 px-1">
+            <span className="text-xs font-semibold text-slate-700">批改紀錄</span>
+            <span className="text-[10px] text-slate-400">
+              {phaseARuns.length} 次 Phase A、{detail.runs.length - phaseARuns.length} 次 Phase B、
+              點 Phase A 可切換 bbox/read 顯示
+            </span>
+            {pinnedRunId && (
+              <button
+                onClick={() => onPinRun(null)}
+                className="ml-auto text-[10px] text-slate-500 hover:text-slate-900 underline"
+              >
+                回最新
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {detail.runs.map((r, idx) => {
+              const isPhaseA = r.hasPhaseAData
+              const isCurrent = r.isSelected
+              const localTime = new Date(r.createdAt).toLocaleTimeString('zh-Hant', {
+                hour: '2-digit', minute: '2-digit', hour12: false
+              })
+              const localDate = new Date(r.createdAt).toLocaleDateString('zh-Hant', {
+                month: '2-digit', day: '2-digit'
+              })
+              const stats = isPhaseA
+                ? `review ${r.needsReviewCount ?? '-'}`
+                : `score ${r.totalScore ?? '-'}`
+              return (
+                <button
+                  key={r.pipelineRunId || idx}
+                  onClick={() => isPhaseA && r.pipelineRunId && onPinRun(r.pipelineRunId)}
+                  disabled={!isPhaseA}
+                  className={`px-2 py-1 rounded text-[10px] font-mono border transition-colors ${
+                    isCurrent
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : isPhaseA
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 cursor-pointer'
+                      : 'bg-slate-50 text-slate-500 border-slate-200 cursor-default'
+                  }`}
+                  title={`${r.phase} · ${r.model || '?'} · ${localDate} ${localTime}`}
+                >
+                  <span className="font-semibold">#{idx + 1}</span>{' '}
+                  {isPhaseA ? 'A' : 'B'} {localTime} · {stats}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 左右 layout：兩個獨立 scroll container */}
       <div
