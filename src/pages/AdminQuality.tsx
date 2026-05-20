@@ -26,6 +26,7 @@ type QuestionDetail = {
   type: string | null
   page: number
   bbox: { x: number; y: number; w: number; h: number } | null
+  bboxSource: 'raw' | 'ocr_override' | 'row_anchor' | null
   ai1: { answer: string; status: string | null } | null
   ai2: { answer: string; status: string | null } | null
   arbiterConsistent: boolean | null
@@ -385,7 +386,7 @@ function QuestionCard({
   onHover: (qid: string | null) => void
   hovered: boolean
 }) {
-  const { qid, type, ai1, ai2, arbiterConsistent, finalAnswer, finalAnswerSource, isMistake } = question
+  const { qid, type, bboxSource, ai1, ai2, arbiterConsistent, finalAnswer, finalAnswerSource, isMistake } = question
 
   const consistencyBadge =
     arbiterConsistent === false ? (
@@ -419,6 +420,14 @@ function QuestionCard({
       <div className="flex items-baseline gap-2 mb-1.5">
         <span className="font-mono text-sm font-semibold">{qid}</span>
         {type && <span className="text-[10px] font-mono text-slate-400">{type}</span>}
+        {bboxSource && bboxSource !== 'raw' && (
+          <span
+            className="text-[10px] font-mono px-1 py-0.5 rounded bg-sky-100 text-sky-700"
+            title="bbox 來源：raw=AI classify 原始輸出、ocr_override=OCR width_floor+x_shift 後處理、row_anchor=OCR 整列 anchor 完整替換"
+          >
+            {bboxSource}
+          </span>
+        )}
         <div className="ml-auto flex items-center gap-1.5">
           {isMistake && (
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
