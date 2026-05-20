@@ -77,8 +77,18 @@ const TIER_BG: Record<'full' | 'high' | 'mid' | 'low', string> = {
   low: 'bg-rose-500'
 }
 
+function todayStr(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function daysAgoStr(n: number): string {
+  const d = new Date(Date.now() - n * 24 * 3600 * 1000)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export default function AdminQuality() {
-  const [days, setDays] = useState(7)
+  const [fromDate, setFromDate] = useState(() => daysAgoStr(7))
+  const [toDate, setToDate] = useState(() => todayStr())
   const [assignments, setAssignments] = useState<AssignmentInfo[]>([])
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null)
   const [submissions, setSubmissions] = useState<SubmissionListItem[]>([])
@@ -89,19 +99,19 @@ export default function AdminQuality() {
   const [err, setErr] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
 
-  // 1) 載入 assignment 列表（依 days 篩選）
+  // 1) 載入 assignment 列表（依 from/to 篩選）
   useEffect(() => {
     setLoading(true); setErr(null)
     setAssignments([])
     setSelectedAssignmentId(null)
-    fetchJson<{ assignments: AssignmentInfo[] }>(`${API_BASE}?mode=assignments&days=${days}`)
+    fetchJson<{ assignments: AssignmentInfo[] }>(`${API_BASE}?mode=assignments&from=${fromDate}&to=${toDate}`)
       .then((r) => {
         setAssignments(r.assignments || [])
         if (r.assignments?.[0]) setSelectedAssignmentId(r.assignments[0].id)
       })
       .catch((e) => setErr(e instanceof Error ? e.message : '讀取作業列表失敗'))
       .finally(() => setLoading(false))
-  }, [days])
+  }, [fromDate, toDate])
 
   // 2) 切 assignment → 載學生列表
   const loadSubmissions = useCallback(async () => {
@@ -149,17 +159,26 @@ export default function AdminQuality() {
     <div className="flex flex-col h-[calc(100vh-120px)] gap-3">
       {/* 頂部工具列 */}
       <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-wrap items-center gap-3">
-        <select
-          value={days}
-          onChange={(e) => setDays(Number(e.target.value))}
-          className="px-3 py-1.5 rounded-lg bg-slate-100 text-sm border-0 cursor-pointer"
-          title="篩選作業批改時間範圍"
-        >
-          <option value={1}>過去 1 天</option>
-          <option value={7}>過去 7 天</option>
-          <option value={30}>過去 30 天</option>
-          <option value={90}>過去 90 天</option>
-        </select>
+        <div className="flex items-center gap-1.5 text-sm text-slate-700">
+          <input
+            type="date"
+            value={fromDate}
+            max={toDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="px-2 py-1.5 rounded-lg bg-slate-100 text-sm border-0 font-mono"
+            title="批改時間起"
+          />
+          <span className="text-slate-400">～</span>
+          <input
+            type="date"
+            value={toDate}
+            min={fromDate}
+            max={todayStr()}
+            onChange={(e) => setToDate(e.target.value)}
+            className="px-2 py-1.5 rounded-lg bg-slate-100 text-sm border-0 font-mono"
+            title="批改時間迄"
+          />
+        </div>
         <select
           value={selectedAssignmentId || ''}
           onChange={(e) => setSelectedAssignmentId(e.target.value || null)}
