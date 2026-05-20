@@ -77,6 +77,7 @@ const TIER_BG: Record<'full' | 'high' | 'mid' | 'low', string> = {
 }
 
 export default function AdminQuality() {
+  const [days, setDays] = useState(7)
   const [assignments, setAssignments] = useState<AssignmentInfo[]>([])
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null)
   const [submissions, setSubmissions] = useState<SubmissionListItem[]>([])
@@ -87,17 +88,19 @@ export default function AdminQuality() {
   const [err, setErr] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
 
-  // 1) 載入 assignment 列表
+  // 1) 載入 assignment 列表（依 days 篩選）
   useEffect(() => {
     setLoading(true); setErr(null)
-    fetchJson<{ assignments: AssignmentInfo[] }>(`${API_BASE}?mode=assignments&days=30`)
+    setAssignments([])
+    setSelectedAssignmentId(null)
+    fetchJson<{ assignments: AssignmentInfo[] }>(`${API_BASE}?mode=assignments&days=${days}`)
       .then((r) => {
         setAssignments(r.assignments || [])
         if (r.assignments?.[0]) setSelectedAssignmentId(r.assignments[0].id)
       })
       .catch((e) => setErr(e instanceof Error ? e.message : '讀取作業列表失敗'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [days])
 
   // 2) 切 assignment → 載學生列表
   const loadSubmissions = useCallback(async () => {
@@ -145,6 +148,17 @@ export default function AdminQuality() {
     <div className="flex flex-col h-[calc(100vh-120px)] gap-3">
       {/* 頂部工具列 */}
       <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-wrap items-center gap-3">
+        <select
+          value={days}
+          onChange={(e) => setDays(Number(e.target.value))}
+          className="px-3 py-1.5 rounded-lg bg-slate-100 text-sm border-0 cursor-pointer"
+          title="篩選作業批改時間範圍"
+        >
+          <option value={1}>過去 1 天</option>
+          <option value={7}>過去 7 天</option>
+          <option value={30}>過去 30 天</option>
+          <option value={90}>過去 90 天</option>
+        </select>
         <select
           value={selectedAssignmentId || ''}
           onChange={(e) => setSelectedAssignmentId(e.target.value || null)}
@@ -290,7 +304,7 @@ function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
       </div>
 
       {/* 左右 layout：原圖 sticky / 右 crop grid */}
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'minmax(420px, 720px) 1fr' }}>
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'minmax(360px, 560px) minmax(360px, 1fr)' }}>
         {/* 左：原圖 + SVG bbox */}
         <div className="bg-white rounded-xl border border-slate-200 p-2 sticky top-0 self-start">
           {detail.imageUrl ? (
