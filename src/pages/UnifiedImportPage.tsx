@@ -268,13 +268,11 @@ function SortableBatchCard({
   url,
   rotation,
   position,
-  onRotate,
 }: {
   pageIndex: number
   url: string
   rotation: number
   position: number
-  onRotate: (idx: number) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: `bp-${pageIndex}` })
@@ -286,7 +284,7 @@ function SortableBatchCard({
   }
 
   return (
-    <div ref={setNodeRef} style={style} className={`relative group ${isDragging ? 'shadow-2xl' : ''}`}>
+    <div ref={setNodeRef} style={style} className={`relative ${isDragging ? 'shadow-2xl' : ''}`}>
       <div
         {...attributes}
         {...listeners}
@@ -308,17 +306,6 @@ function SortableBatchCard({
           />
         </div>
       </div>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          onRotate(pageIndex)
-        }}
-        className="absolute top-9 right-1 p-1.5 rounded-full bg-white/90 border border-slate-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-slate-100"
-        title="旋轉 90°"
-      >
-        <RotateCw className="w-3.5 h-3.5 text-slate-600" />
-      </button>
     </div>
   )
 }
@@ -892,6 +879,30 @@ export default function UnifiedImportPage({
     })
   }, [])
 
+  // 依「目前顯示位置」（扣掉已刪除頁後的 1-based position）的奇偶批次旋轉
+  const handleReviewRotateByParity = useCallback(
+    (fileIdx: number, parity: 'odd' | 'even') => {
+      setPdfReviewFiles((prev) => {
+        const next = [...prev]
+        const f = { ...next[fileIdx] }
+        const rotations = [...f.rotations]
+        let pos = 0 // 1-based after increment
+        for (const idx of f.order) {
+          if (f.deleted[idx]) continue
+          pos++
+          const isOdd = pos % 2 === 1
+          if ((parity === 'odd' && isOdd) || (parity === 'even' && !isOdd)) {
+            rotations[idx] = ((rotations[idx] ?? 0) + 90) % 360
+          }
+        }
+        f.rotations = rotations
+        next[fileIdx] = f
+        return next
+      })
+    },
+    [],
+  )
+
   const handleReviewToggleDelete = useCallback((fileIdx: number, pageIdx: number) => {
     setPdfReviewFiles((prev) => {
       const next = [...prev]
@@ -1039,17 +1050,7 @@ export default function UnifiedImportPage({
     students,
   ])
 
-  const handleBatchPreviewRotate = useCallback((pageIndex: number) => {
-    setBatchPreviewRotations((prev) => {
-      const next = [...prev]
-      next[pageIndex] = ((next[pageIndex] ?? 0) + 90) % 360
-      return next
-    })
-  }, [])
-
-  const handleBatchPreviewRotateAll = useCallback(() => {
-    setBatchPreviewRotations((prev) => prev.map((r) => (r + 90) % 360))
-  }, [])
+  // 旋轉已搬到 PdfReviewDialog（含奇/偶/全部 快捷）；batchPreview 不再提供旋轉
 
   const handleBatchPreviewCancel = useCallback(() => {
     batchPreviewUrls.forEach((u) => URL.revokeObjectURL(u))
@@ -1913,7 +1914,6 @@ export default function UnifiedImportPage({
                           url={batchPreviewUrls[pageIdx]}
                           rotation={batchPreviewRotations[pageIdx] ?? 0}
                           position={position}
-                          onRotate={handleBatchPreviewRotate}
                         />
                       ))}
                     </div>
@@ -1926,19 +1926,11 @@ export default function UnifiedImportPage({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={handleBatchPreviewRotateAll}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                  >
-                    <RotateCw className="w-4 h-4" />
-                    全部旋轉
-                  </button>
-                  <button
-                    type="button"
                     onClick={handleBatchApplyToAll}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                   >
                     <CopyCheck className="w-4 h-4" />
-                    套用到全部學生
+                    套用頁序到全部學生
                   </button>
                   {batchApplyFeedback && (
                     <span className="text-xs text-green-600 font-medium">{batchApplyFeedback}</span>
@@ -2088,6 +2080,7 @@ export default function UnifiedImportPage({
           onSelectFileIndex={setPdfReviewSelectedIdx}
           onRotate={handleReviewRotate}
           onRotateAll={handleReviewRotateAll}
+          onRotateByParity={handleReviewRotateByParity}
           onToggleDelete={handleReviewToggleDelete}
           onReorder={handleReviewReorder}
           onConfirm={handlePdfReviewConfirm}

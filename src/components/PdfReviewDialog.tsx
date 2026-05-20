@@ -138,6 +138,8 @@ export interface PdfReviewDialogProps {
   onSelectFileIndex: (i: number) => void
   onRotate: (fileIdx: number, pageIdx: number) => void
   onRotateAll: (fileIdx: number) => void
+  // 依「目前顯示位置」（扣掉已刪除頁後的 1-based position）的奇偶批次旋轉
+  onRotateByParity: (fileIdx: number, parity: 'odd' | 'even') => void
   onToggleDelete: (fileIdx: number, pageIdx: number) => void
   onReorder: (fileIdx: number, newOrder: number[]) => void
   onConfirm: () => void
@@ -150,6 +152,7 @@ export default function PdfReviewDialog({
   onSelectFileIndex,
   onRotate,
   onRotateAll,
+  onRotateByParity,
   onToggleDelete,
   onReorder,
   onConfirm,
@@ -284,8 +287,8 @@ export default function PdfReviewDialog({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 shrink-0">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 shrink-0 gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => onRotateAll(selectedFileIndex)}
@@ -295,8 +298,26 @@ export default function PdfReviewDialog({
               <RotateCcw className="w-4 h-4" />
               全部旋轉
             </button>
+            <button
+              type="button"
+              onClick={() => onRotateByParity(selectedFileIndex, 'odd')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              title="位置為奇數的頁（第 1、3、5… 頁）旋轉 90°"
+            >
+              <RotateCcw className="w-4 h-4" />
+              奇數頁旋轉
+            </button>
+            <button
+              type="button"
+              onClick={() => onRotateByParity(selectedFileIndex, 'even')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              title="位置為偶數的頁（第 2、4、6… 頁）旋轉 90°"
+            >
+              <RotateCcw className="w-4 h-4" />
+              偶數頁旋轉
+            </button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <Button type="button" variant="outline" onClick={onCancel}>
               取消
             </Button>
