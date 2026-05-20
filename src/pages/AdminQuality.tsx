@@ -81,14 +81,9 @@ function todayStr(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
-function daysAgoStr(n: number): string {
-  const d = new Date(Date.now() - n * 24 * 3600 * 1000)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 
 export default function AdminQuality() {
-  const [fromDate, setFromDate] = useState(() => daysAgoStr(7))
-  const [toDate, setToDate] = useState(() => todayStr())
+  const [date, setDate] = useState(() => todayStr())
   const [assignments, setAssignments] = useState<AssignmentInfo[]>([])
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null)
   const [submissions, setSubmissions] = useState<SubmissionListItem[]>([])
@@ -99,19 +94,19 @@ export default function AdminQuality() {
   const [err, setErr] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
 
-  // 1) 載入 assignment 列表（依 from/to 篩選）
+  // 1) 載入 assignment 列表（某一天有批改的作業）
   useEffect(() => {
     setLoading(true); setErr(null)
     setAssignments([])
     setSelectedAssignmentId(null)
-    fetchJson<{ assignments: AssignmentInfo[] }>(`${API_BASE}?mode=assignments&from=${fromDate}&to=${toDate}`)
+    fetchJson<{ assignments: AssignmentInfo[] }>(`${API_BASE}?mode=assignments&date=${date}`)
       .then((r) => {
         setAssignments(r.assignments || [])
         if (r.assignments?.[0]) setSelectedAssignmentId(r.assignments[0].id)
       })
       .catch((e) => setErr(e instanceof Error ? e.message : '讀取作業列表失敗'))
       .finally(() => setLoading(false))
-  }, [fromDate, toDate])
+  }, [date])
 
   // 2) 切 assignment → 載學生列表
   const loadSubmissions = useCallback(async () => {
@@ -159,26 +154,14 @@ export default function AdminQuality() {
     <div className="flex flex-col h-[calc(100vh-120px)] gap-3">
       {/* 頂部工具列 */}
       <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1.5 text-sm text-slate-700">
-          <input
-            type="date"
-            value={fromDate}
-            max={toDate}
-            onChange={(e) => setFromDate(e.target.value)}
-            className="px-2 py-1.5 rounded-lg bg-slate-100 text-sm border-0 font-mono"
-            title="批改時間起"
-          />
-          <span className="text-slate-400">～</span>
-          <input
-            type="date"
-            value={toDate}
-            min={fromDate}
-            max={todayStr()}
-            onChange={(e) => setToDate(e.target.value)}
-            className="px-2 py-1.5 rounded-lg bg-slate-100 text-sm border-0 font-mono"
-            title="批改時間迄"
-          />
-        </div>
+        <input
+          type="date"
+          value={date}
+          max={todayStr()}
+          onChange={(e) => setDate(e.target.value)}
+          className="px-2 py-1.5 rounded-lg bg-slate-100 text-sm border-0 font-mono"
+          title="篩選該日批改的作業"
+        />
         <select
           value={selectedAssignmentId || ''}
           onChange={(e) => setSelectedAssignmentId(e.target.value || null)}
