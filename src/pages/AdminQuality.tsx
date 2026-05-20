@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { RefreshCw, AlertTriangle, Search, CheckCircle2, XCircle, AlertCircle, FileQuestion } from 'lucide-react'
 
 type AssignmentInfo = {
@@ -268,18 +268,10 @@ export default function AdminQuality() {
   )
 }
 
-// ─── 視覺化：左原圖+bbox / 右 crop+read ──
+// ─── 視覺化：左原圖+bbox / 右 read ──
 
 function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
-  const imgRef = useRef<HTMLImageElement | null>(null)
-  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null)
   const [hoveredQid, setHoveredQid] = useState<string | null>(null)
-
-  // 圖載入後拿 naturalSize
-  const onImgLoad = useCallback(() => {
-    const img = imgRef.current
-    if (img) setImgSize({ w: img.naturalWidth, h: img.naturalHeight })
-  }, [])
 
   return (
     <div className="h-full overflow-y-auto">
@@ -303,62 +295,57 @@ function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
         </span>
       </div>
 
-      {/* 左右 layout：原圖 sticky / 右 crop grid */}
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'minmax(360px, 560px) minmax(360px, 1fr)' }}>
-        {/* 左：原圖 + SVG bbox */}
+      {/* 左右 layout：原圖 sticky / 右 read */}
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'minmax(360px, 560px) minmax(280px, 1fr)' }}>
+        {/* 左：原圖 + SVG bbox（用 % 座標、避免 viewBox aspect 跑版）*/}
         <div className="bg-white rounded-xl border border-slate-200 p-2 sticky top-0 self-start">
           {detail.imageUrl ? (
             <div className="relative">
               <img
-                ref={imgRef}
                 src={detail.imageUrl}
-                onLoad={onImgLoad}
                 alt="submission"
                 className="block w-full h-auto rounded"
               />
-              {imgSize && (
-                <svg
-                  viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
-                  preserveAspectRatio="none"
-                  className="absolute inset-0 w-full h-full pointer-events-none"
-                >
-                  {detail.questions.filter((q) => q.bbox).map((q) => {
-                    const b = q.bbox!
-                    const x = b.x * imgSize.w
-                    const y = b.y * imgSize.h
-                    const w = b.w * imgSize.w
-                    const h = b.h * imgSize.h
-                    const hot = q.qid === hoveredQid
-                    const color = q.arbiterConsistent === false
-                      ? '#e11d48'  // rose
-                      : q.isMistake
-                      ? '#f59e0b'  // amber
-                      : '#10b981'  // emerald
-                    return (
-                      <g key={q.qid}>
-                        <rect
-                          x={x} y={y} width={w} height={h}
-                          fill={hot ? color + '33' : 'none'}
-                          stroke={color}
-                          strokeWidth={hot ? 4 : 2}
-                        />
-                        <text
-                          x={x + 4}
-                          y={y + 18}
-                          fontSize={14}
-                          fontWeight="700"
-                          fill={color}
-                          stroke="white"
-                          strokeWidth={3}
-                          paintOrder="stroke"
-                        >
-                          {q.qid}
-                        </text>
-                      </g>
-                    )
-                  })}
-                </svg>
-              )}
+              <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
+                {detail.questions.filter((q) => q.bbox).map((q) => {
+                  const b = q.bbox!
+                  const hot = q.qid === hoveredQid
+                  const color = q.arbiterConsistent === false
+                    ? '#e11d48'  // rose
+                    : q.isMistake
+                    ? '#f59e0b'  // amber
+                    : '#10b981'  // emerald
+                  return (
+                    <g key={q.qid}>
+                      <rect
+                        x={`${b.x * 100}%`}
+                        y={`${b.y * 100}%`}
+                        width={`${b.w * 100}%`}
+                        height={`${b.h * 100}%`}
+                        fill={hot ? color + '33' : 'none'}
+                        stroke={color}
+                        strokeWidth={hot ? 3 : 1.5}
+                        vectorEffect="non-scaling-stroke"
+                      />
+                      <text
+                        x={`${b.x * 100}%`}
+                        y={`${b.y * 100}%`}
+                        dx={4}
+                        dy={14}
+                        fontSize={11}
+                        fontWeight="700"
+                        fill={color}
+                        stroke="white"
+                        strokeWidth={3}
+                        paintOrder="stroke"
+                        vectorEffect="non-scaling-stroke"
+                      >
+                        {q.qid}
+                      </text>
+                    </g>
+                  )
+                })}
+              </svg>
             </div>
           ) : (
             <div className="aspect-[3/4] flex items-center justify-center text-sm text-slate-400">
@@ -367,7 +354,7 @@ function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
           )}
         </div>
 
-        {/* 右：crop grid */}
+        {/* 右：read 列表 */}
         <div className="space-y-2">
           {detail.questions.length === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 p-6 text-sm text-slate-400 text-center">
@@ -378,8 +365,6 @@ function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
               <QuestionCard
                 key={q.qid}
                 question={q}
-                imageUrl={detail.imageUrl}
-                imgSize={imgSize}
                 onHover={setHoveredQid}
                 hovered={hoveredQid === q.qid}
               />
@@ -393,37 +378,14 @@ function SubmissionViz({ detail }: { detail: SubmissionDetail }) {
 
 function QuestionCard({
   question,
-  imageUrl,
-  imgSize,
   onHover,
   hovered
 }: {
   question: QuestionDetail
-  imageUrl: string | null
-  imgSize: { w: number; h: number } | null
   onHover: (qid: string | null) => void
   hovered: boolean
 }) {
-  const { qid, type, bbox, ai1, ai2, arbiterConsistent, finalAnswer, finalAnswerSource, isMistake } = question
-
-  // crop：用 CSS background-image + position/size 切原圖
-  // bbox 是 normalized (0~1)。crop 顯示寬定 320px、按 bbox aspect 算高
-  const CROP_W = 320
-  let cropStyle: React.CSSProperties = { width: CROP_W, height: 60, background: '#f1f5f9' }
-  if (imageUrl && imgSize && bbox && bbox.w > 0 && bbox.h > 0) {
-    const fullW = imgSize.w
-    const fullH = imgSize.h
-    const scale = CROP_W / (bbox.w * fullW)
-    const cropH = bbox.h * fullH * scale
-    cropStyle = {
-      width: CROP_W,
-      height: Math.max(36, cropH),
-      backgroundImage: `url(${imageUrl})`,
-      backgroundRepeat: 'no-repeat',
-      backgroundSize: `${fullW * scale}px ${fullH * scale}px`,
-      backgroundPosition: `-${bbox.x * fullW * scale}px -${bbox.y * fullH * scale}px`
-    }
-  }
+  const { qid, type, ai1, ai2, arbiterConsistent, finalAnswer, finalAnswerSource, isMistake } = question
 
   const consistencyBadge =
     arbiterConsistent === false ? (
@@ -467,24 +429,18 @@ function QuestionCard({
         </div>
       </div>
 
-      <div className="flex gap-3">
-        {/* crop */}
-        <div className="shrink-0 border border-slate-300 rounded overflow-hidden" style={cropStyle} />
-
-        {/* read 結果 */}
-        <div className="flex-1 min-w-0 text-xs space-y-1 font-mono">
-          <ReadLine label="AI1" answer={a1} unreadable={a1Unreadable} highlight={!sameAnswer} />
-          <ReadLine label="AI2" answer={a2} unreadable={a2Unreadable} highlight={!sameAnswer} />
-          {finalAnswer != null && (
-            <div className="flex gap-2 pt-1 mt-1 border-t border-slate-100">
-              <span className="text-slate-500 shrink-0">最終</span>
-              <span className="font-semibold text-slate-900 break-all">{finalAnswer || '∅'}</span>
-              {finalAnswerSource && (
-                <span className="ml-auto text-[10px] text-slate-400 shrink-0">{finalAnswerSource}</span>
-              )}
-            </div>
-          )}
-        </div>
+      <div className="text-xs space-y-1 font-mono">
+        <ReadLine label="AI1" answer={a1} unreadable={a1Unreadable} highlight={!sameAnswer} />
+        <ReadLine label="AI2" answer={a2} unreadable={a2Unreadable} highlight={!sameAnswer} />
+        {finalAnswer != null && (
+          <div className="flex gap-2 pt-1 mt-1 border-t border-slate-100">
+            <span className="text-slate-500 shrink-0">最終</span>
+            <span className="font-semibold text-slate-900 break-all">{finalAnswer || '∅'}</span>
+            {finalAnswerSource && (
+              <span className="ml-auto text-[10px] text-slate-400 shrink-0">{finalAnswerSource}</span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
