@@ -168,6 +168,17 @@ type HomeOverviewItem = {
   notSubmittedSeatNumbers: number[]
 }
 
+type HomeAttentionItem = {
+  id: string
+  assignmentId: string
+  assignmentTitle: string
+  classroomName: string
+  studentId: string
+  studentName: string
+  seatNumber: number
+  type: 'appeal' | 'locked'
+}
+
 type OverviewActionKey =
   | 'fix-answer-key'
   | 'import-submission'
@@ -464,6 +475,7 @@ function App() {
     pendingGradingSubmissions: 0
   })
   const [homeOverviewItems, setHomeOverviewItems] = useState<HomeOverviewItem[]>([])
+  const [homeAttentionItems, setHomeAttentionItems] = useState<HomeAttentionItem[]>([])
   // 防併發：避免多個 trigger（mount / SYNC_COMPLETE / 安全網）同時呼叫 loadHomeOverview
   const homeOverviewInFlightRef = useRef(false)
   // 標記是否已成功 load 過至少一次；first load 才顯示 skeleton、後續 refresh
@@ -1430,6 +1442,44 @@ function App() {
         })
         .sort((a, b) => a.workflowPriority - b.workflowPriority)
 
+      const attentionItems: HomeAttentionItem[] = []
+      for (const assignment of assignments) {
+        const serverStates = serverStatesByAssignment.get(assignment.id)
+        if (!serverStates) continue
+        const classroomName =
+          classroomMap.get(assignment.classroomId)?.name ?? '未知班級'
+        const classroomStudents =
+          studentsByClassroom.get(assignment.classroomId) ?? []
+        for (const student of classroomStudents) {
+          const status = serverStates.get(student.id)?.status
+          if (
+            status !== 'correction_failed' &&
+            status !== 'correction_pending_review'
+          ) {
+            continue
+          }
+          if (!student.seatNumber) continue
+          attentionItems.push({
+            id: `${assignment.id}|${student.id}`,
+            assignmentId: assignment.id,
+            assignmentTitle: assignment.title || '未命名作業',
+            classroomName,
+            studentId: student.id,
+            studentName: student.name || '',
+            seatNumber: student.seatNumber,
+            type: status === 'correction_pending_review' ? 'appeal' : 'locked',
+          })
+        }
+      }
+      // 申訴在前（學生在等老師裁決），同型內依班級→座號排序
+      attentionItems.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'appeal' ? -1 : 1
+        if (a.classroomName !== b.classroomName) {
+          return a.classroomName.localeCompare(b.classroomName)
+        }
+        return a.seatNumber - b.seatNumber
+      })
+
       const uploadedSubmissions = overviewItems.reduce(
         (sum, item) => sum + item.uploadedCount,
         0
@@ -1456,6 +1506,7 @@ function App() {
 
       setHomeOverviewSummary(summary)
       setHomeOverviewItems(overviewItems)
+      setHomeAttentionItems(attentionItems)
       homeOverviewHasLoadedRef.current = true
     } catch (error) {
       console.error('載入作業總覽失敗', error)
@@ -2573,6 +2624,56 @@ function App() {
                       </div>
                     </div>
                   </section>
+
+                  {homeAttentionItems.length > 0 && (
+                    <section className="mt-5 border-t border-slate-200 pt-4">
+                      <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <h3 className="text-base font-semibold text-slate-900">需老師處理</h3>
+                        <span className="text-xs text-slate-500">
+                          {(() => {
+                            const appeals = homeAttentionItems.filter((i) => i.type === 'appeal').length
+                            const locked = homeAttentionItems.filter((i) => i.type === 'locked').length
+                            const parts: string[] = []
+                            if (appeals > 0) parts.push(`申訴 ${appeals}`)
+                            if (locked > 0) parts.push(`訂正鎖卡 ${locked}`)
+                            return parts.join('、')
+                          })()}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {homeAttentionItems.map((item) => {
+                          const isAppeal = item.type === 'appeal'
+                          const tagLabel = isAppeal ? '申訴' : '訂正鎖'
+                          const tagClass = isAppeal
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-rose-100 text-rose-800'
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                if (!ensureInkNonNegative()) return
+                                setSelectedAssignmentId(item.assignmentId)
+                                setCurrentPage('correction')
+                              }}
+                              className="group inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                              title={`${item.classroomName}・${item.assignmentTitle}`}
+                            >
+                              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${tagClass}`}>
+                                {tagLabel}
+                              </span>
+                              <span className="font-medium text-slate-900">
+                                {item.classroomName}・{item.seatNumber} 號 {item.studentName}
+                              </span>
+                              <span className="max-w-[10rem] truncate text-slate-500">
+                                {item.assignmentTitle}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </section>
+                  )}
 
                   <div className="mt-5">
                     <section className="pt-2">
