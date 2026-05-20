@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   Camera,
   CheckCircle,
-  CopyCheck,
   FileImage,
   FileUp,
   ImageIcon,
@@ -47,13 +46,10 @@ import {
   sortFilesByNumber,
 } from '@/lib/pdfToImage'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
-import ImportConfigDialog, {
-  type PdfFileInfo,
-  interleavePdfPages,
-} from '@/components/ImportConfigDialog'
-import PdfReviewDialog, {
-  type PdfReviewFile,
-} from '@/components/PdfReviewDialog'
+import PdfImportPreviewDialog, {
+  type PdfImportPreviewFile,
+  type PdfImportPreviewResult,
+} from '@/components/PdfImportPreviewDialog'
 import { buildApiUrl } from '@/lib/api-base'
 import CameraCapturePage from './CameraCapturePage'
 
@@ -240,76 +236,6 @@ function SortableUploadCard({ id, displayIdx, url, rotation, expectedOrientation
   )
 }
 
-// 通用 interleave：把多個陣列依「每位學生 N 個 chunk」交錯合併（同 interleavePdfPages 行為，但泛型）
-function interleaveArrays<T>(arrays: T[][], chunkSizes: number[] | number): T[] {
-  if (arrays.length === 0) return []
-  if (arrays.length === 1) return arrays[0]
-  const sizes = Array.isArray(chunkSizes) ? chunkSizes : arrays.map(() => chunkSizes)
-  const chunked = arrays.map((arr, i) => {
-    const cs = sizes[i] ?? 1
-    const chunks: T[][] = []
-    for (let j = 0; j < arr.length; j += cs) chunks.push(arr.slice(j, j + cs))
-    return chunks
-  })
-  const maxChunks = Math.max(...chunked.map((c) => c.length))
-  const result: T[] = []
-  for (let ci = 0; ci < maxChunks; ci++) {
-    for (const cs of chunked) {
-      if (ci < cs.length) result.push(...cs[ci])
-    }
-  }
-  return result
-}
-
-// ── Sortable card for batch preview ───────────────────────────────────────────
-
-function SortableBatchCard({
-  pageIndex,
-  url,
-  rotation,
-  position,
-}: {
-  pageIndex: number
-  url: string
-  rotation: number
-  position: number
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: `bp-${pageIndex}` })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.8 : 1,
-  }
-
-  return (
-    <div ref={setNodeRef} style={style} className={`relative ${isDragging ? 'shadow-2xl' : ''}`}>
-      <div
-        {...attributes}
-        {...listeners}
-        className="border-2 border-slate-200 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing bg-white hover:border-green-400 transition-colors"
-      >
-        <div className="bg-slate-50 px-3 py-1.5 text-xs text-slate-600 font-medium flex items-center justify-between">
-          <span>第 {position + 1} 頁</span>
-          {rotation !== 0 && (
-            <span className="text-[10px] text-orange-600 font-semibold">{rotation}°</span>
-          )}
-        </div>
-        <div className="aspect-[3/4] bg-white overflow-hidden">
-          <img
-            src={url}
-            alt={`第 ${position + 1} 頁`}
-            className="w-full h-full object-contain transition-transform"
-            style={{ transform: `rotate(${rotation}deg)` }}
-            draggable={false}
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function UnifiedImportPage({
@@ -329,11 +255,6 @@ export default function UnifiedImportPage({
   const [error, setError] = useState<string | null>(null)
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
 
-  // DnD sensors — must be at component top level (hooks rules)
-  const dndSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  )
   const pagesPerStudent = useMemo(
     () => Math.max(1, assignment?.totalPages || 1),
     [assignment],
@@ -377,39 +298,12 @@ export default function UnifiedImportPage({
 
   // ── PDF batch import ────────────────────────────────────────────────────
   const batchPdfInputRef = useRef<HTMLInputElement>(null)
-  const [showImportConfig, setShowImportConfig] = useState(false)
-  const [pdfFilesInfo, setPdfFilesInfo] = useState<PdfFileInfo[]>([])
-  const [configMergeMode, setConfigMergeMode] = useState<
-    'concat' | 'interleave'
-  >('concat')
-  const [configPagesPerStudentPerPdf, setConfigPagesPerStudentPerPdf] =
-    useState(1)
-  const [configPerPdfPagesArray, setConfigPerPdfPagesArray] = useState<number[]>([])
-  const [configPagesPerStudent, setConfigPagesPerStudent] = useState(1)
-
-  const [configConfirmed, setConfigConfirmed] = useState(false)
-  const [configAbsentSeatNumbers, setConfigAbsentSeatNumbers] = useState<Set<number>>(new Set())
   const [isBatchProcessing, setIsBatchProcessing] = useState(false)
   const [batchProgress, setBatchProgress] = useState('')
 
-  // ── PDF Review（整份校稿）─────────────────────────────────────────────
-  // 每份 PDF 全頁 blobs（轉檔後存著、給後續切片用）
-  const [pdfReviewBlobsByFile, setPdfReviewBlobsByFile] = useState<Blob[][]>([])
-  const [pdfReviewFiles, setPdfReviewFiles] = useState<PdfReviewFile[]>([])
-  const [pdfReviewSelectedIdx, setPdfReviewSelectedIdx] = useState(0)
-  const [showPdfReview, setShowPdfReview] = useState(false)
-
-  // ── Batch preview (per-page rotation before auto-map + save) ────────────
-  const [batchPreviewBlobs, setBatchPreviewBlobs] = useState<Blob[]>([])
-  const [batchPreviewUrls, setBatchPreviewUrls] = useState<string[]>([])
-  const [batchPreviewRotations, setBatchPreviewRotations] = useState<number[]>([])
-  const [batchPreviewPagesPerStudent, setBatchPreviewPagesPerStudent] = useState(1)
-  const [showBatchPreview, setShowBatchPreview] = useState(false)
-  const [batchPreviewSelectedStudent, setBatchPreviewSelectedStudent] = useState(0)
-  // Per-student custom page order: studentIndex → [pageIndex, pageIndex, ...]
-  const [batchPreviewPageOrders, setBatchPreviewPageOrders] = useState<Map<number, number[]>>(new Map())
-  const [batchPreviewTargetStudents, setBatchPreviewTargetStudents] = useState<Student[]>([])
-  const [batchApplyFeedback, setBatchApplyFeedback] = useState<string | null>(null)
+  // ── PDF Import Preview（單一畫面：校稿 + 設定 + 預覽分配）─────────────
+  const [showImportPreview, setShowImportPreview] = useState(false)
+  const [importPreviewFiles, setImportPreviewFiles] = useState<PdfImportPreviewFile[]>([])
 
   // ── Upload preview (per-page rotation before merge) ─────────────────────
   const [uploadPreviewStudent, setUploadPreviewStudent] = useState<Student | null>(null)
@@ -790,9 +684,7 @@ export default function UnifiedImportPage({
       setBatchProgress('正在轉換 PDF...')
 
       try {
-        const infos: PdfFileInfo[] = []
-        const blobsByFile: Blob[][] = []
-        const reviewFiles: PdfReviewFile[] = []
+        const previewFiles: PdfImportPreviewFile[] = []
 
         for (let fi = 0; fi < fileArray.length; fi++) {
           const file = fileArray[fi]
@@ -813,37 +705,15 @@ export default function UnifiedImportPage({
             throw new Error(`${file.name}：無法讀取 PDF 頁面`)
           }
 
-          const urls = blobs.map((b) => URL.createObjectURL(b))
-          blobsByFile.push(blobs)
-          infos.push({
-            file,
-            pageCount: blobs.length,
-            effectivePageCount: blobs.length,
-            firstPageUrl: urls[0],
-          })
-          reviewFiles.push({
+          previewFiles.push({
             fileName: file.name,
-            totalPages: blobs.length,
-            pageUrls: urls,
-            rotations: new Array(blobs.length).fill(0),
-            deleted: new Array(blobs.length).fill(false),
-            order: Array.from({ length: blobs.length }, (_, i) => i),
+            blobs,
+            urls: blobs.map((b) => URL.createObjectURL(b)),
           })
         }
 
-        setPdfReviewBlobsByFile(blobsByFile)
-        setPdfReviewFiles(reviewFiles)
-        setPdfReviewSelectedIdx(0)
-        setPdfFilesInfo(infos)
-
-        setConfigMergeMode('concat')
-        setConfigPagesPerStudent(pagesPerStudent)
-        setConfigPagesPerStudentPerPdf(1)
-        setConfigPerPdfPagesArray(infos.map(() => 1))
-        setConfigConfirmed(false)
-        setConfigAbsentSeatNumbers(new Set())
-
-        setShowPdfReview(true)
+        setImportPreviewFiles(previewFiles)
+        setShowImportPreview(true)
       } catch (e) {
         console.error(e)
         setError(e instanceof Error ? e.message : '處理檔案失敗')
@@ -852,361 +722,56 @@ export default function UnifiedImportPage({
         setBatchProgress('')
       }
     },
-    [pagesPerStudent],
-  )
-
-  // ── PDF Review handlers ──────────────────────────────────────────────
-
-  const handleReviewRotate = useCallback((fileIdx: number, pageIdx: number) => {
-    setPdfReviewFiles((prev) => {
-      const next = [...prev]
-      const f = { ...next[fileIdx] }
-      const rotations = [...f.rotations]
-      rotations[pageIdx] = ((rotations[pageIdx] ?? 0) + 90) % 360
-      f.rotations = rotations
-      next[fileIdx] = f
-      return next
-    })
-  }, [])
-
-  const handleReviewRotateAll = useCallback((fileIdx: number) => {
-    setPdfReviewFiles((prev) => {
-      const next = [...prev]
-      const f = { ...next[fileIdx] }
-      f.rotations = f.rotations.map((r) => (r + 90) % 360)
-      next[fileIdx] = f
-      return next
-    })
-  }, [])
-
-  // 依「原始 PDF 頁碼」（1-based）的奇偶批次旋轉。
-  // Why: 掃描器的奇/偶面方向錯是 PDF 的物理特性，跟老師有沒有刪掉中間廢頁
-  // 或拖曳排序無關。若依目前顯示位置算，刪掉中間一張廢頁後位置會偏移、
-  // 把該動的頁跳過、不該動的頁誤轉。已刪除頁不會真的被旋轉（沒意義）。
-  const handleReviewRotateByParity = useCallback(
-    (fileIdx: number, parity: 'odd' | 'even') => {
-      setPdfReviewFiles((prev) => {
-        const next = [...prev]
-        const f = { ...next[fileIdx] }
-        const rotations = [...f.rotations]
-        for (let idx = 0; idx < f.deleted.length; idx++) {
-          if (f.deleted[idx]) continue
-          const isOddOriginal = (idx + 1) % 2 === 1
-          if ((parity === 'odd' && isOddOriginal) || (parity === 'even' && !isOddOriginal)) {
-            rotations[idx] = ((rotations[idx] ?? 0) + 90) % 360
-          }
-        }
-        f.rotations = rotations
-        next[fileIdx] = f
-        return next
-      })
-    },
     [],
   )
 
-  const handleReviewToggleDelete = useCallback((fileIdx: number, pageIdx: number) => {
-    setPdfReviewFiles((prev) => {
-      const next = [...prev]
-      const f = { ...next[fileIdx] }
-      const deleted = [...f.deleted]
-      deleted[pageIdx] = !deleted[pageIdx]
-      f.deleted = deleted
-      next[fileIdx] = f
-      return next
-    })
-  }, [])
+  const handleImportPreviewCancel = useCallback(() => {
+    importPreviewFiles.forEach((f) => f.urls.forEach((u) => URL.revokeObjectURL(u)))
+    setImportPreviewFiles([])
+    setShowImportPreview(false)
+  }, [importPreviewFiles])
 
-  const handleReviewReorder = useCallback((fileIdx: number, newOrder: number[]) => {
-    setPdfReviewFiles((prev) => {
-      const next = [...prev]
-      next[fileIdx] = { ...next[fileIdx], order: newOrder }
-      return next
-    })
-  }, [])
-
-  const handlePdfReviewCancel = useCallback(() => {
-    // 釋放 URL
-    pdfReviewFiles.forEach((f) => f.pageUrls.forEach((u) => URL.revokeObjectURL(u)))
-    setPdfReviewFiles([])
-    setPdfReviewBlobsByFile([])
-    setPdfFilesInfo([])
-    setShowPdfReview(false)
-  }, [pdfReviewFiles])
-
-  const handlePdfReviewConfirm = useCallback(() => {
-    // 更新 ImportConfigDialog 用的 pdfFilesInfo（effectivePageCount = 校稿後剩餘）
-    setPdfFilesInfo((prev) =>
-      prev.map((info, i) => {
-        const f = pdfReviewFiles[i]
-        if (!f) return info
-        const remaining = f.order.filter((idx) => !f.deleted[idx]).length
-        return { ...info, effectivePageCount: remaining }
-      }),
-    )
-    setShowPdfReview(false)
-    setShowImportConfig(true)
-  }, [pdfReviewFiles])
-
-  const handleBackToReview = useCallback(() => {
-    setShowImportConfig(false)
-    setShowPdfReview(true)
-  }, [])
-
-  const handleImportCancel = useCallback(() => {
-    // 同時清掉 review state 與 ImportConfig
-    pdfReviewFiles.forEach((f) => f.pageUrls.forEach((u) => URL.revokeObjectURL(u)))
-    setPdfReviewFiles([])
-    setPdfReviewBlobsByFile([])
-    setPdfFilesInfo([])
-    setShowImportConfig(false)
-    setShowPdfReview(false)
-  }, [pdfReviewFiles])
-
-  // Step: ImportConfigDialog 確認 → 依 review 結果切片並開 batchPreview
-  const handleImportConfirm = useCallback(() => {
-    if (pdfReviewBlobsByFile.length === 0 || pdfReviewFiles.length === 0) return
-
-    setError(null)
-
-    try {
-      // 依 review 階段的 order + deleted 過濾，並對齊 rotations
-      const allPdfPages: Blob[][] = []
-      const allPdfRotations: number[][] = []
-      for (let fi = 0; fi < pdfReviewFiles.length; fi++) {
-        const f = pdfReviewFiles[fi]
-        const blobs = pdfReviewBlobsByFile[fi] ?? []
-        const orderedBlobs: Blob[] = []
-        const orderedRots: number[] = []
-        for (const origIdx of f.order) {
-          if (f.deleted[origIdx]) continue
-          const b = blobs[origIdx]
-          if (!b) continue
-          orderedBlobs.push(b)
-          orderedRots.push(f.rotations[origIdx] ?? 0)
-        }
-        allPdfPages.push(orderedBlobs)
-        allPdfRotations.push(orderedRots)
-      }
-
-      let allBlobs: Blob[]
-      let allRotations: number[]
-      let effectivePagesPerStudent: number
-
-      if (pdfReviewFiles.length > 1 && configMergeMode === 'interleave') {
-        allBlobs = interleavePdfPages(allPdfPages, configPerPdfPagesArray)
-        // 對 rotations 套用同樣的 interleave 規則
-        allRotations = interleaveArrays(allPdfRotations, configPerPdfPagesArray)
-        effectivePagesPerStudent = configPerPdfPagesArray.reduce((s, n) => s + n, 0)
-      } else {
-        allBlobs = allPdfPages.flat()
-        allRotations = allPdfRotations.flat()
-        effectivePagesPerStudent = configPagesPerStudent
-      }
-
-      if (allBlobs.length === 0) {
-        throw new Error('PDF 頁數不足')
-      }
-
-      const sortedStudents = [...students].sort(
-        (a, b) => a.seatNumber - b.seatNumber,
-      )
-      const totalStudentsNeeded = Math.floor(
-        allBlobs.length / effectivePagesPerStudent,
-      )
-
-      if (totalStudentsNeeded === 0) {
-        throw new Error('PDF 頁數不足，無法分配給任何學生')
-      }
-
-      const targetStudents = sortedStudents.filter(
-        (s) => !configAbsentSeatNumbers.has(s.seatNumber),
-      )
-
-      // batchPreview 用全新的 URL；review 階段的 URLs 在此釋放
-      const urls = allBlobs.map((b) => URL.createObjectURL(b))
-      pdfReviewFiles.forEach((f) => f.pageUrls.forEach((u) => URL.revokeObjectURL(u)))
-      setPdfReviewFiles([])
-      setPdfReviewBlobsByFile([])
-      setPdfFilesInfo([])
-
-      setBatchPreviewBlobs(allBlobs)
-      setBatchPreviewUrls(urls)
-      setBatchPreviewRotations(allRotations)
-      setBatchPreviewPagesPerStudent(effectivePagesPerStudent)
-      setBatchPreviewTargetStudents(targetStudents.slice(0, totalStudentsNeeded))
-      setBatchPreviewSelectedStudent(0)
-      setShowImportConfig(false)
-      setShowBatchPreview(true)
-    } catch (e) {
-      console.error(e)
-      setError(e instanceof Error ? e.message : 'PDF 批次匯入失敗')
-    }
-  }, [
-    pdfReviewBlobsByFile,
-    pdfReviewFiles,
-    configMergeMode,
-    configPerPdfPagesArray,
-    configPagesPerStudent,
-    configAbsentSeatNumbers,
-    students,
-  ])
-
-  // 旋轉已搬到 PdfReviewDialog（含奇/偶/全部 快捷）；batchPreview 不再提供旋轉
-
-  const handleBatchPreviewCancel = useCallback(() => {
-    batchPreviewUrls.forEach((u) => URL.revokeObjectURL(u))
-    setBatchPreviewBlobs([])
-    setBatchPreviewUrls([])
-    setBatchPreviewRotations([])
-    setBatchPreviewPageOrders(new Map())
-    setShowBatchPreview(false)
-  }, [batchPreviewUrls])
-
-  // Reorder pages within a student
-  const handleBatchPreviewReorder = useCallback(
-    (studentIdx: number, newOrder: number[]) => {
-      setBatchPreviewPageOrders((prev) => {
-        const next = new Map(prev)
-        next.set(studentIdx, newOrder)
-        return next
-      })
-    },
-    [],
-  )
-
-  // Apply current student's rotation + page order to all students
-  const handleBatchApplyToAll = useCallback(() => {
-    const srcIdx = batchPreviewSelectedStudent
-    const pps = batchPreviewPagesPerStudent
-    const srcStart = srcIdx * pps
-    const totalStudents = Math.ceil(batchPreviewBlobs.length / pps)
-
-    // Get source student's custom order (or default)
-    const srcCustomOrder = batchPreviewPageOrders.get(srcIdx)
-    const srcDefaultIndices = Array.from({ length: pps }, (_, i) => srcStart + i)
-    const srcOrder = srcCustomOrder ?? srcDefaultIndices
-
-    const newOrders = new Map(batchPreviewPageOrders)
-    const newRotations = [...batchPreviewRotations]
-    let appliedCount = 0
-
-    for (let si = 0; si < totalStudents; si++) {
-      if (si === srcIdx) continue
-      const tgtStart = si * pps
-      const tgtEnd = Math.min(tgtStart + pps, batchPreviewBlobs.length)
-      const tgtCount = tgtEnd - tgtStart
-      if (tgtCount !== pps) continue // skip incomplete last student
-
-      // Apply relative page order
-      const tgtOrder = srcOrder.map((srcPageIdx) => {
-        const relativeOffset = srcPageIdx - srcStart
-        return tgtStart + relativeOffset
-      })
-      newOrders.set(si, tgtOrder)
-
-      // Apply rotations
-      srcOrder.forEach((srcPageIdx, i) => {
-        const rot = batchPreviewRotations[srcPageIdx] ?? 0
-        const tgtPageIdx = tgtOrder[i]
-        if (tgtPageIdx !== undefined) newRotations[tgtPageIdx] = rot
-      })
-
-      appliedCount++
-    }
-
-    setBatchPreviewPageOrders(newOrders)
-    setBatchPreviewRotations(newRotations)
-    setBatchApplyFeedback(`已套用到 ${appliedCount} 位學生`)
-    setTimeout(() => setBatchApplyFeedback(null), 2000)
-  }, [
-    batchPreviewSelectedStudent,
-    batchPreviewPagesPerStudent,
-    batchPreviewBlobs,
-    batchPreviewPageOrders,
-    batchPreviewRotations,
-  ])
-
-  // Step 2: Apply rotations + page orders → save (absent seats already resolved)
-  const handleBatchPreviewConfirm = useCallback(async () => {
-    const allBlobs = batchPreviewBlobs
-    const effectivePagesPerStudent = batchPreviewPagesPerStudent
-    if (allBlobs.length === 0) return
-
-    // Close preview + start saving
-    batchPreviewUrls.forEach((u) => URL.revokeObjectURL(u))
-    setShowBatchPreview(false)
-    setIsBatchProcessing(true)
-    setError(null)
-
-    try {
+  // 確認分割並匯入：對每位學生 saveStudentSubmission
+  const handleImportPreviewConfirm = useCallback(
+    async (result: PdfImportPreviewResult) => {
+      setShowImportPreview(false)
+      setIsBatchProcessing(true)
+      setError(null)
       let successCount = 0
-      const studentsToProcess = batchPreviewTargetStudents
+      try {
+        for (let i = 0; i < result.perStudent.length; i++) {
+          const { student, pageBlobs } = result.perStudent[i]
+          if (pageBlobs.length === 0) continue
+          setBatchProgress(
+            `正在儲存 ${i + 1}/${result.perStudent.length}（${student.seatNumber} 號 ${student.name}）`,
+          )
+          await saveStudentSubmission(
+            assignmentId,
+            student.id,
+            pageBlobs,
+            avoidBlobStorage,
+            'teacher_scan',
+          )
+          successCount++
+        }
 
-      for (let i = 0; i < studentsToProcess.length; i++) {
-        const student = studentsToProcess[i]
-        const startIdx = i * effectivePagesPerStudent
-
-        // Get custom page order or default sequential
-        const customOrder = batchPreviewPageOrders.get(i)
-        const pageIndices = customOrder ??
-          Array.from({ length: effectivePagesPerStudent }, (_, j) => startIdx + j)
-
-        const studentBlobs = pageIndices
-          .map((idx) => allBlobs[idx])
-          .filter(Boolean)
-
-        if (studentBlobs.length === 0) continue
-
-        setBatchProgress(
-          `正在儲存 ${i + 1}/${studentsToProcess.length}（${student.seatNumber} 號 ${student.name}）`,
-        )
-
-        // Apply rotations to this student's pages (using original indices)
-        const rotatedBlobs = await Promise.all(
-          pageIndices.map(async (origIdx, j) => {
-            const rot = batchPreviewRotations[origIdx] ?? 0
-            const blob = studentBlobs[j]
-            return rot !== 0 && blob ? rotateImageBlob(blob, rot) : blob
-          }),
-        )
-
-        await saveStudentSubmission(
-          assignmentId,
-          student.id,
-          rotatedBlobs,
-          avoidBlobStorage,
-          'teacher_scan',
-        )
-        successCount++
+        if (successCount > 0) {
+          alert(`已成功匯入 ${successCount} 份作業`)
+          requestSync(true)
+          await loadData()
+        }
+      } catch (e) {
+        console.error(e)
+        setError(e instanceof Error ? e.message : 'PDF 批次匯入失敗')
+      } finally {
+        importPreviewFiles.forEach((f) => f.urls.forEach((u) => URL.revokeObjectURL(u)))
+        setImportPreviewFiles([])
+        setIsBatchProcessing(false)
+        setBatchProgress('')
       }
-
-      if (successCount > 0) {
-        alert(`已成功匯入 ${successCount} 份作業`)
-        requestSync(true)
-        await loadData()
-      }
-    } catch (e) {
-      console.error(e)
-      setError(e instanceof Error ? e.message : 'PDF 批次匯入失敗')
-    } finally {
-      setBatchPreviewBlobs([])
-      setBatchPreviewUrls([])
-      setBatchPreviewRotations([])
-      setBatchPreviewPageOrders(new Map())
-      setIsBatchProcessing(false)
-      setBatchProgress('')
-    }
-  }, [
-    batchPreviewBlobs,
-    batchPreviewUrls,
-    batchPreviewRotations,
-    batchPreviewPageOrders,
-    batchPreviewPagesPerStudent,
-    batchPreviewTargetStudents,
-    assignmentId,
-    avoidBlobStorage,
-    loadData,
-  ])
+    },
+    [assignmentId, avoidBlobStorage, loadData, importPreviewFiles],
+  )
 
   // ── Source badge label ──────────────────────────────────────────────────
 
@@ -1831,134 +1396,6 @@ export default function UnifiedImportPage({
         </div>
       )}
 
-      {/* Batch PDF preview modal — rotation + drag-reorder + apply to all */}
-      {showBatchPreview && batchPreviewUrls.length > 0 && (() => {
-        const pps = batchPreviewPagesPerStudent
-        const si = batchPreviewSelectedStudent
-        const startIdx = si * pps
-        const endIdx = Math.min(startIdx + pps, batchPreviewUrls.length)
-        const defaultIndices = Array.from({ length: endIdx - startIdx }, (_, i) => startIdx + i)
-        const currentOrder = batchPreviewPageOrders.get(si) ?? defaultIndices
-        const targetStudentsList = batchPreviewTargetStudents
-
-        const handleDragEnd = (event: DragEndEvent) => {
-          const { active, over } = event
-          if (over && active.id !== over.id) {
-            const oldIndex = currentOrder.findIndex((id) => `bp-${id}` === active.id)
-            const newIndex = currentOrder.findIndex((id) => `bp-${id}` === over.id)
-            const newOrder = arrayMove(currentOrder, oldIndex, newIndex)
-            handleBatchPreviewReorder(si, newOrder)
-          }
-        }
-
-        const cols = currentOrder.length === 1
-          ? 'grid-cols-1 max-w-md mx-auto'
-          : currentOrder.length === 2
-            ? 'grid-cols-2'
-            : 'grid-cols-2 sm:grid-cols-3'
-
-        return (
-          <div className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden">
-              {/* Header */}
-              <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 shrink-0">
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-base font-semibold text-gray-900">
-                    PDF 預覽
-                    <span className="ml-2 text-sm font-normal text-slate-500">
-                      共 {batchPreviewUrls.length} 頁，每位學生 {pps} 頁
-                    </span>
-                  </h3>
-                  <div className="flex gap-1 mt-2 overflow-x-auto pb-1">
-                    {targetStudentsList.map((stu, i) => (
-                      <button
-                        key={stu.id}
-                        type="button"
-                        onClick={() => setBatchPreviewSelectedStudent(i)}
-                        className={`shrink-0 px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
-                          batchPreviewSelectedStudent === i
-                            ? 'bg-indigo-100 text-indigo-700'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
-                        {stu.seatNumber}號
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleBatchPreviewCancel}
-                  className="p-2 rounded-full hover:bg-slate-100 shrink-0 self-start ml-2"
-                >
-                  <X className="w-5 h-5 text-slate-500" />
-                </button>
-              </div>
-
-              {/* Sortable pages for selected student */}
-              <div className="flex-1 min-h-0 overflow-y-auto bg-slate-50 p-4">
-                <p className="text-xs text-slate-400 mb-3 text-center">拖曳卡片可調整頁面順序</p>
-                <DndContext
-                  sensors={dndSensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext
-                    items={currentOrder.map((id) => `bp-${id}`)}
-                    strategy={rectSortingStrategy}
-                  >
-                    <div className={`grid ${cols} gap-3`}>
-                      {currentOrder.map((pageIdx, position) => (
-                        <SortableBatchCard
-                          key={pageIdx}
-                          pageIndex={pageIdx}
-                          url={batchPreviewUrls[pageIdx]}
-                          rotation={batchPreviewRotations[pageIdx] ?? 0}
-                          position={position}
-                        />
-                      ))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-              </div>
-
-              {/* Footer */}
-              <div className="flex items-center justify-between px-5 py-3 border-t border-slate-200 shrink-0">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleBatchApplyToAll}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                  >
-                    <CopyCheck className="w-4 h-4" />
-                    套用頁序到全部學生
-                  </button>
-                  {batchApplyFeedback && (
-                    <span className="text-xs text-green-600 font-medium">{batchApplyFeedback}</span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleBatchPreviewCancel}
-                    className="px-4 py-2 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleBatchPreviewConfirm}
-                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-green-600 text-sm font-semibold text-white hover:bg-green-700 transition-colors"
-                  >
-                    確認匯入
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
-
       {/* Upload preview modal — per-page rotation before merge */}
       {uploadPreviewStudent && uploadPreviewUrls.length > 0 && (
         <div className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -2073,42 +1510,19 @@ export default function UnifiedImportPage({
         </div>
       )}
 
-      {/* PdfReviewDialog — 整份校稿（刪頁/拖/轉） */}
-      {showPdfReview && pdfReviewFiles.length > 0 && (
-        <PdfReviewDialog
-          files={pdfReviewFiles}
-          selectedFileIndex={pdfReviewSelectedIdx}
-          onSelectFileIndex={setPdfReviewSelectedIdx}
-          onRotate={handleReviewRotate}
-          onRotateAll={handleReviewRotateAll}
-          onRotateByParity={handleReviewRotateByParity}
-          onToggleDelete={handleReviewToggleDelete}
-          onReorder={handleReviewReorder}
-          onConfirm={handlePdfReviewConfirm}
-          onCancel={handlePdfReviewCancel}
-        />
-      )}
-
-      {/* ImportConfigDialog for batch PDF */}
-      {showImportConfig && (
-        <ImportConfigDialog
-          files={pdfFilesInfo}
-          mergeMode={configMergeMode}
-          onMergeModeChange={setConfigMergeMode}
-          pagesPerStudentPerPdf={configPagesPerStudentPerPdf}
-          onPagesPerStudentPerPdfChange={setConfigPagesPerStudentPerPdf}
-          perPdfPagesArray={configPerPdfPagesArray}
-          onPerPdfPagesArrayChange={setConfigPerPdfPagesArray}
-          pagesPerStudent={configPagesPerStudent}
-          onPagesPerStudentChange={setConfigPagesPerStudent}
-          students={students.map(s => ({ id: s.id, seatNumber: s.seatNumber, name: s.name }))}
-          absentSeatNumbers={configAbsentSeatNumbers}
-          onAbsentSeatNumbersChange={setConfigAbsentSeatNumbers}
-          confirmed={configConfirmed}
-          onConfirmedChange={setConfigConfirmed}
-          onConfirm={handleImportConfirm}
-          onCancel={handleImportCancel}
-          onBack={handleBackToReview}
+      {/* PdfImportPreviewDialog — 單一畫面：設定 + 批次旋轉 + 學生分組預覽 */}
+      {showImportPreview && importPreviewFiles.length > 0 && (
+        <PdfImportPreviewDialog
+          pdfFiles={importPreviewFiles}
+          students={students.map((s) => ({
+            id: s.id,
+            seatNumber: s.seatNumber,
+            name: s.name,
+          }))}
+          initialPagesPerStudent={pagesPerStudent}
+          onConfirm={handleImportPreviewConfirm}
+          onCancel={handleImportPreviewCancel}
+          rotateBlob={rotateImageBlob}
         />
       )}
     </div>
