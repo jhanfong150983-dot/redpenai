@@ -44,7 +44,6 @@ import { mergePageBlobs } from '@/lib/image-merge'
 import {
   convertPdfToImages,
   getFileType,
-  getPdfFirstPageAndCount,
   sortFilesByNumber,
 } from '@/lib/pdfToImage'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
@@ -52,6 +51,9 @@ import ImportConfigDialog, {
   type PdfFileInfo,
   interleavePdfPages,
 } from '@/components/ImportConfigDialog'
+import PdfReviewDialog, {
+  type PdfReviewFile,
+} from '@/components/PdfReviewDialog'
 import { buildApiUrl } from '@/lib/api-base'
 import CameraCapturePage from './CameraCapturePage'
 
@@ -238,6 +240,27 @@ function SortableUploadCard({ id, displayIdx, url, rotation, expectedOrientation
   )
 }
 
+// 通用 interleave：把多個陣列依「每位學生 N 個 chunk」交錯合併（同 interleavePdfPages 行為，但泛型）
+function interleaveArrays<T>(arrays: T[][], chunkSizes: number[] | number): T[] {
+  if (arrays.length === 0) return []
+  if (arrays.length === 1) return arrays[0]
+  const sizes = Array.isArray(chunkSizes) ? chunkSizes : arrays.map(() => chunkSizes)
+  const chunked = arrays.map((arr, i) => {
+    const cs = sizes[i] ?? 1
+    const chunks: T[][] = []
+    for (let j = 0; j < arr.length; j += cs) chunks.push(arr.slice(j, j + cs))
+    return chunks
+  })
+  const maxChunks = Math.max(...chunked.map((c) => c.length))
+  const result: T[] = []
+  for (let ci = 0; ci < maxChunks; ci++) {
+    for (const cs of chunked) {
+      if (ci < cs.length) result.push(...cs[ci])
+    }
+  }
+  return result
+}
+
 // ── Sortable card for batch preview ───────────────────────────────────────────
 
 function SortableBatchCard({
@@ -376,15 +399,18 @@ export default function UnifiedImportPage({
     useState(1)
   const [configPerPdfPagesArray, setConfigPerPdfPagesArray] = useState<number[]>([])
   const [configPagesPerStudent, setConfigPagesPerStudent] = useState(1)
-  const [configStartPage, setConfigStartPage] = useState(1)
-  const [configEndPage, setConfigEndPage] = useState(999)
-  const [configMaxPage, setConfigMaxPage] = useState(999)
-  const [configPerPdfPageRanges, setConfigPerPdfPageRanges] = useState<Array<{ startPage: number; endPage: number }>>([])
 
   const [configConfirmed, setConfigConfirmed] = useState(false)
   const [configAbsentSeatNumbers, setConfigAbsentSeatNumbers] = useState<Set<number>>(new Set())
   const [isBatchProcessing, setIsBatchProcessing] = useState(false)
   const [batchProgress, setBatchProgress] = useState('')
+
+  // ── PDF Review（整份校稿）─────────────────────────────────────────────
+  // 每份 PDF 全頁 blobs（轉檔後存著、給後續切片用）
+  const [pdfReviewBlobsByFile, setPdfReviewBlobsByFile] = useState<Blob[][]>([])
+  const [pdfReviewFiles, setPdfReviewFiles] = useState<PdfReviewFile[]>([])
+  const [pdfReviewSelectedIdx, setPdfReviewSelectedIdx] = useState(0)
+  const [showPdfReview, setShowPdfReview] = useState(false)
 
   // ── Batch preview (per-page rotation before auto-map + save) ────────────
   const [batchPreviewBlobs, setBatchPreviewBlobs] = useState<Blob[]>([])
@@ -773,89 +799,195 @@ export default function UnifiedImportPage({
       if (fileArray.length === 0) return
 
       setError(null)
+      setIsBatchProcessing(true)
+      setBatchProgress('正在轉換 PDF...')
+
       try {
         const infos: PdfFileInfo[] = []
-        for (const file of fileArray) {
-          const { blob, pageCount } = await getPdfFirstPageAndCount(file)
+        const blobsByFile: Blob[][] = []
+        const reviewFiles: PdfReviewFile[] = []
+
+        for (let fi = 0; fi < fileArray.length; fi++) {
+          const file = fileArray[fi]
+          const fileSizeMB = (file.size / 1024 / 1024).toFixed(1)
+          setBatchProgress(
+            `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name}（${fileSizeMB}MB）`,
+          )
+
+          const blobs = await convertPdfToImages(file, {
+            onProgress: (current, total) => {
+              setBatchProgress(
+                `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name} — 第 ${current}/${total} 頁`,
+              )
+            },
+          })
+
+          if (blobs.length === 0) {
+            throw new Error(`${file.name}：無法讀取 PDF 頁面`)
+          }
+
+          const urls = blobs.map((b) => URL.createObjectURL(b))
+          blobsByFile.push(blobs)
           infos.push({
             file,
-            pageCount,
-            firstPageUrl: URL.createObjectURL(blob),
+            pageCount: blobs.length,
+            effectivePageCount: blobs.length,
+            firstPageUrl: urls[0],
+          })
+          reviewFiles.push({
+            fileName: file.name,
+            totalPages: blobs.length,
+            pageUrls: urls,
+            rotations: new Array(blobs.length).fill(0),
+            deleted: new Array(blobs.length).fill(false),
+            order: Array.from({ length: blobs.length }, (_, i) => i),
           })
         }
 
-        if (infos.length === 0) return
+        setPdfReviewBlobsByFile(blobsByFile)
+        setPdfReviewFiles(reviewFiles)
+        setPdfReviewSelectedIdx(0)
+        setPdfFilesInfo(infos)
 
-        const maxPage = Math.max(...infos.map((i) => i.pageCount))
-        setConfigMaxPage(maxPage)
-        setConfigEndPage(maxPage)
-        setConfigStartPage(1)
         setConfigMergeMode('concat')
         setConfigPagesPerStudent(pagesPerStudent)
         setConfigPagesPerStudentPerPdf(1)
         setConfigPerPdfPagesArray(infos.map(() => 1))
-        setConfigPerPdfPageRanges(infos.map((info) => ({ startPage: 1, endPage: info.pageCount })))
         setConfigConfirmed(false)
         setConfigAbsentSeatNumbers(new Set())
-        setPdfFilesInfo(infos)
-        setShowImportConfig(true)
+
+        setShowPdfReview(true)
       } catch (e) {
         console.error(e)
         setError(e instanceof Error ? e.message : '處理檔案失敗')
+      } finally {
+        setIsBatchProcessing(false)
+        setBatchProgress('')
       }
     },
     [pagesPerStudent],
   )
 
+  // ── PDF Review handlers ──────────────────────────────────────────────
+
+  const handleReviewRotate = useCallback((fileIdx: number, pageIdx: number) => {
+    setPdfReviewFiles((prev) => {
+      const next = [...prev]
+      const f = { ...next[fileIdx] }
+      const rotations = [...f.rotations]
+      rotations[pageIdx] = ((rotations[pageIdx] ?? 0) + 90) % 360
+      f.rotations = rotations
+      next[fileIdx] = f
+      return next
+    })
+  }, [])
+
+  const handleReviewRotateAll = useCallback((fileIdx: number) => {
+    setPdfReviewFiles((prev) => {
+      const next = [...prev]
+      const f = { ...next[fileIdx] }
+      f.rotations = f.rotations.map((r) => (r + 90) % 360)
+      next[fileIdx] = f
+      return next
+    })
+  }, [])
+
+  const handleReviewToggleDelete = useCallback((fileIdx: number, pageIdx: number) => {
+    setPdfReviewFiles((prev) => {
+      const next = [...prev]
+      const f = { ...next[fileIdx] }
+      const deleted = [...f.deleted]
+      deleted[pageIdx] = !deleted[pageIdx]
+      f.deleted = deleted
+      next[fileIdx] = f
+      return next
+    })
+  }, [])
+
+  const handleReviewReorder = useCallback((fileIdx: number, newOrder: number[]) => {
+    setPdfReviewFiles((prev) => {
+      const next = [...prev]
+      next[fileIdx] = { ...next[fileIdx], order: newOrder }
+      return next
+    })
+  }, [])
+
+  const handlePdfReviewCancel = useCallback(() => {
+    // 釋放 URL
+    pdfReviewFiles.forEach((f) => f.pageUrls.forEach((u) => URL.revokeObjectURL(u)))
+    setPdfReviewFiles([])
+    setPdfReviewBlobsByFile([])
+    setPdfFilesInfo([])
+    setShowPdfReview(false)
+  }, [pdfReviewFiles])
+
+  const handlePdfReviewConfirm = useCallback(() => {
+    // 更新 ImportConfigDialog 用的 pdfFilesInfo（effectivePageCount = 校稿後剩餘）
+    setPdfFilesInfo((prev) =>
+      prev.map((info, i) => {
+        const f = pdfReviewFiles[i]
+        if (!f) return info
+        const remaining = f.order.filter((idx) => !f.deleted[idx]).length
+        return { ...info, effectivePageCount: remaining }
+      }),
+    )
+    setShowPdfReview(false)
+    setShowImportConfig(true)
+  }, [pdfReviewFiles])
+
+  const handleBackToReview = useCallback(() => {
+    setShowImportConfig(false)
+    setShowPdfReview(true)
+  }, [])
+
   const handleImportCancel = useCallback(() => {
-    pdfFilesInfo.forEach((info) => URL.revokeObjectURL(info.firstPageUrl))
+    // 同時清掉 review state 與 ImportConfig
+    pdfReviewFiles.forEach((f) => f.pageUrls.forEach((u) => URL.revokeObjectURL(u)))
+    setPdfReviewFiles([])
+    setPdfReviewBlobsByFile([])
     setPdfFilesInfo([])
     setShowImportConfig(false)
-  }, [pdfFilesInfo])
+    setShowPdfReview(false)
+  }, [pdfReviewFiles])
 
-  // Step 1: Convert PDFs → open batch preview
-  const handleImportConfirm = useCallback(async () => {
-    const fileArray = pdfFilesInfo.map((i) => i.file)
-    if (fileArray.length === 0) return
+  // Step: ImportConfigDialog 確認 → 依 review 結果切片並開 batchPreview
+  const handleImportConfirm = useCallback(() => {
+    if (pdfReviewBlobsByFile.length === 0 || pdfReviewFiles.length === 0) return
 
-    pdfFilesInfo.forEach((info) => URL.revokeObjectURL(info.firstPageUrl))
-    setPdfFilesInfo([])
-    setShowImportConfig(false)
-    setIsBatchProcessing(true)
-    setBatchProgress('正在轉換 PDF...')
     setError(null)
 
     try {
+      // 依 review 階段的 order + deleted 過濾，並對齊 rotations
       const allPdfPages: Blob[][] = []
-      const totalFiles = fileArray.length
-      for (let fi = 0; fi < totalFiles; fi++) {
-        const file = fileArray[fi]
-        const fileSizeMB = (file.size / 1024 / 1024).toFixed(1)
-        setBatchProgress(`正在轉換 PDF（${fi + 1}/${totalFiles}）：${file.name}（${fileSizeMB}MB）`)
-        const blobs = await convertPdfToImages(file, {
-          // 用 convertPdfToImages 預設（scale=2、minWidth=1400、hardMinWidth=1280）
-          // 確保 OCR 能讀到小字 header（如「題組一」彩色 box）。
-          // 舊版用 scale=1 降規格、學生卷只剩 842 wide、PaddleOCR 對小字漏讀。
-          onProgress: (current, total) => {
-            setBatchProgress(`正在轉換 PDF（${fi + 1}/${totalFiles}）：${file.name} — 第 ${current}/${total} 頁`)
-          }
-        })
-        // Use per-PDF page range if available, otherwise global
-        const pdfRange = configPerPdfPageRanges[fi]
-        const effectiveStart = pdfRange ? Math.max(1, pdfRange.startPage) : configStartPage
-        const effectiveEnd = pdfRange ? Math.min(blobs.length, pdfRange.endPage) : configEndPage
-        const filtered = blobs.slice(effectiveStart - 1, effectiveEnd)
-        allPdfPages.push(filtered)
+      const allPdfRotations: number[][] = []
+      for (let fi = 0; fi < pdfReviewFiles.length; fi++) {
+        const f = pdfReviewFiles[fi]
+        const blobs = pdfReviewBlobsByFile[fi] ?? []
+        const orderedBlobs: Blob[] = []
+        const orderedRots: number[] = []
+        for (const origIdx of f.order) {
+          if (f.deleted[origIdx]) continue
+          const b = blobs[origIdx]
+          if (!b) continue
+          orderedBlobs.push(b)
+          orderedRots.push(f.rotations[origIdx] ?? 0)
+        }
+        allPdfPages.push(orderedBlobs)
+        allPdfRotations.push(orderedRots)
       }
 
       let allBlobs: Blob[]
+      let allRotations: number[]
       let effectivePagesPerStudent: number
 
-      if (fileArray.length > 1 && configMergeMode === 'interleave') {
+      if (pdfReviewFiles.length > 1 && configMergeMode === 'interleave') {
         allBlobs = interleavePdfPages(allPdfPages, configPerPdfPagesArray)
+        // 對 rotations 套用同樣的 interleave 規則
+        allRotations = interleaveArrays(allPdfRotations, configPerPdfPagesArray)
         effectivePagesPerStudent = configPerPdfPagesArray.reduce((s, n) => s + n, 0)
       } else {
         allBlobs = allPdfPages.flat()
+        allRotations = allPdfRotations.flat()
         effectivePagesPerStudent = configPagesPerStudent
       }
 
@@ -874,31 +1006,32 @@ export default function UnifiedImportPage({
         throw new Error('PDF 頁數不足，無法分配給任何學生')
       }
 
-      // 使用在 ImportConfigDialog 中已勾選的未交學生
       const targetStudents = sortedStudents.filter(
         (s) => !configAbsentSeatNumbers.has(s.seatNumber),
       )
 
-      // Open batch preview for rotation — student tabs now match correctly
+      // batchPreview 用全新的 URL；review 階段的 URLs 在此釋放
       const urls = allBlobs.map((b) => URL.createObjectURL(b))
+      pdfReviewFiles.forEach((f) => f.pageUrls.forEach((u) => URL.revokeObjectURL(u)))
+      setPdfReviewFiles([])
+      setPdfReviewBlobsByFile([])
+      setPdfFilesInfo([])
+
       setBatchPreviewBlobs(allBlobs)
       setBatchPreviewUrls(urls)
-      setBatchPreviewRotations(new Array(allBlobs.length).fill(0))
+      setBatchPreviewRotations(allRotations)
       setBatchPreviewPagesPerStudent(effectivePagesPerStudent)
       setBatchPreviewTargetStudents(targetStudents.slice(0, totalStudentsNeeded))
       setBatchPreviewSelectedStudent(0)
+      setShowImportConfig(false)
       setShowBatchPreview(true)
     } catch (e) {
       console.error(e)
       setError(e instanceof Error ? e.message : 'PDF 批次匯入失敗')
-    } finally {
-      setIsBatchProcessing(false)
-      setBatchProgress('')
     }
   }, [
-    pdfFilesInfo,
-    configStartPage,
-    configEndPage,
+    pdfReviewBlobsByFile,
+    pdfReviewFiles,
     configMergeMode,
     configPerPdfPagesArray,
     configPagesPerStudent,
@@ -1947,6 +2080,21 @@ export default function UnifiedImportPage({
         </div>
       )}
 
+      {/* PdfReviewDialog — 整份校稿（刪頁/拖/轉） */}
+      {showPdfReview && pdfReviewFiles.length > 0 && (
+        <PdfReviewDialog
+          files={pdfReviewFiles}
+          selectedFileIndex={pdfReviewSelectedIdx}
+          onSelectFileIndex={setPdfReviewSelectedIdx}
+          onRotate={handleReviewRotate}
+          onRotateAll={handleReviewRotateAll}
+          onToggleDelete={handleReviewToggleDelete}
+          onReorder={handleReviewReorder}
+          onConfirm={handlePdfReviewConfirm}
+          onCancel={handlePdfReviewCancel}
+        />
+      )}
+
       {/* ImportConfigDialog for batch PDF */}
       {showImportConfig && (
         <ImportConfigDialog
@@ -1959,13 +2107,6 @@ export default function UnifiedImportPage({
           onPerPdfPagesArrayChange={setConfigPerPdfPagesArray}
           pagesPerStudent={configPagesPerStudent}
           onPagesPerStudentChange={setConfigPagesPerStudent}
-          startPage={configStartPage}
-          onStartPageChange={setConfigStartPage}
-          endPage={configEndPage}
-          onEndPageChange={setConfigEndPage}
-          maxPage={configMaxPage}
-          perPdfPageRanges={configPerPdfPageRanges.length > 0 ? configPerPdfPageRanges : undefined}
-          onPerPdfPageRangesChange={setConfigPerPdfPageRanges}
           students={students.map(s => ({ id: s.id, seatNumber: s.seatNumber, name: s.name }))}
           absentSeatNumbers={configAbsentSeatNumbers}
           onAbsentSeatNumbersChange={setConfigAbsentSeatNumbers}
@@ -1973,6 +2114,7 @@ export default function UnifiedImportPage({
           onConfirmedChange={setConfigConfirmed}
           onConfirm={handleImportConfirm}
           onCancel={handleImportCancel}
+          onBack={handleBackToReview}
         />
       )}
     </div>

@@ -8,6 +8,8 @@ import Button from '@/components/ui/Button'
 export interface PdfFileInfo {
   file: File
   pageCount: number
+  // 校稿後實際使用頁數；未提供時 fallback 用 pageCount
+  effectivePageCount?: number
   firstPageUrl: string
 }
 
@@ -63,14 +65,6 @@ export interface ImportConfigDialogProps {
   onPerPdfPagesArrayChange: (arr: number[]) => void
   pagesPerStudent: number
   onPagesPerStudentChange: (n: number) => void
-  startPage: number
-  onStartPageChange: (n: number) => void
-  endPage: number
-  onEndPageChange: (n: number) => void
-  maxPage: number
-  // Per-PDF page ranges (optional — if provided, overrides global startPage/endPage)
-  perPdfPageRanges?: Array<{ startPage: number; endPage: number }>
-  onPerPdfPageRangesChange?: (ranges: Array<{ startPage: number; endPage: number }>) => void
   students: StudentInfo[]
   absentSeatNumbers: Set<number>
   onAbsentSeatNumbersChange: (s: Set<number>) => void
@@ -78,58 +72,37 @@ export interface ImportConfigDialogProps {
   onConfirmedChange: (b: boolean) => void
   onConfirm: () => void
   onCancel: () => void
+  onBack?: () => void
 }
+
+const getEffectiveCount = (info: PdfFileInfo) =>
+  info.effectivePageCount ?? info.pageCount
 
 export default function ImportConfigDialog({
   files,
   mergeMode,
   onMergeModeChange,
-  pagesPerStudentPerPdf: _pagesPerStudentPerPdf,
   onPagesPerStudentPerPdfChange,
   perPdfPagesArray,
   onPerPdfPagesArrayChange,
   pagesPerStudent,
   onPagesPerStudentChange,
-  startPage,
-  onStartPageChange,
-  endPage,
-  onEndPageChange,
-  maxPage,
-  perPdfPageRanges,
-  onPerPdfPageRangesChange,
   students,
   absentSeatNumbers,
   onAbsentSeatNumbersChange,
   confirmed,
   onConfirmedChange,
   onConfirm,
-  onCancel
+  onCancel,
+  onBack,
 }: ImportConfigDialogProps) {
   const isMultiPdf = files.length > 1
   const isInterleave = isMultiPdf && mergeMode === 'interleave'
 
-  // Helper: get effective page range for each PDF
-  const getEffectiveRange = (i: number) => {
-    if (perPdfPageRanges && perPdfPageRanges[i]) {
-      return {
-        start: Math.max(1, perPdfPageRanges[i].startPage),
-        end: Math.min(files[i].pageCount, perPdfPageRanges[i].endPage)
-      }
-    }
-    return {
-      start: Math.max(1, startPage),
-      end: Math.min(files[i].pageCount, endPage)
-    }
-  }
-
-  // 計算總頁數和每位學生頁數
+  // 計算總頁數和每位學生頁數（依校稿後 effectivePageCount）
   const totalUsablePages = useMemo(() => {
-    return files.reduce((sum, _f, i) => {
-      const { start, end } = getEffectiveRange(i)
-      return sum + Math.max(0, end - start + 1)
-    }, 0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, startPage, endPage, perPdfPageRanges])
+    return files.reduce((sum, info) => sum + getEffectiveCount(info), 0)
+  }, [files])
 
   const effectivePagesPerStudent = useMemo(() => {
     if (isInterleave) {
@@ -148,14 +121,12 @@ export default function ImportConfigDialog({
   // 交錯模式各 PDF 學生數一致性檢查
   const perPdfStudentCounts = useMemo(() => {
     if (!isInterleave) return []
-    return files.map((_f, i) => {
-      const { start, end } = getEffectiveRange(i)
-      const usable = Math.max(0, end - start + 1)
+    return files.map((info, i) => {
+      const usable = getEffectiveCount(info)
       const ppsp = perPdfPagesArray[i] ?? 1
       return Math.floor(usable / ppsp)
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInterleave, files, perPdfPagesArray, startPage, endPage, perPdfPageRanges])
+  }, [isInterleave, files, perPdfPagesArray])
 
   const perPdfConsistent = perPdfStudentCounts.length > 0 &&
     perPdfStudentCounts.every((c) => c === perPdfStudentCounts[0])
@@ -212,25 +183,31 @@ export default function ImportConfigDialog({
           {/* 1. 預覽檔案 */}
           <section>
             <h3 className="text-sm font-semibold text-gray-700 mb-2">預覽檔案</h3>
-            <p className="text-xs text-gray-500 mb-3">請確認下方每個 PDF 的第一頁是否正確。</p>
+            <p className="text-xs text-gray-500 mb-3">已完成整份校稿，下方顯示校稿後剩餘頁數。</p>
             <div className="flex gap-3 overflow-x-auto pb-1">
-              {files.map((info, i) => (
-                <div key={i} className="flex-shrink-0 w-28 text-center">
-                  <div className="border border-gray-200 rounded-lg overflow-hidden mb-1.5 bg-gray-50">
-                    <img src={info.firstPageUrl} alt={info.file.name} className="w-full h-auto" />
+              {files.map((info, i) => {
+                const eff = getEffectiveCount(info)
+                const removed = info.pageCount - eff
+                return (
+                  <div key={i} className="flex-shrink-0 w-28 text-center">
+                    <div className="border border-gray-200 rounded-lg overflow-hidden mb-1.5 bg-gray-50">
+                      <img src={info.firstPageUrl} alt={info.file.name} className="w-full h-auto" />
+                    </div>
+                    <p className="text-xs text-gray-700 truncate font-medium" title={info.file.name}>
+                      {info.file.name}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {removed > 0 ? `${eff}/${info.pageCount} 頁` : `${eff} 頁`}
+                      {' · '}
+                      {(info.file.size / 1024 / 1024).toFixed(1)}MB
+                    </p>
+                    {removed > 0 && (
+                      <p className="text-[11px] text-amber-600">已刪除 {removed} 頁</p>
+                    )}
                   </div>
-                  <p className="text-xs text-gray-700 truncate font-medium" title={info.file.name}>
-                    {info.file.name}
-                  </p>
-                  <p className="text-xs text-gray-400">{info.pageCount} 頁 · {(info.file.size / 1024 / 1024).toFixed(1)}MB</p>
-                </div>
-              ))}
+                )
+              })}
             </div>
-            {files.some((f) => f.file.size > 20 * 1024 * 1024) && (
-              <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-                ⚠ 有檔案超過 20MB，轉換可能需要較長時間。建議先用壓縮工具（如 <a href="https://www.ilovepdf.com/compress_pdf" target="_blank" rel="noopener noreferrer" className="underline font-medium">iLovePDF</a>）壓縮後再上傳。
-              </div>
-            )}
           </section>
 
           {/* 2. 合併方式（多 PDF 才顯示） */}
@@ -279,13 +256,13 @@ export default function ImportConfigDialog({
                 </p>
                 <div className="space-y-2">
                   {files.map((info, i) => {
-                    const range = perPdfPageRanges?.[i] ?? { startPage: 1, endPage: info.pageCount }
+                    const eff = getEffectiveCount(info)
                     return (
-                      <div key={i} className="bg-gray-50 rounded-lg px-3 py-2.5 space-y-2">
+                      <div key={i} className="bg-gray-50 rounded-lg px-3 py-2.5">
                         <div className="flex items-center gap-3">
                           <span className="text-xs text-gray-600 truncate flex-1" title={info.file.name}>
                             {info.file.name}
-                            <span className="text-gray-400 ml-1">({info.pageCount}頁)</span>
+                            <span className="text-gray-400 ml-1">({eff}頁)</span>
                           </span>
                           <span className="text-xs text-gray-500 whitespace-nowrap">每位學生</span>
                           <NumericInput
@@ -296,35 +273,6 @@ export default function ImportConfigDialog({
                             className="w-14 px-2 py-1 border border-gray-300 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-500"
                           />
                           <span className="text-xs text-gray-500">頁</span>
-                        </div>
-                        <div className="flex items-center gap-2 pl-1">
-                          <span className="text-[11px] text-gray-400">使用第</span>
-                          <NumericInput
-                            min={1}
-                            max={info.pageCount}
-                            value={range.startPage}
-                            onChange={(v) => {
-                              if (!onPerPdfPageRangesChange) return
-                              const newRanges = [...(perPdfPageRanges || files.map((f) => ({ startPage: 1, endPage: f.pageCount })))]
-                              newRanges[i] = { ...newRanges[i], startPage: typeof v === 'number' ? v : 1 }
-                              onPerPdfPageRangesChange(newRanges)
-                            }}
-                            className="w-14 px-1.5 py-0.5 border border-gray-300 rounded text-xs text-center focus:outline-none focus:ring-2 focus:ring-green-500"
-                          />
-                          <span className="text-[11px] text-gray-400">~</span>
-                          <NumericInput
-                            min={1}
-                            max={info.pageCount}
-                            value={range.endPage}
-                            onChange={(v) => {
-                              if (!onPerPdfPageRangesChange) return
-                              const newRanges = [...(perPdfPageRanges || files.map((f) => ({ startPage: 1, endPage: f.pageCount })))]
-                              newRanges[i] = { ...newRanges[i], endPage: typeof v === 'number' ? v : info.pageCount }
-                              onPerPdfPageRangesChange(newRanges)
-                            }}
-                            className="w-14 px-1.5 py-0.5 border border-gray-300 rounded text-xs text-center focus:outline-none focus:ring-2 focus:ring-green-500"
-                          />
-                          <span className="text-[11px] text-gray-400">頁（共 {info.pageCount} 頁）</span>
                         </div>
                       </div>
                     )
@@ -357,41 +305,7 @@ export default function ImportConfigDialog({
             )}
           </section>
 
-          {/* 4. 頁數範圍（非交錯模式才顯示獨立區塊，交錯模式已整合到上方每份 PDF 行內） */}
-          {!isInterleave && (
-            <section>
-              <h3 className="text-sm font-semibold text-gray-700 mb-1">使用頁數範圍</h3>
-              <p className="text-xs text-gray-500 mb-2">
-                若掃描檔前後有多餘空白頁，可縮小此範圍，只匯入指定頁碼內的頁面。
-              </p>
-              <div className="flex items-end gap-3">
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">開始頁</label>
-                  <NumericInput
-                    min={1}
-                    max={maxPage}
-                    value={startPage}
-                    onChange={(v) => onStartPageChange(typeof v === 'number' ? v : 1)}
-                    className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  />
-                </div>
-                <span className="text-gray-400 pb-2">~</span>
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">結束頁</label>
-                  <NumericInput
-                    min={1}
-                    max={maxPage}
-                    value={endPage}
-                    onChange={(v) => onEndPageChange(typeof v === 'number' ? v : maxPage)}
-                    className="w-20 px-2 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  />
-                </div>
-                <span className="text-xs text-gray-400 pb-2">（最多 {maxPage} 頁）</span>
-              </div>
-            </section>
-          )}
-
-          {/* 5. 學生分配 */}
+          {/* 4. 學生分配 */}
           <section>
             <h3 className="text-sm font-semibold text-gray-700 mb-1">學生分配</h3>
             {expectedStudentCount > 0 && excessCount === 0 && missingCount === 0 && (
@@ -401,7 +315,7 @@ export default function ImportConfigDialog({
             )}
             {excessCount > 0 && (
               <p className="text-xs text-red-600 mb-2">
-                ⚠ PDF 可分配 {expectedStudentCount} 人，但班上只有 {students.length} 人，頁數多了 {excessCount} 人份，請檢查設定
+                ⚠ PDF 可分配 {expectedStudentCount} 人，但班上只有 {students.length} 人，頁數多了 {excessCount} 人份，請回上一步刪除多餘頁面
               </p>
             )}
             {missingCount > 0 && (
@@ -451,11 +365,11 @@ export default function ImportConfigDialog({
               </>
             )}
             {expectedStudentCount === 0 && (
-              <p className="text-xs text-red-600">⚠ 依目前設定無法分配任何學生，請檢查頁數設定</p>
+              <p className="text-xs text-red-600">⚠ 依目前設定無法分配任何學生，請檢查頁數設定或回上一步調整校稿結果</p>
             )}
           </section>
 
-          {/* 6. 確認勾選框 */}
+          {/* 5. 確認勾選框 */}
           <label className="flex items-start gap-3 cursor-pointer p-3 rounded-xl border-2 border-gray-200 hover:border-green-400 transition-colors">
             <input
               type="checkbox"
@@ -468,13 +382,22 @@ export default function ImportConfigDialog({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 flex-shrink-0">
-          <Button type="button" variant="outline" onClick={onCancel}>
-            取消
-          </Button>
-          <Button type="button" variant="primary" onClick={onConfirm} disabled={!canConfirm}>
-            開始匯入
-          </Button>
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-between gap-3 flex-shrink-0">
+          <div>
+            {onBack && (
+              <Button type="button" variant="outline" onClick={onBack}>
+                ← 返回校稿
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <Button type="button" variant="outline" onClick={onCancel}>
+              取消
+            </Button>
+            <Button type="button" variant="primary" onClick={onConfirm} disabled={!canConfirm}>
+              下一步
+            </Button>
+          </div>
         </div>
       </div>
     </div>

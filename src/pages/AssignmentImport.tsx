@@ -225,7 +225,7 @@ export default function AssignmentImport({
   const [configPagesPerStudent, setConfigPagesPerStudent] = useState(1)
   const [configStartPage, setConfigStartPage] = useState(1)
   const [configEndPage, setConfigEndPage] = useState(999)
-  const [configMaxPage, setConfigMaxPage] = useState(999)
+  const [, setConfigMaxPage] = useState(999)
   const [configPerPdfPageRanges, setConfigPerPdfPageRanges] = useState<Array<{ startPage: number; endPage: number }>>([])
   const [configConfirmed, setConfigConfirmed] = useState(false)
   const [configAbsentSeatNumbers, setConfigAbsentSeatNumbers] = useState<Set<number>>(new Set())
@@ -1252,13 +1252,6 @@ export default function AssignmentImport({
           onPerPdfPagesArrayChange={setConfigPerPdfPagesArray}
           pagesPerStudent={configPagesPerStudent}
           onPagesPerStudentChange={setConfigPagesPerStudent}
-          startPage={configStartPage}
-          onStartPageChange={setConfigStartPage}
-          endPage={configEndPage}
-          onEndPageChange={setConfigEndPage}
-          maxPage={configMaxPage}
-          perPdfPageRanges={configPerPdfPageRanges.length > 0 ? configPerPdfPageRanges : undefined}
-          onPerPdfPageRangesChange={setConfigPerPdfPageRanges}
           students={[]}
           absentSeatNumbers={configAbsentSeatNumbers}
           onAbsentSeatNumbersChange={setConfigAbsentSeatNumbers}
