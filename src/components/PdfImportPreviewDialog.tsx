@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { RotateCcw, RotateCw, Trash2, X } from 'lucide-react'
 import {
   DndContext,
@@ -203,6 +203,12 @@ export default function PdfImportPreviewDialog({
     new Map(),
   )
 
+  // 切片形狀改變時清空 internal order（避免套到不同尺寸的 chunk）。
+  // togglePageDelete 已自行 clear，這裡管 pagesPerStudent / mergeMode / perPdfPagesArray
+  useEffect(() => {
+    setStudentInternalOrder(new Map())
+  }, [pagesPerStudent, mergeMode, perPdfPagesArray])
+
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -379,6 +385,19 @@ export default function PdfImportPreviewDialog({
 
   // ── 確認分割 ──────────────────────────────────────────────────────────
 
+  // 取出合法的 internal order；若 stale（長度不符或 index 越界）就 fallback default
+  const getValidInternalOrder = useCallback(
+    (si: number, chunkSize: number): number[] => {
+      const defaultOrder = Array.from({ length: chunkSize }, (_, i) => i)
+      const stored = studentInternalOrder.get(si)
+      if (!stored) return defaultOrder
+      if (stored.length !== chunkSize) return defaultOrder
+      if (stored.some((p) => p < 0 || p >= chunkSize)) return defaultOrder
+      return stored
+    },
+    [studentInternalOrder],
+  )
+
   const handleConfirm = useCallback(async () => {
     if (!canConfirm) return
     setIsSubmitting(true)
@@ -388,8 +407,7 @@ export default function PdfImportPreviewDialog({
         const student = splitResult.targetStudents[si]
         const chunk = splitResult.chunks[si]
         if (!student || !chunk) continue
-        const defaultOrder = chunk.map((_, i) => i)
-        const internalOrder = studentInternalOrder.get(si) ?? defaultOrder
+        const internalOrder = getValidInternalOrder(si, chunk.length)
         const pageBlobs = await Promise.all(
           internalOrder.map(async (pos) => {
             const ref = chunk[pos]
@@ -409,7 +427,7 @@ export default function PdfImportPreviewDialog({
     usableChunkCount,
     splitResult.targetStudents,
     splitResult.chunks,
-    studentInternalOrder,
+    getValidInternalOrder,
     pdfFiles,
     rotations,
     rotateBlob,
@@ -626,8 +644,7 @@ export default function PdfImportPreviewDialog({
           {/* 已分配的學生 */}
           {splitResult.targetStudents.slice(0, usableChunkCount).map((student, si) => {
             const chunk = splitResult.chunks[si]
-            const defaultOrder = chunk.map((_, i) => i)
-            const internalOrder = studentInternalOrder.get(si) ?? defaultOrder
+            const internalOrder = getValidInternalOrder(si, chunk.length)
 
             return (
               <section
