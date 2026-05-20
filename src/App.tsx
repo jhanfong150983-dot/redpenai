@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense, Fragment } from 'react'
 import {
   Users,
   Sparkles,
@@ -166,6 +166,85 @@ type HomeOverviewItem = {
   incompleteSeatNumbers: number[]
   ungradedSeatNumbers: number[]
   notSubmittedSeatNumbers: number[]
+}
+
+type OverviewActionKey =
+  | 'fix-answer-key'
+  | 'import-submission'
+  | 'continue-grading'
+  | 'dispatch-correction'
+  | 'followup-correction'
+  | 'review'
+
+type OverviewActionDestination = 'grading' | 'grading-list' | 'correction'
+
+type OverviewAction = {
+  key: OverviewActionKey
+  label: string
+  statusLabel: string
+  statusClassName: string
+  destination: OverviewActionDestination
+}
+
+function getOverviewActions(item: HomeOverviewItem): OverviewAction[] {
+  if (!item.hasAnswerKey) {
+    return [{
+      key: 'fix-answer-key',
+      label: '先補答案卷',
+      statusLabel: '待補答案卷',
+      statusClassName: 'text-rose-700',
+      destination: 'grading-list',
+    }]
+  }
+  if (item.uploadedCount === 0) {
+    return [{
+      key: 'import-submission',
+      label: '匯入作答',
+      statusLabel: '待匯入作答',
+      statusClassName: 'text-sky-700',
+      destination: 'grading-list',
+    }]
+  }
+  const actions: OverviewAction[] = []
+  if (item.pendingGradingCount > 0) {
+    actions.push({
+      key: 'continue-grading',
+      label: '繼續批改',
+      statusLabel: '待批改',
+      statusClassName: 'text-amber-700',
+      destination: 'grading',
+    })
+  }
+  // 已批改有錯但尚未派發訂正 = incomplete 總數 - 訂正中的人數
+  const needsDispatchCount = item.incompleteSeatNumbers.length - item.correctionCount
+  if (needsDispatchCount > 0) {
+    actions.push({
+      key: 'dispatch-correction',
+      label: '去派發訂正',
+      statusLabel: '待派發訂正',
+      statusClassName: 'text-orange-600',
+      destination: 'correction',
+    })
+  }
+  if (item.correctionCount > 0) {
+    actions.push({
+      key: 'followup-correction',
+      label: '追蹤訂正',
+      statusLabel: '待追蹤訂正',
+      statusClassName: 'text-violet-700',
+      destination: 'correction',
+    })
+  }
+  if (actions.length === 0) {
+    actions.push({
+      key: 'review',
+      label: '檢視批改',
+      statusLabel: '已完成',
+      statusClassName: 'text-slate-500',
+      destination: 'grading',
+    })
+  }
+  return actions
 }
 
 type HomeNavItem = {
@@ -1839,16 +1918,19 @@ function App() {
     if (!confirmLeaveGrading()) return
     setCurrentPage('classroom-management')
   }
-  const openAssignmentFromOverview = (item: HomeOverviewItem) => {
+  const openAssignmentForAction = (
+    item: HomeOverviewItem,
+    destination: OverviewActionDestination
+  ) => {
     if (!ensureInkNonNegative()) return
-    if (item.workflowStatus === 'pending-grading') {
+    if (destination === 'grading') {
       setSelectedAssignmentId(item.id)
       setCurrentPage('grading')
-    } else if (item.workflowStatus === 'pending-dispatch' || item.workflowStatus === 'correction-followup') {
+    } else if (destination === 'correction') {
       setSelectedAssignmentId(item.id)
       setCurrentPage('correction')
     } else {
-      // missing-answer-key / missing-submission：至少預選班級
+      // grading-list：missing-answer-key / missing-submission 預選班級
       setGradingSelectedClassroomId(item.classroomId)
       setCurrentPage('grading-list')
     }
@@ -2523,31 +2605,12 @@ function App() {
                         <div>
                           <div className="divide-y divide-slate-200/80">
                             {visibleOverviewItems.map((item) => {
-                              let actionLabel = '檢視批改'
-                              let statusLabel = '已完成'
-                              let statusClassName = 'text-slate-500'
-
-                              if (item.workflowStatus === 'missing-answer-key') {
-                                actionLabel = '先補答案卷'
-                                statusLabel = '待補答案卷'
-                                statusClassName = 'text-rose-700'
-                              } else if (item.workflowStatus === 'missing-submission') {
-                                actionLabel = '匯入作答'
-                                statusLabel = '待匯入作答'
-                                statusClassName = 'text-sky-700'
-                              } else if (item.workflowStatus === 'pending-grading') {
-                                actionLabel = '繼續批改'
-                                statusLabel = '待批改'
-                                statusClassName = 'text-amber-700'
-                              } else if (item.workflowStatus === 'pending-dispatch') {
-                                actionLabel = '去派發訂正'
-                                statusLabel = '待派發訂正'
-                                statusClassName = 'text-orange-600'
-                              } else if (item.workflowStatus === 'correction-followup') {
-                                actionLabel = '檢視批改'
-                                statusLabel = '待追蹤訂正'
-                                statusClassName = 'text-violet-700'
-                              }
+                              const actions = getOverviewActions(item)
+                              // 同一目的地的按鈕只留第一顆,避免兩顆都跳 correction 頁的視覺冗餘
+                              const buttonActions = actions.filter(
+                                (action, idx, arr) =>
+                                  arr.findIndex((a) => a.destination === action.destination) === idx
+                              )
 
                               return (
                                 <div
@@ -2561,18 +2624,36 @@ function App() {
                                       </p>
                                       <p className="mt-1 text-xs text-slate-500">
                                         {item.classroomName} · 學生 {item.totalStudents} 人 · 狀態：
-                                        <span className={`ml-1 font-semibold ${statusClassName}`}>
-                                          {statusLabel}
-                                        </span>
+                                        {actions.map((action, idx) => (
+                                          <Fragment key={action.key}>
+                                            {idx > 0 && (
+                                              <span className="mx-1 text-slate-300">・</span>
+                                            )}
+                                            <span
+                                              className={`${idx === 0 ? 'ml-1 ' : ''}font-semibold ${action.statusClassName}`}
+                                            >
+                                              {action.statusLabel}
+                                            </span>
+                                          </Fragment>
+                                        ))}
                                       </p>
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => openAssignmentFromOverview(item)}
-                                      className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
-                                    >
-                                      {actionLabel}
-                                    </button>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      {buttonActions.map((action, idx) => (
+                                        <button
+                                          key={action.key}
+                                          type="button"
+                                          onClick={() => openAssignmentForAction(item, action.destination)}
+                                          className={
+                                            idx === 0
+                                              ? 'rounded-md border border-slate-400 bg-white px-2.5 py-1 text-xs font-semibold text-slate-900 transition hover:bg-slate-50'
+                                              : 'rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900'
+                                          }
+                                        >
+                                          {action.label}
+                                        </button>
+                                      ))}
+                                    </div>
                                   </div>
                                   <div className="mt-3">
                                     <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
