@@ -879,19 +879,20 @@ export default function UnifiedImportPage({
     })
   }, [])
 
-  // 依「目前顯示位置」（扣掉已刪除頁後的 1-based position）的奇偶批次旋轉
+  // 依「原始 PDF 頁碼」（1-based）的奇偶批次旋轉。
+  // Why: 掃描器的奇/偶面方向錯是 PDF 的物理特性，跟老師有沒有刪掉中間廢頁
+  // 或拖曳排序無關。若依目前顯示位置算，刪掉中間一張廢頁後位置會偏移、
+  // 把該動的頁跳過、不該動的頁誤轉。已刪除頁不會真的被旋轉（沒意義）。
   const handleReviewRotateByParity = useCallback(
     (fileIdx: number, parity: 'odd' | 'even') => {
       setPdfReviewFiles((prev) => {
         const next = [...prev]
         const f = { ...next[fileIdx] }
         const rotations = [...f.rotations]
-        let pos = 0 // 1-based after increment
-        for (const idx of f.order) {
+        for (let idx = 0; idx < f.deleted.length; idx++) {
           if (f.deleted[idx]) continue
-          pos++
-          const isOdd = pos % 2 === 1
-          if ((parity === 'odd' && isOdd) || (parity === 'even' && !isOdd)) {
+          const isOddOriginal = (idx + 1) % 2 === 1
+          if ((parity === 'odd' && isOddOriginal) || (parity === 'even' && !isOddOriginal)) {
             rotations[idx] = ((rotations[idx] ?? 0) + 90) % 360
           }
         }

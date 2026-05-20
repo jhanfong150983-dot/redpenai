@@ -69,12 +69,16 @@ function SortableReviewCard({
             : 'border-slate-200 cursor-grab active:cursor-grabbing hover:border-green-400'
         }`}
       >
-        <div className="bg-slate-50 px-3 py-1.5 text-xs text-slate-600 font-medium flex items-center justify-between">
-          <span className={deleted ? 'line-through text-slate-400' : ''}>
-            {deleted ? `原第 ${pageIndex + 1} 頁` : `第 ${position + 1} 頁`}
+        <div className="bg-slate-50 px-3 py-1.5 text-xs text-slate-600 font-medium flex items-center justify-between gap-1">
+          <span className={`truncate ${deleted ? 'line-through text-slate-400' : ''}`}>
+            {deleted
+              ? `原第 ${pageIndex + 1} 頁`
+              : position === pageIndex
+                ? `第 ${position + 1} 頁`
+                : `第 ${position + 1} 頁（原 ${pageIndex + 1}）`}
           </span>
           {!deleted && rotation !== 0 && (
-            <span className="text-[10px] text-orange-600 font-semibold">{rotation}°</span>
+            <span className="text-[10px] text-orange-600 font-semibold shrink-0">{rotation}°</span>
           )}
         </div>
         <div className={`aspect-[3/4] bg-white overflow-hidden ${deleted ? 'opacity-30' : ''}`}>
@@ -302,19 +306,19 @@ export default function PdfReviewDialog({
               type="button"
               onClick={() => onRotateByParity(selectedFileIndex, 'odd')}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-              title="位置為奇數的頁（第 1、3、5… 頁）旋轉 90°"
+              title="原 PDF 中奇數頁（1、3、5…）旋轉 90°，依原始頁碼判斷、不受刪頁或拖序影響"
             >
               <RotateCcw className="w-4 h-4" />
-              奇數頁旋轉
+              原 1、3、5… 頁旋轉
             </button>
             <button
               type="button"
               onClick={() => onRotateByParity(selectedFileIndex, 'even')}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-              title="位置為偶數的頁（第 2、4、6… 頁）旋轉 90°"
+              title="原 PDF 中偶數頁（2、4、6…）旋轉 90°，依原始頁碼判斷、不受刪頁或拖序影響"
             >
               <RotateCcw className="w-4 h-4" />
-              偶數頁旋轉
+              原 2、4、6… 頁旋轉
             </button>
           </div>
           <div className="flex items-center gap-2 shrink-0">
