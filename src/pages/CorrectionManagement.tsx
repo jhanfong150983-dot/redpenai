@@ -44,6 +44,19 @@ type DisputeItem = {
   hintText?: string
   disputeNote?: string
   cropImageUrl?: string
+  sourceSubmissionId?: string
+}
+
+// 把 Supabase Storage 內部路徑（corrections/crops/...webp）包成可載入的 HTTP URL。
+// 已是 data:/blob:/http(s):/api/ 開頭則直接使用。
+function buildCropDownloadUrl(item: DisputeItem): string | null {
+  const raw = (item.cropImageUrl || '').trim().replace(/^\/+/, '')
+  if (!raw) return null
+  if (/^(data:|blob:|https?:\/\/|\/api\/)/i.test(raw)) return raw
+  const submissionId = (item.sourceSubmissionId || '').trim()
+  if (!submissionId) return null
+  const params = new URLSearchParams({ submissionId, path: raw })
+  return `/api/storage/download?${params.toString()}`
 }
 
 type DisputePanelState = {
@@ -467,12 +480,13 @@ export default function CorrectionManagement({
       if (!response.ok) throw new Error(data?.error || '載入申訴題目失敗')
       const items: DisputeItem[] = (data.corrections || [])
         .filter((c: { status?: string }) => c.status === 'disputed')
-        .map((c: { questionId?: string; questionText?: string; hintText?: string; disputeNote?: string; cropImageUrl?: string }) => ({
+        .map((c: { questionId?: string; questionText?: string; hintText?: string; disputeNote?: string; cropImageUrl?: string; sourceSubmissionId?: string }) => ({
           questionId: c.questionId || '',
           questionText: c.questionText,
           hintText: c.hintText,
           disputeNote: c.disputeNote,
-          cropImageUrl: c.cropImageUrl
+          cropImageUrl: c.cropImageUrl,
+          sourceSubmissionId: c.sourceSubmissionId
         }))
       const initialResolutions: Record<string, { action: 'accept' | 'reject' | null; rejectionNote: string }> = {}
       items.forEach((item) => { initialResolutions[item.questionId] = { action: null, rejectionNote: '' } })
@@ -846,11 +860,14 @@ export default function CorrectionManagement({
                       {item.questionId}{item.questionText ? ` · ${item.questionText}` : ''}
                     </p>
 
-                    {item.cropImageUrl && (
-                      <div className="mb-2 overflow-hidden rounded border border-slate-200 bg-slate-50">
-                        <img src={item.cropImageUrl} alt="原始作答" className="max-h-36 w-full object-contain" />
-                      </div>
-                    )}
+                    {(() => {
+                      const cropUrl = buildCropDownloadUrl(item)
+                      return cropUrl ? (
+                        <div className="mb-2 overflow-hidden rounded border border-slate-200 bg-slate-50">
+                          <img src={cropUrl} alt="原始作答" className="max-h-36 w-full object-contain" />
+                        </div>
+                      ) : null
+                    })()}
 
                     {item.hintText && (
                       <div className="mb-2 rounded border border-amber-100 bg-amber-50 px-2 py-1">
