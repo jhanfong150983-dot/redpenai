@@ -260,18 +260,6 @@ export default function UnifiedImportPage({
     [assignment],
   )
 
-  // 從答案卷 template 讀取 pageOrientations
-  const [pageOrientations, setPageOrientations] = useState<('portrait' | 'landscape')[]>([])
-  useEffect(() => {
-    (async () => {
-      if (!assignment?.answerKeyTemplateId) return
-      try {
-        const template = await db.answerKeyTemplates.get(assignment.answerKeyTemplateId)
-        if (template?.pageOrientations) setPageOrientations(template.pageOrientations)
-      } catch { /* ignore */ }
-    })()
-  }, [assignment])
-
   // ── View state ──────────────────────────────────────────────────────────
   const [currentView, setCurrentView] = useState<ViewType>('grid')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
