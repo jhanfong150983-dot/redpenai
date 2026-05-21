@@ -37,6 +37,9 @@ interface UserStatsData {
   name?: string
   avatarUrl?: string
   role?: string
+  roleManual?: string | null
+  inferredRole?: InferredRole
+  effectiveRole?: InferredRole
   permissionTier?: string
   inkBalance?: number
   createdAt?: string
@@ -52,9 +55,56 @@ interface UserStatsData {
   students?: StudentUsage[]
   status?: 'active' | 'new'
   isAlsoStudent?: boolean
+  roleSignals?: {
+    ownsClassroom?: boolean
+    ownsAssignment?: boolean
+    hasTeacherPref?: boolean
+    importedStudents?: boolean
+    syncedCampus?: boolean
+    boundAsStudent?: boolean
+    actedAsStudent?: boolean
+    hasExternalIdentity?: boolean
+  }
 }
 
-type StatusFilter = 'all' | 'active' | 'new'
+type InferredRole =
+  | 'admin'
+  | 'teacher'
+  | 'student'
+  | 'both'
+  | 'parent'
+  | 'school_admin'
+  | 'registered_inactive'
+  | 'unknown_inert'
+
+// UI 上把 inactive 兩種合併、其他單獨一格
+type RoleTab = 'all' | 'teacher' | 'both' | 'student' | 'inactive' | 'admin'
+
+const ROLE_TAB_LABEL: Record<RoleTab, string> = {
+  all: '全部',
+  teacher: '老師',
+  both: '老師＋學生',
+  student: '學生',
+  inactive: '未啟用',
+  admin: '管理者',
+}
+
+function roleToTab(role?: InferredRole): RoleTab {
+  if (!role) return 'inactive'
+  if (role === 'teacher' || role === 'student' || role === 'both' || role === 'admin') return role
+  return 'inactive' // registered_inactive / unknown_inert / 未來 parent/school_admin 也先歸這
+}
+
+const ROLE_BADGE: Record<InferredRole, { label: string; className: string }> = {
+  admin:               { label: '管理者',     className: 'bg-red-100 text-red-700' },
+  teacher:             { label: '老師',       className: 'bg-emerald-100 text-emerald-700' },
+  student:             { label: '學生',       className: 'bg-sky-100 text-sky-700' },
+  both:                { label: '老師＋學生', className: 'bg-blue-100 text-blue-700' },
+  parent:              { label: '家長',       className: 'bg-amber-100 text-amber-700' },
+  school_admin:        { label: '校務行政',   className: 'bg-fuchsia-100 text-fuchsia-700' },
+  registered_inactive: { label: '已註冊',     className: 'bg-gray-100 text-gray-600' },
+  unknown_inert:       { label: '未啟用',     className: 'bg-gray-100 text-gray-500' },
+}
 
 type BalanceMode = 'none' | 'set' | 'delta'
 
@@ -64,10 +114,11 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set())
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [roleTab, setRoleTab] = useState<RoleTab>('teacher')
 
   const [editingUser, setEditingUser] = useState<UserStatsData | null>(null)
   const [role, setRole] = useState('user')
+  const [roleManual, setRoleManualState] = useState<string>('')
   const [permissionTier, setPermissionTier] = useState('basic')
   const [adminNote, setAdminNote] = useState('')
   const [balanceMode, setBalanceMode] = useState<BalanceMode>('none')
@@ -101,13 +152,19 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
     void loadUsers()
   }, [loadUsers])
 
-  const activeCount = useMemo(() => users.filter(u => u.status === 'active').length, [users])
-  const newCount = useMemo(() => users.filter(u => u.status === 'new').length, [users])
+  const roleCounts = useMemo(() => {
+    const counts: Record<RoleTab, number> = { all: users.length, teacher: 0, both: 0, student: 0, inactive: 0, admin: 0 }
+    for (const u of users) {
+      const tab = roleToTab(u.effectiveRole)
+      if (tab !== 'all') counts[tab] += 1
+    }
+    return counts
+  }, [users])
 
   const filteredUsers = useMemo(() => {
     let result = users
-    if (statusFilter !== 'all') {
-      result = result.filter(u => u.status === statusFilter)
+    if (roleTab !== 'all') {
+      result = result.filter(u => roleToTab(u.effectiveRole) === roleTab)
     }
     const keyword = query.trim().toLowerCase()
     if (!keyword) return result
@@ -117,6 +174,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
         user.name,
         user.userId,
         user.role,
+        user.effectiveRole,
         user.permissionTier
       ]
         .filter(Boolean)
@@ -124,7 +182,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
         .toLowerCase()
       return haystack.includes(keyword)
     })
-  }, [users, query, statusFilter])
+  }, [users, query, roleTab])
 
   const formatRelativeTime = (value?: string) => {
     if (!value) return '未知'
@@ -145,6 +203,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
   const openEdit = (user: UserStatsData) => {
     setEditingUser(user)
     setRole(user.role || 'user')
+    setRoleManualState(user.roleManual || '')
     setPermissionTier(user.permissionTier || 'basic')
     setAdminNote('')
     setBalanceMode('none')
@@ -174,6 +233,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
     const payload: Record<string, unknown> = {
       userId: editingUser.userId,
       role,
+      role_manual: roleManual === '' ? null : roleManual,
       permission_tier: permissionTier,
       admin_note: adminNote
     }
@@ -279,7 +339,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">使用者統計</h1>
               <p className="text-sm text-gray-600">
-                查看所有教師帳號的詳細使用統計
+                依角色（老師／學生／老師＋學生／未啟用）分類檢視
               </p>
             </div>
           </div>
@@ -302,28 +362,24 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
             />
           </div>
           <div className="text-xs text-gray-500">
-            共 {users.length} 位教師 {filteredUsers.length !== users.length && `（顯示 ${filteredUsers.length} 位）`}
+            共 {users.length} 位使用者 {filteredUsers.length !== users.length && `（顯示 ${filteredUsers.length} 位）`}
           </div>
         </div>
 
-        {/* Status Filter Tabs */}
-        <div className="mt-3 flex gap-2">
-          {([
-            { key: 'all' as StatusFilter, label: '全部', count: users.length },
-            { key: 'active' as StatusFilter, label: '使用中', count: activeCount },
-            { key: 'new' as StatusFilter, label: '新註冊（尚無班級）', count: newCount },
-          ]).map(tab => (
+        {/* Role Filter Tabs */}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(['all', 'teacher', 'both', 'student', 'inactive', 'admin'] as RoleTab[]).map(tab => (
             <button
-              key={tab.key}
+              key={tab}
               type="button"
-              onClick={() => setStatusFilter(tab.key)}
+              onClick={() => setRoleTab(tab)}
               className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
-                statusFilter === tab.key
+                roleTab === tab
                   ? 'bg-green-100 border-green-400 text-green-700 font-medium'
                   : 'border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}
             >
-              {tab.label}（{tab.count}）
+              {ROLE_TAB_LABEL[tab]}（{roleCounts[tab]}）
             </button>
           ))}
         </div>
@@ -369,19 +425,15 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                         {user.email || user.userId}
                       </p>
                       <div className="flex flex-wrap gap-1.5 mt-2">
-                        {user.status === 'new' && (
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium">
-                            新註冊
+                        {user.effectiveRole && (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_BADGE[user.effectiveRole].className}`}>
+                            {ROLE_BADGE[user.effectiveRole].label}
+                            {user.roleManual && <span className="ml-1 opacity-70">（手動）</span>}
                           </span>
                         )}
-                        {user.isAlsoStudent && (
-                          <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
-                            老師＋學生
-                          </span>
-                        )}
-                        {user.role === 'admin' && (
-                          <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-medium">
-                            管理員
+                        {user.status === 'new' && user.effectiveRole === 'teacher' && (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-xs">
+                            尚無班級
                           </span>
                         )}
                         {user.permissionTier === 'advanced' && (
@@ -390,9 +442,6 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                             Pro
                           </span>
                         )}
-                        <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-xs">
-                          {user.role || 'user'}
-                        </span>
                       </div>
                     </div>
                   </div>
@@ -578,7 +627,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
-                    角色
+                    權限角色
                   </label>
                   <select
                     value={role}
@@ -592,7 +641,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
-                    權限
+                    付費權限
                   </label>
                   <select
                     value={permissionTier}
@@ -604,6 +653,46 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                     <option value="advanced">Pro</option>
                   </select>
                 </div>
+              </div>
+
+              {/* 身分推導 + 手動覆寫 */}
+              <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-gray-600">身分判定</span>
+                  {editingUser.inferredRole && (
+                    <span className={`px-2 py-0.5 rounded-full text-xs ${ROLE_BADGE[editingUser.inferredRole].className}`}>
+                      系統判斷：{ROLE_BADGE[editingUser.inferredRole].label}
+                    </span>
+                  )}
+                </div>
+                <select
+                  value={roleManual}
+                  onChange={(e) => setRoleManualState(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white"
+                  disabled={isSaving}
+                >
+                  <option value="">使用系統判斷（不覆寫）</option>
+                  <option value="teacher">手動指定為：老師</option>
+                  <option value="student">手動指定為：學生</option>
+                  <option value="both">手動指定為：老師＋學生</option>
+                  <option value="parent">手動指定為：家長</option>
+                  <option value="school_admin">手動指定為：校務行政</option>
+                  <option value="registered_inactive">手動指定為：已註冊未啟用</option>
+                </select>
+                {editingUser.roleSignals && (
+                  <div className="mt-2 text-[11px] text-gray-500 leading-relaxed">
+                    訊號：
+                    {editingUser.roleSignals.ownsClassroom && <span className="inline-block mr-2">建過班級</span>}
+                    {editingUser.roleSignals.ownsAssignment && <span className="inline-block mr-2">建過作業</span>}
+                    {editingUser.roleSignals.hasTeacherPref && <span className="inline-block mr-2">有教師設定</span>}
+                    {editingUser.roleSignals.importedStudents && <span className="inline-block mr-2">匯入過學生</span>}
+                    {editingUser.roleSignals.syncedCampus && <span className="inline-block mr-2">同步過 1Campus</span>}
+                    {editingUser.roleSignals.boundAsStudent && <span className="inline-block mr-2">被綁為學生</span>}
+                    {editingUser.roleSignals.actedAsStudent && <span className="inline-block mr-2">學生身分上傳過</span>}
+                    {editingUser.roleSignals.hasExternalIdentity && <span className="inline-block mr-2">有外部登入</span>}
+                    {!Object.values(editingUser.roleSignals).some(Boolean) && <span className="italic">無</span>}
+                  </div>
+                )}
               </div>
 
               <div>
