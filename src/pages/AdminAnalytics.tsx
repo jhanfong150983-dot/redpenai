@@ -571,12 +571,12 @@ function TokenTab() {
   }
 
   const allStages = useMemo(() => {
-    if (!data) return []
+    if (!data?.byStage) return []
     return data.byStage.map(s => s.route_key)
   }, [data])
 
   const totalStageTokens = useMemo(() => {
-    if (!data) return 0
+    if (!data?.byStage) return 0
     return data.byStage.reduce((s, x) => s + x.input + x.output, 0)
   }, [data])
 
@@ -599,7 +599,7 @@ function TokenTab() {
           <select value={userId} onChange={e => setUserId(e.target.value)}
             className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 min-w-[200px]">
             <option value="">全部老師</option>
-            {data?.teachers.map(t => (
+            {(data?.teachers ?? []).map(t => (
               <option key={t.id} value={t.id}>{t.name || t.email || t.id.slice(0, 8)}</option>
             ))}
           </select>
@@ -633,7 +633,7 @@ function TokenTab() {
 
           {/* 趨勢圖 */}
           <SectionCard title="Token 用量趨勢（依 stage 堆疊）" icon={<TrendingUp className="w-4 h-4 text-purple-500" />}>
-            <StackedBarChart timeSeries={data.timeSeries} allStages={allStages} />
+            <StackedBarChart timeSeries={data.timeSeries ?? []} allStages={allStages} />
             <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-gray-100">
               {allStages.map(stage => (
                 <div key={stage} className="flex items-center gap-1.5">
@@ -660,7 +660,7 @@ function TokenTab() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.byStage.map(s => {
+                    {(data.byStage ?? []).map(s => {
                       const pct = totalStageTokens > 0 ? ((s.input + s.output) / totalStageTokens * 100) : 0
                       return (
                         <tr key={s.route_key} className="border-t border-gray-100">
@@ -696,7 +696,7 @@ function TokenTab() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.byModel.map(m => (
+                    {(data.byModel ?? []).map(m => (
                       <tr key={m.model_name} className="border-t border-gray-100">
                         <td className="px-2 py-2 text-xs text-gray-700">{m.model_name}</td>
                         <td className="px-2 py-2 text-right text-xs text-gray-600">{m.calls.toLocaleString()}</td>
