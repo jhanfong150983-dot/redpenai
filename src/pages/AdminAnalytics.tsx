@@ -539,9 +539,11 @@ function TokenTab() {
   const fetchData = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const params = new URLSearchParams({ action: 'token-usage', from: fromDate, to: toDate })
+      const params = new URLSearchParams({ from: fromDate, to: toDate })
       if (userId) params.set('userId', userId)
-      const res = await fetch(`/api/admin/analytics?${params.toString()}`, { credentials: 'include' })
+      // 走 /api/admin/token-usage 路徑（不能用 /api/admin/analytics?action=token-usage、
+      // 因為 [action].js 的 resolveAction 看 req.query.action 會跟 path 的 action=analytics 撞）
+      const res = await fetch(`/api/admin/token-usage?${params.toString()}`, { credentials: 'include' })
       if (!res.ok) throw new Error('取得 token 用量失敗')
       setData(await res.json())
     } catch (e: unknown) {
@@ -620,16 +622,21 @@ function TokenTab() {
       {data && (
         <>
           {/* Summary */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatCard icon={<BarChart3 className="w-5 h-5 text-blue-500" />} iconBg="bg-blue-50"
-              label="Input tokens" value={data.summary.totalInputTokens.toLocaleString()} sub={`${data.summary.totalCalls} 次呼叫`} />
-            <StatCard icon={<BarChart3 className="w-5 h-5 text-emerald-500" />} iconBg="bg-emerald-50"
-              label="Output tokens" value={data.summary.totalOutputTokens.toLocaleString()} />
-            <StatCard icon={<Cpu className="w-5 h-5 text-amber-500" />} iconBg="bg-amber-50"
-              label="USD 估算成本" value={`$${data.summary.totalUsdCost.toFixed(2)}`} />
-            <StatCard icon={<Coins className="w-5 h-5 text-indigo-500" />} iconBg="bg-indigo-50"
-              label="TWD 估算成本" value={formatCurrency(Math.round(data.summary.totalTwdCost))} />
-          </div>
+          {(() => {
+            const s = data.summary ?? { totalCalls: 0, totalInputTokens: 0, totalOutputTokens: 0, totalUsdCost: 0, totalTwdCost: 0 }
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <StatCard icon={<BarChart3 className="w-5 h-5 text-blue-500" />} iconBg="bg-blue-50"
+                  label="Input tokens" value={(s.totalInputTokens ?? 0).toLocaleString()} sub={`${s.totalCalls ?? 0} 次呼叫`} />
+                <StatCard icon={<BarChart3 className="w-5 h-5 text-emerald-500" />} iconBg="bg-emerald-50"
+                  label="Output tokens" value={(s.totalOutputTokens ?? 0).toLocaleString()} />
+                <StatCard icon={<Cpu className="w-5 h-5 text-amber-500" />} iconBg="bg-amber-50"
+                  label="USD 估算成本" value={`$${(s.totalUsdCost ?? 0).toFixed(2)}`} />
+                <StatCard icon={<Coins className="w-5 h-5 text-indigo-500" />} iconBg="bg-indigo-50"
+                  label="TWD 估算成本" value={formatCurrency(Math.round(s.totalTwdCost ?? 0))} />
+              </div>
+            )
+          })()}
 
           {/* 趨勢圖 */}
           <SectionCard title="Token 用量趨勢（依 stage 堆疊）" icon={<TrendingUp className="w-4 h-4 text-purple-500" />}>
