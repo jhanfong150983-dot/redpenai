@@ -1428,16 +1428,6 @@ export default function UnifiedImportPage({
                       const origIdx = parseInt(pageId.replace('page-', ''), 10)
                       const url = uploadPreviewUrls[origIdx]
                       const rotation = uploadPreviewRotations[origIdx] ?? 0
-                      const isRotated90or270 = rotation === 90 || rotation === 270
-                      // 方向驗證：用顯示順序（displayIdx）對應答案卷的 pageOrientations
-                      const expectedOrientation = pageOrientations[displayIdx]
-                      let orientationStatus: 'correct' | 'wrong' | 'unknown' = 'unknown'
-                      if (expectedOrientation) {
-                        const afterRotation = isRotated90or270
-                          ? (expectedOrientation === 'portrait' ? 'landscape' : 'portrait')
-                          : expectedOrientation
-                        orientationStatus = afterRotation === expectedOrientation ? 'correct' : 'wrong'
-                      }
 
                       return (
                         <SortableUploadCard
@@ -1446,8 +1436,8 @@ export default function UnifiedImportPage({
                           displayIdx={displayIdx}
                           url={url}
                           rotation={rotation}
-                          expectedOrientation={expectedOrientation}
-                          orientationStatus={orientationStatus}
+                          expectedOrientation={undefined}
+                          orientationStatus={'unknown'}
                           onRotate={() => handleUploadPreviewRotate(origIdx)}
                         />
                       )
@@ -1479,31 +1469,15 @@ export default function UnifiedImportPage({
                 >
                   取消
                 </button>
-                {(() => {
-                  // 檢查是否有方向錯誤（用拖曳排序後的順序）
-                  const hasOrientationError = pageOrientations.length > 0 && uploadPreviewOrder.some((pageId, displayIdx) => {
-                    const origIdx = parseInt(pageId.replace('page-', ''), 10)
-                    const expected = pageOrientations[displayIdx]
-                    if (!expected) return false
-                    const rot = uploadPreviewRotations[origIdx] ?? 0
-                    const isRotated90or270 = rot === 90 || rot === 270
-                    const afterRotation = isRotated90or270
-                      ? (expected === 'portrait' ? 'landscape' : 'portrait')
-                      : expected
-                    return afterRotation !== expected
-                  })
-                  return (
-                    <button
-                      type="button"
-                      disabled={isUploadPreviewSaving || hasOrientationError}
-                      onClick={handleUploadPreviewConfirm}
-                      className="flex items-center gap-2 px-5 py-2 rounded-xl bg-green-600 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-slate-300 transition-colors"
-                    >
-                      {isUploadPreviewSaving && <Loader className="w-4 h-4 animate-spin" />}
-                      {hasOrientationError ? '請先修正方向' : '確認上傳'}
-                    </button>
-                  )
-                })()}
+                <button
+                  type="button"
+                  disabled={isUploadPreviewSaving}
+                  onClick={handleUploadPreviewConfirm}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-green-600 text-sm font-semibold text-white hover:bg-green-700 disabled:bg-slate-300 transition-colors"
+                >
+                  {isUploadPreviewSaving && <Loader className="w-4 h-4 animate-spin" />}
+                  確認上傳
+                </button>
               </div>
             </div>
           </div>
