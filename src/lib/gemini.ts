@@ -613,9 +613,9 @@ async function generateGeminiText(
 }
 
 // 預設使用的模型名稱
-// 優先讀 Vite build env VITE_GEMINI_MODEL、未設則 fallback 到 3.1 Pro
-// （2026-05-17：Gemini 3 Pro preview 已 deprecated、改 3.1 Pro；Flash 對 fill_blank 抓不準、不當 fallback）
-let currentModelName = import.meta.env.VITE_GEMINI_MODEL || 'gemini-3.1-pro-preview'
+// 注意：這個只是 placeholder、server 端 model-config.js 的 STAGE_MODEL 會覆寫掉
+// （2026-05-21：server 端 model 分流後、client 傳什麼 server 都不吃；但仍會 log 出來、寫個別讓人誤會的字串）
+let currentModelName = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash'
 
 export interface ExtractAnswerKeyOptions {
   domain?: string
