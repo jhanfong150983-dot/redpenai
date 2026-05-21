@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Users, ShoppingCart, Droplet, Activity, TrendingUp,
-  RefreshCw, GraduationCap, BookOpen, BarChart3,
+  RefreshCw, GraduationCap, BookOpen, BarChart3, Cpu, Coins,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -48,6 +48,22 @@ type AnalyticsData = {
   teacherDashboard: TeacherDashboard
   studentDashboard: StudentDashboard
   inkDashboard: InkDashboard
+}
+
+// 2026-05-21: Token usage dashboard
+type TokenUsageData = {
+  params: { from: string; to: string; userId: string | null }
+  summary: {
+    totalCalls: number
+    totalInputTokens: number
+    totalOutputTokens: number
+    totalUsdCost: number
+    totalTwdCost: number
+  }
+  byStage: { route_key: string; calls: number; input: number; output: number; twd: number }[]
+  byModel: { model_name: string; calls: number; input: number; output: number; twd: number }[]
+  timeSeries: { date: string; stages: Record<string, number> }[]
+  teachers: { id: string; name: string | null; email: string | null }[]
 }
 
 // ─── Shared components ────────────────────────────────────────────────────────
@@ -413,13 +429,301 @@ function InkTab({ d }: { d: InkDashboard }) {
   )
 }
 
+// ─── Token dashboard (2026-05-21) ─────────────────────────────────────────────
+const STAGE_COLORS: Record<string, string> = {
+  'grading.classify': '#6366f1',          // indigo
+  'grading.phase_a_classify': '#6366f1',
+  'grading.read_answer': '#10b981',       // emerald
+  'grading.detail_read': '#10b981',
+  'grading.re_read_answer': '#10b981',
+  'grading.phase_a_read': '#10b981',
+  'grading.recheck': '#14b8a6',           // teal
+  'grading.arbiter': '#f59e0b',           // amber
+  'grading.phase_a_arbiter': '#f59e0b',
+  'grading.consistency_judge': '#f59e0b',
+  'grading.accessor': '#ec4899',          // pink
+  'grading.phase_b_accessor': '#ec4899',
+  'grading.explain': '#8b5cf6',           // violet
+  'grading.phase_b_explain': '#8b5cf6',
+  'answer_key.extract': '#06b6d4',        // cyan
+  'answer_key.locate': '#0ea5e9',         // sky
+  'answer_key.reanalyze': '#22d3ee',
+  'answer_key.tag_concepts': '#3b82f6',
+  'report.teacher_summary': '#84cc16',    // lime
+  'report.domain_diagnosis': '#a3e635',
+  'admin.tag_aggregation': '#94a3b8',     // slate
+  'perspective.detect_corners': '#f43f5e', // rose
+  '(unknown)': '#cbd5e1',
+}
+function stageColor(key: string) { return STAGE_COLORS[key] || '#94a3b8' }
+function shortStage(key: string) {
+  return key.replace(/^grading\./, '').replace(/^answer_key\./, 'ak.').replace(/^report\./, 'r.')
+}
+
+// 堆疊柱狀圖：每天 1 根柱、不同 stage 不同顏色堆疊
+function StackedBarChart({ timeSeries, allStages, height = 220 }: {
+  timeSeries: { date: string; stages: Record<string, number> }[]
+  allStages: string[]
+  height?: number
+}) {
+  if (timeSeries.length === 0 || allStages.length === 0) {
+    return <div className="text-sm text-gray-400 text-center py-12">無資料</div>
+  }
+  const W = 800; const pad = { t: 16, r: 16, b: 32, l: 56 }
+  const cW = W - pad.l - pad.r; const cH = height - pad.t - pad.b
+  const barW = (cW / timeSeries.length) * 0.7
+  const gap = (cW / timeSeries.length) * 0.3
+  const max = Math.max(...timeSeries.map(d => Object.values(d.stages).reduce((a, b) => a + b, 0)), 1)
+  // y 軸刻度
+  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(p => ({
+    value: Math.round(max * p),
+    y: pad.t + cH - p * cH
+  }))
+  // 日期 label：只標前 / 中 / 後
+  const labelEvery = Math.max(1, Math.ceil(timeSeries.length / 8))
+  return (
+    <div className="w-full">
+      <svg width="100%" height={height} viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none">
+        {/* y 軸格線 + 數字 */}
+        {yTicks.map((t, i) => (
+          <g key={i}>
+            <line x1={pad.l} x2={W - pad.r} y1={t.y} y2={t.y} stroke="#e5e7eb" strokeWidth="1" strokeDasharray={i === 0 ? '0' : '4 4'} />
+            <text x={pad.l - 6} y={t.y + 3} textAnchor="end" fontSize="10" fill="#94a3b8">
+              {t.value >= 1000 ? `${(t.value / 1000).toFixed(0)}k` : t.value}
+            </text>
+          </g>
+        ))}
+        {/* 堆疊柱 */}
+        {timeSeries.map((day, i) => {
+          let yCursor = pad.t + cH
+          const x = pad.l + i * (cW / timeSeries.length) + gap / 2
+          return (
+            <g key={day.date}>
+              {allStages.map(stage => {
+                const v = day.stages[stage] || 0
+                if (v <= 0) return null
+                const h = (v / max) * cH
+                yCursor -= h
+                return (
+                  <rect key={stage}
+                    x={x} y={yCursor} width={barW} height={h}
+                    fill={stageColor(stage)}>
+                    <title>{`${day.date} ${stage}: ${v.toLocaleString()} tokens`}</title>
+                  </rect>
+                )
+              })}
+              {i % labelEvery === 0 && (
+                <text x={x + barW / 2} y={height - 10} textAnchor="middle" fontSize="10" fill="#6b7280">
+                  {day.date.slice(5)}
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+function TokenTab() {
+  const [data, setData] = useState<TokenUsageData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  // 預設：本月（從本月 1 號到今天）
+  const today = new Date()
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+  const [fromDate, setFromDate] = useState(firstOfMonth.toISOString().split('T')[0])
+  const [toDate, setToDate] = useState(today.toISOString().split('T')[0])
+  const [userId, setUserId] = useState('')
+
+  const fetchData = useCallback(async () => {
+    setLoading(true); setError('')
+    try {
+      const params = new URLSearchParams({ action: 'token-usage', from: fromDate, to: toDate })
+      if (userId) params.set('userId', userId)
+      const res = await fetch(`/api/admin/analytics?${params.toString()}`, { credentials: 'include' })
+      if (!res.ok) throw new Error('取得 token 用量失敗')
+      setData(await res.json())
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : '發生錯誤')
+    } finally {
+      setLoading(false)
+    }
+  }, [fromDate, toDate, userId])
+
+  useEffect(() => { void fetchData() }, [fetchData])
+
+  // 預設時間範圍 quick picks
+  function setRange(range: 'today' | 'week' | 'month' | '30d') {
+    const now = new Date()
+    const to = now.toISOString().split('T')[0]
+    let from = to
+    if (range === 'today') {
+      from = to
+    } else if (range === 'week') {
+      const d = new Date(now); d.setDate(d.getDate() - 6); from = d.toISOString().split('T')[0]
+    } else if (range === 'month') {
+      const d = new Date(now.getFullYear(), now.getMonth(), 1); from = d.toISOString().split('T')[0]
+    } else if (range === '30d') {
+      const d = new Date(now); d.setDate(d.getDate() - 29); from = d.toISOString().split('T')[0]
+    }
+    setFromDate(from); setToDate(to)
+  }
+
+  const allStages = useMemo(() => {
+    if (!data) return []
+    return data.byStage.map(s => s.route_key)
+  }, [data])
+
+  const totalStageTokens = useMemo(() => {
+    if (!data) return 0
+    return data.byStage.reduce((s, x) => s + x.input + x.output, 0)
+  }, [data])
+
+  return (
+    <div className="space-y-6">
+      {/* 篩選器 */}
+      <SectionCard title="篩選條件" icon={<Activity className="w-4 h-4 text-purple-500" />}>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={() => setRange('today')} className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 hover:bg-purple-50">今天</button>
+          <button onClick={() => setRange('week')} className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 hover:bg-purple-50">近 7 天</button>
+          <button onClick={() => setRange('month')} className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 hover:bg-purple-50">本月</button>
+          <button onClick={() => setRange('30d')} className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 hover:bg-purple-50">近 30 天</button>
+          <span className="text-xs text-gray-400 mx-2">自訂：</span>
+          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-200" />
+          <span className="text-xs text-gray-400">至</span>
+          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-200" />
+          <span className="text-xs text-gray-400 mx-2">|</span>
+          <select value={userId} onChange={e => setUserId(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 min-w-[200px]">
+            <option value="">全部老師</option>
+            {data?.teachers.map(t => (
+              <option key={t.id} value={t.id}>{t.name || t.email || t.id.slice(0, 8)}</option>
+            ))}
+          </select>
+          <button onClick={() => void fetchData()} className="ml-auto inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />重新整理
+          </button>
+        </div>
+      </SectionCard>
+
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm">{error}</div>}
+
+      {loading && !data && (
+        <div className="bg-white rounded-xl border border-slate-200 p-10 flex items-center justify-center gap-3 text-gray-500">
+          <RefreshCw className="w-5 h-5 animate-spin" />載入中…
+        </div>
+      )}
+
+      {data && (
+        <>
+          {/* Summary */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatCard icon={<BarChart3 className="w-5 h-5 text-blue-500" />} iconBg="bg-blue-50"
+              label="Input tokens" value={data.summary.totalInputTokens.toLocaleString()} sub={`${data.summary.totalCalls} 次呼叫`} />
+            <StatCard icon={<BarChart3 className="w-5 h-5 text-emerald-500" />} iconBg="bg-emerald-50"
+              label="Output tokens" value={data.summary.totalOutputTokens.toLocaleString()} />
+            <StatCard icon={<Cpu className="w-5 h-5 text-amber-500" />} iconBg="bg-amber-50"
+              label="USD 估算成本" value={`$${data.summary.totalUsdCost.toFixed(2)}`} />
+            <StatCard icon={<Coins className="w-5 h-5 text-indigo-500" />} iconBg="bg-indigo-50"
+              label="TWD 估算成本" value={formatCurrency(Math.round(data.summary.totalTwdCost))} />
+          </div>
+
+          {/* 趨勢圖 */}
+          <SectionCard title="Token 用量趨勢（依 stage 堆疊）" icon={<TrendingUp className="w-4 h-4 text-purple-500" />}>
+            <StackedBarChart timeSeries={data.timeSeries} allStages={allStages} />
+            <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-gray-100">
+              {allStages.map(stage => (
+                <div key={stage} className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded" style={{ background: stageColor(stage) }} />
+                  <span className="text-xs text-gray-600">{shortStage(stage)}</span>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+
+          {/* Stage / Model 拆解 */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <SectionCard title="按 Stage 拆解" icon={<Cpu className="w-4 h-4 text-pink-500" />}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 border-b border-gray-200">
+                      <th className="px-2 py-2">Stage</th>
+                      <th className="px-2 py-2 text-right">呼叫</th>
+                      <th className="px-2 py-2 text-right">Input</th>
+                      <th className="px-2 py-2 text-right">Output</th>
+                      <th className="px-2 py-2 text-right">成本</th>
+                      <th className="px-2 py-2 text-right">占比</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.byStage.map(s => {
+                      const pct = totalStageTokens > 0 ? ((s.input + s.output) / totalStageTokens * 100) : 0
+                      return (
+                        <tr key={s.route_key} className="border-t border-gray-100">
+                          <td className="px-2 py-2">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2.5 h-2.5 rounded-full" style={{ background: stageColor(s.route_key) }} />
+                              <span className="text-xs text-gray-700">{shortStage(s.route_key)}</span>
+                            </div>
+                          </td>
+                          <td className="px-2 py-2 text-right text-xs text-gray-600">{s.calls.toLocaleString()}</td>
+                          <td className="px-2 py-2 text-right text-xs text-gray-600">{s.input.toLocaleString()}</td>
+                          <td className="px-2 py-2 text-right text-xs text-gray-600">{s.output.toLocaleString()}</td>
+                          <td className="px-2 py-2 text-right text-xs text-gray-800 font-medium">NT${s.twd.toFixed(0)}</td>
+                          <td className="px-2 py-2 text-right text-xs text-gray-500">{pct.toFixed(1)}%</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="按 Model 拆解" icon={<Cpu className="w-4 h-4 text-indigo-500" />}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 border-b border-gray-200">
+                      <th className="px-2 py-2">Model</th>
+                      <th className="px-2 py-2 text-right">呼叫</th>
+                      <th className="px-2 py-2 text-right">Input</th>
+                      <th className="px-2 py-2 text-right">Output</th>
+                      <th className="px-2 py-2 text-right">成本</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.byModel.map(m => (
+                      <tr key={m.model_name} className="border-t border-gray-100">
+                        <td className="px-2 py-2 text-xs text-gray-700">{m.model_name}</td>
+                        <td className="px-2 py-2 text-right text-xs text-gray-600">{m.calls.toLocaleString()}</td>
+                        <td className="px-2 py-2 text-right text-xs text-gray-600">{m.input.toLocaleString()}</td>
+                        <td className="px-2 py-2 text-right text-xs text-gray-600">{m.output.toLocaleString()}</td>
+                        <td className="px-2 py-2 text-right text-xs text-gray-800 font-medium">NT${m.twd.toFixed(0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </SectionCard>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
-type TabId = 'teacher' | 'student' | 'ink'
+type TabId = 'teacher' | 'student' | 'ink' | 'token'
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode; color: string }[] = [
   { id: 'teacher', label: '教師儀表板', icon: <Users className="w-4 h-4" />, color: 'text-blue-600' },
   { id: 'student', label: '學生儀表板', icon: <GraduationCap className="w-4 h-4" />, color: 'text-amber-600' },
   { id: 'ink',     label: '墨水儀表板', icon: <Droplet className="w-4 h-4" />,  color: 'text-indigo-600' },
+  { id: 'token',   label: 'Token 儀表板', icon: <Cpu className="w-4 h-4" />, color: 'text-purple-600' },
 ]
 
 export default function AdminAnalytics() {
@@ -498,6 +802,7 @@ export default function AdminAnalytics() {
       {activeTab === 'teacher' && <TeacherTab d={data.teacherDashboard} />}
       {activeTab === 'student' && <StudentTab d={data.studentDashboard} />}
       {activeTab === 'ink'     && <InkTab d={data.inkDashboard} />}
+      {activeTab === 'token'   && <TokenTab />}
     </div>
   )
 }
