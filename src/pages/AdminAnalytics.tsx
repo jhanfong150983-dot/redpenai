@@ -533,15 +533,23 @@ function StackedBarChart({ timeSeries, allStages, height = 220 }: {
   )
 }
 
+// 2026-05-22: 用本地時間（Taipei）轉 YYYY-MM-DD、不要用 toISOString() 拿 UTC
+function toLocalDateStr(d: Date = new Date()): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 function TokenTab() {
   const [data, setData] = useState<TokenUsageData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  // 預設：本月（從本月 1 號到今天）
+  // 預設：本月（從本月 1 號到今天）— 用本地時間、避免時區 off-by-one
   const today = new Date()
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-  const [fromDate, setFromDate] = useState(firstOfMonth.toISOString().split('T')[0])
-  const [toDate, setToDate] = useState(today.toISOString().split('T')[0])
+  const [fromDate, setFromDate] = useState(toLocalDateStr(firstOfMonth))
+  const [toDate, setToDate] = useState(toLocalDateStr(today))
   const [userId, setUserId] = useState('')
   const [includeAdmin, setIncludeAdmin] = useState(true)  // 預設含 admin 測試資料
 
@@ -564,19 +572,19 @@ function TokenTab() {
 
   useEffect(() => { void fetchData() }, [fetchData])
 
-  // 預設時間範圍 quick picks
+  // 預設時間範圍 quick picks（全部用本地時間、避免 UTC off-by-one）
   function setRange(range: 'today' | 'week' | 'month' | '30d') {
     const now = new Date()
-    const to = now.toISOString().split('T')[0]
+    const to = toLocalDateStr(now)
     let from = to
     if (range === 'today') {
       from = to
     } else if (range === 'week') {
-      const d = new Date(now); d.setDate(d.getDate() - 6); from = d.toISOString().split('T')[0]
+      const d = new Date(now); d.setDate(d.getDate() - 6); from = toLocalDateStr(d)
     } else if (range === 'month') {
-      const d = new Date(now.getFullYear(), now.getMonth(), 1); from = d.toISOString().split('T')[0]
+      const d = new Date(now.getFullYear(), now.getMonth(), 1); from = toLocalDateStr(d)
     } else if (range === '30d') {
-      const d = new Date(now); d.setDate(d.getDate() - 29); from = d.toISOString().split('T')[0]
+      const d = new Date(now); d.setDate(d.getDate() - 29); from = toLocalDateStr(d)
     }
     setFromDate(from); setToDate(to)
   }
