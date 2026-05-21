@@ -12,9 +12,11 @@ import {
   Flag,
   ThumbsUp,
   ThumbsDown,
+  Download,
   X
 } from 'lucide-react'
 import { requestSync, waitForSync } from '@/lib/sync-events'
+import { fetchCorrectionNoticeData, generateCorrectionNoticePdf } from '@/lib/correctionNoticePdf'
 
 interface CorrectionManagementProps {
   embedded?: boolean
@@ -128,6 +130,8 @@ export default function CorrectionManagement({
   const [disputeResolutions, setDisputeResolutions] = useState<Record<string, { action: 'accept' | 'reject' | null; rejectionNote: string }>>({})
   const [isResolvingDispute, setIsResolvingDispute] = useState(false)
   const [manualPassingStudentId, setManualPassingStudentId] = useState<string | null>(null)
+  const [isGeneratingNotice, setIsGeneratingNotice] = useState(false)
+  const [noticeProgress, setNoticeProgress] = useState<{ done: number; total: number } | null>(null)
 
   const loadDashboard = useCallback(async (force = false) => {
     setError(null)
@@ -411,6 +415,44 @@ export default function CorrectionManagement({
     }
   }
 
+  const handleDownloadNotices = async () => {
+    if (!dashboard || isGeneratingNotice) return
+    setError(null)
+    setMessage(null)
+
+    const targetStudentIds = selectedStudentIds.length > 0
+      ? selectedStudentIds
+      : students.filter((s) => s.latestMistakeCount > 0).map((s) => s.studentId)
+
+    if (targetStudentIds.length === 0) {
+      setError('目前沒有需要訂正的學生，無法產生通知單。')
+      return
+    }
+
+    setIsGeneratingNotice(true)
+    setNoticeProgress({ done: 0, total: 0 })
+    try {
+      const data = await fetchCorrectionNoticeData(assignmentId, targetStudentIds)
+      const eligibleTotal = data.students.filter((s) => s.mistakeCount > 0).length
+      if (eligibleTotal === 0) {
+        setMessage('勾選名單內沒有錯題、未產生 PDF。')
+        return
+      }
+      setNoticeProgress({ done: 0, total: eligibleTotal })
+      const result = await generateCorrectionNoticePdf(data, {
+        onProgress: (done, total) => setNoticeProgress({ done, total })
+      })
+      const parts = [`已下載 ${result.generated} 位學生通知單`]
+      if (result.skipped > 0) parts.push(`${result.skipped} 位無錯題已略過`)
+      setMessage(parts.join('；') + '。')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '產生訂正通知單失敗')
+    } finally {
+      setIsGeneratingNotice(false)
+      setNoticeProgress(null)
+    }
+  }
+
   const handleOpenDisputePanel = async (student: DashboardStudent) => {
     if (disputeLoadingStudentId) return
     setDisputeLoadingStudentId(student.studentId)
@@ -568,6 +610,33 @@ export default function CorrectionManagement({
                 停止訂正{selectedStoppableCount > 0 ? ` (${selectedStoppableCount})` : ''}
               </button>
             ) : null}
+
+            {(() => {
+              const noticeCount = selectedStudentIds.length > 0
+                ? selectedStudentIds.filter((id) => {
+                    const s = students.find((st) => st.studentId === id)
+                    return s ? s.latestMistakeCount > 0 : false
+                  }).length
+                : students.filter((s) => s.latestMistakeCount > 0).length
+              const noticeDisabled = isGeneratingNotice || isLoading || !dashboard || noticeCount === 0
+              const progressLabel = noticeProgress && noticeProgress.total > 0
+                ? `${noticeProgress.done} / ${noticeProgress.total}`
+                : null
+              return (
+                <button
+                  type="button"
+                  onClick={() => void handleDownloadNotices()}
+                  disabled={noticeDisabled}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                  title={selectedStudentIds.length > 0 ? '下載勾選學生的訂正通知單' : '下載全班有錯題者的訂正通知單'}
+                >
+                  {isGeneratingNotice ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  {isGeneratingNotice
+                    ? `產生中${progressLabel ? ` ${progressLabel}` : '…'}`
+                    : `下載通知單${noticeCount > 0 ? ` (${noticeCount})` : ''}`}
+                </button>
+              )
+            })()}
           </div>
         </div>
 
