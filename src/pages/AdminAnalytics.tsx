@@ -186,6 +186,12 @@ function SectionCard({ title, icon, children }: { title: string; icon: React.Rea
 }
 
 function formatCurrency(n: number) { return `NT$ ${n.toLocaleString()}` }
+// 小於 1 元顯示 2 位小數；小於 10 元 1 位；其他整數
+function fmtTwd(n: number) {
+  if (n < 1) return `NT$${n.toFixed(2)}`
+  if (n < 10) return `NT$${n.toFixed(1)}`
+  return `NT$${Math.round(n).toLocaleString()}`
+}
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
@@ -690,7 +696,7 @@ function TokenTab() {
                           <td className="px-2 py-2 text-right text-xs text-gray-600">{s.calls.toLocaleString()}</td>
                           <td className="px-2 py-2 text-right text-xs text-gray-600">{s.input.toLocaleString()}</td>
                           <td className="px-2 py-2 text-right text-xs text-gray-600">{s.output.toLocaleString()}</td>
-                          <td className="px-2 py-2 text-right text-xs text-gray-800 font-medium">NT${s.twd.toFixed(0)}</td>
+                          <td className="px-2 py-2 text-right text-xs text-gray-800 font-medium">{fmtTwd(s.twd)}</td>
                           <td className="px-2 py-2 text-right text-xs text-gray-500">{pct.toFixed(1)}%</td>
                         </tr>
                       )
@@ -719,7 +725,7 @@ function TokenTab() {
                         <td className="px-2 py-2 text-right text-xs text-gray-600">{m.calls.toLocaleString()}</td>
                         <td className="px-2 py-2 text-right text-xs text-gray-600">{m.input.toLocaleString()}</td>
                         <td className="px-2 py-2 text-right text-xs text-gray-600">{m.output.toLocaleString()}</td>
-                        <td className="px-2 py-2 text-right text-xs text-gray-800 font-medium">NT${m.twd.toFixed(0)}</td>
+                        <td className="px-2 py-2 text-right text-xs text-gray-800 font-medium">{fmtTwd(m.twd)}</td>
                       </tr>
                     ))}
                   </tbody>
