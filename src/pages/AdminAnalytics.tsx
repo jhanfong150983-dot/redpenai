@@ -52,7 +52,7 @@ type AnalyticsData = {
 
 // 2026-05-21: Token usage dashboard
 type TokenUsageData = {
-  params: { from: string; to: string; userId: string | null }
+  params: { from: string; to: string; userId: string | null; includeAdmin: boolean }
   summary: {
     totalCalls: number
     totalInputTokens: number
@@ -64,6 +64,8 @@ type TokenUsageData = {
   byModel: { model_name: string; calls: number; input: number; output: number; twd: number }[]
   timeSeries: { date: string; stages: Record<string, number> }[]
   teachers: { id: string; name: string | null; email: string | null }[]
+  adminTestCount: number
+  realCallCount: number
 }
 
 // ─── Shared components ────────────────────────────────────────────────────────
@@ -535,11 +537,12 @@ function TokenTab() {
   const [fromDate, setFromDate] = useState(firstOfMonth.toISOString().split('T')[0])
   const [toDate, setToDate] = useState(today.toISOString().split('T')[0])
   const [userId, setUserId] = useState('')
+  const [includeAdmin, setIncludeAdmin] = useState(true)  // 預設含 admin 測試資料
 
   const fetchData = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const params = new URLSearchParams({ from: fromDate, to: toDate })
+      const params = new URLSearchParams({ from: fromDate, to: toDate, includeAdmin: includeAdmin ? 'true' : 'false' })
       if (userId) params.set('userId', userId)
       // 走 /api/admin/token-usage 路徑（不能用 /api/admin/analytics?action=token-usage、
       // 因為 [action].js 的 resolveAction 看 req.query.action 會跟 path 的 action=analytics 撞）
@@ -551,7 +554,7 @@ function TokenTab() {
     } finally {
       setLoading(false)
     }
-  }, [fromDate, toDate, userId])
+  }, [fromDate, toDate, userId, includeAdmin])
 
   useEffect(() => { void fetchData() }, [fetchData])
 
@@ -605,6 +608,13 @@ function TokenTab() {
               <option key={t.id} value={t.id}>{t.name || t.email || t.id.slice(0, 8)}</option>
             ))}
           </select>
+          <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-gray-200 cursor-pointer hover:bg-purple-50">
+            <input type="checkbox" checked={includeAdmin} onChange={e => setIncludeAdmin(e.target.checked)} className="rounded" />
+            <span className="text-gray-700">含 admin 測試</span>
+            {data && data.adminTestCount > 0 && (
+              <span className="text-xs text-purple-500 font-medium">({data.adminTestCount})</span>
+            )}
+          </label>
           <button onClick={() => void fetchData()} className="ml-auto inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />重新整理
           </button>
