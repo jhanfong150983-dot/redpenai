@@ -857,7 +857,7 @@ export default function CorrectionManagement({
                 return (
                   <div key={item.questionId} className="rounded-lg border border-slate-200 p-3">
                     <p className="mb-1 text-sm font-semibold text-slate-900">
-                      {item.questionId}{item.questionText ? ` · ${item.questionText}` : ''}
+                      {item.questionId}
                     </p>
 
                     {(() => {
