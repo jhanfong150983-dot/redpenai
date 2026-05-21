@@ -730,14 +730,6 @@ export default function AssignmentImport({
       }
     }
 
-    // 送出前確認
-    const orientationConfirmed = confirm(
-      `❗ 送出前請確認：\n\n• 所有頁面方向是否正確？\n• 頁面順序是否正確？\n• 圖片不可以倒置或歪斜\n• 否則可能影響 AI 辨識結果\n\n確認要送出嗎？`
-    )
-    if (!orientationConfirmed) {
-      return
-    }
-
     setError(null)
     setIsSaving(true)
 
