@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { RotateCcw, RotateCw, Trash2, X } from 'lucide-react'
+import { RotateCcw, RotateCw, Trash2, X, ZoomIn } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -61,6 +61,7 @@ interface SortableStudentPageCardProps {
   originLabel: string
   onRotate: () => void
   onDelete: () => void
+  onZoom: () => void
 }
 
 function SortableStudentPageCard({
@@ -71,6 +72,7 @@ function SortableStudentPageCard({
   originLabel,
   onRotate,
   onDelete,
+  onZoom,
 }: SortableStudentPageCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: itemId })
@@ -117,9 +119,20 @@ function SortableStudentPageCard({
         type="button"
         onClick={(e) => {
           e.stopPropagation()
-          onRotate()
+          onZoom()
         }}
         className="absolute top-7 right-1 p-1 rounded-full bg-white/90 border border-slate-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-slate-100"
+        title="放大檢視"
+      >
+        <ZoomIn className="w-3 h-3 text-slate-600" />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onRotate()
+        }}
+        className="absolute top-7 right-8 p-1 rounded-full bg-white/90 border border-slate-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-slate-100"
         title="旋轉 90°"
       >
         <RotateCw className="w-3 h-3 text-slate-600" />
@@ -130,7 +143,7 @@ function SortableStudentPageCard({
           e.stopPropagation()
           onDelete()
         }}
-        className="absolute top-7 right-8 p-1 rounded-full bg-white/90 border border-slate-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50"
+        className="absolute top-7 right-[60px] p-1 rounded-full bg-white/90 border border-slate-300 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50"
         title="刪除這頁"
       >
         <Trash2 className="w-3 h-3 text-red-500" />
@@ -202,6 +215,18 @@ export default function PdfImportPreviewDialog({
   const [studentInternalOrder, setStudentInternalOrder] = useState<Map<number, number[]>>(
     new Map(),
   )
+
+  // Lightbox 放大檢視
+  const [lightboxRef, setLightboxRef] = useState<PageRef | null>(null)
+  const closeLightbox = useCallback(() => setLightboxRef(null), [])
+  useEffect(() => {
+    if (!lightboxRef) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxRef(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightboxRef])
 
   // 切片形狀改變時清空 internal order（避免套到不同尺寸的 chunk）。
   // togglePageDelete 已自行 clear，這裡管 pagesPerStudent / mergeMode / perPdfPagesArray
@@ -641,77 +666,101 @@ export default function PdfImportPreviewDialog({
             </p>
           )}
 
-          {/* 已分配的學生 */}
-          {splitResult.targetStudents.slice(0, usableChunkCount).map((student, si) => {
-            const chunk = splitResult.chunks[si]
-            const internalOrder = getValidInternalOrder(si, chunk.length)
-
-            return (
-              <section
-                key={student.id}
-                className="bg-white rounded-xl border border-slate-200 px-3 py-2 mb-2"
-              >
-                <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
-                    {student.seatNumber}號
-                  </span>
-                  <span className="text-sm text-slate-700">{student.name}</span>
-                </div>
-                <DndContext
-                  sensors={dndSensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd(si, chunk)}
-                >
-                  <SortableContext
-                    items={internalOrder.map((pos) => `s${si}-${pos}`)}
-                    strategy={rectSortingStrategy}
+          {/* 學生分組（依座號順序：未交標灰、有頁的顯示頁面）*/}
+          {(() => {
+            const elements: React.ReactNode[] = []
+            let chunkIdx = 0
+            for (const student of splitResult.sortedStudents) {
+              if (absentSeatNumbers.has(student.seatNumber)) {
+                elements.push(
+                  <section
+                    key={`absent-${student.id}`}
+                    className="bg-slate-100 rounded-xl border border-dashed border-slate-300 px-3 py-2 mb-2"
                   >
-                    <div className="flex flex-wrap gap-2">
-                      {internalOrder.map((pos, displayIdx) => {
-                        const ref = chunk[pos]
-                        if (!ref) return null
-                        const file = pdfFiles[ref.fileIdx]
-                        const rotation = rotations[ref.fileIdx][ref.pageIdx] ?? 0
-                        const originLabel = isMultiPdf
-                          ? `${file.fileName} 第 ${ref.pageIdx + 1} 頁`
-                          : `原 PDF 第 ${ref.pageIdx + 1} 頁`
-                        return (
-                          <SortableStudentPageCard
-                            key={`s${si}-${pos}`}
-                            itemId={`s${si}-${pos}`}
-                            url={file.urls[ref.pageIdx]}
-                            rotation={rotation}
-                            positionInStudent={displayIdx}
-                            originLabel={originLabel}
-                            onRotate={() => rotatePage(ref.fileIdx, ref.pageIdx)}
-                            onDelete={() => togglePageDelete(ref.fileIdx, ref.pageIdx)}
-                          />
-                        )
-                      })}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-500 bg-slate-200 px-2 py-0.5 rounded">
+                        {student.seatNumber}號
+                      </span>
+                      <span className="text-sm text-slate-500">{student.name}</span>
+                      <span className="ml-2 text-xs text-slate-400 italic">未交（跳過）</span>
                     </div>
-                  </SortableContext>
-                </DndContext>
-              </section>
-            )
-          })}
-
-          {/* 未交的學生（標灰）*/}
-          {splitResult.sortedStudents
-            .filter((s) => absentSeatNumbers.has(s.seatNumber))
-            .map((student) => (
-              <section
-                key={`absent-${student.id}`}
-                className="bg-slate-100 rounded-xl border border-dashed border-slate-300 px-3 py-2 mb-2"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-slate-500 bg-slate-200 px-2 py-0.5 rounded">
-                    {student.seatNumber}號
-                  </span>
-                  <span className="text-sm text-slate-500">{student.name}</span>
-                  <span className="ml-2 text-xs text-slate-400 italic">未交</span>
-                </div>
-              </section>
-            ))}
+                  </section>,
+                )
+                continue
+              }
+              if (chunkIdx >= usableChunkCount) {
+                // 非未交但沒有頁可分（PDF 頁數不足以分到這位）
+                elements.push(
+                  <section
+                    key={`empty-${student.id}`}
+                    className="bg-white rounded-xl border border-dashed border-slate-200 px-3 py-2 mb-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
+                        {student.seatNumber}號
+                      </span>
+                      <span className="text-sm text-slate-400">{student.name}</span>
+                      <span className="ml-2 text-xs text-amber-600 italic">⚠ 無頁面可分配</span>
+                    </div>
+                  </section>,
+                )
+                continue
+              }
+              const si = chunkIdx
+              chunkIdx++
+              const chunk = splitResult.chunks[si]
+              const internalOrder = getValidInternalOrder(si, chunk.length)
+              elements.push(
+                <section
+                  key={student.id}
+                  className="bg-white rounded-xl border border-slate-200 px-3 py-2 mb-2"
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
+                      {student.seatNumber}號
+                    </span>
+                    <span className="text-sm text-slate-700">{student.name}</span>
+                  </div>
+                  <DndContext
+                    sensors={dndSensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd(si, chunk)}
+                  >
+                    <SortableContext
+                      items={internalOrder.map((pos) => `s${si}-${pos}`)}
+                      strategy={rectSortingStrategy}
+                    >
+                      <div className="flex flex-wrap gap-2">
+                        {internalOrder.map((pos, displayIdx) => {
+                          const ref = chunk[pos]
+                          if (!ref) return null
+                          const file = pdfFiles[ref.fileIdx]
+                          const rotation = rotations[ref.fileIdx][ref.pageIdx] ?? 0
+                          const originLabel = isMultiPdf
+                            ? `${file.fileName} 第 ${ref.pageIdx + 1} 頁`
+                            : `原 PDF 第 ${ref.pageIdx + 1} 頁`
+                          return (
+                            <SortableStudentPageCard
+                              key={`s${si}-${pos}`}
+                              itemId={`s${si}-${pos}`}
+                              url={file.urls[ref.pageIdx]}
+                              rotation={rotation}
+                              positionInStudent={displayIdx}
+                              originLabel={originLabel}
+                              onRotate={() => rotatePage(ref.fileIdx, ref.pageIdx)}
+                              onDelete={() => togglePageDelete(ref.fileIdx, ref.pageIdx)}
+                              onZoom={() => setLightboxRef({ fileIdx: ref.fileIdx, pageIdx: ref.pageIdx })}
+                            />
+                          )
+                        })}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                </section>,
+              )
+            }
+            return elements
+          })()}
 
           {/* 剩餘未分配頁面 */}
           {splitResult.remainingPages > 0 && (
@@ -752,6 +801,84 @@ export default function PdfImportPreviewDialog({
           </div>
         </div>
       </div>
+
+      {/* Lightbox：點縮圖右上角放大鈕 → 全螢幕大圖 */}
+      {lightboxRef && (() => {
+        const file = pdfFiles[lightboxRef.fileIdx]
+        const url = file.urls[lightboxRef.pageIdx]
+        const rotation = rotations[lightboxRef.fileIdx][lightboxRef.pageIdx] ?? 0
+        const label = isMultiPdf
+          ? `${file.fileName} · 第 ${lightboxRef.pageIdx + 1} 頁`
+          : `原 PDF 第 ${lightboxRef.pageIdx + 1} 頁`
+        const isPortraitAfterRotate = rotation === 90 || rotation === 270
+        return (
+          <div
+            className="fixed inset-0 z-[130] bg-black/85 backdrop-blur-sm flex flex-col p-4"
+            onClick={closeLightbox}
+          >
+            <div
+              className="flex items-center justify-between text-white pb-2 px-2 shrink-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="text-sm font-medium truncate">
+                {label}
+                {rotation !== 0 && (
+                  <span className="ml-2 text-xs text-orange-300">{rotation}°</span>
+                )}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => rotatePage(lightboxRef.fileIdx, lightboxRef.pageIdx)}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-xs"
+                  title="旋轉 90°"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                  旋轉
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    togglePageDelete(lightboxRef.fileIdx, lightboxRef.pageIdx)
+                    closeLightbox()
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-red-500/80 hover:bg-red-500 text-xs"
+                  title="刪除這頁"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  刪除
+                </button>
+                <button
+                  type="button"
+                  onClick={closeLightbox}
+                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20"
+                  aria-label="關閉"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <div
+              className="flex-1 min-h-0 flex items-center justify-center overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={url}
+                alt={label}
+                className={isPortraitAfterRotate ? 'max-h-full max-w-[60vh] object-contain' : 'max-w-full max-h-full object-contain'}
+                style={{ transform: `rotate(${rotation}deg)` }}
+                draggable={false}
+              />
+            </div>
+            <p
+              className="text-center text-xs text-white/60 pt-2 shrink-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              按 ESC 或點空白處關閉
+            </p>
+          </div>
+        )
+      })()}
     </div>
   )
 }
