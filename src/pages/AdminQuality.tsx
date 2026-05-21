@@ -47,6 +47,11 @@ type QuestionDetail = {
   finalAnswer: string | null
   finalAnswerSource: string | null
   isMistake: boolean
+  // Phase B accessor 結果
+  score: number | null
+  maxScore: number | null
+  isCorrect: boolean | null
+  scoringReason: string | null
 }
 
 type SubmissionDetail = {
@@ -484,7 +489,13 @@ function QuestionCard({
   onHover: (qid: string | null) => void
   hovered: boolean
 }) {
-  const { qid, type, bboxSource, ai1, ai2, arbiterConsistent, finalAnswer, finalAnswerSource, isMistake } = question
+  const {
+    qid, type, bboxSource, ai1, ai2, arbiterConsistent,
+    finalAnswer, finalAnswerSource, isMistake,
+    score, maxScore, isCorrect, scoringReason
+  } = question
+  const hasGrade = score != null && maxScore != null
+  const showReason = isCorrect === false && !!scoringReason
 
   const consistencyBadge =
     arbiterConsistent === false ? (
@@ -527,7 +538,18 @@ function QuestionCard({
           </span>
         )}
         <div className="ml-auto flex items-center gap-1.5">
-          {isMistake && (
+          {hasGrade && (
+            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded font-mono ${
+              isCorrect === false
+                ? 'bg-rose-100 text-rose-700'
+                : isCorrect === true
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-slate-100 text-slate-600'
+            }`} title={isCorrect === false ? '答錯' : isCorrect === true ? '答對' : '尚未批改'}>
+              {score}/{maxScore} {isCorrect === false ? '✗' : isCorrect === true ? '✓' : ''}
+            </span>
+          )}
+          {!hasGrade && isMistake && (
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
               答錯
             </span>
@@ -549,6 +571,13 @@ function QuestionCard({
           </div>
         )}
       </div>
+
+      {showReason && (
+        <div className="mt-2 p-2 rounded bg-rose-50 border border-rose-200 text-xs leading-relaxed text-rose-900">
+          <span className="font-semibold mr-1">批改理由：</span>
+          {scoringReason}
+        </div>
+      )}
     </div>
   )
 }
