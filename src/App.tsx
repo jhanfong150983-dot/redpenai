@@ -10,6 +10,7 @@ import {
   // FilePlus2,
   BookOpen,
   FileText,
+  History,
   SlidersHorizontal,
   ChevronDown,
   AlertTriangle,
@@ -34,6 +35,7 @@ const StudentPortal = lazy(() => import('@/pages/StudentPortal'))
 const AdminPanel = lazy(() => import('@/pages/AdminPanel'))
 const InkTopUp = lazy(() => import('@/pages/InkTopUp'))
 const AiReport = lazy(() => import('@/pages/AiReport'))
+const CorrectionHistory = lazy(() => import('@/pages/CorrectionHistory'))
 const LandingPage = lazy(() => import('@/pages/LandingPage'))
 const AdminUserDetail = lazy(() => import('@/pages/AdminUserDetail'))
 const TeacherPreferences = lazy(() => import('@/pages/TeacherPreferences'))
@@ -75,6 +77,7 @@ type Page =
   | 'unified-import'
   | 'correction-select'
   | 'correction'
+  | 'correction-history'
   | 'ai-report'
   | 'admin-panel'
   | 'admin-user-detail'
@@ -307,6 +310,7 @@ const URL_SYNCABLE_PAGES: readonly Page[] = [
   'unified-import',
   'correction-select',
   'correction',
+  'correction-history',
   'ai-report',
   'admin-panel',
   'admin-user-detail',
@@ -334,6 +338,7 @@ const PAGE_PATH_MAP: Partial<Record<Page, string>> = {
   'answer-bank': '/answer-bank',
   'classroom-management': '/classroom',
   'gradebook': '/gradebook',
+  'correction-history': '/correction-history',
   'ai-report': '/ai-report',
   'grading-list': '/grading-list',
   'correction-select': '/correction-select',
@@ -347,6 +352,7 @@ const PATH_PAGE_MAP: Record<string, Page> = {
   '/answer-bank': 'answer-bank',
   '/classroom': 'classroom-management',
   '/gradebook': 'gradebook',
+  '/correction-history': 'correction-history',
   '/ai-report': 'ai-report',
   '/grading-list': 'grading-list',
   '/correction-select': 'correction-select',
@@ -1529,7 +1535,7 @@ function App() {
     let nextPage: Page = 'home'
     let nextAssignmentId: string | undefined
     if (parsedPage && parsedPage !== 'home') {
-      const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'ai-report']
+      const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'correction-history', 'ai-report']
       const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail']
       if (needsTracking.includes(parsedPage) && !canAccessTracking) {
         nextPage = 'home'
@@ -1584,7 +1590,7 @@ function App() {
       if (target === currentPage && (targetAssignmentId ?? '') === (selectedAssignmentId || '')) return
 
       // 權限閘：URL 偽造試圖跳到無權限頁，把 URL 還原回 currentPage
-      const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'ai-report']
+      const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'correction-history', 'ai-report']
       const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail']
       if ((needsTracking.includes(target) && !canAccessTracking)
         || (needsAdmin.includes(target) && !isAdmin)) {
@@ -1927,6 +1933,7 @@ function App() {
       case 'assignment-setup': return currentPage === 'assignment-setup'
       case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'assignment-import', 'unified-import', 'correction-select', 'correction'].includes(currentPage)
       case 'gradebook': return currentPage === 'gradebook'
+      case 'correction-history': return currentPage === 'correction-history'
       case 'report': return false
       case 'classroom-management': return currentPage === 'classroom-management'
       case 'preferences': return currentPage === 'teacher-preferences'
@@ -1959,6 +1966,11 @@ function App() {
     if (!confirmLeaveGrading()) return
     if (!canAccessTracking) return
     setCurrentPage('ai-report')
+  }
+  const openCorrectionHistory = () => {
+    if (!confirmLeaveGrading()) return
+    if (!canAccessTracking) return
+    setCurrentPage('correction-history')
   }
   const openPreferences = () => {
     if (!confirmLeaveGrading()) return
@@ -2030,6 +2042,15 @@ function App() {
           description: '查看成績與學習表現趨勢',
           icon: BarChart3,
           onClick: openGradebook,
+          disabled: !canAccessTracking,
+          badge: canAccessTracking ? undefined : 'Pro'
+        },
+        {
+          key: 'correction-history',
+          label: '歷程分析',
+          description: '查看學生訂正歷程與卡關熱點',
+          icon: History,
+          onClick: openCorrectionHistory,
           disabled: !canAccessTracking,
           badge: canAccessTracking ? undefined : 'Pro'
         },
@@ -2527,6 +2548,24 @@ function App() {
                     <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
                     <p className="mt-2 text-sm text-gray-600">
                       Pro 權限才可使用後續追蹤功能。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage('home')}
+                      className="mt-4 inline-flex rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
+                    >
+                      返回首頁
+                    </button>
+                  </div>
+                )
+              ) : currentPage === 'correction-history' ? (
+                canAccessTracking ? (
+                  <CorrectionHistory embedded onBack={() => setCurrentPage('home')} />
+                ) : (
+                  <div className="mx-auto w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
+                    <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
+                    <p className="mt-2 text-sm text-gray-600">
+                      Pro 權限才可使用歷程分析。
                     </p>
                     <button
                       type="button"
