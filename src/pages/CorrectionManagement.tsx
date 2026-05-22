@@ -13,7 +13,8 @@ import {
   ThumbsUp,
   ThumbsDown,
   Download,
-  X
+  X,
+  RotateCcw
 } from 'lucide-react'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { fetchCorrectionNoticeData, generateCorrectionNoticePdf } from '@/lib/correctionNoticePdf'
@@ -144,6 +145,7 @@ export default function CorrectionManagement({
   const [disputeResolutions, setDisputeResolutions] = useState<Record<string, { action: 'accept' | 'reject' | null; rejectionNote: string }>>({})
   const [isResolvingDispute, setIsResolvingDispute] = useState(false)
   const [manualPassingStudentId, setManualPassingStudentId] = useState<string | null>(null)
+  const [revertingManualPassStudentId, setRevertingManualPassStudentId] = useState<string | null>(null)
   const [isGeneratingNotice, setIsGeneratingNotice] = useState(false)
   const [noticeProgress, setNoticeProgress] = useState<{ done: number; total: number } | null>(null)
 
@@ -407,7 +409,7 @@ export default function CorrectionManagement({
 
   const handleManualPassStudent = async (student: DashboardStudent) => {
     if (manualPassingStudentId) return
-    if (!window.confirm(`確定手動通過 ${student.name} 的訂正？\n此操作視為老師當面確認，不會重新 AI 批改，且無法撤銷。`)) return
+    if (!window.confirm(`確定手動通過 ${student.name} 的訂正？\n此操作視為老師當面確認，不會重新 AI 批改。\n（按下後可再撤銷恢復為待訂正）`)) return
     setManualPassingStudentId(student.studentId)
     setError(null)
     setMessage(null)
@@ -426,6 +428,30 @@ export default function CorrectionManagement({
       setError(err instanceof Error ? err.message : '手動通過失敗')
     } finally {
       setManualPassingStudentId(null)
+    }
+  }
+
+  const handleRevertManualPassStudent = async (student: DashboardStudent) => {
+    if (revertingManualPassStudentId) return
+    if (!window.confirm(`撤銷 ${student.name} 的手動通過？\n該學生會回到「待訂正」、原本未完成題目重新展開。`)) return
+    setRevertingManualPassStudentId(student.studentId)
+    setError(null)
+    setMessage(null)
+    try {
+      const response = await fetch('/api/data/correction-manual-pass-revert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ assignmentId, studentId: student.studentId })
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.error || '撤銷手動通過失敗')
+      setMessage(`已撤銷 ${student.name} 的手動通過。`)
+      await loadDashboard()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '撤銷手動通過失敗')
+    } finally {
+      setRevertingManualPassStudentId(null)
     }
   }
 
@@ -716,7 +742,7 @@ export default function CorrectionManagement({
         )}
 
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <div className="grid grid-cols-[40px_96px_minmax(0,1.2fr)_140px_130px_130px_1fr_124px] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+          <div className="grid grid-cols-[40px_96px_minmax(0,1.2fr)_140px_130px_130px_1fr_280px] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
             <div className="flex items-center justify-center">
               <input
                 ref={selectAllRef}
@@ -755,7 +781,7 @@ export default function CorrectionManagement({
               return (
                 <div
                   key={student.studentId}
-                  className="grid grid-cols-[40px_96px_minmax(0,1.2fr)_140px_130px_130px_1fr_124px] gap-2 border-b border-slate-100 px-3 py-3 text-sm last:border-b-0"
+                  className="grid grid-cols-[40px_96px_minmax(0,1.2fr)_140px_130px_130px_1fr_280px] gap-2 border-b border-slate-100 px-3 py-3 text-sm last:border-b-0"
                 >
                   <div className="flex items-center justify-center">
                     <input
@@ -794,18 +820,28 @@ export default function CorrectionManagement({
                         type="button"
                         onClick={() => void handleOpenDisputePanel(student)}
                         disabled={Boolean(disputeLoadingStudentId)}
-                        className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {disputeLoadingStudentId === student.studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Flag className="h-3.5 w-3.5" />}
                         審閱申訴 ({student.disputedQuestionCount})
                       </button>
                     )}
-                    {(student.status === 'graded' ? student.latestMistakeCount > 0 : ['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed'].includes(student.status)) && (
+                    {student.status === 'correction_passed' && student.lastStatusReason === '教師手動通過訂正' ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleRevertManualPassStudent(student)}
+                        disabled={Boolean(revertingManualPassStudentId)}
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {revertingManualPassStudentId === student.studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                        撤銷手動通過
+                      </button>
+                    ) : (student.status === 'graded' ? student.latestMistakeCount > 0 : ['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed'].includes(student.status)) && (
                       <button
                         type="button"
                         onClick={() => void handleManualPassStudent(student)}
                         disabled={Boolean(manualPassingStudentId)}
-                        className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {manualPassingStudentId === student.studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                         手動通過
@@ -816,7 +852,7 @@ export default function CorrectionManagement({
                         type="button"
                         onClick={() => void handleUnlockStudent(student)}
                         disabled={isUnlocking || Boolean(unlockingStudentId)}
-                        className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {isUnlocking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlock className="h-3.5 w-3.5" />}
                         解鎖+3
