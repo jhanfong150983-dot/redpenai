@@ -742,7 +742,7 @@ export default function CorrectionManagement({
         )}
 
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-          <div className="grid grid-cols-[40px_96px_minmax(0,1.2fr)_140px_130px_130px_1fr_280px] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
+          <div className="grid grid-cols-[40px_96px_minmax(0,1.2fr)_140px_130px_130px_1fr_104px] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
             <div className="flex items-center justify-center">
               <input
                 ref={selectAllRef}
@@ -781,7 +781,7 @@ export default function CorrectionManagement({
               return (
                 <div
                   key={student.studentId}
-                  className="grid grid-cols-[40px_96px_minmax(0,1.2fr)_140px_130px_130px_1fr_280px] gap-2 border-b border-slate-100 px-3 py-3 text-sm last:border-b-0"
+                  className="grid grid-cols-[40px_96px_minmax(0,1.2fr)_140px_130px_130px_1fr_104px] gap-2 border-b border-slate-100 px-3 py-3 text-sm last:border-b-0"
                 >
                   <div className="flex items-center justify-center">
                     <input
@@ -814,51 +814,68 @@ export default function CorrectionManagement({
                   <div className="text-xs text-slate-600">
                     {student.lastStatusReason || '—'}
                   </div>
-                  <div className="flex items-center justify-end gap-1.5">
-                    {(student.disputedQuestionCount ?? 0) > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => void handleOpenDisputePanel(student)}
-                        disabled={Boolean(disputeLoadingStudentId)}
-                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {disputeLoadingStudentId === student.studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Flag className="h-3.5 w-3.5" />}
-                        審閱申訴 ({student.disputedQuestionCount})
-                      </button>
-                    )}
-                    {student.status === 'correction_passed' && student.lastStatusReason === '教師手動通過訂正' ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleRevertManualPassStudent(student)}
-                        disabled={Boolean(revertingManualPassStudentId)}
-                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {revertingManualPassStudentId === student.studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
-                        撤銷手動通過
-                      </button>
-                    ) : (student.status === 'graded' ? student.latestMistakeCount > 0 : ['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed'].includes(student.status)) && (
-                      <button
-                        type="button"
-                        onClick={() => void handleManualPassStudent(student)}
-                        disabled={Boolean(manualPassingStudentId)}
-                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {manualPassingStudentId === student.studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                        手動通過
-                      </button>
-                    )}
-                    {canUnlock ? (
-                      <button
-                        type="button"
-                        onClick={() => void handleUnlockStudent(student)}
-                        disabled={isUnlocking || Boolean(unlockingStudentId)}
-                        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {isUnlocking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlock className="h-3.5 w-3.5" />}
-                        解鎖+3
-                      </button>
-                    ) : (!student.disputedQuestionCount && student.status !== 'graded' && !['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed'].includes(student.status) && <span className="text-xs text-slate-400">—</span>)}
-                  </div>
+                  {(() => {
+                    const showRevert =
+                      student.status === 'correction_passed' &&
+                      student.lastStatusReason === '教師手動通過訂正'
+                    const showManualPass =
+                      !showRevert &&
+                      (student.status === 'graded'
+                        ? student.latestMistakeCount > 0
+                        : ['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed'].includes(student.status))
+                    const showDispute = (student.disputedQuestionCount ?? 0) > 0
+                    const showUnlock = canUnlock
+                    const hasAny = showRevert || showManualPass || showDispute || showUnlock
+                    return (
+                      <div className="flex flex-col items-stretch gap-1">
+                        {!hasAny && <span className="text-center text-xs text-slate-400">—</span>}
+                        {showManualPass && (
+                          <button
+                            type="button"
+                            onClick={() => void handleManualPassStudent(student)}
+                            disabled={Boolean(manualPassingStudentId)}
+                            className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {manualPassingStudentId === student.studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                            手動通過
+                          </button>
+                        )}
+                        {showRevert && (
+                          <button
+                            type="button"
+                            onClick={() => void handleRevertManualPassStudent(student)}
+                            disabled={Boolean(revertingManualPassStudentId)}
+                            className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 hover:border-rose-400 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {revertingManualPassStudentId === student.studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                            撤銷通過
+                          </button>
+                        )}
+                        {showDispute && (
+                          <button
+                            type="button"
+                            onClick={() => void handleOpenDisputePanel(student)}
+                            disabled={Boolean(disputeLoadingStudentId)}
+                            className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {disputeLoadingStudentId === student.studentId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Flag className="h-3.5 w-3.5" />}
+                            審閱申訴
+                          </button>
+                        )}
+                        {showUnlock && (
+                          <button
+                            type="button"
+                            onClick={() => void handleUnlockStudent(student)}
+                            disabled={isUnlocking || Boolean(unlockingStudentId)}
+                            className="inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700 hover:border-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isUnlocking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlock className="h-3.5 w-3.5" />}
+                            解除鎖定
+                          </button>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })
