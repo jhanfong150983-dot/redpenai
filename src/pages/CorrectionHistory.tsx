@@ -321,6 +321,10 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                 { label: row.state?.status || '—', tone: 'bg-slate-100 text-slate-600' }
               const firstAt = row.attempts[0]?.createdAt
               const lastAt = row.attempts[row.attempts.length - 1]?.createdAt
+              const isManuallyPassed =
+                row.state?.status === 'correction_passed' &&
+                row.state?.lastStatusReason === '教師手動通過訂正'
+              const manualPassAt = isManuallyPassed ? row.state?.updatedAt || null : null
               return (
                 <div
                   key={row.assignment.id}
@@ -388,10 +392,16 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                       className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                                         q.finalPassed
                                           ? 'bg-emerald-100 text-emerald-800'
-                                          : 'bg-amber-100 text-amber-800'
+                                          : isManuallyPassed
+                                            ? 'bg-sky-100 text-sky-800'
+                                            : 'bg-amber-100 text-amber-800'
                                       }`}
                                     >
-                                      {q.finalPassed ? '已通過' : '訂正中'}
+                                      {q.finalPassed
+                                        ? '已通過'
+                                        : isManuallyPassed
+                                          ? '老師通過'
+                                          : '訂正中'}
                                     </span>
                                   </div>
                                 </button>
@@ -450,6 +460,19 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                           </span>
                                           <p className="text-xs text-emerald-700">
                                             最終通過
+                                          </p>
+                                        </li>
+                                      )}
+                                      {!q.finalPassed && isManuallyPassed && (
+                                        <li className="flex items-center gap-3">
+                                          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-100 text-[10px] font-bold text-sky-800">
+                                            ✓
+                                          </span>
+                                          <p className="text-xs text-sky-700">
+                                            老師手動通過訂正
+                                            <span className="ml-2 text-sky-500">
+                                              {formatDate(manualPassAt)}
+                                            </span>
                                           </p>
                                         </li>
                                       )}
