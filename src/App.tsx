@@ -2449,6 +2449,14 @@ function App() {
                   }}
                   onRequireInkTopUp={() => setCurrentPage('ink-topup')}
                   onGradingPhaseChange={setGradingPagePhase}
+                  onNavigateToCorrection={
+                    canAccessTracking
+                      ? () => {
+                          if (!confirmLeaveGrading()) return
+                          setCurrentPage('correction')
+                        }
+                      : undefined
+                  }
                 />
               ) : currentPage === 'grading' ? (
                 <AssignmentList

@@ -432,6 +432,7 @@ interface GradingPageProps {
   onBack?: () => void
   onRequireInkTopUp?: () => void
   onGradingPhaseChange?: (phase: GradingPhase) => void
+  onNavigateToCorrection?: () => void
   embedded?: boolean
 }
 
@@ -1426,6 +1427,7 @@ export default function GradingPage({
   onBack,
   onRequireInkTopUp,
   onGradingPhaseChange,
+  onNavigateToCorrection,
   embedded = false
 }: GradingPageProps) {
   const navigate = useNavigate()
@@ -5495,6 +5497,43 @@ export default function GradingPage({
             )
           })}
         </div>
+        )}
+
+        {/* 底部前往訂正：模仿匯入頁右下「前往批改」按鈕 */}
+        {onNavigateToCorrection && (
+          <div className="mt-6 bg-white border-t border-slate-200 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4 text-sm">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-green-500 inline-block" />
+                  <span className="text-slate-600">
+                    已批改{' '}
+                    <span className="font-semibold text-green-600">
+                      {stageAggregates.counts.graded}
+                    </span>
+                  </span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-slate-300 inline-block" />
+                  <span className="text-slate-600">
+                    未批改{' '}
+                    <span className="font-semibold text-slate-700">
+                      {Math.max(students.length - stageAggregates.counts.graded, 0)}
+                    </span>
+                  </span>
+                </span>
+              </div>
+              {stageAggregates.counts.graded > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateToCorrection?.()}
+                  className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-xl hover:bg-green-700 transition-colors"
+                >
+                  前往訂正
+                </button>
+              )}
+            </div>
+          </div>
         )}
 
       </div>
