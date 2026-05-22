@@ -1320,11 +1320,42 @@ function buildTypeSpecs(): string {
   動作：學生在空格內填寫一個值（含單位）
   answer：完整正解含單位 — "15 公分" / "彰" / "ㄓㄤ"
   ⚠️ 直式分數格特例：上下格紅色 → "上格/下格"（如 "3/4"）；只有上格紅 → "上格值"
-  ⚠️ 一題多空格：同一印刷題目內出現 N 個 □ 或 N 個 _____（每個位置答案不同），
+  ⚠️ 一題多空格：同一印刷題目內出現 N 個 □、N 個 _____、或 N 個 ( )（括號內含紅字答案）—— 每個位置答案不同 ——
      **拆成 N 個獨立子題**，每子題各自一個 fill_blank、各自一個 answer，按 □ /
-     _____ 在版面上的閱讀順序給 idPath（如 ["4","1"], ["4","2"]）。
-     範例：題目「2⅕×4.73 − 2.73×2⅕ = 2⅕ □ (4.73 □ 2.73)」第一個 □ 填 "×"、第二個
-     填 "−" → 拆成兩題，id=4-1 answer="×"、id=4-2 answer="−"。
+     _____ / ( ) 在版面上的閱讀順序給 idPath。
+
+     🚨🚨🚨 NUMERIC ASSERTION（強制檢查）:
+        計算題目模板中有幾個內含紅字的印刷括號 ( ) 或 □ 或 ____ → N
+        生出的 fill_blank 子題數**必須等於 N**。少於 N → 一定漏題。
+        範例：模板有 3 個括號 → 必生 3 子題。模板有 2 個底線 → 必生 2 子題。
+
+     範例 1：題目「2⅕×4.73 − 2.73×2⅕ = 2⅕ □ (4.73 □ 2.73)」
+       → N=2 → 拆成 2 子題：id=4-1 answer="×"、id=4-2 answer="−"。
+
+     範例 2（鏈式計算多括弧、最常踩坑）：題目「底面積 = ( 100 ) − ( 12.56 ) = ( 87.44 )」
+       → N=3 → 拆成 3 子題：
+         id=1-1 answer="100"
+         id=1-2 answer="12.56"
+         id=1-3 answer="87.44"
+
+     範例 3（兩格填空）：題目「總長 = ( 5 ) + ( 8 ) 公分」
+       → N=2 → 拆成 2 子題：
+         id=1-1 answer="5"
+         id=1-2 answer="8"
+
+     ❌ 錯誤示範 A（最常見、不要這樣）：3 個括弧、只生 1 題 answer="87.44"。
+        違反 NUMERIC ASSERTION（N=3 卻生 1 題）。
+     ❌ 錯誤示範 B（次常見）：3 個括弧、只生 1 題 answer="100"。
+        違反 NUMERIC ASSERTION（N=3 卻生 1 題）。
+     ❌ 錯誤示範 C：3 個括弧、生 1 題 answer="100, 12.56, 87.44"（用逗號串）。
+        違反「拆成 N 個獨立子題」（必須每個括弧各 1 個 question）。
+     ❌ 錯誤示範 D：把前兩個括弧當成「題目給的已知值」、只生最後的 fill_blank。
+        印刷在答案卷上的 ( ) 內紅字一律是學生填的、絕無「題目給的已知值」這個解釋。
+
+     ⚠️ 判斷準則（不要混淆）：
+       - 印刷在卷面上的 ( ) 內含紅色手寫字 → 一律當「學生要填的空格」
+       - 不可解讀成「題目給的條件 / 已知值 / 印刷數字」
+       - 鏈式計算（如 a = b - c = d 形式）中的每個括弧都拆獨立子題
      ⚠️ 與 multi_fill 區別：multi_fill 是「填代號集合，順序無關」（每子題的 answer
      是同一個答案池任選一個）；fill_blank 多空格是「每位置有自己的固定答案」，
      順序與位置綁定。
@@ -5016,7 +5047,26 @@ export async function extractAnswerKeyFromImages(
     : isSingleImage
       ? `【單張答案卷】\n- 你會收到 1 張答案卷圖片\n- ID 前綴一律為 "1-"（即使卷上印有多個大題編號，第一段也固定是 1）\n- totalScore 是所有題目的 maxScore 總和${pageIdRule}`
       : `【多張圖片處理 - 多頁模式】\n- 你會收到 ${answerSheetImages.length} 張答案卷圖片，每張照片有獨立的 ID 前綴：${pagePrefixList}\n- ⚠️ 嚴格禁止把第 2 張以後的題目用 "1-" 開頭，必須依照上方對應關係填入正確前綴\n- 請從所有圖片中提取題目，合併成一個完整的 AnswerKey${pageIdRule}\n- totalScore 是所有圖片中所有題目的 maxScore 總和`
-  const multiImagePrompt = `${prompt}\n\n${multiImageNote}`.trim()
+  // 2026-05-22 落地：鏈式計算多括弧拆題（與 fill_blank NUMERIC ASSERTION 一致）
+  // A/B 證據：baseline 0/10 (0%) → candidate 10/10 (100%) on 數練p49-50 模板
+  const chainCalcRule = isInferMode || isAnswerOnly ? '' : `\n\n🚨🚨🚨 鏈式計算多括弧拆題（與 ID 規則整合、與 fill_blank NUMERIC ASSERTION 一致）：
+
+  同一個小題（同 <大題>-<小題>）內、若印刷模板含 N 個 ( ) 內含紅字答案（如「= ( 100 ) − ( 12.56 ) = ( 87.44 )」），
+  必須拆成 N 個 fill_blank 子題、ID 用 4 段格式：<照片>-<大題>-<小題>-<括弧序號>
+
+  ✅ 正確範例（第 1 張、大題 1、小題 1、含 3 個括弧）：
+     id="1-1-1-1" answer="100"
+     id="1-1-1-2" answer="12.56"
+     id="1-1-1-3" answer="87.44"
+
+  ❌ 錯誤 A：id="1-1-1" answer="87.44"（只生 1 題、漏前 2 括弧）
+  ❌ 錯誤 B：id="1-1-1" answer="100"（只生 1 題、漏後 2 括弧）
+  ❌ 錯誤 C：id="1-1-1" answer="100, 12.56, 87.44"（合併成一個 answer）
+
+  NUMERIC CHECK：寫完 questions 陣列後、count 含「1-1-1-*」前綴的 question 數量、必須等於印刷括弧數。
+  如果只有 1 個 → 你漏題了、再檢查。`
+
+  const multiImagePrompt = `${prompt}\n\n${multiImageNote}${chainCalcRule}`.trim()
 
   // 準備多圖片請求（每張照片前插入頁碼標記，讓 AI 明確知道頁碼）
   const requestParts: GeminiRequestPart[] = [multiImagePrompt]
