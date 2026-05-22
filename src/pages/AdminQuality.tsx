@@ -19,6 +19,7 @@ type SubmissionListItem = {
   totalQuestions: number
   needsReviewCount: number
   gradedAt: number | null
+  lastActivityAt: string | null  // ISO timestamp of latest stage_log
   runCount: number
   phaseACount: number
   phaseBCount: number
@@ -79,6 +80,20 @@ async function fetchJson<T>(url: string): Promise<T> {
     throw new Error(`HTTP ${res.status}: ${txt.slice(0, 200)}`)
   }
   return res.json()
+}
+
+// 格式化最新批改時間：< 1 小時顯示 "Xm 前"、< 24h 顯示 "Xh 前"、否則 MM/dd HH:mm（台灣時區）
+function formatLastActivity(isoTs: string): string {
+  const t = new Date(isoTs).getTime()
+  const now = Date.now()
+  const diffMin = Math.floor((now - t) / 60000)
+  if (diffMin < 1) return '剛剛'
+  if (diffMin < 60) return `${diffMin}m 前`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}h 前`
+  const d = new Date(isoTs)
+  const tw = new Date(d.getTime() + (8 * 60 + d.getTimezoneOffset()) * 60000)  // 轉成台灣時區
+  return `${String(tw.getMonth() + 1).padStart(2, '0')}/${String(tw.getDate()).padStart(2, '0')} ${String(tw.getHours()).padStart(2, '0')}:${String(tw.getMinutes()).padStart(2, '0')}`
 }
 
 // 依 needs_review / total 比例分等級
@@ -248,38 +263,48 @@ export default function AdminQuality() {
                   <button
                     key={s.submissionId}
                     onClick={() => setSelectedSubmissionId(s.submissionId)}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center gap-2 transition-colors ${
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex flex-col gap-0.5 transition-colors ${
                       active ? 'bg-slate-900 text-white' : 'hover:bg-slate-100 text-slate-700'
                     }`}
                   >
-                    <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${TIER_BG[tier]}`} />
-                    <span className="text-xs font-mono w-6 shrink-0 opacity-60">
-                      {s.seatNumber != null ? String(s.seatNumber).padStart(2, '0') : '--'}
-                    </span>
-                    <span className="text-sm flex-1 truncate">{s.studentName}</span>
-                    {s.runCount > 2 && (
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${TIER_BG[tier]}`} />
+                      <span className="text-xs font-mono w-6 shrink-0 opacity-60">
+                        {s.seatNumber != null ? String(s.seatNumber).padStart(2, '0') : '--'}
+                      </span>
+                      <span className="text-sm flex-1 truncate">{s.studentName}</span>
+                      {s.runCount > 2 && (
+                        <span
+                          className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
+                            active ? 'bg-white/20 text-white' : 'bg-sky-100 text-sky-700'
+                          }`}
+                          title={`重跑過：Phase A ${s.phaseACount} 次 / Phase B ${s.phaseBCount} 次（總 ${s.runCount} 筆 log）`}
+                        >
+                          ↻{s.runCount}
+                        </span>
+                      )}
                       <span
                         className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
-                          active ? 'bg-white/20 text-white' : 'bg-sky-100 text-sky-700'
+                          active
+                            ? 'bg-white/20 text-white'
+                            : tier === 'low' ? 'bg-rose-100 text-rose-700'
+                            : tier === 'mid' ? 'bg-amber-100 text-amber-700'
+                            : tier === 'high' ? 'bg-lime-100 text-lime-700'
+                            : 'bg-emerald-100 text-emerald-700'
                         }`}
-                        title={`重跑過：Phase A ${s.phaseACount} 次 / Phase B ${s.phaseBCount} 次（總 ${s.runCount} 筆 log）`}
+                        title={`${s.needsReviewCount} / ${s.totalQuestions} 題需 review`}
                       >
-                        ↻{s.runCount}
+                        {s.needsReviewCount}/{s.totalQuestions}
                       </span>
+                    </div>
+                    {s.lastActivityAt && (
+                      <div
+                        className={`text-[10px] font-mono pl-4 ${active ? 'opacity-60' : 'opacity-40'}`}
+                        title={new Date(s.lastActivityAt).toLocaleString('zh-Hant', { timeZone: 'Asia/Taipei' })}
+                      >
+                        {formatLastActivity(s.lastActivityAt)}
+                      </div>
                     )}
-                    <span
-                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
-                        active
-                          ? 'bg-white/20 text-white'
-                          : tier === 'low' ? 'bg-rose-100 text-rose-700'
-                          : tier === 'mid' ? 'bg-amber-100 text-amber-700'
-                          : tier === 'high' ? 'bg-lime-100 text-lime-700'
-                          : 'bg-emerald-100 text-emerald-700'
-                      }`}
-                      title={`${s.needsReviewCount} / ${s.totalQuestions} 題需 review`}
-                    >
-                      {s.needsReviewCount}/{s.totalQuestions}
-                    </span>
                   </button>
                 )
               })
