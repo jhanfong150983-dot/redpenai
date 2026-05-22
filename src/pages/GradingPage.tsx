@@ -1512,6 +1512,7 @@ export default function GradingPage({
     failedCandidates: Submission[]
   } | null>(null)
   const [manualGradingStudentId, setManualGradingStudentId] = useState<string | null>(null)
+  const [revertingManualGradeStudentId, setRevertingManualGradeStudentId] = useState<string | null>(null)
 
   // 🆕 進度詳情
   const [_currentGradingStudent, setCurrentGradingStudent] = useState<string>('')
@@ -2803,7 +2804,7 @@ export default function GradingPage({
 
   const handleManualGradeStudent = async (student: Student) => {
     if (manualGradingStudentId) return
-    if (!window.confirm(`確定將 ${student.seatNumber} 號 ${student.name} 標記為已批改？\n此操作不會執行 AI 批改，僅更新狀態，且無法撤銷。`)) return
+    if (!window.confirm(`確定將 ${student.seatNumber} 號 ${student.name} 標記為已批改？\n此操作不會執行 AI 批改，僅更新狀態。\n（按下後可再撤銷回「尚未繳交」）`)) return
     setManualGradingStudentId(student.id)
     try {
       const response = await fetch('/api/data/manual-grade', {
@@ -2821,6 +2822,27 @@ export default function GradingPage({
       setError(err instanceof Error ? err.message : '手動標記失敗')
     } finally {
       setManualGradingStudentId(null)
+    }
+  }
+
+  const handleRevertManualGradeStudent = async (student: Student) => {
+    if (revertingManualGradeStudentId) return
+    if (!window.confirm(`撤銷 ${student.seatNumber} 號 ${student.name} 的手動標記？\n將刪除 stub 紀錄、學生回到「尚未繳交」。`)) return
+    setRevertingManualGradeStudentId(student.id)
+    try {
+      const response = await fetch('/api/data/manual-grade-revert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ assignmentId, studentId: student.id })
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data?.error || '撤銷手動標記失敗')
+      await syncAndReload()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '撤銷手動標記失敗')
+    } finally {
+      setRevertingManualGradeStudentId(null)
     }
   }
 
@@ -5475,7 +5497,17 @@ export default function GradingPage({
                     </div>
                   )}
                   {isManualGradeStub(submission) && (
-                    <p className="text-xs font-medium text-emerald-600 mt-1">已完成批改</p>
+                    <div className="flex items-center justify-between mt-1">
+                      <p className="text-xs font-medium text-emerald-600">已完成批改</p>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); void handleRevertManualGradeStudent(student) }}
+                        disabled={Boolean(revertingManualGradeStudentId)}
+                        className="text-[10px] font-medium text-rose-600 hover:text-rose-700 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {revertingManualGradeStudentId === student.id ? '處理中…' : '撤銷標記'}
+                      </button>
+                    </div>
                   )}
                   {(() => {
                     const cs = correctionStatusByStudent[student.id]
