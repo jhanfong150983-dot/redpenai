@@ -5693,13 +5693,24 @@ function parseTagsResponse(text: string): Record<string, { code: string; label: 
 export async function tagConceptsForAnswerKey(
   answerSheetImages: Blob[],
   questions: Array<{ id: string; questionCategory?: string; answer?: string }>,
-  conceptMap: { code: string; label: string; description?: string }[]
+  conceptMap: { code: string; label: string; description?: string }[],
+  questionBookletImages?: Blob[]
 ): Promise<Record<string, { code: string; label: string }>> {
   if (!isGeminiAvailable) throw new Error('Gemini 服務未設定')
   if (questions.length === 0 || conceptMap.length === 0) return {}
 
+  // answer_only 模式時，answerSheetImages 只有答案格沒題幹、AI 無法判斷概念。
+  // 呼叫方若有題本圖、優先使用題本（題本含題幹）；否則 fallback 到答案卷。
+  const sourceImages = (questionBookletImages && questionBookletImages.length > 0)
+    ? questionBookletImages
+    : answerSheetImages
+  const sourceLabel = (questionBookletImages && questionBookletImages.length > 0)
+    ? 'booklet'
+    : 'answer-sheet'
+  console.log(`[tag_concepts] using ${sourceImages.length} ${sourceLabel} image(s)`)
+
   const imageParts: GeminiRequestPart[] = []
-  for (const img of answerSheetImages) {
+  for (const img of sourceImages) {
     const imageBase64 = await blobToBase64(img)
     imageParts.push({ inlineData: { mimeType: img.type || 'image/jpeg', data: imageBase64 } })
   }

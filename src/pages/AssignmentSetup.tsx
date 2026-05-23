@@ -1410,10 +1410,14 @@ export default function AssignmentSetup({
     if (scoreNotice) notices.push(scoreNotice)
 
     // 非同步概念標記
+    // answer_only 模式：傳題本給 AI 看題幹；with_questions 模式：答案卷本身就含題幹
     if (batchConceptMap.length > 0) {
       const questions = scoredKey.questions.map(q => ({ id: q.id, questionCategory: q.questionCategory, answer: q.answer ?? q.referenceAnswer }))
+      const bookletForTagging = createAnswerSheetMode === 'answer_only' && questionBookletBlobs.length > 0
+        ? questionBookletBlobs.slice()
+        : undefined
       setPendingConceptTags(null)
-      tagConceptsForAnswerKey(imageBlobs.slice(), questions, batchConceptMap)
+      tagConceptsForAnswerKey(imageBlobs.slice(), questions, batchConceptMap, bookletForTagging)
         .then(tags => { if (Object.keys(tags).length > 0) setPendingConceptTags(tags) })
         .catch(err => console.warn('⚠️ 概念標記失敗（非致命）', err))
     }
@@ -1721,17 +1725,49 @@ export default function AssignmentSetup({
     if (scoreNotice) notices.push(scoreNotice)
 
     // 非同步概念標記（edit 流程：直接更新 DB）
+    // answer_only 模式：從 storage 下載題本給 AI 看題幹；with_questions 模式：用答案卷
     if (editingAnswerAssignment) {
       const classroom = classrooms.find(c => c.id === (editingClassroomId || editingAnswerAssignment.classroomId))
       if (classroom?.grade) {
         const assignmentId = editingAnswerAssignment.id
+        const templateId = editingAnswerAssignment.answerKeyTemplateId
+        const isAnswerOnly = editingAnswerAssignment.answerSheetMode === 'answer_only'
         const questions = scoredKey.questions.map(q => ({ id: q.id, questionCategory: q.questionCategory, answer: q.answer ?? q.referenceAnswer }))
-        fetch(`/api/data/concept-map?grade=${classroom.grade}`, { credentials: 'include' })
-          .then(r => r.ok ? r.json() : { items: [] })
-          .then(json => {
+
+        // answer_only 時嘗試下載題本（先 assignment-level、再 template-level fallback）
+        const fetchBookletPages = async (): Promise<Blob[]> => {
+          if (!isAnswerOnly) return []
+          const tryDownloadByEntity = async (entity: 'assignment' | 'template', id: string) => {
+            const pages: Blob[] = []
+            const entityParam = entity === 'assignment' ? `assignmentId=${id}` : `templateId=${id}`
+            for (let i = 0; i < 20; i++) {
+              try {
+                const r = await fetch(`/api/storage/download?${entityParam}&pageIndex=${i}&prefix=question-booklets`, { credentials: 'include' })
+                if (!r.ok) break
+                pages.push(await r.blob())
+              } catch { break }
+            }
+            return pages
+          }
+          let pages = await tryDownloadByEntity('assignment', assignmentId)
+          if (pages.length === 0 && templateId) {
+            pages = await tryDownloadByEntity('template', templateId)
+          }
+          if (pages.length > 0) {
+            console.log(`[tag_concepts/edit] booklet pages downloaded: ${pages.length}`)
+          }
+          return pages
+        }
+
+        Promise.all([
+          fetch(`/api/data/concept-map?grade=${classroom.grade}`, { credentials: 'include' }).then(r => r.ok ? r.json() : { items: [] }),
+          fetchBookletPages()
+        ])
+          .then(([json, bookletBlobs]) => {
             const conceptMap: { code: string; label: string }[] = json.items ?? []
-            if (conceptMap.length === 0) return
-            return tagConceptsForAnswerKey([imageBlobs[0]], questions, conceptMap)
+            if (conceptMap.length === 0) return undefined
+            const booklet = bookletBlobs.length > 0 ? bookletBlobs : undefined
+            return tagConceptsForAnswerKey([imageBlobs[0]], questions, conceptMap, booklet)
           })
           .then(tags => {
             if (tags && Object.keys(tags).length > 0) {
