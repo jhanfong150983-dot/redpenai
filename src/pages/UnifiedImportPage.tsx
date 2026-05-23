@@ -543,21 +543,12 @@ export default function UnifiedImportPage({
         }),
       )
 
-      // 透視校正：上傳照片需要校正（手機相片有透視）；PDF 已是平面掃描，跳過省成本
-      let correctedBlobs = rotatedBlobs
-      if (uploadPreviewSource !== 'teacher_scan') {
-        try {
-          const { correctPerspectiveMultiple } = await import('../lib/perspectiveCorrection')
-          correctedBlobs = await correctPerspectiveMultiple(rotatedBlobs)
-        } catch (err) {
-          console.warn('[UnifiedImport] perspective correction failed, using originals:', err)
-        }
-      }
-
+      // 2026-05-23: 拔掉透視校正、不再呼叫 detect_corners
+      // 原因：老師端實際不用拍照、校正全部跳過、避免額外 API 成本
       await saveStudentSubmission(
         assignmentId,
         uploadPreviewStudent.id,
-        correctedBlobs,
+        rotatedBlobs,
         avoidBlobStorage,
         uploadPreviewSource,
       )
