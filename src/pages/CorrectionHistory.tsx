@@ -460,28 +460,38 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                           </div>
                                         )}
                                       </li>
-                                      {/* 每輪：學生照片 + AI 回應（理由 / 通過） */}
+                                      {/* 每輪一條：學生照片 + 不通過理由 / 通過 */}
                                       {row.attempts.flatMap((attempt) => {
                                         const cqi = q.items.find((it) => it.attemptNo === attempt.attemptNo)
                                         const isPass = attempt.resultStatus === 'pass'
                                         if (!cqi && !isPass) return []  // 該題本輪不相關（其他題仍錯）
                                         const studentPhotoUrl = buildStudentRedoUrl(q.questionId, attempt.submissionId)
                                         return [
-                                          // 照片 beat
                                           <li
-                                            key={`r${attempt.attemptNo}-photo`}
+                                            key={`r${attempt.attemptNo}-${q.questionId}`}
                                             className="flex items-start gap-3"
                                           >
-                                            <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] text-slate-700">
-                                              📷
+                                            <span className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                                              cqi ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                                            }`}>
+                                              {cqi ? '❌' : '✓'}
                                             </span>
                                             <div className="flex-1 min-w-0">
                                               <p className="text-xs text-slate-700">
-                                                第 {attempt.attemptNo} 次訂正照片
+                                                第 {attempt.attemptNo} 次訂正
                                                 <span className="ml-2 text-slate-500">
                                                   {formatDate(attempt.createdAt)}
                                                 </span>
                                               </p>
+                                              {cqi?.mistakeReason ? (
+                                                <p className="text-xs text-slate-600">
+                                                  {cqi.mistakeReason}
+                                                </p>
+                                              ) : isPass ? (
+                                                <p className="text-xs font-medium text-emerald-700">
+                                                  通過
+                                                </p>
+                                              ) : null}
                                             </div>
                                             {studentPhotoUrl ? (
                                               <button
@@ -501,40 +511,7 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                                 無圖
                                               </div>
                                             )}
-                                          </li>,
-                                          // AI 回應 beat：有 cqi → 訂正錯理由；否則本輪通過 → 通過
-                                          cqi ? (
-                                            <li
-                                              key={`r${attempt.attemptNo}-reason`}
-                                              className="flex items-start gap-3 pl-8"
-                                            >
-                                              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-800">
-                                                ✗
-                                              </span>
-                                              <div className="flex-1 min-w-0">
-                                                <p className="text-xs font-medium text-amber-700">
-                                                  訂正錯理由
-                                                </p>
-                                                {cqi.mistakeReason && (
-                                                  <p className="text-xs text-slate-600">
-                                                    {cqi.mistakeReason}
-                                                  </p>
-                                                )}
-                                              </div>
-                                            </li>
-                                          ) : (
-                                            <li
-                                              key={`r${attempt.attemptNo}-pass`}
-                                              className="flex items-center gap-3 pl-8"
-                                            >
-                                              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-800">
-                                                ✓
-                                              </span>
-                                              <p className="text-xs font-medium text-emerald-700">
-                                                通過
-                                              </p>
-                                            </li>
-                                          )
+                                          </li>
                                         ]
                                       })}
                                       {!q.finalPassed && isManuallyPassed && (
