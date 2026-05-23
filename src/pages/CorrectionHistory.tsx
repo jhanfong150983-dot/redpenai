@@ -483,7 +483,7 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                         const firstRightRound = q.pendingDispute
                                           ? null
                                           : row.attempts.find((a) => a.attemptNo > lastCqiAttempt)?.attemptNo ?? null
-                                        return row.attempts.flatMap((attempt) => {
+                                        const rendered = row.attempts.flatMap((attempt) => {
                                           if (stopAfterDispute) return []
                                           if (firstRightRound !== null && attempt.attemptNo > firstRightRound) return []  // 該題早已對、不再列後續輪
                                           const cqi = q.items.find((it) => it.attemptNo === attempt.attemptNo)
@@ -563,6 +563,31 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                           }
                                           return items
                                         })
+                                        // 學生在原作業就直接申訴（沒做訂正、cqi.attempt_no=0）→ flatMap 不會跑到
+                                        // disputed 分支、必須在這裡追加 📝 row
+                                        if (q.pendingDispute && q.pendingDispute.attemptNo < 1) {
+                                          rendered.push(
+                                            <li
+                                              key={`q${q.questionId}-dispute-r0`}
+                                              className="flex items-start gap-3"
+                                            >
+                                              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet-100 text-[10px] text-violet-700">
+                                                📝
+                                              </span>
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-medium text-violet-700">
+                                                  學生申訴 · 等待老師審理
+                                                </p>
+                                                {q.pendingDispute.disputeNote && (
+                                                  <p className="text-xs text-slate-600">
+                                                    {q.pendingDispute.disputeNote}
+                                                  </p>
+                                                )}
+                                              </div>
+                                            </li>
+                                          )
+                                        }
+                                        return rendered
                                       })()}
                                       {!q.finalPassed && isManuallyPassed && (
                                         <li className="flex items-center gap-3">
