@@ -1079,7 +1079,10 @@ export default function AssignmentSetup({
     const classroom = classrooms.find(c => c.id === selectedClassroomId)
     if (!classroom?.grade) return []
     try {
-      const res = await fetch(`/api/data/concept-map?grade=${classroom.grade}`, { credentials: 'include' })
+      // 帶 domain 過濾、避免拿到其他科目代碼污染 AI tagging（國語不會收到一堆數學/英文代碼）
+      const params = new URLSearchParams({ grade: String(classroom.grade) })
+      if (assignmentDomain) params.set('domain', assignmentDomain)
+      const res = await fetch(`/api/data/concept-map?${params.toString()}`, { credentials: 'include' })
       if (!res.ok) return []
       const json = await res.json()
       return json.items ?? []
@@ -1759,8 +1762,11 @@ export default function AssignmentSetup({
           return pages
         }
 
+        // 帶 domain 過濾、跟 create flow 對齊（避免拿到其他科目代碼污染 AI tagging）
+        const conceptMapParams = new URLSearchParams({ grade: String(classroom.grade) })
+        if (editingDomain) conceptMapParams.set('domain', editingDomain)
         Promise.all([
-          fetch(`/api/data/concept-map?grade=${classroom.grade}`, { credentials: 'include' }).then(r => r.ok ? r.json() : { items: [] }),
+          fetch(`/api/data/concept-map?${conceptMapParams.toString()}`, { credentials: 'include' }).then(r => r.ok ? r.json() : { items: [] }),
           fetchBookletPages()
         ])
           .then(([json, bookletBlobs]) => {
