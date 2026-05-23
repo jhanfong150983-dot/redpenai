@@ -477,12 +477,18 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                       {/* 每輪一條：學生照片 + 不通過理由 / 通過；遇到 disputed 後接 📝 申訴並停 */}
                                       {(() => {
                                         let stopAfterDispute = false
+                                        // 該題「第一次變對」的那輪 = 最後一個 cqi attempt + 1（之後 student 沒再被標錯）
+                                        // 學生在那輪才會有重拍照片；不要用「整份作業通過」那輪、否則學生可能根本沒拍
+                                        const lastCqiAttempt = q.items.reduce((m, it) => Math.max(m, it.attemptNo), 0)
+                                        const firstRightRound = q.pendingDispute
+                                          ? null
+                                          : row.attempts.find((a) => a.attemptNo > lastCqiAttempt)?.attemptNo ?? null
                                         return row.attempts.flatMap((attempt) => {
                                           if (stopAfterDispute) return []
+                                          if (firstRightRound !== null && attempt.attemptNo > firstRightRound) return []  // 該題早已對、不再列後續輪
                                           const cqi = q.items.find((it) => it.attemptNo === attempt.attemptNo)
-                                          const isPass = attempt.resultStatus === 'pass'
-                                          if (!cqi && !isPass) return []  // 該題本輪不相關（其他題仍錯）
-                                          if (!cqi && isPass && q.pendingDispute) return []  // 申訴中題目不要塞假「通過」
+                                          const isFirstRight = !cqi && attempt.attemptNo === firstRightRound
+                                          if (!cqi && !isFirstRight) return []  // 該題本輪不相關
                                           const studentPhotoUrl = buildStudentRedoUrl(q.questionId, attempt.submissionId)
                                           const items = [
                                             <li
@@ -505,7 +511,7 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                                   <p className="text-xs text-slate-600">
                                                     {cqi.mistakeReason}
                                                   </p>
-                                                ) : isPass ? (
+                                                ) : isFirstRight ? (
                                                   <p className="text-xs font-medium text-emerald-700">
                                                     通過
                                                   </p>
