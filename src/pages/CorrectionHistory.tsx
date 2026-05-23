@@ -85,6 +85,16 @@ function buildCropDownloadUrl(item: QuestionItemRow): string | null {
   return `/api/storage/download?${params.toString()}`
 }
 
+// 學生本輪訂正每題重拍：client 在 [action].js:5619 上傳到 corrections/<round_N_sub>/<qid>.webp
+function buildStudentRedoUrl(questionId: string, submissionId: string | null | undefined): string | null {
+  const sid = (submissionId || '').trim()
+  if (!sid || !questionId) return null
+  const safeQid = String(questionId).replace(/[/\\]/g, '_')
+  const path = `corrections/${sid}/${safeQid}.webp`
+  const params = new URLSearchParams({ submissionId: sid, path })
+  return `/api/storage/download?${params.toString()}`
+}
+
 export default function CorrectionHistory({ onBack, embedded }: CorrectionHistoryProps) {
   const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [students, setStudents] = useState<Student[]>([])
@@ -406,11 +416,54 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                   </div>
                                 </button>
 
-                                {qOpen && (
+                                {qOpen && (() => {
+                                  // 起點：找有 corrections/crops/... 路徑的 AI 原題裁切（沒有就退用首個 item）
+                                  const cropItem =
+                                    q.items.find((it) => (it.cropImageUrl || '').startsWith('corrections/crops/')) ||
+                                    q.items[0]
+                                  const originalCropUrl = cropItem ? buildCropDownloadUrl(cropItem) : null
+                                  const originalReason = q.items[0]?.mistakeReason
+                                  return (
                                   <div className="border-t border-slate-100 px-3 py-2">
                                     <ul className="space-y-2">
+                                      {/* 起點：老師派發訂正 */}
+                                      <li className="flex items-start gap-3">
+                                        <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] text-slate-700">
+                                          📋
+                                        </span>
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-xs font-medium text-slate-700">
+                                            老師派發訂正
+                                          </p>
+                                          {originalReason && (
+                                            <p className="text-xs text-slate-600">
+                                              {originalReason}
+                                            </p>
+                                          )}
+                                        </div>
+                                        {originalCropUrl ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => setLightboxUrl(originalCropUrl)}
+                                            className="shrink-0 overflow-hidden rounded border border-slate-200 transition hover:border-slate-400"
+                                          >
+                                            <img
+                                              src={originalCropUrl}
+                                              alt="原題裁切"
+                                              className="h-16 w-24 object-cover"
+                                              loading="lazy"
+                                            />
+                                          </button>
+                                        ) : (
+                                          <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded border border-dashed border-slate-200 text-[10px] text-slate-400">
+                                            無圖
+                                          </div>
+                                        )}
+                                      </li>
+                                      {/* 學生每次訂正 */}
                                       {q.items.map((it) => {
-                                        const cropUrl = buildCropDownloadUrl(it)
+                                        const attempt = row.attempts.find((a) => a.attemptNo === it.attemptNo)
+                                        const studentPhotoUrl = buildStudentRedoUrl(it.questionId, attempt?.submissionId)
                                         return (
                                           <li
                                             key={`${it.attemptNo}-${it.questionId}`}
@@ -421,7 +474,7 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                             </span>
                                             <div className="flex-1 min-w-0">
                                               <p className="text-xs text-slate-700">
-                                                第 {it.attemptNo} 次
+                                                第 {it.attemptNo} 次訂正
                                                 <span className="ml-2 text-slate-500">
                                                   {formatDate(it.createdAt)}
                                                 </span>
@@ -432,15 +485,15 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                                 </p>
                                               )}
                                             </div>
-                                            {cropUrl ? (
+                                            {studentPhotoUrl ? (
                                               <button
                                                 type="button"
-                                                onClick={() => setLightboxUrl(cropUrl)}
+                                                onClick={() => setLightboxUrl(studentPhotoUrl)}
                                                 className="shrink-0 overflow-hidden rounded border border-slate-200 transition hover:border-slate-400"
                                               >
                                                 <img
-                                                  src={cropUrl}
-                                                  alt={`第 ${it.attemptNo} 次重做`}
+                                                  src={studentPhotoUrl}
+                                                  alt={`第 ${it.attemptNo} 次訂正`}
                                                   className="h-16 w-24 object-cover"
                                                   loading="lazy"
                                                 />
@@ -478,7 +531,8 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                       )}
                                     </ul>
                                   </div>
-                                )}
+                                  )
+                                })()}
                               </div>
                             )
                           })}
