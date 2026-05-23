@@ -62,6 +62,17 @@ type TokenUsageData = {
   }
   byStage: { route_key: string; calls: number; input: number; output: number; twd: number }[]
   byModel: { model_name: string; calls: number; input: number; output: number; twd: number }[]
+  byAssignment?: {
+    assignment_id: string
+    title: string
+    domain: string
+    owner_name: string
+    calls: number
+    input: number
+    output: number
+    twd: number
+    submission_count: number
+  }[]
   timeSeries: { date: string; stages: Record<string, number> }[]
   teachers: { id: string; name: string | null; email: string | null }[]
   adminTestCount: number
@@ -741,6 +752,46 @@ function TokenTab() {
               </div>
             </SectionCard>
           </div>
+
+          {/* 2026-05-23: 按作業拆解 top 20 */}
+          <SectionCard title="按作業拆解（Top 20 耗 token）" icon={<BookOpen className="w-4 h-4 text-orange-500" />}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b border-gray-200">
+                    <th className="px-2 py-2">作業名稱</th>
+                    <th className="px-2 py-2">老師</th>
+                    <th className="px-2 py-2">科目</th>
+                    <th className="px-2 py-2 text-right">提交數</th>
+                    <th className="px-2 py-2 text-right">AI 呼叫</th>
+                    <th className="px-2 py-2 text-right">Input</th>
+                    <th className="px-2 py-2 text-right">Output</th>
+                    <th className="px-2 py-2 text-right">成本</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.byAssignment ?? []).length === 0 && (
+                    <tr><td colSpan={8} className="px-2 py-6 text-center text-xs text-gray-400">這段時間沒有批改類 AI 用量</td></tr>
+                  )}
+                  {(data.byAssignment ?? []).map(a => (
+                    <tr key={a.assignment_id} className="border-t border-gray-100 hover:bg-orange-50/50">
+                      <td className="px-2 py-2 text-xs text-gray-800 max-w-[200px] truncate" title={a.title}>{a.title}</td>
+                      <td className="px-2 py-2 text-xs text-gray-600">{a.owner_name}</td>
+                      <td className="px-2 py-2 text-xs text-gray-500">{a.domain || '—'}</td>
+                      <td className="px-2 py-2 text-right text-xs text-gray-600">{a.submission_count}</td>
+                      <td className="px-2 py-2 text-right text-xs text-gray-600">{a.calls.toLocaleString()}</td>
+                      <td className="px-2 py-2 text-right text-xs text-gray-600">{a.input.toLocaleString()}</td>
+                      <td className="px-2 py-2 text-right text-xs text-gray-600">{a.output.toLocaleString()}</td>
+                      <td className="px-2 py-2 text-right text-xs text-gray-800 font-medium">{fmtTwd(a.twd)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="text-xs text-gray-400 mt-2">
+              註：只包含批改類 AI（含 assignment_id）。answer_key.extract / report.* / locate 等非批改類不計入。
+            </div>
+          </SectionCard>
         </>
       )}
     </div>
