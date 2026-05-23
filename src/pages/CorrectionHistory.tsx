@@ -376,7 +376,18 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                   {isOpen && (
                     <div className="border-t border-slate-100 px-4 py-3">
                       {row.questions.length === 0 ? (
-                        <p className="text-xs text-slate-500">此作業沒有題目層級紀錄。</p>
+                        <p className="text-xs text-slate-500">
+                          {(() => {
+                            const s = row.state?.status
+                            const hasAttempts = row.attempts.length > 0
+                            if (hasAttempts && s === 'correction_passed') return '學生訂正後全部通過，無個別錯題明細。'
+                            if (hasAttempts) return '已有訂正紀錄，但無個別題目明細。'
+                            if (s === 'uploaded')     return '學生已繳交，等待老師批改。'
+                            if (s === 'not_uploaded') return '老師已清空作業，學生尚未重傳。'
+                            if (s === 'graded')       return '已批改，老師尚未派發訂正。'
+                            return '此作業沒有題目層級紀錄。'
+                          })()}
+                        </p>
                       ) : (
                         <div className="space-y-1.5">
                           {row.questions.map((q) => {
