@@ -62,6 +62,8 @@ type TokenUsageData = {
   }
   byStage: { route_key: string; calls: number; input: number; output: number; twd: number }[]
   byModel: { model_name: string; calls: number; input: number; output: number; twd: number }[]
+  byCategory?: { category: string; calls: number; input: number; output: number; twd: number }[]
+  categoryDaily?: { date: string; categories: Record<string, number> }[]
   byAssignment?: {
     assignment_id: string
     title: string
@@ -71,6 +73,12 @@ type TokenUsageData = {
     input: number
     output: number
     twd: number
+    grading_calls: number
+    grading_twd: number
+    report_calls: number
+    report_twd: number
+    correction_calls: number
+    correction_twd: number
     submission_count: number
   }[]
   timeSeries: { date: string; stages: Record<string, number> }[]
@@ -479,6 +487,17 @@ function shortStage(key: string) {
   return key.replace(/^grading\./, '').replace(/^answer_key\./, 'ak.').replace(/^report\./, 'r.')
 }
 
+// 2026-05-23: 類別配色（4 大類）
+const CATEGORY_COLORS: Record<string, string> = {
+  '批改': '#6366f1',      // indigo
+  '訂正': '#14b8a6',      // teal
+  '報告': '#84cc16',      // lime
+  '答案卷': '#06b6d4',    // cyan
+  '系統': '#94a3b8',      // slate
+  '其他': '#cbd5e1',
+}
+function categoryColor(cat: string) { return CATEGORY_COLORS[cat] || '#94a3b8' }
+
 // 堆疊柱狀圖：每天 1 根柱、不同 stage 不同顏色堆疊
 function StackedBarChart({ timeSeries, allStages, height = 220 }: {
   timeSeries: { date: string; stages: Record<string, number> }[]
@@ -550,6 +569,62 @@ function toLocalDateStr(d: Date = new Date()): string {
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
+}
+
+// 2026-05-23: 類別每日堆疊圖（簡化版、跟 StackedBarChart 同設計）
+function CategoryStackedChart({ daily, height = 180 }: {
+  daily: { date: string; categories: Record<string, number> }[]
+  height?: number
+}) {
+  if (daily.length === 0) {
+    return <div className="text-sm text-gray-400 text-center py-8">無資料</div>
+  }
+  const allCats = Array.from(new Set(daily.flatMap(d => Object.keys(d.categories))))
+  const W = 800; const pad = { t: 16, r: 16, b: 32, l: 56 }
+  const cW = W - pad.l - pad.r; const cH = height - pad.t - pad.b
+  const barW = (cW / daily.length) * 0.7
+  const gap = (cW / daily.length) * 0.3
+  const max = Math.max(...daily.map(d => Object.values(d.categories).reduce((a, b) => a + b, 0)), 1)
+  const yTicks = [0, 0.5, 1].map(p => ({ value: Math.round(max * p), y: pad.t + cH - p * cH }))
+  const labelEvery = Math.max(1, Math.ceil(daily.length / 8))
+  return (
+    <div className="w-full">
+      <svg width="100%" height={height} viewBox={`0 0 ${W} ${height}`} preserveAspectRatio="none">
+        {yTicks.map((t, i) => (
+          <g key={i}>
+            <line x1={pad.l} x2={W - pad.r} y1={t.y} y2={t.y} stroke="#e5e7eb" strokeWidth="1" strokeDasharray={i === 0 ? '0' : '4 4'} />
+            <text x={pad.l - 6} y={t.y + 3} textAnchor="end" fontSize="10" fill="#94a3b8">
+              {t.value >= 1000 ? `${(t.value / 1000).toFixed(0)}k` : t.value}
+            </text>
+          </g>
+        ))}
+        {daily.map((day, i) => {
+          let yCursor = pad.t + cH
+          const x = pad.l + i * (cW / daily.length) + gap / 2
+          return (
+            <g key={day.date}>
+              {allCats.map(cat => {
+                const v = day.categories[cat] || 0
+                if (v <= 0) return null
+                const h = (v / max) * cH
+                yCursor -= h
+                return (
+                  <rect key={cat} x={x} y={yCursor} width={barW} height={h} fill={categoryColor(cat)}>
+                    <title>{`${day.date} ${cat}: ${v.toLocaleString()} tokens`}</title>
+                  </rect>
+                )
+              })}
+              {i % labelEvery === 0 && (
+                <text x={x + barW / 2} y={height - 10} textAnchor="middle" fontSize="10" fill="#6b7280">
+                  {day.date.slice(5)}
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
 }
 
 function TokenTab() {
@@ -673,6 +748,27 @@ function TokenTab() {
             )
           })()}
 
+          {/* 2026-05-23: 類別卡片 + 每日類別堆疊 */}
+          {(data.byCategory ?? []).length > 0 && (
+            <SectionCard title="按類別拆解（每日）" icon={<BarChart3 className="w-4 h-4 text-purple-500" />}>
+              {/* 類別匯總卡 */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
+                {(data.byCategory ?? []).map(c => (
+                  <div key={c.category} className="rounded-lg border p-3" style={{ borderColor: categoryColor(c.category) }}>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: categoryColor(c.category) }} />
+                      <span className="text-xs font-semibold text-gray-700">{c.category}</span>
+                    </div>
+                    <div className="text-lg font-bold text-gray-900">{fmtTwd(c.twd)}</div>
+                    <div className="text-xs text-gray-500">{c.calls.toLocaleString()} 次 · {(c.input + c.output).toLocaleString()} tokens</div>
+                  </div>
+                ))}
+              </div>
+              {/* 每日類別堆疊柱狀圖 */}
+              <CategoryStackedChart daily={data.categoryDaily ?? []} />
+            </SectionCard>
+          )}
+
           {/* 趨勢圖 */}
           <SectionCard title="Token 用量趨勢（依 stage 堆疊）" icon={<TrendingUp className="w-4 h-4 text-purple-500" />}>
             <StackedBarChart timeSeries={data.timeSeries ?? []} allStages={allStages} />
@@ -753,8 +849,8 @@ function TokenTab() {
             </SectionCard>
           </div>
 
-          {/* 2026-05-23: 按作業拆解 top 20 */}
-          <SectionCard title="按作業拆解（Top 20 耗 token）" icon={<BookOpen className="w-4 h-4 text-orange-500" />}>
+          {/* 2026-05-23: 按作業拆解 top 20、拆批改/報告/訂正 */}
+          <SectionCard title="按作業拆解（Top 20）" icon={<BookOpen className="w-4 h-4 text-orange-500" />}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -762,16 +858,16 @@ function TokenTab() {
                     <th className="px-2 py-2">作業名稱</th>
                     <th className="px-2 py-2">老師</th>
                     <th className="px-2 py-2">科目</th>
-                    <th className="px-2 py-2 text-right">提交數</th>
-                    <th className="px-2 py-2 text-right">AI 呼叫</th>
-                    <th className="px-2 py-2 text-right">Input</th>
-                    <th className="px-2 py-2 text-right">Output</th>
-                    <th className="px-2 py-2 text-right">成本</th>
+                    <th className="px-2 py-2 text-right">提交</th>
+                    <th className="px-2 py-2 text-right" style={{ color: categoryColor('批改') }}>批改</th>
+                    <th className="px-2 py-2 text-right" style={{ color: categoryColor('報告') }}>報告</th>
+                    <th className="px-2 py-2 text-right" style={{ color: categoryColor('訂正') }}>訂正</th>
+                    <th className="px-2 py-2 text-right border-l border-gray-200">總成本</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(data.byAssignment ?? []).length === 0 && (
-                    <tr><td colSpan={8} className="px-2 py-6 text-center text-xs text-gray-400">這段時間沒有批改類 AI 用量</td></tr>
+                    <tr><td colSpan={8} className="px-2 py-6 text-center text-xs text-gray-400">這段時間沒有 assignment 關聯的 AI 用量</td></tr>
                   )}
                   {(data.byAssignment ?? []).map(a => (
                     <tr key={a.assignment_id} className="border-t border-gray-100 hover:bg-orange-50/50">
@@ -779,17 +875,29 @@ function TokenTab() {
                       <td className="px-2 py-2 text-xs text-gray-600">{a.owner_name}</td>
                       <td className="px-2 py-2 text-xs text-gray-500">{a.domain || '—'}</td>
                       <td className="px-2 py-2 text-right text-xs text-gray-600">{a.submission_count}</td>
-                      <td className="px-2 py-2 text-right text-xs text-gray-600">{a.calls.toLocaleString()}</td>
-                      <td className="px-2 py-2 text-right text-xs text-gray-600">{a.input.toLocaleString()}</td>
-                      <td className="px-2 py-2 text-right text-xs text-gray-600">{a.output.toLocaleString()}</td>
-                      <td className="px-2 py-2 text-right text-xs text-gray-800 font-medium">{fmtTwd(a.twd)}</td>
+                      <td className="px-2 py-2 text-right text-xs">
+                        {a.grading_calls > 0 ? (
+                          <span className="text-gray-800">{fmtTwd(a.grading_twd)} <span className="text-gray-400">({a.grading_calls})</span></span>
+                        ) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-2 py-2 text-right text-xs">
+                        {a.report_calls > 0 ? (
+                          <span className="text-gray-800">{fmtTwd(a.report_twd)} <span className="text-gray-400">({a.report_calls})</span></span>
+                        ) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-2 py-2 text-right text-xs">
+                        {a.correction_calls > 0 ? (
+                          <span className="text-gray-800">{fmtTwd(a.correction_twd)} <span className="text-gray-400">({a.correction_calls})</span></span>
+                        ) : <span className="text-gray-300">—</span>}
+                      </td>
+                      <td className="px-2 py-2 text-right text-xs font-semibold text-gray-900 border-l border-gray-200">{fmtTwd(a.twd)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             <div className="text-xs text-gray-400 mt-2">
-              註：只包含批改類 AI（含 assignment_id）。answer_key.extract / report.* / locate 等非批改類不計入。
+              批改 / 報告 / 訂正 三類成本分開計、括號內為 AI 呼叫次數。同一份作業多次重生報告會在這段時間內累積。
             </div>
           </SectionCard>
         </>
