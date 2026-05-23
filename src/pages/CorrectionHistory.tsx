@@ -183,7 +183,7 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
       assignment: AssignmentMeta
       state?: StateRow
       attempts: AttemptRow[]
-      questions: Array<{ questionId: string; questionText: string | null; items: QuestionItemRow[]; finalPassed: boolean; pendingDispute: QuestionItemRow | null }>
+      questions: Array<{ questionId: string; questionText: string | null; items: QuestionItemRow[]; finalPassed: boolean; pendingDispute: QuestionItemRow | null; attemptCount: number }>
     }>
     const stateByAssign = new Map(data.states.map((s) => [s.assignmentId, s]))
     const attemptsByAssign = new Map<string, AttemptRow[]>()
@@ -223,12 +223,22 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                 ? true
                 : qItems[qItems.length - 1]?.status === 'resolved' && lastAttemptPassed
             )
+          // 學生實際訂正輪數：cqi attempt_no >= 1 + 該題真正變對的那輪（不算 attempt_no=0 起點/原作業）
+          const lastCqiAttemptNo = qItems.reduce((m, it) => Math.max(m, it.attemptNo), 0)
+          const firstRightRoundNo = pendingDispute
+            ? null
+            : attempts.find((a) => a.attemptNo > lastCqiAttemptNo)?.attemptNo ?? null
+          const attemptRoundSet = new Set<number>()
+          for (const it of qItems) if (it.attemptNo >= 1) attemptRoundSet.add(it.attemptNo)
+          if (firstRightRoundNo !== null && firstRightRoundNo >= 1) attemptRoundSet.add(firstRightRoundNo)
+          const attemptCount = attemptRoundSet.size
           return {
             questionId,
             questionText: qItems[0]?.questionText ?? null,
             items: qItems,
             finalPassed,
-            pendingDispute: pendingDispute || null
+            pendingDispute: pendingDispute || null,
+            attemptCount
           }
         })
         .sort((a, b) => a.questionId.localeCompare(b.questionId))
@@ -416,9 +426,11 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                     )}
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0">
-                                    <span className="text-[11px] text-slate-500">
-                                      {q.items.length} 次
-                                    </span>
+                                    {q.attemptCount > 0 && (
+                                      <span className="text-[11px] text-slate-500">
+                                        {q.attemptCount} 次
+                                      </span>
+                                    )}
                                     <span
                                       className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                                         q.pendingDispute
@@ -427,7 +439,9 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                             ? 'bg-emerald-100 text-emerald-800'
                                             : isManuallyPassed
                                               ? 'bg-sky-100 text-sky-800'
-                                              : 'bg-amber-100 text-amber-800'
+                                              : q.attemptCount === 0
+                                                ? 'bg-slate-100 text-slate-700'
+                                                : 'bg-amber-100 text-amber-800'
                                       }`}
                                     >
                                       {q.pendingDispute
@@ -436,7 +450,9 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                           ? '已通過'
                                           : isManuallyPassed
                                             ? '老師通過'
-                                            : '訂正中'}
+                                            : q.attemptCount === 0
+                                              ? '未訂正'
+                                              : '訂正中'}
                                     </span>
                                   </div>
                                 </button>
