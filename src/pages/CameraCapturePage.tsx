@@ -15,6 +15,8 @@ interface CameraCapturePageProps {
   requiredOrientation?: 'portrait' | 'landscape'
   /** 老師端：拍照當下立刻依 CAMERA_FRAME 引導框比例裁切（學生端走 AI 偵測，不需要） */
   applyFrameCrop?: boolean
+  /** 拍照說明書版本：'upload' 整份作業（預設）；'correction' 學生訂正一次一題 */
+  guideMode?: 'upload' | 'correction'
   onCaptureComplete: (imageBlob: Blob) => void
   onBack: () => void
 }
@@ -28,6 +30,7 @@ export default function CameraCapturePage({
   currentPageCount,
   requiredOrientation,
   applyFrameCrop = false,
+  guideMode = 'upload',
   onCaptureComplete,
   onBack
 }: CameraCapturePageProps) {
@@ -469,7 +472,7 @@ export default function CameraCapturePage({
       )}
 
       {/* 拍照說明書 modal（每次開相機自動跳、可關閉、右上 ? 可重新開） */}
-      <PhotoGuideModal open={showPhotoGuide} onClose={() => setShowPhotoGuide(false)} />
+      <PhotoGuideModal open={showPhotoGuide} onClose={() => setShowPhotoGuide(false)} guideMode={guideMode} />
     </div>
   )
 }

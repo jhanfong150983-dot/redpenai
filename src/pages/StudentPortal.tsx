@@ -1357,6 +1357,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
             retakePageIdx !== null ? retakePageIdx : capturedBlobs.length
           ] ?? undefined
         }
+        guideMode={cameraMode === 'correction' ? 'correction' : 'upload'}
         onCaptureComplete={handleCameraCaptureComplete}
         onBack={() => {
           setCameraMode(null)

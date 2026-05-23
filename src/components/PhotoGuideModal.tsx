@@ -4,12 +4,14 @@ import { X } from 'lucide-react'
 interface PhotoGuideModalProps {
   open: boolean
   onClose: () => void
+  /** 'upload' = 整份作業（預設）；'correction' = 學生訂正單題拍照 */
+  guideMode?: 'upload' | 'correction'
 }
 
 const PORTRAIT_WORKSHEET = '/photo-guide/worksheet_portrait.jpg'
 const LANDSCAPE_WORKSHEET = '/photo-guide/worksheet_landscape.jpg'
 
-export default function PhotoGuideModal({ open, onClose }: PhotoGuideModalProps) {
+export default function PhotoGuideModal({ open, onClose, guideMode = 'upload' }: PhotoGuideModalProps) {
   // 用 viewport aspect ratio 判斷直/橫版（高 > 寬 = 裝置直握 → 直版）
   // 涵蓋手機直/橫 + iPad 直/橫 + 桌機（永遠橫版）
   const [isPortrait, setIsPortrait] = useState(() => {
@@ -40,6 +42,9 @@ export default function PhotoGuideModal({ open, onClose }: PhotoGuideModalProps)
 
   if (!open) return null
 
+  // 訂正模式一律用 mobile 容器（內容少、不需要桌機橫版）
+  const useMobileContainer = guideMode === 'correction' || isPortrait
+
   return (
     <div
       className="pg-overlay fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3"
@@ -47,12 +52,54 @@ export default function PhotoGuideModal({ open, onClose }: PhotoGuideModalProps)
     >
       <style>{PHOTO_GUIDE_CSS}</style>
       <div
-        className={isPortrait ? 'pg-modal pg-mobile' : 'pg-modal pg-desktop'}
+        className={useMobileContainer ? 'pg-modal pg-mobile' : 'pg-modal pg-desktop'}
         onClick={(e) => e.stopPropagation()}
       >
-        {isPortrait ? <MobileLayout onClose={onClose} /> : <DesktopLayout onClose={onClose} />}
+        {guideMode === 'correction'
+          ? <CorrectionLayout onClose={onClose} />
+          : useMobileContainer
+            ? <MobileLayout onClose={onClose} />
+            : <DesktopLayout onClose={onClose} />}
       </div>
     </div>
+  )
+}
+
+// ─── Correction (學生訂正每題拍照) ───
+function CorrectionLayout({ onClose }: { onClose: () => void }) {
+  return (
+    <>
+      <div className="pg-header pg-header-mobile">
+        <h1>📸 訂正怎麼拍 · 一次一題</h1>
+        <button className="pg-close" onClick={onClose} aria-label="關閉">
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      <div className="pg-body">
+        <div className="pg-correction-tip">
+          <p className="pg-correction-main">
+            ✅ 對著要訂正的那一題拍<br/>
+            <strong>題目和答案</strong>都要在畫面裡
+          </p>
+          <p className="pg-correction-sub">
+            每題只拍一張；不要拍整張紙、也不要只拍答案
+          </p>
+        </div>
+
+        <h2 className="pg-section-h pg-section-wrong">❌ 這幾種會被擋</h2>
+        <ul className="pg-correction-ng">
+          <li><span className="pg-ng-num">1</span><div><strong>只拍答案、沒拍題目</strong><span>AI 認不出是哪一題</span></div></li>
+          <li><span className="pg-ng-num">2</span><div><strong>拍整張紙</strong><span>一次只能拍一題</span></div></li>
+          <li><span className="pg-ng-num">3</span><div><strong>字模糊或太暗</strong><span>拿穩、找亮一點的地方</span></div></li>
+          <li><span className="pg-ng-num">4</span><div><strong>拍歪、被手指擋到</strong><span>紙擺平、手不要遮到字</span></div></li>
+        </ul>
+      </div>
+
+      <div className="pg-footer">
+        <button className="pg-dismiss-btn" onClick={onClose}>我知道了、開始拍</button>
+      </div>
+    </>
   )
 }
 
@@ -311,5 +358,34 @@ const PHOTO_GUIDE_CSS = `
 .pg-paper.pg-ng-blur {
   top: 7%; bottom: 16%; left: 5%; right: 5%; width: 90%; height: 77%; margin: auto;
   filter: blur(2px);
+}
+
+/* ── correction guide ── */
+.pg-correction-tip {
+  background: #ecfdf5; border: 2px solid #10b981; border-radius: 14px;
+  padding: 16px; margin-bottom: 18px; text-align: center;
+}
+.pg-correction-main {
+  font-size: 17px; font-weight: 700; color: #047857; margin: 0 0 8px 0; line-height: 1.5;
+}
+.pg-correction-main strong { color: #b91c1c; }
+.pg-correction-sub {
+  font-size: 13px; color: #065f46; margin: 0; line-height: 1.55;
+}
+.pg-correction-ng {
+  list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px;
+}
+.pg-correction-ng li {
+  background: white; border: 2px solid #fecaca; border-radius: 10px;
+  padding: 12px 14px; display: flex; align-items: center; gap: 12px;
+}
+.pg-correction-ng li div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.pg-correction-ng strong { color: #b91c1c; font-size: 14px; font-weight: 700; line-height: 1.3; }
+.pg-correction-ng span { font-size: 12px; color: #64748b; line-height: 1.5; }
+.pg-correction-ng .pg-ng-num {
+  flex-shrink: 0; width: 24px; height: 24px; border-radius: 50%;
+  background: #fef2f2; color: #b91c1c; border: 2px solid #fecaca;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800;
 }
 `
