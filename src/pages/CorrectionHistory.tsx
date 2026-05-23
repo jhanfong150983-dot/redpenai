@@ -47,6 +47,9 @@ type QuestionItemRow = {
   sourceSubmissionId: string | null
   sourceImageUrl: string | null
   answerBbox: unknown
+  disputeNote: string | null
+  disputeRejectedAt: string | null
+  disputeRejectionNote: string | null
   createdAt: string
   updatedAt: string
 }
@@ -180,7 +183,7 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
       assignment: AssignmentMeta
       state?: StateRow
       attempts: AttemptRow[]
-      questions: Array<{ questionId: string; questionText: string | null; items: QuestionItemRow[]; finalPassed: boolean }>
+      questions: Array<{ questionId: string; questionText: string | null; items: QuestionItemRow[]; finalPassed: boolean; pendingDispute: QuestionItemRow | null }>
     }>
     const stateByAssign = new Map(data.states.map((s) => [s.assignmentId, s]))
     const attemptsByAssign = new Map<string, AttemptRow[]>()
@@ -210,15 +213,22 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
         .map(([questionId, qItems]) => {
           qItems.sort((a, b) => a.attemptNo - b.attemptNo)
           const wasWrongAtLastAttempt = qItems.some((it) => it.attemptNo === maxAttemptNo)
+          // disputed：有 cqi status=disputed 且還沒被老師駁回 → 申訴中（pending teacher review）
+          const pendingDispute = qItems.find(
+            (it) => it.status === 'disputed' && !it.disputeRejectedAt
+          )
           const finalPassed =
-            !wasWrongAtLastAttempt && lastAttemptPassed
-              ? true
-              : qItems[qItems.length - 1]?.status === 'resolved' && lastAttemptPassed
+            !pendingDispute && (
+              !wasWrongAtLastAttempt && lastAttemptPassed
+                ? true
+                : qItems[qItems.length - 1]?.status === 'resolved' && lastAttemptPassed
+            )
           return {
             questionId,
             questionText: qItems[0]?.questionText ?? null,
             items: qItems,
-            finalPassed
+            finalPassed,
+            pendingDispute: pendingDispute || null
           }
         })
         .sort((a, b) => a.questionId.localeCompare(b.questionId))
@@ -400,18 +410,22 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                     </span>
                                     <span
                                       className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                        q.finalPassed
-                                          ? 'bg-emerald-100 text-emerald-800'
-                                          : isManuallyPassed
-                                            ? 'bg-sky-100 text-sky-800'
-                                            : 'bg-amber-100 text-amber-800'
+                                        q.pendingDispute
+                                          ? 'bg-violet-100 text-violet-800'
+                                          : q.finalPassed
+                                            ? 'bg-emerald-100 text-emerald-800'
+                                            : isManuallyPassed
+                                              ? 'bg-sky-100 text-sky-800'
+                                              : 'bg-amber-100 text-amber-800'
                                       }`}
                                     >
-                                      {q.finalPassed
-                                        ? '已通過'
-                                        : isManuallyPassed
-                                          ? '老師通過'
-                                          : '訂正中'}
+                                      {q.pendingDispute
+                                        ? '申訴中'
+                                        : q.finalPassed
+                                          ? '已通過'
+                                          : isManuallyPassed
+                                            ? '老師通過'
+                                            : '訂正中'}
                                     </span>
                                   </div>
                                 </button>
@@ -460,60 +474,90 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                           </div>
                                         )}
                                       </li>
-                                      {/* 每輪一條：學生照片 + 不通過理由 / 通過 */}
-                                      {row.attempts.flatMap((attempt) => {
-                                        const cqi = q.items.find((it) => it.attemptNo === attempt.attemptNo)
-                                        const isPass = attempt.resultStatus === 'pass'
-                                        if (!cqi && !isPass) return []  // 該題本輪不相關（其他題仍錯）
-                                        const studentPhotoUrl = buildStudentRedoUrl(q.questionId, attempt.submissionId)
-                                        return [
-                                          <li
-                                            key={`r${attempt.attemptNo}-${q.questionId}`}
-                                            className="flex items-start gap-3"
-                                          >
-                                            <span className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                                              cqi ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                                            }`}>
-                                              {cqi ? '❌' : '✓'}
-                                            </span>
-                                            <div className="flex-1 min-w-0">
-                                              <p className="text-xs text-slate-700">
-                                                第 {attempt.attemptNo} 次訂正
-                                                <span className="ml-2 text-slate-500">
-                                                  {formatDate(attempt.createdAt)}
-                                                </span>
-                                              </p>
-                                              {cqi?.mistakeReason ? (
-                                                <p className="text-xs text-slate-600">
-                                                  {cqi.mistakeReason}
+                                      {/* 每輪一條：學生照片 + 不通過理由 / 通過；遇到 disputed 後接 📝 申訴並停 */}
+                                      {(() => {
+                                        let stopAfterDispute = false
+                                        return row.attempts.flatMap((attempt) => {
+                                          if (stopAfterDispute) return []
+                                          const cqi = q.items.find((it) => it.attemptNo === attempt.attemptNo)
+                                          const isPass = attempt.resultStatus === 'pass'
+                                          if (!cqi && !isPass) return []  // 該題本輪不相關（其他題仍錯）
+                                          if (!cqi && isPass && q.pendingDispute) return []  // 申訴中題目不要塞假「通過」
+                                          const studentPhotoUrl = buildStudentRedoUrl(q.questionId, attempt.submissionId)
+                                          const items = [
+                                            <li
+                                              key={`r${attempt.attemptNo}-${q.questionId}`}
+                                              className="flex items-start gap-3"
+                                            >
+                                              <span className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                                                cqi ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                                              }`}>
+                                                {cqi ? '❌' : '✓'}
+                                              </span>
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-xs text-slate-700">
+                                                  第 {attempt.attemptNo} 次訂正
+                                                  <span className="ml-2 text-slate-500">
+                                                    {formatDate(attempt.createdAt)}
+                                                  </span>
                                                 </p>
-                                              ) : isPass ? (
-                                                <p className="text-xs font-medium text-emerald-700">
-                                                  通過
-                                                </p>
-                                              ) : null}
-                                            </div>
-                                            {studentPhotoUrl ? (
-                                              <button
-                                                type="button"
-                                                onClick={() => setLightboxUrl(studentPhotoUrl)}
-                                                className="shrink-0 overflow-hidden rounded border border-slate-200 transition hover:border-slate-400"
-                                              >
-                                                <img
-                                                  src={studentPhotoUrl}
-                                                  alt={`第 ${attempt.attemptNo} 次訂正`}
-                                                  className="h-16 w-24 object-cover"
-                                                  loading="lazy"
-                                                />
-                                              </button>
-                                            ) : (
-                                              <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded border border-dashed border-slate-200 text-[10px] text-slate-400">
-                                                無圖
+                                                {cqi?.mistakeReason ? (
+                                                  <p className="text-xs text-slate-600">
+                                                    {cqi.mistakeReason}
+                                                  </p>
+                                                ) : isPass ? (
+                                                  <p className="text-xs font-medium text-emerald-700">
+                                                    通過
+                                                  </p>
+                                                ) : null}
                                               </div>
-                                            )}
-                                          </li>
-                                        ]
-                                      })}
+                                              {studentPhotoUrl ? (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setLightboxUrl(studentPhotoUrl)}
+                                                  className="shrink-0 overflow-hidden rounded border border-slate-200 transition hover:border-slate-400"
+                                                >
+                                                  <img
+                                                    src={studentPhotoUrl}
+                                                    alt={`第 ${attempt.attemptNo} 次訂正`}
+                                                    className="h-16 w-24 object-cover"
+                                                    loading="lazy"
+                                                  />
+                                                </button>
+                                              ) : (
+                                                <div className="flex h-16 w-24 shrink-0 items-center justify-center rounded border border-dashed border-slate-200 text-[10px] text-slate-400">
+                                                  無圖
+                                                </div>
+                                              )}
+                                            </li>
+                                          ]
+                                          // 學生申訴：在 ❌ 後接 📝、且後續 round 不再列
+                                          if (cqi?.status === 'disputed' && !cqi.disputeRejectedAt) {
+                                            stopAfterDispute = true
+                                            items.push(
+                                              <li
+                                                key={`r${attempt.attemptNo}-${q.questionId}-dispute`}
+                                                className="flex items-start gap-3"
+                                              >
+                                                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet-100 text-[10px] text-violet-700">
+                                                  📝
+                                                </span>
+                                                <div className="flex-1 min-w-0">
+                                                  <p className="text-xs font-medium text-violet-700">
+                                                    學生申訴 · 等待老師審理
+                                                  </p>
+                                                  {cqi.disputeNote && (
+                                                    <p className="text-xs text-slate-600">
+                                                      {cqi.disputeNote}
+                                                    </p>
+                                                  )}
+                                                </div>
+                                              </li>
+                                            )
+                                          }
+                                          return items
+                                        })
+                                      })()}
                                       {!q.finalPassed && isManuallyPassed && (
                                         <li className="flex items-center gap-3">
                                           <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-100 text-[10px] font-bold text-sky-800">
