@@ -460,30 +460,28 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                           </div>
                                         )}
                                       </li>
-                                      {/* 學生每次訂正 */}
-                                      {q.items.map((it) => {
-                                        const attempt = row.attempts.find((a) => a.attemptNo === it.attemptNo)
-                                        const studentPhotoUrl = buildStudentRedoUrl(it.questionId, attempt?.submissionId)
-                                        return (
+                                      {/* 每輪：學生照片 + AI 回應（理由 / 通過） */}
+                                      {row.attempts.flatMap((attempt) => {
+                                        const cqi = q.items.find((it) => it.attemptNo === attempt.attemptNo)
+                                        const isPass = attempt.resultStatus === 'pass'
+                                        if (!cqi && !isPass) return []  // 該題本輪不相關（其他題仍錯）
+                                        const studentPhotoUrl = buildStudentRedoUrl(q.questionId, attempt.submissionId)
+                                        return [
+                                          // 照片 beat
                                           <li
-                                            key={`${it.attemptNo}-${it.questionId}`}
+                                            key={`r${attempt.attemptNo}-photo`}
                                             className="flex items-start gap-3"
                                           >
-                                            <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-800">
-                                              ❌
+                                            <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] text-slate-700">
+                                              📷
                                             </span>
                                             <div className="flex-1 min-w-0">
                                               <p className="text-xs text-slate-700">
-                                                第 {it.attemptNo} 次訂正
+                                                第 {attempt.attemptNo} 次訂正照片
                                                 <span className="ml-2 text-slate-500">
-                                                  {formatDate(it.createdAt)}
+                                                  {formatDate(attempt.createdAt)}
                                                 </span>
                                               </p>
-                                              {it.mistakeReason && (
-                                                <p className="text-xs text-slate-600">
-                                                  {it.mistakeReason}
-                                                </p>
-                                              )}
                                             </div>
                                             {studentPhotoUrl ? (
                                               <button
@@ -493,7 +491,7 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                               >
                                                 <img
                                                   src={studentPhotoUrl}
-                                                  alt={`第 ${it.attemptNo} 次訂正`}
+                                                  alt={`第 ${attempt.attemptNo} 次訂正`}
                                                   className="h-16 w-24 object-cover"
                                                   loading="lazy"
                                                 />
@@ -503,19 +501,42 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
                                                 無圖
                                               </div>
                                             )}
-                                          </li>
-                                        )
+                                          </li>,
+                                          // AI 回應 beat：有 cqi → 訂正錯理由；否則本輪通過 → 通過
+                                          cqi ? (
+                                            <li
+                                              key={`r${attempt.attemptNo}-reason`}
+                                              className="flex items-start gap-3 pl-8"
+                                            >
+                                              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[10px] font-bold text-amber-800">
+                                                ✗
+                                              </span>
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-medium text-amber-700">
+                                                  訂正錯理由
+                                                </p>
+                                                {cqi.mistakeReason && (
+                                                  <p className="text-xs text-slate-600">
+                                                    {cqi.mistakeReason}
+                                                  </p>
+                                                )}
+                                              </div>
+                                            </li>
+                                          ) : (
+                                            <li
+                                              key={`r${attempt.attemptNo}-pass`}
+                                              className="flex items-center gap-3 pl-8"
+                                            >
+                                              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-800">
+                                                ✓
+                                              </span>
+                                              <p className="text-xs font-medium text-emerald-700">
+                                                通過
+                                              </p>
+                                            </li>
+                                          )
+                                        ]
                                       })}
-                                      {q.finalPassed && (
-                                        <li className="flex items-center gap-3">
-                                          <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[10px] font-bold text-emerald-800">
-                                            ✓
-                                          </span>
-                                          <p className="text-xs text-emerald-700">
-                                            最終通過
-                                          </p>
-                                        </li>
-                                      )}
                                       {!q.finalPassed && isManuallyPassed && (
                                         <li className="flex items-center gap-3">
                                           <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-100 text-[10px] font-bold text-sky-800">
