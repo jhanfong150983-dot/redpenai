@@ -20,6 +20,7 @@ type SubmissionListItem = {
   needsReviewCount: number
   gradedAt: number | null
   lastActivityAt: string | null  // ISO timestamp of latest stage_log
+  lastActivityPhase: 'phase_a' | 'phase_b' | string | null  // phase of latest stage_log
   runCount: number
   phaseACount: number
   phaseBCount: number
@@ -299,10 +300,25 @@ export default function AdminQuality() {
                     </div>
                     {s.lastActivityAt && (
                       <div
-                        className={`text-[10px] font-mono pl-4 ${active ? 'opacity-60' : 'opacity-40'}`}
-                        title={new Date(s.lastActivityAt).toLocaleString('zh-Hant', { timeZone: 'Asia/Taipei' })}
+                        className={`text-[10px] font-mono pl-4 flex items-center gap-1.5 ${active ? 'opacity-70' : 'opacity-50'}`}
+                        title={`${s.lastActivityPhase || '(未知 phase)'} · ${new Date(s.lastActivityAt).toLocaleString('zh-Hant', { timeZone: 'Asia/Taipei' })}`}
                       >
-                        {formatLastActivity(s.lastActivityAt)}
+                        {s.lastActivityPhase && (
+                          <span
+                            className={`px-1 rounded font-semibold ${
+                              active
+                                ? 'bg-white/20 text-white'
+                                : s.lastActivityPhase === 'phase_a'
+                                  ? 'bg-sky-100 text-sky-700'
+                                  : s.lastActivityPhase === 'phase_b'
+                                    ? 'bg-violet-100 text-violet-700'
+                                    : 'bg-slate-200 text-slate-600'
+                            }`}
+                          >
+                            {s.lastActivityPhase === 'phase_a' ? 'A' : s.lastActivityPhase === 'phase_b' ? 'B' : s.lastActivityPhase}
+                          </span>
+                        )}
+                        <span>{formatLastActivity(s.lastActivityAt)}</span>
                       </div>
                     )}
                   </button>
