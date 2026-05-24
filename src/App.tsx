@@ -2822,7 +2822,7 @@ function App() {
                                     <div className="mt-2 space-y-0.5 text-[11px] text-slate-500">
                                       {item.incompleteSeatNumbers.length > 0 && (
                                         <div>
-                                          <span className="font-medium text-amber-700">未完成：</span>
+                                          <span className="font-medium text-amber-700">未訂正：</span>
                                           {item.incompleteSeatNumbers.join('、')}
                                         </div>
                                       )}
