@@ -167,20 +167,27 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
       result = result.filter(u => roleToTab(u.effectiveRole) === roleTab)
     }
     const keyword = query.trim().toLowerCase()
-    if (!keyword) return result
-    return result.filter((user) => {
-      const haystack = [
-        user.email,
-        user.name,
-        user.userId,
-        user.role,
-        user.effectiveRole,
-        user.permissionTier
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-      return haystack.includes(keyword)
+    if (keyword) {
+      result = result.filter((user) => {
+        const haystack = [
+          user.email,
+          user.name,
+          user.userId,
+          user.role,
+          user.effectiveRole,
+          user.permissionTier
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+        return haystack.includes(keyword)
+      })
+    }
+    // 排序：最後活躍時間 DESC、null 排最後
+    return [...result].sort((a, b) => {
+      const ta = a.lastActiveAt ? new Date(a.lastActiveAt).getTime() : 0
+      const tb = b.lastActiveAt ? new Date(b.lastActiveAt).getTime() : 0
+      return tb - ta
     })
   }, [users, query, roleTab])
 
@@ -399,188 +406,154 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
           載入中…
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div className="space-y-2">
           {filteredUsers.length === 0 ? (
-            <div className="col-span-full bg-white rounded-2xl shadow p-6 text-sm text-gray-500 text-center">
+            <div className="bg-white rounded-2xl shadow p-6 text-sm text-gray-500 text-center">
               查無符合條件的使用者
             </div>
           ) : (
-            filteredUsers.map((user) => (
-              <div
-                key={user.userId}
-                className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-shadow cursor-pointer border border-gray-100 overflow-hidden"
-                onClick={() => handleCardClick(user)}
-              >
-                {/* Card Header */}
-                <div className="p-5 border-b border-gray-100">
-                  <div className="flex items-start gap-3">
-                    <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg flex-shrink-0">
+            filteredUsers.map((user) => {
+              const hasStudents = (user.students?.length ?? 0) > 0
+              const isExpanded = expandedStudents.has(user.userId)
+              return (
+                <div
+                  key={user.userId}
+                  className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-gray-100 overflow-hidden"
+                  onClick={() => handleCardClick(user)}
+                >
+                  {/* Horizontal compact row */}
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    {/* Avatar */}
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
                       {(user.name || user.email || '?').charAt(0).toUpperCase()}
                     </div>
+
+                    {/* Name + email + badges */}
                     <div className="min-w-0 flex-1">
-                      <h3 className="text-base font-semibold text-gray-900 truncate">
-                        {user.name || '未命名使用者'}
-                      </h3>
-                      <p className="text-xs text-gray-500 truncate mt-0.5">
-                        {user.email || user.userId}
-                      </p>
-                      <div className="flex flex-wrap gap-1.5 mt-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-sm font-semibold text-gray-900 truncate">
+                          {user.name || '未命名使用者'}
+                        </h3>
                         {user.effectiveRole && (
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_BADGE[user.effectiveRole].className}`}>
+                          <span className={`px-1.5 py-0.5 rounded-full text-[11px] font-medium ${ROLE_BADGE[user.effectiveRole].className}`}>
                             {ROLE_BADGE[user.effectiveRole].label}
-                            {user.roleManual && <span className="ml-1 opacity-70">（手動）</span>}
+                            {user.roleManual && <span className="ml-0.5 opacity-70">（手動）</span>}
                           </span>
                         )}
                         {user.status === 'new' && user.effectiveRole === 'teacher' && (
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-xs">
-                            尚無班級
-                          </span>
+                          <span className="px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[11px]">尚無班級</span>
                         )}
                         {user.permissionTier === 'advanced' && (
-                          <span className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs font-medium inline-flex items-center gap-1">
-                            <Crown className="w-3 h-3" />
-                            Pro
+                          <span className="px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[11px] font-medium inline-flex items-center gap-0.5">
+                            <Crown className="w-2.5 h-2.5" />Pro
                           </span>
                         )}
                       </div>
+                      <p className="text-xs text-gray-500 truncate mt-0.5">
+                        {user.email || user.userId}
+                      </p>
                     </div>
-                  </div>
-                </div>
 
-                {/* Stats Grid */}
-                <div className="p-4 bg-gray-50">
-                  <div className="grid grid-cols-3 gap-3 mb-3">
-                    <div className="text-center">
-                      <div className="flex items-center justify-center mb-1">
-                        <UsersIcon className="w-4 h-4 text-blue-600" />
-                      </div>
-                      <div className="text-lg font-bold text-gray-900">{user.classroomCount}</div>
-                      <div className="text-xs text-gray-500">班級</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="flex items-center justify-center mb-1">
-                        <GraduationCap className="w-4 h-4 text-green-600" />
-                      </div>
-                      <div className="text-lg font-bold text-gray-900">{user.studentCount}</div>
-                      <div className="text-xs text-gray-500">學生</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="flex items-center justify-center mb-1">
-                        <FileText className="w-4 h-4 text-purple-600" />
-                      </div>
-                      <div className="text-lg font-bold text-gray-900">{user.assignmentCount}</div>
-                      <div className="text-xs text-gray-500">作業</div>
-                    </div>
-                  </div>
-
-                  {/* Grading Progress */}
-                  <div className="bg-white rounded-lg p-3 mb-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-gray-600 flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
-                        批改進度
+                    {/* Inline stats（窄螢幕 hide）*/}
+                    <div className="hidden md:flex items-center gap-4 text-xs text-gray-600 flex-shrink-0">
+                      <span className="inline-flex items-center gap-1" title="班級數">
+                        <UsersIcon className="w-3.5 h-3.5 text-blue-600" />
+                        <span className="font-semibold text-gray-900">{user.classroomCount}</span>
                       </span>
-                      <span className="text-xs font-semibold text-gray-900">
-                        {user.gradedCount}/{user.submissionCount}
+                      <span className="inline-flex items-center gap-1" title="學生數">
+                        <GraduationCap className="w-3.5 h-3.5 text-green-600" />
+                        <span className="font-semibold text-gray-900">{user.studentCount}</span>
                       </span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-green-500 to-emerald-600 rounded-full transition-[width]"
-                        style={{ width: `${user.gradingProgress}%` }}
-                      />
-                    </div>
-                    <div className="text-xs text-gray-500 text-right mt-1">
-                      {user.gradingProgress}%
-                    </div>
-                  </div>
-
-                  {/* Ink Usage */}
-                  <div className="bg-white rounded-lg p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-600 flex items-center gap-1">
+                      <span className="inline-flex items-center gap-1" title="作業數">
+                        <FileText className="w-3.5 h-3.5 text-purple-600" />
+                        <span className="font-semibold text-gray-900">{user.assignmentCount}</span>
+                      </span>
+                      <span className="inline-flex items-center gap-1" title="批改進度">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="font-medium text-gray-700">{user.gradedCount}/{user.submissionCount}</span>
+                      </span>
+                      <span className="inline-flex items-center gap-1" title="墨水餘額 / 近 30 日消耗">
                         <Droplet className="w-3.5 h-3.5 text-blue-600" />
-                        墨水餘額
-                      </span>
-                      <span className="text-sm font-semibold text-blue-700">
-                        {user.inkBalance ?? 0} 滴
+                        <span className="font-semibold text-blue-700">{user.inkBalance ?? 0}</span>
+                        <span className="text-gray-400">/{user.totalInkUsed}</span>
                       </span>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">近30日消耗</span>
-                      <span className="text-xs font-medium text-gray-700">
-                        {user.totalInkUsed} 滴
-                      </span>
+
+                    {/* Last active */}
+                    <div className="inline-flex items-center gap-1 text-xs text-gray-500 flex-shrink-0 min-w-[80px] justify-end">
+                      <Clock className="w-3.5 h-3.5" />
+                      {formatRelativeTime(user.lastActiveAt)}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {hasStudents && (
+                        <button
+                          type="button"
+                          onClick={(e) => toggleStudents(user.userId, e)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-green-200 bg-green-50 hover:bg-green-100 text-[11px] text-green-700"
+                          title={`查看學生（${user.students?.length} 位）`}
+                        >
+                          <GraduationCap className="w-3 h-3" />
+                          {user.students?.length}
+                          {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openEdit(user)
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-gray-200 text-[11px] text-gray-700 hover:bg-gray-50"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        編輯
+                      </button>
                     </div>
                   </div>
-                </div>
 
-                {/* Card Footer */}
-                <div className="px-4 py-3 border-t border-gray-100 bg-white flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>最後活躍：{formatRelativeTime(user.lastActiveAt)}</span>
+                  {/* 窄螢幕的 stats（hidden on md+）*/}
+                  <div className="md:hidden px-4 pb-3 pt-1 border-t border-gray-50">
+                    <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                      <span className="inline-flex items-center gap-1"><UsersIcon className="w-3 h-3 text-blue-600" />班級 {user.classroomCount}</span>
+                      <span className="inline-flex items-center gap-1"><GraduationCap className="w-3 h-3 text-green-600" />學生 {user.studentCount}</span>
+                      <span className="inline-flex items-center gap-1"><FileText className="w-3 h-3 text-purple-600" />作業 {user.assignmentCount}</span>
+                      <span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3 text-emerald-600" />批改 {user.gradedCount}/{user.submissionCount}</span>
+                      <span className="inline-flex items-center gap-1 col-span-2"><Droplet className="w-3 h-3 text-blue-600" />墨水 {user.inkBalance ?? 0} 滴（近 30 日用 {user.totalInkUsed}）</span>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      openEdit(user)
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                    編輯
-                  </button>
-                </div>
 
-                {/* Student Toggle */}
-                {(user.students?.length ?? 0) > 0 && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={(e) => toggleStudents(user.userId, e)}
-                      className="w-full flex items-center justify-between px-4 py-2 bg-green-50 hover:bg-green-100 border-t border-green-100 transition-colors text-xs font-medium text-green-700"
-                    >
-                      <span className="flex items-center gap-1.5">
-                        <GraduationCap className="w-3.5 h-3.5" />
-                        查看學生（{user.students?.length} 位）
-                      </span>
-                      {expandedStudents.has(user.userId)
-                        ? <ChevronUp className="w-3.5 h-3.5" />
-                        : <ChevronDown className="w-3.5 h-3.5" />}
-                    </button>
-
-                    {expandedStudents.has(user.userId) && (
-                      <div className="px-3 pb-3 pt-1 bg-green-50" onClick={(e) => e.stopPropagation()}>
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-gray-500">
-                              <th className="text-left py-1 px-1 font-medium">姓名</th>
-                              <th className="text-left py-1 px-1 font-medium">班級</th>
-                              <th className="text-right py-1 px-1 font-medium">繳交</th>
-                              <th className="text-right py-1 px-1 font-medium">批改</th>
-                              <th className="text-right py-1 px-1 font-medium">最後活躍</th>
+                  {/* Students expand（保留原行為）*/}
+                  {hasStudents && isExpanded && (
+                    <div className="px-4 pb-3 pt-1 bg-green-50/40 border-t border-green-100" onClick={(e) => e.stopPropagation()}>
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-gray-500">
+                            <th className="text-left py-1 px-1 font-medium">姓名</th>
+                            <th className="text-left py-1 px-1 font-medium">班級</th>
+                            <th className="text-right py-1 px-1 font-medium">繳交</th>
+                            <th className="text-right py-1 px-1 font-medium">批改</th>
+                            <th className="text-right py-1 px-1 font-medium">最後活躍</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {user.students?.map(s => (
+                            <tr key={s.studentId} className="border-t border-green-100">
+                              <td className="py-1 px-1 font-medium text-gray-800">{s.studentName}</td>
+                              <td className="py-1 px-1 text-gray-500">{s.classroomName || '—'}</td>
+                              <td className="py-1 px-1 text-right font-semibold text-blue-700">{s.submissionCount}</td>
+                              <td className="py-1 px-1 text-right text-gray-600">{s.gradedCount}</td>
+                              <td className="py-1 px-1 text-right text-gray-400">{formatRelativeTime(s.lastActiveAt ?? undefined)}</td>
                             </tr>
-                          </thead>
-                          <tbody>
-                            {user.students?.map(s => (
-                              <tr key={s.studentId} className="border-t border-green-100">
-                                <td className="py-1 px-1 font-medium text-gray-800">{s.studentName}</td>
-                                <td className="py-1 px-1 text-gray-500">{s.classroomName || '—'}</td>
-                                <td className="py-1 px-1 text-right font-semibold text-blue-700">{s.submissionCount}</td>
-                                <td className="py-1 px-1 text-right text-gray-600">{s.gradedCount}</td>
-                                <td className="py-1 px-1 text-right text-gray-400">{formatRelativeTime(s.lastActiveAt ?? undefined)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            ))
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )
+            })
           )}
         </div>
       )}
