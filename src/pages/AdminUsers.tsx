@@ -421,15 +421,15 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                   className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer border border-gray-100 overflow-hidden"
                   onClick={() => handleCardClick(user)}
                 >
-                  {/* Horizontal compact row */}
-                  <div className="flex items-center gap-3 px-4 py-3">
+                  {/* Horizontal compact row — 大螢幕用 grid 對齊欄位 */}
+                  <div className="md:grid md:grid-cols-[40px_minmax(220px,1fr)_60px_72px_60px_88px_88px_72px_auto] md:items-center md:gap-3 flex items-center gap-3 px-4 py-3">
                     {/* Avatar */}
                     <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
                       {(user.name || user.email || '?').charAt(0).toUpperCase()}
                     </div>
 
                     {/* Name + email + badges */}
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 md:flex-initial">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-sm font-semibold text-gray-900 truncate">
                           {user.name || '未命名使用者'}
@@ -454,51 +454,49 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                       </p>
                     </div>
 
-                    {/* Inline stats（窄螢幕 hide）*/}
-                    <div className="hidden md:flex items-center gap-4 text-xs text-gray-600 flex-shrink-0">
-                      <span className="inline-flex items-center gap-1" title="班級數">
-                        <UsersIcon className="w-3.5 h-3.5 text-blue-600" />
-                        <span className="font-semibold text-gray-900">{user.classroomCount}</span>
-                      </span>
-                      <span className="inline-flex items-center gap-1" title="學生數">
-                        <GraduationCap className="w-3.5 h-3.5 text-green-600" />
-                        <span className="font-semibold text-gray-900">{user.studentCount}</span>
-                      </span>
-                      <span className="inline-flex items-center gap-1" title="作業數">
-                        <FileText className="w-3.5 h-3.5 text-purple-600" />
-                        <span className="font-semibold text-gray-900">{user.assignmentCount}</span>
-                      </span>
-                      <span className="inline-flex items-center gap-1" title="批改進度">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        <span className="font-medium text-gray-700">{user.gradedCount}/{user.submissionCount}</span>
-                      </span>
-                      <span className="inline-flex items-center gap-1" title="墨水餘額 / 近 30 日消耗">
-                        <Droplet className="w-3.5 h-3.5 text-blue-600" />
-                        <span className="font-semibold text-blue-700">{user.inkBalance ?? 0}</span>
-                        <span className="text-gray-400">/{user.totalInkUsed}</span>
-                      </span>
-                    </div>
+                    {/* Inline stats（窄螢幕 hide、大螢幕用 grid 對齊）*/}
+                    <span className="hidden md:inline-flex items-center justify-end gap-1 text-xs text-gray-600 tabular-nums" title="班級數">
+                      <UsersIcon className="w-3.5 h-3.5 text-blue-600" />
+                      <span className="font-semibold text-gray-900">{user.classroomCount}</span>
+                    </span>
+                    <span className="hidden md:inline-flex items-center justify-end gap-1 text-xs text-gray-600 tabular-nums" title="學生數">
+                      <GraduationCap className="w-3.5 h-3.5 text-green-600" />
+                      <span className="font-semibold text-gray-900">{user.studentCount}</span>
+                    </span>
+                    <span className="hidden md:inline-flex items-center justify-end gap-1 text-xs text-gray-600 tabular-nums" title="作業數">
+                      <FileText className="w-3.5 h-3.5 text-purple-600" />
+                      <span className="font-semibold text-gray-900">{user.assignmentCount}</span>
+                    </span>
+                    <span className="hidden md:inline-flex items-center justify-end gap-1 text-xs text-gray-600 tabular-nums" title="批改進度（已批 / 總繳交）">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="font-medium text-gray-700">{user.gradedCount}/{user.submissionCount}</span>
+                    </span>
+                    <span className="hidden md:inline-flex items-center justify-end gap-1 text-xs text-gray-600 tabular-nums" title="墨水餘額 / 近 30 日消耗">
+                      <Droplet className="w-3.5 h-3.5 text-blue-600" />
+                      <span className="font-semibold text-blue-700">{user.inkBalance ?? 0}</span>
+                      <span className="text-gray-400">/{user.totalInkUsed}</span>
+                    </span>
 
                     {/* Last active */}
-                    <div className="inline-flex items-center gap-1 text-xs text-gray-500 flex-shrink-0 min-w-[80px] justify-end">
+                    <div className="hidden md:inline-flex items-center justify-end gap-1 text-xs text-gray-500 tabular-nums">
                       <Clock className="w-3.5 h-3.5" />
                       {formatRelativeTime(user.lastActiveAt)}
                     </div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {hasStudents && (
+                    {/* Actions — 學生 + 編輯 */}
+                    <div className="hidden md:flex items-center gap-1 justify-end">
+                      {hasStudents ? (
                         <button
                           type="button"
                           onClick={(e) => toggleStudents(user.userId, e)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-green-200 bg-green-50 hover:bg-green-100 text-[11px] text-green-700"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-1 rounded-md border border-green-200 bg-green-50 hover:bg-green-100 text-[11px] text-green-700 tabular-nums"
                           title={`查看學生（${user.students?.length} 位）`}
                         >
                           <GraduationCap className="w-3 h-3" />
                           {user.students?.length}
                           {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                         </button>
-                      )}
+                      ) : <span className="w-[1px]" />}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -513,7 +511,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                     </div>
                   </div>
 
-                  {/* 窄螢幕的 stats（hidden on md+）*/}
+                  {/* 窄螢幕的 stats + actions（hidden on md+）*/}
                   <div className="md:hidden px-4 pb-3 pt-1 border-t border-gray-50">
                     <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
                       <span className="inline-flex items-center gap-1"><UsersIcon className="w-3 h-3 text-blue-600" />班級 {user.classroomCount}</span>
@@ -521,6 +519,33 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                       <span className="inline-flex items-center gap-1"><FileText className="w-3 h-3 text-purple-600" />作業 {user.assignmentCount}</span>
                       <span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3 text-emerald-600" />批改 {user.gradedCount}/{user.submissionCount}</span>
                       <span className="inline-flex items-center gap-1 col-span-2"><Droplet className="w-3 h-3 text-blue-600" />墨水 {user.inkBalance ?? 0} 滴（近 30 日用 {user.totalInkUsed}）</span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                        <Clock className="w-3 h-3" />
+                        {formatRelativeTime(user.lastActiveAt)}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {hasStudents && (
+                          <button
+                            type="button"
+                            onClick={(e) => toggleStudents(user.userId, e)}
+                            className="inline-flex items-center gap-0.5 px-1.5 py-1 rounded-md border border-green-200 bg-green-50 hover:bg-green-100 text-[11px] text-green-700 tabular-nums"
+                          >
+                            <GraduationCap className="w-3 h-3" />
+                            {user.students?.length}
+                            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); openEdit(user) }}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-gray-200 text-[11px] text-gray-700 hover:bg-gray-50"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          編輯
+                        </button>
+                      </div>
                     </div>
                   </div>
 
