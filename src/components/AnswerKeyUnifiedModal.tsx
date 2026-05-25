@@ -1336,6 +1336,14 @@ export default function AnswerKeyUnifiedModal({
                               })
                               return !hasAny
                             }
+                            // fill_blank 合題：看 parts 是否每空都有非空 answer
+                            if (Array.isArray(q.parts) && q.parts.length > 0) {
+                              const allFilled = q.parts.every((p) => {
+                                const pa = (p?.answer ?? '').trim()
+                                return pa && !PLACEHOLDER_ANSWERS.includes(pa)
+                              })
+                              return !allFilled
+                            }
                             const a = (q.answer ?? '').trim()
                             const r = (q.referenceAnswer ?? '').trim()
                             return (!a || PLACEHOLDER_ANSWERS.includes(a)) && (!r || PLACEHOLDER_ANSWERS.includes(r))
@@ -1367,12 +1375,20 @@ export default function AnswerKeyUnifiedModal({
                             const ca = (c?.answer ?? '').trim()
                             return ca && !PLACEHOLDER_ANSWERS.includes(ca)
                           })
+                        // fill_blank 合題：答案在 parts[].answer，每空都要有非空 answer
+                        const hasParts = Array.isArray(q.parts) && q.parts.length > 0
+                        const partsAllFilled = hasParts && q.parts!.every((p) => {
+                          const pa = (p?.answer ?? '').trim()
+                          return pa && !PLACEHOLDER_ANSWERS.includes(pa)
+                        })
                         // AI 漏填答案就警示（含 short_answer / word_problem / calculation —
                         // 這三類也必填 answer 或 referenceAnswer）
                         const answerMissing = isTableCellQ
                           ? !tableCellHasAnswer
-                          : ((!ans || PLACEHOLDER_ANSWERS.includes(ans))
-                            && (!ref || PLACEHOLDER_ANSWERS.includes(ref)))
+                          : hasParts
+                            ? !partsAllFilled
+                            : ((!ans || PLACEHOLDER_ANSWERS.includes(ans))
+                              && (!ref || PLACEHOLDER_ANSWERS.includes(ref)))
                         const hasWarn = vocabWarn || multiFillWarn || answerMissing
                         const isSelected = idx === selectedIdx
                         return (

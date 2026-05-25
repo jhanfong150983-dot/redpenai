@@ -4339,6 +4339,15 @@ function checkAnswerKeyQuality(ak: AnswerKey, pageCount?: number): { shouldRetry
       if (!hasAny) missingAnswer++
       continue
     }
+    // fill_blank 合題：看 parts 是否每空都有非空 answer
+    if (Array.isArray(q.parts) && q.parts.length > 0) {
+      const allFilled = q.parts.every((p) => {
+        const pa = (p?.answer ?? '').trim()
+        return pa && !PLACEHOLDER_ANSWERS.has(pa)
+      })
+      if (!allFilled) missingAnswer++
+      continue
+    }
     const ans = (q.answer ?? '').trim()
     const ref = (q.referenceAnswer ?? '').trim()
     if ((!ans || PLACEHOLDER_ANSWERS.has(ans)) && (!ref || PLACEHOLDER_ANSWERS.has(ref))) missingAnswer++
