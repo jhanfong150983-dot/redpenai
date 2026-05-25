@@ -173,6 +173,40 @@ export function clearSyncCursor() {
   window.localStorage.removeItem(SYNC_CURSOR_STORAGE_KEY)
 }
 
+/**
+ * 2026-05-25: self-heal — 掃 local 是否有 stale Phase A row（status=graded 但
+ * gradingResult.totalScore 缺）。incremental sync 不會重拉 updated_at 沒變的 row、
+ * 所以這類 row 永遠 stale。清掉 cursor 強制下次 sync 全拉 → server-first merge
+ * 邏輯（line 1032）會把 server 完整 data 補回來。
+ *
+ * 觸發時機：useSync 初次 mount。Idempotent — 沒 stale 就不動 cursor。
+ */
+async function selfHealStaleGradingResultIfNeeded(): Promise<boolean> {
+  try {
+    const all = await db.submissions.toArray()
+    let staleCount = 0
+    for (const sub of all) {
+      if (sub?.status !== 'graded') continue
+      // server 已有 score（sync 來的 column）但 local gradingResult 沒 totalScore = stale
+      const hasServerScore = Number.isFinite(Number(sub?.score))
+      const grTotalScore = Number((sub?.gradingResult as { totalScore?: unknown } | undefined)?.totalScore)
+      const hasLocalTotalScore = Number.isFinite(grTotalScore)
+      if (hasServerScore && sub?.gradingResult && !hasLocalTotalScore) {
+        staleCount++
+      }
+    }
+    if (staleCount > 0) {
+      console.warn(`[self-heal] 偵測到 ${staleCount} 筆 stale Phase A local（status=graded 但 totalScore 缺）、清 sync cursor 觸發全拉`)
+      clearSyncCursor()
+      return true
+    }
+    return false
+  } catch (err) {
+    console.warn('[self-heal] scan failed (non-fatal):', err)
+    return false
+  }
+}
+
 export function useSync(options: UseSyncOptions = {}) {
   const { autoSync = true } = options
 
@@ -1748,6 +1782,14 @@ export function useSync(options: UseSyncOptions = {}) {
       void updatePendingCount()
     }
   }, [isOnline, updatePendingCount])
+
+  // 2026-05-25: mount 時跑 self-heal — 若 local 有 stale Phase A row（status=graded
+  // 但 totalScore 缺）、清 sync cursor 強制下次 sync 全拉、配合 useSync line 1032
+  // server-first merge 邏輯把完整 Phase B data 補回來。Idempotent。
+  // 為什麼放這裡：incremental sync 不會重拉 updated_at 沒變的 row、stale 永遠不修。
+  useEffect(() => {
+    void selfHealStaleGradingResultIfNeeded()
+  }, [])
 
   /**
    * 執行同步
