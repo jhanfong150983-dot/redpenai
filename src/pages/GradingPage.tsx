@@ -227,6 +227,43 @@ export const CARD_STAGE_LABEL: Record<CardStage, string> = {
   manual_marked: '手動標記已批改'
 }
 
+/**
+ * gradePhaseA 拋出 exception（網路斷、JSON parse 失敗、unexpected response shape）時的 DB 持久化。
+ *
+ * 2026-05-25 修：原本 catch 路徑只 console.error、不寫 DB → 卡片 status 還是 'synced'、
+ * 老師看到「已上傳」徽章誤以為還沒批改（李宥均 case：Vercel log 顯示 phase_a_classify 500、
+ * 但 DB 沒翻 grading_failed）。
+ *
+ * 這個 helper 包裝 success-failure 路徑的同等動作：寫 local DB + POST 到 server
+ * /api/data/save-grading、塞一個 synthetic pipelineFailure metadata 讓 deriveCardStage
+ * 能算出 phase_a_failed、卡片顯示紅色「擷取失敗」徽章。
+ */
+async function persistGradingFailureFromException(submissionId: string, errorMessage: string) {
+  const failure: import('@/lib/gemini').PipelineFailure = {
+    stage: 'classify',
+    reasonCode: 'CLIENT_EXCEPTION',
+    userMessage: '批改流程發生錯誤、請重新批改試試',
+    userAction: '請按右上角「批改作業」重新批改',
+    technical: { metrics: { errorMessage } as Record<string, unknown> }
+  }
+  const failureGradingResult = { pipelineFailure: failure } as unknown as import('@/lib/db').GradingResult
+  const updatedAt = Date.now()
+  await db.submissions.update(submissionId, {
+    status: 'grading_failed',
+    gradingResult: failureGradingResult,
+    updatedAt,
+  }).catch((e) => console.warn('[persistGradingFailureFromException] db update failed', e))
+  fetch(buildApiUrl('/api/data/save-grading'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      submissions: [{ id: submissionId, status: 'grading_failed', gradingResult: { pipelineFailure: failure } }],
+    }),
+  }).catch(() => {})
+  return { failure, failureGradingResult, updatedAt }
+}
+
 // 偵測「教師手動批改」stub submission：source=teacher_camera、status=graded、無圖、無批改結果。
 // 由 /api/data/manual-grade 建立，代表老師宣告已批改但沒有實際影像/評分。
 function isManualGradeStub(submission?: Submission) {
@@ -3148,6 +3185,19 @@ export default function GradingPage({
           failCount++
           failedCandidates.push(sub)
           console.error(`[recaptureOnly] failed for ${sub.id}:`, err)
+          // 2026-05-25: 同步寫 grading_failed 到 DB、避免卡片仍顯示「已上傳」徽章誤導老師
+          const { failureGradingResult, updatedAt } = await persistGradingFailureFromException(sub.id, msg)
+          setSubmissions((prev) => {
+            const next = new Map(prev)
+            const cur = Array.from(prev.values()).find((s) => s.id === sub.id)
+            if (cur) next.set(cur.studentId, {
+              ...cur,
+              status: 'grading_failed',
+              gradingResult: failureGradingResult,
+              updatedAt,
+            })
+            return next
+          })
           return null
         }
       },
@@ -3635,7 +3685,16 @@ export default function GradingPage({
           completedA++
           setGradingProgress({ current: completedA, total: toGrade.length })
           if (stopRequestedRef.current || !result) {
-            if (err) console.error(`Phase A failed for ${toGrade[i].id}:`, err)
+            if (err) {
+              const failedSub = toGrade[i]
+              console.error(`Phase A failed for ${failedSub.id}:`, err)
+              // 2026-05-25: gradePhaseA throw 時也要寫 grading_failed、避免卡片誤顯示「已上傳」
+              // userMessage 來自 synthetic failure、最終 dialog 由 phaseAFailures 統一格式化
+              const msg = err instanceof Error ? err.message : String(err)
+              void persistGradingFailureFromException(failedSub.id, msg).then(({ failure }) => {
+                phaseAFailures.push({ submissionId: failedSub.id, studentId: failedSub.studentId, failure })
+              })
+            }
             return
           }
           const { sub, phaseAResult } = result
@@ -3957,8 +4016,21 @@ export default function GradingPage({
               const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id, corrections, assignment.answerSheetMode, sub.id, sub.source)
               return { idx, phaseAResult }
             },
-            (_i, result, err) => {
-              if (!result) { if (err) console.error('[QualityCheck] retry failed:', err); return }
+            (i, result, err) => {
+              if (!result) {
+                if (err) {
+                  console.error('[QualityCheck] retry failed:', err)
+                  // 2026-05-25: throw 時也要寫 grading_failed
+                  const failedEntry = entries[indicesToRetry[i]]
+                  if (failedEntry) {
+                    const msg = err instanceof Error ? err.message : String(err)
+                    void persistGradingFailureFromException(failedEntry.submissionId, msg).then(({ failure }) => {
+                      phaseAFailures.push({ submissionId: failedEntry.submissionId, studentId: failedEntry.studentId, failure })
+                    })
+                  }
+                }
+                return
+              }
               const { idx, phaseAResult } = result
 
               // 品質重跑時也可能 pipeline FAIL（罕見，但要處理）
@@ -4082,9 +4154,19 @@ export default function GradingPage({
                 )
                 return { item, phaseAResult }
               },
-              (_i, result, err) => {
+              (i, result, err) => {
                 if (!result) {
-                  if (err) console.error('[PeerCheck retry] failed:', err)
+                  if (err) {
+                    console.error('[PeerCheck retry] failed:', err)
+                    // 2026-05-25: throw 時也要寫 grading_failed
+                    const failedItem = peerOutlierTrips[i]
+                    if (failedItem) {
+                      const msg = err instanceof Error ? err.message : String(err)
+                      void persistGradingFailureFromException(failedItem.entry.submissionId, msg).then(({ failure }) => {
+                        phaseAFailures.push({ submissionId: failedItem.entry.submissionId, studentId: failedItem.entry.studentId, failure })
+                      })
+                    }
+                  }
                   return
                 }
                 const { item, phaseAResult } = result
