@@ -1642,9 +1642,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                             onClick={() => {
                               setPreviewModal({ assignmentId: item.id, index: 0 })
                             }}
-                            disabled={draftFiles.length === 0}
+                            disabled={draftFiles.length < requiredPages}
                             className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
-                              draftFiles.length === 0
+                              draftFiles.length < requiredPages
                                 ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
                                 : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
                             }`}
