@@ -273,6 +273,16 @@ export interface AnswerKeyQuestion {
     answer: string    // 此 cell 的標準答案
   }>
 
+  // 2026-05-25: fill_blank 多空模式專用欄位（questionCategory='fill_blank' + 有 parts）
+  // 同句多空 / 同表達式內多空（不跨等號）合成 1 題、parts 陣列依序記每空答案。
+  // answerBbox 框整句、不是只框 tiny ( )。每 part 順序綁定、不可互換。
+  // 結構參考 table_cell.cells、但少了 row/col、只有 subId 順序。
+  parts?: Array<{
+    subId: string     // "a" | "b" | "c" | ... 依空格由左到右、由上到下順序
+    answer: string    // 此空的標準答案
+    maxScore?: number // 此空配分（不填則平均 = maxScore / parts.length）
+  }>
+
 }
 
 export interface AnswerKey {

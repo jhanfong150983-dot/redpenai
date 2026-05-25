@@ -1315,50 +1315,82 @@ function buildTypeSpecs(): string {
   動作：學生在括號內手寫 ○ / ✗ / 對 / 錯 / 是 / 否
   answer：統一 "○" 或 "✗"
 
-▸ fill_blank 「填空題」
+▸ fill_blank 「填空題」（支援單空 / 多空兩種模式）
   視覺：____ ／ □ ／ 表格儲存格 + 紅色手寫文字
   動作：學生在空格內填寫一個值（含單位）
+
+  ## 單空模式（最常見）
   answer：完整正解含單位 — "15 公分" / "彰" / "ㄓㄤ"
   ⚠️ 直式分數格特例：上下格紅色 → "上格/下格"（如 "3/4"）；只有上格紅 → "上格值"
-  ⚠️ 一題多空格：同一印刷題目內出現 N 個 □、N 個 _____、或 N 個 ( )（括號內含紅字答案）—— 每個位置答案不同 ——
-     **拆成 N 個獨立子題**，每子題各自一個 fill_blank、各自一個 answer，按 □ /
-     _____ / ( ) 在版面上的閱讀順序給 idPath。
 
-     🚨🚨🚨 NUMERIC ASSERTION（強制檢查）:
-        計算題目模板中有幾個內含紅字的印刷括號 ( ) 或 □ 或 ____ → N
-        生出的 fill_blank 子題數**必須等於 N**。少於 N → 一定漏題。
-        範例：模板有 3 個括號 → 必生 3 子題。模板有 2 個底線 → 必生 2 子題。
+  ## 多空模式（2026-05-25 新增、解 bbox 漂移問題）
+  同一道題目同一表達式內出現 N 個空格（N≥2）且兩空之間「沒有等號 =」→
+  **合成 1 題 fill_blank、用 parts 陣列**（不拆成 N 個獨立 question）。
 
-     範例 1：題目「2⅕×4.73 − 2.73×2⅕ = 2⅕ □ (4.73 □ 2.73)」
-       → N=2 → 拆成 2 子題：id=4-1 answer="×"、id=4-2 answer="−"。
+  必填欄位（多空模式）：
+    - id：給整題（如 "1-2-1"）
+    - questionCategory: "fill_blank"
+    - answerBbox：**包整句的大 bbox**（含題幹 + 所有空格、不是只框 tiny ( )）
+    - parts: 陣列、每空一元素：
+        { subId: "a"|"b"|"c"|..., answer: "標準答案", maxScore: 該空配分 }
+      ⚠️ subId 依空格由左到右、由上到下順序（不可互換）
+    - maxScore: 整題總分 = sum(parts[].maxScore)
+    - answer: 留空（多空模式靠 parts、不用 answer 欄位）
 
-     範例 2（鏈式計算多括弧、最常踩坑）：題目「底面積 = ( 100 ) − ( 12.56 ) = ( 87.44 )」
-       → N=3 → 拆成 3 子題：
-         id=1-1 answer="100"
-         id=1-2 answer="12.56"
-         id=1-3 answer="87.44"
+  ## 合題 vs 拆題判別
 
-     範例 3（兩格填空）：題目「總長 = ( 5 ) + ( 8 ) 公分」
-       → N=2 → 拆成 2 子題：
-         id=1-1 answer="5"
-         id=1-2 answer="8"
+  | 場景 | 處理 |
+  |---|---|
+  | 同句多空、不跨等號 (a + ( )( ) = ...) | **合題、用 parts** |
+  | 跨等號多步驟 ( = ( ) − ( ) = ( ) ) | 拆 N 個獨立 fill_blank、各有 answer |
+  | 單空 | 單題、用 answer 欄位 |
 
-     ❌ 錯誤示範 A（最常見、不要這樣）：3 個括弧、只生 1 題 answer="87.44"。
-        違反 NUMERIC ASSERTION（N=3 卻生 1 題）。
-     ❌ 錯誤示範 B（次常見）：3 個括弧、只生 1 題 answer="100"。
-        違反 NUMERIC ASSERTION（N=3 卻生 1 題）。
-     ❌ 錯誤示範 C：3 個括弧、生 1 題 answer="100, 12.56, 87.44"（用逗號串）。
-        違反「拆成 N 個獨立子題」（必須每個括弧各 1 個 question）。
-     ❌ 錯誤示範 D：把前兩個括弧當成「題目給的已知值」、只生最後的 fill_blank。
-        印刷在答案卷上的 ( ) 內紅字一律是學生填的、絕無「題目給的已知值」這個解釋。
+  ## 範例 A：同句多空、合題
+  題目：「(1)兩人同時向同方向前進、( 2 )分鐘後相距 20 公尺。
+        (2)兩人同時向相反方向前進、( 12 )分鐘後相遇。」（2 個括弧、不跨等號）
+  → 1 題 fill_blank、parts 2 個：
+  {
+    "id": "1-2-1",
+    "questionCategory": "fill_blank",
+    "answerBbox": { "x": 0.065, "y": 0.461, "w": 0.415, "h": 0.146 },
+    "parts": [
+      { "subId": "a", "answer": "2", "maxScore": 2 },
+      { "subId": "b", "answer": "12", "maxScore": 2 }
+    ],
+    "maxScore": 4
+  }
 
-     ⚠️ 判斷準則（不要混淆）：
-       - 印刷在卷面上的 ( ) 內含紅色手寫字 → 一律當「學生要填的空格」
-       - 不可解讀成「題目給的條件 / 已知值 / 印刷數字」
-       - 鏈式計算（如 a = b - c = d 形式）中的每個括弧都拆獨立子題
-     ⚠️ 與 multi_fill 區別：multi_fill 是「填代號集合，順序無關」（每子題的 answer
-     是同一個答案池任選一個）；fill_blank 多空格是「每位置有自己的固定答案」，
-     順序與位置綁定。
+  ## 範例 B：同一行算式多空、合題（不跨等號）
+  題目：「2⅕×4.73 − 2.73×2⅕ = 2⅕ □ (4.73 □ 2.73)」
+  → 注意：「2⅕ □ (4.73 □ 2.73)」內有 2 個 □、彼此之間是 × 跟 (4.73 _ 2.73) 表達式、不跨等號 →
+  1 題 fill_blank、parts 2 個：
+  {
+    "id": "1-4-1",
+    "questionCategory": "fill_blank",
+    "answerBbox": { 包整個算式右半 },
+    "parts": [
+      { "subId": "a", "answer": "×", "maxScore": 2 },
+      { "subId": "b", "answer": "−", "maxScore": 2 }
+    ],
+    "maxScore": 4
+  }
+
+  ## 範例 C：鏈式計算跨等號、拆題（保持原規則）
+  題目：「底面積 = ( 100 ) − ( 12.56 ) = ( 87.44 )」（跨 2 個等號、3 個獨立計算步驟）
+  → 3 題獨立 fill_blank：
+    { "id": "1-1-1", "questionCategory": "fill_blank", "answer": "100", "answerBbox": {...} }
+    { "id": "1-1-2", "questionCategory": "fill_blank", "answer": "12.56", "answerBbox": {...} }
+    { "id": "1-1-3", "questionCategory": "fill_blank", "answer": "87.44", "answerBbox": {...} }
+
+  ❌ 錯誤示範 A：把同句多空（不跨等號）拆成 N 題、各有 tiny bbox 在每個 ( ) 上
+     → bbox 容易漂、應該合題用 parts
+  ❌ 錯誤示範 B：把多空答案合併成一個字串 "2, 12"
+     → parts 必須是陣列、每元素一個答案
+  ❌ 錯誤示範 C：跨等號的鏈式計算還用 parts 合題
+     → 跨等號要拆題、各為獨立計算步驟、各自 score
+
+  ⚠️ 與 multi_fill 區別：multi_fill 是「填代號集合，順序無關」；fill_blank 多空模式
+     是「每位置有自己的固定答案、順序與位置綁定、不可互換」。
 
 ▸ multi_fill 「多項填空題」
   視覺：多個空白框（非 □ 勾選框）+ 紅色代號
@@ -5047,24 +5079,34 @@ export async function extractAnswerKeyFromImages(
     : isSingleImage
       ? `【單張答案卷】\n- 你會收到 1 張答案卷圖片\n- ID 前綴一律為 "1-"（即使卷上印有多個大題編號，第一段也固定是 1）\n- totalScore 是所有題目的 maxScore 總和${pageIdRule}`
       : `【多張圖片處理 - 多頁模式】\n- 你會收到 ${answerSheetImages.length} 張答案卷圖片，每張照片有獨立的 ID 前綴：${pagePrefixList}\n- ⚠️ 嚴格禁止把第 2 張以後的題目用 "1-" 開頭，必須依照上方對應關係填入正確前綴\n- 請從所有圖片中提取題目，合併成一個完整的 AnswerKey${pageIdRule}\n- totalScore 是所有圖片中所有題目的 maxScore 總和`
-  // 2026-05-22 落地：鏈式計算多括弧拆題（與 fill_blank NUMERIC ASSERTION 一致）
-  // A/B 證據：baseline 0/10 (0%) → candidate 10/10 (100%) on 數練p49-50 模板
-  const chainCalcRule = isInferMode || isAnswerOnly ? '' : `\n\n🚨🚨🚨 鏈式計算多括弧拆題（與 ID 規則整合、與 fill_blank NUMERIC ASSERTION 一致）：
+  // 2026-05-25 改版：fill_blank 多空現有 2 種處理（看是否跨等號）
+  // - 跨等號鏈式計算（= a = b = c）：仍拆 N 題、各題獨立 answer
+  // - 不跨等號（同表達式內多空 / 同句子多空）：合題、用 parts 陣列
+  // 詳細規則見 buildTypeSpecs 的 fill_blank 條目（含 NUMERIC ASSERTION）。
+  const chainCalcRule = isInferMode || isAnswerOnly ? '' : `\n\n🚨🚨🚨 fill_blank 多空格 — 跨等號 vs 同表達式 判別：
 
-  同一個小題（同 <大題>-<小題>）內、若印刷模板含 N 個 ( ) 內含紅字答案（如「= ( 100 ) − ( 12.56 ) = ( 87.44 )」），
-  必須拆成 N 個 fill_blank 子題、ID 用 4 段格式：<照片>-<大題>-<小題>-<括弧序號>
-
-  ✅ 正確範例（第 1 張、大題 1、小題 1、含 3 個括弧）：
+  ## 跨等號鏈式計算 → 拆 N 題（沿用原規則）
+  「= ( 100 ) − ( 12.56 ) = ( 87.44 )」這種、兩空之間有 = 號 → 各為獨立計算步驟、必須拆 N 個 fill_blank：
      id="1-1-1-1" answer="100"
      id="1-1-1-2" answer="12.56"
      id="1-1-1-3" answer="87.44"
 
-  ❌ 錯誤 A：id="1-1-1" answer="87.44"（只生 1 題、漏前 2 括弧）
-  ❌ 錯誤 B：id="1-1-1" answer="100"（只生 1 題、漏後 2 括弧）
-  ❌ 錯誤 C：id="1-1-1" answer="100, 12.56, 87.44"（合併成一個 answer）
+  ## 同表達式 / 同句多空 → 合題用 parts
+  「2 □ × (4.73 □ 2.73)」或「( 2 )分鐘後相距 20 公尺、( 12 )分鐘後相遇」這種、兩空之間沒 = 號 →
+  合成 1 題 fill_blank、parts 陣列依序記每空答案：
+  {
+    "id": "1-4-1",
+    "questionCategory": "fill_blank",
+    "answerBbox": { 包整個算式或整句 },
+    "parts": [
+      { "subId": "a", "answer": "×", "maxScore": 2 },
+      { "subId": "b", "answer": "−", "maxScore": 2 }
+    ],
+    "maxScore": 4
+  }
 
-  NUMERIC CHECK：寫完 questions 陣列後、count 含「1-1-1-*」前綴的 question 數量、必須等於印刷括弧數。
-  如果只有 1 個 → 你漏題了、再檢查。`
+  ❌ 錯誤示範：把同表達式 / 同句多空拆成 N 題、各 tiny bbox 在 ( ) 上 → bbox 容易漂、應該合題
+  ❌ 錯誤示範：parts 寫成字串 "2, 12" → 必須陣列、每空一元素`
 
   const multiImagePrompt = `${prompt}\n\n${multiImageNote}${chainCalcRule}`.trim()
 
