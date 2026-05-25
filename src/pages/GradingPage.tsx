@@ -2797,7 +2797,9 @@ export default function GradingPage({
                   ? Number(d.score) >= Number(d.maxScore)
                   : false,
             // table_cell 群組批改：保留每 cell 對錯細節（人工複核 UI 用）
-            cellResults: Array.isArray(d.cellResults) ? d.cellResults : undefined
+            cellResults: Array.isArray(d.cellResults) ? d.cellResults : undefined,
+            // fill_blank 合題：保留每空對錯細節（人工複核 UI 用）
+            partResults: Array.isArray(d.partResults) ? d.partResults : undefined
           }))
         )
       } else {
@@ -6079,6 +6081,48 @@ export default function GradingPage({
                                           {cr.reason && (
                                             <span className="shrink-0 text-red-600 ml-auto truncate">
                                               {cr.reason}
+                                            </span>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* fill_blank 合題：顯示每空對錯細節 */}
+                            {Array.isArray(d.partResults) && d.partResults.length > 0 && (
+                              <div className="mt-2 border-t border-gray-200 pt-2">
+                                <div className="text-[11px] font-semibold text-gray-600 mb-1.5">每空對錯：</div>
+                                <div className="space-y-1">
+                                  {d.partResults.map((pr: any, pi: number) => (
+                                    <div
+                                      key={`${pr.subId}-${pi}`}
+                                      className={`flex items-center gap-2 px-2 py-1 rounded text-[11px] ${
+                                        pr.correct
+                                          ? 'bg-green-50 border border-green-100'
+                                          : 'bg-red-50 border border-red-100'
+                                      }`}
+                                    >
+                                      <span className="shrink-0 font-semibold w-4 text-center">
+                                        {pr.correct ? '✓' : '✗'}
+                                      </span>
+                                      <span className="shrink-0 text-gray-500 min-w-[2rem]">
+                                        ({pr.subId})
+                                      </span>
+                                      <span className="shrink-0 text-gray-700">
+                                        學生：<span className="font-medium">{pr.student || '（空）'}</span>
+                                      </span>
+                                      {!pr.correct && (
+                                        <>
+                                          <span className="shrink-0 text-gray-400">→</span>
+                                          <span className="shrink-0 text-gray-700">
+                                            正解：<span className="font-medium text-green-700">{pr.expected}</span>
+                                          </span>
+                                          {pr.reason && (
+                                            <span className="shrink-0 text-red-600 ml-auto truncate">
+                                              {pr.reason}
                                             </span>
                                           )}
                                         </>

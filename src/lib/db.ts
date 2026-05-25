@@ -470,6 +470,15 @@ export interface GradingDetail {
     correct: boolean       // 是否正確
     reason?: string        // 答錯原因（單位錯、數值錯等）
   }>
+  // fill_blank 合題題型專用：每空對錯細節（題目含 parts 陣列）
+  // 整題 score = sum(對的 parts 的 maxScore)
+  partResults?: Array<{
+    subId: string          // 對應 answerKey.parts[i].subId（a, b, c, ...）
+    student: string        // AI 從整段 crop 讀到的學生答案
+    expected: string       // 標準答案
+    correct: boolean       // 是否正確
+    reason?: string        // 答錯原因（單位錯、數值錯等）
+  }>
   // 批改時嵌入的 108 課綱概念標記（來自 assignment.conceptTags，批改當下凍結）
   conceptCode?: string
   conceptLabel?: string

@@ -689,6 +689,20 @@ export default function AnswerKeyUnifiedModal({
     })
   }
 
+  // fill_blank 合題：更新某 part 的 answer
+  const updateFillBlankPartAnswer = (qIdx: number, partIdx: number, value: string) => {
+    setEditingKey((prev) => {
+      if (!prev) return prev
+      return { ...prev, questions: prev.questions.map((q, i) => {
+        if (i !== qIdx) return q
+        const parts = [...(q.parts ?? [])]
+        if (!parts[partIdx]) return q
+        parts[partIdx] = { ...parts[partIdx], answer: value }
+        return { ...q, parts }
+      }) }
+    })
+  }
+
   const addAcceptableAnswer = (idx: number) => {
     setEditingKey((prev) => {
       if (!prev) return prev
@@ -801,7 +815,9 @@ export default function AnswerKeyUnifiedModal({
   // UI 模式（依 bucket 顯示對應欄位）：
   // A = answer 標準答案、B = reference + acceptable、C = reference + rubric、D = answer + reference + rubric
   const showTableCells = selectedCategory === 'table_cell'
-  const showAnswerField = (selectedBucket === 'A' || selectedBucket === 'D') && !showTableCells
+  const showFillBlankParts = selectedCategory === 'fill_blank'
+    && Array.isArray(selectedQuestion?.parts) && (selectedQuestion?.parts?.length ?? 0) > 0
+  const showAnswerField = (selectedBucket === 'A' || selectedBucket === 'D') && !showTableCells && !showFillBlankParts
   const showAcceptableAnswers = selectedBucket === 'B'
   const showRubric = selectedBucket === 'C' || selectedBucket === 'D'
   const activeBbox: NormalizedBbox | null = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
@@ -1540,6 +1556,30 @@ export default function AnswerKeyUnifiedModal({
                                   ))}
                                 </div>
                               )}
+                            </div>
+                          )}
+
+                          {/* fill_blank 合題：每空標準答案編輯 */}
+                          {showFillBlankParts && (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-500 text-xs">合題答案 ({(selectedQuestion.parts ?? []).length} 空)</span>
+                              </div>
+                              <div className="space-y-1.5">
+                                {(selectedQuestion.parts ?? []).map((p, pIdx) => (
+                                  <div key={`${p.subId}-${pIdx}`} className="flex items-center gap-2">
+                                    <span className="text-[10px] text-gray-400 w-12 shrink-0 tabular-nums">
+                                      ({p.subId})
+                                    </span>
+                                    <input
+                                      className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                                      value={p.answer ?? ''}
+                                      onChange={(e) => updateFillBlankPartAnswer(selectedIdx, pIdx, e.target.value)}
+                                      placeholder="標準答案"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
 
