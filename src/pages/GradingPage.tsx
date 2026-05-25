@@ -146,11 +146,17 @@ export function deriveCardStage(sub: Submission | undefined): CardStage {
   if (sub.status === 'missing') return 'not_submitted'
 
   // pipelineFailure 分流：stage 在 Phase A 還是 Phase B
+  // 2026-05-25: 若 status=grading_failed 但無 pipelineFailure metadata（例如後端
+  // 寫入失敗、或前端 sync race），預設當 phase_a_failed、至少讓老師看到「擷取失敗」
+  // 紅色徽章而不是空白卡片。
   const failure = (sub.gradingResult as { pipelineFailure?: { stage?: string } } | undefined)?.pipelineFailure
-  if (sub.status === 'grading_failed' && failure?.stage) {
-    const stage = failure.stage
-    const isPhaseBStage = stage === 'accessor' || stage === 'explain' || stage === 'phase_b'
-    return isPhaseBStage ? 'phase_b_failed' : 'phase_a_failed'
+  if (sub.status === 'grading_failed') {
+    if (failure?.stage) {
+      const stage = failure.stage
+      const isPhaseBStage = stage === 'accessor' || stage === 'explain' || stage === 'phase_b'
+      return isPhaseBStage ? 'phase_b_failed' : 'phase_a_failed'
+    }
+    return 'phase_a_failed'
   }
 
   // XX 分：明確 graded + 有 score
