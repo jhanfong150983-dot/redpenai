@@ -41,6 +41,7 @@ export type ValidationErrorType =
   | 'duplicate'            // 與其他頁照片重複
   | 'low_resolution'       // 校正後 worksheet 區域寬度低於閾值（拍太遠 / 鏡頭差 / 已壓縮過）
   | 'low_sharpness'        // 對焦失敗 / 手震（iPad 自動對焦常掉、平板手震也比手機嚴重）
+  | 'wrong_orientation'    // 拍攝方向不符（assignment.pageOrientations 指定 portrait/landscape）
   | 'insufficient_ink'     // 學生 / 老師額度用完，proxy 回 HTTP 402，AI 沒被呼叫
   | 'service_unavailable'  // 拍照檢查服務暫時無法使用（其他 HTTP 錯誤、網路錯誤）
 
@@ -56,6 +57,8 @@ export interface ValidationError {
   duplicateWithIndex?: number
   duplicateDistance?: number
   sharpnessP95?: number
+  expectedOrientation?: 'portrait' | 'landscape'
+  actualOrientation?: 'portrait' | 'landscape'
 }
 
 export interface ValidationWarning {
@@ -79,6 +82,8 @@ export interface PageValidationResult {
 
 export interface PageInput {
   blob: Blob
+  // assignment.pageOrientations[i]、未提供 = 不檢查方向
+  expectedOrientation?: 'portrait' | 'landscape'
   // 上次驗證通過的快取結果。若提供且 ok===true，本次跳過 AI 直接重用。
   cached?: PageValidationResult
 }
@@ -202,6 +207,15 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
     }
   }
 
+  // Orientation check：在 AI corner detection 前 fail fast、省 Gemini API quota
+  // assignment.pageOrientations 由老師建答案卷時自動偵測（AnswerBank.tsx）
+  if (page.expectedOrientation) {
+    const orientationError = await checkOrientation(page.blob, page.expectedOrientation, index)
+    if (orientationError) {
+      return { errors: [orientationError], corners: null, hash: null, correctedBlob: null }
+    }
+  }
+
   // 平行跑 corner detection + hash
   const [detectResult, hash] = await Promise.all([
     detectDocumentCorners(page.blob).catch((err): { corners: DocumentCorners | null; reason: DetectCornersFailReason } => {
@@ -281,6 +295,45 @@ function buildDetectFailureError(reason: DetectCornersFailReason | undefined): V
         type: 'no_corners',
         message: '找不到作業紙張的邊。請把作業攤平放在乾淨的桌面上，移到光線比較亮的地方再拍一次。',
       }
+  }
+}
+
+// ─── Orientation check ─────────────────────────────────────────────────────
+
+/**
+ * 比對拍照方向 vs 答案卷指定方向。
+ *
+ * createImageBitmap 在 iOS Safari / Chrome 都會自動套用 EXIF orientation、
+ * bitmap.width/height 對應視覺上的方向、不需另外讀 EXIF。
+ *
+ * 失敗（無法讀圖）回 null = 不擋、由後續流程處理。
+ */
+async function checkOrientation(
+  blob: Blob,
+  expected: 'portrait' | 'landscape',
+  index: number
+): Promise<ValidationError | null> {
+  try {
+    const bitmap = await createImageBitmap(blob)
+    const w = bitmap.width
+    const h = bitmap.height
+    bitmap.close()
+    if (w === 0 || h === 0) return null
+    // h === w 罕見、A4 比例本來就不會 1:1。直接 h >= w 判 portrait
+    const actual: 'portrait' | 'landscape' = h >= w ? 'portrait' : 'landscape'
+    if (actual === expected) return null
+    return {
+      type: 'wrong_orientation',
+      message:
+        expected === 'portrait'
+          ? `第 ${index + 1} 頁應為「直拍」（紙張較長的一邊跟手機長邊平行）、你拍的是橫的。請把手機豎直、紙張直放再拍一次。`
+          : `第 ${index + 1} 頁應為「橫拍」（紙張較長的一邊跟手機長邊垂直）、你拍的是直的。請把手機橫握、紙張橫放再拍一次。`,
+      expectedOrientation: expected,
+      actualOrientation: actual,
+    }
+  } catch (err) {
+    console.warn(`[photoValidation] checkOrientation failed for page ${index + 1}:`, err)
+    return null
   }
 }
 

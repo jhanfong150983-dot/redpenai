@@ -780,6 +780,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
 
     try {
       const prev = validatedDrafts[asgId]
+      const assignment = uploadAssignments.find((a) => a.id === asgId)
+      const orientations = assignment?.pageOrientations ?? null
       const inputs: PageInput[] = files.map((file, i) => {
         const sig = pageSignature(file)
         const cachedPage = prev?.pages[i]
@@ -787,7 +789,11 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           cachedPage?.sig === sig && cachedPage.result.ok
             ? cachedPage.result
             : undefined
-        return { blob: file, cached }
+        return {
+          blob: file,
+          expectedOrientation: orientations?.[i] ?? undefined,
+          cached,
+        }
       })
 
       const result = await validatePhotos(inputs)
@@ -817,7 +823,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     } finally {
       setValidatingAsgId(null)
     }
-  }, [previewModal, uploadDrafts, validatedDrafts])
+  }, [previewModal, uploadDrafts, validatedDrafts, uploadAssignments])
 
   useEffect(() => {
     return () => {
@@ -1118,30 +1124,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         setError(`此作業需上傳 ${requiredPages} 頁，目前為 ${files.length} 頁`)
         return
       }
-      // 驗證照片方向是否符合答案卷的拍攝規則
-      if (assignment.pageOrientations && assignment.pageOrientations.length > 0) {
-        const orientationErrors: string[] = []
-        for (let i = 0; i < files.length && i < assignment.pageOrientations.length; i++) {
-          const expected = assignment.pageOrientations[i]
-          const file = files[i]
-          // 用 createImageBitmap 讀取圖片尺寸
-          try {
-            const bitmap = await createImageBitmap(file)
-            const isPortrait = bitmap.height > bitmap.width
-            const isLandscape = bitmap.width > bitmap.height
-            bitmap.close()
-            if (expected === 'portrait' && isLandscape) {
-              orientationErrors.push(`第 ${i + 1} 張應為直拍，但你的照片是橫的`)
-            } else if (expected === 'landscape' && isPortrait) {
-              orientationErrors.push(`第 ${i + 1} 張應為橫拍，但你的照片是直的`)
-            }
-          } catch { /* 無法讀取圖片尺寸，跳過驗證 */ }
-        }
-        if (orientationErrors.length > 0) {
-          setError(orientationErrors.join('；') + '。請重新拍攝後再送出。')
-          return
-        }
-      }
+      // 方向檢查已下沉到 photoValidation.ts checkOrientation()、隨 validatePhotos 一起跑、
+      // 失敗時學生在預覽 modal 就會看到「應為直拍 / 橫拍」error card。送出階段的 validatedDrafts
+      // gate（下一段）會擋住未通過的 draft、不需要在這裡重複檢查 orientation。
 
       const draftSignature = buildDraftSignature(files)
       const validated = validatedDrafts[assignment.id]
