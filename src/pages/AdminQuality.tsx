@@ -461,33 +461,17 @@ function SubmissionViz({
                     ? '#f59e0b'  // amber
                     : '#10b981'  // emerald
                   return (
-                    <g key={q.qid}>
-                      <rect
-                        x={`${b.x * 100}%`}
-                        y={`${b.y * 100}%`}
-                        width={`${b.w * 100}%`}
-                        height={`${b.h * 100}%`}
-                        fill={hot ? color + '33' : 'none'}
-                        stroke={color}
-                        strokeWidth={hot ? 3 : 1.5}
-                        vectorEffect="non-scaling-stroke"
-                      />
-                      <text
-                        x={`${b.x * 100}%`}
-                        y={`${b.y * 100}%`}
-                        dx={4}
-                        dy={14}
-                        fontSize={11}
-                        fontWeight="700"
-                        fill={color}
-                        stroke="white"
-                        strokeWidth={3}
-                        paintOrder="stroke"
-                        vectorEffect="non-scaling-stroke"
-                      >
-                        {q.qid}
-                      </text>
-                    </g>
+                    <rect
+                      key={q.qid}
+                      x={`${b.x * 100}%`}
+                      y={`${b.y * 100}%`}
+                      width={`${b.w * 100}%`}
+                      height={`${b.h * 100}%`}
+                      fill={hot ? color + '33' : 'none'}
+                      stroke={color}
+                      strokeWidth={hot ? 3 : 1.5}
+                      vectorEffect="non-scaling-stroke"
+                    />
                   )
                 })}
               </svg>
