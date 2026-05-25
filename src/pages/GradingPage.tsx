@@ -5361,8 +5361,14 @@ export default function GradingPage({
                     const gradingResult = submission?.gradingResult
                     const isUnscoredAssignment = assignment?.scoringMode === 'unscored'
                     const maxScore = gradingResult ? getSubmissionMaxScore(gradingResult) : null
-                    const scoreValueRaw = Number(gradingResult?.totalScore)
-                    const scoreValue = Number.isFinite(scoreValueRaw) ? scoreValueRaw : 0
+                    // 2026-05-25: gradingResult 是 local-first 欄位、Phase A 完成但 Phase B 結果
+                    // 還沒 sync 回來時 totalScore 會是 undefined。此時 fallback 用 server-owned
+                    // submission.score（sync 直接覆寫、永遠 reliable）。修「Phase B 跑完但卡片仍顯 0 分」。
+                    const totalScoreFromGr = Number(gradingResult?.totalScore)
+                    const scoreFromSub = Number(submission?.score)
+                    const scoreValue = Number.isFinite(totalScoreFromGr)
+                      ? totalScoreFromGr
+                      : (Number.isFinite(scoreFromSub) ? scoreFromSub : 0)
                     const correctSummary = gradingResult ? getSubmissionCorrectSummary(gradingResult) : null
                     const isLowScore = isUnscoredAssignment
                       ? (correctSummary ? correctSummary.ratio < 0.8 : true)
@@ -5436,8 +5442,13 @@ export default function GradingPage({
             const gradingResult = submission?.gradingResult
             const isUnscoredAssignment = assignment?.scoringMode === 'unscored'
             const maxScore = gradingResult ? getSubmissionMaxScore(gradingResult) : null
-            const scoreValueRaw = Number(gradingResult?.totalScore)
-            const scoreValue = Number.isFinite(scoreValueRaw) ? scoreValueRaw : 0
+            // 2026-05-25: 同上方邏輯。local gradingResult 是 local-first、可能 Phase A 完成
+            // 但 totalScore 未更新；fallback 用 server-owned submission.score 避免假裝 0 分。
+            const totalScoreFromGr = Number(gradingResult?.totalScore)
+            const scoreFromSub = Number(submission?.score)
+            const scoreValue = Number.isFinite(totalScoreFromGr)
+              ? totalScoreFromGr
+              : (Number.isFinite(scoreFromSub) ? scoreFromSub : 0)
             const correctSummary = gradingResult ? getSubmissionCorrectSummary(gradingResult) : null
             const isLowScore = isUnscoredAssignment
               ? (correctSummary ? correctSummary.ratio < 0.8 : true)
