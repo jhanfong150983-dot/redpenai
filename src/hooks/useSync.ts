@@ -1029,9 +1029,25 @@ export function useSync(options: UseSyncOptions = {}) {
             ? sub.gradedAt
             : undefined
 
-        let gradingResult = local?.gradingResult ?? serverGradingResult
-        const score = local?.score ?? serverScore
-        const aiScore = local?.aiScore ?? serverAiScore
+        // 2026-05-25: gradingResult / score 不全 local-first — Phase A 跑完 local 寫
+        // {details:[{questionId,studentAnswer}]}（沒 totalScore / 沒 per-question score）、
+        // Phase B 跑完 server 寫完整版（totalScore + per-question score + reason）。
+        // 原本純 local-first 會把 server 完整版擋掉、卡片 0 分、modal 每題 0/0 + 沒理由。
+        //
+        // 規則：local 有 gradingResult 但「沒 totalScore」(= Phase A only) AND server 有
+        // 完整 gradingResult (= Phase B 完成) → 用 server。
+        // 其他情況維持 local-first（保護 user edit、特別是 detail modal 改 score 未 sync）。
+        const localGr = local?.gradingResult as { totalScore?: unknown } | undefined
+        const serverGr = serverGradingResult as { totalScore?: unknown } | undefined
+        const localHasTotalScore = localGr && Number.isFinite(Number(localGr.totalScore))
+        const serverHasTotalScore = serverGr && Number.isFinite(Number(serverGr.totalScore))
+        const localIsStalePhaseA = !!localGr && !localHasTotalScore && !!serverHasTotalScore
+        let gradingResult = localIsStalePhaseA
+          ? serverGradingResult
+          : (local?.gradingResult ?? serverGradingResult)
+        // score 同理：server 確定有分數時、不被 local 舊 undefined/null 蓋
+        const score = (localIsStalePhaseA || local?.score == null) ? serverScore : local.score
+        const aiScore = (localIsStalePhaseA || local?.aiScore == null) ? serverAiScore : local.aiScore
         const scoreSource = local?.scoreSource ?? serverScoreSource
         const gradedAt = local?.gradedAt ?? serverGradedAt
         // status：本地是 graded 就保持 graded（不被 server 的 synced 覆蓋）
