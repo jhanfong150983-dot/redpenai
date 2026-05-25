@@ -314,7 +314,8 @@ async function checkOrientation(
   index: number
 ): Promise<ValidationError | null> {
   try {
-    const bitmap = await createImageBitmap(blob)
+    // 明確套用 EXIF orientation、確保 width/height 對應學生視角而非 sensor raw
+    const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' })
     const w = bitmap.width
     const h = bitmap.height
     bitmap.close()

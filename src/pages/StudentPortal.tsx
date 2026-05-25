@@ -135,7 +135,10 @@ interface ValidatedDraft {
 async function mergeImagesVertically(files: (File | Blob)[]): Promise<Blob> {
   if (files.length === 1) return files[0]
 
-  const bitmaps = await Promise.all(files.map((file) => createImageBitmap(file)))
+  // 明確套用 EXIF orientation、避免合併後方向錯亂
+  const bitmaps = await Promise.all(
+    files.map((file) => createImageBitmap(file, { imageOrientation: 'from-image' }))
+  )
   const width = Math.max(...bitmaps.map((bitmap) => bitmap.width))
   const height = bitmaps.reduce((sum, bitmap) => sum + bitmap.height, 0)
 

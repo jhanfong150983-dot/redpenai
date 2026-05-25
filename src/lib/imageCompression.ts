@@ -242,7 +242,9 @@ export async function compressToTargetBytes(
   const format = opts.format ?? defaultFormat
   const qualities = opts.qualities ?? [0.92, 0.88, 0.85]
 
-  const bmp = await createImageBitmap(blob)
+  // 2026-05-26 明確套用 EXIF orientation、避免 iOS Safari 預設行為差異
+  // 不套的話 canvas 畫出來的 pixels 沒旋轉、後面 dimension 檢查跟學生視角不一致
+  const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' })
 
   // 先縮放到 maxWidth（維持比例）
   const scale = Math.min(1, maxWidth / bmp.width)
