@@ -537,7 +537,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [retakePageIdx, setRetakePageIdx] = useState<number | null>(null) // 重拍模式：要取代的頁面 index
   const [cameraMode, setCameraMode] = useState<StudentCameraMode>(null)
   const [cameraAssignmentId, setCameraAssignmentId] = useState('')
-  const [capturedBlobs, setCapturedBlobs] = useState<Blob[]>([])
+  // 2026-05-26 拔掉 CameraCapturePage 後、capturedBlobs 不再被 JSX 讀、僅作為 setter prev 來源
+  // React 仍會內部維護 state；只是 destructure 跳過值以滿足 noUnusedLocals
+  const [, setCapturedBlobs] = useState<Blob[]>([])
   const [correctionCameraQuestionId, setCorrectionCameraQuestionId] = useState<string | null>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
