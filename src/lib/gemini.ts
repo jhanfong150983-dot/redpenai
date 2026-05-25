@@ -4449,6 +4449,9 @@ interface LocateSpec {
     totalCols: number
   }
   cellAnchors?: string  // human-readable 描述要找的 cells（如「r3c2 蘋果, r3c3 櫻桃, ...」）
+  // fill_blank 合題專用：parts 帶 subId 與 answer、locate AI 用來識別合題並包整段
+  parts?: Array<{ subId: string; answer: string }>
+  note?: string
 }
 
 const LOCATE_VALID_TYPES = new Set([
@@ -4509,6 +4512,11 @@ function buildLocateSpecs(questions: import('./db').AnswerKeyQuestion[]): Locate
       || (typeof q.referenceAnswer === 'string' && q.referenceAnswer)
       || ''
     if (answerText) spec.answerText = answerText
+    // fill_blank 合題：帶 parts 進 spec、讓 locate AI 知道是合題、bbox 要包整段
+    if (Array.isArray(q.parts) && q.parts.length > 0) {
+      spec.parts = q.parts.map((p) => ({ subId: p.subId, answer: p.answer }))
+      spec.note = '⚠️ 此題為 fill_blank 合題（多空）、bbox 包整段題幹和全部括弧、不是只框 tiny ( )'
+    }
     // table_cell：帶 tableMeta 跟 cells 描述（AI 用印刷表頭+答案內容當錨點定位整表）
     if (q.questionCategory === 'table_cell') {
       if (q.tableMeta) {
@@ -4674,10 +4682,15 @@ async function locateAnswerKeyBboxesOnPage(
   const bboxMap = new Map<string, NormalizedBbox>()
   // 只 locate 有 answerText 的題目（locate 用 answerText 當視覺錨點）
   // table_cell 的答案在 cells[].answer 而非 q.answer，要單獨判斷
+  // fill_blank 合題的答案在 parts[].answer 而非 q.answer，也要單獨判斷
   const locatableQ = questions.filter((q) => {
     if (q.questionCategory === 'table_cell') {
       // 至少 1 個 cell 有非空 answer 就算 locatable
       return Array.isArray(q.cells) && q.cells.some((c) => typeof c?.answer === 'string' && c.answer.trim())
+    }
+    if (Array.isArray(q.parts) && q.parts.length > 0) {
+      // 合題：至少 1 個 part 有非空 answer 就算 locatable
+      return q.parts.some((p) => typeof p?.answer === 'string' && p.answer.trim())
     }
     const text = (typeof q.answer === 'string' && q.answer)
       || (typeof q.referenceAnswer === 'string' && q.referenceAnswer)
