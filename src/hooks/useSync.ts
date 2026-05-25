@@ -126,6 +126,10 @@ const toNumber = (value: unknown): number | undefined => {
 
 const FOCUS_SYNC_COOLDOWN_MS = 60_000 // 任何 sync 完成後的冷卻期（60 秒）
 const LAST_SYNC_TIME_STORAGE_KEY = 'redpen-last-sync-at'
+// 2026-05-25: incremental sync cursor。存 server 回的 ISO timestamp、下次 sync 帶
+// ?since=<cursor>。跟 LAST_SYNC_TIME（client 時鐘）不一樣 — cursor 是 server 時鐘、
+// 避免 client / server 時鐘漂移漏掉或重複拉 row。
+const SYNC_CURSOR_STORAGE_KEY = 'redpen-sync-cursor'
 // 多個 <SyncIndicator> 各自呼叫 useSync 會建立獨立 instance，refs 不共享。
 // 為了避免初始 loading 畫面 + 主畫面兩個 SyncIndicator 都 autoSync 觸發兩次
 // 完整 sync（每次 8.3 MB），把 in-flight 狀態提升到 module-level、跨 instance 共用。
@@ -150,6 +154,23 @@ function persistLastSyncTime(value: number) {
   if (typeof window === 'undefined') return
   if (!Number.isFinite(value) || value <= 0) return
   window.localStorage.setItem(LAST_SYNC_TIME_STORAGE_KEY, String(Math.floor(value)))
+}
+
+function readSyncCursor(): string | null {
+  if (typeof window === 'undefined') return null
+  const raw = window.localStorage.getItem(SYNC_CURSOR_STORAGE_KEY)
+  return raw && raw.length > 0 ? raw : null
+}
+
+function persistSyncCursor(value: string | undefined | null) {
+  if (typeof window === 'undefined') return
+  if (typeof value !== 'string' || value.length === 0) return
+  window.localStorage.setItem(SYNC_CURSOR_STORAGE_KEY, value)
+}
+
+export function clearSyncCursor() {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(SYNC_CURSOR_STORAGE_KEY)
 }
 
 export function useSync(options: UseSyncOptions = {}) {
@@ -178,6 +199,13 @@ export function useSync(options: UseSyncOptions = {}) {
       const params = extraParams
         ? new URLSearchParams(extraParams)
         : new URLSearchParams()
+      // 2026-05-25: incremental sync — 帶上次 server 回的 cursor、後端只回 deltas
+      // 第一次沒 cursor → 全拉、後續每 30 秒只拉 submissions delta
+      // 沒帶 since 的 sync（如手動「重新整理」清狀態）：呼叫端不要套 cursor、留 caller 決定
+      if (!params.has('since')) {
+        const cursor = readSyncCursor()
+        if (cursor) params.set('since', cursor)
+      }
       const query = params.toString()
       return query ? `/api/data/sync?${query}` : '/api/data/sync'
     },
@@ -1690,6 +1718,12 @@ export function useSync(options: UseSyncOptions = {}) {
       await queueDeleteMany('gradebook_custom_scores', orphanScoreIds)
       await db.gradebookCustomScores.bulkDelete(orphanScoreIds)
       debugLog(`🧹 清理了 ${orphanScoreIds.length} 個孤兒 gradebook custom scores`, orphanScoreIds)
+    }
+
+    // 2026-05-25: incremental sync cursor — 全部 merge 成功後才存、避免某段失敗時跳過 deltas
+    // 用 server 回的 ISO timestamp（非 client 時鐘）、避免 client/server 時鐘漂移
+    if (typeof data?.serverTime === 'string' && data.serverTime.length > 0) {
+      persistSyncCursor(data.serverTime)
     }
   }, [buildSyncUrl])
   // 頁面初次載入時更新 pendingCount
