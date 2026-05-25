@@ -27,7 +27,6 @@ import {
   type PageValidationResult,
   type PageInput,
 } from '@/lib/photoValidation'
-import CameraCapturePage from './CameraCapturePage'
 
 type StudentTab = 'overview' | 'upload' | 'correction'
 type StudentCameraMode = 'upload' | 'correction' | null
@@ -36,9 +35,11 @@ type Bbox = { x: number; y: number; w: number; h: number }
 type OpenCorrectionItem = NonNullable<StudentAssignmentItem['openCorrections']>[number]
 
 const STUDENT_SUBMIT_TIMEOUT_MS = 300_000 // 5 分鐘（同步批改需要等 AI 回應）
-const CORRECTION_IMAGE_TARGET_BYTES = 120_000
-const CORRECTION_IMAGE_MIN_TARGET_BYTES = 45_000
-const CORRECTION_MERGE_TARGET_BYTES = 120_000
+// 2026-05-26 native camera 上線、原始畫質 4K+、訂正小圖也能保留更多細節、target/maxWidth 上修
+// 4K → maxWidth 1500 仍是 downsample (3000+→1500)、JPEG artifacts 比 1200 顯著改善
+const CORRECTION_IMAGE_TARGET_BYTES = 250_000
+const CORRECTION_IMAGE_MIN_TARGET_BYTES = 80_000
+const CORRECTION_MERGE_TARGET_BYTES = 250_000
 const CORRECTION_REQUEST_SOFT_LIMIT_BYTES = 3_600_000
 const CORRECTION_REQUEST_RESERVE_BYTES = 700_000
 
@@ -538,6 +539,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   const [cameraAssignmentId, setCameraAssignmentId] = useState('')
   const [capturedBlobs, setCapturedBlobs] = useState<Blob[]>([])
   const [correctionCameraQuestionId, setCorrectionCameraQuestionId] = useState<string | null>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submittingMode, setSubmittingMode] = useState<'upload' | 'correction' | null>(null)
   const [showCorrectionSubmitConfirm, setShowCorrectionSubmitConfirm] = useState(false)
@@ -968,6 +970,24 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     setCameraAssignmentId(targetAssignment.id)
     setCameraMode(mode)
     onCaptureModeChange?.(true)
+    // 觸發 native 相機 (iOS Safari / Android Chrome 會喚起原生相機 app)
+    // 桌面 browser 會降級為一般檔案選擇器
+    cameraInputRef.current?.click()
+  }
+
+  const handleNativeCameraCapture = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    // 重置 input value、否則學生重拍同一頁時 onChange 不會再 fire
+    event.target.value = ''
+    if (!file) {
+      // 使用者取消 native 相機、重置 camera state
+      setCameraMode(null)
+      setCameraAssignmentId('')
+      setCorrectionCameraQuestionId(null)
+      onCaptureModeChange?.(false)
+      return
+    }
+    handleCameraCaptureComplete(file)
   }
 
   const rotateCorrectionPhoto = useCallback(
@@ -1053,13 +1073,13 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       } else {
         setSelectedFiles(files)
       }
-      if (next.length >= cameraRequiredPages) {
-        setCameraMode(null)
-        setCameraAssignmentId('')
-        onCaptureModeChange?.(false)
-      }
       return next
     })
+    // Native camera 為單次拍照、每次拍完都要重置 state
+    // (學生需要再點「拍照上傳」按鈕才會喚起下一次原生相機)
+    setCameraMode(null)
+    setCameraAssignmentId('')
+    onCaptureModeChange?.(false)
   }
 
   const submitStudentWork = async (
@@ -1179,7 +1199,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           const compressedImages = await Promise.all(
             photoEntries.map(async ([questionId, action]) => {
               const compressedItem = await compressToTargetBytes(action.file!, currentTarget, {
-                maxWidth: 1080,
+                maxWidth: 1500,
                 qualities: [0.78, 0.68, 0.58, 0.48, 0.4]
               })
               const imageBase64 = await blobToBase64(compressedItem)
@@ -1228,7 +1248,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       // Vercel function body 上限 4.5 MB、扣 JSON overhead + base64 1.33x 膨脹後、原圖 ≤ 3 MB 是安全值
       // correction 模式仍維持小檔（120 KB）、跟訂正 batch payload 大小有關、不動
       const mergeTarget = mode === 'correction' ? CORRECTION_MERGE_TARGET_BYTES : 3_000_000
-      const mergeMaxWidth = mode === 'correction' ? 1200 : 2000
+      const mergeMaxWidth = mode === 'correction' ? 1500 : 2000
       const merged = await mergeImagesVertically(filesToMerge)
       const compressed = await compressToTargetBytes(merged, mergeTarget, { maxWidth: mergeMaxWidth })
       const imageDataUrl = await blobToBase64(compressed)
@@ -1344,32 +1364,19 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     { key: 'correction', label: '作業訂正', icon: RotateCcw }
   ]
 
-  if (cameraMode && currentCameraAssignment) {
-    return (
-      <CameraCapturePage
-        studentId={overview?.student?.id || 'student'}
-        seatNumber={overview?.student?.seatNumber || 0}
-        name={overview?.student?.name || '學生'}
-        pagesPerStudent={cameraRequiredPages}
-        currentPageCount={capturedBlobs.length}
-        requiredOrientation={
-          currentCameraAssignment?.pageOrientations?.[
-            retakePageIdx !== null ? retakePageIdx : capturedBlobs.length
-          ] ?? undefined
-        }
-        guideMode={cameraMode === 'correction' ? 'correction' : 'upload'}
-        onCaptureComplete={handleCameraCaptureComplete}
-        onBack={() => {
-          setCameraMode(null)
-          setCameraAssignmentId('')
-          onCaptureModeChange?.(false)
-        }}
-      />
-    )
-  }
-
   return (
     <div className="grid min-h-full gap-0 lg:grid-cols-[260px_minmax(0,1fr)]">
+      {/* Hidden input for native camera (iOS Safari / Android Chrome will launch
+          the native camera app via capture="environment"; desktop falls back to
+          a regular file picker). Triggered by openCamera() → input.click(). */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={handleNativeCameraCapture}
+      />
       <aside className="border-b border-slate-200 bg-[#F7F8FA] lg:border-b-0 lg:border-r">
         <div className="h-full overflow-y-auto p-4 md:p-5">
           <section>
@@ -2137,18 +2144,57 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
 
                 {/* 當前頁的驗證錯誤 */}
                 {currentPageResult && !currentPageResult.ok && currentPageResult.errors.length > 0 && (
-                  <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
-                      <div className="flex-1 space-y-1">
-                        <p className="text-sm font-semibold text-rose-900">
-                          第 {currentIdx + 1} 頁需要重拍：
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
+                      <p className="text-sm font-semibold text-rose-900">
+                        第 {currentIdx + 1} 頁需要重拍
+                      </p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-3 items-start">
+                      <ul className="flex-1 space-y-1.5 list-none m-0 p-0 w-full">
+                        {currentPageResult.errors.map((e, i) => (
+                          <li
+                            key={i}
+                            className="rounded bg-white/80 border border-rose-100 px-3 py-2 text-xs text-rose-900"
+                          >
+                            {e.message}
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="shrink-0 self-center sm:self-start">
+                        <div
+                          className="relative bg-slate-900 rounded"
+                          style={{ padding: '6px 6px 32px 6px', width: '100px' }}
+                        >
+                          <img
+                            src="/photo-guide/examples/good_sample_top.jpg"
+                            alt="應該這樣拍"
+                            className="block w-full rounded-sm bg-white"
+                            style={{ aspectRatio: '820 / 1330', objectFit: 'contain' }}
+                          />
+                          <span
+                            className="absolute pointer-events-none rounded-sm"
+                            style={{
+                              inset: '3px 3px 29px 3px',
+                              border: '1.5px dashed rgba(255, 255, 255, 0.55)',
+                            }}
+                          />
+                          <span
+                            className="absolute rounded-full bg-white"
+                            style={{
+                              bottom: '6px',
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              width: '20px',
+                              height: '20px',
+                              boxShadow: '0 0 0 1.5px #000, 0 0 0 3px #fff',
+                            }}
+                          />
+                        </div>
+                        <p className="text-[10px] text-center text-rose-700 mt-1 font-medium">
+                          應該這樣拍
                         </p>
-                        <ul className="list-disc pl-5 text-xs text-rose-800 space-y-0.5">
-                          {currentPageResult.errors.map((e, i) => (
-                            <li key={i}>{e.message}</li>
-                          ))}
-                        </ul>
                       </div>
                     </div>
                   </div>
