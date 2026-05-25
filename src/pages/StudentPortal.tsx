@@ -983,7 +983,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     cameraInputRef.current?.click()
   }
 
-  const handleNativeCameraCapture = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleNativeCameraCapture = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     // 重置 input value、否則學生重拍同一頁時 onChange 不會再 fire
     event.target.value = ''
@@ -995,7 +995,20 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       onCaptureModeChange?.(false)
       return
     }
-    handleCameraCaptureComplete(file)
+    // Native iPhone/Android 原圖 4-10MB、會撞 Vercel /api/proxy 4.5MB body limit
+    // (validatePhotos → detectDocumentCorners 把整張圖 base64 塞 request body)。
+    // 在進入 uploadDrafts / validation 之前先壓到 ≤3MB / ≤2000px、跟舊 CameraCapturePage
+    // 出口同等規格 (CameraCapturePage.tsx 原本就在 compressImage(maxWidth=2000, q=0.92))。
+    let blob: Blob = file
+    try {
+      blob = await compressToTargetBytes(file, 3_000_000, {
+        maxWidth: 2000,
+        qualities: [0.92, 0.88, 0.85, 0.78],
+      })
+    } catch (err) {
+      console.warn('[StudentPortal] native camera pre-compress failed, using raw file:', err)
+    }
+    handleCameraCaptureComplete(blob)
   }
 
   const rotateCorrectionPhoto = useCallback(
