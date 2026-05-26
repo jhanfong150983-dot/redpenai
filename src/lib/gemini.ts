@@ -1219,9 +1219,9 @@ Q2-B：哪一種多元？  [2 選 1]
 
 ➊ 單一空格容多種說法（同義詞、近義詞、造詞）→ fill_variants
 ➋ 多位置-名稱配對（地圖填地名/國名）→ map_fill
-   🚨 鐵律：1 張地圖 = 1 題 map_fill（id 不可拆 X-1 / X-2 / ...，acceptableAnswers 一個陣列裝全部位置的答案）
-   🔁 若你想把每位置拆成獨立子題、各自評分 → **改用 multi_fill**（地圖+代號 / 位置嚴格綁定）、不是 map_fill
-   ❌ 嚴禁：N 個 sub-question id（"X-1".."X-N"）全標 map_fill — 這在系統裡不存在這種混合
+   ⭐ 一張地圖 = 一題 map_fill（即使有 20+ 個位置也只生 1 題、acceptableAnswers 陣列裝全部答案）
+   🔁 若每位置必須獨立評分 / 位置-答案綁定不可互換 → 改用 multi_fill（地圖+代號 / 嚴格綁定情境）
+   ❌ 別寫成 N 個 sub-id（X-1...X-N）都是 map_fill — 此情況系統會自動合併、寧可一開始就合 1 題
 
 ═══════════════════════════════════════════════════
 ─── 進入 Bucket C：Rubric 給分 ───
@@ -1510,14 +1510,24 @@ function buildTypeSpecs(): string {
   動作：學生在地圖上多個位置填寫地名/國名
   欄位：referenceAnswer 描述位置-名稱對應；acceptableAnswers 列出所有正確名稱
 
-  🚨 唯一性鐵律（最常誤判）：
-  - **同一張地圖只能輸出 1 個 question**、id 不帶子題序（用 "2-3"、不是 "2-3-1"/"2-3-2"/...）
-  - acceptableAnswers = [所有位置的正確名稱]、全部塞同一個陣列
-  - referenceAnswer 用文字描述每個答案的相對位置（見「map_fill 必填位置描述」段）
-  - maxScore 是整張地圖的總分（不是單一位置）；評分由系統用 acceptableAnswers + referenceAnswer 位置描述自動處理
-  - ❌ 錯：24 個位置 = 24 個 map_fill question (id "1-1".."1-24")
-  - ✅ 對：24 個位置 = 1 個 map_fill question (id "1")、acceptableAnswers 24 個名字
-  🔁 若需「每位置獨立評分」/「位置-答案綁定不可互換」/「位置填代號而非地名」→ 改用 multi_fill 拆題（每位置一子題、配 anchorHint）、不要用 map_fill
+  ⭐ 唯一性原則（最常誤判）：
+  - 一張地圖 = **一個 question entry**、id 用單一 leaf 編號（如 "1-1" = photo 1 第 1 題、不要拆成 "1-1-1"/"1-1-2"/...）
+  - 即使地圖上有 20、30 個位置，仍合成 1 個 question；位置答案全部放進 acceptableAnswers 陣列
+  - referenceAnswer 用文字描述每個答案的相對位置（見下方「map_fill 必填位置描述」段）
+  - maxScore 是整張地圖的總分（建議 = 位置數量、或老師預設值）
+  - 評分由系統用 acceptableAnswers + referenceAnswer 位置描述自動處理
+
+  範例（24 位置的世界地圖填國名）：
+  {
+    "id": "1-1",
+    "questionCategory": "map_fill",
+    "maxScore": 24,
+    "acceptableAnswers": ["摩洛哥","阿爾及利亞","利比亞","埃及", "..."],
+    "referenceAnswer": "地圖最左上方為摩洛哥；其東側為阿爾及利亞；阿爾及利亞東側為利比亞；...（描述全部 24 位置）",
+    "answer": ""
+  }
+
+  🔁 若每位置必須獨立評分 / 位置-答案綁定不可互換 / 位置填代號（非地名）→ 改用 multi_fill 拆題、不是 map_fill
 
 ═══════════════ Bucket C：Rubric ═══════════════
 
@@ -1845,11 +1855,11 @@ function buildDomainRefinements(domain: string = '其他'): string {
 
 ▸ 圖表代號填入題（multi_fill 特化、也是 map_fill 的「拆題版」）：
   - 用途 A：地圖/流程圖/示意圖的空白框中填入代號（非地名，如 ㄅ、ㄆ、ㄇ 或 甲、乙）
-  - 用途 B：地圖填地名但需「每位置獨立評分」/「位置-答案綁定不可互換」→ 用 multi_fill 拆題、不要用 map_fill
-  - map_fill 與 multi_fill **二選一互斥原則**（拆題的判斷）：
-    ✅ 想合 1 題、用 acceptableAnswers 語義匹配 → map_fill（id 不拆、acceptableAnswers 裝全部）
-    ✅ 想拆 N 題、每題獨立評分 → multi_fill（id "X-1".."X-N"、每題配 anchorHint）
-    ❌ 拆 N 題 + 都標 map_fill → 系統不存在這種混合、會被自動合併並警告
+  - 用途 B：地圖填地名但需「每位置獨立評分」/「位置-答案綁定不可互換」→ 用 multi_fill 拆題、不用 map_fill
+  - map_fill 與 multi_fill 二選一原則（拆題判斷）：
+    ✅ 合 1 題、用 acceptableAnswers 語義匹配 → map_fill（id 不拆、acceptableAnswers 裝全部）
+    ✅ 拆 N 題、每題獨立評分 → multi_fill（id "X-1".."X-N"、每題配 anchorHint）
+    ⚠️ 拆 N 題 + 都標 map_fill 的情況下、系統會自動合併成 1 題並寫警告 log；建議一開始就決定好用哪一種
   - 每個空白框獨立為一題（id "X-1"、"X-2"...）
   - 每題填 anchorHint 描述該位置（如「左上方紅色標記 A 處」）
   - referenceAnswer 描述該框在圖中的位置/語意
@@ -2294,10 +2304,13 @@ function normalizeMapFillQuestions(answerKey: AnswerKey): AnswerKey {
   const idsToDrop = new Set<string>()
   const mergedQuestions: AnswerKeyQuestion[] = []
   for (const [prefix, group] of groupsToMerge) {
+    // 合併後 id 用第一個 child 的 id（保證仍是合法 leaf id 格式 photo-section[-...]），
+    // 而不是用 prefix（prefix 可能只剩 photo 編號 "1"、不是合法 question id）。
+    const mergedId = String(group[0].id ?? prefix)
     console.warn(
       `[AnswerKey] map_fill 拆題誤分類：合併 ${group.length} 題共享 id prefix "${prefix}" 的 map_fill 成 1 題（` +
         group.map((q) => q.id).join(',') +
-        ` → ${prefix}）`
+        ` → ${mergedId}）`
     )
     for (const q of group) idsToDrop.add(String(q.id))
 
@@ -2319,7 +2332,7 @@ function normalizeMapFillQuestions(answerKey: AnswerKey): AnswerKey {
     }
     mergedQuestions.push({
       ...group[0],
-      id: prefix,
+      id: mergedId,
       questionCategory: 'map_fill',
       maxScore: totalMaxScore || group.length,
       acceptableAnswers: Array.from(mergedAccepted),
