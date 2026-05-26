@@ -1053,7 +1053,14 @@ function buildGlobalTaskAndFormat(): string {
     這個格式給後續 bbox 定位 stage 用、必須嚴格遵守、不可改寫成描述性文字。
   - 目標：描述應具體到能唯一定位該格，避免使用位置詞（「左邊第三格」→ 改用欄標題）
 - 表格題：請使用 table_cell type（整張表合成 1 題 + cells 陣列），不要逐格建題
-- 無法辨識時回傳 {"questions": [], "totalScore": 0}
+- 🚨 空回傳的判準（保守使用、避免誤判）：
+  - ✅ 圖片完全不是答案卷（純風景照、白紙、無任何文字/答案痕跡）→ 回 {"questions": [], "totalScore": 0}
+  - ❌ 看到任何「紅色標籤/紅字答案/手寫紅字/印刷題目+答案」就**不可空回**，請盡力分類
+  - ❌ 不確定要歸哪種 type、不熟悉的版面（地圖、流程圖、自然繪圖）→ **不可空回**
+    → 用兜底策略：地圖類 → map_fill（1 題、acceptableAnswers 列全部地名/標籤）；
+       流程圖/示意圖代號 → multi_fill（每空一子題）；
+       開放繪圖類 → 對應 map_symbol / grid_geometry / connect_dots / diagram_draw / diagram_color
+  - 寧可分類不精準（老師可後製改），也不要空回讓老師看到「0 題」
 
 【題號層級（idPath）】
 - idPath 是題號階層陣列，例如 ["8","1"] -> id "8-1"
