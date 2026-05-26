@@ -2251,88 +2251,10 @@ function normalizeTableCellQuestion(question: AnswerKeyQuestion): AnswerKeyQuest
   }
 }
 
-// Post-extract guard：AI 偶爾會把同一張地圖填圖題拆成多個 sub-question (id "X-1".."X-N")
-// 但都標 questionCategory='map_fill'。設計上 map_fill 是「1 張地圖 = 1 題、acceptableAnswers
-// 列全部位置答案」，這種拆題 + map_fill 標籤的混合在系統內不存在（classify 會給 24 個 full_image
-// bbox 全部重疊、quality gate 連環爆 size_anomaly）。
-// 偵測：同 id prefix（最後一段 dash 之前）的 map_fill ≥ 2 個 → 合併成 1 題、id 用 prefix。
-// 如果 AI 真的想拆題、它應該用 multi_fill（見 typeSpecs 內互斥原則）。
-function normalizeMapFillQuestions(answerKey: AnswerKey): AnswerKey {
-  const questions = Array.isArray(answerKey?.questions) ? answerKey.questions : []
-  if (questions.length === 0) return answerKey
-
-  const mapFillByPrefix = new Map<string, AnswerKeyQuestion[]>()
-  for (const q of questions) {
-    if (q.questionCategory !== 'map_fill') continue
-    const id = String(q.id ?? '')
-    const lastDash = id.lastIndexOf('-')
-    const prefix = lastDash > 0 ? id.slice(0, lastDash) : id
-    if (!mapFillByPrefix.has(prefix)) mapFillByPrefix.set(prefix, [])
-    mapFillByPrefix.get(prefix)!.push(q)
-  }
-
-  const groupsToMerge = Array.from(mapFillByPrefix.entries()).filter(([, group]) => group.length > 1)
-  if (groupsToMerge.length === 0) return answerKey
-
-  const idsToDrop = new Set<string>()
-  const mergedQuestions: AnswerKeyQuestion[] = []
-  for (const [prefix, group] of groupsToMerge) {
-    // 合併後 id 用第一個 child 的 id（保證仍是合法 leaf id 格式 photo-section[-...]），
-    // 而不是用 prefix（prefix 可能只剩 photo 編號 "1"、不是合法 question id）。
-    const mergedId = String(group[0].id ?? prefix)
-    console.warn(
-      `[AnswerKey] map_fill 拆題誤分類：合併 ${group.length} 題共享 id prefix "${prefix}" 的 map_fill 成 1 題（` +
-        group.map((q) => q.id).join(',') +
-        ` → ${mergedId}）`
-    )
-    for (const q of group) idsToDrop.add(String(q.id))
-
-    const mergedAccepted = new Set<string>()
-    const referenceParts: string[] = []
-    let totalMaxScore = 0
-    for (const q of group) {
-      if (Array.isArray(q.acceptableAnswers)) {
-        for (const a of q.acceptableAnswers) {
-          const s = String(a ?? '').trim()
-          if (s) mergedAccepted.add(s)
-        }
-      }
-      if (typeof q.answer === 'string' && q.answer.trim()) mergedAccepted.add(q.answer.trim())
-      if (typeof q.referenceAnswer === 'string' && q.referenceAnswer.trim()) {
-        referenceParts.push(q.referenceAnswer.trim())
-      }
-      totalMaxScore += Number(q.maxScore) || 0
-    }
-    mergedQuestions.push({
-      ...group[0],
-      id: mergedId,
-      questionCategory: 'map_fill',
-      maxScore: totalMaxScore || group.length,
-      acceptableAnswers: Array.from(mergedAccepted),
-      referenceAnswer: referenceParts.join('；'),
-      answer: '',
-      parts: undefined,
-      cells: undefined,
-      tableMeta: undefined,
-      tablePosition: undefined,
-      anchorHint: undefined,
-    })
-  }
-
-  return {
-    ...answerKey,
-    questions: [
-      ...questions.filter((q) => !idsToDrop.has(String(q.id))),
-      ...mergedQuestions,
-    ],
-  }
-}
-
 function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: string): AnswerKey {
   void domain
-  const merged = normalizeMapFillQuestions(answerKey)
-  const questions = Array.isArray(merged?.questions) ? merged.questions : []
-  if (questions.length === 0) return merged
+  const questions = Array.isArray(answerKey?.questions) ? answerKey.questions : []
+  if (questions.length === 0) return answerKey
 
   const normalizedQuestions = questions.map((question) => {
     let q = ensureShortAnswerRubricsDimensions(question)
@@ -2343,7 +2265,7 @@ function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: 
   })
 
   return {
-    ...merged,
+    ...answerKey,
     questions: normalizedQuestions
   }
 }
@@ -4395,19 +4317,12 @@ function mergeAnswerKeyResults(first: AnswerKey, retry: AnswerKey): AnswerKey {
   }
 }
 
-// Types that legitimately occupy a whole sheet by themselves (1 question per sheet is valid).
-// 加新 type 要記得補進來、否則 too_few_questions QG 會把它當 AI 漏題、觸發無謂 retry。
-const WHOLE_SHEET_CATEGORIES = new Set(['map_fill', 'map_symbol', 'grid_geometry', 'connect_dots', 'diagram_draw', 'diagram_color', 'mark_in_text'])
-
 function checkAnswerKeyQuality(ak: AnswerKey, pageCount?: number): { shouldRetry: boolean; reasons: string[] } {
   const reasons: string[] = []
   const questions = ak?.questions ?? []
 
   if (questions.length === 0) { reasons.push('no_questions'); return { shouldRetry: true, reasons } }
-  // too_few_questions：1-2 題通常代表 AI 漏題。但 whole-sheet 類型（map_fill 等）本來
-  // 就是「整張卷一題」、1 題即合法、不該觸發 retry。
-  const allWholeSheet = questions.every((q) => q.questionCategory && WHOLE_SHEET_CATEGORIES.has(q.questionCategory))
-  if (questions.length < 3 && !allWholeSheet) reasons.push('too_few_questions')
+  if (questions.length < 3) reasons.push('too_few_questions')
 
   // Duplicate IDs
   const idSet = new Set<string>()
@@ -4463,8 +4378,8 @@ function checkAnswerKeyQuality(ak: AnswerKey, pageCount?: number): { shouldRetry
   }
   if (missingAnswer > 0) reasons.push(`missing_answer(${missingAnswer})`)
 
-  // Page-proportional check — whole-sheet 類型不適用（地圖/繪圖每頁 1 題即合法）
-  if (pageCount && pageCount > 1 && questions.length / pageCount < 2 && !allWholeSheet) {
+  // Page-proportional check
+  if (pageCount && pageCount > 1 && questions.length / pageCount < 2) {
     reasons.push(`too_few_per_page(${(questions.length / pageCount).toFixed(1)})`)
   }
 
