@@ -31,7 +31,11 @@ export const FRAME_TOLERANCE = 0.15
 
 // 紙張面積佔整張圖比例的最低門檻
 // 低於此值代表學生拍太遠，校正後解析度不足。
-export const MIN_PAPER_AREA_RATIO = 0.25
+//
+// 2026-05-26 改 native camera 後沒引導框、學生用整個畫面拍、對齊好的紙張會佔
+// 60-80%。原本 0.25 是引導框時代設的（那時紙張通常佔 30-50%、留 25% 給對齊
+// 不佳的）。native 之後拉到 0.40 才能擋住「隨手拍、紙在大框中很小」的 case。
+export const MIN_PAPER_AREA_RATIO = 0.40
 
 // pHash 重複判斷的 Hamming distance 閾值
 // 64-bit hash，距離 < 此值視為重複照片。
@@ -53,9 +57,13 @@ export const DUPLICATE_HASH_THRESHOLD = 12
 // - 500~699 → 拍遠了 / 沒貼框、值得提醒重拍
 // - < 500   → 拍超遠 / 紙張很小、強烈建議重拍
 //
-// 為避免誤殺、不擋任何照片（BLOCK=0）。
+// 為避免誤殺、引導框時代不擋任何照片（BLOCK=0）。
 // WARN=700 = 對齊不佳才警告、正常對齊不打擾。
-export const MIN_EFFECTIVE_WIDTH_BLOCK = 0     // 不擋
+//
+// 2026-05-26 改 native camera 後失去引導框「告訴學生靠近一點」的視覺提示、
+// BLOCK 改 500（對應註解對照表的「拍遠了/拍超遠」邊界）、避免 AI 收到
+// 像素過低的作業批不準。WARN 仍 700 不動、500-700 顯黃色警告允許送出。
+export const MIN_EFFECTIVE_WIDTH_BLOCK = 500   // 拍超遠擋下
 export const MIN_EFFECTIVE_WIDTH_WARN = 700    // 對齊不佳才警告
 
 // 銳利度（focus / motion blur）門檻
