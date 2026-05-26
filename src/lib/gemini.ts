@@ -4324,12 +4324,19 @@ function mergeAnswerKeyResults(first: AnswerKey, retry: AnswerKey): AnswerKey {
   }
 }
 
+// Types that legitimately occupy a whole sheet by themselves (1 question per sheet is valid).
+// 加新 type 要記得補進來、否則 too_few_questions QG 會把它當 AI 漏題、觸發無謂 retry。
+const WHOLE_SHEET_CATEGORIES = new Set(['map_fill', 'map_symbol', 'grid_geometry', 'connect_dots', 'diagram_draw', 'diagram_color', 'mark_in_text'])
+
 function checkAnswerKeyQuality(ak: AnswerKey, pageCount?: number): { shouldRetry: boolean; reasons: string[] } {
   const reasons: string[] = []
   const questions = ak?.questions ?? []
 
   if (questions.length === 0) { reasons.push('no_questions'); return { shouldRetry: true, reasons } }
-  if (questions.length < 3) reasons.push('too_few_questions')
+  // too_few_questions：1-2 題通常代表 AI 漏題。但 whole-sheet 類型（map_fill 等）本來
+  // 就是「整張卷一題」、1 題即合法、不該觸發 retry。
+  const allWholeSheet = questions.every((q) => q.questionCategory && WHOLE_SHEET_CATEGORIES.has(q.questionCategory))
+  if (questions.length < 3 && !allWholeSheet) reasons.push('too_few_questions')
 
   // Duplicate IDs
   const idSet = new Set<string>()
@@ -4385,8 +4392,8 @@ function checkAnswerKeyQuality(ak: AnswerKey, pageCount?: number): { shouldRetry
   }
   if (missingAnswer > 0) reasons.push(`missing_answer(${missingAnswer})`)
 
-  // Page-proportional check
-  if (pageCount && pageCount > 1 && questions.length / pageCount < 2) {
+  // Page-proportional check — whole-sheet 類型不適用（地圖/繪圖每頁 1 題即合法）
+  if (pageCount && pageCount > 1 && questions.length / pageCount < 2 && !allWholeSheet) {
     reasons.push(`too_few_per_page(${(questions.length / pageCount).toFixed(1)})`)
   }
 
