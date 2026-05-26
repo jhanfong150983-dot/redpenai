@@ -122,20 +122,30 @@ export default function AnswerBank(_props: AnswerBankProps) {
       })
       const data = await res.json()
       if (!res.ok) { setImportError(data?.error || '匯入失敗'); return }
-      // 寫入本地 IndexedDB
       const t = data.template
+      // server 必須回 answerKey，否則 sync push 會把 server 端答案擦掉。
+      if (!t?.answerKey?.questions) { setImportError('伺服器回傳資料不完整、請重試'); return }
+      const cloudUpdatedAt = typeof t.updatedAt === 'string' ? new Date(t.updatedAt).getTime() : Date.now()
       await db.answerKeyTemplates.put({
         id: t.id,
         name: t.name,
         domain: t.domain ?? undefined,
-        answerKey: t.answerKey ?? (await db.answerKeyTemplates.get(t.id))?.answerKey ?? { questions: [], totalScore: 0 },
+        docType: t.docType ?? undefined,
+        answerKey: t.answerKey,
         questionCount: t.questionCount,
         totalScore: t.totalScore,
         shareCode: t.shareCode,
-        updatedAt: Date.now(),
+        updatedAt: cloudUpdatedAt,
       })
       requestSync(); await loadData()
       setShowImportModal(false); setImportCode('')
+      const toast = document.createElement('div')
+      toast.textContent = `匯入成功：${t.name}`
+      toast.setAttribute('role', 'status')
+      toast.setAttribute('aria-live', 'polite')
+      toast.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 bg-green-600 text-white px-4 py-2 rounded-lg text-sm z-50'
+      document.body.appendChild(toast)
+      setTimeout(() => toast.remove(), 2000)
     } catch (err) {
       setImportError(err instanceof Error ? err.message : '匯入失敗')
     } finally { setIsImporting(false) }
