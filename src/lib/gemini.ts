@@ -1219,6 +1219,9 @@ Q2-B：哪一種多元？  [2 選 1]
 
 ➊ 單一空格容多種說法（同義詞、近義詞、造詞）→ fill_variants
 ➋ 多位置-名稱配對（地圖填地名/國名）→ map_fill
+   🚨 鐵律：1 張地圖 = 1 題 map_fill（id 不可拆 X-1 / X-2 / ...，acceptableAnswers 一個陣列裝全部位置的答案）
+   🔁 若你想把每位置拆成獨立子題、各自評分 → **改用 multi_fill**（地圖+代號 / 位置嚴格綁定）、不是 map_fill
+   ❌ 嚴禁：N 個 sub-question id（"X-1".."X-N"）全標 map_fill — 這在系統裡不存在這種混合
 
 ═══════════════════════════════════════════════════
 ─── 進入 Bucket C：Rubric 給分 ───
@@ -1506,6 +1509,15 @@ function buildTypeSpecs(): string {
   視覺：地圖 + 多個標記位置 + 紅色名稱
   動作：學生在地圖上多個位置填寫地名/國名
   欄位：referenceAnswer 描述位置-名稱對應；acceptableAnswers 列出所有正確名稱
+
+  🚨 唯一性鐵律（最常誤判）：
+  - **同一張地圖只能輸出 1 個 question**、id 不帶子題序（用 "2-3"、不是 "2-3-1"/"2-3-2"/...）
+  - acceptableAnswers = [所有位置的正確名稱]、全部塞同一個陣列
+  - referenceAnswer 用文字描述每個答案的相對位置（見「map_fill 必填位置描述」段）
+  - maxScore 是整張地圖的總分（不是單一位置）；評分由系統用 acceptableAnswers + referenceAnswer 位置描述自動處理
+  - ❌ 錯：24 個位置 = 24 個 map_fill question (id "1-1".."1-24")
+  - ✅ 對：24 個位置 = 1 個 map_fill question (id "1")、acceptableAnswers 24 個名字
+  🔁 若需「每位置獨立評分」/「位置-答案綁定不可互換」/「位置填代號而非地名」→ 改用 multi_fill 拆題（每位置一子題、配 anchorHint）、不要用 map_fill
 
 ═══════════════ Bucket C：Rubric ═══════════════
 
@@ -1831,10 +1843,15 @@ function buildDomainRefinements(domain: string = '其他'): string {
     2.「理由說明」 criteria: "說明所選項目的影響或理由，內容合理且與所選相符"
   ⚠️ 任選題鐵律：每行 criteria 不可包含特定項目名稱（見上方通用鐵律）
 
-▸ 圖表代號填入題（multi_fill 特化）：
-  - 在地圖/流程圖/示意圖的空白框中填入代號（非地名，如 ㄅ、ㄆ、ㄇ 或 甲、乙）
-  - 不要歸類為 map_fill（map_fill 只用於填地名/國名）
-  - 每個空白框獨立為一題（拆成子題）
+▸ 圖表代號填入題（multi_fill 特化、也是 map_fill 的「拆題版」）：
+  - 用途 A：地圖/流程圖/示意圖的空白框中填入代號（非地名，如 ㄅ、ㄆ、ㄇ 或 甲、乙）
+  - 用途 B：地圖填地名但需「每位置獨立評分」/「位置-答案綁定不可互換」→ 用 multi_fill 拆題、不要用 map_fill
+  - map_fill 與 multi_fill **二選一互斥原則**（拆題的判斷）：
+    ✅ 想合 1 題、用 acceptableAnswers 語義匹配 → map_fill（id 不拆、acceptableAnswers 裝全部）
+    ✅ 想拆 N 題、每題獨立評分 → multi_fill（id "X-1".."X-N"、每題配 anchorHint）
+    ❌ 拆 N 題 + 都標 map_fill → 系統不存在這種混合、會被自動合併並警告
+  - 每個空白框獨立為一題（id "X-1"、"X-2"...）
+  - 每題填 anchorHint 描述該位置（如「左上方紅色標記 A 處」）
   - referenceAnswer 描述該框在圖中的位置/語意
   - 子題 id 排序：由上而下（y 由小到大），同行由左而右（x 由小到大）
 
@@ -2251,10 +2268,85 @@ function normalizeTableCellQuestion(question: AnswerKeyQuestion): AnswerKeyQuest
   }
 }
 
-function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: string): AnswerKey {
-  void domain
+// Post-extract guard：AI 偶爾會把同一張地圖填圖題拆成多個 sub-question (id "X-1".."X-N")
+// 但都標 questionCategory='map_fill'。設計上 map_fill 是「1 張地圖 = 1 題、acceptableAnswers
+// 列全部位置答案」，這種拆題 + map_fill 標籤的混合在系統內不存在（classify 會給 24 個 full_image
+// bbox 全部重疊、quality gate 連環爆 size_anomaly）。
+// 偵測：同 id prefix（最後一段 dash 之前）的 map_fill ≥ 2 個 → 合併成 1 題、id 用 prefix。
+// 如果 AI 真的想拆題、它應該用 multi_fill（見 typeSpecs 內互斥原則）。
+function normalizeMapFillQuestions(answerKey: AnswerKey): AnswerKey {
   const questions = Array.isArray(answerKey?.questions) ? answerKey.questions : []
   if (questions.length === 0) return answerKey
+
+  const mapFillByPrefix = new Map<string, AnswerKeyQuestion[]>()
+  for (const q of questions) {
+    if (q.questionCategory !== 'map_fill') continue
+    const id = String(q.id ?? '')
+    const lastDash = id.lastIndexOf('-')
+    const prefix = lastDash > 0 ? id.slice(0, lastDash) : id
+    if (!mapFillByPrefix.has(prefix)) mapFillByPrefix.set(prefix, [])
+    mapFillByPrefix.get(prefix)!.push(q)
+  }
+
+  const groupsToMerge = Array.from(mapFillByPrefix.entries()).filter(([, group]) => group.length > 1)
+  if (groupsToMerge.length === 0) return answerKey
+
+  const idsToDrop = new Set<string>()
+  const mergedQuestions: AnswerKeyQuestion[] = []
+  for (const [prefix, group] of groupsToMerge) {
+    console.warn(
+      `[AnswerKey] map_fill 拆題誤分類：合併 ${group.length} 題共享 id prefix "${prefix}" 的 map_fill 成 1 題（` +
+        group.map((q) => q.id).join(',') +
+        ` → ${prefix}）`
+    )
+    for (const q of group) idsToDrop.add(String(q.id))
+
+    const mergedAccepted = new Set<string>()
+    const referenceParts: string[] = []
+    let totalMaxScore = 0
+    for (const q of group) {
+      if (Array.isArray(q.acceptableAnswers)) {
+        for (const a of q.acceptableAnswers) {
+          const s = String(a ?? '').trim()
+          if (s) mergedAccepted.add(s)
+        }
+      }
+      if (typeof q.answer === 'string' && q.answer.trim()) mergedAccepted.add(q.answer.trim())
+      if (typeof q.referenceAnswer === 'string' && q.referenceAnswer.trim()) {
+        referenceParts.push(q.referenceAnswer.trim())
+      }
+      totalMaxScore += Number(q.maxScore) || 0
+    }
+    mergedQuestions.push({
+      ...group[0],
+      id: prefix,
+      questionCategory: 'map_fill',
+      maxScore: totalMaxScore || group.length,
+      acceptableAnswers: Array.from(mergedAccepted),
+      referenceAnswer: referenceParts.join('；'),
+      answer: '',
+      parts: undefined,
+      cells: undefined,
+      tableMeta: undefined,
+      tablePosition: undefined,
+      anchorHint: undefined,
+    })
+  }
+
+  return {
+    ...answerKey,
+    questions: [
+      ...questions.filter((q) => !idsToDrop.has(String(q.id))),
+      ...mergedQuestions,
+    ],
+  }
+}
+
+function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: string): AnswerKey {
+  void domain
+  const merged = normalizeMapFillQuestions(answerKey)
+  const questions = Array.isArray(merged?.questions) ? merged.questions : []
+  if (questions.length === 0) return merged
 
   const normalizedQuestions = questions.map((question) => {
     let q = ensureShortAnswerRubricsDimensions(question)
@@ -2265,7 +2357,7 @@ function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: 
   })
 
   return {
-    ...answerKey,
+    ...merged,
     questions: normalizedQuestions
   }
 }
