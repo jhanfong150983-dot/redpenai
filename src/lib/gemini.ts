@@ -1507,6 +1507,13 @@ function buildTypeSpecs(): string {
   動作：學生在地圖上多個位置填寫地名/國名
   欄位：referenceAnswer 描述位置-名稱對應；acceptableAnswers 列出所有正確名稱
 
+  📍 整張地圖無印刷題號的情境（社會科常見）：
+  - 看到一張地圖佔據整頁、沒「1./2./3.」傳統題號 → 仍視為合法答案卷、不可回 {questions: []}
+  - 整張地圖建成 **1 個 question**、id 用 "1-1"（photo 1 第 1 題）
+  - acceptableAnswers 列出地圖上**全部紅字標籤**（地名/國名），不管 5 個還 30 個都裝同一個陣列
+  - maxScore 預設 = 紅字標籤數量
+  - referenceAnswer 用方位/相鄰關係描述每個答案的位置（見下方「map_fill 必填位置描述」段）
+
 ═══════════════ Bucket C：Rubric ═══════════════
 
 ▸ short_answer 「簡答題」
