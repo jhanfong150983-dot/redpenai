@@ -550,6 +550,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         answerKey,
         questionCount: answerKey.questions?.length ?? 0,
         totalScore: answerKey.totalScore ?? 0,
+        shareCode: 'AK-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
         pageOrientations,
         version: 1,
         updatedAt: Date.now(),
