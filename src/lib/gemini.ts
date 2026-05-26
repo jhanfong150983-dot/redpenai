@@ -1053,14 +1053,7 @@ function buildGlobalTaskAndFormat(): string {
     這個格式給後續 bbox 定位 stage 用、必須嚴格遵守、不可改寫成描述性文字。
   - 目標：描述應具體到能唯一定位該格，避免使用位置詞（「左邊第三格」→ 改用欄標題）
 - 表格題：請使用 table_cell type（整張表合成 1 題 + cells 陣列），不要逐格建題
-- 🚨 空回傳的判準（保守使用、避免誤判）：
-  - ✅ 圖片完全不是答案卷（純風景照、白紙、無任何文字/答案痕跡）→ 回 {"questions": [], "totalScore": 0}
-  - ❌ 看到任何「紅色標籤/紅字答案/手寫紅字/印刷題目+答案」就**不可空回**，請盡力分類
-  - ❌ 不確定要歸哪種 type、不熟悉的版面（地圖、流程圖、自然繪圖）→ **不可空回**
-    → 用兜底策略：地圖類 → map_fill（1 題、acceptableAnswers 列全部地名/標籤）；
-       流程圖/示意圖代號 → multi_fill（每空一子題）；
-       開放繪圖類 → 對應 map_symbol / grid_geometry / connect_dots / diagram_draw / diagram_color
-  - 寧可分類不精準（老師可後製改），也不要空回讓老師看到「0 題」
+- 無法辨識時回傳 {"questions": [], "totalScore": 0}
 
 【題號層級（idPath）】
 - idPath 是題號階層陣列，例如 ["8","1"] -> id "8-1"
@@ -1226,9 +1219,6 @@ Q2-B：哪一種多元？  [2 選 1]
 
 ➊ 單一空格容多種說法（同義詞、近義詞、造詞）→ fill_variants
 ➋ 多位置-名稱配對（地圖填地名/國名）→ map_fill
-   ⭐ 一張地圖 = 一題 map_fill（即使有 20+ 個位置也只生 1 題、acceptableAnswers 陣列裝全部答案）
-   🔁 若每位置必須獨立評分 / 位置-答案綁定不可互換 → 改用 multi_fill（地圖+代號 / 嚴格綁定情境）
-   ❌ 別寫成 N 個 sub-id（X-1...X-N）都是 map_fill — 此情況系統會自動合併、寧可一開始就合 1 題
 
 ═══════════════════════════════════════════════════
 ─── 進入 Bucket C：Rubric 給分 ───
@@ -1516,25 +1506,6 @@ function buildTypeSpecs(): string {
   視覺：地圖 + 多個標記位置 + 紅色名稱
   動作：學生在地圖上多個位置填寫地名/國名
   欄位：referenceAnswer 描述位置-名稱對應；acceptableAnswers 列出所有正確名稱
-
-  ⭐ 唯一性原則（最常誤判）：
-  - 一張地圖 = **一個 question entry**、id 用單一 leaf 編號（如 "1-1" = photo 1 第 1 題、不要拆成 "1-1-1"/"1-1-2"/...）
-  - 即使地圖上有 20、30 個位置，仍合成 1 個 question；位置答案全部放進 acceptableAnswers 陣列
-  - referenceAnswer 用文字描述每個答案的相對位置（見下方「map_fill 必填位置描述」段）
-  - maxScore 是整張地圖的總分（建議 = 位置數量、或老師預設值）
-  - 評分由系統用 acceptableAnswers + referenceAnswer 位置描述自動處理
-
-  範例（24 位置的世界地圖填國名）：
-  {
-    "id": "1-1",
-    "questionCategory": "map_fill",
-    "maxScore": 24,
-    "acceptableAnswers": ["摩洛哥","阿爾及利亞","利比亞","埃及", "..."],
-    "referenceAnswer": "地圖最左上方為摩洛哥；其東側為阿爾及利亞；阿爾及利亞東側為利比亞；...（描述全部 24 位置）",
-    "answer": ""
-  }
-
-  🔁 若每位置必須獨立評分 / 位置-答案綁定不可互換 / 位置填代號（非地名）→ 改用 multi_fill 拆題、不是 map_fill
 
 ═══════════════ Bucket C：Rubric ═══════════════
 
@@ -1860,15 +1831,10 @@ function buildDomainRefinements(domain: string = '其他'): string {
     2.「理由說明」 criteria: "說明所選項目的影響或理由，內容合理且與所選相符"
   ⚠️ 任選題鐵律：每行 criteria 不可包含特定項目名稱（見上方通用鐵律）
 
-▸ 圖表代號填入題（multi_fill 特化、也是 map_fill 的「拆題版」）：
-  - 用途 A：地圖/流程圖/示意圖的空白框中填入代號（非地名，如 ㄅ、ㄆ、ㄇ 或 甲、乙）
-  - 用途 B：地圖填地名但需「每位置獨立評分」/「位置-答案綁定不可互換」→ 用 multi_fill 拆題、不用 map_fill
-  - map_fill 與 multi_fill 二選一原則（拆題判斷）：
-    ✅ 合 1 題、用 acceptableAnswers 語義匹配 → map_fill（id 不拆、acceptableAnswers 裝全部）
-    ✅ 拆 N 題、每題獨立評分 → multi_fill（id "X-1".."X-N"、每題配 anchorHint）
-    ⚠️ 拆 N 題 + 都標 map_fill 的情況下、系統會自動合併成 1 題並寫警告 log；建議一開始就決定好用哪一種
-  - 每個空白框獨立為一題（id "X-1"、"X-2"...）
-  - 每題填 anchorHint 描述該位置（如「左上方紅色標記 A 處」）
+▸ 圖表代號填入題（multi_fill 特化）：
+  - 在地圖/流程圖/示意圖的空白框中填入代號（非地名，如 ㄅ、ㄆ、ㄇ 或 甲、乙）
+  - 不要歸類為 map_fill（map_fill 只用於填地名/國名）
+  - 每個空白框獨立為一題（拆成子題）
   - referenceAnswer 描述該框在圖中的位置/語意
   - 子題 id 排序：由上而下（y 由小到大），同行由左而右（x 由小到大）
 
