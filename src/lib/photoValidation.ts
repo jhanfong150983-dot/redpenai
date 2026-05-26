@@ -125,7 +125,9 @@ export async function validatePhotos(pages: PageInput[]): Promise<ValidationResu
       const noPreErrors = errors.length === 0
       if (noPreErrors && raw.corners) {
         try {
-          correctedBlob = await cropToCornersBounds(pages[i].blob, raw.corners, 0.05)
+          // 2026-05-26 padding 5% → 2%：減少桌面雜訊、紙張像素密度 +15%、
+          // AI 批改/OCR 更準。AI 角偵測誤差通常 1-2%、2% buffer 夠用。
+          correctedBlob = await cropToCornersBounds(pages[i].blob, raw.corners, 0.02)
           effectiveWidth = await measureBlobWidth(correctedBlob)
         } catch (err) {
           console.warn(`[photoValidation] crop failed for page ${i + 1}, fallback to original:`, err)
