@@ -51,7 +51,13 @@ import PdfImportPreviewDialog, {
   type PdfImportPreviewResult,
 } from '@/components/PdfImportPreviewDialog'
 import { buildApiUrl } from '@/lib/api-base'
-import CameraCapturePage from './CameraCapturePage'
+
+// 2026-05-26 老師端拍照入口從 webRTC CameraCapturePage 改為 native camera。
+// 桌面（觸控不可用）只開放上傳、平板/手機開放拍照+上傳。
+// `(pointer: coarse)` 在主要輸入是觸控時為 true、能準確分離 mobile/tablet 跟桌面。
+const isTouchDevice =
+  typeof window !== 'undefined' &&
+  window.matchMedia?.('(pointer: coarse)').matches === true
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -261,15 +267,19 @@ export default function UnifiedImportPage({
   )
 
   // ── View state ──────────────────────────────────────────────────────────
-  const [currentView, setCurrentView] = useState<ViewType>('grid')
+  // 2026-05-26 拔 CameraCapturePage 後 currentView 永遠是 'grid'、capturedPages 不再被
+  // JSX 讀（僅作 setter prev 來源）。保留 setter 維持原 handleCaptureComplete 邏輯、
+  // destructure 跳過值滿足 noUnusedLocals。
+  const [, setCurrentView] = useState<ViewType>('grid')
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
-  const [capturedPages, setCapturedPages] = useState<Blob[]>([])
+  const [, setCapturedPages] = useState<Blob[]>([])
 
   // ── Action sheet ────────────────────────────────────────────────────────
   const [actionSheetStudent, setActionSheetStudent] = useState<Student | null>(
     null,
   )
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const actionStudentRef = useRef<Student | null>(null)
 
@@ -407,13 +417,19 @@ export default function UnifiedImportPage({
 
   const handleStartCamera = useCallback(
     (student: Student) => {
-      setSelectedStudent(student)
-      setCapturedPages([])
       setActionSheetStudent(null)
-      setCurrentView('capture')
-      onCaptureModeChange?.(true)
+      // actionStudentRef 是 ref（同步）、用來比對是否切換學生
+      // 同學生繼續拍下一頁 → 累積 capturedPages；切換學生 → 重置
+      const prevStudentId = actionStudentRef.current?.id
+      if (prevStudentId !== student.id) {
+        setCapturedPages([])
+      }
+      actionStudentRef.current = student
+      setSelectedStudent(student)
+      // 觸發 native 相機 (iOS Safari / Android Chrome 喚起原生相機 app)
+      cameraInputRef.current?.click()
     },
-    [onCaptureModeChange],
+    [],
   )
 
   const handleCaptureComplete = useCallback(
@@ -465,12 +481,26 @@ export default function UnifiedImportPage({
     ],
   )
 
-  const handleCameraBack = useCallback(() => {
-    setCurrentView('grid')
-    setSelectedStudent(null)
-    setCapturedPages([])
-    onCaptureModeChange?.(false)
-  }, [onCaptureModeChange])
+  const handleCameraInputChange = useCallback(
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      event.target.value = ''
+      if (!file) return
+      // native 4K JPEG 可能 5-10MB、Vercel /api/proxy 上限 4.5MB、先壓到 ≤3MB / ≤2000px
+      // 老師端不跑 photoValidation、純壓縮即可
+      let blob: Blob = file
+      try {
+        blob = await compressToTargetBytes(file, 3_000_000, {
+          maxWidth: 2000,
+          qualities: [0.92, 0.88, 0.85, 0.78],
+        })
+      } catch (err) {
+        console.warn('[UnifiedImportPage] teacher native pre-compress failed, using raw file:', err)
+      }
+      handleCaptureComplete(blob)
+    },
+    [handleCaptureComplete],
+  )
 
   // ── Single file upload → open preview ───────────────────────────────────
 
@@ -941,23 +971,6 @@ export default function UnifiedImportPage({
     )
   }
 
-  // ── Render: Camera capture view ─────────────────────────────────────────
-
-  if (currentView === 'capture' && selectedStudent) {
-    return (
-      <CameraCapturePage
-        studentId={selectedStudent.id}
-        seatNumber={selectedStudent.seatNumber}
-        name={selectedStudent.name}
-        pagesPerStudent={pagesPerStudent}
-        currentPageCount={capturedPages.length}
-        applyFrameCrop
-        onCaptureComplete={handleCaptureComplete}
-        onBack={handleCameraBack}
-      />
-    )
-  }
-
   // ── Render: Grid view ───────────────────────────────────────────────────
 
   return (
@@ -972,6 +985,15 @@ export default function UnifiedImportPage({
         multiple
         className="hidden"
         onChange={handleFileInputChange}
+      />
+      {/* Native camera input (only touch devices）：capture="environment" 喚起原生相機 */}
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleCameraInputChange}
       />
       <input
         ref={pdfInputRef}
@@ -1136,14 +1158,16 @@ export default function UnifiedImportPage({
                     />
                     {/* Popover (below card) */}
                     <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-50 bg-white rounded-xl shadow-xl border border-slate-200 py-1 w-36">
-                      <button
-                        type="button"
-                        onClick={() => handleStartCamera(student)}
-                        className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                      >
-                        <Camera className="w-4 h-4 text-blue-500" />
-                        拍照
-                      </button>
+                      {isTouchDevice && (
+                        <button
+                          type="button"
+                          onClick={() => handleStartCamera(student)}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                        >
+                          <Camera className="w-4 h-4 text-blue-500" />
+                          拍照
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => triggerPhotoUpload(student)}
@@ -1316,17 +1340,19 @@ export default function UnifiedImportPage({
                 ) : (
                   /* Teacher source → re-upload options */
                   <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        closePreview()
-                        handleStartCamera(previewStudent)
-                      }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-                    >
-                      <Camera className="w-4 h-4 text-blue-500" />
-                      重新拍照
-                    </button>
+                    {isTouchDevice && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closePreview()
+                          handleStartCamera(previewStudent)
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                      >
+                        <Camera className="w-4 h-4 text-blue-500" />
+                        重新拍照
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
