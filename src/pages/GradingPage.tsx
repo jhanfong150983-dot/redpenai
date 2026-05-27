@@ -3134,7 +3134,11 @@ export default function GradingPage({
           const detailsFromPhaseA = phaseAResult.questionResults.map((qr) => ({
             questionId: qr.questionId,
             questionType: qr.questionType,
-            studentAnswer: qr.arbiterResult?.finalAnswer || qr.readAnswer1?.studentAnswer || '',
+            // map_fill 跳 Phase A Read、Phase B 才會視覺評分產生 studentAnswer；
+            // 在那之前留空、avoid 顯示 "(填圖題...)" placeholder。
+            studentAnswer: qr.questionType === 'map_fill'
+              ? ''
+              : (qr.arbiterResult?.finalAnswer || qr.readAnswer1?.studentAnswer || ''),
             // 故意不設 score / maxScore / isCorrect / reason — 等 Phase B 跑完才填
             readAnswer1: qr.readAnswer1,
             readAnswer2: qr.readAnswer2,
