@@ -5944,6 +5944,8 @@ export default function GradingPage({
                         const isNotGradedYet = selectedSubmission.submission.status !== 'graded'
                         // 2026-05-18: 學生答案是「無法辨識」→ 卡片底色標紅、老師一眼看到要再複核哪一題
                         const isUnrecognizable = String(d.studentAnswer || '').trim() === '無法辨識'
+                        // map_fill 走視覺評分（Phase B Accessor 看 crop 圖直接評分）、編輯欄鎖住
+                        const isVisualEval = d.questionType === 'map_fill'
 
                         return (
                           <div
@@ -6018,22 +6020,26 @@ export default function GradingPage({
                               </div>
                             </div>
                             {/* 2026-05-18 PR3: 學生答案 inline edit、debounce 1s auto save、textarea 自動撐高 */}
+                            {/* map_fill 視覺評分模式：value 鎖成「採視覺評分」、disabled、不可編輯 */}
                             <div className="flex items-start gap-2 text-gray-700">
                               <span className="shrink-0 mt-0.5">學生答案：</span>
                               <textarea
                                 className={`flex-1 px-2 py-1 rounded border bg-white text-gray-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:cursor-not-allowed resize-none whitespace-pre-wrap break-words ${
-                                  isUnrecognizable ? 'border-rose-300' : 'border-gray-200 hover:border-gray-300'
+                                  isVisualEval
+                                    ? 'border-gray-200 italic text-gray-500'
+                                    : isUnrecognizable ? 'border-rose-300' : 'border-gray-200 hover:border-gray-300'
                                 }`}
-                                value={String(d.studentAnswer ?? '')}
-                                placeholder="（點此編輯）"
-                                disabled={isBusy || isSavingScore}
+                                value={isVisualEval ? '採視覺評分' : String(d.studentAnswer ?? '')}
+                                placeholder={isVisualEval ? undefined : '（點此編輯）'}
+                                disabled={isVisualEval || isBusy || isSavingScore}
                                 onChange={(e) => {
+                                  if (isVisualEval) return
                                   handleDetailStudentAnswerChange(i, e.target.value)
                                   // 即時撐高、不等下次 re-render
                                   e.target.style.height = 'auto'
                                   e.target.style.height = e.target.scrollHeight + 'px'
                                 }}
-                                onFocus={(e) => e.target.select()}
+                                onFocus={(e) => { if (!isVisualEval) e.target.select() }}
                                 // mount/re-render 時依內容撐高、避免 1 行 textarea 蓋掉多行內容
                                 ref={(el) => {
                                   if (el) {
@@ -6042,7 +6048,9 @@ export default function GradingPage({
                                   }
                                 }}
                                 rows={1}
-                                title="編輯後 1 秒自動儲存。已批改卷子改答案會自動退回待批改、按【批改作業】重評。"
+                                title={isVisualEval
+                                  ? '填圖題由 AI 直接看 crop 圖視覺評分、學生筆跡跟標準答案的比對請看下方「理由」欄'
+                                  : '編輯後 1 秒自動儲存。已批改卷子改答案會自動退回待批改、按【批改作業】重評。'}
                               />
                             </div>
 
