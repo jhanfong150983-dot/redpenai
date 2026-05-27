@@ -2775,6 +2775,8 @@ export default function GradingPage({
         setEditableDetails(
           details.map((d: any, index: number) => ({
             questionId: d.questionId ?? `#${index + 1}`,
+            // questionType 保留下來、UI 對 map_fill 等視覺評分題型要鎖編輯欄
+            questionType: d.questionType ?? undefined,
             studentAnswer: d.studentAnswer ?? '',
             reason: d.reason ?? d.comment ?? '',
             comment: d.comment ?? d.reason ?? '',
