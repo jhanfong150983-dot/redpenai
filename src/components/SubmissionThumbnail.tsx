@@ -75,7 +75,17 @@ function SubmissionThumbnailInner({ submission }: {
   }, [needsFetch, subId])
 
   const isSynced = submission?.status === 'synced'
-  const imageUrl = base64Url ?? blobUrl ?? fetchedUrl ?? null
+  // 2026-05-28: blob URL 優先於 base64
+  // 歷史背景：commit eaee1d9 (2026-04-13) 優先 base64 是為了避免「blob URL 每次 render
+  // 重新 createObjectURL → img reload → 縮圖閃爍」。後來加了 blobUrlCache (WeakMap)、
+  // 同一個 Blob 永遠拿同一個 URL、閃爍問題已解決。
+  // 改回 blob URL 優先的好處：
+  //   - 60+ 卡片 base64 字串約 4-5 MB 在 JS heap、改用 blob URL 只是 ~60 個 reference
+  //   - <img> 從 blob: URL 載入比 data: URL 快、瀏覽器有更好的 decode 快取
+  //   - React 比對 props 時不用比 70KB 字串
+  // 風險：sync 重建 submission 物件可能重建 Blob reference → WeakMap miss → 重做 URL
+  // → 真會閃爍時 fallback 還在、不影響功能
+  const imageUrl = blobUrl ?? base64Url ?? fetchedUrl ?? null
 
   return (
     <>
