@@ -204,6 +204,8 @@ export function deriveCardStage(sub: Submission | undefined): CardStage {
         (fa) => (fa.finalStudentAnswer || '').trim() === '無法辨識'
       )
       const missingCount = expectedQids.filter((qid) => !finalByQid.has(qid)).length
+      // 2026-05-28: 老師手動標記已複核 → 視為已處理、走 'pending_grading' (待批改) 不走 'pending_review'
+      if (sub.gradingResult?.manuallyReviewed) return 'pending_grading'
       if (hasUnrecognizable || missingCount > 0) return 'pending_review'
       return 'pending_grading'
     }
@@ -212,6 +214,8 @@ export function deriveCardStage(sub: Submission | undefined): CardStage {
   // 沒 final_answers → 從 phase_a_state.arbiterDecisions 判斷（Phase A 跑完、老師還沒審查）
   const phaseAState = sub.phaseAState
   if (phaseAState?.arbiterDecisions && phaseAState.arbiterDecisions.length > 0) {
+    // 2026-05-28: 老師手動標記已複核 → 視為已處理、走 'pending_grading' 不再顯示待複核
+    if (sub.gradingResult?.manuallyReviewed) return 'pending_grading'
     const hasNeedsReview = phaseAState.arbiterDecisions.some(
       (d) => d.arbiterStatus === 'needs_review'
     )
@@ -221,6 +225,8 @@ export function deriveCardStage(sub: Submission | undefined): CardStage {
   // 從舊 gradingResult.details 判斷（向下相容：舊資料沒 phase_a_state、但有 gradingResult）
   const details = (sub.gradingResult as { details?: Array<{ arbiterResult?: { arbiterStatus?: string } }> } | undefined)?.details
   if (Array.isArray(details) && details.length > 0) {
+    // 2026-05-28: 老師手動標記已複核 → 視為已處理
+    if (sub.gradingResult?.manuallyReviewed) return 'pending_grading'
     const hasNeedsReview = details.some(
       (d) => d.arbiterResult?.arbiterStatus === 'needs_review'
     )
@@ -5918,13 +5924,17 @@ export default function GradingPage({
                           }
                           const totalScore = typeof newGradingResult.totalScore === 'number' ? newGradingResult.totalScore : undefined
                           const confirmNow = Date.now()
+                          // 2026-05-28: Phase A 比 Phase B 新時、「標記已複核」不可寫 gradedAt / score
+                          // 否則會把 stale Phase A 「假裝」成已批改、卡片顯示舊分數
+                          // 此情境下只寫 manuallyReviewed flag、user 要再跑 Phase B 才會更新 score
+                          const stale = isPhaseAStale(submission)
                           await db.submissions.update(id, {
                             gradingResult: newGradingResult,
-                            ...(totalScore !== undefined ? { score: totalScore, aiScore: totalScore, scoreSource: 'ai' as const } : {}),
-                            gradedAt: confirmNow,
+                            ...(!stale && totalScore !== undefined ? { score: totalScore, aiScore: totalScore, scoreSource: 'ai' as const } : {}),
+                            ...(!stale ? { gradedAt: confirmNow } : {}),
                             updatedAt: confirmNow
                           })
-                          if (totalScore !== undefined) {
+                          if (!stale && totalScore !== undefined) {
                             fetch('/api/data/save-grading', {
                               method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
                               body: JSON.stringify({ submissions: [{ id, score: totalScore, aiScore: totalScore, scoreSource: 'ai', gradingResult: newGradingResult, gradedAt: confirmNow }] })
