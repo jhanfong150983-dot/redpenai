@@ -5835,10 +5835,11 @@ export default function GradingPage({
             return (
               <div
                 key={student.id}
-                className="bg-white rounded-xl hover:border-slate-300 border border-slate-200 transition-colors cursor-pointer group flex flex-col"
-                // 2026-05-28: scroll perf — 滑動畫面外的卡瀏覽器跳過 paint/layout
-                // 60+ 卡片同時在 DOM 時 GPU 一直滿載、加這 2 行讓畫面外卡片不參與渲染
-                style={{ contentVisibility: 'auto', containIntrinsicSize: '220px 300px' }}
+                className="bg-white rounded-xl hover:border-slate-300 border border-slate-200 cursor-pointer group flex flex-col"
+                // 2026-05-28: scroll perf — content-visibility: auto 拔掉、
+                // Performance trace 顯示 60% time 在 compositor pipeline (提交/分層/預先繪製)
+                // CV: auto 每張卡進出 viewport 都 layerize、scroll churn 嚴重
+                // 改回普通 render、靠下面拔掉的 shadow/opacity 屬性減少 layer 數
                 onClick={() => {
                   if (!submission || isStub) return
                   setSelectedSubmission({ submission, student })
@@ -5847,8 +5848,10 @@ export default function GradingPage({
                 <div className="relative">
                   <div className="aspect-[4/3] bg-gray-100 rounded-t-xl overflow-hidden flex items-center justify-center relative">
                     <SubmissionThumbnail submission={submission} />
+                    {/* 2026-05-28 perf: 拔掉 badge 的 shadow、box-shadow 是 compositor layer 大戶
+                        28 卡 × 每張 1 個 badge × shadow = 至少 28 個 layer */}
                     {isStub && (
-                      <div className="absolute top-2 right-2 px-2 py-1 bg-emerald-500 text-white rounded-full text-xs font-semibold shadow">
+                      <div className="absolute top-2 right-2 px-2 py-1 bg-emerald-500 text-white rounded-full text-xs font-semibold">
                         已批改
                       </div>
                     )}
@@ -5856,7 +5859,7 @@ export default function GradingPage({
                     {showResultBadge && (
                       <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
                         <div
-                          className={`px-2 py-1 rounded-full text-xs font-bold shadow ${
+                          className={`px-2 py-1 rounded-full text-xs font-bold ${
                             !isLowScore ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
                           }`}
                         >
@@ -5865,18 +5868,18 @@ export default function GradingPage({
                       </div>
                     )}
                     {needsReview && (
-                      <div className="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold shadow bg-amber-100 text-amber-700 border border-amber-200">
+                      <div className="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">
                         待複核
                       </div>
                     )}
                     {pendingGrading && (
-                      <div className="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold shadow bg-blue-100 text-blue-700 border border-blue-200">
+                      <div className="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
                         待批改
                       </div>
                     )}
                     {cardStage === 'phase_a_failed' && (
                       <div
-                        className="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded-full text-xs font-semibold shadow"
+                        className="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded-full text-xs font-semibold"
                         title="擷取失敗、可重新截取答案"
                       >
                         擷取失敗
@@ -5884,19 +5887,19 @@ export default function GradingPage({
                     )}
                     {cardStage === 'phase_b_failed' && (
                       <div
-                        className="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded-full text-xs font-semibold shadow"
+                        className="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded-full text-xs font-semibold"
                         title="批改失敗、可重新批改"
                       >
                         批改失敗
                       </div>
                     )}
                     {status === 'scanned' && (
-                      <div className="absolute top-2 right-2 px-2 py-1 bg-blue-500 text-white rounded-full text-xs font-semibold shadow">
+                      <div className="absolute top-2 right-2 px-2 py-1 bg-blue-500 text-white rounded-full text-xs font-semibold">
                         已掃描
                       </div>
                     )}
                     {cardStage === 'not_extracted' && status === 'synced' && (
-                      <div className="absolute top-2 right-2 px-2 py-1 bg-purple-500 text-white rounded-full text-xs font-semibold shadow">
+                      <div className="absolute top-2 right-2 px-2 py-1 bg-purple-500 text-white rounded-full text-xs font-semibold">
                         已上傳
                       </div>
                     )}
@@ -5905,7 +5908,7 @@ export default function GradingPage({
                       submission && (
                         <>
                           <div
-                            className="absolute top-2 left-2 z-10 flex items-center justify-center rounded-md border border-slate-200 bg-white/95 p-1.5 shadow-md"
+                            className="absolute top-2 left-2 z-10 flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5"
                             onClick={(e) => e.stopPropagation()}
                             title="勾選加入批次批改"
                           >
@@ -5918,12 +5921,14 @@ export default function GradingPage({
                               disabled={isBusy || !inkSessionReady || !hasSubmissionImage(submission)}
                             />
                           </div>
+                          {/* 2026-05-28 perf: hidden→flex 不會 promote layer、opacity 會、
+                              28 張卡 × 每張 opacity transition = 28 個 compositor layer */}
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
                               void handleDeleteSubmission(submission, student)
                             }}
-                            className="absolute bottom-2 left-2 p-1.5 bg-white/90 text-gray-700 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 hover:text-red-600 z-10 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="absolute bottom-2 left-2 p-1.5 bg-white text-gray-700 rounded-full hidden group-hover:flex hover:bg-red-50 hover:text-red-600 z-10 disabled:opacity-50 disabled:cursor-not-allowed"
                             title="刪除此學生的作業"
                             disabled={isBusy}
                           >
