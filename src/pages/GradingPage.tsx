@@ -6167,7 +6167,9 @@ export default function GradingPage({
                         // 2026-05-18: Phase A only 完成（status !== 'graded'）→ 顯示「未批改」
                         // 不管 score/maxScore 是不是 0、只要狀態還沒到 graded、就算未批改
                         // 涵蓋舊資料 score=0/maxScore=0 跟新資料 score=undefined 兩種情況
+                        // 2026-05-28: Phase A 重跑後（stale）也視為未批改、舊 score/reason 對不到新讀答案
                         const isNotGradedYet = selectedSubmission.submission.status !== 'graded'
+                          || isPhaseAStale(selectedSubmission.submission)
                         // 2026-05-18: 學生答案是「無法辨識」→ 卡片底色標紅、老師一眼看到要再複核哪一題
                         const isUnrecognizable = String(d.studentAnswer || '').trim() === '無法辨識'
                         // map_fill 走視覺評分（Phase B Accessor 看 crop 圖直接評分）、編輯欄鎖住
@@ -6283,12 +6285,14 @@ export default function GradingPage({
                             <div className="text-xs text-gray-700 flex items-start gap-2">
                               <span className="mt-0.5 shrink-0">理由：</span>
                               <span className="text-gray-600 whitespace-pre-line flex-1">
-                                {d.reason || '—'}
+                                {/* 2026-05-28: 未批改（含 Phase A stale）→ 不顯示舊 reason */}
+                                {isNotGradedYet ? '—' : (d.reason || '—')}
                               </span>
                             </div>
 
                             {/* table_cell 群組批改：顯示每 cell 對錯細節 */}
-                            {Array.isArray(d.cellResults) && d.cellResults.length > 0 && (
+                            {/* 2026-05-28: 未批改（含 Phase A stale）→ 隱藏舊 cell 對錯 */}
+                            {!isNotGradedYet && Array.isArray(d.cellResults) && d.cellResults.length > 0 && (
                               <div className="mt-2 border-t border-gray-200 pt-2">
                                 <div className="text-[11px] font-semibold text-gray-600 mb-1.5">每格對錯：</div>
                                 <div className="space-y-1">
@@ -6330,7 +6334,8 @@ export default function GradingPage({
                             )}
 
                             {/* fill_blank 合題：顯示每空對錯細節 */}
-                            {Array.isArray(d.partResults) && d.partResults.length > 0 && (
+                            {/* 2026-05-28: 未批改（含 Phase A stale）→ 隱藏舊 part 對錯 */}
+                            {!isNotGradedYet && Array.isArray(d.partResults) && d.partResults.length > 0 && (
                               <div className="mt-2 border-t border-gray-200 pt-2">
                                 <div className="text-[11px] font-semibold text-gray-600 mb-1.5">每空對錯：</div>
                                 <div className="space-y-1">
