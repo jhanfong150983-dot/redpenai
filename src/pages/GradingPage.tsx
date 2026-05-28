@@ -362,10 +362,20 @@ function formatDisplayQuestionId(questionId?: string | null) {
 }
 
 /** 判斷該份批改結果是否需要老師複核（相容舊資料） */
-function isSubmissionNeedsReview(gradingResult?: { needsReview?: boolean; manuallyReviewed?: boolean; details?: Array<{ studentAnswer?: string }>; reviewReasons?: string[] }): boolean {
+function isSubmissionNeedsReview(sub?: Submission): boolean {
+  if (!sub) return false
+  // 老師手動點過「標記已複核」→ 直接視為不需複核（不論 Phase A stale 與否）
+  if (sub.gradingResult?.manuallyReviewed) return false
+
+  // 2026-05-28: Phase A 比 Phase B 新時、忽略舊 gradingResult.needsReview / reviewReasons、
+  // 看新的 phaseAState.arbiterDecisions、避免舊 Phase B 留下的複核警告賴在新 Phase A 結果上
+  if (isPhaseAStale(sub)) {
+    const decisions = sub.phaseAState?.arbiterDecisions ?? []
+    return decisions.some((d) => d?.arbiterStatus === 'needs_review')
+  }
+
+  const gradingResult = sub.gradingResult
   if (!gradingResult) return false
-  // 老師手動點過「標記已複核」→ 直接視為不需複核
-  if (gradingResult.manuallyReviewed) return false
   // 「未作答」全是學生明確沒寫，不需老師確認 → 過濾掉純「未作答」reasons
   const isBlankReason = (r: string) =>
     !!r && (r.includes('辨識為未作答') || r.includes('題未作答'))
@@ -1696,7 +1706,7 @@ export default function GradingPage({
   
   // 🆕 計算待複核數量
   const needsReviewCount = useMemo(() => {
-    return Array.from(submissions.values()).filter(s => isSubmissionNeedsReview(s.gradingResult)).length
+    return Array.from(submissions.values()).filter(s => isSubmissionNeedsReview(s)).length
   }, [submissions])
 
   // 🆕 獲取所有待複核的學生（按座號排序）
@@ -1704,7 +1714,7 @@ export default function GradingPage({
     return students
       .filter(student => {
         const sub = submissions.get(student.id)
-        return isSubmissionNeedsReview(sub?.gradingResult)
+        return isSubmissionNeedsReview(sub)
       })
       .sort((a, b) => a.seatNumber - b.seatNumber)
   }, [students, submissions])
@@ -4590,6 +4600,17 @@ export default function GradingPage({
 
   const getDisplayReviewReasons = useCallback(
     (submission: Submission) => {
+      // 2026-05-28: Phase A 比 Phase B 新時、忽略舊 reviewReasons、用新 phaseAState.arbiterDecisions 重建理由
+      if (isPhaseAStale(submission)) {
+        const decisions = submission.phaseAState?.arbiterDecisions ?? []
+        const needsReviewQids = decisions
+          .filter((d) => d?.arbiterStatus === 'needs_review')
+          .map((d) => formatDisplayQuestionId(d?.questionId) || d?.questionId)
+          .filter(Boolean)
+        if (needsReviewQids.length === 0) return []
+        return [`第 ${needsReviewQids.join('、')} 題 AI 判讀不一致、需要複核`]
+      }
+
       const reasons = submission.gradingResult?.reviewReasons ?? []
       if (reasons.length > 0) {
         const parsed = reasons
@@ -5407,7 +5428,7 @@ export default function GradingPage({
                     const isLowScore = isUnscoredAssignment
                       ? (correctSummary ? correctSummary.ratio < 0.8 : true)
                       : (typeof maxScore === 'number' && maxScore > 0 ? scoreValue < maxScore * 0.8 : scoreValue < 60)
-                    const needsReview = isSubmissionNeedsReview(gradingResult)
+                    const needsReview = isSubmissionNeedsReview(submission)
                     const isSelected = selectedSubmissionIds.has(submission?.id ?? '')
                     const isStub = isManualGradeStub(submission)
                     return (
@@ -5654,7 +5675,9 @@ export default function GradingPage({
                     const cs = correctionStatusByStudent[student.id]
                     if (cs === 'correction_required') return <p className="text-xs font-medium text-amber-600 mt-1">待訂正</p>
                     if (cs === 'correction_in_progress') return <p className="text-xs font-medium text-blue-600 mt-1">訂正中</p>
-                    if (cs === 'correction_pending_review') return <p className="text-xs font-medium text-violet-600 mt-1">待複查</p>
+                    // 2026-05-28: 改回「申訴待審」跟 CorrectionManagement / CorrectionHistory 一致
+                    // 之前誤翻成「待複查」跟「待複核」(AI 批改 review) 名稱混淆
+                    if (cs === 'correction_pending_review') return <p className="text-xs font-medium text-violet-600 mt-1">申訴待審</p>
                     if (cs === 'correction_passed') return <p className="text-xs font-medium text-emerald-600 mt-1">已完成訂正</p>
                     if (cs === 'correction_failed') return <p className="text-xs font-medium text-rose-600 mt-1">訂正未通過</p>
                     // 已批改 + 有錯題 + 未進入訂正流程 → 提示老師可派發
@@ -5852,7 +5875,7 @@ export default function GradingPage({
 
               <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
                 {/* 🆕 需複核警示 */}
-                {isSubmissionNeedsReview(selectedSubmission.submission.gradingResult) && (
+                {isSubmissionNeedsReview(selectedSubmission.submission) && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
