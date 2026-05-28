@@ -1725,7 +1725,10 @@ function buildDomainRefinements(domain: string = '其他'): string {
 
 ▸ 改錯題（fill_blank 子情境）：
   - answer 填正確的字（不含錯字）
-  - 每一個改正位置為一題
+  - 🚨 同一段文字／同一題幹下多個改正位置 → **合 1 個 fill_blank entry with parts**
+    parts 陣列依出現順序記每個改正、answerBbox 框整段文字（含所有改正位置）
+    ❌ 不要每個改正位置拆成獨立 entry、各自 tiny bbox → classify 階段 crop 會重疊、批改錯
+  - 多段獨立改錯文字（如 1.____, 2.____, 3.____ 各自一段）→ 各為獨立 entry（傳統拆題）
 `.trim(),
     數學: `
 【數學領域加成】
@@ -5137,43 +5140,54 @@ export async function extractAnswerKeyFromImages(
   // - 跨等號鏈式計算（= a = b = c）：仍拆 N 題、各題獨立 answer
   // - 不跨等號（同表達式內多空 / 同句子多空）：合題、用 parts 陣列
   // 詳細規則見 buildTypeSpecs 的 fill_blank 條目（含 NUMERIC ASSERTION）。
-  const chainCalcRule = isInferMode || isAnswerOnly ? '' : `\n\n🚨🚨🚨 fill_blank 多空格 — 跨等號 vs 同表達式 判別：
+  const chainCalcRule = isInferMode || isAnswerOnly ? '' : `\n\n🚨🚨🚨 fill_blank 多空格 — 決策樹（決定走「合題 parts」還是「拆 N 題」）：
 
-  ## 跨等號鏈式計算 → 拆 N 題（沿用原規則）
-  「= ( 100 ) − ( 12.56 ) = ( 87.44 )」這種、兩空之間有 = 號 → 各為獨立計算步驟、必須拆 N 個 fill_blank：
+  ## ⭐ BLOCKING DEFAULT — 合題 with parts（多空 fill_blank 預設行為）
+
+  只要一個印刷小題標號（②／(1)／(3)-①／A. 等）下 contains ≥ 2 個 ( ) 答案空格、
+  且各空之間 **沒有 = 號連接** → **強制合 1 個 fill_blank entry with parts**。
+
+  這條是 DEFAULT、不是 example。看到多空、先預設要合題、除非滿足下方「拆題例外」。
+
+  涵蓋（不論單句／多句／多獨立提問）：
+    情境 A（同算式多空）：「2 □ × (4.73 □ 2.73)」
+    情境 B（同句多空）：「( 2 )分鐘後相距 20 公尺、( 12 )分鐘後相遇」
+    情境 C（同小題下、多個獨立提問各一空 ⭐ 最容易誤拆）：
+       「②觀察看看側面長方形的長是不是底面平行四邊形的邊長總和？(  是  )
+           側面長方形的面積是多少平方公分？(  198  )平方公分」
+       → 1 個 fill_blank entry、parts = [{subId:"a", answer:"是"}, {subId:"b", answer:"198"}]
+       ❌ 嚴禁拆成 2 個 entries（如 1-1-3-2="是" / 1-1-3-3="198"）→ classify crop bbox 會重疊、批改端「最接近中心」啟發法會兩題讀到同一格、grading 直接錯
+       ❌ 嚴禁只擷取第一空「是」、忽略第二空「198」
+
+  合成範例 JSON：
+  {
+    "id": "1-1-3-2",
+    "questionCategory": "fill_blank",
+    "answerBbox": { 包整題（從印刷小題標號起、含所有 ( ) 答案空格） },
+    "parts": [
+      { "subId": "a", "answer": "是", "maxScore": 1 },
+      { "subId": "b", "answer": "198", "maxScore": 1 }
+    ],
+    "maxScore": 2
+  }
+
+  ## 🚫 拆 N 題例外 — 僅限「跨等號鏈式計算」
+
+  「= ( 100 ) − ( 12.56 ) = ( 87.44 )」這種、兩空之間**有 = 號連接**、各為獨立計算步驟 →
+  拆 N 個 fill_blank：
      id="1-1-1-1" answer="100"
      id="1-1-1-2" answer="12.56"
      id="1-1-1-3" answer="87.44"
 
-  ## 同小題下 N 個 ( ) 不跨等號 → 合題用 parts（不論單句 / 多句 / 多獨立提問）
+  ⚠️ 「跨等號」的具體標準：( 100 ) 跟 ( 12.56 ) 之間文字含「=」且整體是一個鏈式算式（左式 = 中式 = 右式）。
+  ⚠️ 若 ( ) 之間只是空格、逗號、句號、文字描述、換行 → 不算跨等號、走合題
 
-  下列 3 種情境皆為「合 1 題、parts N 元素」：
+  ## 自我檢查（送出前）
 
-  情境 A（同算式多空）：「2 □ × (4.73 □ 2.73)」
-  情境 B（同句多空）：「( 2 )分鐘後相距 20 公尺、( 12 )分鐘後相遇」
-  情境 C（同小題下、多個獨立提問各一空 ⭐ 2026-05-28 新增）：
-     「②觀察看看側面長方形的長是不是底面平行四邊形的邊長總和？(  是  )
-         側面長方形的面積是多少平方公分？(  198  )平方公分」
-     → 1 個 fill_blank entry、parts = [{subId:"a", answer:"是"}, {subId:"b", answer:"198"}]
-     ❌ 不要只擷取第一空「是」、忽略第二空「198」（最常見的漏題型態）
-     ❌ 不要拆成 2 個獨立 fill_blank entries
-     💡 判別：1 個印刷小題標號（②/(1)/A. 等）下、有 ≥ 2 個 ( ) 答案空格、各空之間沒 = 號 → 一律合題
-
-  合成範例 JSON：
-  {
-    "id": "1-4-1",
-    "questionCategory": "fill_blank",
-    "answerBbox": { 包整題（從題幹起、含所有 ( ) 答案空格） },
-    "parts": [
-      { "subId": "a", "answer": "×", "maxScore": 2 },
-      { "subId": "b", "answer": "−", "maxScore": 2 }
-    ],
-    "maxScore": 4
-  }
-
-  ❌ 錯誤示範：把同小題下多空拆成 N 題、各 tiny bbox 在 ( ) 上 → bbox 容易漂、應該合題
-  ❌ 錯誤示範：parts 寫成字串 "2, 12" → 必須陣列、每空一元素
-  ❌ 錯誤示範：只填第一空、忽略其餘空 → 漏答案、批改端直接錯
+  ❌ 錯誤示範 1：把同小題下多空拆成 N 題、各 tiny bbox 在 ( ) 上 → 應該合題
+  ❌ 錯誤示範 2：parts 寫成字串 "2, 12" → 必須陣列、每空一元素
+  ❌ 錯誤示範 3：只填第一空、忽略其餘空 → 漏答案、批改端直接錯
+  ❌ 錯誤示範 4：兩個 fill_blank entry 的 answerBbox 互相重疊（共享題幹區域）→ 強烈訊號該合題、立刻 merge 成 1 entry with parts
 
   ## 🚨 範例 ID 範圍 disclaimer（不要被範例限定）
 
