@@ -635,6 +635,49 @@ interface ConsistencyDecision {
   source: 'ai_read1' | 'ai_read2' | 'ai_arbiter' | 'manual' | 'unrecognizable' | 'blank'
   finalAnswer: string
   confirmed: boolean
+  // 2026-05-28: map_fill 每位置決策（per-position source + 最終文字）
+  // 當 questionType === 'map_fill' 時、source 是「整題狀態的彙整」、實際 per-position 結果在這
+  mapFillPerPosition?: Array<{
+    idx: number
+    source: 'ai_read1' | 'ai_read2' | 'blank' | 'manual'
+    finalText: string
+  }>
+}
+
+// 2026-05-28: module-level helper — 對單一 questionResult 構造 FinalAnswer
+// map_fill 特殊路徑：組 mapFillFinalReadings (per-position confirmed)
+// 一致的位置 → 自動用 AI1 read（兩 AI 相同）
+// 不一致的位置 → 用 decision.mapFillPerPosition[idx] 老師的選擇
+function buildFinalAnswerForQR(qr: PhaseAQuestionResult, decision: ConsistencyDecision | undefined): FinalAnswer {
+  if (qr.questionType === 'map_fill' && qr.mapFillReadings && Array.isArray(qr.mapFillReadings.perPosition)) {
+    const perPos = qr.mapFillReadings.perPosition
+    const overrides = new Map((decision?.mapFillPerPosition || []).map((d) => [d.idx, d]))
+    const readings: Array<{ position_idx: number; student_text: string }> = []
+    const summaryParts: string[] = []
+    for (const p of perPos) {
+      let text: string
+      if (p.consistent) {
+        text = p.ai1_text || ''  // 兩 AI 一致 → 用 AI1
+      } else {
+        const od = overrides.get(p.idx)
+        text = od ? od.finalText : ''  // 不一致：老師決定、沒選 = 空白
+      }
+      readings.push({ position_idx: p.idx, student_text: text })
+      if (text) summaryParts.push(text)
+    }
+    return {
+      questionId: qr.questionId,
+      finalStudentAnswer: summaryParts.join(', '),
+      finalAnswerSource: 'manual',
+      mapFillFinalReadings: readings
+    }
+  }
+  const src = decision?.source ?? 'ai_read1'
+  return {
+    questionId: qr.questionId,
+    finalStudentAnswer: src === 'unrecognizable' ? '無法辨識' : src === 'blank' ? '' : (decision?.finalAnswer ?? qr.readAnswer1.studentAnswer),
+    finalAnswerSource: src === 'blank' ? 'manual' : src,
+  }
 }
 
 interface BatchPhaseAEntry {
@@ -1009,6 +1052,128 @@ function ConsistencyQuestionCard({
     : 'bg-orange-100 text-orange-700'
 
   const badgeLabel = isConfirmed ? '已確認' : isUnstable ? '無法判讀' : '讀取不一致'
+
+  // ── 2026-05-28: map_fill 特化（per-position 表格） ──
+  const mapFillReadings = questionResult.mapFillReadings
+  const isMapFill = questionResult.questionType === 'map_fill' && Array.isArray(mapFillReadings?.perPosition)
+  if (isMapFill && mapFillReadings) {
+    const perPos = mapFillReadings.perPosition
+    const inconsistentRows = perPos.filter((p) => !p.consistent)
+    const decisionsByIdx = new Map(
+      (decision?.mapFillPerPosition || []).map((d) => [d.idx, d])
+    )
+    const allDecided = inconsistentRows.every((p) => decisionsByIdx.has(p.idx))
+
+    const setPositionDecision = (idx: number, source: 'ai_read1' | 'ai_read2' | 'blank' | 'manual', finalText: string) => {
+      // 更新 mapFillPerPosition[idx] 條目
+      const existing = decision?.mapFillPerPosition || []
+      const filtered = existing.filter((d) => d.idx !== idx)
+      const next = [...filtered, { idx, source, finalText }]
+      // 整題 confirmed = 所有 inconsistent 都有 decision
+      const stillAllDecided = inconsistentRows.every((p) => p.idx === idx || decisionsByIdx.has(p.idx))
+      onDecision(questionId, {
+        source: 'manual',
+        finalAnswer: '',  // map_fill 不用整題 finalAnswer、用 mapFillPerPosition
+        confirmed: stillAllDecided,
+        mapFillPerPosition: next
+      })
+    }
+
+    return (
+      <div className={`rounded-lg border p-3 space-y-2 text-xs ${borderClass}`}>
+        <div className="flex items-center justify-between">
+          <span className="font-semibold text-gray-800">題目 {questionId}（填圖題）</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${badgeClass}`}>
+            {isConfirmed ? '已確認' : `${inconsistentRows.length} 個位置待確認`}
+          </span>
+        </div>
+        <div className="text-[11px] text-gray-600">
+          全部 {perPos.length} 個位置中、<span className="text-green-700 font-semibold">{perPos.length - inconsistentRows.length}</span> 個 AI 一致已自動算分、
+          <span className="text-orange-700 font-semibold">{inconsistentRows.length}</span> 個請複核。
+        </div>
+        {answerCropImageUrl && (
+          <div className="rounded border border-gray-200 bg-white p-1">
+            <img
+              src={answerCropImageUrl}
+              alt={`題目 ${questionId} 學生作答圖`}
+              className="w-full max-h-[180px] object-contain cursor-zoom-in"
+              onClick={() => setZoomedImg(true)}
+            />
+          </div>
+        )}
+        <div className="space-y-1.5">
+          {inconsistentRows.map((p) => {
+            const dec = decisionsByIdx.get(p.idx)
+            return (
+              <div key={p.idx} className="rounded border border-gray-200 bg-white p-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-gray-700">📍 {p.name}</span>
+                  <span className="text-[9px] text-gray-400">#{p.idx}</span>
+                </div>
+                <div className="text-[10px] text-gray-500">{p.desc}</div>
+                <div className="grid grid-cols-2 gap-1">
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setPositionDecision(p.idx, 'ai_read1', p.ai1_text)}
+                    className={`rounded border px-1.5 py-1 text-[10px] text-left ${
+                      dec?.source === 'ai_read1' ? 'border-purple-500 bg-purple-50 font-semibold' : 'border-gray-200 bg-gray-50 hover:bg-purple-50'
+                    }`}
+                  >
+                    AI1: {p.ai1_text || '（空）'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setPositionDecision(p.idx, 'ai_read2', p.ai2_text)}
+                    className={`rounded border px-1.5 py-1 text-[10px] text-left ${
+                      dec?.source === 'ai_read2' ? 'border-purple-500 bg-purple-50 font-semibold' : 'border-gray-200 bg-gray-50 hover:bg-purple-50'
+                    }`}
+                  >
+                    AI2: {p.ai2_text || '（空）'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setPositionDecision(p.idx, 'blank', '')}
+                    className={`rounded border px-1.5 py-1 text-[10px] font-semibold ${
+                      dec?.source === 'blank' ? 'border-gray-500 bg-gray-100' : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
+                    }`}
+                  >
+                    空白
+                  </button>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      const cur = dec?.source === 'manual' ? dec.finalText : ''
+                      const input = prompt(`「${p.name}」位置學生實際寫了什麼？`, cur || '')
+                      if (input !== null) setPositionDecision(p.idx, 'manual', input.trim())
+                    }}
+                    className={`rounded border px-1.5 py-1 text-[10px] ${
+                      dec?.source === 'manual' ? 'border-blue-500 bg-blue-50 font-semibold' : 'border-gray-200 bg-gray-50 hover:bg-blue-50'
+                    }`}
+                  >
+                    手動: {dec?.source === 'manual' && dec.finalText ? dec.finalText : '輸入…'}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {allDecided && (
+          <div className="text-[11px] text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1">
+            ✓ 全部位置已確認、可送出
+          </div>
+        )}
+        {zoomedImg && answerCropImageUrl && (
+          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center cursor-zoom-out" onClick={() => setZoomedImg(false)}>
+            <img src={answerCropImageUrl} alt="zoom" className="max-w-[95vw] max-h-[95vh] object-contain" />
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // 從計算題/應用題完整文字中提取最終答案（純顯示用，與 server 端 extractFinalAnswerFromCalc 邏輯一致）
   const extractFinalAnswer = (raw: string): string | null => {
@@ -1866,13 +2031,7 @@ export default function GradingPage({
       async (entry) => {
         if (stopRequestedRef.current) return null
         const finalAnswers: FinalAnswer[] = entry.phaseAResult.questionResults.map((qr) => {
-          const decision = entry.decisions.get(qr.questionId)
-          const src = decision?.source ?? 'ai_read1'
-          return {
-            questionId: qr.questionId,
-            finalStudentAnswer: src === 'unrecognizable' ? '無法辨識' : src === 'blank' ? '' : (decision?.finalAnswer ?? qr.readAnswer1.studentAnswer),
-            finalAnswerSource: src === 'blank' ? 'manual' : src,
-          }
+          return buildFinalAnswerForQR(qr, entry.decisions.get(qr.questionId))
         })
         const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode, entry.submissionId, phaseBGradeBand)
         return { entry, gradingResult }
@@ -2016,13 +2175,7 @@ export default function GradingPage({
       for (const entry of phaseBRetryEntries) {
         try {
           const finalAnswers: FinalAnswer[] = entry.phaseAResult.questionResults.map((qr) => {
-            const decision = entry.decisions.get(qr.questionId)
-            const src = decision?.source ?? 'ai_read1'
-            return {
-              questionId: qr.questionId,
-              finalStudentAnswer: src === 'unrecognizable' ? '無法辨識' : src === 'blank' ? '' : (decision?.finalAnswer ?? qr.readAnswer1.studentAnswer),
-              finalAnswerSource: src === 'blank' ? 'manual' : src,
-            }
+            return buildFinalAnswerForQR(qr, entry.decisions.get(qr.questionId))
           })
           const gradingResult = await gradePhaseB(entry.imageBlob, entry.phaseAResult, finalAnswers, assignment?.domain, assignment?.id, assignment?.answerSheetMode, entry.submissionId, phaseBGradeBand)
           const totalScore = typeof gradingResult.totalScore === 'number' ? gradingResult.totalScore : 0
@@ -5429,15 +5582,7 @@ export default function GradingPage({
                 // 2026-05-18 PR3: review-only mode、只存 final_answers、不接 Phase B
                 console.log(`✅ 學生 ${entry.studentId} 確認完成（review only mode）、存 final_answers`)
                 const finalAnswers: FinalAnswer[] = entry.phaseAResult.questionResults.map((qr) => {
-                  const decision = entry.decisions.get(qr.questionId)
-                  const src = decision?.source ?? 'ai_read1'
-                  return {
-                    questionId: qr.questionId,
-                    finalStudentAnswer: src === 'unrecognizable' ? '無法辨識'
-                      : src === 'blank' ? ''
-                      : (decision?.finalAnswer ?? qr.readAnswer1?.studentAnswer ?? ''),
-                    finalAnswerSource: src === 'blank' ? 'manual' : src,
-                  }
+                  return buildFinalAnswerForQR(qr, entry.decisions.get(qr.questionId))
                 })
                 // 2026-05-18: 同步把老師選的最終答案寫進 gradingResult.details[].studentAnswer、
                 // detail modal 立刻能看到「學生答案：無法辨識 / 老師選的答案」、不要還顯示舊的 AI 讀取結果
@@ -6172,8 +6317,9 @@ export default function GradingPage({
                           || isPhaseAStale(selectedSubmission.submission)
                         // 2026-05-18: 學生答案是「無法辨識」→ 卡片底色標紅、老師一眼看到要再複核哪一題
                         const isUnrecognizable = String(d.studentAnswer || '').trim() === '無法辨識'
-                        // map_fill 走視覺評分（Phase B Accessor 看 crop 圖直接評分）、編輯欄鎖住
-                        const isVisualEval = d.questionType === 'map_fill'
+                        // 2026-05-28: map_fill 已 pivot 到 Phase A 3-AI、studentAnswer 是老師確認後的逗號分隔地名、
+                        // 不再需要鎖編輯欄（老師可微調個別字、之後 deterministic match 再算分）
+                        const isVisualEval = false
 
                         return (
                           <div

@@ -233,6 +233,19 @@ export interface PhaseAQuestionResult {
   answerCropImageUrl?: string
   answerBbox?: { x: number; y: number; w: number; h: number }
   arbiterResult?: ArbiterResult  // 三AI辯證裁決結果（新架構）
+  // 2026-05-28: map_fill per-position readings（server 端 Phase A 3-AI 後產出）
+  mapFillReadings?: {
+    ai1: Array<{ position_idx: number; student_text: string }>
+    ai2: Array<{ position_idx: number; student_text: string }>
+    perPosition: Array<{
+      idx: number
+      name: string
+      desc: string
+      ai1_text: string
+      ai2_text: string
+      consistent: boolean
+    }>
+  }
 }
 
 export interface PhaseAContext {
@@ -267,6 +280,8 @@ export interface FinalAnswer {
   questionId: string
   finalStudentAnswer: string
   finalAnswerSource: 'ai_read1' | 'ai_read2' | 'ai_arbiter' | 'manual' | 'unrecognizable'
+  // 2026-05-28: map_fill 每位置確認後的學生文字（給 Phase B 跑 deterministic match）
+  mapFillFinalReadings?: Array<{ position_idx: number; student_text: string }>
 }
 
 // 2026-05-18: 5-stage 進度回報、給 UI overlay 顯示「目前跑到第幾階段」
