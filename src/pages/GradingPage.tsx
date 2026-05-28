@@ -4525,6 +4525,30 @@ export default function GradingPage({
     newGradingResult.needsReview = false
     newGradingResult.reviewReasons = []
 
+    // 2026-05-28: 手動改分數時、依新 details.isCorrect 重建 mistakes
+    // 之前 mistakes 是 spread 舊的、會出現「改對→錯但 mistakes 沒新增」「改錯→對但 mistakes 沒移除」
+    // 導致學生端訂正清單跟老師批改不一致（user 回報 bug）
+    const oldMistakesByQid = new Map<string, any>()
+    if (Array.isArray(submission.gradingResult?.mistakes)) {
+      for (const m of submission.gradingResult.mistakes as any[]) {
+        if (m?.questionId) oldMistakesByQid.set(m.questionId, m)
+      }
+    }
+    newGradingResult.mistakes = cleanedDetails
+      .filter((d: any) => d?.isCorrect === false && d?.questionId)
+      .map((d: any) => {
+        const existing = oldMistakesByQid.get(d.questionId)
+        return existing
+          ? { ...existing, reason: d.reason || existing.reason }
+          : {
+              questionId: d.questionId,
+              questionText: d.questionText || '',
+              studentAnswer: d.studentAnswer || '',
+              correctAnswer: d.correctAnswer || '',
+              reason: d.reason || '手動標記為錯誤'
+            }
+      })
+
     setIsSavingScore(true)
     try {
       const now = Date.now()
@@ -4537,8 +4561,10 @@ export default function GradingPage({
         updatedAt: now
       })
       fetch('/api/data/save-grading', {
+        // 2026-05-28: 加 fromManualScoreEdit=true、讓 server applySubmissionStateTransitions
+        // 知道這是手動改分數、不要 skip 已在訂正流程的學生
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ submissions: [{ id, score: newTotal, aiScore: newTotal, scoreSource: 'ai', gradingResult: newGradingResult, gradedAt: now }] })
+        body: JSON.stringify({ submissions: [{ id, score: newTotal, aiScore: newTotal, scoreSource: 'ai', gradingResult: newGradingResult, gradedAt: now }], fromManualScoreEdit: true })
       }).catch(() => {})
       requestSync()
 
