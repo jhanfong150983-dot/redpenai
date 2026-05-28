@@ -645,6 +645,8 @@ export interface ExtractAnswerKeyOptions {
    * 比從答案內容反推大幅準確。
    */
   bookletImages?: Blob[]
+  /** @internal 內部使用：fan-out sub-call 跳過 Phase 2/3 locate+crop，由 fan-out entry 在 merge 後統一執行 */
+  _skipLocateCrop?: boolean
 }
 
 export interface GradeSubmissionOptions {
@@ -1492,6 +1494,17 @@ function buildTypeSpecs(): string {
   answer：純最終答案（含單位或文字），**不含「答：」前綴**
        例：「8.75 公里/時」、「120 公尺」、「甲班」、「教師節」
        不對：「答：8.75 公里/時」（不要寫 prefix）
+
+  🚨 多 final 場景（同題求多個結果）— 合 1 題、不要拆：
+       題幹含多個提問（「求...與...」「求...及...」「求 a、b」、或兩個並列「？」）
+       → 學生「答：」行通常含多個值、以逗號／頓號／空格／換行分隔
+       → 仍為 **1 個 word_problem entry**、answer = 所有 final 拼接（保留學生分隔符）
+       範例：題幹「側面長方形的長(AB)大約是多少公分？這個圓柱體的表面積大約是多少？」、
+            答「50.24 公分，1406.72 平方公分」
+            → 1 entry、answer = "50.24 公分，1406.72 平方公分"
+       ❌ 不要拆成 2 entries（如 2-1-1=50.24、2-1-2=1406.72）→ 結構壞、批改端會錯
+       💡 counting hint：題幹有 N 個「？」或「求...與/及/，...」→ 預期 N 個 final，全部塞同一 answer string
+
   ⚠️ 不需要 rubricsDimensions（過程交 Accessor 處理）
   ⚠️ 與 calculation 差別：是否有「答：」答句行
 
@@ -5013,6 +5026,70 @@ export async function extractAnswerKeyFromImages(
   if (!isGeminiAvailable) throw new Error('Gemini 服務未設定')
   if (answerSheetImages.length === 0) throw new Error('至少需要提供一張圖片')
 
+  // ─── Per-page fan-out（每頁 1 個 API call、N 頁 N 個並行 call）─────────
+  // 動機：多頁同送 1 個 call、AI 注意力會在頁與頁之間散開，單頁辨識品質下降。
+  // Trade-off：每個 sub-call 都要重送一次大 prompt（~7K token × N）成本變高，
+  // 換取每頁專注度。inferMode 需要跨頁 pattern inference、不 fan-out。
+  // _skipLocateCrop 是 sub-call 旗標，避免重複跑 Phase 2/3。
+  if (answerSheetImages.length > 1 && !opts?._skipLocateCrop && opts?.inferMode !== 'infer_blank') {
+    const startPage = opts?.startPage ?? 1
+    const totalPages = opts?.totalPages ?? answerSheetImages.length
+    console.log(`🔀 [AnswerKey] per-page fan-out: ${answerSheetImages.length} 頁 → ${answerSheetImages.length} 個並行 API call (startPage=${startPage}, totalPages=${totalPages})`)
+
+    const perPageResults = await Promise.all(
+      answerSheetImages.map((img, i) =>
+        extractAnswerKeyFromImages([img], {
+          ...opts,
+          startPage: startPage + i,
+          totalPages,
+          _skipLocateCrop: true,
+        })
+      )
+    )
+
+    const merged: AnswerKey = {
+      questions: perPageResults.flatMap(r => r.questions),
+      totalScore: perPageResults.reduce((sum, r) => sum + (Number(r.totalScore) || 0), 0),
+    } as AnswerKey
+
+    // _layoutDetected: sub-call 內看到 photo:1、重寫為全局頁碼
+    type Layout = { photo: number; layout: string }
+    const allLayouts: Layout[] = []
+    perPageResults.forEach((r, i) => {
+      const layouts = (r as unknown as { _layoutDetected?: Layout[] })._layoutDetected
+      if (Array.isArray(layouts)) {
+        for (const l of layouts) allLayouts.push({ ...l, photo: startPage + i })
+      }
+    })
+    if (allLayouts.length > 0) (merged as unknown as { _layoutDetected: Layout[] })._layoutDetected = allLayouts
+
+    merged.questions.sort((a, b) => compareNaturalIds(a.id, b.id))
+    console.log(`✅ [AnswerKey fan-out] 合併 ${merged.questions.length} 題、總分 ${merged.totalScore}`)
+
+    // Phase 2/3：在 merged 結果上跑一次（所有圖一起傳給 locate/crop、保持原本跨頁行為）
+    if (merged.questions.length > 0) {
+      try {
+        const isAnswerOnlyMode = opts?.answerSheetMode === 'answer_only'
+        const bboxMap = isAnswerOnlyMode
+          ? await locateAnswerOnlyBboxesAcrossPages(merged.questions, answerSheetImages)
+          : await locateAnswerKeyBboxesAcrossPages(merged.questions, answerSheetImages)
+        for (const q of merged.questions) {
+          const bbox = bboxMap.get(q.id)
+          if (bbox) q.answerBbox = bbox
+        }
+        const cropMap = await cropAnswerKeyQuestionsOnCanvas(merged.questions, bboxMap, answerSheetImages)
+        for (const q of merged.questions) {
+          const cropUrl = cropMap.get(q.id)
+          if (cropUrl) q.cropImageUrl = cropUrl
+        }
+      } catch (err) {
+        console.warn('⚠️ [AnswerKey fan-out] locate / crop 階段失敗：', err)
+      }
+    }
+
+    return merged
+  }
+
   const isInferMode = opts?.inferMode === 'infer_blank'
   const isAnswerOnly = opts?.answerSheetMode === 'answer_only'
   const bookletImages = isAnswerOnly && Array.isArray(opts?.bookletImages) ? opts!.bookletImages! : []
@@ -5047,12 +5124,15 @@ export async function extractAnswerKeyFromImages(
       }).join('；')
     : ''
 
-  const isSingleImage = answerSheetImages.length === 1
+  const isSingleImage = answerSheetImages.length === 1 && totalPages === 1
+  const isSinglePageOfMulti = answerSheetImages.length === 1 && totalPages > 1
   const multiImageNote = isInferMode
     ? `【多張圖片處理】\n- 你會收到 ${answerSheetImages.length} 張空白作業圖片\n- 請從所有圖片中推論所有題目的正確答案，合併成完整 AnswerKey${pageIdRule}`
     : isSingleImage
       ? `【單張答案卷】\n- 你會收到 1 張答案卷圖片\n- ID 前綴一律為 "1-"（即使卷上印有多個大題編號，第一段也固定是 1）\n- totalScore 是所有題目的 maxScore 總和${pageIdRule}`
-      : `【多張圖片處理 - 多頁模式】\n- 你會收到 ${answerSheetImages.length} 張答案卷圖片，每張照片有獨立的 ID 前綴：${pagePrefixList}\n- ⚠️ 嚴格禁止把第 2 張以後的題目用 "1-" 開頭，必須依照上方對應關係填入正確前綴\n- 請從所有圖片中提取題目，合併成一個完整的 AnswerKey${pageIdRule}\n- totalScore 是所有圖片中所有題目的 maxScore 總和`
+      : isSinglePageOfMulti
+        ? `【多頁模式 - 單頁批次】\n- 此份答案卷共 ${totalPages} 頁，本批次只傳給你「第 ${startPage} 頁」這一張\n- ID 前綴一律為 "${startPage}-"（本批所有題目第一段都固定是 ${startPage}）\n- ❌ 不要試圖生成其他頁的題目、只看眼前這張照片\n- totalScore 是這一頁所有題目的 maxScore 總和\n- _layoutDetected 陣列只放這一張照片的 layout（陣列長度 = 1）${pageIdRule}`
+        : `【多張圖片處理 - 多頁模式】\n- 你會收到 ${answerSheetImages.length} 張答案卷圖片，每張照片有獨立的 ID 前綴：${pagePrefixList}\n- ⚠️ 嚴格禁止把第 2 張以後的題目用 "1-" 開頭，必須依照上方對應關係填入正確前綴\n- 請從所有圖片中提取題目，合併成一個完整的 AnswerKey${pageIdRule}\n- totalScore 是所有圖片中所有題目的 maxScore 總和`
   // 2026-05-25 改版：fill_blank 多空現有 2 種處理（看是否跨等號）
   // - 跨等號鏈式計算（= a = b = c）：仍拆 N 題、各題獨立 answer
   // - 不跨等號（同表達式內多空 / 同句子多空）：合題、用 parts 陣列
@@ -5065,13 +5145,25 @@ export async function extractAnswerKeyFromImages(
      id="1-1-1-2" answer="12.56"
      id="1-1-1-3" answer="87.44"
 
-  ## 同表達式 / 同句多空 → 合題用 parts
-  「2 □ × (4.73 □ 2.73)」或「( 2 )分鐘後相距 20 公尺、( 12 )分鐘後相遇」這種、兩空之間沒 = 號 →
-  合成 1 題 fill_blank、parts 陣列依序記每空答案：
+  ## 同小題下 N 個 ( ) 不跨等號 → 合題用 parts（不論單句 / 多句 / 多獨立提問）
+
+  下列 3 種情境皆為「合 1 題、parts N 元素」：
+
+  情境 A（同算式多空）：「2 □ × (4.73 □ 2.73)」
+  情境 B（同句多空）：「( 2 )分鐘後相距 20 公尺、( 12 )分鐘後相遇」
+  情境 C（同小題下、多個獨立提問各一空 ⭐ 2026-05-28 新增）：
+     「②觀察看看側面長方形的長是不是底面平行四邊形的邊長總和？(  是  )
+         側面長方形的面積是多少平方公分？(  198  )平方公分」
+     → 1 個 fill_blank entry、parts = [{subId:"a", answer:"是"}, {subId:"b", answer:"198"}]
+     ❌ 不要只擷取第一空「是」、忽略第二空「198」（最常見的漏題型態）
+     ❌ 不要拆成 2 個獨立 fill_blank entries
+     💡 判別：1 個印刷小題標號（②/(1)/A. 等）下、有 ≥ 2 個 ( ) 答案空格、各空之間沒 = 號 → 一律合題
+
+  合成範例 JSON：
   {
     "id": "1-4-1",
     "questionCategory": "fill_blank",
-    "answerBbox": { 包整個算式或整句 },
+    "answerBbox": { 包整題（從題幹起、含所有 ( ) 答案空格） },
     "parts": [
       { "subId": "a", "answer": "×", "maxScore": 2 },
       { "subId": "b", "answer": "−", "maxScore": 2 }
@@ -5079,8 +5171,9 @@ export async function extractAnswerKeyFromImages(
     "maxScore": 4
   }
 
-  ❌ 錯誤示範：把同表達式 / 同句多空拆成 N 題、各 tiny bbox 在 ( ) 上 → bbox 容易漂、應該合題
+  ❌ 錯誤示範：把同小題下多空拆成 N 題、各 tiny bbox 在 ( ) 上 → bbox 容易漂、應該合題
   ❌ 錯誤示範：parts 寫成字串 "2, 12" → 必須陣列、每空一元素
+  ❌ 錯誤示範：只填第一空、忽略其餘空 → 漏答案、批改端直接錯
 
   ## 🚨 範例 ID 範圍 disclaimer（不要被範例限定）
 
@@ -5095,10 +5188,13 @@ export async function extractAnswerKeyFromImages(
   1. **大題層級**：每個答案卷印刷的大題（一、二、三、... 或 1, 2, 3, ...）都必須有對應的 questions
      - 沒有任何題目用該大題印刷號當第 2 段 → 你漏整個大題了、回去重看
   2. **小題層級**：每個大題下的印刷小題（1, 2, 3, ...）都要有對應的 question entry
-     - fill_blank 單空 / 合題 → 1 entry per 小題
+     - fill_blank 單空 → 1 entry
+     - fill_blank 同小題下多空（不跨 = 號、含多獨立提問各一空）→ **1 entry with parts 陣列**（不要拆 N entries、也不要只填第一空）
      - fill_blank 跨等號鏈式計算 → N entries per 小題（4-段 ID）
+     - word_problem / calculation 同題多 final（如「求...與...」）→ **1 entry**、answer 含所有 final（用學生分隔符拼接）
      - 漏掉任一印刷小題 → 漏題、補上
-  3. **子題層級**：印刷的子題標號 (1) (2) (3) 各為獨立 entry（用 4-段 ID 第 4 段表示）`
+  3. **子題層級（僅 fill_blank 跨等號鏈式計算適用）**：印刷的子題標號 (1) (2) (3) 各為獨立 entry（用 4-段 ID 第 4 段表示）
+     - ⚠️ 此規則僅限 fill_blank 鏈式計算。word_problem / calculation 即使題幹有多提問、仍合 1 entry`
 
   const multiImagePrompt = `${prompt}\n\n${multiImageNote}${chainCalcRule}`.trim()
 
@@ -5151,10 +5247,10 @@ export async function extractAnswerKeyFromImages(
   result.questions.sort((a, b) => compareNaturalIds(a.id, b.id))
 
   // 設定 pageIndex（0-based），供預覽底圖選取
-  // - answer_only 單張答題卡：所有題目都在 page 0（ID 首段是 sectionIdx 不是 photoIdx）
-  // - 其他情況：ID 首段是 photo 序號（1-based）
+  // - answer_only 真正單頁答題卡：所有題目都在 page 0（ID 首段是 sectionIdx 不是 photoIdx）
+  // - 其他情況（含 fan-out sub-call、totalPages>1）：ID 首段是 photo 序號（1-based）
   const assignPageIndex = (q: AnswerKeyQuestion) => {
-    if (isAnswerOnly && answerSheetImages.length === 1) {
+    if (isAnswerOnly && answerSheetImages.length === 1 && totalPages === 1) {
       q.pageIndex = 0
       return
     }
@@ -5188,7 +5284,8 @@ export async function extractAnswerKeyFromImages(
   // ─── Phase 2: locate（並行 per-page）+ Phase 3: canvas crop ──────────────
   // answer_only 模式：走 locateAnswerOnlyBboxesAcrossPages（per-question 視覺搜尋，anchorHint + answerText 雙錨）
   // 一般模式：走 locateAnswerKeyBboxesAcrossPages（25 type 規則）
-  if (result.questions.length > 0 && answerSheetImages.length > 0) {
+  // _skipLocateCrop：fan-out sub-call 跳過、由 fan-out entry 在 merge 後統一執行
+  if (!opts?._skipLocateCrop && result.questions.length > 0 && answerSheetImages.length > 0) {
     try {
       const bboxMap = isAnswerOnly
         ? await locateAnswerOnlyBboxesAcrossPages(result.questions, answerSheetImages)
