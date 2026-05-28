@@ -388,6 +388,14 @@ function isSubmissionNeedsReview(sub?: Submission, correctionStatus?: string): b
 
   const gradingResult = sub.gradingResult
   if (!gradingResult) return false
+
+  // 2026-05-28: Phase B 完成（status='graded' + 非 stale）= 老師已在 Phase A
+  // ConsistencyReviewPanel 處理過所有 needs_review 題目。
+  // Phase B 結果裡的 needsReview/reviewReasons 來自 classify.coverage 跟 unreadable、
+  // 都是 Phase A 該處理的事、Phase B 完成後不該再吐「需複核」徽章
+  // （server 端 staged-grading.js Phase B build 也清掉了、這裡是 client 防護給歷史資料）
+  if (sub.status === 'graded') return false
+
   // 「未作答」全是學生明確沒寫，不需老師確認 → 過濾掉純「未作答」reasons
   const isBlankReason = (r: string) =>
     !!r && (r.includes('辨識為未作答') || r.includes('題未作答'))
