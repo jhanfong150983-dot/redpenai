@@ -5411,7 +5411,12 @@ export default function GradingPage({
                     const isSelected = selectedSubmissionIds.has(submission?.id ?? '')
                     const isStub = isManualGradeStub(submission)
                     return (
-                      <div key={student.id} className="relative">
+                      <div
+                        key={student.id}
+                        className="relative"
+                        // 2026-05-28: scroll perf — 同 flat 模式、批改模式跨班顯示時 100+ 卡片更需要
+                        style={{ contentVisibility: 'auto', containIntrinsicSize: '160px 240px' }}
+                      >
                         {/* 勾選框 */}
                         {submission && hasSubmissionImage(submission) && (
                           <div className="absolute top-2 left-2 z-10" onClick={(e) => e.stopPropagation()}>
@@ -5506,6 +5511,9 @@ export default function GradingPage({
               <div
                 key={student.id}
                 className="bg-white rounded-xl hover:border-slate-300 border border-slate-200 transition-colors cursor-pointer group flex flex-col"
+                // 2026-05-28: scroll perf — 滑動畫面外的卡瀏覽器跳過 paint/layout
+                // 60+ 卡片同時在 DOM 時 GPU 一直滿載、加這 2 行讓畫面外卡片不參與渲染
+                style={{ contentVisibility: 'auto', containIntrinsicSize: '220px 300px' }}
                 onClick={() => {
                   if (!submission || isStub) return
                   setSelectedSubmission({ submission, student })
