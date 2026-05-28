@@ -26,6 +26,7 @@ import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { checkFolderNameUnique, sortByDomainThenName } from '@/lib/utils'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
+import { isPhaseAStale } from '@/pages/GradingPage'
 import type {
   AnswerKey,
   AnswerKeyTemplate,
@@ -296,7 +297,8 @@ export default function AssignmentList({
         if (sub.source === 'student_correction') continue
         const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
         entry.uploaded++
-        if (sub.status === 'graded' || sub.gradingResult) entry.graded++
+        // 2026-05-28: Phase A 比 Phase B 新（重跑後待批改）的、不計入 graded
+        if ((sub.status === 'graded' || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
         subCountMap.set(sub.assignmentId, entry)
       }
       const classMap = new Map(classrooms.map((c) => [c.id, c]))
@@ -583,7 +585,8 @@ export default function AssignmentList({
         if (sub.source === 'student_correction') continue
         const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
         entry.uploaded++
-        if (sub.status === 'graded' || sub.gradingResult) entry.graded++
+        // 2026-05-28: Phase A 比 Phase B 新（重跑後待批改）的、不計入 graded
+        if ((sub.status === 'graded' || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
         subCountMap.set(sub.assignmentId, entry)
       }
       const classMap = new Map(classrooms.map((c) => [c.id, c]))
@@ -648,7 +651,8 @@ export default function AssignmentList({
         if (sub.source === 'student_correction') continue
         const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
         entry.uploaded++
-        if (sub.status === 'graded' || sub.gradingResult) entry.graded++
+        // 2026-05-28: Phase A 比 Phase B 新（重跑後待批改）的、不計入 graded
+        if ((sub.status === 'graded' || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
         subCountMap.set(sub.assignmentId, entry)
       }
       const classMap = new Map(classrooms.map((c) => [c.id, c]))
@@ -796,7 +800,8 @@ export default function AssignmentList({
           if (submission.status !== 'missing') {
             current.uploadedCount += 1
           }
-          if (submission.status === 'graded') {
+          // 2026-05-28: Phase A 比 Phase B 新（重跑後待批改）的、不計入 graded
+          if (submission.status === 'graded' && !isPhaseAStale(submission)) {
             current.gradedCount += 1
           }
           submissionStatsByAssignment.set(submission.assignmentId, current)
@@ -2049,7 +2054,8 @@ export default function AssignmentList({
               if (sub.source === 'student_correction') continue
               const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
               entry.uploaded++
-              if (sub.status === 'graded' || sub.gradingResult) entry.graded++
+              // 2026-05-28: Phase A 比 Phase B 新（重跑後待批改）的、不計入 graded
+        if ((sub.status === 'graded' || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
               subCountMap.set(sub.assignmentId, entry)
             }
             const classMap = new Map(classrooms.map((c) => [c.id, c]))
@@ -2100,7 +2106,8 @@ export default function AssignmentList({
                 if (sub.source === 'student_correction') continue
                 const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
                 entry.uploaded++
-                if (sub.status === 'graded' || sub.gradingResult) entry.graded++
+                // 2026-05-28: Phase A 比 Phase B 新（重跑後待批改）的、不計入 graded
+        if ((sub.status === 'graded' || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
                 subCountMap.set(sub.assignmentId, entry)
               }
               const classMap = new Map(classrooms.map((c) => [c.id, c]))

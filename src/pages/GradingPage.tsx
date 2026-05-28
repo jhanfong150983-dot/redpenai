@@ -135,6 +135,26 @@ export type CardStage =
   | 'manual_marked'    // 手動標記已批改（無圖 stub）
 
 /**
+ * 2026-05-28: 判斷 Phase A 是否比 Phase B 新（即「Phase A 重跑後、Phase B 還沒跑」的狀態）
+ * 用途：UI 顯示時把這種 case 視為「待批改」、不顯示舊 score / 舊狀態
+ * 規則：phaseAState.savedAt > gradedAt （兩者都用 ms timestamp 比較）
+ *
+ * 為什麼用 timestamp 比、不真的清資料：
+ * - 清 sub.score / sub.status 會撞 useSync local-first 規則 (useSync.ts:1083)、
+ *   sync 把 server 舊值再 fallback 回來、UI 又看到舊資料
+ * - 不動 schema、不動 server、純 client 比 timestamp 是最低風險路徑
+ * - Phase B 跑完 gradedAt 會更新到比 savedAt 新、自動「unstale」恢復顯示
+ */
+export function isPhaseAStale(sub: Submission | undefined): boolean {
+  if (!sub) return false
+  const savedAtRaw = sub.phaseAState?.savedAt
+  const pasAt = typeof savedAtRaw === 'string' ? new Date(savedAtRaw).getTime()
+    : typeof savedAtRaw === 'number' ? savedAtRaw : 0
+  const gradedAt = typeof sub.gradedAt === 'number' ? sub.gradedAt : 0
+  return pasAt > 0 && pasAt > gradedAt
+}
+
+/**
  * 2026-05-17: 從 Submission 衍生卡片狀態
  * 用於：卡片 badge / 動態按鈕邏輯 / Modal 攜截檢查
  */
@@ -159,8 +179,8 @@ export function deriveCardStage(sub: Submission | undefined): CardStage {
     return 'phase_a_failed'
   }
 
-  // XX 分：明確 graded + 有 score
-  if (sub.status === 'graded' && sub.score != null) return 'graded'
+  // XX 分：明確 graded + 有 score、且 Phase A 沒有比 Phase B 新（避免 Phase A 重跑後顯示舊 score）
+  if (sub.status === 'graded' && sub.score != null && !isPhaseAStale(sub)) return 'graded'
 
   // 2026-05-18: 優先看 final_answers（老師審查確認後的最終答案）
   // 規則：
@@ -5359,12 +5379,18 @@ export default function GradingPage({
             {studentsByClassroom.map(({ classroom: groupClassroom, students: groupStudents }) => (
               <div key={groupClassroom.id}>
                 <h3 className="mb-3 text-sm font-semibold text-slate-500 border-b border-slate-200 pb-2">
-                  {groupClassroom.name} ({groupStudents.filter((s) => submissions.get(s.id)?.status === 'graded').length}/{groupStudents.length} 批改)
+                  {groupClassroom.name} ({groupStudents.filter((s) => {
+                    const sub = submissions.get(s.id)
+                    return sub?.status === 'graded' && !isPhaseAStale(sub)
+                  }).length}/{groupStudents.length} 批改)
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                   {groupStudents.map((student) => {
                     const submission = submissions.get(student.id)
-                    const status = submission?.status ?? 'missing'
+                    const rawStatus = submission?.status ?? 'missing'
+                    // 2026-05-28: Phase A 重跑後、視為 pending（不顯示舊 score 跟 graded 綠邊）
+                    const isStale = isPhaseAStale(submission)
+                    const status = (rawStatus === 'graded' && isStale) ? 'pending_grading' : rawStatus
                     const sourceVisual = getSubmissionSourceVisual(submission)
                     const gradingResult = submission?.gradingResult
                     const isUnscoredAssignment = assignment?.scoringMode === 'unscored'
