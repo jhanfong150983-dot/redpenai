@@ -2165,7 +2165,7 @@ export default function GradingPage({
       const gr = sub?.gradingResult
       if (!gr?.details) continue
       const incompleteCount = gr.details.filter((d: any) =>
-        d.score === 0 && d.confidence <= 70 && (!d.reason || d.reason === '需人工複核')
+        d.score === 0 && d.confidence <= 70 && (!d.reason || d.reason === '需人工複核' || d.reason?.includes('AI 未提供具體理由'))
       ).length
       if (incompleteCount >= 3) {
         phaseBRetryEntries.push(entry)
@@ -2213,7 +2213,7 @@ export default function GradingPage({
         const gr = sub?.gradingResult
         if (!gr?.details) continue
         const incompleteCount = gr.details.filter((d: any) =>
-          d.score === 0 && d.confidence <= 70 && (!d.reason || d.reason === '需人工複核')
+          d.score === 0 && d.confidence <= 70 && (!d.reason || d.reason === '需人工複核' || d.reason?.includes('AI 未提供具體理由'))
         ).length
         if (incompleteCount >= 3) {
           const student = students.find((s) => s.id === entry.studentId)
