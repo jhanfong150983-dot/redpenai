@@ -3027,6 +3027,52 @@ export default function GradingPage({
     submissions: Submission[]
     overwriting: Submission[]  // 會被覆寫的（已批改 / 批改失敗）
   } | null>(null)
+  // 2026-05-28: Q1 — 已完成訂正的學生擋下 Phase A/B 重跑
+  const [correctionPassedBlockModal, setCorrectionPassedBlockModal] = useState<{
+    action: 'recapture' | 'regrade'
+    blockedStudents: Array<{ studentId: string; name: string; seatNumber: number | null }>
+  } | null>(null)
+
+  // 2026-05-28: Q1 — 拆出 in-scope candidates 的訂正狀態 partition
+  // - correctionPassedStudentIds: 已完成訂正、Phase A/B 重跑要擋
+  // - correctionToClearStudentIds: 訂正進行中 / 待複核 / 失敗、Phase A/B 重跑前要清
+  const partitionCandidatesByCorrection = useCallback((candidates: Submission[]) => {
+    const passedIds = new Set<string>()
+    const clearIds = new Set<string>()
+    for (const sub of candidates) {
+      const sid = sub.studentId
+      if (!sid) continue
+      const status = correctionStatusByStudent[sid]
+      if (status === 'correction_passed') passedIds.add(sid)
+      else if (
+        status === 'correction_required' ||
+        status === 'correction_in_progress' ||
+        status === 'correction_pending_review' ||
+        status === 'correction_failed'
+      ) clearIds.add(sid)
+    }
+    return { passedIds, clearIds }
+  }, [correctionStatusByStudent])
+
+  // 2026-05-28: Q1 — 呼叫 server 清訂正狀態（重置 assignment_student_state + close correction_question_items）
+  // 失敗就 throw、caller 該停止流程、避免在 stale correction 上跑批改
+  const clearCorrectionForRerunOnServer = useCallback(async (studentIds: string[]) => {
+    if (studentIds.length === 0) return
+    const resp = await fetch('/api/data/clear-correction-for-rerun', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignmentId, studentIds })
+    })
+    const data = await resp.json().catch(() => ({}))
+    if (!resp.ok) {
+      if (resp.status === 409 && Array.isArray(data?.blockedStudents)) {
+        throw new Error(`已完成訂正、無法重跑：${data.blockedStudents.map((s: { name: string; seatNumber: number | null }) => `${s.seatNumber ?? '?'}號 ${s.name}`).join('、')}`)
+      }
+      throw new Error(data?.error || '清訂正狀態失敗')
+    }
+    await fetchCorrectionStatusByStudentId().catch(() => {})
+  }, [assignmentId, fetchCorrectionStatusByStudentId])
 
   // 2026-05-17: Phase A only 入口（重新截取按鈕）
   // 步驟：1. 檢查 in-scope 卡片狀態  2. 若會清資料、跳警告 modal  3. 否則直接走 handleGradeAll（暫時 fallback）
@@ -3036,6 +3082,16 @@ export default function GradingPage({
     const { inScope, stageMap } = stageAggregates
     if (inScope.length === 0) {
       alert('沒有可截取的作業')
+      return
+    }
+    // 2026-05-28: Q1 — 先擋 correction_passed（終點、不可重跑）
+    const { passedIds } = partitionCandidatesByCorrection(inScope)
+    if (passedIds.size > 0) {
+      const blockedStudents = Array.from(passedIds).map((sid) => {
+        const stu = students.find((s) => s.id === sid)
+        return { studentId: sid, name: stu?.name || sid, seatNumber: Number.isFinite(stu?.seatNumber) ? Number(stu?.seatNumber) : null }
+      })
+      setCorrectionPassedBlockModal({ action: 'recapture', blockedStudents })
       return
     }
     if (recaptureButtonState.needsWarning) {
@@ -3062,6 +3118,16 @@ export default function GradingPage({
     if (inkSessionError) { alert(inkSessionError); return }
     if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
     if (!isGeminiAvailable) { alert('Gemini 服務未設定'); return }
+    // 2026-05-28: Q1 — 在跑 AI 前清訂正狀態（assignment_student_state + correction_question_items）
+    const { clearIds } = partitionCandidatesByCorrection(candidates)
+    if (clearIds.size > 0) {
+      try {
+        await clearCorrectionForRerunOnServer(Array.from(clearIds))
+      } catch (err) {
+        alert(err instanceof Error ? err.message : '清訂正狀態失敗')
+        return
+      }
+    }
 
     setIsGrading(true)
     setGradingPhase('phase_a_running')
@@ -3290,7 +3356,8 @@ export default function GradingPage({
       phaseAStashRef.current = null
     }
   }, [
-    inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students
+    inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students,
+    partitionCandidatesByCorrection, clearCorrectionForRerunOnServer
   ])
 
   // 2026-05-17: Phase B only with fromCache 執行器
@@ -3301,6 +3368,16 @@ export default function GradingPage({
     if (inkSessionError) { alert(inkSessionError); return }
     if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
     if (!isGeminiAvailable) { alert('Gemini 服務未設定'); return }
+    // 2026-05-28: Q1 — 在跑 AI 前清訂正狀態
+    const { clearIds } = partitionCandidatesByCorrection(candidates)
+    if (clearIds.size > 0) {
+      try {
+        await clearCorrectionForRerunOnServer(Array.from(clearIds))
+      } catch (err) {
+        alert(err instanceof Error ? err.message : '清訂正狀態失敗')
+        return
+      }
+    }
 
     setIsGrading(true)
     setGradingPhase('phase_b_running')
@@ -3451,7 +3528,8 @@ export default function GradingPage({
       failedEntries: [],
     })
   }, [
-    inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students
+    inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students,
+    partitionCandidatesByCorrection, clearCorrectionForRerunOnServer
   ])
 
   // 2026-05-17: Phase B only 入口（批改作業按鈕）
@@ -3472,6 +3550,16 @@ export default function GradingPage({
     }
     if (gradeButtonState.block === 'needs_review') {
       setGradeBlockModal({ reason: 'needs_review', submissions: stageMap.pending_review })
+      return
+    }
+    // 2026-05-28: Q1 — 先擋 correction_passed（終點、不可重跑）
+    const { passedIds } = partitionCandidatesByCorrection(inScope)
+    if (passedIds.size > 0) {
+      const blockedStudents = Array.from(passedIds).map((sid) => {
+        const stu = students.find((s) => s.id === sid)
+        return { studentId: sid, name: stu?.name || sid, seatNumber: Number.isFinite(stu?.seatNumber) ? Number(stu?.seatNumber) : null }
+      })
+      setCorrectionPassedBlockModal({ action: 'regrade', blockedStudents })
       return
     }
     if (gradeButtonState.needsWarning) {
@@ -4857,6 +4945,40 @@ export default function GradingPage({
                     全部退回訂正並繼續批改
                   </button>
                 )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2026-05-28: Q1 — 已完成訂正擋下 Phase A/B 重跑 */}
+      {correctionPassedBlockModal && (
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-3">
+              {correctionPassedBlockModal.action === 'recapture' ? '無法重新截取' : '無法重新批改'}
+            </h3>
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-emerald-800 mb-4">
+              以下 {correctionPassedBlockModal.blockedStudents.length} 位學生已完成訂正、不能重跑批改。
+              <br />
+              若真的要重批、請先到「作業訂正看板」退回訂正、清掉已通過狀態後再操作。
+            </div>
+            <div className="max-h-60 overflow-y-auto mb-4 border border-gray-100 rounded-lg">
+              <ul className="text-sm divide-y divide-gray-100">
+                {correctionPassedBlockModal.blockedStudents.map((s) => (
+                  <li key={s.studentId} className="px-3 py-2 flex justify-between items-center">
+                    <span className="text-gray-700">{s.seatNumber ?? '?'}號 {s.name}</span>
+                    <span className="text-xs text-emerald-700 font-medium">訂正完成</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setCorrectionPassedBlockModal(null)}
+                className="flex-1 px-4 py-3 bg-slate-900 text-white rounded-xl hover:bg-slate-700 transition-colors font-medium"
+              >
+                了解
+              </button>
             </div>
           </div>
         </div>
