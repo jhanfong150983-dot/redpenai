@@ -1083,7 +1083,11 @@ export function useSync(options: UseSyncOptions = {}) {
         const score = (localIsStalePhaseA || local?.score == null) ? serverScore : local.score
         const aiScore = (localIsStalePhaseA || local?.aiScore == null) ? serverAiScore : local.aiScore
         const scoreSource = local?.scoreSource ?? serverScoreSource
-        const gradedAt = local?.gradedAt ?? serverGradedAt
+        // 2026-05-28: gradedAt 改成 server 優先（不是 local 優先）
+        // gradedAt 本質是 server-owned 欄位（Phase B 寫的）、client 端不獨立寫
+        // 之前 local-first 規則會讓 server 端的 rollback 被 Dexie 舊值蓋住
+        //（例：標記已複核按鈕誤寫 gradedAt 後、server SQL 救回、sync down 卻不生效）
+        const gradedAt = serverGradedAt ?? local?.gradedAt
         // status：本地是 graded 就保持 graded（不被 server 的 synced 覆蓋）
         const finalStatus = (local?.status === 'graded') ? 'graded' : serverStatus
 
