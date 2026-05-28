@@ -137,7 +137,7 @@ export type CardStage =
 /**
  * 2026-05-28: 判斷 Phase A 是否比 Phase B 新（即「Phase A 重跑後、Phase B 還沒跑」的狀態）
  * 用途：UI 顯示時把這種 case 視為「待批改」、不顯示舊 score / 舊狀態
- * 規則：phaseAState.savedAt > gradedAt + STALE_TOLERANCE_MS
+ * 規則：phaseAState.savedAt > gradedAt （strict >）
  *
  * 為什麼用 timestamp 比、不真的清資料：
  * - 清 sub.score / sub.status 會撞 useSync local-first 規則 (useSync.ts:1083)、
@@ -145,29 +145,26 @@ export type CardStage =
  * - 不動 schema、不動 server、純 client 比 timestamp 是最低風險路徑
  * - Phase B 跑完 gradedAt 會更新到比 savedAt 新、自動「unstale」恢復顯示
  *
- * 2026-05-28 加 60s tolerance：
- * - 「Phase A + B 整套跑完」流程是 client 寫 gradedAt（Phase B 結束時）、
- *   server 寫 phase_a_state.savedAt（Phase A persist）兩個獨立 update、
- *   觀察 1 號曾奕綸 sub_1779928129166_ldpbx1bn savedAt 比 gradedAt 晚 1 秒、
- *   isPhaseAStale 誤判 stale、卡片顯示假「待批改」+ 訂正完成衝突
- * - 真正的 Phase A 重跑兩個 timestamp 至少差幾分鐘（重新 OCR + classify + read + arbiter）、
- *   60s tolerance 足夠分辨「同一 run race」vs「真的重跑」
+ * 2026-05-28 correction_passed 守護:
+ * - 訂正完成 = 終點、Phase A 重跑不該蓋掉「已批改」顯示
+ * - caller 從 correctionStatusByStudent 拿到 status、傳進來、避免改 deriveCardStage 簽名
  */
-const PHASE_A_STALE_TOLERANCE_MS = 60_000
-export function isPhaseAStale(sub: Submission | undefined): boolean {
+export function isPhaseAStale(sub: Submission | undefined, correctionStatus?: string): boolean {
   if (!sub) return false
+  if (correctionStatus === 'correction_passed') return false
   const savedAtRaw = sub.phaseAState?.savedAt
   const pasAt = typeof savedAtRaw === 'string' ? new Date(savedAtRaw).getTime()
     : typeof savedAtRaw === 'number' ? savedAtRaw : 0
   const gradedAt = typeof sub.gradedAt === 'number' ? sub.gradedAt : 0
-  return pasAt > 0 && pasAt > gradedAt + PHASE_A_STALE_TOLERANCE_MS
+  return pasAt > 0 && pasAt > gradedAt
 }
 
 /**
  * 2026-05-17: 從 Submission 衍生卡片狀態
  * 用於：卡片 badge / 動態按鈕邏輯 / Modal 攜截檢查
+ * 2026-05-28: 加 correctionStatus 可選參數、correction_passed 學生忽略 stale 判斷
  */
-export function deriveCardStage(sub: Submission | undefined): CardStage {
+export function deriveCardStage(sub: Submission | undefined, correctionStatus?: string): CardStage {
   if (!sub) return 'not_submitted'
   if (isManualGradeStub(sub)) return 'manual_marked'
 
@@ -189,7 +186,7 @@ export function deriveCardStage(sub: Submission | undefined): CardStage {
   }
 
   // XX 分：明確 graded + 有 score、且 Phase A 沒有比 Phase B 新（避免 Phase A 重跑後顯示舊 score）
-  if (sub.status === 'graded' && sub.score != null && !isPhaseAStale(sub)) return 'graded'
+  if (sub.status === 'graded' && sub.score != null && !isPhaseAStale(sub, correctionStatus)) return 'graded'
 
   // 2026-05-18: 優先看 final_answers（老師審查確認後的最終答案）
   // 規則：
@@ -377,14 +374,14 @@ function formatDisplayQuestionId(questionId?: string | null) {
 }
 
 /** 判斷該份批改結果是否需要老師複核（相容舊資料） */
-function isSubmissionNeedsReview(sub?: Submission): boolean {
+function isSubmissionNeedsReview(sub?: Submission, correctionStatus?: string): boolean {
   if (!sub) return false
   // 老師手動點過「標記已複核」→ 直接視為不需複核（不論 Phase A stale 與否）
   if (sub.gradingResult?.manuallyReviewed) return false
 
   // 2026-05-28: Phase A 比 Phase B 新時、忽略舊 gradingResult.needsReview / reviewReasons、
   // 看新的 phaseAState.arbiterDecisions、避免舊 Phase B 留下的複核警告賴在新 Phase A 結果上
-  if (isPhaseAStale(sub)) {
+  if (isPhaseAStale(sub, correctionStatus)) {
     const decisions = sub.phaseAState?.arbiterDecisions ?? []
     return decisions.some((d) => d?.arbiterStatus === 'needs_review')
   }
@@ -1813,7 +1810,7 @@ export default function GradingPage({
     const inScope = hasSelection
       ? allSubs.filter((s) => selectedSubmissionIds.has(s.id))
       : allSubs.filter((s) => {
-          const stage = deriveCardStage(s)
+          const stage = deriveCardStage(s, correctionStatusByStudent[s.studentId])
           // 全部批改情境排除：未繳交 / 手動標記
           return stage !== 'not_submitted' && stage !== 'manual_marked'
         })
@@ -1821,11 +1818,10 @@ export default function GradingPage({
     const stageList: CardStage[] = []
     const stageMap: Record<CardStage, Submission[]> = {
       not_submitted: [], not_extracted: [], phase_a_failed: [],
-      pending_review: [], pending_grading: [], phase_b_failed: [],
-      graded: [], manual_marked: []
+      pending_review: [], pending_grading: [], graded: [], phase_b_failed: [], manual_marked: []
     }
     for (const sub of inScope) {
-      const stage = deriveCardStage(sub)
+      const stage = deriveCardStage(sub, correctionStatusByStudent[sub.studentId])
       stageList.push(stage)
       stageMap[stage].push(sub)
     }
@@ -1843,7 +1839,7 @@ export default function GradingPage({
         graded: stageMap.graded.length
       }
     }
-  }, [submissions, selectedSubmissionIds])
+  }, [submissions, selectedSubmissionIds, correctionStatusByStudent])
 
   // 2026-05-17: 「重新截取」按鈕變身規則
   // 🟢 primary：有 未擷取 / 擷取失敗 卡片
@@ -1886,18 +1882,18 @@ export default function GradingPage({
   
   // 🆕 計算待複核數量
   const needsReviewCount = useMemo(() => {
-    return Array.from(submissions.values()).filter(s => isSubmissionNeedsReview(s)).length
-  }, [submissions])
+    return Array.from(submissions.values()).filter(s => isSubmissionNeedsReview(s, correctionStatusByStudent[s.studentId])).length
+  }, [submissions, correctionStatusByStudent])
 
   // 🆕 獲取所有待複核的學生（按座號排序）
   const needsReviewStudents = useMemo(() => {
     return students
       .filter(student => {
         const sub = submissions.get(student.id)
-        return isSubmissionNeedsReview(sub)
+        return isSubmissionNeedsReview(sub, correctionStatusByStudent[student.id])
       })
       .sort((a, b) => a.seatNumber - b.seatNumber)
-  }, [students, submissions])
+  }, [students, submissions, correctionStatusByStudent])
 
   // 🆕 跳轉到下一個待複核
   const jumpToNextReview = useCallback(() => {
@@ -4883,7 +4879,7 @@ export default function GradingPage({
   const getDisplayReviewReasons = useCallback(
     (submission: Submission) => {
       // 2026-05-28: Phase A 比 Phase B 新時、忽略舊 reviewReasons、用新 phaseAState.arbiterDecisions 重建理由
-      if (isPhaseAStale(submission)) {
+      if (isPhaseAStale(submission, correctionStatusByStudent[submission.studentId])) {
         const decisions = submission.phaseAState?.arbiterDecisions ?? []
         const needsReviewQids = decisions
           .filter((d) => d?.arbiterStatus === 'needs_review')
@@ -4918,7 +4914,7 @@ export default function GradingPage({
       // 「未作答」（學生明確沒寫）不再列為需要複核理由 — 學生既然空白就空白、不用老師確認
       return Array.from(derived)
     },
-    []
+    [correctionStatusByStudent]
   )
 
 
@@ -5158,7 +5154,7 @@ export default function GradingPage({
               <ul className="text-sm divide-y divide-gray-100">
                 {recaptureConfirm.cleared.map((sub) => {
                   const stu = students.find((s) => s.id === sub.studentId)
-                  const stage = deriveCardStage(sub)
+                  const stage = deriveCardStage(sub, correctionStatusByStudent[sub.studentId])
                   return (
                     <li key={sub.id} className="px-3 py-2 flex justify-between items-center">
                       <span className="text-gray-700">{stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)}</span>
@@ -5207,7 +5203,7 @@ export default function GradingPage({
               <ul className="text-sm divide-y divide-gray-100">
                 {gradeBlockModal.submissions.map((sub) => {
                   const stu = students.find((s) => s.id === sub.studentId)
-                  const stage = deriveCardStage(sub)
+                  const stage = deriveCardStage(sub, correctionStatusByStudent[sub.studentId])
                   return (
                     <li key={sub.id} className="px-3 py-2 flex justify-between items-center">
                       <span className="text-gray-700">{stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)}</span>
@@ -5710,7 +5706,7 @@ export default function GradingPage({
                 <h3 className="mb-3 text-sm font-semibold text-slate-500 border-b border-slate-200 pb-2">
                   {groupClassroom.name} ({groupStudents.filter((s) => {
                     const sub = submissions.get(s.id)
-                    return sub?.status === 'graded' && !isPhaseAStale(sub)
+                    return sub?.status === 'graded' && !isPhaseAStale(sub, correctionStatusByStudent[s.id])
                   }).length}/{groupStudents.length} 批改)
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
@@ -5718,7 +5714,7 @@ export default function GradingPage({
                     const submission = submissions.get(student.id)
                     const rawStatus = submission?.status ?? 'missing'
                     // 2026-05-28: Phase A 重跑後、視為 pending（不顯示舊 score 跟 graded 綠邊）
-                    const isStale = isPhaseAStale(submission)
+                    const isStale = isPhaseAStale(submission, correctionStatusByStudent[student.id])
                     const status = (rawStatus === 'graded' && isStale) ? 'pending_grading' : rawStatus
                     const sourceVisual = getSubmissionSourceVisual(submission)
                     const gradingResult = submission?.gradingResult
@@ -5736,7 +5732,7 @@ export default function GradingPage({
                     const isLowScore = isUnscoredAssignment
                       ? (correctSummary ? correctSummary.ratio < 0.8 : true)
                       : (typeof maxScore === 'number' && maxScore > 0 ? scoreValue < maxScore * 0.8 : scoreValue < 60)
-                    const needsReview = isSubmissionNeedsReview(submission)
+                    const needsReview = isSubmissionNeedsReview(submission, correctionStatusByStudent[submission?.studentId ?? ''])
                     const isSelected = selectedSubmissionIds.has(submission?.id ?? '')
                     const isStub = isManualGradeStub(submission)
                     return (
@@ -5828,7 +5824,7 @@ export default function GradingPage({
             const isStub = isManualGradeStub(submission)
             // 2026-05-18: 卡片 badge 改用 deriveCardStage 統一決定、不再用零散 hasGradingResult / showResultBadge 邏輯
             // 避免舊資料 totalScore=0 還顯示「0 分」、Phase A 完成卻看不到「待批改」狀態
-            const cardStage = deriveCardStage(submission)
+            const cardStage = deriveCardStage(submission, submission ? correctionStatusByStudent[submission.studentId] : undefined)
             const showResultBadge = cardStage === 'graded'
             const needsReview = cardStage === 'pending_review'
             const pendingGrading = cardStage === 'pending_grading'
@@ -6183,7 +6179,7 @@ export default function GradingPage({
 
               <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
                 {/* 🆕 需複核警示 */}
-                {isSubmissionNeedsReview(selectedSubmission.submission) && (
+                {isSubmissionNeedsReview(selectedSubmission.submission, correctionStatusByStudent[selectedSubmission.submission.studentId]) && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
@@ -6229,7 +6225,7 @@ export default function GradingPage({
                           // 2026-05-28: Phase A 比 Phase B 新時、「標記已複核」不可寫 gradedAt / score
                           // 否則會把 stale Phase A 「假裝」成已批改、卡片顯示舊分數
                           // 此情境下只寫 manuallyReviewed flag、user 要再跑 Phase B 才會更新 score
-                          const stale = isPhaseAStale(submission)
+                          const stale = isPhaseAStale(submission, correctionStatusByStudent[submission.studentId])
                           await db.submissions.update(id, {
                             gradingResult: newGradingResult,
                             ...(!stale && totalScore !== undefined ? { score: totalScore, aiScore: totalScore, scoreSource: 'ai' as const } : {}),
@@ -6314,7 +6310,7 @@ export default function GradingPage({
                         // 涵蓋舊資料 score=0/maxScore=0 跟新資料 score=undefined 兩種情況
                         // 2026-05-28: Phase A 重跑後（stale）也視為未批改、舊 score/reason 對不到新讀答案
                         const isNotGradedYet = selectedSubmission.submission.status !== 'graded'
-                          || isPhaseAStale(selectedSubmission.submission)
+                          || isPhaseAStale(selectedSubmission.submission, correctionStatusByStudent[selectedSubmission.submission.studentId])
                         // 2026-05-18: 學生答案是「無法辨識」→ 卡片底色標紅、老師一眼看到要再複核哪一題
                         const isUnrecognizable = String(d.studentAnswer || '').trim() === '無法辨識'
                         // 2026-05-28: map_fill 已 pivot 到 Phase A 3-AI、studentAnswer 是老師確認後的逗號分隔地名、
