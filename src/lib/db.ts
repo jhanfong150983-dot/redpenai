@@ -283,6 +283,14 @@ export interface AnswerKeyQuestion {
     maxScore?: number // 此空配分（不填則平均 = maxScore / parts.length）
   }>
 
+  // 2026-05-28: map_fill 位置 spec（Direction Y）
+  // AnswerKey extract 階段 Stage A 偵測印刷紅字標籤、每個輸出 (name, desc)。
+  // Phase B 評分時用 desc 當位置 anchor、不揭露 name 給 AI、避免幻覺。
+  // 詳見 server/ai/map-fill-grader.js 及 reference experiment 2026-05-28。
+  positions?: Array<{
+    name: string  // 該位置的標準地名（如「摩洛哥」）
+    desc: string  // 該位置的方位描述（如「西北角、臨地中海」）
+  }>
 }
 
 export interface AnswerKey {
@@ -478,6 +486,15 @@ export interface GradingDetail {
     expected: string       // 標準答案
     correct: boolean       // 是否正確
     reason?: string        // 答錯原因（單位錯、數值錯等）
+  }>
+  // 2026-05-28: map_fill Direction Y 每位置對錯細節
+  // 整題 score = correctCount (1 分/位置)，maxScore = positions.length
+  mapFillResults?: Array<{
+    idx: number          // 1-based position 編號
+    position: string     // 該位置的標準地名（如「摩洛哥」）
+    student: string      // AI 從學生圖讀到的內容（如「中國」或 ""）
+    status: 'correct' | 'wrong' | 'blank' | 'unclear'
+    desc?: string        // 該位置的方位描述
   }>
   // 批改時嵌入的 108 課綱概念標記（來自 assignment.conceptTags，批改當下凍結）
   conceptCode?: string

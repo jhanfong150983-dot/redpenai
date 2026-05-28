@@ -5324,9 +5324,102 @@ export async function extractAnswerKeyFromImages(
       // locate / crop 失敗不應該阻斷 extract（題目辨識已成功）；老師仍可手動框
       console.warn('⚠️ [AnswerKey] locate / crop 階段失敗，跳過自動 bbox：', err)
     }
+
+    // ─── Phase 4: map_fill 位置偵測（Direction Y Stage A）─────────────────
+    // 對每個 map_fill 題、用 cropImageUrl 跑 Stage A、存 positions[{name, desc}]
+    // 設計 2026-05-28：批改時 Phase B 用 positions[].desc 當位置 anchor、不揭露 name
+    // 給 AI、避免 acceptableAnswers 反推幻覺。
+    const mapFillQs = result.questions.filter((q) => q.questionCategory === 'map_fill' && q.cropImageUrl)
+    if (mapFillQs.length > 0) {
+      console.log(`📍 [AnswerKey map_fill] ${mapFillQs.length} 題、跑 Stage A 位置偵測...`)
+      await Promise.all(
+        mapFillQs.map(async (q) => {
+          try {
+            const positions = await detectMapFillPositions(q.cropImageUrl!, q.acceptableAnswers || [])
+            if (positions && positions.length > 0) {
+              ;(q as { positions?: Array<{ name: string; desc: string }> }).positions = positions
+              console.log(`  ✅ ${q.id}: ${positions.length} positions`)
+            } else {
+              console.warn(`  ⚠️ ${q.id}: Stage A 回空、無 positions`)
+            }
+          } catch (e) {
+            console.warn(`  ❌ ${q.id}: Stage A 失敗`, e)
+          }
+        })
+      )
+    }
   }
 
   return result
+}
+
+// ─── map_fill Stage A: 看 AnswerKey crop 偵測每位置 {name, desc} ────────────
+// 對應 server 端 map-fill-grader.js 的 buildStageAPrompt / parseStageAResult
+async function detectMapFillPositions(
+  cropImageDataUrl: string,
+  acceptableAnswers: string[]
+): Promise<Array<{ name: string; desc: string }> | null> {
+  // dataURL → mime + base64
+  const m = cropImageDataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) {
+    console.warn('[map_fill Stage A] cropImageUrl 非 dataURL、跳過')
+    return null
+  }
+  const mimeType = m[1]
+  const data = m[2]
+
+  const prompt = `這是一張**填圖題答案卷**：印刷地圖 + 老師印刷的紅字答案標籤（標出每個位置應該填的地名）。
+
+任務：找出**所有**紅字標籤、對每個輸出 (name, location_desc)。
+
+預期會看到約 ${acceptableAnswers.length} 個標籤。
+
+【參考 hint】（已知會出現的地名、僅供比對拼字、不要漏未列出的）：
+${acceptableAnswers.join('、')}
+
+【輸出 JSON 格式（純 JSON、無 markdown）】
+{
+  "positions": [
+    {
+      "name": "摩洛哥",
+      "desc": "地圖最左上方、臨地中海、阿爾及利亞以西"
+    },
+    {
+      "name": "查德",
+      "desc": "中央位置、尼日以東、中非以北"
+    }
+  ]
+}
+
+【desc 寫法】
+- 用方位詞 + 相鄰關係：「左上方」「中央偏右」「東北角」「鄰 X」「X 以南」
+- 描述要**夠精確**、讓人看另一張同一張地圖時能找到同位置
+- 1-2 句、中文
+- 不要直接寫名字（如「摩洛哥的位置」）、要寫地理特徵（「西北角、臨地中海」）
+
+【重要】
+- 列出**所有看到的紅字標籤**、不要漏
+- 每個標籤一個 entry、不要合併
+- 名字按你**實際看到的**列、不要從 hint 反推
+
+只輸出 JSON。`
+
+  const rawText = (await generateGeminiText(currentModelName, [
+    prompt,
+    { inlineData: { mimeType, data } }
+  ], {
+    routeKey: 'answer_key.locate'  // 復用 locate route、純文字回答 + 圖片 input
+  })).replace(/```json|```/g, '').trim()
+
+  let parsed
+  try { parsed = JSON.parse(rawText) } catch { return null }
+  if (!parsed || !Array.isArray(parsed.positions)) return null
+  return parsed.positions
+    .map((p: { name?: unknown; desc?: unknown }) => ({
+      name: String(p?.name ?? '').trim(),
+      desc: String(p?.desc ?? '').trim()
+    }))
+    .filter((p: { name: string; desc: string }) => p.name && p.desc)
 }
 
 /**
