@@ -137,21 +137,30 @@ export type CardStage =
 /**
  * 2026-05-28: 判斷 Phase A 是否比 Phase B 新（即「Phase A 重跑後、Phase B 還沒跑」的狀態）
  * 用途：UI 顯示時把這種 case 視為「待批改」、不顯示舊 score / 舊狀態
- * 規則：phaseAState.savedAt > gradedAt （兩者都用 ms timestamp 比較）
+ * 規則：phaseAState.savedAt > gradedAt + STALE_TOLERANCE_MS
  *
  * 為什麼用 timestamp 比、不真的清資料：
  * - 清 sub.score / sub.status 會撞 useSync local-first 規則 (useSync.ts:1083)、
  *   sync 把 server 舊值再 fallback 回來、UI 又看到舊資料
  * - 不動 schema、不動 server、純 client 比 timestamp 是最低風險路徑
  * - Phase B 跑完 gradedAt 會更新到比 savedAt 新、自動「unstale」恢復顯示
+ *
+ * 2026-05-28 加 60s tolerance：
+ * - 「Phase A + B 整套跑完」流程是 client 寫 gradedAt（Phase B 結束時）、
+ *   server 寫 phase_a_state.savedAt（Phase A persist）兩個獨立 update、
+ *   觀察 1 號曾奕綸 sub_1779928129166_ldpbx1bn savedAt 比 gradedAt 晚 1 秒、
+ *   isPhaseAStale 誤判 stale、卡片顯示假「待批改」+ 訂正完成衝突
+ * - 真正的 Phase A 重跑兩個 timestamp 至少差幾分鐘（重新 OCR + classify + read + arbiter）、
+ *   60s tolerance 足夠分辨「同一 run race」vs「真的重跑」
  */
+const PHASE_A_STALE_TOLERANCE_MS = 60_000
 export function isPhaseAStale(sub: Submission | undefined): boolean {
   if (!sub) return false
   const savedAtRaw = sub.phaseAState?.savedAt
   const pasAt = typeof savedAtRaw === 'string' ? new Date(savedAtRaw).getTime()
     : typeof savedAtRaw === 'number' ? savedAtRaw : 0
   const gradedAt = typeof sub.gradedAt === 'number' ? sub.gradedAt : 0
-  return pasAt > 0 && pasAt > gradedAt
+  return pasAt > 0 && pasAt > gradedAt + PHASE_A_STALE_TOLERANCE_MS
 }
 
 /**
