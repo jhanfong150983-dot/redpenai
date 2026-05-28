@@ -135,6 +135,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
         questionCount: t.questionCount,
         totalScore: t.totalScore,
         shareCode: t.shareCode,
+        // 2026-05-28: 補 page_orientations + answer_sheet_mode（之前沒抄、會導致 server smart
+        // pageBreaks fallback 拿不到 orientations、直/橫拍混合作業切點對半切錯）
+        pageOrientations: t.pageOrientations ?? undefined,
+        answerSheetMode: t.answerSheetMode ?? undefined,
         updatedAt: cloudUpdatedAt,
       })
       requestSync(); await loadData()
