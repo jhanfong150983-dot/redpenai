@@ -5123,6 +5123,8 @@ export async function extractAnswerKeyFromImages(
           const cropUrl = cropMap.get(q.id)
           if (cropUrl) q.cropImageUrl = cropUrl
         }
+        // map_fill positions + VJ rubric Stage A（fan-out 路徑也要跑、否則生不出 positions/vjRubric）
+        await runAnswerKeyStageA(merged.questions)
       } catch (err) {
         console.warn('⚠️ [AnswerKey fan-out] locate / crop 階段失敗：', err)
       }
@@ -5358,57 +5360,8 @@ export async function extractAnswerKeyFromImages(
       console.warn('⚠️ [AnswerKey] locate / crop 階段失敗，跳過自動 bbox：', err)
     }
 
-    // ─── Phase 4: map_fill 位置偵測（Direction Y Stage A）─────────────────
-    // 對每個 map_fill 題、用 cropImageUrl 跑 Stage A、存 positions[{name, desc}]
-    // 設計 2026-05-28：批改時 Phase B 用 positions[].desc 當位置 anchor、不揭露 name
-    // 給 AI、避免 acceptableAnswers 反推幻覺。
-    const mapFillQs = result.questions.filter((q) => q.questionCategory === 'map_fill' && q.cropImageUrl)
-    if (mapFillQs.length > 0) {
-      console.log(`📍 [AnswerKey map_fill] ${mapFillQs.length} 題、跑 Stage A 位置偵測...`)
-      await Promise.all(
-        mapFillQs.map(async (q) => {
-          try {
-            const positions = await detectMapFillPositions(q.cropImageUrl!, q.acceptableAnswers || [])
-            if (positions && positions.length > 0) {
-              ;(q as { positions?: Array<{ name: string; desc: string }> }).positions = positions
-              console.log(`  ✅ ${q.id}: ${positions.length} positions`)
-            } else {
-              console.warn(`  ⚠️ ${q.id}: Stage A 回空、無 positions`)
-            }
-          } catch (e) {
-            console.warn(`  ❌ ${q.id}: Stage A 失敗`, e)
-          }
-        })
-      )
-    }
-
-    // ─── Phase 4b: VJ 視覺判斷題 rubric 偵測（A0）────────────────────────────
-    // 對每個 diagram_color / map_symbol / grid_geometry 題、用 cropImageUrl 跑 A0、存 vjRubric
-    // 設計 2026-05-30：批改時 blank reader 判有沒有畫、Phase B 用 gradingDefinition 判對錯
-    const VJ_CATS = ['diagram_color', 'map_symbol', 'grid_geometry']
-    const vjQs = result.questions.filter((q) => VJ_CATS.includes(q.questionCategory ?? '') && q.cropImageUrl)
-    if (vjQs.length > 0) {
-      console.log(`🎨 [AnswerKey VJ] ${vjQs.length} 題、跑 A0 rubric 偵測...`)
-      await Promise.all(
-        vjQs.map(async (q) => {
-          try {
-            const vjRubric = await detectVisualRubric(
-              q.cropImageUrl!,
-              q.questionCategory ?? '',
-              q.referenceAnswer || (q as { answer?: string }).answer || ''
-            )
-            if (vjRubric && vjRubric.itemLabels.length > 0) {
-              ;(q as { vjRubric?: typeof vjRubric }).vjRubric = vjRubric
-              console.log(`  ✅ ${q.id}: ${vjRubric.itemLabels.length} items`)
-            } else {
-              console.warn(`  ⚠️ ${q.id}: A0 回空、無 vjRubric`)
-            }
-          } catch (e) {
-            console.warn(`  ❌ ${q.id}: A0 失敗`, e)
-          }
-        })
-      )
-    }
+    // ─── Phase 4: map_fill 位置偵測 + VJ rubric 偵測（Stage A，共用 helper）─────
+    await runAnswerKeyStageA(result.questions)
   }
 
   return result
@@ -5479,6 +5432,56 @@ async function detectVisualRubric(
     itemLabels,
     condition: String(parsed.condition ?? '').trim(),
     gradingDefinition: String(parsed.gradingDefinition ?? '').trim()
+  }
+}
+
+// ─── 答案卷 Stage A 共用 helper：map_fill positions + VJ rubric ──────────────
+// 兩條抽取路徑（fan-out 與單次）都呼叫此 helper，避免漏跑。
+async function runAnswerKeyStageA(questions: AnswerKeyQuestion[]): Promise<void> {
+  // map_fill 位置偵測（Direction Y Stage A）
+  const mapFillQs = questions.filter((q) => q.questionCategory === 'map_fill' && q.cropImageUrl)
+  if (mapFillQs.length > 0) {
+    console.log(`📍 [AnswerKey map_fill] ${mapFillQs.length} 題、跑 Stage A 位置偵測...`)
+    await Promise.all(
+      mapFillQs.map(async (q) => {
+        try {
+          const positions = await detectMapFillPositions(q.cropImageUrl!, q.acceptableAnswers || [])
+          if (positions && positions.length > 0) {
+            ;(q as { positions?: Array<{ name: string; desc: string }> }).positions = positions
+            console.log(`  ✅ ${q.id}: ${positions.length} positions`)
+          } else {
+            console.warn(`  ⚠️ ${q.id}: Stage A 回空、無 positions`)
+          }
+        } catch (e) {
+          console.warn(`  ❌ ${q.id}: Stage A 失敗`, e)
+        }
+      })
+    )
+  }
+  // VJ 視覺判斷題 rubric 偵測（A0）
+  const VJ_CATS = ['diagram_color', 'map_symbol', 'grid_geometry']
+  const vjQs = questions.filter((q) => VJ_CATS.includes(q.questionCategory ?? '') && q.cropImageUrl)
+  if (vjQs.length > 0) {
+    console.log(`🎨 [AnswerKey VJ] ${vjQs.length} 題、跑 A0 rubric 偵測...`)
+    await Promise.all(
+      vjQs.map(async (q) => {
+        try {
+          const vjRubric = await detectVisualRubric(
+            q.cropImageUrl!,
+            q.questionCategory ?? '',
+            q.referenceAnswer || (q as { answer?: string }).answer || ''
+          )
+          if (vjRubric && vjRubric.itemLabels.length > 0) {
+            ;(q as { vjRubric?: typeof vjRubric }).vjRubric = vjRubric
+            console.log(`  ✅ ${q.id}: ${vjRubric.itemLabels.length} items`)
+          } else {
+            console.warn(`  ⚠️ ${q.id}: A0 回空、無 vjRubric`)
+          }
+        } catch (e) {
+          console.warn(`  ❌ ${q.id}: A0 失敗`, e)
+        }
+      })
+    )
   }
 }
 
