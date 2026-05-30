@@ -13,8 +13,11 @@ import {
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
-import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric } from '@/lib/db'
+import type { AnswerKey, AnswerKeyQuestion, QuestionCategory } from '@/lib/db'
 import { QUESTION_CATEGORY_TO_BUCKET, QUESTION_CATEGORY_LABELS as CATEGORY_LABELS } from '@/lib/db'
+
+// 2026-05-30: 視覺判斷題（用 vjRubric 逐項看圖判、不用 rubricsDimensions）
+const VJ_CATEGORIES: string[] = ['diagram_color', 'map_symbol', 'grid_geometry']
 
 function getEffectiveCategory(q: AnswerKeyQuestion): QuestionCategory {
   if (q.questionCategory) return q.questionCategory
@@ -34,18 +37,7 @@ function hasVocabFillWarning(q: AnswerKeyQuestion, domain?: string): boolean {
   return singleCjkRe.test(ans.trim()) || phoneticRe.test(ans.trim())
 }
 
-const rubricLabels = ['優秀', '良好', '尚可', '待努力'] as const
-
-function buildDefaultRubric(maxScore: number): Rubric {
-  const s = Math.max(1, Math.round(maxScore))
-  const r = [
-    { label: '優秀', min: Math.max(1, Math.ceil(s * 0.9)), max: s },
-    { label: '良好', min: Math.max(1, Math.ceil(s * 0.7)), max: Math.max(1, Math.ceil(s * 0.9) - 1) },
-    { label: '尚可', min: Math.max(1, Math.ceil(s * 0.5)), max: Math.max(1, Math.ceil(s * 0.7) - 1) },
-    { label: '待努力', min: 1, max: Math.max(1, Math.ceil(s * 0.5) - 1) },
-  ]
-  return { levels: r.map((l, i) => ({ ...l, label: rubricLabels[i], criteria: '' })) }
-}
+// 2026-05-30: buildDefaultRubric / rubricLabels 已移除（評分方式唯讀、不再從 UI 切換成 4 級評價）
 
 // ─── page order types ───────────────────────────────────────────────────────
 
@@ -252,6 +244,8 @@ export default function AnswerKeyWizardModal({
     if (!editingKey) return
     // 檢查多維度配分加總是否與題目配分一致
     const mismatchQuestions = editingKey.questions.filter((q) => {
+      // VJ 題用 vjRubric、不看 rubricsDimensions，跳過維度加總檢查
+      if (VJ_CATEGORIES.includes(q.questionCategory ?? '')) return false
       if (!q.rubricsDimensions || q.rubricsDimensions.length === 0) return false
       const dimSum = q.rubricsDimensions.reduce((s, d) => s + (d.maxScore ?? 0), 0)
       return dimSum !== (q.maxScore ?? 0)
@@ -276,6 +270,20 @@ export default function AnswerKeyWizardModal({
   }
 
   // ── question editing helpers ──
+  // VJ：編輯 vjRubric.gradingDefinition（itemLabels 唯讀、不可改）
+  const updateVjGradingDefinition = (idx: number, value: string) => {
+    setEditingKey((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        questions: prev.questions.map((q, qi) => {
+          if (qi !== idx || !q.vjRubric) return q
+          return { ...q, vjRubric: { ...q.vjRubric, gradingDefinition: value } }
+        })
+      }
+    })
+  }
+
   const updateField = (idx: number, field: keyof AnswerKeyQuestion, value: unknown) => {
     setEditingKey((prev) => {
       if (!prev) return prev
@@ -376,18 +384,7 @@ export default function AnswerKeyWizardModal({
     })
   }
 
-  const switchRubricType = (idx: number, type: 'multi-dimension' | '4-level') => {
-    setEditingKey((prev) => {
-      if (!prev) return prev
-      return { ...prev, questions: prev.questions.map((q, i) => {
-        if (i !== idx) return q
-        if (type === 'multi-dimension') {
-          return { ...q, rubricsDimensions: q.rubricsDimensions ?? [{ name: '作答依據', criteria: '', maxScore: Math.ceil((q.maxScore ?? 2) / 2) }, { name: '結論表達', criteria: '', maxScore: Math.floor((q.maxScore ?? 2) / 2) }], rubric: undefined }
-        }
-        return { ...q, rubric: q.rubric ?? buildDefaultRubric(q.maxScore ?? 2), rubricsDimensions: undefined }
-      })}
-    })
-  }
+  // 2026-05-30: switchRubricType 已移除——評分方式改由題型自動決定、唯讀，不再讓老師切換
 
   // ── bbox drawing ──
   const getNormalizedCoords = (e: React.MouseEvent<HTMLDivElement>): { x: number; y: number } | null => {
@@ -450,6 +447,7 @@ export default function AnswerKeyWizardModal({
   const showAnswerField = (selectedBucket === 'A' || selectedBucket === 'D') && !showTableCells
   const showAcceptableAnswers = selectedBucket === 'B'
   const showRubric = selectedBucket === 'C' || selectedBucket === 'D'
+  const isVJ = VJ_CATEGORIES.includes(selectedCategory)
   const activeBbox: NormalizedBbox | null = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
   const bboxIsAiDetected = !bboxDraft && !selectedQuestion?.referenceBbox && !!selectedQuestion?.answerBbox
 
@@ -867,12 +865,46 @@ export default function AnswerKeyWizardModal({
                             <span className="text-gray-500 w-16 shrink-0 mt-1">參考答案</span>
                             <textarea rows={2} className="flex-1 px-2 py-1 border border-gray-300 rounded" value={selectedQuestion.referenceAnswer ?? ''} onChange={(e) => updateField(selectedIdx, 'referenceAnswer', e.target.value)} />
                           </div>
+                          {/* 評分方式：由題型自動決定、唯讀顯示（不可切換） */}
                           <div className="flex items-center gap-2">
                             <span className="text-gray-500">評分方式：</span>
-                            <button type="button" onClick={() => switchRubricType(selectedIdx, 'multi-dimension')} className={`text-xs px-2 py-1 rounded ${selectedQuestion.rubricsDimensions ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>多維度</button>
-                            <button type="button" onClick={() => switchRubricType(selectedIdx, '4-level')} className={`text-xs px-2 py-1 rounded ${selectedQuestion.rubric ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>4 級評價</button>
+                            <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 font-medium">
+                              {isVJ ? '視覺逐項判斷（看圖逐項判對錯）' : selectedQuestion.rubric ? '4 級評價' : '評分維度'}
+                            </span>
+                            <span className="text-[10px] text-gray-400">由題型自動決定</span>
                           </div>
-                          {selectedQuestion.rubricsDimensions && (
+
+                          {/* VJ 視覺判斷題：顯示 vjRubric（子項唯讀 + 評判標準可編） */}
+                          {isVJ && (
+                            <div className="space-y-2">
+                              {selectedQuestion.vjRubric ? (
+                                <>
+                                  <div>
+                                    <span className="text-gray-500 text-xs">作答子項（{selectedQuestion.vjRubric.itemLabels.length} 項，AI 自動偵測）</span>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {selectedQuestion.vjRubric.itemLabels.map((lb, i) => (
+                                        <span key={i} className="text-[11px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">{i + 1}. {lb}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-500 text-xs">評判標準（AI 拿來判對錯的依據，可編輯）</span>
+                                    <textarea
+                                      rows={3}
+                                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs mt-1"
+                                      value={selectedQuestion.vjRubric.gradingDefinition ?? ''}
+                                      onChange={(e) => updateVjGradingDefinition(selectedIdx, e.target.value)}
+                                    />
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                                  尚未產生視覺評判標準。請重新「AI 解析」此答案卷以自動產生（vjRubric）。
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {!isVJ && selectedQuestion.rubricsDimensions && (
                             <div>
                               <div className="flex items-center justify-between mb-1">
                                 <span className="text-gray-500">評分維度</span>
@@ -905,7 +937,7 @@ export default function AnswerKeyWizardModal({
                               })()}
                             </div>
                           )}
-                          {selectedQuestion.rubric && (
+                          {!isVJ && selectedQuestion.rubric && (
                             <div className="space-y-1">
                               {selectedQuestion.rubric.levels.map((level, lIdx) => (
                                 <div key={lIdx} className="flex items-center gap-2">
