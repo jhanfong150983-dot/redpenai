@@ -13,8 +13,6 @@ import {
   X,
   Flag,
   Clock,
-  ZoomIn,
-  ZoomOut,
   CheckCircle2,
   AlertTriangle,
 } from 'lucide-react'
@@ -387,71 +385,14 @@ async function buildCorrectionCropDataUrl(imageUrl: string, rawBbox: Bbox): Prom
   })
 }
 
+// 2026-05-30: 統一放大標準 — 純放大、無控制、點任意處關閉（見 memory feedback_image_zoom_simple_overlay_standard）
 function ZoomImageModal({ url, onClose }: { url: string; onClose: () => void }) {
-  const [scale, setScale] = useState(1)
-  const [offset, setOffset] = useState({ x: 0, y: 0 })
-  const dragging = useRef(false)
-  const lastPos = useRef({ x: 0, y: 0 })
-  const MIN_SCALE = 0.5
-  const MAX_SCALE = 8
-
-  const clampScale = (s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s))
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
-    setScale((s) => clampScale(s * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))
-  }
-  const handleMouseDown = (e: React.MouseEvent) => {
-    dragging.current = true
-    lastPos.current = { x: e.clientX, y: e.clientY }
-  }
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!dragging.current) return
-    setOffset((o) => ({ x: o.x + e.clientX - lastPos.current.x, y: o.y + e.clientY - lastPos.current.y }))
-    lastPos.current = { x: e.clientX, y: e.clientY }
-  }
-  const handleMouseUp = () => { dragging.current = false }
-  const reset = () => { setScale(1); setOffset({ x: 0, y: 0 }) }
-
   return (
     <div
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80"
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 cursor-zoom-out"
       onClick={onClose}
-      onWheel={handleWheel}
     >
-      <div className="absolute top-3 right-3 flex gap-2">
-        <button onClick={(e) => { e.stopPropagation(); setScale((s) => clampScale(s * 1.3)) }}
-          className="rounded-full bg-white/20 p-2 text-white hover:bg-white/30"><ZoomIn className="h-4 w-4" /></button>
-        <button onClick={(e) => { e.stopPropagation(); setScale((s) => clampScale(s / 1.3)) }}
-          className="rounded-full bg-white/20 p-2 text-white hover:bg-white/30"><ZoomOut className="h-4 w-4" /></button>
-        <button onClick={(e) => { e.stopPropagation(); reset() }}
-          className="rounded-full bg-white/20 px-3 py-2 text-xs text-white hover:bg-white/30">重置</button>
-        <button onClick={onClose}
-          className="rounded-full bg-white/20 p-2 text-white hover:bg-white/30"><X className="h-4 w-4" /></button>
-      </div>
-      <img
-        src={url}
-        alt="放大檢視"
-        draggable={false}
-        onClick={(e) => e.stopPropagation()}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onDoubleClick={reset}
-        style={{
-          transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
-          transformOrigin: 'center',
-          cursor: dragging.current ? 'grabbing' : 'grab',
-          maxWidth: '90vw',
-          maxHeight: '90vh',
-          objectFit: 'contain',
-          userSelect: 'none',
-        }}
-      />
-      <p className="absolute bottom-3 left-0 right-0 text-center text-xs text-white/50">
-        滾輪縮放・拖曳平移・雙擊重置
-      </p>
+      <img src={url} alt="放大檢視" className="max-w-[95vw] max-h-[95vh] object-contain" />
     </div>
   )
 }
