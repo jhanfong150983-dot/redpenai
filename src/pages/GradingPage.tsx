@@ -1062,11 +1062,6 @@ function ConsistencyQuestionCard({
 }) {
   const [manualInput, setManualInput] = useState('')
   const [zoomedImg, setZoomedImg] = useState(false)
-  const [zoomScale, setZoomScale] = useState(1)
-  const [zoomOffset, setZoomOffset] = useState({ x: 0, y: 0 })
-  const zoomDragRef = useRef<{ active: boolean; startX: number; startY: number; originX: number; originY: number }>({
-    active: false, startX: 0, startY: 0, originX: 0, originY: 0
-  })
   const { questionId, consistencyStatus, consistencyReason, readAnswer1, readAnswer2, answerCropImageUrl, arbiterResult } = questionResult
   const isUnstable = consistencyStatus === 'unstable'
   const isConfirmed = decision?.confirmed
@@ -1447,87 +1442,11 @@ function ConsistencyQuestionCard({
           </button>
         </div>
       )}
+      {/* 2026-05-30: 統一放大標準 — 純放大、無控制、點任意處關閉（跟 VJ/map_fill 一致）。
+          設計準則：放大只為看清楚，不提供縮放/拖曳控制；看不清就是看不清，控制列只是干擾。 */}
       {zoomedImg && answerCropImageUrl && (
-        <div
-          className="fixed inset-0 z-[300] bg-black/80 flex flex-col items-center justify-center"
-          onClick={() => { setZoomedImg(false); setZoomScale(1); setZoomOffset({ x: 0, y: 0 }) }}
-        >
-          {/* 縮放控制列 */}
-          <div
-            className="relative z-10 flex items-center gap-2 mb-3 bg-black/60 rounded-full px-3 py-1.5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setZoomScale(s => Math.max(0.5, +(s - 0.5).toFixed(1)))}
-              className="w-7 h-7 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center text-base font-bold leading-none"
-              title="縮小"
-            >−</button>
-            <span className="text-white text-xs w-10 text-center tabular-nums">{Math.round(zoomScale * 100)}%</span>
-            <button
-              type="button"
-              onClick={() => setZoomScale(s => Math.min(8, +(s + 0.5).toFixed(1)))}
-              className="w-7 h-7 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center text-base font-bold leading-none"
-              title="放大"
-            >+</button>
-            <div className="w-px h-4 bg-white/30 mx-1" />
-            <button
-              type="button"
-              onClick={() => { setZoomScale(1); setZoomOffset({ x: 0, y: 0 }) }}
-              className="text-white/70 hover:text-white text-[10px] px-2"
-              title="重設"
-            >重設</button>
-            <button
-              type="button"
-              onClick={() => { setZoomedImg(false); setZoomScale(1); setZoomOffset({ x: 0, y: 0 }) }}
-              className="ml-1 w-6 h-6 rounded-full bg-white/20 hover:bg-white/40 text-white flex items-center justify-center"
-              title="關閉"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* 圖片容器（可拖曳） */}
-          <div
-            className="overflow-hidden"
-            style={{ width: '90vw', height: '75vh', cursor: zoomScale > 1 ? 'grab' : 'default' }}
-            onClick={(e) => e.stopPropagation()}
-            onWheel={(e) => {
-              e.preventDefault()
-              const delta = e.deltaY < 0 ? 0.25 : -0.25
-              setZoomScale(s => Math.min(8, Math.max(0.5, +(s + delta).toFixed(2))))
-            }}
-            onMouseDown={(e) => {
-              if (zoomScale <= 1) return
-              zoomDragRef.current = { active: true, startX: e.clientX, startY: e.clientY, originX: zoomOffset.x, originY: zoomOffset.y }
-            }}
-            onMouseMove={(e) => {
-              if (!zoomDragRef.current.active) return
-              setZoomOffset({
-                x: zoomDragRef.current.originX + (e.clientX - zoomDragRef.current.startX),
-                y: zoomDragRef.current.originY + (e.clientY - zoomDragRef.current.startY),
-              })
-            }}
-            onMouseUp={() => { zoomDragRef.current.active = false }}
-            onMouseLeave={() => { zoomDragRef.current.active = false }}
-          >
-            <img
-              src={answerCropImageUrl}
-              alt={`題目 ${questionId} 答案區（放大）`}
-              draggable={false}
-              onDoubleClick={() => { setZoomScale(1); setZoomOffset({ x: 0, y: 0 }) }}
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'contain',
-                transformOrigin: 'center center',
-                transform: `scale(${zoomScale}) translate(${zoomOffset.x / zoomScale}px, ${zoomOffset.y / zoomScale}px)`,
-                transition: zoomDragRef.current.active ? 'none' : 'transform 0.15s ease',
-                userSelect: 'none',
-              }}
-            />
-          </div>
-          <p className="text-white/50 text-[10px] mt-2">滾輪縮放・拖曳平移・雙擊重設・點擊背景關閉</p>
+        <div className="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center cursor-zoom-out" onClick={() => setZoomedImg(false)}>
+          <img src={answerCropImageUrl} alt={`題目 ${questionId} 答案區（放大）`} className="max-w-[95vw] max-h-[95vh] object-contain" />
         </div>
       )}
 
