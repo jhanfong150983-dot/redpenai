@@ -3869,16 +3869,9 @@ export default function GradingPage({
       setGradeBlockModal({ reason: 'needs_review', submissions: stageMap.pending_review })
       return
     }
-    // 2026-05-28: Q1 — 先擋 correction_passed（終點、不可重跑）
-    const { passedIds } = partitionCandidatesByCorrection(inScope)
-    if (passedIds.size > 0) {
-      const blockedStudents = Array.from(passedIds).map((sid) => {
-        const stu = students.find((s) => s.id === sid)
-        return { studentId: sid, name: stu?.name || sid, seatNumber: Number.isFinite(stu?.seatNumber) ? Number(stu?.seatNumber) : null }
-      })
-      setCorrectionPassedBlockModal({ action: 'regrade', blockedStudents })
-      return
-    }
+    // 2026-05-30: Phase B 重批不再擋 correction_passed（政策 §4：重跑 Phase B = 逐題調和、不整批清）。
+    // 已完成訂正的學生交給 executeGradeOnlyCache → reconcile-phase-b-regrade 逐題處理
+    // （resolved/appeal_won 在矩陣裡保留、永不被覆蓋）。Phase A（handleRecaptureAll）仍擋 correction_passed。
     if (gradeButtonState.needsWarning) {
       setGradeOverwriteConfirm({
         submissions: inScope,
