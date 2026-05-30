@@ -45,6 +45,8 @@ type QuestionDetail = {
   bboxSource: 'raw' | 'ocr_override' | 'row_anchor' | null
   ai1: { answer: string; status: string | null } | null
   ai2: { answer: string; status: string | null } | null
+  // VJ 視覺判斷題：逐柱結果（取代 AI1/AI2 read 行）
+  vjItems?: Array<{ idx: number | null; label: string; verdict: 'correct' | 'wrong' | 'blank' | 'pending' | null; reason: string }> | null
   arbiterConsistent: boolean | null
   finalAnswer: string | null
   finalAnswerSource: string | null
@@ -515,12 +517,13 @@ function QuestionCard({
   hovered: boolean
 }) {
   const {
-    qid, type, bboxSource, ai1, ai2, arbiterConsistent,
+    qid, type, bboxSource, ai1, ai2, arbiterConsistent, vjItems,
     finalAnswer, finalAnswerSource, isMistake,
     score, maxScore, isCorrect, scoringReason
   } = question
   const hasGrade = score != null && maxScore != null
   const showReason = isCorrect === false && !!scoringReason
+  const isVJ = !!type && ['diagram_color', 'map_symbol', 'grid_geometry'].includes(type) && Array.isArray(vjItems)
 
   const consistencyBadge =
     arbiterConsistent === false ? (
@@ -584,8 +587,14 @@ function QuestionCard({
       </div>
 
       <div className="text-xs space-y-1 font-mono">
-        <ReadLine label="AI1" answer={a1} unreadable={a1Unreadable} highlight={!sameAnswer} />
-        <ReadLine label="AI2" answer={a2} unreadable={a2Unreadable} highlight={!sameAnswer} />
+        {isVJ ? (
+          <VjItemLines items={vjItems!} />
+        ) : (
+          <>
+            <ReadLine label="AI1" answer={a1} unreadable={a1Unreadable} highlight={!sameAnswer} />
+            <ReadLine label="AI2" answer={a2} unreadable={a2Unreadable} highlight={!sameAnswer} />
+          </>
+        )}
         {finalAnswer != null && (
           <div className="flex gap-2 pt-1 mt-1 border-t border-slate-100">
             <span className="text-slate-500 shrink-0">最終</span>
@@ -603,6 +612,42 @@ function QuestionCard({
           {scoringReason}
         </div>
       )}
+    </div>
+  )
+}
+
+// VJ 視覺判斷題：逐柱「有畫/沒畫 + 對錯」（取代 AI1/AI2 read 散文）
+function VjItemLines({
+  items
+}: {
+  items: Array<{ idx: number | null; label: string; verdict: 'correct' | 'wrong' | 'blank' | 'pending' | null; reason: string }>
+}) {
+  const meta = (v: string | null) => {
+    switch (v) {
+      case 'correct': return { text: '有畫 ✓', cls: 'bg-emerald-100 text-emerald-700' }
+      case 'wrong': return { text: '有畫 ✗', cls: 'bg-rose-100 text-rose-700' }
+      case 'blank': return { text: '沒畫（0分）', cls: 'bg-slate-100 text-slate-500' }
+      case 'pending': return { text: '有畫（待批改）', cls: 'bg-amber-100 text-amber-700' }
+      default: return { text: v || '—', cls: 'bg-slate-100 text-slate-500' }
+    }
+  }
+  if (!items.length) {
+    return <div className="text-slate-400">（無逐柱結果 — 視覺判斷題尚未批改）</div>
+  }
+  return (
+    <div className="space-y-1">
+      {items.map((it, i) => {
+        const m = meta(it.verdict)
+        return (
+          <div key={it.idx ?? i} className="flex gap-2 items-center">
+            <span className="text-slate-600 shrink-0">{it.label || `項${it.idx ?? i + 1}`}</span>
+            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${m.cls}`}>{m.text}</span>
+            {it.reason && it.reason !== '正確' && (
+              <span className="text-slate-400 break-all">{it.reason}</span>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }
