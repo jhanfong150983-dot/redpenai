@@ -37,7 +37,6 @@ const STUDENT_SUBMIT_TIMEOUT_MS = 300_000 // 5 分鐘（同步批改需要等 AI
 // 4K → maxWidth 1500 仍是 downsample (3000+→1500)、JPEG artifacts 比 1200 顯著改善
 const CORRECTION_IMAGE_TARGET_BYTES = 250_000
 const CORRECTION_IMAGE_MIN_TARGET_BYTES = 80_000
-const CORRECTION_MERGE_TARGET_BYTES = 250_000
 const CORRECTION_REQUEST_SOFT_LIMIT_BYTES = 3_600_000
 const CORRECTION_REQUEST_RESERVE_BYTES = 700_000
 
@@ -160,28 +159,6 @@ async function mergeImagesVertically(files: (File | Blob)[]): Promise<Blob> {
   return safeToBlobWithFallback(canvas, {
     format: 'image/webp',
     quality: 0.86
-  })
-}
-
-async function createCorrectionPlaceholderFile(): Promise<File> {
-  const canvas = document.createElement('canvas')
-  canvas.width = 48
-  canvas.height = 48
-  const context = canvas.getContext('2d')
-  if (context) {
-    context.fillStyle = '#ffffff'
-    context.fillRect(0, 0, canvas.width, canvas.height)
-    context.strokeStyle = '#e2e8f0'
-    context.lineWidth = 2
-    context.strokeRect(1, 1, canvas.width - 2, canvas.height - 2)
-  }
-  const blob = await safeToBlobWithFallback(canvas, {
-    format: 'image/webp',
-    quality: 0.82
-  })
-  return new File([blob], 'correction-placeholder.webp', {
-    type: blob.type || 'image/webp',
-    lastModified: Date.now()
   })
 }
 
@@ -1166,43 +1143,42 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           }
         }
 
-        // Correction submission payload can get large when many wrong questions are fixed at once.
-        // Use the first correction photo as the submission preview, avoid merging all images again.
-        if (photoEntries.length > 0) {
-          const firstPhoto = photoEntries[0]?.[1]?.file
-          mergedFiles = firstPhoto ? [firstPhoto] : [await createCorrectionPlaceholderFile()]
-        } else {
-          mergedFiles = [await createCorrectionPlaceholderFile()]
-        }
+        // 訂正模式不上傳 main image — server 端 AI recheck 只讀 corrections/<sub>/<qid>.webp、
+        // GradingPage 也跳過 student_correction submission 顯示、main image 完全沒人用。
+        // mergedFiles 留空、後面 merge/compress 會被 mode gate 跳過。
+        mergedFiles = []
       }
 
-      // 透視校正已在預覽階段（「確認完成」）完成，這裡直接用驗證快取的校正後 blob。
-      let filesToMerge: (File | Blob)[] = mergedFiles
-      if (mode === 'upload' && mergedFiles.length > 0) {
-        const validated = validatedDrafts[assignment.id]
-        if (validated && validated.draftSignature === buildDraftSignature(files)) {
-          filesToMerge = mergedFiles.map((file, i) => {
-            const corrected = validated.pages[i]?.result.correctedBlob
-            return corrected || file
-          })
+      // 只有 upload 模式才產 main image；訂正模式直接送 correctionImages[] 給 server。
+      let imageDataUrl: string | null = null
+      let imageContentType: string | undefined
+      if (mode === 'upload') {
+        // 透視校正已在預覽階段（「確認完成」）完成，這裡直接用驗證快取的校正後 blob。
+        let filesToMerge: (File | Blob)[] = mergedFiles
+        if (mergedFiles.length > 0) {
+          const validated = validatedDrafts[assignment.id]
+          if (validated && validated.draftSignature === buildDraftSignature(files)) {
+            filesToMerge = mergedFiles.map((file, i) => {
+              const corrected = validated.pages[i]?.result.correctedBlob
+              return corrected || file
+            })
+          }
         }
+        // 2026-05-13 拉高 upload 模式的目標、儘量保留畫質
+        // Vercel function body 上限 4.5 MB、扣 JSON overhead + base64 1.33x 膨脹後、原圖 ≤ 3 MB 是安全值
+        const merged = await mergeImagesVertically(filesToMerge)
+        const compressed = await compressToTargetBytes(merged, 3_000_000, { maxWidth: 2000 })
+        imageDataUrl = await blobToBase64(compressed)
+        imageContentType = compressed.type || 'image/webp'
       }
-
-      // 2026-05-13 拉高 upload 模式的目標、儘量保留畫質
-      // Vercel function body 上限 4.5 MB、扣 JSON overhead + base64 1.33x 膨脹後、原圖 ≤ 3 MB 是安全值
-      // correction 模式仍維持小檔（120 KB）、跟訂正 batch payload 大小有關、不動
-      const mergeTarget = mode === 'correction' ? CORRECTION_MERGE_TARGET_BYTES : 3_000_000
-      const mergeMaxWidth = mode === 'correction' ? 1500 : 2000
-      const merged = await mergeImagesVertically(filesToMerge)
-      const compressed = await compressToTargetBytes(merged, mergeTarget, { maxWidth: mergeMaxWidth })
-      const imageDataUrl = await blobToBase64(compressed)
 
       const requestPayload = {
         assignmentId: assignment.id,
         classroomKey: assignment.classroomKey || undefined,
         mode,
-        imageBase64: imageDataUrl,
-        contentType: compressed.type || 'image/webp',
+        ...(imageDataUrl !== null
+          ? { imageBase64: imageDataUrl, contentType: imageContentType }
+          : {}),
         pageCount: mode === 'correction' ? 1 : files.length,
         ...(correctionImages.length > 0 ? { correctionImages } : {}),
         ...(disputedQuestions.length > 0 ? { disputedQuestions } : {})
