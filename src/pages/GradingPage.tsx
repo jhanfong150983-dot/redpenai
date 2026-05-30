@@ -3439,22 +3439,42 @@ export default function GradingPage({
           // 同時把 questionResults 暫存到 local gradingResult.details、讓 detail modal 立刻能看
           // 2026-05-18: Phase A only 不寫 score/maxScore/isCorrect、avoid modal 誤顯示「答錯 0/0」
           // status='synced' + score=undefined 讓 modal 知道「還沒批改」、用「未批改」badge 取代分數
-          const detailsFromPhaseA = phaseAResult.questionResults.map((qr) => ({
-            questionId: qr.questionId,
-            questionType: qr.questionType,
-            // map_fill 跳 Phase A Read、Phase B 才會視覺評分產生 studentAnswer；
-            // 在那之前留空、avoid 顯示 "(填圖題...)" placeholder。
-            studentAnswer: qr.questionType === 'map_fill'
-              ? ''
-              : (qr.arbiterResult?.finalAnswer || qr.readAnswer1?.studentAnswer || ''),
-            // 故意不設 score / maxScore / isCorrect / reason — 等 Phase B 跑完才填
-            readAnswer1: qr.readAnswer1,
-            readAnswer2: qr.readAnswer2,
-            arbiterResult: qr.arbiterResult,
-            consistencyStatus: qr.consistencyStatus,
-            answerBbox: qr.answerBbox,
-            answerCropImageUrl: qr.answerCropImageUrl,
-          }))
+          const detailsFromPhaseA = phaseAResult.questionResults.map((qr) => {
+            const base = {
+              questionId: qr.questionId,
+              questionType: qr.questionType,
+              // 故意不設 score / maxScore / isCorrect / reason — 等 Phase B 跑完才填
+              readAnswer1: qr.readAnswer1,
+              readAnswer2: qr.readAnswer2,
+              arbiterResult: qr.arbiterResult,
+              consistencyStatus: qr.consistencyStatus,
+              answerBbox: qr.answerBbox,
+              answerCropImageUrl: qr.answerCropImageUrl,
+            }
+            // VJ 視覺判斷題：Phase A 後就帶逐柱 vjItemResults（有畫=pending、沒畫=blank），
+            // detail 直接顯示逐柱「有畫/沒畫」按鈕讓老師人工更正、不用等 Phase B。
+            // studentAnswer 用摘要文案（圖上作答/未作答）取代內部 "label:有畫" 字串。
+            const vjPerItem = qr.visualJudgment?.perItem
+            if (['diagram_color', 'map_symbol', 'grid_geometry'].includes(qr.questionType || '')
+              && Array.isArray(vjPerItem) && vjPerItem.length > 0) {
+              const vjItemResults = vjPerItem.map((p) => ({
+                idx: p.idx,
+                label: p.label,
+                verdict: (p.hasMark === 'yes' ? 'pending' : 'blank') as 'pending' | 'blank',
+                reason: p.hasMark === 'yes' ? '有畫（待批改）' : '未作答',
+              }))
+              const anyDrawn = vjItemResults.some((r) => r.verdict !== 'blank')
+              return { ...base, studentAnswer: anyDrawn ? '圖上作答' : '未作答', vjItemResults }
+            }
+            return {
+              ...base,
+              // map_fill 跳 Phase A Read、Phase B 才會視覺評分產生 studentAnswer；
+              // 在那之前留空、avoid 顯示 "(填圖題...)" placeholder。
+              studentAnswer: qr.questionType === 'map_fill'
+                ? ''
+                : (qr.arbiterResult?.finalAnswer || qr.readAnswer1?.studentAnswer || ''),
+            }
+          })
           // 不設 totalScore（修法後）— 等 Phase B 跑完才有
           const phaseAGradingResult = { details: detailsFromPhaseA } as unknown as Submission['gradingResult']
           const updatedAtMs = Date.now()
