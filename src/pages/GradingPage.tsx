@@ -39,6 +39,7 @@ import { startInkSession, closeInkSession, getInkSessionId } from '@/lib/ink-ses
 import { downloadImageFromSupabase } from '@/lib/supabase-download'
 import { getSubmissionImageUrl, fixCorruptedBase64 } from '@/lib/utils'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
+import DangerConfirmModal from '@/components/DangerConfirmModal'
 import { blobToBase64 } from '@/lib/imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-storage'
 
@@ -5294,50 +5295,32 @@ export default function GradingPage({
         </div>
       )}
 
-      {/* 2026-05-17: 重新截取警告 modal（會清掉已批改紀錄） */}
-      {recaptureConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
-          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold text-gray-900 mb-3">確認截取答案</h3>
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
-              ⚠️ 以下 {recaptureConfirm.cleared.length} 份作業會被**清空既有的學生答案、批改分數、訂正狀態**。
-            </div>
-            <div className="max-h-60 overflow-y-auto mb-4 border border-gray-100 rounded-lg">
-              <ul className="text-sm divide-y divide-gray-100">
-                {recaptureConfirm.cleared.map((sub) => {
-                  const stu = students.find((s) => s.id === sub.studentId)
-                  const stage = deriveCardStage(sub, correctionStatusByStudent[sub.studentId])
-                  return (
-                    <li key={sub.id} className="px-3 py-2 flex justify-between items-center">
-                      <span className="text-gray-700">{stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)}</span>
-                      <span className="text-xs text-gray-500">{CARD_STAGE_LABEL[stage]}{sub.score != null ? `（${sub.score}分）` : ''}</span>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-            <div className="text-xs text-gray-500 mb-4">共 {recaptureConfirm.submissions.length} 份要截取（含 {recaptureConfirm.cleared.length} 份要清空）</div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setRecaptureConfirm(null)}
-                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => {
-                  const candidates = recaptureConfirm.submissions
-                  setRecaptureConfirm(null)
-                  void executeRecaptureOnly(candidates)
-                }}
-                className="flex-1 px-4 py-3 bg-rose-600 text-white rounded-xl hover:bg-rose-700 transition-colors font-medium"
-              >
-                確認截取
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 2026-05-30: 重新截取危險確認（severity medium：清讀值/分數、擋已完成訂正） */}
+      <DangerConfirmModal
+        open={!!recaptureConfirm}
+        severity="medium"
+        title="重新截取答案"
+        clears={['AI 讀取結果', '批改分數', '訂正狀態']}
+        keeps={['學生作答照片']}
+        affectedNoun="份作業"
+        affected={(recaptureConfirm?.cleared ?? []).map((sub) => {
+          const stu = students.find((s) => s.id === sub.studentId)
+          const stage = deriveCardStage(sub, correctionStatusByStudent[sub.studentId])
+          return {
+            id: sub.id,
+            label: stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8),
+            meta: `${CARD_STAGE_LABEL[stage]}${sub.score != null ? `（${sub.score}分）` : ''}`,
+          }
+        })}
+        confirmLabel="仍要重新截取"
+        cancelLabel="取消"
+        onCancel={() => setRecaptureConfirm(null)}
+        onConfirm={() => {
+          const candidates = recaptureConfirm?.submissions ?? []
+          setRecaptureConfirm(null)
+          void executeRecaptureOnly(candidates)
+        }}
+      />
 
       {/* 2026-05-17: 批改作業 block modal（先補答 / 先截取） */}
       {gradeBlockModal && (
@@ -5377,49 +5360,31 @@ export default function GradingPage({
         </div>
       )}
 
-      {/* 2026-05-17: 批改作業覆寫警告 modal */}
-      {gradeOverwriteConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
-          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold text-gray-900 mb-3">確認重新批改</h3>
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
-              ⚠️ 以下 {gradeOverwriteConfirm.overwriting.length} 份作業已批改過、會被覆寫新分數。
-            </div>
-            <div className="max-h-60 overflow-y-auto mb-4 border border-gray-100 rounded-lg">
-              <ul className="text-sm divide-y divide-gray-100">
-                {gradeOverwriteConfirm.overwriting.map((sub) => {
-                  const stu = students.find((s) => s.id === sub.studentId)
-                  return (
-                    <li key={sub.id} className="px-3 py-2 flex justify-between items-center">
-                      <span className="text-gray-700">{stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)}</span>
-                      <span className="text-xs text-gray-500">{sub.score != null ? `${sub.score}分` : '失敗'}</span>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-            <div className="text-xs text-gray-500 mb-4">共 {gradeOverwriteConfirm.submissions.length} 份要批改（含 {gradeOverwriteConfirm.overwriting.length} 份要覆寫）</div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setGradeOverwriteConfirm(null)}
-                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => {
-                  const candidates = gradeOverwriteConfirm.submissions
-                  setGradeOverwriteConfirm(null)
-                  void executeGradeOnlyCache(candidates)
-                }}
-                className="flex-1 px-4 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors font-medium"
-              >
-                確認重新批改
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 2026-05-30: 批改作業覆寫確認（severity low：Phase B 只重算分；訂正中學生走 reconcile 逐題調和、不粗暴覆寫） */}
+      <DangerConfirmModal
+        open={!!gradeOverwriteConfirm}
+        severity="low"
+        title="重新批改"
+        clears={['舊分數']}
+        keeps={['訂正/申訴紀錄（逐題調和保留）']}
+        affectedNoun="份已批改"
+        affected={(gradeOverwriteConfirm?.overwriting ?? []).map((sub) => {
+          const stu = students.find((s) => s.id === sub.studentId)
+          return {
+            id: sub.id,
+            label: stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8),
+            meta: sub.score != null ? `${sub.score}分` : '失敗',
+          }
+        })}
+        confirmLabel="仍要重新批改"
+        cancelLabel="取消"
+        onCancel={() => setGradeOverwriteConfirm(null)}
+        onConfirm={() => {
+          const candidates = gradeOverwriteConfirm?.submissions ?? []
+          setGradeOverwriteConfirm(null)
+          void executeGradeOnlyCache(candidates)
+        }}
+      />
 
       {/* 🆕 確認對話框 */}
       {showGradeConfirm && (

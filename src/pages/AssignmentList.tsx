@@ -21,6 +21,7 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import { type GradingSettingsValues } from '@/components/GradingSettingsPanel'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
+import DangerConfirmModal from '@/components/DangerConfirmModal'
 import { db, generateId, getBucket, QUESTION_CATEGORY_LABELS } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
@@ -500,7 +501,26 @@ export default function AssignmentList({
   void createSettingsValues; void handleCreateSettingsChange; void settingsAvailableAKs
   void settingsSettingsValues; void handleSettingsSettingsChange; void answerKeyFolders
 
+  // 更換答案卷 + 已有批改 → 先跳危險確認 modal（反直覺、勾選後才解鎖），確認後才真正 commit。
+  const [changeAnswerKeyConfirm, setChangeAnswerKeyConfirm] = useState<{
+    data: AssignmentFormData
+    gradedCount: number
+  } | null>(null)
+
   const handleSaveSettingsFromModal = async (data: AssignmentFormData) => {
+    if (!settingsAssignment) return
+    const akTemplate = data.selectedAnswerKeyId ? allTemplates.find((t) => t.id === data.selectedAnswerKeyId) : null
+    const gradedCount = settingsAssignment.gradedCount ?? 0
+    // 更換答案卷（選了會帶 answerKey 的新卷）且已有批改 → 攔下、跳危險確認
+    if (akTemplate?.answerKey && gradedCount > 0) {
+      setChangeAnswerKeyConfirm({ data, gradedCount })
+      return
+    }
+    await commitSettingsSave(data, false)
+  }
+
+  // 真正執行儲存設定；doClear=true 時連同清除既有批改 + 訂正/申訴（更換答案卷確認後走這裡）
+  const commitSettingsSave = async (data: AssignmentFormData, doClear: boolean) => {
     if (!settingsAssignment) return
     setIsSavingSettings(true)
     try {
@@ -509,10 +529,7 @@ export default function AssignmentList({
       const akTemplate = data.selectedAnswerKeyId ? allTemplates.find((t) => t.id === data.selectedAnswerKeyId) : null
 
       if (akTemplate?.answerKey) {
-        const gradedCount = settingsAssignment.gradedCount ?? 0
-        if (gradedCount > 0) {
-          const ok = window.confirm(`此作業已有 ${gradedCount} 份批改結果，更換答案卷將清除所有批改。確定？`)
-          if (!ok) { setIsSavingSettings(false); return }
+        if (doClear) {
           // 清除本地 Dexie 批改結果
           const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
           for (const sub of subs) {
@@ -524,7 +541,7 @@ export default function AssignmentList({
               })
             }
           }
-          // 同步清除 Supabase 批改結果（否則下次 sync pull 會把舊分數抓回來覆蓋）
+          // 同步清除 Supabase 批改結果 + 訂正/申訴狀態（handleClearGrading force 清、否則 sync pull 會抓回舊分數）
           try {
             const res = await fetch('/api/data/clear-grading', {
               method: 'POST',
@@ -2144,6 +2161,28 @@ export default function AssignmentList({
           answerKeys={allTemplates.map((t) => ({ id: t.id, name: t.name, domain: t.domain, folder: t.folder, answerKey: t.answerKey ? { questions: t.answerKey.questions, totalScore: t.answerKey.totalScore } : undefined, pageOrientations: t.pageOrientations }))}
         />
       )}
+
+      {/* 更換答案卷危險確認（severity high：核彈級、連已完成訂正都清、需勾選） */}
+      <DangerConfirmModal
+        open={!!changeAnswerKeyConfirm}
+        severity="high"
+        title="更換答案卷"
+        clears={['分數', '批改結果', '訂正紀錄', '申訴紀錄']}
+        keeps={['學生作答/訂正照片']}
+        affectedNoun="份批改"
+        affected={changeAnswerKeyConfirm ? [{ id: 'count', label: `此作業已有 ${changeAnswerKeyConfirm.gradedCount} 份批改結果`, meta: '全部失效' }] : []}
+        acknowledgeText="我了解更換答案卷會一併清除所有訂正/申訴紀錄（含「已完成訂正」），且無法復原。"
+        confirmLabel="仍要更換"
+        cancelLabel="取消"
+        busy={isSavingSettings}
+        onCancel={() => setChangeAnswerKeyConfirm(null)}
+        onConfirm={async () => {
+          const pending = changeAnswerKeyConfirm
+          if (!pending) return
+          setChangeAnswerKeyConfirm(null)
+          await commitSettingsSave(pending.data, true)
+        }}
+      />
 
       {/* 新建資料夾對話框 */}
       {isCreateFolderModalOpen && (
