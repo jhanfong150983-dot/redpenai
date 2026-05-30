@@ -647,6 +647,8 @@ interface ConsistencyDecision {
     source: 'ai_read1' | 'ai_read2' | 'blank' | 'manual'
     finalText: string
   }>
+  // 2026-05-30: VJ 視覺判斷題 per-item 老師確認「有沒有畫」（只需確認 review_blank 的項）
+  vjPerItem?: Array<{ idx: number; isBlank: boolean }>
 }
 
 // 2026-05-28: module-level helper — 對單一 questionResult 構造 FinalAnswer
@@ -654,6 +656,30 @@ interface ConsistencyDecision {
 // 一致的位置 → 自動用 AI1 read（兩 AI 相同）
 // 不一致的位置 → 用 decision.mapFillPerPosition[idx] 老師的選擇
 function buildFinalAnswerForQR(qr: PhaseAQuestionResult, decision: ConsistencyDecision | undefined): FinalAnswer {
+  // VJ 視覺判斷題：組 vjBlankConfirmed（auto_not_blank→有畫；review_blank→老師決定，沒選=空白）
+  if (qr.questionType && ['diagram_color', 'map_symbol', 'grid_geometry'].includes(qr.questionType)
+    && qr.visualJudgment && Array.isArray(qr.visualJudgment.perItem)) {
+    const overrides = new Map((decision?.vjPerItem || []).map((d) => [d.idx, d]))
+    const confirmed: Array<{ idx: number; isBlank: boolean }> = []
+    const summary: string[] = []
+    for (const p of qr.visualJudgment.perItem) {
+      let isBlank: boolean
+      if (p.status === 'auto_not_blank') {
+        isBlank = false  // PRO 確定有畫
+      } else {
+        const od = overrides.get(p.idx)
+        isBlank = od ? od.isBlank : true  // review：老師決定，沒選 = 視為空白
+      }
+      confirmed.push({ idx: p.idx, isBlank })
+      summary.push(`${p.label}:${isBlank ? '未作答' : '已作答'}`)
+    }
+    return {
+      questionId: qr.questionId,
+      finalStudentAnswer: summary.join('、'),
+      finalAnswerSource: 'manual',
+      vjBlankConfirmed: confirmed
+    }
+  }
   if (qr.questionType === 'map_fill' && qr.mapFillReadings && Array.isArray(qr.mapFillReadings.perPosition)) {
     const perPos = qr.mapFillReadings.perPosition
     const overrides = new Map((decision?.mapFillPerPosition || []).map((d) => [d.idx, d]))
@@ -1057,6 +1083,98 @@ function ConsistencyQuestionCard({
     : 'bg-orange-100 text-orange-700'
 
   const badgeLabel = isConfirmed ? '已確認' : isUnstable ? '無法判讀' : '讀取不一致'
+
+  // ── 2026-05-30: VJ 視覺判斷題特化（per-item「有沒有畫」確認） ──
+  const visualJudgment = questionResult.visualJudgment
+  const isVJ = !!questionResult.questionType
+    && ['diagram_color', 'map_symbol', 'grid_geometry'].includes(questionResult.questionType)
+    && Array.isArray(visualJudgment?.perItem)
+  if (isVJ && visualJudgment) {
+    const reviewItems = visualJudgment.perItem.filter((p) => p.status !== 'auto_not_blank')
+    const decisionsByIdx = new Map((decision?.vjPerItem || []).map((d) => [d.idx, d]))
+    const allDecided = reviewItems.every((p) => decisionsByIdx.has(p.idx))
+
+    const setVjDecision = (idx: number, isBlank: boolean) => {
+      const existing = decision?.vjPerItem || []
+      const next = [...existing.filter((d) => d.idx !== idx), { idx, isBlank }]
+      const stillAllDecided = reviewItems.every((p) => p.idx === idx || decisionsByIdx.has(p.idx))
+      onDecision(questionId, {
+        source: 'manual',
+        finalAnswer: '',
+        confirmed: stillAllDecided,
+        vjPerItem: next
+      })
+    }
+
+    return (
+      <div className={`rounded-lg border p-3 space-y-2 text-xs ${borderClass}`}>
+        <div className="flex items-center justify-between">
+          <span className="font-semibold text-gray-800">題目 {questionId}（視覺判斷題）</span>
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${badgeClass}`}>
+            {isConfirmed ? '已確認' : `${reviewItems.length} 項待確認`}
+          </span>
+        </div>
+        <div className="text-[11px] text-gray-600">
+          共 {visualJudgment.perItem.length} 項、
+          <span className="text-green-700 font-semibold">{visualJudgment.perItem.length - reviewItems.length}</span> 項 AI 確定有畫已自動批改、
+          <span className="text-orange-700 font-semibold">{reviewItems.length}</span> 項請確認學生有沒有作答。
+        </div>
+        {answerCropImageUrl && (
+          <div className="rounded border border-gray-200 bg-white p-1">
+            <img
+              src={answerCropImageUrl}
+              alt={`題目 ${questionId} 學生作答圖`}
+              className="w-full max-h-[180px] object-contain cursor-zoom-in"
+              onClick={() => setZoomedImg(true)}
+            />
+          </div>
+        )}
+        <div className="space-y-1.5">
+          {reviewItems.map((p) => {
+            const dec = decisionsByIdx.get(p.idx)
+            return (
+              <div key={p.idx} className="rounded border border-gray-200 bg-white p-2 space-y-1">
+                <div className="text-[11px] font-bold text-gray-700">{p.label}</div>
+                <div className="text-[10px] text-gray-500">AI 沒看到筆跡，請確認學生這格有沒有作答：</div>
+                <div className="grid grid-cols-2 gap-1">
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setVjDecision(p.idx, false)}
+                    className={`rounded border px-1.5 py-1 text-[11px] font-semibold ${
+                      dec && !dec.isBlank ? 'border-green-500 bg-green-50' : 'border-gray-200 bg-gray-50 hover:bg-green-50'
+                    }`}
+                  >
+                    有畫（送批改）
+                  </button>
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => setVjDecision(p.idx, true)}
+                    className={`rounded border px-1.5 py-1 text-[11px] font-semibold ${
+                      dec && dec.isBlank ? 'border-gray-500 bg-gray-100' : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
+                    }`}
+                  >
+                    沒畫（0 分）
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        {allDecided && (
+          <div className="text-[11px] text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1">
+            ✓ 全部已確認、可送出
+          </div>
+        )}
+        {zoomedImg && answerCropImageUrl && (
+          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center cursor-zoom-out" onClick={() => setZoomedImg(false)}>
+            <img src={answerCropImageUrl} alt="放大" className="max-w-[95vw] max-h-[95vh] object-contain" />
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // ── 2026-05-28: map_fill 特化（per-position 表格） ──
   const mapFillReadings = questionResult.mapFillReadings

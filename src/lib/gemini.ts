@@ -204,6 +204,7 @@ type GeminiRouteKey =
   | 'answer_key.locate'
   | 'answer_key.reanalyze'
   | 'answer_key.tag_concepts'
+  | 'grading.vj_rubric'
   | 'report.teacher_summary'
   | 'report.domain_diagnosis'
   | 'unknown'
@@ -246,6 +247,17 @@ export interface PhaseAQuestionResult {
       consistent: boolean
     }>
   }
+  // 2026-05-30: VJ 視覺判斷題 per-item blank 分類（server Phase A 單一 PRO blank reader 後產出）
+  // auto_not_blank=有畫→自動送 grade；review_blank=空白→老師確認是否作答
+  visualJudgment?: {
+    itemLabels: string[]
+    perItem: Array<{
+      idx: number
+      label: string
+      hasMark: 'yes' | 'no'
+      status: 'auto_not_blank' | 'review_blank'
+    }>
+  }
 }
 
 export interface PhaseAContext {
@@ -282,6 +294,8 @@ export interface FinalAnswer {
   finalAnswerSource: 'ai_read1' | 'ai_read2' | 'ai_arbiter' | 'manual' | 'unrecognizable'
   // 2026-05-28: map_fill 每位置確認後的學生文字（給 Phase B 跑 deterministic match）
   mapFillFinalReadings?: Array<{ position_idx: number; student_text: string }>
+  // 2026-05-30: VJ 每子元素確認後的 blank 狀態（給 Phase B 決定哪些項要跑 grade）
+  vjBlankConfirmed?: Array<{ idx: number; isBlank: boolean }>
 }
 
 // 2026-05-18: 5-stage 進度回報、給 UI overlay 顯示「目前跑到第幾階段」
@@ -5363,9 +5377,99 @@ export async function extractAnswerKeyFromImages(
         })
       )
     }
+
+    // ─── Phase 4b: VJ 視覺判斷題 rubric 偵測（A0）────────────────────────────
+    // 對每個 diagram_color / map_symbol / grid_geometry 題、用 cropImageUrl 跑 A0、存 vjRubric
+    // 設計 2026-05-30：批改時 blank reader 判有沒有畫、Phase B 用 gradingDefinition 判對錯
+    const VJ_CATS = ['diagram_color', 'map_symbol', 'grid_geometry']
+    const vjQs = result.questions.filter((q) => VJ_CATS.includes(q.questionCategory ?? '') && q.cropImageUrl)
+    if (vjQs.length > 0) {
+      console.log(`🎨 [AnswerKey VJ] ${vjQs.length} 題、跑 A0 rubric 偵測...`)
+      await Promise.all(
+        vjQs.map(async (q) => {
+          try {
+            const vjRubric = await detectVisualRubric(
+              q.cropImageUrl!,
+              q.questionCategory ?? '',
+              q.referenceAnswer || (q as { answer?: string }).answer || ''
+            )
+            if (vjRubric && vjRubric.itemLabels.length > 0) {
+              ;(q as { vjRubric?: typeof vjRubric }).vjRubric = vjRubric
+              console.log(`  ✅ ${q.id}: ${vjRubric.itemLabels.length} items`)
+            } else {
+              console.warn(`  ⚠️ ${q.id}: A0 回空、無 vjRubric`)
+            }
+          } catch (e) {
+            console.warn(`  ❌ ${q.id}: A0 失敗`, e)
+          }
+        })
+      )
+    }
   }
 
   return result
+}
+
+// ─── VJ Stage A0: 看 AnswerKey crop 產生 vjRubric ───────────────────────────
+// 對應 server 端 visual-judgment-grader.js 的 buildVjRubricPrompt / parseVjRubricResult（須同步）
+async function detectVisualRubric(
+  cropImageDataUrl: string,
+  category: string,
+  refText: string
+): Promise<{ itemLabels: string[]; condition: string; gradingDefinition: string } | null> {
+  const m = cropImageDataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) {
+    console.warn('[VJ A0] cropImageUrl 非 dataURL、跳過')
+    return null
+  }
+  const mimeType = m[1]
+  const data = m[2]
+  const refLine = refText ? `\n【題目要求（hint）】${refText}` : ''
+
+  const prompt = category === 'diagram_color'
+    ? `這是一張**數學畫記/塗色題的答案卷**（老師畫的正解）。學生要在每個圖形上畫記或塗色作答。${refLine}
+
+任務：找出**所有需要學生作答的獨立子元素**（每個圖形/區域一個），並寫出評判條件。
+
+【輸出 JSON（純 JSON、無 markdown）】
+{
+  "itemLabels": ["左上半圓柱體", "右上長方體", "左下三角柱體", "右下五角柱體"],
+  "condition": "每個柱體用藍筆描出至少一條合法柱高",
+  "gradingDefinition": "柱高=連接前後兩底面的側稜（長度方向的邊）；**任何一條連接兩底面的側稜都算正確**（不只一條標準答案）；畫在底面內的邊／半徑／對角線＝錯。"
+}
+
+【規則】
+- itemLabels：用「方位 + 圖形名」依「左上→右上→左下→右下」順序列出，每個獨立圖形一項。
+- condition：一句話總結學生每項該做什麼。
+- gradingDefinition：**寫清楚「什麼樣的作答算對」**，特別是「有多個等價合法位置」時要明講。
+- 只看印刷正解、不臆造看不到的圖形。
+只輸出 JSON。`
+    : `這是一張**視覺作答題的答案卷**（老師畫的正解）。${refLine}
+
+任務：找出所有需要學生作答的獨立子元素，並寫出評判條件。${category === 'map_symbol' ? '學生在地圖/圖上畫符號或標位置。gradingDefinition 要寫清楚「正確符號 + 正確相對位置」的判準。' : '學生在格線上畫指定幾何圖形。gradingDefinition 要寫清楚「正確形狀 + 尺寸(格數) + 位置」的判準，並註明等價的合法畫法。'}
+
+【輸出 JSON】
+{ "itemLabels": ["...", "..."], "condition": "...", "gradingDefinition": "..." }
+
+依閱讀順序列出 itemLabels，只看印刷正解、不臆造。只輸出 JSON。`
+
+  const rawText = (await generateGeminiText(currentModelName, [
+    prompt,
+    { inlineData: { mimeType, data } }
+  ], {
+    routeKey: 'grading.vj_rubric'  // → server STAGE_MODEL = PRO
+  })).replace(/```json|```/g, '').trim()
+
+  let parsed
+  try { parsed = JSON.parse(rawText) } catch { return null }
+  if (!parsed || !Array.isArray(parsed.itemLabels)) return null
+  const itemLabels = parsed.itemLabels.map((s: unknown) => String(s ?? '').trim()).filter(Boolean)
+  if (itemLabels.length === 0) return null
+  return {
+    itemLabels,
+    condition: String(parsed.condition ?? '').trim(),
+    gradingDefinition: String(parsed.gradingDefinition ?? '').trim()
+  }
 }
 
 // ─── map_fill Stage A: 看 AnswerKey crop 偵測每位置 {name, desc} ────────────

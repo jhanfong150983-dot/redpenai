@@ -291,6 +291,15 @@ export interface AnswerKeyQuestion {
     name: string  // 該位置的標準地名（如「摩洛哥」）
     desc: string  // 該位置的方位描述（如「西北角、臨地中海」）
   }>
+
+  // 2026-05-30: VJ 視覺判斷題（diagram_color / map_symbol / grid_geometry）的 rubric
+  // A0 看答案卷 crop 產生：每個子元素一項 + 評判條件 + gradingDefinition（什麼算對，含等價合法位置）
+  // 詳見 server/ai/visual-judgment-grader.js
+  vjRubric?: {
+    itemLabels: string[]       // 每個要作答的子元素（如「左上半圓柱體」）
+    condition?: string         // 學生每項該做什麼（一句話）
+    gradingDefinition?: string // 什麼樣的作答算對（Phase B grade 判準）
+  }
 }
 
 export interface AnswerKey {
@@ -495,6 +504,13 @@ export interface GradingDetail {
     student: string      // AI 從學生圖讀到的內容（如「中國」或 ""）
     status: 'correct' | 'wrong' | 'blank' | 'unclear'
     desc?: string        // 該位置的方位描述
+  }>
+  // 2026-05-30: VJ 視覺判斷題逐項對錯細節（diagram_color / map_symbol / grid_geometry）
+  vjItemResults?: Array<{
+    idx: number          // 1-based 子元素編號
+    label: string        // 子元素名（如「左上半圓柱體」）
+    verdict: 'correct' | 'wrong' | 'blank'
+    reason: string       // 簡短理由（如「位置正確」「未作答」）
   }>
   // 批改時嵌入的 108 課綱概念標記（來自 assignment.conceptTags，批改當下凍結）
   conceptCode?: string
