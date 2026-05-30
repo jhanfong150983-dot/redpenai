@@ -3652,15 +3652,18 @@ export default function GradingPage({
     if (inkSessionError) { alert(inkSessionError); return }
     if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
     if (!isGeminiAvailable) { alert('Gemini 服務未設定'); return }
-    // 2026-05-28: Q1 — 在跑 AI 前清訂正狀態
-    const { clearIds } = partitionCandidatesByCorrection(candidates)
-    if (clearIds.size > 0) {
-      try {
-        await clearCorrectionForRerunOnServer(Array.from(clearIds))
-      } catch (err) {
-        alert(err instanceof Error ? err.message : '清訂正狀態失敗')
-        return
-      }
+    // 2026-05-30: Phase B 重批不再整批清訂正/申訴；改逐題比對調和（reconcile-phase-b-regrade）。
+    // 對「目前在訂正/申訴/已完成訂正」狀態的學生：算完 Phase B 後送 reconcile、只動對錯翻轉的題、
+    // 保留未變動題的訂正/申訴成果、申訴中判對自動平反。其餘學生走原本 save-grading。
+    // （政策見 redpenaisever/docs/批改重跑與清除政策.md §5）
+    const reconcileStudentIds = new Set<string>()
+    for (const sub of candidates) {
+      const st = sub.studentId ? correctionStatusByStudent[sub.studentId] : undefined
+      if (
+        st === 'correction_required' || st === 'correction_in_progress' ||
+        st === 'correction_pending_review' || st === 'correction_failed' ||
+        st === 'correction_passed'
+      ) reconcileStudentIds.add(sub.studentId)
     }
 
     setIsGrading(true)
@@ -3742,14 +3745,41 @@ export default function GradingPage({
             sub.finalAnswers as FinalAnswer[] | undefined,
             (stage, event) => bumpStage(stage, event)
           )
-          const totalScore = result.totalScore ?? 0
+          // 訂正/申訴中的學生：走 reconcile（server 端逐題調和 + 存回原卷、回傳調整後的 grade）。
+          // 其餘學生：直接 save-grading。
+          let finalResult = result
+          if (reconcileStudentIds.has(sub.studentId)) {
+            try {
+              const rc = await fetch('/api/data/reconcile-phase-b-regrade', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  assignmentId: assignment?.id,
+                  studentId: sub.studentId,
+                  submissionId: sub.id,
+                  gradingResult: result,
+                }),
+              })
+              const rcData = await rc.json().catch(() => ({}))
+              if (rc.ok && rcData?.gradingResult) {
+                finalResult = rcData.gradingResult
+                console.log(`[reconcile] ${sub.studentId.slice(-6)} → ${rcData.newStatus}`, rcData.reconcile)
+              } else {
+                console.warn(`[reconcile] failed ${sub.id}:`, rcData?.error)
+              }
+            } catch (e) {
+              console.warn(`[reconcile] error ${sub.id}:`, e)
+            }
+          }
+          const totalScore = finalResult.totalScore ?? 0
           const gradedAtMs = Date.now()
           await db.submissions.update(sub.id, {
             status: 'graded',
             score: totalScore,
             aiScore: totalScore,
             scoreSource: 'ai',
-            gradingResult: result,
+            gradingResult: finalResult,
             gradedAt: gradedAtMs,
             updatedAt: gradedAtMs,
           })
@@ -3763,25 +3793,28 @@ export default function GradingPage({
               score: totalScore,
               aiScore: totalScore,
               scoreSource: 'ai',
-              gradingResult: result,
+              gradingResult: finalResult,
               gradedAt: gradedAtMs,
               updatedAt: gradedAtMs
             })
             return next
           })
-          fetch('/api/data/save-grading', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              submissions: [{
-                id: sub.id, score: totalScore, aiScore: totalScore, scoreSource: 'ai',
-                gradingResult: result, gradedAt: gradedAtMs
-              }]
-            })
-          }).catch(() => {/* non-fatal */})
+          // reconcile 已在 server 端存回原卷；非 reconcile 學生才需 save-grading（避免覆蓋 reconcile 結果）
+          if (!reconcileStudentIds.has(sub.studentId)) {
+            fetch('/api/data/save-grading', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                submissions: [{
+                  id: sub.id, score: totalScore, aiScore: totalScore, scoreSource: 'ai',
+                  gradingResult: finalResult, gradedAt: gradedAtMs
+                }]
+              })
+            }).catch(() => {/* non-fatal */})
+          }
           successCount++
-          return result
+          return finalResult
         } catch (err) {
           const stu = students.find((s) => s.id === sub.studentId)
           const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
@@ -3813,7 +3846,7 @@ export default function GradingPage({
     })
   }, [
     inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students,
-    partitionCandidatesByCorrection, clearCorrectionForRerunOnServer
+    correctionStatusByStudent
   ])
 
   // 2026-05-17: Phase B only 入口（批改作業按鈕）
