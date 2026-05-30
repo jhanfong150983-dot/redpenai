@@ -160,6 +160,59 @@ export function isPhaseAStale(sub: Submission | undefined, correctionStatus?: st
   return pasAt > 0 && pasAt > gradedAt
 }
 
+// 2026-05-30: 「需老師確認」的單一定義（卡片 + detail banner + 審查面板 + Phase B 閘門共用）
+const VJ_REVIEW_TYPES = ['diagram_color', 'map_symbol', 'grid_geometry']
+/**
+ * 一題是否需要老師確認 = AI 標 needs_review，或「答案空白」需確認真空白。
+ * map_fill / VJ 有自己的逐位置 / 逐柱確認流程（排除、不走這條空白判斷）。
+ */
+export function questionNeedsConfirm(arbiterStatus?: string, finalAnswer?: string, questionType?: string): boolean {
+  if (arbiterStatus === 'needs_review') return true
+  if (questionType === 'map_fill' || VJ_REVIEW_TYPES.includes(questionType || '')) return false
+  // 空白（arbiter 同意但最終答案空）→ 要老師在審查面板確認「真空白 / 其實有寫」
+  if (arbiterStatus === 'arbitrated_agree' && !(finalAnswer || '').trim()) return true
+  return false
+}
+
+/**
+ * 整份卷是否「還有未確認的待複核題」——卡片與 detail banner 的唯一事實來源。
+ * - 未審查 / stale → 看 phase_a_state.arbiterDecisions（含 blank 偵測）有沒有未確認題
+ * - 已審查（非 stale + 有 finalAnswers）→ 審查面板已逐題確認（含 blank），只剩兩種殘留：
+ *     A 漏題（某題沒 finalAnswer）、B 無法辨識（finalStudentAnswer='無法辨識'）
+ */
+export function submissionPendingReview(sub?: Submission, correctionStatus?: string): boolean {
+  if (!sub) return false
+  if (sub.gradingResult?.manuallyReviewed) return false // 舊資料相容
+  const stale = isPhaseAStale(sub, correctionStatus)
+  if (sub.status === 'graded' && !stale) return false // Phase B 完成 = 已處理
+
+  const details = (sub.gradingResult as { details?: Array<{ questionId?: string; questionType?: string; arbiterResult?: { arbiterStatus?: string; finalAnswer?: string } }> } | undefined)?.details ?? []
+  const typeByQid = new Map(details.map((d) => [d.questionId, d.questionType]))
+
+  // 已審查：只看 A（缺 finalAnswer）/ B（無法辨識）殘留
+  const finalAnswers = sub.finalAnswers
+  if (!stale && Array.isArray(finalAnswers) && finalAnswers.length > 0) {
+    const phaseAQids = sub.phaseAState?.questionIds
+    const expectedQids = ((Array.isArray(phaseAQids) && phaseAQids.length > 0
+      ? phaseAQids
+      : details.map((d) => d.questionId)).filter(Boolean)) as string[]
+    const finalByQid = new Map(finalAnswers.map((fa) => [fa.questionId, fa.finalStudentAnswer]))
+    const hasUnrecognizable = finalAnswers.some((fa) => (fa.finalStudentAnswer || '').trim() === '無法辨識') // B
+    const missing = expectedQids.some((q) => !finalByQid.has(q)) // A
+    return hasUnrecognizable || missing
+  }
+
+  // 未審查 / stale：用 arbiterDecisions（含 blank）
+  const decisions = (sub.phaseAState?.arbiterDecisions ?? []) as Array<{ questionId?: string; arbiterStatus?: string; finalAnswer?: string }>
+  if (decisions.length > 0) {
+    return decisions.some((d) => questionNeedsConfirm(d.arbiterStatus, d.finalAnswer, typeByQid.get(d.questionId)))
+  }
+  if (details.length > 0) {
+    return details.some((d) => questionNeedsConfirm(d.arbiterResult?.arbiterStatus, d.arbiterResult?.finalAnswer, d.questionType))
+  }
+  return false
+}
+
 /**
  * 2026-05-17: 從 Submission 衍生卡片狀態
  * 用於：卡片 badge / 動態按鈕邏輯 / Modal 攜截檢查
@@ -189,55 +242,18 @@ export function deriveCardStage(sub: Submission | undefined, correctionStatus?: 
   // XX 分：明確 graded + 有 score、且 Phase A 沒有比 Phase B 新（避免 Phase A 重跑後顯示舊 score）
   if (sub.status === 'graded' && sub.score != null && !isPhaseAStale(sub, correctionStatus)) return 'graded'
 
-  // 2026-05-18: 優先看 final_answers（老師審查確認後的最終答案）
-  // 規則：
-  //   - 全部題目都有 finalAnswer 且沒有「無法辨識」→ 待批改
-  //   - 任一題目「無法辨識」或缺答案 → 待複核（老師標記要再看）
-  // 完整性檢查依序 fallback：phaseAState.questionIds > gradingResult.details.length
-  // （phaseAState 可能還沒從 server sync 下來、用 details 當備援）
+  // 2026-05-30: 待複核 vs 待批改 統一用 submissionPendingReview（卡片 + detail banner 同一事實來源）
+  // 已擷取（有 finalAnswers / phase_a_state.arbiterDecisions / gradingResult.details）→
+  //   還有未確認題（含 blank）→ 待複核；全部確認 → 待批改
   const finalAnswers = sub.finalAnswers
-  if (Array.isArray(finalAnswers) && finalAnswers.length > 0) {
-    const phaseAQuestionIds = sub.phaseAState?.questionIds
-    const detailsArr = (sub.gradingResult as { details?: Array<{ questionId: string }> } | undefined)?.details
-    const expectedQids: string[] | null = Array.isArray(phaseAQuestionIds) && phaseAQuestionIds.length > 0
-      ? phaseAQuestionIds
-      : Array.isArray(detailsArr) && detailsArr.length > 0
-        ? detailsArr.map((d) => d.questionId).filter(Boolean)
-        : null
-
-    if (expectedQids && expectedQids.length > 0) {
-      const finalByQid = new Map(finalAnswers.map((fa) => [fa.questionId, fa.finalStudentAnswer]))
-      const hasUnrecognizable = finalAnswers.some(
-        (fa) => (fa.finalStudentAnswer || '').trim() === '無法辨識'
-      )
-      const missingCount = expectedQids.filter((qid) => !finalByQid.has(qid)).length
-      // 2026-05-28: 老師手動標記已複核 → 視為已處理、走 'pending_grading' (待批改) 不走 'pending_review'
-      if (sub.gradingResult?.manuallyReviewed) return 'pending_grading'
-      if (hasUnrecognizable || missingCount > 0) return 'pending_review'
-      return 'pending_grading'
-    }
-  }
-
-  // 沒 final_answers → 從 phase_a_state.arbiterDecisions 判斷（Phase A 跑完、老師還沒審查）
   const phaseAState = sub.phaseAState
-  if (phaseAState?.arbiterDecisions && phaseAState.arbiterDecisions.length > 0) {
-    // 2026-05-28: 老師手動標記已複核 → 視為已處理、走 'pending_grading' 不再顯示待複核
-    if (sub.gradingResult?.manuallyReviewed) return 'pending_grading'
-    const hasNeedsReview = phaseAState.arbiterDecisions.some(
-      (d) => d.arbiterStatus === 'needs_review'
-    )
-    return hasNeedsReview ? 'pending_review' : 'pending_grading'
-  }
-
-  // 從舊 gradingResult.details 判斷（向下相容：舊資料沒 phase_a_state、但有 gradingResult）
-  const details = (sub.gradingResult as { details?: Array<{ arbiterResult?: { arbiterStatus?: string } }> } | undefined)?.details
-  if (Array.isArray(details) && details.length > 0) {
-    // 2026-05-28: 老師手動標記已複核 → 視為已處理
-    if (sub.gradingResult?.manuallyReviewed) return 'pending_grading'
-    const hasNeedsReview = details.some(
-      (d) => d.arbiterResult?.arbiterStatus === 'needs_review'
-    )
-    return hasNeedsReview ? 'pending_review' : 'pending_grading'
+  const details = (sub.gradingResult as { details?: unknown[] } | undefined)?.details
+  const isExtracted =
+    (Array.isArray(finalAnswers) && finalAnswers.length > 0) ||
+    (Array.isArray(phaseAState?.arbiterDecisions) && phaseAState.arbiterDecisions.length > 0) ||
+    (Array.isArray(details) && details.length > 0)
+  if (isExtracted) {
+    return submissionPendingReview(sub, correctionStatus) ? 'pending_review' : 'pending_grading'
   }
 
   // synced 但無批改 / 無 phase_a_state → 未擷取
@@ -374,41 +390,9 @@ function formatDisplayQuestionId(questionId?: string | null) {
   return questionId.startsWith('#') ? questionId.slice(1) : questionId
 }
 
-/** 判斷該份批改結果是否需要老師複核（相容舊資料） */
+/** 判斷該份批改結果是否需要老師複核 — 2026-05-30 統一改用 submissionPendingReview（與卡片同源） */
 function isSubmissionNeedsReview(sub?: Submission, correctionStatus?: string): boolean {
-  if (!sub) return false
-  // 老師手動點過「標記已複核」→ 直接視為不需複核（不論 Phase A stale 與否）
-  if (sub.gradingResult?.manuallyReviewed) return false
-
-  // 2026-05-28: Phase A 比 Phase B 新時、忽略舊 gradingResult.needsReview / reviewReasons、
-  // 看新的 phaseAState.arbiterDecisions、避免舊 Phase B 留下的複核警告賴在新 Phase A 結果上
-  if (isPhaseAStale(sub, correctionStatus)) {
-    const decisions = sub.phaseAState?.arbiterDecisions ?? []
-    return decisions.some((d) => d?.arbiterStatus === 'needs_review')
-  }
-
-  const gradingResult = sub.gradingResult
-  if (!gradingResult) return false
-
-  // 2026-05-28: Phase B 完成（status='graded' + 非 stale）= 老師已在 Phase A
-  // ConsistencyReviewPanel 處理過所有 needs_review 題目。
-  // Phase B 結果裡的 needsReview/reviewReasons 來自 classify.coverage 跟 unreadable、
-  // 都是 Phase A 該處理的事、Phase B 完成後不該再吐「需複核」徽章
-  // （server 端 staged-grading.js Phase B build 也清掉了、這裡是 client 防護給歷史資料）
-  if (sub.status === 'graded') return false
-
-  // 「未作答」全是學生明確沒寫，不需老師確認 → 過濾掉純「未作答」reasons
-  const isBlankReason = (r: string) =>
-    !!r && (r.includes('辨識為未作答') || r.includes('題未作答'))
-  const reasons = gradingResult.reviewReasons || []
-  const meaningfulReasons = reasons.filter((r) => !isBlankReason(r))
-  if (gradingResult.needsReview) {
-    // 若 server 標記 needsReview 但 reasons 全都是「未作答」相關 → 視為不需複核（老的 grading 紀錄）
-    if (reasons.length > 0 && meaningfulReasons.length === 0) return false
-    return true
-  }
-  const details = gradingResult.details ?? []
-  return details.some((d) => d.studentAnswer === '無法辨識' || d.studentAnswer === 'AI無法辨識')
+  return submissionPendingReview(sub, correctionStatus)
 }
 
 function toUserFriendlyReviewReason(rawReason: string) {
@@ -1582,7 +1566,8 @@ function BatchConsistencyReviewSection({
   // Helper: determine if a question needs human review
   // New architecture: use arbiterResult.arbiterStatus; fall back to consistencyStatus for old data
   const isNeedsReview = (q: PhaseAQuestionResult) => {
-    if (q.arbiterResult) return q.arbiterResult.arbiterStatus === 'needs_review'
+    // 2026-05-30: needs_review 或 blank（空白要老師確認真空白）都進審查；map_fill/VJ 自己排除
+    if (q.arbiterResult) return questionNeedsConfirm(q.arbiterResult.arbiterStatus, q.arbiterResult.finalAnswer, q.questionType)
     return q.consistencyStatus !== 'stable'  // legacy fallback
   }
 
@@ -2147,7 +2132,7 @@ export default function GradingPage({
         const gradedAt = new Date().toISOString()
         const forensicUpdates = entry.phaseAResult.questionResults.map((qr) => {
           const arbiter = qr.arbiterResult
-          const isNeedsReview = arbiter?.arbiterStatus === 'needs_review'
+          const isNeedsReview = questionNeedsConfirm(arbiter?.arbiterStatus, arbiter?.finalAnswer, qr.questionType)
           const decision = entry.decisions.get(qr.questionId)
           const phaseBDetail = gradingResult.details?.find((d) => d.questionId === qr.questionId)
           let teacherReviewPick: string | null = null
@@ -3590,8 +3575,9 @@ export default function GradingPage({
     }
 
     // 2026-05-18: 篩出有 needs_review 的 entries、若有 → 進審查頁（不接 Phase B）
+    // 2026-05-30: 含 blank（空白要老師確認）
     const needsReviewEntries = successfulEntries.filter((entry) =>
-      entry.phaseAResult.questionResults.some((qr) => qr.arbiterResult?.arbiterStatus === 'needs_review')
+      entry.phaseAResult.questionResults.some((qr) => questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType))
     )
     if (needsReviewEntries.length > 0) {
       console.log(`[recaptureOnly] ${needsReviewEntries.length} 份有 needs_review、進審查頁`)
@@ -4666,10 +4652,10 @@ export default function GradingPage({
         setBatchPhaseAEntries(validEntries)
         setPendingPhaseAFailures(phaseAFailures)
 
-        // ── 穩定學生立刻送 Accessor（背景） ──
+        // ── 穩定學生立刻送 Accessor（背景） ── 2026-05-30: blank 也算需審查、不自動送
         const isNeedsReview = (e: BatchPhaseAEntry) =>
           e.phaseAResult.questionResults.some(qr =>
-            qr.arbiterResult?.arbiterStatus === 'needs_review'
+            questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType)
           )
         const stableEntries = validEntries.filter(e => !isNeedsReview(e))
         const reviewEntries = validEntries.filter(e => isNeedsReview(e))
@@ -6379,57 +6365,12 @@ export default function GradingPage({
                       </div>
                     </div>
 
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                      {selectedConfidenceLabel ? (
-                        <p className="text-xs text-amber-700">{selectedConfidenceLabel}</p>
-                      ) : (
-                        <span />
-                      )}
-                      <button
-                        onClick={async () => {
-                          const id = selectedSubmission.submission.id
-                          const submission = await db.submissions.get(id)
-                          if (!submission?.gradingResult) return
-
-                          const newGradingResult = {
-                            ...submission.gradingResult,
-                            needsReview: false,
-                            reviewReasons: [],
-                            manuallyReviewed: true
-                          }
-                          const totalScore = typeof newGradingResult.totalScore === 'number' ? newGradingResult.totalScore : undefined
-                          const confirmNow = Date.now()
-                          // 2026-05-28: Phase A 比 Phase B 新時、「標記已複核」不可寫 gradedAt / score
-                          // 否則會把 stale Phase A 「假裝」成已批改、卡片顯示舊分數
-                          // 此情境下只寫 manuallyReviewed flag、user 要再跑 Phase B 才會更新 score
-                          const stale = isPhaseAStale(submission, correctionStatusByStudent[submission.studentId])
-                          await db.submissions.update(id, {
-                            gradingResult: newGradingResult,
-                            ...(!stale && totalScore !== undefined ? { score: totalScore, aiScore: totalScore, scoreSource: 'ai' as const } : {}),
-                            ...(!stale ? { gradedAt: confirmNow } : {}),
-                            updatedAt: confirmNow
-                          })
-                          if (!stale && totalScore !== undefined) {
-                            fetch('/api/data/save-grading', {
-                              method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-                              body: JSON.stringify({ submissions: [{ id, score: totalScore, aiScore: totalScore, scoreSource: 'ai', gradingResult: newGradingResult, gradedAt: confirmNow }] })
-                            }).catch(() => {})
-                          }
-                          requestSync()
-
-                          const updated = await db.submissions.get(id)
-                          if (updated) {
-                            setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
-                            const student = students.find((s) => s.id === updated.studentId)
-                            if (student) setSelectedSubmission({ submission: updated, student })
-                          }
-                        }}
-                        className="inline-flex items-center gap-1 rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-200"
-                      >
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        標記已複核
-                      </button>
-                    </div>
+                    {/* 2026-05-30: 移除「標記已複核」整份按鈕 — 改成就地處理：
+                        待複核題在審查面板/detail 逐題確認(blank 按有畫沒畫、無法辨識改答案)、
+                        全部確認後警告自動消失，不用滑回上面按。 */}
+                    {selectedConfidenceLabel && (
+                      <p className="mt-3 text-xs text-amber-700">{selectedConfidenceLabel}</p>
+                    )}
                   </div>
                 )}
 
