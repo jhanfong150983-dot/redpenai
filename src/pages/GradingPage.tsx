@@ -190,8 +190,11 @@ export function submissionPendingReview(sub?: Submission, correctionStatus?: str
   const typeByQid = new Map(details.map((d) => [d.questionId, d.questionType]))
 
   // 已審查：只看 A（缺 finalAnswer）/ B（無法辨識）殘留
+  // 2026-05-30: 不可加 !stale 閘 — isPhaseAStale 對「Phase A 完、還沒 Phase B」一律 true(gradedAt=0)，
+  // 會把「已審查確認過、只是還沒批改」的卷誤判成未審查、又拿 arbiterDecisions 重新吐 needs_review。
+  // 原本卡片 deriveCardStage 就是無條件看 finalAnswers，這裡跟它對齊。
   const finalAnswers = sub.finalAnswers
-  if (!stale && Array.isArray(finalAnswers) && finalAnswers.length > 0) {
+  if (Array.isArray(finalAnswers) && finalAnswers.length > 0) {
     const phaseAQids = sub.phaseAState?.questionIds
     const expectedQids = ((Array.isArray(phaseAQids) && phaseAQids.length > 0
       ? phaseAQids
