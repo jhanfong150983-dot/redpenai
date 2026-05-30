@@ -3073,9 +3073,8 @@ export default function GradingPage({
               cellResults: Array.isArray(d.cellResults) ? d.cellResults : undefined,
               // fill_blank 合題：保留每空對錯細節（人工複核 UI 用）
               partResults: Array.isArray(d.partResults) ? d.partResults : undefined,
-              // VJ 逐柱（render 逐柱按鈕 + toggle 用）+ crop（白名單原本漏了這兩個）
+              // VJ 逐柱（render 逐柱按鈕 + toggle 用）— 白名單原本漏了
               vjItemResults,
-              answerCropImageUrl: d.answerCropImageUrl ?? undefined,
             }
           })
         )
@@ -6580,13 +6579,7 @@ export default function GradingPage({
                                   <span className="font-semibold text-gray-900">{String(d.studentAnswer || '圖上作答')}</span>
                                   <span className="text-[10px] text-gray-400">（視覺判斷題 — 逐項確認有沒有畫）</span>
                                 </div>
-                                {d.answerCropImageUrl && (
-                                  <img
-                                    src={d.answerCropImageUrl}
-                                    alt="學生作答"
-                                    className="max-h-40 rounded border border-gray-200 object-contain"
-                                  />
-                                )}
+                                {/* 2026-05-30: 不放 crop 小圖 — detail 已有整張全圖、且只有進審查的題才有 crop（不一致）。看圖用左側全圖。 */}
                                 <div className="space-y-1">
                                   {vjItems.map((it) => {
                                     const isBlank = it.verdict === 'blank'
