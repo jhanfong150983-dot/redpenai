@@ -4881,6 +4881,84 @@ export default function GradingPage({
     studentAnswerSaveTimeoutsRef.current.set(index, timeout)
   }
 
+  // 2026-05-30: VJ 視覺判斷題 — 老師逐柱切「有畫/沒畫」（取代文字編輯）。
+  // 寫回 finalAnswers[qid].vjBlankConfirmed（整題逐柱）+ studentAnswer 摘要、卷退回待批改、重批時 Phase B 照此判分。
+  const handleDetailVjBlankToggle = async (index: number, itemIdx: number, newIsBlank: boolean) => {
+    if (!selectedSubmission) return
+    if (isBusy || isSavingScore) return
+    const subId = selectedSubmission.submission.id
+    const applyItems = (items: Array<{ idx: number; label: string; verdict: string; reason: string }>) =>
+      items.map((it) => it.idx === itemIdx
+        ? { ...it, verdict: newIsBlank ? 'blank' : 'pending', reason: newIsBlank ? '未作答' : '待重新批改' }
+        : it)
+    const summaryOf = (items: Array<{ verdict: string }>) =>
+      items.some((it) => it.verdict !== 'blank') ? '圖上作答' : '未作答'
+
+    // 即時更新 UI
+    setEditableDetails((prev) => prev.map((d: any, i: number) => {
+      if (i !== index) return d
+      const items = Array.isArray(d.vjItemResults) ? d.vjItemResults : []
+      const next = applyItems(items)
+      return { ...d, vjItemResults: next, studentAnswer: summaryOf(next) }
+    }))
+
+    // 持久化
+    const submission = await db.submissions.get(subId)
+    if (!submission) return
+    const grDetails = (submission.gradingResult as { details?: any[] } | undefined)?.details
+    if (!Array.isArray(grDetails)) return
+    const targetDetail = grDetails[index]
+    const qid: string = targetDetail?.questionId
+    if (!qid) return
+    const items = Array.isArray(targetDetail?.vjItemResults) ? targetDetail.vjItemResults : []
+    const nextItems = applyItems(items)
+    const summary = summaryOf(nextItems)
+    const updatedDetails = grDetails.map((d, i) => (i === index ? { ...d, vjItemResults: nextItems, studentAnswer: summary } : d))
+    const newGradingResult = { ...(submission.gradingResult || {}), details: updatedDetails } as Submission['gradingResult']
+
+    // vjBlankConfirmed：整題逐柱（isBlank = verdict==='blank'）
+    const vjBlankConfirmed = nextItems.map((it: { idx: number; verdict: string }) => ({ idx: it.idx, isBlank: it.verdict === 'blank' }))
+    const existingByQid = new Map(
+      (Array.isArray(submission.finalAnswers) ? submission.finalAnswers : []).map((fa) => [fa.questionId, fa])
+    )
+    existingByQid.set(qid, {
+      questionId: qid,
+      finalStudentAnswer: summary,
+      finalAnswerSource: 'manual',
+      vjBlankConfirmed,
+    } as FinalAnswer)
+    const newFinalAnswers = Array.from(existingByQid.values()) as FinalAnswer[]
+
+    const now = Date.now()
+    const isCurrentlyGraded = submission.status === 'graded'
+    const updatedSubFields: Partial<Submission> = {
+      gradingResult: newGradingResult,
+      finalAnswers: newFinalAnswers,
+      updatedAt: now,
+      ...(isCurrentlyGraded ? {
+        status: 'synced' as const, score: undefined, aiScore: undefined, scoreSource: undefined, gradedAt: undefined
+      } : {})
+    }
+    await db.submissions.update(subId, updatedSubFields)
+    setSubmissions((prev) => {
+      const next = new Map(prev)
+      const cur = Array.from(prev.values()).find((s) => s.id === subId)
+      if (cur) next.set(cur.studentId, { ...cur, ...updatedSubFields })
+      return next
+    })
+    setSelectedSubmission((prev) => prev ? { ...prev, submission: { ...prev.submission, ...updatedSubFields } } : prev)
+    void fetch('/api/data/save-final-answers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ submissions: [{ id: subId, finalAnswers: newFinalAnswers }] })
+    }).catch((err) => console.warn('save-final-answers (vj) failed:', err))
+    if (isCurrentlyGraded) {
+      void fetch('/api/data/save-grading', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ submissions: [{ id: subId, status: 'synced', score: null, aiScore: null, scoreSource: null, gradedAt: null, gradingResult: newGradingResult }] })
+      }).catch((err) => console.warn('save-grading (vj revert) failed:', err))
+    }
+  }
+
   // 單題得分即時更新（自動重算總分並儲存）
   const handleDetailScoreChange = async (index: number, scoreValue: number) => {
     if (isBusy || isSavingScore) return
@@ -6438,6 +6516,10 @@ export default function GradingPage({
                         // 2026-05-28: map_fill 已 pivot 到 Phase A 3-AI、studentAnswer 是老師確認後的逗號分隔地名、
                         // 不再需要鎖編輯欄（老師可微調個別字、之後 deterministic match 再算分）
                         const isVisualEval = false
+                        // 2026-05-30: VJ 視覺判斷題 — 學生答案改逐柱「有畫/沒畫」、不給文字框
+                        const vjItems: Array<{ idx: number; label: string; verdict: string; reason: string }> =
+                          Array.isArray(d.vjItemResults) ? d.vjItemResults : []
+                        const isVJ = vjItems.length > 0
 
                         return (
                           <div
@@ -6512,7 +6594,52 @@ export default function GradingPage({
                               </div>
                             </div>
                             {/* 2026-05-18 PR3: 學生答案 inline edit、debounce 1s auto save、textarea 自動撐高 */}
-                            {/* map_fill 視覺評分模式：value 鎖成「採視覺評分」、disabled、不可編輯 */}
+                            {/* 2026-05-30: VJ 視覺判斷題 → 逐柱「有畫/沒畫」開關（不給文字框）；其他題型維持文字編輯 */}
+                            {isVJ ? (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-2 text-gray-700">
+                                  <span className="shrink-0">學生答案：</span>
+                                  <span className="font-semibold text-gray-900">{String(d.studentAnswer || '圖上作答')}</span>
+                                  <span className="text-[10px] text-gray-400">（視覺判斷題 — 逐項確認有沒有畫）</span>
+                                </div>
+                                {d.answerCropImageUrl && (
+                                  <img
+                                    src={d.answerCropImageUrl}
+                                    alt="學生作答"
+                                    className="max-h-40 rounded border border-gray-200 object-contain"
+                                  />
+                                )}
+                                <div className="space-y-1">
+                                  {vjItems.map((it) => {
+                                    const isBlank = it.verdict === 'blank'
+                                    return (
+                                      <div key={it.idx} className="flex items-center justify-between gap-2 bg-white border border-gray-200 rounded px-2 py-1">
+                                        <span className="text-gray-700 truncate">{it.label || `項目 ${it.idx}`}</span>
+                                        <div className="flex shrink-0 rounded-md overflow-hidden border border-gray-300">
+                                          <button
+                                            type="button"
+                                            disabled={isBusy || isSavingScore}
+                                            onClick={() => { if (isBlank) void handleDetailVjBlankToggle(i, it.idx, false) }}
+                                            className={`px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50 ${!isBlank ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                                          >
+                                            有畫
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={isBusy || isSavingScore}
+                                            onClick={() => { if (!isBlank) void handleDetailVjBlankToggle(i, it.idx, true) }}
+                                            className={`px-2 py-0.5 text-[11px] font-medium border-l border-gray-300 transition-colors disabled:opacity-50 ${isBlank ? 'bg-rose-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+                                          >
+                                            沒畫
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                                <p className="text-[10px] text-gray-400">改了會退回待批改、按【批改作業】重新判分。</p>
+                              </div>
+                            ) : (
                             <div className="flex items-start gap-2 text-gray-700">
                               <span className="shrink-0 mt-0.5">學生答案：</span>
                               <textarea
@@ -6545,6 +6672,7 @@ export default function GradingPage({
                                   : '編輯後 1 秒自動儲存。已批改卷子改答案會自動退回待批改、按【批改作業】重評。'}
                               />
                             </div>
+                            )}
 
                             <div className="text-xs text-gray-700 flex items-start gap-2">
                               <span className="mt-0.5 shrink-0">理由：</span>

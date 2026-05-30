@@ -509,7 +509,7 @@ export interface GradingDetail {
   vjItemResults?: Array<{
     idx: number          // 1-based 子元素編號
     label: string        // 子元素名（如「左上半圓柱體」）
-    verdict: 'correct' | 'wrong' | 'blank'
+    verdict: 'correct' | 'wrong' | 'blank' | 'pending'  // pending=老師切「有畫」、待重新批改
     reason: string       // 簡短理由（如「位置正確」「未作答」）
   }>
   // 批改時嵌入的 108 課綱概念標記（來自 assignment.conceptTags，批改當下凍結）
