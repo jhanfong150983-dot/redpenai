@@ -5461,12 +5461,18 @@ async function detectVisualRubric(
     prompt,
     { inlineData: { mimeType, data } }
   ], {
-    routeKey: 'grading.vj_rubric'  // → server STAGE_MODEL = PRO
+    routeKey: 'answer_key.locate'  // 復用 locate route（=PRO、proxy 已支援、同 map_fill A0）
   })).replace(/```json|```/g, '').trim()
 
   let parsed
-  try { parsed = JSON.parse(rawText) } catch { return null }
-  if (!parsed || !Array.isArray(parsed.itemLabels)) return null
+  try { parsed = JSON.parse(rawText) } catch {
+    console.warn('[VJ A0] JSON parse 失敗、raw（前 300 字）：', rawText.slice(0, 300))
+    return null
+  }
+  if (!parsed || !Array.isArray(parsed.itemLabels)) {
+    console.warn('[VJ A0] 回傳無 itemLabels、raw（前 300 字）：', rawText.slice(0, 300))
+    return null
+  }
   const itemLabels = parsed.itemLabels.map((s: unknown) => String(s ?? '').trim()).filter(Boolean)
   if (itemLabels.length === 0) return null
   return {
