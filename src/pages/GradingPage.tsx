@@ -3012,37 +3012,72 @@ export default function GradingPage({
       const details = selectedSubmission.submission.gradingResult.details
       if (Array.isArray(details)) {
         console.log('[grading] details with confidence:', details)
+        // VJ 逐柱重建用：finalAnswers 的 vjBlankConfirmed + 答案卷 vjRubric.itemLabels
+        // （detail 自帶 vjItemResults 優先；舊資料沒帶就從這兩個重建、不用重跑 Phase A）
+        const faByQid = new Map(
+          ((selectedSubmission.submission.finalAnswers as any[]) || []).map((fa: any) => [fa.questionId, fa])
+        )
+        const akByQid = new Map(
+          ((assignment?.answerKey?.questions as any[]) || []).map((q: any) => [q.id, q])
+        )
+        const VJ_TYPES = ['diagram_color', 'map_symbol', 'grid_geometry']
         setEditableDetails(
-          details.map((d: any, index: number) => ({
-            questionId: d.questionId ?? `#${index + 1}`,
-            // questionType 保留下來、UI 對 map_fill 等視覺評分題型要鎖編輯欄
-            questionType: d.questionType ?? undefined,
-            studentAnswer: d.studentAnswer ?? '',
-            reason: d.reason ?? d.comment ?? '',
-            comment: d.comment ?? d.reason ?? '',
-            confidence:
-              typeof d.confidence === 'number' && Number.isFinite(d.confidence)
-                ? d.confidence
-                : undefined,
-            score:
-              typeof d.score === 'number' && Number.isFinite(d.score)
-                ? d.score
-                : 0,
-            maxScore:
-              typeof d.maxScore === 'number' && Number.isFinite(d.maxScore)
-                ? d.maxScore
-                : 0,
-            isCorrect:
-              typeof d.isCorrect === 'boolean'
-                ? d.isCorrect
-                : d.maxScore
-                  ? Number(d.score) >= Number(d.maxScore)
-                  : false,
-            // table_cell 群組批改：保留每 cell 對錯細節（人工複核 UI 用）
-            cellResults: Array.isArray(d.cellResults) ? d.cellResults : undefined,
-            // fill_blank 合題：保留每空對錯細節（人工複核 UI 用）
-            partResults: Array.isArray(d.partResults) ? d.partResults : undefined
-          }))
+          details.map((d: any, index: number) => {
+            // VJ 逐柱結果：優先用 detail 自帶；沒有就從 finalAnswers.vjBlankConfirmed + 答案卷 labels 重建
+            let vjItemResults: any[] | undefined = Array.isArray(d.vjItemResults) ? d.vjItemResults : undefined
+            const isVjType = VJ_TYPES.includes(d.questionType) || !!(akByQid.get(d.questionId) as any)?.vjRubric
+            if (!vjItemResults && isVjType) {
+              const labels = (akByQid.get(d.questionId) as any)?.vjRubric?.itemLabels
+              const blankConfirmed = (faByQid.get(d.questionId) as any)?.vjBlankConfirmed
+              if (Array.isArray(labels) && labels.length > 0) {
+                const blankByIdx = new Map(
+                  (Array.isArray(blankConfirmed) ? blankConfirmed : []).map((b: any) => [b.idx, b.isBlank])
+                )
+                vjItemResults = labels.map((label: string, i: number) => {
+                  const idx = i + 1
+                  const isBlank = blankByIdx.get(idx) ?? false
+                  return { idx, label, verdict: isBlank ? 'blank' : 'pending', reason: isBlank ? '未作答' : '有畫（待批改）' }
+                })
+              }
+            }
+            // VJ 的「學生答案」統一顯示摘要文案（蓋掉 buildFinalAnswerForQR 寫進來的 "label:已作答"）
+            const vjSummary = Array.isArray(vjItemResults)
+              ? (vjItemResults.some((r: any) => r.verdict !== 'blank') ? '圖上作答' : '未作答')
+              : null
+            return {
+              questionId: d.questionId ?? `#${index + 1}`,
+              // questionType 保留下來、UI 對 map_fill 等視覺評分題型要鎖編輯欄
+              questionType: d.questionType ?? undefined,
+              studentAnswer: vjSummary ?? (d.studentAnswer ?? ''),
+              reason: d.reason ?? d.comment ?? '',
+              comment: d.comment ?? d.reason ?? '',
+              confidence:
+                typeof d.confidence === 'number' && Number.isFinite(d.confidence)
+                  ? d.confidence
+                  : undefined,
+              score:
+                typeof d.score === 'number' && Number.isFinite(d.score)
+                  ? d.score
+                  : 0,
+              maxScore:
+                typeof d.maxScore === 'number' && Number.isFinite(d.maxScore)
+                  ? d.maxScore
+                  : 0,
+              isCorrect:
+                typeof d.isCorrect === 'boolean'
+                  ? d.isCorrect
+                  : d.maxScore
+                    ? Number(d.score) >= Number(d.maxScore)
+                    : false,
+              // table_cell 群組批改：保留每 cell 對錯細節（人工複核 UI 用）
+              cellResults: Array.isArray(d.cellResults) ? d.cellResults : undefined,
+              // fill_blank 合題：保留每空對錯細節（人工複核 UI 用）
+              partResults: Array.isArray(d.partResults) ? d.partResults : undefined,
+              // VJ 逐柱（render 逐柱按鈕 + toggle 用）+ crop（白名單原本漏了這兩個）
+              vjItemResults,
+              answerCropImageUrl: d.answerCropImageUrl ?? undefined,
+            }
+          })
         )
       } else {
         setEditableDetails([])
@@ -3050,7 +3085,7 @@ export default function GradingPage({
     } else {
       setEditableDetails([])
     }
-  }, [selectedSubmission])
+  }, [selectedSubmission, assignment])
 
   // 每 30 秒自動 sync，讓老師即時看到學生上傳的藍色座號卡
   useEffect(() => {
@@ -4849,7 +4884,11 @@ export default function GradingPage({
     const targetDetail = grDetails[index]
     const qid: string = targetDetail?.questionId
     if (!qid) return
-    const items = Array.isArray(targetDetail?.vjItemResults) ? targetDetail.vjItemResults : []
+    // db 的 detail 可能沒帶 vjItemResults（舊資料）→ fallback 用 editableDetails 重建出來的那份當基底，
+    // 並把結果寫回 db.detail（補上 vjItemResults）。
+    const items = (Array.isArray(targetDetail?.vjItemResults) && targetDetail.vjItemResults.length > 0)
+      ? targetDetail.vjItemResults
+      : (Array.isArray(editableDetails[index]?.vjItemResults) ? editableDetails[index].vjItemResults : [])
     const nextItems = applyItems(items)
     const summary = summaryOf(nextItems)
     const updatedDetails = grDetails.map((d, i) => (i === index ? { ...d, vjItemResults: nextItems, studentAnswer: summary } : d))
