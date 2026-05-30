@@ -699,6 +699,36 @@ function buildFinalAnswerForQR(qr: PhaseAQuestionResult, decision: ConsistencyDe
   }
 }
 
+// 2026-05-31: 重批(Phase B fromCache)時、用刷新後的 phaseAState 重建「AI 自動題」的最終答案。
+// 為什麼：sync 對 finalAnswers 是 local-first（useSync.ts:1105、保護老師 detail edit）、對 phaseAState 是
+//   server-first（line 1096）→ Phase A 重跑刷新了 phaseAState 的新 read、finalAnswers 卻凍在舊值、
+//   重批又直接拿舊 finalAnswers（executeGradeOnlyCache:3708）去批 → Phase A 等於白跑、批的是舊（可能 AI 誤讀）的答案。
+// 修：重建非手改題的最終答案 = phaseAState.arbiterDecisions 解出的最新 read；**只保留 source='manual'**
+//   （老師在 detail 明確手改、含 VJ 逐柱 / map_fill 逐格 / 無法辨識改字、其 source 皆為 'manual'）。
+function rebuildFinalAnswersFromPhaseAState(
+  phaseAState: Submission['phaseAState'] | undefined,
+  existing: FinalAnswer[] | undefined
+): FinalAnswer[] | undefined {
+  const ps = phaseAState as {
+    arbiterDecisions?: Array<{ questionId?: string; finalAnswer?: string; arbiterStatus?: string }>
+  } | undefined
+  const decisions = Array.isArray(ps?.arbiterDecisions) ? ps!.arbiterDecisions! : []
+  if (decisions.length === 0) return existing  // 沒新 read（arbiterDecisions 空）可重建 → 原樣返回
+  const arbByQid = new Map(
+    decisions.filter((d) => d?.questionId).map((d) => [d.questionId as string, d])
+  )
+  const existingArr = Array.isArray(existing) ? existing : []
+  return existingArr.map((fa) => {
+    // 老師手改（manual、含 VJ/map_fill/無法辨識改字）→ 一律保留、不被新 read 覆蓋
+    if (fa.finalAnswerSource === 'manual') return fa
+    const arb = arbByQid.get(fa.questionId)
+    // 該題沒有新的 arbiter 結果（blank / bypass 等）→ 保留原值
+    if (!arb || typeof arb.finalAnswer !== 'string') return fa
+    // AI 自動題 → 用最新 read（arbiter 解出的 finalAnswer）刷新最終答案
+    return { ...fa, finalStudentAnswer: arb.finalAnswer }
+  })
+}
+
 interface BatchPhaseAEntry {
   submissionId: string
   studentId: string
@@ -3698,6 +3728,13 @@ export default function GradingPage({
           return null
         }
         try {
+          // 2026-05-31: Phase A 重跑後、finalAnswers 在 sync 是 local-first 凍結 → 用刷新後的 phaseAState
+          //   重建 AI 自動題的最終答案（保留 source='manual'）、否則 Phase A 白跑、Phase B 批的是舊答案。
+          const freshFinalAnswers = rebuildFinalAnswersFromPhaseAState(
+            sub.phaseAState, sub.finalAnswers as FinalAnswer[] | undefined
+          )
+          const finalAnswersChanged =
+            JSON.stringify(freshFinalAnswers ?? null) !== JSON.stringify((sub.finalAnswers as FinalAnswer[] | undefined) ?? null)
           const result = await gradePhaseBFromCache(
             sub.imageBlob,
             sub.id,
@@ -3705,7 +3742,7 @@ export default function GradingPage({
             assignment?.domain,
             assignment?.answerSheetMode,
             gradeBand,
-            sub.finalAnswers as FinalAnswer[] | undefined,
+            freshFinalAnswers,
             (stage, event) => bumpStage(stage, event)
           )
           // 訂正/申訴中的學生：走 reconcile（server 端逐題調和 + 存回原卷、回傳調整後的 grade）。
@@ -3737,6 +3774,10 @@ export default function GradingPage({
           }
           const totalScore = finalResult.totalScore ?? 0
           const gradedAtMs = Date.now()
+          // Phase A 重跑刷新了最終答案 → 一併寫回 local（local-first sync 會保留）、讓 detail/品質頁「最終」也同步
+          const finalAnswersPatch = (finalAnswersChanged && Array.isArray(freshFinalAnswers))
+            ? { finalAnswers: freshFinalAnswers }
+            : {}
           await db.submissions.update(sub.id, {
             status: 'graded',
             score: totalScore,
@@ -3745,6 +3786,7 @@ export default function GradingPage({
             gradingResult: finalResult,
             gradedAt: gradedAtMs,
             updatedAt: gradedAtMs,
+            ...finalAnswersPatch,
           })
           // 同步更新 React state、detail modal 立刻看到新分數
           setSubmissions((prev) => {
@@ -3758,10 +3800,20 @@ export default function GradingPage({
               scoreSource: 'ai',
               gradingResult: finalResult,
               gradedAt: gradedAtMs,
-              updatedAt: gradedAtMs
+              updatedAt: gradedAtMs,
+              ...finalAnswersPatch,
             })
             return next
           })
+          // 重建後的最終答案存回雲端（解決 final_answers 跟最新 read desync、品質頁「最終」顯示一致）
+          if (finalAnswersChanged && Array.isArray(freshFinalAnswers)) {
+            fetch('/api/data/save-final-answers', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ submissions: [{ id: sub.id, finalAnswers: freshFinalAnswers }] })
+            }).catch(() => {/* non-fatal */})
+          }
           // reconcile 已在 server 端存回原卷；非 reconcile 學生才需 save-grading（避免覆蓋 reconcile 結果）
           if (!reconcileStudentIds.has(sub.studentId)) {
             fetch('/api/data/save-grading', {
