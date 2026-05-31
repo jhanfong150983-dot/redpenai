@@ -19,6 +19,8 @@ import {
   CheckSquare,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
+  SlidersHorizontal,
   ZoomIn
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
@@ -1818,6 +1820,10 @@ export default function GradingPage({
   const [gradeCandidates, setGradeCandidates] = useState<Submission[]>([])
   const [isRegrade, setIsRegrade] = useState(false)
   const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<Set<string>>(new Set())
+  // 2026-06-01 Phase3: 進階模式——預設無勾選框(畫面清爽)。按【進階】選 Phase A/B 後才進勾選模式
+  //   (卡片出現 ☑、底部出現確認列「已選 N ▶ 開始」)、執行完自動退出。
+  const [advancedMode, setAdvancedMode] = useState<'phase_a' | 'phase_b' | null>(null)
+  const [advancedMenuOpen, setAdvancedMenuOpen] = useState(false)
   const [correctionGuardModal, setCorrectionGuardModal] = useState<CorrectionGuardModalState | null>(
     null
   )
@@ -4030,6 +4036,27 @@ export default function GradingPage({
     }
   }
 
+  // 2026-06-01 Phase3: 進階模式 helper。
+  //   enterAdvanced：選定 Phase A/B、清掉殘留勾選、進勾選模式（卡片出現 ☑、底部出現確認列）。
+  //   exitAdvanced：取消、退出勾選模式並清勾選。
+  //   startAdvanced：執行選定動作（handleRecaptureAll/handleGradeOnly 各自會跳 block/warning modal、
+  //     並同步讀取當下 selectedSubmissionIds 的 stageAggregates）→ 先退出勾選模式（藏 ☑/底部列、不影響 handler）。
+  const enterAdvanced = (mode: 'phase_a' | 'phase_b') => {
+    setAdvancedMenuOpen(false)
+    setSelectedSubmissionIds(new Set())
+    setAdvancedMode(mode)
+  }
+  const exitAdvanced = () => {
+    setAdvancedMode(null)
+    setSelectedSubmissionIds(new Set())
+  }
+  const startAdvanced = () => {
+    const mode = advancedMode
+    setAdvancedMode(null)  // 藏 ☑/底部列；handler 同步讀 stageAggregates memo（本 tick 未變）、不受影響
+    if (mode === 'phase_a') void handleRecaptureAll()
+    else if (mode === 'phase_b') void handleGradeOnly()
+  }
+
   // 2026-05-17: handleGradeAll 已被 handleRecaptureAll + handleGradeOnly 取代、保留作 legacy fallback。
   // 暫不從 UI 移除（showGradeConfirm modal 仍引用 executeGrading）、避免大改 delete。
   // @ts-expect-error TS6133: 暫時 unused、PR4 polish 時清掉
@@ -5792,7 +5819,7 @@ export default function GradingPage({
           </div>
         </div>
       )}
-      <div className={`${embedded ? 'max-w-none mx-0 pt-0' : 'max-w-7xl mx-auto pt-8'}`}>
+      <div className={`${embedded ? 'max-w-none mx-0 pt-0' : 'max-w-7xl mx-auto pt-8'}${advancedMode !== null ? ' pb-24' : ''}`}>
         {onBack && (
           <button
             onClick={handleExit}
@@ -5825,81 +5852,102 @@ export default function GradingPage({
               <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
               重新整理
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleToggleSelectAll}
-              disabled={isBusy || !inkSessionReady || submissions.size === 0}
-            >
-              <CheckSquare className="w-5 h-5" />
-              {selectedSubmissionIds.size > 0 ? '取消全選' : '全選'}
-            </Button>
-            {/* 2026-05-31 Phase1b: 一鍵接著批改——把所有未完成的(待批改/待複核/待算分)一次處理到完成 */}
-            {unfinishedBuckets.total > 0 && (
-              <Button
-                variant="primary"
-                onClick={() => setOneClickConfirmOpen(true)}
-                disabled={isGrading || isDownloading || isRefreshing || isCheckingCorrectionState || !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'}
-                title="把所有未完成的作業一次接著批改到完成（已完成的略過）"
-              >
-                <Sparkles className="w-5 h-5" />
-                一鍵接著批改 ({unfinishedBuckets.total})
-              </Button>
+            {/* 2026-06-01 Phase3: 進階勾選模式中、頂列只留「重新整理」、動作改由底部確認列驅動 */}
+            {advancedMode === null && (
+              <>
+                {/* 2026-05-31 Phase1b: 一鍵接著批改——把所有未完成的(待批改/待複核/待算分)一次處理到完成 */}
+                {unfinishedBuckets.total > 0 && (
+                  <Button
+                    variant="primary"
+                    onClick={() => setOneClickConfirmOpen(true)}
+                    disabled={isGrading || isDownloading || isRefreshing || isCheckingCorrectionState || !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'}
+                    title="把所有未完成的作業一次接著批改到完成（已完成的略過）"
+                  >
+                    <Sparkles className="w-5 h-5" />
+                    一鍵接著批改 ({unfinishedBuckets.total})
+                  </Button>
+                )}
+                {/*
+                  2026-06-01 Phase3: 進階選單。預設畫面只有「一鍵接著批改」+「進階」、無勾選框。
+                  按【進階】→ 選「截取答案(Phase A)」或「批改作業(Phase B)」→ 進勾選模式（卡片出現 ☑、底部確認列）。
+                  動作仍走既有 handleRecaptureAll / handleGradeOnly（含 block/warning modal、用 selectedSubmissionIds）。
+                */}
+                <div className="relative">
+                  <Button
+                    variant="outline"
+                    onClick={() => setAdvancedMenuOpen((v) => !v)}
+                    disabled={isBusy || isDownloading || isRefreshing || isCheckingCorrectionState || !inkSessionReady || submissions.size === 0}
+                    title="進階：單獨選份數跑擷取或批改"
+                  >
+                    <SlidersHorizontal className="w-5 h-5" />
+                    進階
+                    <ChevronDown className="w-4 h-4" />
+                  </Button>
+                  {advancedMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-[105]" onClick={() => setAdvancedMenuOpen(false)} />
+                      <div className="absolute right-0 top-full z-[106] mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                        <button
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                          onClick={() => enterAdvanced('phase_a')}
+                        >
+                          <RefreshCw className="w-4 h-4 text-slate-400" />
+                          截取答案（Phase A）
+                        </button>
+                        <button
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                          onClick={() => enterAdvanced('phase_b')}
+                        >
+                          <Sparkles className="w-4 h-4 text-slate-400" />
+                          批改作業（Phase B）
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
             )}
-            {/*
-              2026-05-17: Phase A / Phase B 分離設計——把單一「全部批改」拆成兩顆動態按鈕：
-              【🔄 重新截取答案】= 只跑 Phase A（含警告 Modal 攔截、避免清掉已批改資料）
-              【✓ 批改作業】     = 只跑 Phase B（用 cached phase_a_state，不重跑 Phase A）
-
-              按鈕顏色依 stageAggregates 動態變化：primary / secondary / disabled
-            */}
-            <Button
-              variant={recaptureButtonState.variant === 'primary' ? 'primary' : 'outline'}
-              onClick={handleRecaptureAll}
-              disabled={
-                recaptureButtonState.variant === 'disabled' ||
-                isGrading ||
-                isDownloading ||
-                isRefreshing ||
-                isCheckingCorrectionState ||
-                !isGeminiAvailable ||
-                !inkSessionReady ||
-                answerKeyStatus === 'deleted'
-              }
-              title="截取每題的學生答案（Phase A）。會清空已有的批改紀錄。"
-            >
-              <RefreshCw className="w-5 h-5" />
-              {selectedSubmissionCount > 0
-                ? `截取答案 (${selectedSubmissionCount})`
-                : '截取答案'}
-            </Button>
-            <Button
-              variant={gradeButtonState.variant === 'primary' ? 'primary' : 'outline'}
-              onClick={handleGradeOnly}
-              disabled={
-                gradeButtonState.variant === 'disabled' ||
-                isGrading ||
-                isDownloading ||
-                isRefreshing ||
-                isCheckingCorrectionState ||
-                !isGeminiAvailable ||
-                !inkSessionReady ||
-                answerKeyStatus === 'deleted'
-              }
-              title="只跑批改（Phase B）。需要已有讀取結果（待批改狀態）。"
-            >
-              {isCheckingCorrectionState ? (
-                <Loader className="w-5 h-5 animate-spin" />
-              ) : (
-                <Sparkles className="w-5 h-5" />
-              )}
-              {isCheckingCorrectionState
-                ? '檢查訂正狀態…'
-                : selectedSubmissionCount > 0
-                  ? `批改作業 (${selectedSubmissionCount})`
-                  : '批改作業'}
-            </Button>
           </div>
         </div>
+
+        {/* 2026-06-01 Phase3: 進階勾選模式底部確認列 */}
+        {advancedMode !== null && (
+          <div className="fixed inset-x-0 bottom-0 z-[110] border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-2px_12px_rgba(0,0,0,0.08)] backdrop-blur">
+            <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleToggleSelectAll}
+                disabled={isBusy || !inkSessionReady || submissions.size === 0}
+              >
+                <CheckSquare className="w-4 h-4" />
+                {selectedSubmissionIds.size > 0 ? '取消全選' : '全選'}
+              </Button>
+              <span className="text-sm text-slate-600">
+                {advancedMode === 'phase_a' ? '截取答案（Phase A）' : '批改作業（Phase B）'}
+                {' · 已選 '}
+                <strong className="text-slate-900">{selectedSubmissionCount}</strong>
+                {' 份'}
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={exitAdvanced}>取消</Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={startAdvanced}
+                  disabled={
+                    selectedSubmissionCount === 0 ||
+                    isGrading || isDownloading || isRefreshing || isCheckingCorrectionState ||
+                    !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'
+                  }
+                >
+                  {advancedMode === 'phase_a' ? <RefreshCw className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+                  開始{advancedMode === 'phase_a' ? '截取答案' : '批改作業'}（{selectedSubmissionCount}）
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isRefreshing && !isBusy && (
           <div className="sticky top-4 z-40 mb-4">
@@ -6275,20 +6323,23 @@ export default function GradingPage({
                     {(status === 'graded' || status === 'synced' || status === 'scanned' || status === 'grading_failed') &&
                       submission && (
                         <>
-                          <div
-                            className="absolute top-2 left-2 z-10 flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5"
-                            onClick={(e) => e.stopPropagation()}
-                            title="勾選加入批次批改"
-                          >
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 cursor-pointer accent-green-600"
-                              checked={selectedSubmissionIds.has(submission.id)}
-                              onChange={() => toggleSubmissionSelection(submission.id)}
+                          {/* 2026-06-01 Phase3: 勾選框只在進階模式出現 */}
+                          {advancedMode !== null && (
+                            <div
+                              className="absolute top-2 left-2 z-10 flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5"
                               onClick={(e) => e.stopPropagation()}
-                              disabled={isBusy || !inkSessionReady || !hasSubmissionImage(submission)}
-                            />
-                          </div>
+                              title="勾選加入這批"
+                            >
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 cursor-pointer accent-green-600"
+                                checked={selectedSubmissionIds.has(submission.id)}
+                                onChange={() => toggleSubmissionSelection(submission.id)}
+                                onClick={(e) => e.stopPropagation()}
+                                disabled={isBusy || !inkSessionReady || !hasSubmissionImage(submission)}
+                              />
+                            </div>
+                          )}
                           {/* 2026-05-28 perf: hidden→flex 不會 promote layer、opacity 會、
                               28 張卡 × 每張 opacity transition = 28 個 compositor layer */}
                           <button
