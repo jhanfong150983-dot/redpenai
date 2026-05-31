@@ -20,7 +20,6 @@ import {
   ChevronRight,
   ChevronLeft,
   ChevronDown,
-  SlidersHorizontal,
   ZoomIn
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
@@ -5395,6 +5394,15 @@ export default function GradingPage({
     )
   }
 
+  // 2026-06-01 Phase3: 「智慧批改 ▼」分段按鈕的衍生狀態
+  //   左半=智慧批改（一鍵接著批改）；右半 ▼=進階選單。total=0 時左半鎖住改字「已批改完成」、▼ 仍可點。
+  const smartHasWork = unfinishedBuckets.total > 0
+  const smartHasSubs = submissions.size > 0
+  const smartBusy = isGrading || isDownloading || isRefreshing || isCheckingCorrectionState || !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'
+  const smartLabel = smartHasWork ? `智慧批改 (${unfinishedBuckets.total})` : (smartHasSubs ? '已批改完成' : '智慧批改')
+  const smartLeftDisabled = smartBusy || !smartHasWork
+  const advTriggerDisabled = isBusy || isDownloading || isRefreshing || isCheckingCorrectionState || !inkSessionReady || !smartHasSubs
+
   return (
     <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
       {/* AI 使用計算中 Overlay */}
@@ -5536,7 +5544,7 @@ export default function GradingPage({
       {oneClickConfirmOpen && (
         <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold text-gray-900 mb-3">一鍵接著批改</h3>
+            <h3 className="text-lg font-bold text-gray-900 mb-3">智慧批改</h3>
             <div className="text-sm text-gray-700 mb-3">將處理 <strong>{unfinishedBuckets.total}</strong> 份未完成（已完成的不會重跑）：</div>
             <ul className="text-sm text-gray-700 space-y-1 mb-4 list-none">
               {unfinishedBuckets.needA.length > 0 && <li>🔵 <strong>{unfinishedBuckets.needA.length}</strong> 份未擷取 → 擷取 + 批改</li>}
@@ -5852,60 +5860,68 @@ export default function GradingPage({
               <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
               重新整理
             </Button>
-            {/* 2026-06-01 Phase3: 進階勾選模式中、頂列只留「重新整理」、動作改由底部確認列驅動 */}
+            {/*
+              2026-06-01 Phase3: 分段式「智慧批改 ▼」主按鈕。左半=智慧批改(一鍵接著批改)、右半 ▼=進階選單。
+              進階勾選模式中(advancedMode!==null)整顆收起、動作改由底部確認列驅動。
+              total=0 時左半鎖住改字「已批改完成」、▼ 仍可點(讓老師仍能挑份重跑)。
+              ▼ 選單：截取答案(Phase A)/批改作業(Phase B)→ 進勾選模式(卡片出 ☑ + 底部確認列)、
+              動作仍走既有 handleRecaptureAll / handleGradeOnly(含 block/warning modal、用 selectedSubmissionIds)。
+            */}
             {advancedMode === null && (
-              <>
-                {/* 2026-05-31 Phase1b: 一鍵接著批改——把所有未完成的(待批改/待複核/待算分)一次處理到完成 */}
-                {unfinishedBuckets.total > 0 && (
-                  <Button
-                    variant="primary"
+              <div className="relative inline-flex">
+                <div className="inline-flex">
+                  <button
+                    type="button"
                     onClick={() => setOneClickConfirmOpen(true)}
-                    disabled={isGrading || isDownloading || isRefreshing || isCheckingCorrectionState || !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'}
-                    title="把所有未完成的作業一次接著批改到完成（已完成的略過）"
+                    disabled={smartLeftDisabled}
+                    title={smartHasWork ? '把所有未完成的作業一次批改到完成（已完成的略過）' : '目前沒有未完成的作業'}
+                    className={`inline-flex items-center gap-2 rounded-l-lg px-4 py-2 text-sm font-semibold transition-colors active:scale-[0.98] ${
+                      smartLeftDisabled
+                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed active:scale-100'
+                        : 'bg-green-600 text-white hover:bg-green-700'
+                    }`}
                   >
-                    <Sparkles className="w-5 h-5" />
-                    一鍵接著批改 ({unfinishedBuckets.total})
-                  </Button>
-                )}
-                {/*
-                  2026-06-01 Phase3: 進階選單。預設畫面只有「一鍵接著批改」+「進階」、無勾選框。
-                  按【進階】→ 選「截取答案(Phase A)」或「批改作業(Phase B)」→ 進勾選模式（卡片出現 ☑、底部確認列）。
-                  動作仍走既有 handleRecaptureAll / handleGradeOnly（含 block/warning modal、用 selectedSubmissionIds）。
-                */}
-                <div className="relative">
-                  <Button
-                    variant="outline"
+                    {smartHasWork ? <Sparkles className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                    {smartLabel}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setAdvancedMenuOpen((v) => !v)}
-                    disabled={isBusy || isDownloading || isRefreshing || isCheckingCorrectionState || !inkSessionReady || submissions.size === 0}
+                    disabled={advTriggerDisabled}
                     title="進階：單獨選份數跑擷取或批改"
+                    aria-label="進階"
+                    className={`inline-flex items-center rounded-r-lg border-l px-2 py-2 transition-colors active:scale-[0.98] ${
+                      advTriggerDisabled
+                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed active:scale-100'
+                        : 'bg-green-600 text-white border-green-700 hover:bg-green-700'
+                    }`}
                   >
-                    <SlidersHorizontal className="w-5 h-5" />
-                    進階
                     <ChevronDown className="w-4 h-4" />
-                  </Button>
-                  {advancedMenuOpen && (
-                    <>
-                      <div className="fixed inset-0 z-[105]" onClick={() => setAdvancedMenuOpen(false)} />
-                      <div className="absolute right-0 top-full z-[106] mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-                        <button
-                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                          onClick={() => enterAdvanced('phase_a')}
-                        >
-                          <RefreshCw className="w-4 h-4 text-slate-400" />
-                          截取答案（Phase A）
-                        </button>
-                        <button
-                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                          onClick={() => enterAdvanced('phase_b')}
-                        >
-                          <Sparkles className="w-4 h-4 text-slate-400" />
-                          批改作業（Phase B）
-                        </button>
-                      </div>
-                    </>
-                  )}
+                  </button>
                 </div>
-              </>
+                {advancedMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[105]" onClick={() => setAdvancedMenuOpen(false)} />
+                    <div className="absolute right-0 top-full z-[106] mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                      <div className="px-3 py-1.5 text-xs font-medium text-slate-400">進階（單獨選份數）</div>
+                      <button
+                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        onClick={() => enterAdvanced('phase_a')}
+                      >
+                        <RefreshCw className="w-4 h-4 text-slate-400" />
+                        截取答案（Phase A）
+                      </button>
+                      <button
+                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        onClick={() => enterAdvanced('phase_b')}
+                      >
+                        <Sparkles className="w-4 h-4 text-slate-400" />
+                        批改作業（Phase B）
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </div>
