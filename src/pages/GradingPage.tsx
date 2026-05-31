@@ -178,8 +178,8 @@ export function questionNeedsConfirm(arbiterStatus?: string, finalAnswer?: strin
 /**
  * 整份卷是否「還有未確認的待複核題」——卡片與 detail banner 的唯一事實來源。
  * - 未審查 / stale → 看 phase_a_state.arbiterDecisions（含 blank 偵測）有沒有未確認題
- * - 已審查（非 stale + 有 finalAnswers）→ 審查面板已逐題確認（含 blank），只剩兩種殘留：
- *     A 漏題（某題沒 finalAnswer）、B 無法辨識（finalStudentAnswer='無法辨識'）
+ * - 已審查（非 stale + 有 finalAnswers）→ 審查面板已逐題確認（含 blank），只剩殘留：
+ *     A 漏題（需確認題沒 finalAnswer）。（2026-06-01：B「無法辨識」已移除，不再是資料/觸發源。）
  */
 export function submissionPendingReview(sub?: Submission, correctionStatus?: string): boolean {
   if (!sub) return false
@@ -190,21 +190,22 @@ export function submissionPendingReview(sub?: Submission, correctionStatus?: str
   const details = (sub.gradingResult as { details?: Array<{ questionId?: string; questionType?: string; arbiterResult?: { arbiterStatus?: string; finalAnswer?: string } }> } | undefined)?.details ?? []
   const typeByQid = new Map(details.map((d) => [d.questionId, d.questionType]))
 
-  // 已審查：只看 A（缺 finalAnswer）/ B（無法辨識）殘留
+  // 已審查：只看「需確認(needs_review/空白)且缺 finalAnswer」的殘留題。
   // 2026-05-30: 不可加 !stale 閘 — isPhaseAStale 對「Phase A 完、還沒 Phase B」一律 true(gradedAt=0)，
   // 會把「已審查確認過、只是還沒批改」的卷誤判成未審查、又拿 arbiterDecisions 重新吐 needs_review。
   // 原本卡片 deriveCardStage 就是無條件看 finalAnswers，這裡跟它對齊。
+  // 2026-06-01 Phase4: 移除 hasUnrecognizable —「無法辨識」不再是一種資料/決定（按鈕已改「看原圖」）。
+  //   待複核 = needs_review 或 空白；舊卷殘留的 '無法辨識' finalAnswer 不再單獨觸發待複核。
   const finalAnswers = sub.finalAnswers
   if (Array.isArray(finalAnswers) && finalAnswers.length > 0) {
     const finalByQid = new Map(finalAnswers.map((fa) => [fa.questionId, fa.finalStudentAnswer]))
-    const hasUnrecognizable = finalAnswers.some((fa) => (fa.finalStudentAnswer || '').trim() === '無法辨識') // B
     // 2026-05-31: 「漏題」只算「需確認(needs_review/空白)且沒 finalAnswer」的題。
     // 重跑 Phase A 後只留 manual finalAnswers、其餘清掉、但那些「一致」題即使沒 finalAnswer 也會在
     // Phase B 自動採用新讀取、不需老師看 → 不能算 pending(否則重批完一致題會一直顯示「需要複核」)。
     const decisions = (sub.phaseAState?.arbiterDecisions ?? []) as Array<{ questionId?: string; arbiterStatus?: string; finalAnswer?: string }>
     const needsConfirmMissing = decisions.some((d) =>
       questionNeedsConfirm(d.arbiterStatus, d.finalAnswer, typeByQid.get(d.questionId ?? '')) && !finalByQid.has(d.questionId ?? '')) // A
-    return hasUnrecognizable || needsConfirmMissing
+    return needsConfirmMissing
   }
 
   // 未審查 / stale：用 arbiterDecisions（含 blank）
