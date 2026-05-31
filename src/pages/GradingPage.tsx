@@ -719,15 +719,24 @@ function rebuildFinalAnswersFromPhaseAState(
     decisions.filter((d) => d?.questionId).map((d) => [d.questionId as string, d])
   )
   const existingArr = Array.isArray(existing) ? existing : []
-  return existingArr.map((fa) => {
-    // 老師手改（manual、含 VJ/map_fill/無法辨識改字）→ 一律保留、不被新 read 覆蓋
+  const existingQids = new Set(existingArr.map((fa) => fa.questionId))
+  // 1. 既有題：手改(manual)保留、AI 自動題用最新 read 刷新
+  const refreshed = existingArr.map((fa) => {
     if (fa.finalAnswerSource === 'manual') return fa
     const arb = arbByQid.get(fa.questionId)
-    // 該題沒有新的 arbiter 結果（blank / bypass 等）→ 保留原值
     if (!arb || typeof arb.finalAnswer !== 'string') return fa
-    // AI 自動題 → 用最新 read（arbiter 解出的 finalAnswer）刷新最終答案
     return { ...fa, finalStudentAnswer: arb.finalAnswer }
   })
+  // 2. 2026-05-31 一鍵 1c 重做需要:arbiterDecisions 有、但 existing 沒有的題 → 補進來。
+  //    新擷取卷(空 finalAnswers)走這條、從 Phase A 讀取建出完整答案、統一 Phase B 才有答案可批。
+  //    needs_review 題(arbiter 無 finalAnswer)略過——由審查面板補;blank(finalAnswer='')視為未作答補上。
+  const added: FinalAnswer[] = []
+  for (const d of decisions) {
+    if (!d?.questionId || existingQids.has(d.questionId)) continue
+    if (typeof d.finalAnswer !== 'string') continue
+    added.push({ questionId: d.questionId, finalStudentAnswer: d.finalAnswer, finalAnswerSource: 'ai_read1' })
+  }
+  return [...refreshed, ...added]
 }
 
 interface BatchPhaseAEntry {
