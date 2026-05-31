@@ -1683,7 +1683,7 @@ function BatchConsistencyReviewSection({
   entries: BatchPhaseAEntry[]
   allStudents: Student[]
   onDecision: (studentId: string, questionId: string, update: Partial<ConsistencyDecision>) => void
-  onStudentConfirmed: (entry: BatchPhaseAEntry) => void
+  onStudentConfirmed: (entry: BatchPhaseAEntry) => void | Promise<void>
   onAllDone: () => void
   phaseBScoredCount?: number
   phaseBTotalCount?: number
@@ -1719,10 +1719,13 @@ function BatchConsistencyReviewSection({
 
   const reviewSectionRef = useRef<HTMLDivElement>(null)
 
-  const handleConfirmAndNext = () => {
+  const handleConfirmAndNext = async () => {
     if (!currentEntry) return
     setConfirmedStudentIds(prev => new Set([...prev, currentEntry.studentId]))
-    onStudentConfirmed(currentEntry)
+    // 2026-06-01: 必須 await——onStudentConfirmed 會把複核後的 finalAnswers 寫進 Dexie，
+    //   onAllDone→runOneClickPhaseB 會從 Dexie 重讀；不 await 會 race（讀到舊值、複核答案遺失、
+    //   needs_review 題被 Phase B 判「無法辨識」0 分）。
+    await onStudentConfirmed(currentEntry)
     if (currentReviewIdx < needsReviewEntries.length - 1) {
       setCurrentReviewIdx(prev => prev + 1)
       // 切換學生後滾到審查區塊頂部，從第一題開始看
@@ -1799,7 +1802,7 @@ function BatchConsistencyReviewSection({
 
             {/* 確認送出按鈕 */}
             <button
-              onClick={handleConfirmAndNext}
+              onClick={() => { void handleConfirmAndNext() }}
               disabled={!currentAllConfirmed}
               className="w-full py-2.5 rounded-xl bg-purple-600 text-white font-bold text-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
@@ -6023,7 +6026,7 @@ export default function GradingPage({
             entries={batchPhaseAEntries}
             allStudents={students}
             onDecision={handleBatchDecision}
-            onStudentConfirmed={(entry) => {
+            onStudentConfirmed={async (entry) => {
               if (phaseAOnlyReviewModeRef.current) {
                 // 2026-05-18 PR3: review-only mode、只存 final_answers、不接 Phase B
                 console.log(`✅ 學生 ${entry.studentId} 確認完成（review only mode）、存 final_answers`)
@@ -6056,8 +6059,9 @@ export default function GradingPage({
                   }
                   return next
                 })
-                // 寫 local Dexie（含更新後的 details）
-                void (async () => {
+                // 寫 local Dexie（含更新後的 details）——2026-06-01 必須 await，
+                // 否則 onAllDone→runOneClickPhaseB 從 Dexie 重讀時會 race、讀到舊值丟失複核答案。
+                try {
                   const subFromDb = await db.submissions.get(entry.submissionId)
                   const existingDetails = (subFromDb?.gradingResult as { details?: Array<{ questionId: string; studentAnswer?: string }> } | undefined)?.details
                   const updatedDetails = Array.isArray(existingDetails)
@@ -6074,9 +6078,9 @@ export default function GradingPage({
                     gradingResult: updatedGradingResult as Submission['gradingResult'],
                     updatedAt: Date.now()
                   })
-                })().catch((err) => console.warn('Dexie update failed:', err))
-                // 寫 server（不接 Phase B）
-                void fetch('/api/data/save-final-answers', {
+                } catch (err) { console.warn('Dexie update failed:', err) }
+                // 寫 server（不接 Phase B）——也 await，確保複核答案落地、不被後續統一 Phase B 的重建覆蓋
+                await fetch('/api/data/save-final-answers', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   credentials: 'include',
