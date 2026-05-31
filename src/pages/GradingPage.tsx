@@ -3369,7 +3369,10 @@ export default function GradingPage({
   // 給 selected/all 候選 submissions 各自跑 Phase A（OCR + classify + read + arbiter）、
   // 跑完後 server 端寫 phase_a_state（PR1）、不自動接 Phase B。
   // 對應「重新截取答案」按鈕觸發、適用「想重讀但不想直接批改」的場景。
-  const executeRecaptureOnly = useCallback(async (candidates: Submission[]) => {
+  // 2026-05-31: opts.chainPhaseB —「一鍵接著批改」用。預設 false = 現行行為(審查完只存 final_answers、不接 Phase B)。
+  // 傳 true 時:有 needs_review 的進審查面板、審查完會自動接 Phase B(由 onAllDone 的 normal 分支處理)。
+  // 進階的「單獨 Phase A」不傳此參數 → 行為完全不變。
+  const executeRecaptureOnly = useCallback(async (candidates: Submission[], opts?: { chainPhaseB?: boolean }) => {
     if (candidates.length === 0) return
     if (!assignment?.answerKey) { alert('找不到答案卷'); return }
     if (inkSessionError) { alert(inkSessionError); return }
@@ -3634,7 +3637,8 @@ export default function GradingPage({
     )
     if (needsReviewEntries.length > 0) {
       console.log(`[recaptureOnly] ${needsReviewEntries.length} 份有 needs_review、進審查頁`)
-      phaseAOnlyReviewModeRef.current = true  // 標記 review-only mode、callbacks 不接 Phase B
+      // chainPhaseB=true → review-only 關閉、審查完接 Phase B；預設(undefined/false)→ review-only(現行)
+      phaseAOnlyReviewModeRef.current = !opts?.chainPhaseB
       setBatchPhaseAEntries(needsReviewEntries)
       setGradingPhase('awaiting_review')
       // 不顯示 notice、讓老師直接進審查；審查全部完成時用 stash 包 Phase A notice
