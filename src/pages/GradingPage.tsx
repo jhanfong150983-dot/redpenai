@@ -3678,7 +3678,9 @@ export default function GradingPage({
   // 2026-05-17: Phase B only with fromCache 執行器
   // 給 selected/all 候選 submissions 各自跑 Phase B（用 server 端 cached phase_a_state）、
   // 不重跑 Phase A（省 4 min）。對應「批改作業」按鈕觸發。
-  const executeGradeOnlyCache = useCallback(async (candidates: Submission[]) => {
+  // 2026-05-31: opts.silent —「一鍵接著批改」的 needB 步驟用。跑完不跳結果 notice
+  //（避免一鍵流程中途彈出 needB 的結果視窗、跟後面 Phase A 的視窗打架）。預設 false=現行。
+  const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean }) => {
     if (candidates.length === 0) return
     if (inkSessionError) { alert(inkSessionError); return }
     if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
@@ -3889,14 +3891,16 @@ export default function GradingPage({
     setGradingPhase('idle')
     setCurrentGradingStudent('')
     requestSync()  // 把 server 端寫的 score / gradingResult 拉回 local
-    setGradeResultNotice({
-      stopped: stopRequestedRef.current,
-      successCount,
-      failCount,
-      totalCount: candidates.length,
-      failReasons: failReasons.slice(0, 10),
-      failedEntries: [],
-    })
+    if (!opts?.silent) {
+      setGradeResultNotice({
+        stopped: stopRequestedRef.current,
+        successCount,
+        failCount,
+        totalCount: candidates.length,
+        failReasons: failReasons.slice(0, 10),
+        failedEntries: [],
+      })
+    }
   }, [
     inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students,
     correctionStatusByStudent
@@ -3948,9 +3952,9 @@ export default function GradingPage({
       return
     }
     try {
-      // 1. 待批改 → 直接 Phase B(先跑完、避免跟 Phase A 搶 gradingPhase)
+      // 1. 待批改 → 直接 Phase B(先跑完、避免跟 Phase A 搶 gradingPhase;silent=不跳中途結果視窗)
       if (needB.length > 0) {
-        await executeGradeOnlyCache(needB)
+        await executeGradeOnlyCache(needB, { silent: true })
       }
       // 2. 未擷取 + 待複核 → Phase A(needReview 重讀、keep-manual 保留手改)→ 複核 → Phase B
       const phaseATargets = [...needA, ...needReview]
@@ -5434,6 +5438,24 @@ export default function GradingPage({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 2026-05-31 Phase2: 不卡畫面的狀態列（跟著 gradingPhase 生命週期；複核時不擋畫面、只顯示進度） */}
+      {gradingPhase !== 'idle' && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[90] bg-white border border-slate-200 shadow-lg rounded-full px-4 py-2 flex items-center gap-3 text-sm">
+          {gradingPhase === 'awaiting_review'
+            ? <span className="text-amber-600 font-semibold">🟡 請複核</span>
+            : <Loader className="w-4 h-4 animate-spin text-sky-600" />}
+          <span className="text-slate-700">
+            {gradingPhase === 'phase_a_running' ? '擷取讀取中…'
+              : gradingPhase === 'awaiting_review' ? '有題目待你複核'
+              : gradingPhase === 'phase_b_running' ? '批改評分中…' : '處理中…'}
+          </span>
+          <span className="text-slate-300">|</span>
+          <span className="text-slate-500 text-xs">
+            未完成 🔵{unfinishedBuckets.needA.length} 🟡{unfinishedBuckets.needReview.length} 🟢{unfinishedBuckets.needB.length}
+          </span>
         </div>
       )}
 
