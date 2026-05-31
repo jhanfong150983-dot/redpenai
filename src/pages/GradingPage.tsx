@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useCallback, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '@/components/ui/Button'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
@@ -746,6 +746,7 @@ interface BatchPhaseAEntry {
   phaseAResult: PhaseAResult
   decisions: Map<string, ConsistencyDecision>
   imageBlob: Blob
+  pageBreaks?: number[]  // 2026-06-01 Phase4: 多頁合併比例、「看原圖」切單頁用
 }
 
 // ─── Peer baseline outlier detection (post-batch revisit) ──────────────────
@@ -1073,6 +1074,160 @@ function GradingPipelineOverlay({
   )
 }
 
+// ─── OriginalPageViewer（Phase4「看原圖」） ───────────────────────────────────
+// 從合併圖切出 bbox 所在那一頁、整頁顯示 + 紅虛框標 AI 原本切的位置、可滾輪縮放 + 拖曳移動。
+// 這是「圖片放大標準＝簡易 overlay」的正當例外（用途＝整頁找答案、非瞄 crop）。
+function OriginalPageViewer({
+  imageBlob,
+  pageBreaks,
+  bbox,
+  questionId,
+  onClose,
+}: {
+  imageBlob: Blob
+  pageBreaks?: number[]
+  bbox?: { x: number; y: number; w: number; h: number } | null
+  questionId: string
+  onClose: () => void
+}) {
+  const [pageUrl, setPageUrl] = useState<string | null>(null)
+  const [localBbox, setLocalBbox] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const [pageInfo, setPageInfo] = useState<{ index: number; total: number }>({ index: 0, total: 1 })
+  const [scale, setScale] = useState(1)
+  const [tx, setTx] = useState(0)
+  const [ty, setTy] = useState(0)
+  const dragRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null)
+
+  // 從合併圖 canvas 切出該頁
+  useEffect(() => {
+    let cancelled = false
+    let outUrl: string | null = null
+    const srcUrl = URL.createObjectURL(imageBlob)
+    const img = new Image()
+    img.onload = () => {
+      if (cancelled) { URL.revokeObjectURL(srcUrl); return }
+      const W = img.naturalWidth, H = img.naturalHeight
+      const breaks = (Array.isArray(pageBreaks) ? pageBreaks : []).filter((n) => typeof n === 'number' && n > 0 && n < 1)
+      const starts = [0, ...breaks]
+      const ends = [...breaks, 1]
+      const total = starts.length
+      // 用 bbox 中心 y 決定落在哪一頁；無 bbox → 第 1 頁
+      const cy = bbox ? bbox.y + bbox.h / 2 : 0
+      let idx = total - 1
+      for (let i = 0; i < total; i++) {
+        if (cy >= starts[i] && cy < ends[i]) { idx = i; break }
+      }
+      const ps = starts[idx], pe = ends[idx]
+      const span = pe - ps || 1
+      const sy = Math.round(ps * H)
+      const sh = Math.max(1, Math.round(span * H))
+      const canvas = document.createElement('canvas')
+      canvas.width = W
+      canvas.height = sh
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { URL.revokeObjectURL(srcUrl); return }
+      ctx.drawImage(img, 0, sy, W, sh, 0, 0, W, sh)
+      URL.revokeObjectURL(srcUrl)
+      canvas.toBlob((b) => {
+        if (cancelled || !b) return
+        outUrl = URL.createObjectURL(b)
+        if (bbox) {
+          setLocalBbox({
+            x: Math.max(0, bbox.x),
+            y: Math.max(0, (bbox.y - ps) / span),
+            w: Math.min(1, bbox.w),
+            h: Math.min(1, bbox.h / span),
+          })
+        }
+        setPageInfo({ index: idx, total })
+        setPageUrl(outUrl)
+      }, 'image/jpeg', 0.92)
+    }
+    img.onerror = () => URL.revokeObjectURL(srcUrl)
+    img.src = srcUrl
+    return () => { cancelled = true; if (outUrl) URL.revokeObjectURL(outUrl) }
+  }, [imageBlob, pageBreaks, bbox])
+
+  // Esc 關閉
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [onClose])
+
+  const onWheel = (e: ReactWheelEvent) => {
+    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+    setScale((s) => Math.min(8, Math.max(0.4, s * factor)))
+  }
+  const onPointerDown = (e: ReactPointerEvent) => {
+    dragRef.current = { x: e.clientX, y: e.clientY, tx, ty }
+    ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+  }
+  const onPointerMove = (e: ReactPointerEvent) => {
+    if (!dragRef.current) return
+    setTx(dragRef.current.tx + (e.clientX - dragRef.current.x))
+    setTy(dragRef.current.ty + (e.clientY - dragRef.current.y))
+  }
+  const onPointerUp = () => { dragRef.current = null }
+  const reset = () => { setScale(1); setTx(0); setTy(0) }
+
+  return (
+    <div className="fixed inset-0 z-[400] flex flex-col bg-black/90">
+      <div className="flex items-center justify-between px-4 py-2 text-sm text-white">
+        <span className="truncate">
+          題目 {questionId} 原圖
+          {pageInfo.total > 1 ? `（第 ${pageInfo.index + 1}/${pageInfo.total} 頁）` : ''}
+          {localBbox ? ' · 紅框＝AI 原本切的位置' : ''}
+        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          <button onClick={reset} className="rounded px-2 py-1 text-xs hover:bg-white/10">重置</button>
+          <button onClick={onClose} className="rounded p-1 hover:bg-white/10" aria-label="關閉">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+      <div
+        className="relative flex-1 touch-none overflow-hidden cursor-grab active:cursor-grabbing"
+        onWheel={onWheel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
+      >
+        {pageUrl ? (
+          <div
+            className="absolute left-1/2 top-1/2"
+            style={{ transform: `translate(-50%, -50%) translate(${tx}px, ${ty}px) scale(${scale})` }}
+          >
+            <div className="relative">
+              <img
+                src={pageUrl}
+                alt={`題目 ${questionId} 原圖`}
+                className="block max-h-[80vh] max-w-[92vw] select-none object-contain"
+                draggable={false}
+              />
+              {localBbox && (
+                <div
+                  className="pointer-events-none absolute border-2 border-dashed border-red-500 bg-red-500/5"
+                  style={{
+                    left: `${localBbox.x * 100}%`,
+                    top: `${localBbox.y * 100}%`,
+                    width: `${localBbox.w * 100}%`,
+                    height: `${localBbox.h * 100}%`,
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-white/70">載入原圖中…</div>
+        )}
+      </div>
+      <div className="px-4 py-2 text-center text-xs text-white/60">滾輪縮放 · 拖曳移動 · Esc 關閉</div>
+    </div>
+  )
+}
+
 // ─── ConsistencyQuestionCard ──────────────────────────────────────────────────
 
 function ConsistencyQuestionCard({
@@ -1081,12 +1236,14 @@ function ConsistencyQuestionCard({
   decision,
   onDecision,
   disabled,
+  onViewOriginal,
 }: {
   studentId: string
   questionResult: PhaseAQuestionResult
   decision?: ConsistencyDecision
   onDecision: (questionId: string, update: Partial<ConsistencyDecision>) => void
   disabled: boolean
+  onViewOriginal?: () => void  // 2026-06-01 Phase4:「看原圖」開整頁檢視器
 }) {
   const [manualInput, setManualInput] = useState('')
   const [zoomedImg, setZoomedImg] = useState(false)
@@ -1535,18 +1692,17 @@ function ConsistencyQuestionCard({
           空白（未作答）
         </button>
 
-        {/* 無法辨識 */}
+        {/* 2026-06-01 Phase4: 「無法辨識」改成「看原圖」——看不清就打開整頁原圖找答案、再打字確認，
+            不再產生 unrecognizable 這種資料。真鬼畫符就在人工輸入打「無法辨識」當文案。 */}
         <button
           type="button"
           disabled={disabled}
-          onClick={() => onDecision(questionId, { source: 'unrecognizable', finalAnswer: '無法辨識', confirmed: true })}
-          className={`flex items-center justify-center rounded-lg border-2 px-3 py-2.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
-            decision?.source === 'unrecognizable'
-              ? 'border-red-400 bg-red-50 text-red-700 shadow-sm'
-              : 'border-gray-200 bg-white text-red-500 hover:border-red-300 hover:bg-red-50/40'
-          }`}
+          onClick={() => onViewOriginal?.()}
+          className="flex items-center justify-center gap-1.5 rounded-lg border-2 border-gray-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed"
+          title="看不清楚？打開整頁原圖（紅框標 AI 原本切的位置），放大找答案再打字"
         >
-          無法辨識
+          <ZoomIn className="w-4 h-4" />
+          看原圖
         </button>
 
         {/* 人工輸入（跨兩欄） */}
@@ -1624,6 +1780,8 @@ function BatchConsistencyReviewSection({
   // 一次一個學生：追蹤目前審查到第幾個
   const [currentReviewIdx, setCurrentReviewIdx] = useState(0)
   const [confirmedStudentIds, setConfirmedStudentIds] = useState<Set<string>>(new Set())
+  // 2026-06-01 Phase4: 「看原圖」檢視器當前題（用 currentEntry 的圖 + pageBreaks）
+  const [viewerQ, setViewerQ] = useState<PhaseAQuestionResult | null>(null)
 
   const currentEntry = needsReviewEntries[currentReviewIdx]
   const currentReviewQs = currentEntry
@@ -1708,6 +1866,7 @@ function BatchConsistencyReviewSection({
                   decision={currentEntry.decisions.get(q.questionId)}
                   onDecision={(questionId, update) => onDecision(currentEntry.studentId, questionId, update)}
                   disabled={false}
+                  onViewOriginal={() => setViewerQ(q)}
                 />
               ))}
             </div>
@@ -1739,6 +1898,17 @@ function BatchConsistencyReviewSection({
               : ' 所有學生評分完成！'}
           </span>
         </div>
+      )}
+
+      {/* 2026-06-01 Phase4: 看原圖檢視器（用當前審查學生的合併圖 + pageBreaks 切出該題那一頁） */}
+      {viewerQ && currentEntry && (
+        <OriginalPageViewer
+          imageBlob={currentEntry.imageBlob}
+          pageBreaks={currentEntry.pageBreaks}
+          bbox={(viewerQ.answerBbox as { x: number; y: number; w: number; h: number } | undefined) ?? null}
+          questionId={viewerQ.questionId}
+          onClose={() => setViewerQ(null)}
+        />
       )}
     </div>
   )
@@ -3633,7 +3803,8 @@ export default function GradingPage({
             studentId: sub.studentId,
             phaseAResult,
             decisions: seededDecisions,
-            imageBlob: sub.imageBlob
+            imageBlob: sub.imageBlob,
+            pageBreaks: sub.pageBreaks
           })
           successCount++
           return phaseAResult
@@ -4379,6 +4550,7 @@ export default function GradingPage({
             phaseAResult,
             decisions,
             imageBlob: sub.imageBlob!,
+            pageBreaks: sub.pageBreaks,
           })
         },
         stopRequestedRef
