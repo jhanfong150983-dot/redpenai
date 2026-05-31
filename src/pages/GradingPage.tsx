@@ -17,8 +17,6 @@ import {
   Trash2,
   CheckCircle2,
   CheckSquare,
-  ChevronRight,
-  ChevronLeft,
   ChevronDown,
   ZoomIn
 } from 'lucide-react'
@@ -248,9 +246,9 @@ export function deriveCardStage(sub: Submission | undefined, correctionStatus?: 
   // XX 分：明確 graded + 有 score、且 Phase A 沒有比 Phase B 新（避免 Phase A 重跑後顯示舊 score）
   if (sub.status === 'graded' && sub.score != null && !isPhaseAStale(sub, correctionStatus)) return 'graded'
 
-  // 2026-05-30: 待複核 vs 待批改 統一用 submissionPendingReview（卡片 + detail banner 同一事實來源）
-  // 已擷取（有 finalAnswers / phase_a_state.arbiterDecisions / gradingResult.details）→
-  //   還有未確認題（含 blank）→ 待複核；全部確認 → 待批改
+  // 2026-06-01: 「待複核」不再是獨立卡片狀態。Phase A 跑了但人工審查沒做完（還有未確認題）
+  //   = Phase A 未完成 = 未擷取（已上傳）；唯有審查完成、finalAnswers 存檔（或乾淨卷無待確認題）
+  //   才算擷取完成 → 待批改。模型更乾淨：已上傳 → (Phase A + 審查完成) → 待批改 → 已批改。
   const finalAnswers = sub.finalAnswers
   const phaseAState = sub.phaseAState
   const details = (sub.gradingResult as { details?: unknown[] } | undefined)?.details
@@ -259,7 +257,8 @@ export function deriveCardStage(sub: Submission | undefined, correctionStatus?: 
     (Array.isArray(phaseAState?.arbiterDecisions) && phaseAState.arbiterDecisions.length > 0) ||
     (Array.isArray(details) && details.length > 0)
   if (isExtracted) {
-    return submissionPendingReview(sub, correctionStatus) ? 'pending_review' : 'pending_grading'
+    // 還有待確認題（needs_review/空白）→ 視為未擷取（審查沒做完=Phase A 沒完成）；全部確認 → 待批改
+    return submissionPendingReview(sub, correctionStatus) ? 'not_extracted' : 'pending_grading'
   }
 
   // synced 但無批改 / 無 phase_a_state → 未擷取
@@ -374,16 +373,6 @@ function getSubmissionSourceVisual(submission?: Submission) {
   }
 }
 
-const STAGE_LABEL_MAP: Record<string, string> = {
-  ReadAnswer: '答案抄寫',
-  ReadAnswerFinalOnly: '最終答案抄寫',
-  ReadAnswerWork: '計算過程抄寫',
-  ReadAnswerRecheck: '答案重讀',
-  classify: '題目定位',
-  Accessor: '自動評分',
-  explain: '錯因解析'
-}
-
 const CORRECTION_BLOCKING_STATUSES = new Set(['correction_required', 'correction_in_progress'])
 
 const CORRECTION_STATUS_LABEL_MAP: Record<string, string> = {
@@ -391,75 +380,9 @@ const CORRECTION_STATUS_LABEL_MAP: Record<string, string> = {
   correction_in_progress: '訂正中'
 }
 
-function formatDisplayQuestionId(questionId?: string | null) {
-  if (!questionId) return null
-  return questionId.startsWith('#') ? questionId.slice(1) : questionId
-}
-
-/** 判斷該份批改結果是否需要老師複核 — 2026-05-30 統一改用 submissionPendingReview（與卡片同源） */
-function isSubmissionNeedsReview(sub?: Submission, correctionStatus?: string): boolean {
-  return submissionPendingReview(sub, correctionStatus)
-}
-
-function toUserFriendlyReviewReason(rawReason: string) {
-  const raw = (rawReason || '').trim()
-  if (!raw) return ''
-
-  const stageMatch = raw.match(/^\[([^\]]+)\]\s*(.+)$/)
-  const stageKey = stageMatch?.[1]?.trim() || ''
-  const body = (stageMatch?.[2] || raw).trim()
-  const stageLabel = STAGE_LABEL_MAP[stageKey] || stageKey
-
-  const calcMismatchMatch = body.match(
-    /^CALC_ANSWER_MISMATCH\s+questionId=([^\s]+)\s+calc=([^\s]+)\s+stated=([^\s]+)/i
-  )
-  if (calcMismatchMatch) {
-    const questionId = formatDisplayQuestionId(calcMismatchMatch[1]) || calcMismatchMatch[1]
-    const calcValue = calcMismatchMatch[2]
-    const statedValue = calcMismatchMatch[3]
-    return `第${questionId}題：算式結果 ${calcValue} 與作答答案 ${statedValue} 不一致`
-  }
-
-  const finalMismatchDetectedMatch = body.match(/^FINAL_ANSWER_MISMATCH_DETECTED\s+count=(\d+)/i)
-  if (finalMismatchDetectedMatch) {
-    return `偵測到 ${finalMismatchDetectedMatch[1]} 題最終答案不一致，建議人工複核`
-  }
-
-  const finalMismatchUnresolvedMatch = body.match(/^FINAL_ANSWER_MISMATCH_UNRESOLVED\s+count=(\d+)/i)
-  if (finalMismatchUnresolvedMatch) {
-    return `有 ${finalMismatchUnresolvedMatch[1]} 題最終答案不一致且無法自動修正`
-  }
-
-  const alignmentCoverageMatch = raw.match(/Question alignment coverage\s+(\d+)%/i)
-  if (alignmentCoverageMatch) {
-    return `題目定位覆蓋率僅 ${alignmentCoverageMatch[1]}%，可能有題目未正確對齊`
-  }
-
-  const unreadableCountMatch = raw.match(/Unreadable answers:\s*(\d+)/i)
-  if (unreadableCountMatch) {
-    return `有 ${unreadableCountMatch[1]} 題答案無法辨識`
-  }
-
-  const requestFailedMatch = body.match(/^REQUEST_FAILED(?:\s+status=(\d+))?/i)
-  if (requestFailedMatch) {
-    const statusText = requestFailedMatch[1] ? `（狀態碼 ${requestFailedMatch[1]}）` : ''
-    return `${stageLabel || '系統'}請求失敗${statusText}`
-  }
-
-  if (/^JSON_PARSE_FAILED$/i.test(body)) {
-    return `${stageLabel || '系統'}回傳格式異常，需人工複核`
-  }
-
-  if (/^EXECUTION_ERROR$/i.test(body)) {
-    return `${stageLabel || '系統'}執行失敗，需人工複核`
-  }
-
-  if (stageLabel && stageMatch) {
-    return `${stageLabel}：${body}`
-  }
-
-  return raw
-}
+// 2026-06-01: STAGE_LABEL_MAP / formatDisplayQuestionId / isSubmissionNeedsReview /
+//   toUserFriendlyReviewReason 隨「待複核」概念與其 detail 橫幅一併移除。
+//   待複核 = 未擷取（deriveCardStage 直接判定）、複核走智慧批改流程、不再有 detail 複核提示。
 
 function getBatchFailureMessage(error: unknown): string {
   if (error instanceof Error && error.message) {
@@ -2149,62 +2072,8 @@ export default function GradingPage({
     return { variant: 'secondary' as const, block: null, needsWarning: true }
   }, [stageAggregates])
   
-  // 🆕 計算待複核數量
-  const needsReviewCount = useMemo(() => {
-    return Array.from(submissions.values()).filter(s => isSubmissionNeedsReview(s, correctionStatusByStudent[s.studentId])).length
-  }, [submissions, correctionStatusByStudent])
-
-  // 🆕 獲取所有待複核的學生（按座號排序）
-  const needsReviewStudents = useMemo(() => {
-    return students
-      .filter(student => {
-        const sub = submissions.get(student.id)
-        return isSubmissionNeedsReview(sub, correctionStatusByStudent[student.id])
-      })
-      .sort((a, b) => a.seatNumber - b.seatNumber)
-  }, [students, submissions, correctionStatusByStudent])
-
-  // 🆕 跳轉到下一個待複核
-  const jumpToNextReview = useCallback(() => {
-    if (needsReviewStudents.length === 0) return
-    
-    const currentStudentId = selectedSubmission?.student.id
-    let nextIndex = 0
-    
-    if (currentStudentId) {
-      const currentIdx = needsReviewStudents.findIndex(s => s.id === currentStudentId)
-      if (currentIdx >= 0 && currentIdx < needsReviewStudents.length - 1) {
-        nextIndex = currentIdx + 1
-      }
-    }
-    
-    const nextStudent = needsReviewStudents[nextIndex]
-    const sub = submissions.get(nextStudent.id)
-    if (sub) {
-      setSelectedSubmission({ submission: sub, student: nextStudent })
-    }
-  }, [needsReviewStudents, selectedSubmission, submissions])
-
-  // 🆕 跳轉到上一個待複核
-  const jumpToPrevReview = useCallback(() => {
-    if (needsReviewStudents.length === 0) return
-    
-    const currentStudentId = selectedSubmission?.student.id
-    let prevIndex = needsReviewStudents.length - 1
-    
-    if (currentStudentId) {
-      const currentIdx = needsReviewStudents.findIndex(s => s.id === currentStudentId)
-      if (currentIdx > 0) {
-        prevIndex = currentIdx - 1
-      }
-    }
-    
-    const prevStudent = needsReviewStudents[prevIndex]
-    const sub = submissions.get(prevStudent.id)
-    if (sub) {
-      setSelectedSubmission({ submission: sub, student: prevStudent })
-    }
-  }, [needsReviewStudents, selectedSubmission, submissions])
+  // 2026-06-01: 移除待複核導航（needsReviewCount / needsReviewStudents / jumpToNext|PrevReview）——
+  //   待複核不再是狀態、detail 不再有跨待複核卷的導航；複核一律走智慧批改流程。
 
   // ─── Batch Phase B: 正式批改（全班）────────────────────────────────────────
   // phaseBScoredCount: 背景 Accessor 已完成的學生數（用於進度追蹤）
@@ -5456,31 +5325,7 @@ export default function GradingPage({
   }
 
   // 信心顯示停用後 getSubmissionConfidenceAverage / getSubmissionMinConfidenceInfo 已不需要、移除
-
-  const getDisplayReviewReasons = useCallback(
-    (submission: Submission) => {
-      // 2026-05-31 定案：detail 警告橫幅只列「無法辨識」(學生有寫但 AI 讀不出來、需老師確認)。
-      // 「AI 判讀不一致/needs_review」改由「待複核」卡片狀態 + 審查面板處理、不在 detail 重複 nag —
-      // 否則重跑 Phase A 後、已經人工審查過的題(stale 期間)也會一直跳「AI 判讀不一致、需要複核」。
-      // 「未作答」(學生明確沒寫)也不列 — 空白就空白、不用老師確認。
-      const out = new Set<string>()
-      const details = submission.gradingResult?.details ?? []
-      const unreadableIds = details
-        .filter((detail: any) => detail?.studentAnswer === 'AI無法辨識' || detail?.studentAnswer === '無法辨識')
-        .map((detail: any) => formatDisplayQuestionId(detail?.questionId) || detail?.questionId)
-        .filter(Boolean)
-      if (unreadableIds.length > 0) out.add(`第 ${unreadableIds.join('、')} 題無法辨識`)
-      // reviewReasons 裡若有「無法辨識」類系統理由也顯示；其餘(判讀不一致/needs_review/未作答)一律不顯示
-      for (const r of (submission.gradingResult?.reviewReasons ?? [])) {
-        const t = toUserFriendlyReviewReason(r).trim()
-        if (t.includes('無法辨識')) out.add(t)
-      }
-      return Array.from(out)
-    },
-    []
-  )
-
-
+  // 2026-06-01: getDisplayReviewReasons / selectedReviewReasons / selectedConfidenceLabel 隨「需要複核」橫幅移除
 
   const sortedStudents = useMemo(() => {
     return [...students].sort((a, b) => a.seatNumber - b.seatNumber)
@@ -5500,12 +5345,6 @@ export default function GradingPage({
     }
     return Array.from(groups.values())
   }, [isBatchMode, sortedStudents, submissionClassroomMap, batchClassrooms])
-
-  const selectedReviewReasons = selectedSubmission
-    ? getDisplayReviewReasons(selectedSubmission.submission)
-    : []
-  // 信心顯示已停用（沒有實質意義、徒增老師認知負擔）
-  const selectedConfidenceLabel = null
 
   if (isLoading) {
     return (
@@ -6338,7 +6177,8 @@ export default function GradingPage({
                     const isLowScore = isUnscoredAssignment
                       ? (correctSummary ? correctSummary.ratio < 0.8 : true)
                       : (typeof maxScore === 'number' && maxScore > 0 ? scoreValue < maxScore * 0.8 : scoreValue < 60)
-                    const needsReview = isSubmissionNeedsReview(submission, correctionStatusByStudent[submission?.studentId ?? ''])
+                    // 2026-06-01: 待複核已折回未擷取、不再有待複核卡片徽章（恆 false、跟另一卡片路徑一致）
+                    const needsReview = deriveCardStage(submission, correctionStatusByStudent[student.id]) === 'pending_review'
                     const isSelected = selectedSubmissionIds.has(submission?.id ?? '')
                     const isStub = isManualGradeStub(submission)
                     return (
@@ -6752,28 +6592,7 @@ export default function GradingPage({
             <div className="w-full max-w-md border-l border-gray-200 flex flex-col bg-white">
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-gray-50">
                 <div className="flex items-center gap-2">
-                  {/* 🆕 複核導航按鈕 */}
-                  {needsReviewCount > 0 && (
-                    <div className="flex items-center gap-1 mr-2">
-                      <button
-                        onClick={jumpToPrevReview}
-                        className="p-1.5 rounded-full hover:bg-gray-200 text-gray-500"
-                        title="上一個待複核"
-                      >
-                        <ChevronLeft className="w-4 h-4" />
-                      </button>
-                      <span className="text-xs text-amber-600 font-medium px-1">
-                        {needsReviewStudents.findIndex(s => s.id === selectedSubmission.student.id) + 1}/{needsReviewCount}
-                      </span>
-                      <button
-                        onClick={jumpToNextReview}
-                        className="p-1.5 rounded-full hover:bg-gray-200 text-gray-500"
-                        title="下一個待複核"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
+                  {/* 2026-06-01: 移除「待複核」導航——待複核不再是狀態，複核一律走智慧批改流程 */}
                   <div>
                     <h2 className="text-base font-semibold text-gray-900">
                       {selectedSubmission.student.seatNumber} 號 · {selectedSubmission.student.name}
@@ -6792,38 +6611,8 @@ export default function GradingPage({
               </div>
 
               <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
-                {/* 🆕 需複核警示 */}
-                {isSubmissionNeedsReview(selectedSubmission.submission, correctionStatusByStudent[selectedSubmission.submission.studentId]) && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-amber-700">需要複核</p>
-                        {selectedReviewReasons.length > 0 ? (
-                          <ul className="mt-2 list-disc space-y-1.5 pl-5">
-                            {selectedReviewReasons.map((reason, index) => (
-                              <li
-                                key={`${reason}-${index}`}
-                                className="text-sm leading-6 text-amber-800 break-words"
-                              >
-                                {reason}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="mt-2 text-sm leading-6 text-amber-700">AI 建議人工檢查</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* 2026-05-30: 移除「標記已複核」整份按鈕 — 改成就地處理：
-                        待複核題在審查面板/detail 逐題確認(blank 按有畫沒畫、無法辨識改答案)、
-                        全部確認後警告自動消失，不用滑回上面按。 */}
-                    {selectedConfidenceLabel && (
-                      <p className="mt-3 text-xs text-amber-700">{selectedConfidenceLabel}</p>
-                    )}
-                  </div>
-                )}
+                {/* 2026-06-01: 移除「需要複核」橫幅——待複核不再是一種概念/狀態。
+                    要複核的卷顯示為未擷取、走智慧批改流程處理。 */}
 
                 {assignment?.scoringMode !== 'unscored' && (
                   <div className="flex items-center justify-between mb-2">
