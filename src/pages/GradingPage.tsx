@@ -1906,6 +1906,20 @@ export default function GradingPage({
     }
   }, [submissions, selectedSubmissionIds, correctionStatusByStudent])
 
+  // 2026-05-31 Phase1b: 一鍵接著批改——所有未完成卷分桶（不看勾選，一鍵 = 處理全部待辦）
+  // needA=未擷取/Phase A 失敗(要跑 Phase A)、needReview=待複核、needB=待算分/Phase B 失敗(直接 Phase B)
+  const [oneClickConfirmOpen, setOneClickConfirmOpen] = useState(false)
+  const unfinishedBuckets = useMemo(() => {
+    const needA: Submission[] = []; const needReview: Submission[] = []; const needB: Submission[] = []
+    for (const s of submissions.values()) {
+      const stage = deriveCardStage(s, correctionStatusByStudent[s.studentId])
+      if (stage === 'not_extracted' || stage === 'phase_a_failed') needA.push(s)
+      else if (stage === 'pending_review') needReview.push(s)
+      else if (stage === 'pending_grading' || stage === 'phase_b_failed') needB.push(s)
+    }
+    return { needA, needReview, needB, total: needA.length + needReview.length + needB.length }
+  }, [submissions, correctionStatusByStudent])
+
   // 2026-05-17: 「重新截取」按鈕變身規則
   // 🟢 primary：有 未擷取 / 擷取失敗 卡片
   // 🟡 secondary（emit warning modal）：有 待複核 / 待批改 / 已批改 / 批改失敗
@@ -5397,6 +5411,28 @@ export default function GradingPage({
         </div>
       )}
 
+      {/* 2026-05-31 Phase1b: 一鍵接著批改確認框（含墨水警告；執行邏輯在 Phase 1c 接上） */}
+      {oneClickConfirmOpen && (
+        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-gray-900 mb-3">一鍵接著批改</h3>
+            <div className="text-sm text-gray-700 mb-3">將處理 <strong>{unfinishedBuckets.total}</strong> 份未完成（已完成的不會重跑）：</div>
+            <ul className="text-sm text-gray-700 space-y-1 mb-4 list-none">
+              {unfinishedBuckets.needA.length > 0 && <li>🔵 <strong>{unfinishedBuckets.needA.length}</strong> 份待批改 → 跑讀取 + 批改</li>}
+              {unfinishedBuckets.needReview.length > 0 && <li>🟡 <strong>{unfinishedBuckets.needReview.length}</strong> 份待複核 → 複核 + 批改</li>}
+              {unfinishedBuckets.needB.length > 0 && <li>🟢 <strong>{unfinishedBuckets.needB.length}</strong> 份待算分 → 批改</li>}
+            </ul>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
+              ⚠️ 會消耗約 <strong>{unfinishedBuckets.total}</strong> 份批改額度（墨水）。
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setOneClickConfirmOpen(false)}>取消</Button>
+              <Button variant="primary" onClick={() => { setOneClickConfirmOpen(false); alert(`（Phase 1b 預覽）將處理 ${unfinishedBuckets.total} 份。實際執行在 Phase 1c 接上。`) }}>確定</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 2026-05-30: 重新截取危險確認（severity medium：清讀值/分數、擋已完成訂正） */}
       <DangerConfirmModal
         open={!!recaptureConfirm}
@@ -5703,6 +5739,18 @@ export default function GradingPage({
               <CheckSquare className="w-5 h-5" />
               {selectedSubmissionIds.size > 0 ? '取消全選' : '全選'}
             </Button>
+            {/* 2026-05-31 Phase1b: 一鍵接著批改——把所有未完成的(待批改/待複核/待算分)一次處理到完成 */}
+            {unfinishedBuckets.total > 0 && (
+              <Button
+                variant="primary"
+                onClick={() => setOneClickConfirmOpen(true)}
+                disabled={isGrading || isDownloading || isRefreshing || isCheckingCorrectionState || !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'}
+                title="把所有未完成的作業一次接著批改到完成（已完成的略過）"
+              >
+                <Sparkles className="w-5 h-5" />
+                一鍵接著批改 ({unfinishedBuckets.total})
+              </Button>
+            )}
             {/*
               2026-05-17: Phase A / Phase B 分離設計——把單一「全部批改」拆成兩顆動態按鈕：
               【🔄 重新截取答案】= 只跑 Phase A（含警告 Modal 攔截、避免清掉已批改資料）
