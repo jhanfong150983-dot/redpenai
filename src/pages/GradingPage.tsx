@@ -1856,6 +1856,10 @@ export default function GradingPage({
   // BatchConsistencyReviewSection 的 callbacks 只存 final_answers、不接 Phase B
   // executeRecaptureOnly 跑完且有 needs_review 時設成 true
   const phaseAOnlyReviewModeRef = useRef(false)
+  // 2026-05-31 一鍵接著批改 1c：本次一鍵的全 scope（submission id）。
+  // 流程：先全 Phase A(review-only)→ 複核 →（onAllDone 或無複核時）對「全 scope」跑一次統一 Phase B。
+  // 非空 = 目前在一鍵流程中（當 flag 用）；runOneClickPhaseB 跑完清空。
+  const oneClickScopeRef = useRef<string[]>([])
   // 跨 review UI 持有 Phase A pipeline 失敗（最終 dialog 才會顯示）
   const [pendingPhaseAFailures, setPendingPhaseAFailures] = useState<Array<{ submissionId: string; studentId: string; failure: PipelineFailure }>>([])
   const [phaseANeedsReviewCount, setPhaseANeedsReviewCount] = useState(0)
@@ -3395,12 +3399,15 @@ export default function GradingPage({
   // 2026-05-31: opts.chainPhaseB —「一鍵接著批改」用。預設 false = 現行行為(審查完只存 final_answers、不接 Phase B)。
   // 傳 true 時:有 needs_review 的進審查面板、審查完會自動接 Phase B(由 onAllDone 的 normal 分支處理)。
   // 進階的「單獨 Phase A」不傳此參數 → 行為完全不變。
-  const executeRecaptureOnly = useCallback(async (candidates: Submission[], opts?: { chainPhaseB?: boolean }) => {
-    if (candidates.length === 0) return
-    if (!assignment?.answerKey) { alert('找不到答案卷'); return }
-    if (inkSessionError) { alert(inkSessionError); return }
-    if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
-    if (!isGeminiAvailable) { alert('Gemini 服務未設定'); return }
+  // 2026-05-31: 回傳 enteredReview（true=有 needs_review、已進審查頁；false=無、已收尾）。
+  //   一鍵 1c 用此判斷要立刻跑統一 Phase B（false）還是等審查 onAllDone 再跑（true）。
+  //   opts.suppressNotice：一鍵流程中不顯示 Phase A 自己的收尾 notice（讓統一 Phase B 的結果視窗當最終 modal）。
+  const executeRecaptureOnly = useCallback(async (candidates: Submission[], opts?: { chainPhaseB?: boolean; suppressNotice?: boolean }): Promise<boolean> => {
+    if (candidates.length === 0) return false
+    if (!assignment?.answerKey) { alert('找不到答案卷'); return false }
+    if (inkSessionError) { alert(inkSessionError); return false }
+    if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return false }
+    if (!isGeminiAvailable) { alert('Gemini 服務未設定'); return false }
     // 2026-05-28: Q1 — 在跑 AI 前清訂正狀態（assignment_student_state + correction_question_items）
     const { clearIds } = partitionCandidatesByCorrection(candidates)
     if (clearIds.size > 0) {
@@ -3408,7 +3415,7 @@ export default function GradingPage({
         await clearCorrectionForRerunOnServer(Array.from(clearIds))
       } catch (err) {
         alert(err instanceof Error ? err.message : '清訂正狀態失敗')
-        return
+        return false
       }
     }
 
@@ -3665,19 +3672,24 @@ export default function GradingPage({
       setBatchPhaseAEntries(needsReviewEntries)
       setGradingPhase('awaiting_review')
       // 不顯示 notice、讓老師直接進審查；審查全部完成時用 stash 包 Phase A notice
+      return true
     } else {
       // 無 needs_review 直接收尾、顯示 Phase A 完成 notice
       setGradingPhase('idle')
-      setPhaseAResultNotice({
-        stopped: stopRequestedRef.current,
-        successCount,
-        failCount,
-        needsReviewedCount: 0,
-        totalCount: candidates.length,
-        failReasons: failReasons.slice(0, 10),
-        failedCandidates,
-      })
+      // 一鍵流程（suppressNotice）：略過 Phase A 自己的收尾 notice，留給統一 Phase B 的結果視窗
+      if (!opts?.suppressNotice) {
+        setPhaseAResultNotice({
+          stopped: stopRequestedRef.current,
+          successCount,
+          failCount,
+          needsReviewedCount: 0,
+          totalCount: candidates.length,
+          failReasons: failReasons.slice(0, 10),
+          failedCandidates,
+        })
+      }
       phaseAStashRef.current = null
+      return false
     }
   }, [
     inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students,
@@ -3949,32 +3961,56 @@ export default function GradingPage({
     await executeGradeOnlyCache(inScope)
   }
 
-  // 2026-05-31 Phase1c: 一鍵接著批改——把所有未完成的接著批改到完成。
-  // 設計點3(避免 Phase A/B 同時跑搶狀態機):先把「待批改(needB)」直接 Phase B 跑完、
-  //   再把「未擷取(needA)+待複核(needReview)」一起跑 Phase A → 複核 → Phase B(chainPhaseB)。
-  // v1 限制:Phase A 後「乾淨無複核」的卷會停在「待批改」、下次按一鍵會被當 needB 自動補批(不卡死)。
+  // 2026-05-31 一鍵 1c：對「本次一鍵的全 scope」跑一次統一 Phase B。
+  //   從 Dexie 重讀 fresh submission（複核剛寫的 finalAnswers / sync 刷新的 phaseAState 都在 local），
+  //   避免用 button-press 時凍結的 stale finalAnswers 蓋掉複核結果（payload 非空會覆蓋 server 快取）。
+  //   過濾掉「Phase A 失敗且無 phase_a_state」的卷（批不了、避免製造 Phase B 失敗噪音）；
+  //   phase_b_failed / 新擷取成功（local state 還沒 sync 回但 server 有）仍納入。
+  const runOneClickPhaseB = async () => {
+    const ids = oneClickScopeRef.current
+    oneClickScopeRef.current = []
+    if (ids.length === 0) return
+    const fresh: Submission[] = []
+    for (const id of ids) {
+      const s = await db.submissions.get(id)
+      if (s) fresh.push(s)
+    }
+    const gradeable = fresh.filter((s) => {
+      const ps = s.phaseAState as { arbiterDecisions?: unknown[] } | undefined
+      const hasState = !!ps && Array.isArray(ps.arbiterDecisions) && ps.arbiterDecisions.length > 0
+      const failed = !!(s.gradingResult as { pipelineFailure?: unknown } | undefined)?.pipelineFailure
+      // 有 state 一定可批；沒 state 但也沒失敗（Path B 新擷取成功、sync 還沒回，server 端有 state）→ 仍批
+      return hasState || !failed
+    })
+    if (gradeable.length === 0) return
+    await executeGradeOnlyCache(gradeable)  // 不 silent → 結果視窗當一鍵最終 modal
+  }
+
+  // 2026-05-31 Phase1c（重做）：一鍵接著批改——把所有未完成的接著批改到完成。
+  //   正確排序（消除 v1 兩限制）：① 先對「未擷取+待複核」跑 Phase A(review-only)
+  //   ② 有待複核 → 複核（onAllDone）③ 複核完 / 無複核 → 對「全 scope(needA+needReview+needB)」跑一次統一 Phase B。
+  //   一次 Phase B = 正確總數、乾淨的不會停在「待批改」。
   const handleOneClickContinue = async () => {
     setOneClickConfirmOpen(false)
     const { needA, needReview, needB } = unfinishedBuckets
-    if (needA.length + needReview.length + needB.length === 0) {
+    const scope = [...needA, ...needReview, ...needB]
+    if (scope.length === 0) {
       alert('沒有未完成的作業')
       return
     }
+    oneClickScopeRef.current = scope.map((s) => s.id)
     try {
       const phaseATargets = [...needA, ...needReview]
-      const hasPhaseA = phaseATargets.length > 0
-      // 1. 待批改 → 直接 Phase B(先跑完、避免跟 Phase A 搶 gradingPhase)。
-      //    有後續 Phase A 才 silent(讓最後 Phase A/複核的結果視窗當最終 modal);
-      //    只有 needB(無後續)→ 不 silent、讓 needB 的結果視窗當最終 modal。
-      if (needB.length > 0) {
-        await executeGradeOnlyCache(needB, { silent: hasPhaseA })
+      if (phaseATargets.length > 0) {
+        // Phase A（review-only、keep-manual 保留手改）。enteredReview=true → 等審查 onAllDone 再跑統一 Phase B。
+        const enteredReview = await executeRecaptureOnly(phaseATargets, { suppressNotice: true })
+        if (enteredReview) return
       }
-      // 2. 未擷取 + 待複核 → Phase A(needReview 重讀、keep-manual 保留手改)→ 複核 → Phase B
-      if (hasPhaseA) {
-        await executeRecaptureOnly(phaseATargets, { chainPhaseB: true })
-      }
+      // 無待複核（全乾淨）或純 needB → 立刻對全 scope 跑統一 Phase B
+      await runOneClickPhaseB()
     } catch (e) {
       console.error('[oneClick] error', e)
+      oneClickScopeRef.current = []
     }
   }
 
@@ -5953,26 +5989,33 @@ export default function GradingPage({
             }}
             onAllDone={() => {
               if (phaseAOnlyReviewModeRef.current) {
-                console.log('✅ 全部審查完成（review only mode）、回卡片列表、不接 Phase B')
                 const reviewedCount = batchPhaseAEntries.length
                 phaseAOnlyReviewModeRef.current = false
                 setBatchPhaseAEntries([])
                 setGradingPhase('idle')
                 setIsGrading(false)
                 requestSync()  // 拉最新 final_answers
-                // 用 stash 包 Phase A 完成 notice
-                const stash = phaseAStashRef.current
-                if (stash) {
-                  setPhaseAResultNotice({
-                    stopped: false,
-                    successCount: stash.successCount,
-                    failCount: stash.failCount,
-                    needsReviewedCount: reviewedCount,
-                    totalCount: stash.totalCount,
-                    failReasons: stash.failReasons,
-                    failedCandidates: stash.failedCandidates,
-                  })
+                if (oneClickScopeRef.current.length > 0) {
+                  // 一鍵 1c：複核完 → 對全 scope 跑一次統一 Phase B（不顯示 Phase A notice、留給 Phase B 結果視窗）
+                  console.log('✅ 全部審查完成（一鍵）→ 對全 scope 跑統一 Phase B')
                   phaseAStashRef.current = null
+                  void runOneClickPhaseB()
+                } else {
+                  console.log('✅ 全部審查完成（review only mode）、回卡片列表、不接 Phase B')
+                  // 用 stash 包 Phase A 完成 notice
+                  const stash = phaseAStashRef.current
+                  if (stash) {
+                    setPhaseAResultNotice({
+                      stopped: false,
+                      successCount: stash.successCount,
+                      failCount: stash.failCount,
+                      needsReviewedCount: reviewedCount,
+                      totalCount: stash.totalCount,
+                      failReasons: stash.failReasons,
+                      failedCandidates: stash.failedCandidates,
+                    })
+                    phaseAStashRef.current = null
+                  }
                 }
               } else {
                 console.log('✅ 全部審查完成，等待背景 Accessor')
