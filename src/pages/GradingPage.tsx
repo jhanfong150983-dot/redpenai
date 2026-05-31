@@ -5146,43 +5146,25 @@ export default function GradingPage({
 
   const getDisplayReviewReasons = useCallback(
     (submission: Submission) => {
-      // 2026-05-28: Phase A 比 Phase B 新時、忽略舊 reviewReasons、用新 phaseAState.arbiterDecisions 重建理由
-      if (isPhaseAStale(submission, correctionStatusByStudent[submission.studentId])) {
-        const decisions = submission.phaseAState?.arbiterDecisions ?? []
-        const needsReviewQids = decisions
-          .filter((d) => d?.arbiterStatus === 'needs_review')
-          .map((d) => formatDisplayQuestionId(d?.questionId) || d?.questionId)
-          .filter(Boolean)
-        if (needsReviewQids.length === 0) return []
-        return [`第 ${needsReviewQids.join('、')} 題 AI 判讀不一致、需要複核`]
-      }
-
-      const reasons = submission.gradingResult?.reviewReasons ?? []
-      if (reasons.length > 0) {
-        const parsed = reasons
-          .map((reason) => toUserFriendlyReviewReason(reason))
-          .map((reason) => reason.trim())
-          // 過濾掉「未作答」相關 reason（學生明確沒寫不需老師確認）
-          // 包含舊批改紀錄存的「辨識為未作答，請確認」也一併不顯示
-          .filter((reason) => reason.length > 0 && !reason.includes('辨識為未作答') && !reason.includes('題未作答'))
-        return Array.from(new Set(parsed))
-      }
-
-      const derived = new Set<string>()
+      // 2026-05-31 定案：detail 警告橫幅只列「無法辨識」(學生有寫但 AI 讀不出來、需老師確認)。
+      // 「AI 判讀不一致/needs_review」改由「待複核」卡片狀態 + 審查面板處理、不在 detail 重複 nag —
+      // 否則重跑 Phase A 後、已經人工審查過的題(stale 期間)也會一直跳「AI 判讀不一致、需要複核」。
+      // 「未作答」(學生明確沒寫)也不列 — 空白就空白、不用老師確認。
+      const out = new Set<string>()
       const details = submission.gradingResult?.details ?? []
-
-      // 「信心偏低」derive reason 已停用 — 信心數字無實質意義
       const unreadableIds = details
         .filter((detail: any) => detail?.studentAnswer === 'AI無法辨識' || detail?.studentAnswer === '無法辨識')
         .map((detail: any) => formatDisplayQuestionId(detail?.questionId) || detail?.questionId)
         .filter(Boolean)
-      if (unreadableIds.length > 0) {
-        derived.add(`第 ${unreadableIds.join('、')} 題無法辨識`)
+      if (unreadableIds.length > 0) out.add(`第 ${unreadableIds.join('、')} 題無法辨識`)
+      // reviewReasons 裡若有「無法辨識」類系統理由也顯示；其餘(判讀不一致/needs_review/未作答)一律不顯示
+      for (const r of (submission.gradingResult?.reviewReasons ?? [])) {
+        const t = toUserFriendlyReviewReason(r).trim()
+        if (t.includes('無法辨識')) out.add(t)
       }
-      // 「未作答」（學生明確沒寫）不再列為需要複核理由 — 學生既然空白就空白、不用老師確認
-      return Array.from(derived)
+      return Array.from(out)
     },
-    [correctionStatusByStudent]
+    []
   )
 
 
