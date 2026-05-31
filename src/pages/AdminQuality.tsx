@@ -48,6 +48,8 @@ type QuestionDetail = {
   // VJ 視覺判斷題：逐柱結果（取代 AI1/AI2 read 行）
   vjItems?: Array<{ idx: number | null; label: string; verdict: 'correct' | 'wrong' | 'blank' | 'pending' | null; reason: string }> | null
   arbiterConsistent: boolean | null
+  // 'ai3'=AI3 語意判官判的、'fallback'=AI3 沒產出、程式字串比對判的、null=不適用
+  consistencySource?: 'ai3' | 'fallback' | null
   finalAnswer: string | null
   finalAnswerSource: string | null
   isMistake: boolean
@@ -517,7 +519,7 @@ function QuestionCard({
   hovered: boolean
 }) {
   const {
-    qid, type, bboxSource, ai1, ai2, arbiterConsistent, vjItems,
+    qid, type, bboxSource, ai1, ai2, arbiterConsistent, consistencySource, vjItems,
     finalAnswer, finalAnswerSource, isMistake,
     score, maxScore, isCorrect, scoringReason
   } = question
@@ -525,14 +527,18 @@ function QuestionCard({
   const showReason = isCorrect === false && !!scoringReason
   const isVJ = !!type && ['diagram_color', 'map_symbol', 'grid_geometry'].includes(type) && Array.isArray(vjItems)
 
+  // 區分 AI3（語意判官真的判過）vs 程式 fallback（AI3 沒產出、靠字串比對）。
+  // 「程式一致」用琥珀色警示：代表 AI3 沒運作、這題只是程式比對說一致、不一定可信。
+  const isAi3 = consistencySource === 'ai3'
   const consistencyBadge =
     arbiterConsistent === false ? (
-      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">
-        <XCircle className="w-3 h-3" /> 送 review
+      <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${isAi3 ? 'bg-rose-100 text-rose-700' : 'bg-orange-100 text-orange-700'}`}>
+        <XCircle className="w-3 h-3" /> {isAi3 ? 'AI送審' : '程式送審'}
       </span>
     ) : arbiterConsistent === true ? (
-      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
-        <CheckCircle2 className="w-3 h-3" /> 一致
+      <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${isAi3 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}
+        title={isAi3 ? 'AI3 語意判官判定一致' : '⚠️ AI3 未產出結果、由程式字串比對判一致（AI3 可能失效、不一定可信）'}>
+        {isAi3 ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />} {isAi3 ? 'AI一致' : '程式一致'}
       </span>
     ) : (
       <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
