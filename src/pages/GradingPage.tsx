@@ -5558,18 +5558,22 @@ export default function GradingPage({
         <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-bold text-gray-900 mb-3">智慧批改</h3>
-            <div className="text-sm text-gray-700 mb-3">將處理 <strong>{unfinishedBuckets.total}</strong> 份未完成（已完成的不會重跑）：</div>
-            <ul className="text-sm text-gray-700 space-y-1 mb-4 list-none">
-              {unfinishedBuckets.needA.length > 0 && <li>🔵 <strong>{unfinishedBuckets.needA.length}</strong> 份未擷取 → 擷取 + 批改</li>}
-              {unfinishedBuckets.needReview.length > 0 && <li>🟡 <strong>{unfinishedBuckets.needReview.length}</strong> 份待複核 → 複核 + 批改</li>}
-              {unfinishedBuckets.needB.length > 0 && <li>🟢 <strong>{unfinishedBuckets.needB.length}</strong> 份待批改 → 批改</li>}
+            <div className="text-sm text-gray-700 mb-3">
+              一次把 <strong>{unfinishedBuckets.total}</strong> 份還沒完成的作業批改到好。<strong>已完成的不會重跑。</strong>
+            </div>
+            <ul className="text-sm text-gray-700 space-y-1 mb-3 list-none">
+              {unfinishedBuckets.needA.length > 0 && <li>🔵 <strong>{unfinishedBuckets.needA.length}</strong> 份未擷取 → 讀取答案、（需要時）請你複核、批改</li>}
+              {unfinishedBuckets.needB.length > 0 && <li>🟢 <strong>{unfinishedBuckets.needB.length}</strong> 份待批改 → 直接批改</li>}
             </ul>
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
-              ⚠️ 會消耗約 <strong>{unfinishedBuckets.total}</strong> 份批改額度（墨水）。
+            <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3">
+              ℹ️ 過程中若 AI 對某些答案沒把握，會請你確認再繼續；可隨時暫停、之後接著做。
+            </div>
+            <div className="text-sm text-amber-800 mb-4">
+              ⚠️ 批改會消耗墨水（點數）。
             </div>
             <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setOneClickConfirmOpen(false)}>取消</Button>
-              <Button variant="primary" onClick={() => { void handleOneClickContinue() }}>確定</Button>
+              <Button variant="outline" onClick={() => setOneClickConfirmOpen(false)}>不同意</Button>
+              <Button variant="primary" onClick={() => { void handleOneClickContinue() }}>同意</Button>
             </div>
           </div>
         </div>
