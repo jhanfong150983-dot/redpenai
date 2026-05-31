@@ -76,6 +76,7 @@ type StudentAssignmentItem = {
     sourceSubmissionId?: string
     sourceImageUrl?: string
     cropImageUrl?: string
+    studentAnswer?: string  // 2026-06-01: AI 讀到的學生答案（「你的作答 → AI 讀成 X」對比）
     questionBbox?: Bbox | null
     answerBbox?: Bbox | null
     status?: string
@@ -1747,23 +1748,44 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         </div>
                       )}
 
-                      {/* Original wrong-answer crop thumbnail */}
+                      {/* 2026-06-01: 「你的作答 ↔ AI 讀成 X」對比——讓學生發現是字跡讓 AI 讀錯，不是自己沒錯 */}
                       {(() => {
                         const cropKey = buildCorrectionCropCacheKey(correctionAssignmentId, item, idx)
                         const cropUrl = correctionCropCache[cropKey]
                         const resolvedServerCrop = getCorrectionImageUrl(item)
                         const displayUrl =
                           resolvedServerCrop || (typeof cropUrl === 'string' ? cropUrl : null)
-                        if (!displayUrl) return null
+                        const aiRead = (item.studentAnswer || '').trim()
+                        const unreadable = !aiRead || aiRead === '無法辨識' || aiRead === 'AI無法辨識'
+                        if (!displayUrl && !aiRead) return null
                         return (
-                          <div className="mb-2 overflow-hidden rounded border border-slate-200 bg-slate-50">
-                            <img
-                              src={displayUrl}
-                              alt="原始錯誤作答"
-                              className="max-h-40 w-full cursor-zoom-in object-contain"
-                              onClick={() => setZoomImageUrl(displayUrl)}
-                            />
-                            <p className="px-2 py-0.5 text-center text-[10px] text-slate-400">原始錯誤作答・點擊放大</p>
+                          <div className="mb-2">
+                            <div className="grid grid-cols-2 items-stretch gap-2">
+                              {/* 左：你的作答（手寫截圖） */}
+                              <div className="flex flex-col overflow-hidden rounded border border-slate-200 bg-slate-50">
+                                <p className="px-2 pt-1 text-[10px] font-semibold text-slate-500">你的作答</p>
+                                {displayUrl ? (
+                                  <img
+                                    src={displayUrl}
+                                    alt="你的作答"
+                                    className="max-h-40 w-full cursor-zoom-in object-contain"
+                                    onClick={() => setZoomImageUrl(displayUrl)}
+                                  />
+                                ) : (
+                                  <div className="flex flex-1 items-center justify-center py-6 text-[11px] text-slate-400">（無截圖）</div>
+                                )}
+                              </div>
+                              {/* 右：AI 讀成 X */}
+                              <div className={`flex flex-col items-center justify-center rounded border px-2 py-3 text-center ${unreadable ? 'border-rose-200 bg-rose-50' : 'border-sky-200 bg-sky-50'}`}>
+                                <p className={`text-[10px] font-semibold ${unreadable ? 'text-rose-600' : 'text-sky-700'}`}>AI 讀成</p>
+                                <p className={`mt-1 break-words text-sm font-bold ${unreadable ? 'text-rose-700' : 'text-sky-900'}`}>
+                                  {unreadable ? '⚠️ 無法辨識' : `「${aiRead}」`}
+                                </p>
+                              </div>
+                            </div>
+                            <p className="mt-1 text-[11px] text-slate-500">
+                              這是 AI 從你的字判斷出來的。{unreadable ? '字跡看不清楚、' : '跟你想寫的不一樣？'}訂正時請寫工整一點；確定有寫清楚卻被讀錯，可以申訴。
+                            </p>
                           </div>
                         )
                       })()}
