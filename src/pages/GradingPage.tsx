@@ -3576,9 +3576,24 @@ export default function GradingPage({
           for (const fa of keptManualFA) {
             seededDecisions.set(fa.questionId, { questionId: fa.questionId, source: 'manual', finalAnswer: fa.finalStudentAnswer ?? '', confirmed: true })
           }
+          // 2026-06-01: 本地立刻寫入新的 phaseAState（鏡像 server staged-grading.js:8861 的寫法）。
+          // 否則本地 arbiterDecisions 仍是「重跑前」的舊版、submissionPendingReview / deriveCardStage
+          //   會用舊 decisions 判出假性「需要複核」(已批改+stale 卷尤其明顯)、要等 sync(server-first) 拉回才消失
+          //   (重整才好)→ 卡片誤分桶、一鍵又重抓去複核。下次 sync 用 server 完整版整份覆蓋、安全。
+          const localPhaseAState: NonNullable<Submission['phaseAState']> = {
+            ...(sub.phaseAState ?? {}),
+            arbiterDecisions: phaseAResult.questionResults.map((qr) => ({
+              questionId: qr.questionId,
+              arbiterStatus: qr.arbiterResult?.arbiterStatus,
+              finalAnswer: qr.arbiterResult?.finalAnswer,
+              consistent: qr.arbiterResult?.consistent,
+            })),
+            savedAt: new Date().toISOString(),
+          }
           await db.submissions.update(sub.id, {
             status: 'synced',  // 待批改 / 待複核（細狀態由 deriveCardStage 從 phase_a_state 算）
             gradingResult: phaseAGradingResult,
+            phaseAState: localPhaseAState,  // 同步刷新本地 decisions、消假性待複核
             finalAnswers: keptManualFA,  // 清掉非 manual、留手改
             score: undefined,
             aiScore: undefined,
@@ -3598,6 +3613,7 @@ export default function GradingPage({
               ...cur,
               status: 'synced',
               gradingResult: phaseAGradingResult,
+              phaseAState: localPhaseAState,  // 同 Dexie：本地立刻刷新 decisions
               finalAnswers: keptManualFA,
               score: undefined,
               aiScore: undefined,
