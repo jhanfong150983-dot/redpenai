@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type MouseEvent as ReactMouseEvent, type WheelEvent as ReactWheelEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '@/components/ui/Button'
+import InkConfirmModal from '@/components/InkConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import {
   ArrowLeft,
@@ -5553,31 +5554,24 @@ export default function GradingPage({
         </div>
       )}
 
-      {/* 2026-05-31 Phase1b: 一鍵接著批改確認框（含墨水警告；執行邏輯在 Phase 1c 接上） */}
-      {oneClickConfirmOpen && (
-        <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
-          <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-bold text-gray-900 mb-3">智慧批改</h3>
-            <div className="text-sm text-gray-700 mb-3">
-              一次把 <strong>{unfinishedBuckets.total}</strong> 份還沒完成的作業批改到好。<strong>已完成的不會重跑。</strong>
-            </div>
-            <ul className="text-sm text-gray-700 space-y-1 mb-3 list-none">
-              {unfinishedBuckets.needA.length > 0 && <li>🔵 <strong>{unfinishedBuckets.needA.length}</strong> 份未擷取 → 讀取答案、（需要時）請你複核、批改</li>}
-              {unfinishedBuckets.needB.length > 0 && <li>🟢 <strong>{unfinishedBuckets.needB.length}</strong> 份待批改 → 直接批改</li>}
-            </ul>
-            <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3">
-              ℹ️ 過程中若 AI 對某些答案沒把握，會請你確認再繼續；可隨時暫停、之後接著做。
-            </div>
-            <div className="text-sm text-amber-800 mb-4">
-              ⚠️ 批改會消耗墨水（點數）。
-            </div>
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setOneClickConfirmOpen(false)}>不同意</Button>
-              <Button variant="primary" onClick={() => { void handleOneClickContinue() }}>同意</Button>
-            </div>
-          </div>
+      {/* 2026-06-01: 智慧批改確認——套共用 InkConfirmModal（墨水花費提醒 + 同意/不同意） */}
+      <InkConfirmModal
+        open={oneClickConfirmOpen}
+        warning="批改會消耗墨水（點數）"
+        onCancel={() => setOneClickConfirmOpen(false)}
+        onConfirm={() => { void handleOneClickContinue() }}
+      >
+        <div className="mb-2">
+          即將處理 <strong>{unfinishedBuckets.total}</strong> 份還沒完成的作業。
         </div>
-      )}
+        <ul className="mb-3 list-none space-y-1">
+          {unfinishedBuckets.needA.length > 0 && <li>🔵 <strong>{unfinishedBuckets.needA.length}</strong> 份未擷取</li>}
+          {unfinishedBuckets.needB.length > 0 && <li>🟢 <strong>{unfinishedBuckets.needB.length}</strong> 份待批改</li>}
+        </ul>
+        <div className="text-slate-600">
+          ℹ️ 過程中若 AI 對某些答案沒把握，會請你確認再繼續；可隨時暫停、之後接著做。
+        </div>
+      </InkConfirmModal>
 
       {/* 2026-05-30: 重新截取危險確認（severity medium：清讀值/分數、擋已完成訂正） */}
       <DangerConfirmModal
