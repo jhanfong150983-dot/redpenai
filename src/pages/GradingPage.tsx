@@ -3936,6 +3936,32 @@ export default function GradingPage({
     await executeGradeOnlyCache(inScope)
   }
 
+  // 2026-05-31 Phase1c: 一鍵接著批改——把所有未完成的接著批改到完成。
+  // 設計點3(避免 Phase A/B 同時跑搶狀態機):先把「待批改(needB)」直接 Phase B 跑完、
+  //   再把「未擷取(needA)+待複核(needReview)」一起跑 Phase A → 複核 → Phase B(chainPhaseB)。
+  // v1 限制:Phase A 後「乾淨無複核」的卷會停在「待批改」、下次按一鍵會被當 needB 自動補批(不卡死)。
+  const handleOneClickContinue = async () => {
+    setOneClickConfirmOpen(false)
+    const { needA, needReview, needB } = unfinishedBuckets
+    if (needA.length + needReview.length + needB.length === 0) {
+      alert('沒有未完成的作業')
+      return
+    }
+    try {
+      // 1. 待批改 → 直接 Phase B(先跑完、避免跟 Phase A 搶 gradingPhase)
+      if (needB.length > 0) {
+        await executeGradeOnlyCache(needB)
+      }
+      // 2. 未擷取 + 待複核 → Phase A(needReview 重讀、keep-manual 保留手改)→ 複核 → Phase B
+      const phaseATargets = [...needA, ...needReview]
+      if (phaseATargets.length > 0) {
+        await executeRecaptureOnly(phaseATargets, { chainPhaseB: true })
+      }
+    } catch (e) {
+      console.error('[oneClick] error', e)
+    }
+  }
+
   // 2026-05-17: handleGradeAll 已被 handleRecaptureAll + handleGradeOnly 取代、保留作 legacy fallback。
   // 暫不從 UI 移除（showGradeConfirm modal 仍引用 executeGrading）、避免大改 delete。
   // @ts-expect-error TS6133: 暫時 unused、PR4 polish 時清掉
@@ -5427,7 +5453,7 @@ export default function GradingPage({
             </div>
             <div className="flex gap-2 justify-end">
               <Button variant="outline" onClick={() => setOneClickConfirmOpen(false)}>取消</Button>
-              <Button variant="primary" onClick={() => { setOneClickConfirmOpen(false); alert(`（Phase 1b 預覽）將處理 ${unfinishedBuckets.total} 份。實際執行在 Phase 1c 接上。`) }}>確定</Button>
+              <Button variant="primary" onClick={() => { void handleOneClickContinue() }}>確定</Button>
             </div>
           </div>
         </div>
