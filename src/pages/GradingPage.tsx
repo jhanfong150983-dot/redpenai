@@ -5875,10 +5875,10 @@ export default function GradingPage({
                     onClick={() => setOneClickConfirmOpen(true)}
                     disabled={smartLeftDisabled}
                     title={smartHasWork ? '把所有未完成的作業一次批改到完成（已完成的略過）' : '目前沒有未完成的作業'}
-                    className={`inline-flex items-center gap-2 rounded-l-lg px-4 py-2 text-sm font-semibold transition-colors active:scale-[0.98] ${
+                    className={`inline-flex items-center gap-2 rounded-l-lg border px-4 py-2 text-sm font-semibold transition-colors active:scale-[0.98] ${
                       smartLeftDisabled
-                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed active:scale-100'
-                        : 'bg-green-600 text-white hover:bg-green-700'
+                        ? 'border-slate-300 bg-white text-slate-400 cursor-not-allowed active:scale-100'
+                        : 'border-green-600 bg-green-600 text-white hover:border-green-700 hover:bg-green-700'
                     }`}
                   >
                     {smartHasWork ? <Sparkles className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
@@ -5890,10 +5890,10 @@ export default function GradingPage({
                     disabled={advTriggerDisabled}
                     title="進階：單獨選份數跑擷取或批改"
                     aria-label="進階"
-                    className={`inline-flex items-center rounded-r-lg border-l px-2 py-2 transition-colors active:scale-[0.98] ${
+                    className={`inline-flex items-center rounded-r-lg border border-l-0 px-2 py-2 transition-colors active:scale-[0.98] ${
                       advTriggerDisabled
-                        ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed active:scale-100'
-                        : 'bg-green-600 text-white border-green-700 hover:bg-green-700'
+                        ? 'border-slate-300 bg-white text-slate-400 cursor-not-allowed active:scale-100'
+                        : 'border-green-600 bg-green-600 text-white hover:border-green-700 hover:bg-green-700'
                     }`}
                   >
                     <ChevronDown className="w-4 h-4" />
