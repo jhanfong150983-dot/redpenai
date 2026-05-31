@@ -26,6 +26,8 @@ export interface DangerConfirmModalProps {
   cancelLabel?: string
   /** 有值時顯示勾選同意框；勾了才解鎖確定鈕（severity=high 用） */
   acknowledgeText?: string
+  /** 有值時在按鈕上方顯示墨水花費提醒（琥珀色），用於會扣點數的 AI 動作 */
+  inkNote?: string
   /** 執行中 → 鎖鈕、確定鈕轉 spinner */
   busy?: boolean
   onConfirm: () => void
@@ -54,6 +56,7 @@ export default function DangerConfirmModal({
   confirmLabel = '確定',
   cancelLabel = '取消',
   acknowledgeText,
+  inkNote,
   busy = false,
   onConfirm,
   onCancel,
@@ -145,6 +148,12 @@ export default function DangerConfirmModal({
             />
             <span className="text-sm text-rose-800">{acknowledgeText}</span>
           </label>
+        )}
+
+        {inkNote && (
+          <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm font-medium text-amber-800 text-center">
+            ⚠️ {inkNote}
+          </div>
         )}
 
         {/* 反直覺：取消＝彩色主鈕、確定＝灰色弱鈕 */}

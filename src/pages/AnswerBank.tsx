@@ -13,6 +13,7 @@ import { extractAnswerKeyFromImages } from '@/lib/gemini'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { checkFolderNameUnique, domainRank, sortByDomainThenName } from '@/lib/utils'
 import AnswerKeyUnifiedModal from '@/components/AnswerKeyUnifiedModal'
+import InkConfirmModal from '@/components/InkConfirmModal'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -381,6 +382,9 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   // ── Unified modal handlers ─────────────────────────────────────────────────
 
+  // 2026-06-01: 擷取墨水同意框（promise-confirm）
+  const [inkConfirm, setInkConfirm] = useState<{ resolve: (ok: boolean) => void } | null>(null)
+
   const handleUnifiedExtract = async (
     orderedPages: Array<{ index: number; url: string; blob: Blob }>,
     _onProgress: (msg: string) => void,
@@ -391,6 +395,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
       bookletBlobs?: Blob[]
     }
   ) => {
+    // 2026-06-01: 擷取會花墨水 → 先跳同意框（promise-confirm，不同意則中止、不扣點）
+    const inkOk = await new Promise<boolean>((resolve) => setInkConfirm({ resolve }))
+    setInkConfirm(null)
+    if (!inkOk) throw new Error('已取消（未扣墨水）')
     const blobs = orderedPages.map((p) => p.blob)
     await startInkSession()
     try {
@@ -876,6 +884,16 @@ export default function AnswerBank(_props: AnswerBankProps) {
           domainOptions={domainOptions}
         />
       )}
+
+      {/* 2026-06-01: 擷取答案卷墨水同意框 */}
+      <InkConfirmModal
+        open={!!inkConfirm}
+        warning="擷取答案卷會消耗墨水（點數）"
+        onCancel={() => { inkConfirm?.resolve(false); setInkConfirm(null) }}
+        onConfirm={() => { inkConfirm?.resolve(true); setInkConfirm(null) }}
+      >
+        即將用 AI 讀取這份答案卷的題目與答案。
+      </InkConfirmModal>
 
       {/* 匯入短碼 Modal */}
       {showImportModal && (

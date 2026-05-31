@@ -6,6 +6,7 @@ import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
 import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
 import DomainDiagnosisView from './ai-report/components/DomainDiagnosisView'
+import InkConfirmModal from '@/components/InkConfirmModal'
 import {
   runSanityCheck
 } from './ai-report/compute'
@@ -262,6 +263,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   // 手動觸發領域診斷重生（後補題本後可用，繞過 cache）
   const [domainDiagnosisRegenCounter, setDomainDiagnosisRegenCounter] = useState(0)
   const [activeTab, setActiveTab] = useState<'class' | 'domain' | 'student'>('class')
+  // 2026-06-01: 生成/重生報告會花墨水 → 先跳同意框，同意才跑（存待執行動作）
+  const [inkAction, setInkAction] = useState<(() => void) | null>(null)
+  const requestInk = useCallback((fn: () => void) => setInkAction(() => fn), [])
   const [assignmentSummary, setAssignmentSummary] = useState<{
     status: string
     class_summary: string | null
@@ -934,7 +938,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               <AssignmentSummaryPanel
                 data={assignmentSummary as Parameters<typeof AssignmentSummaryPanel>[0]['data']}
                 loading={assignmentSummaryLoading}
-                onRetry={handleRetryAssignmentSummary}
+                onRetry={() => requestInk(handleRetryAssignmentSummary)}
                 isStale={Boolean(
                   latestGradedAt &&
                   assignmentSummary?.updated_at &&
@@ -956,10 +960,10 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={() => requestInk(() => {
                         setDomainDiagnoses({})
                         setDomainDiagnosisRegenCounter((c) => c + 1)
-                      }}
+                      })}
                       disabled={Object.values(domainDiagnosisLoading).some(Boolean)}
                       style={{
                         padding: '6px 12px',
@@ -1004,6 +1008,16 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           以上分析僅依 AI 批改輸出進行聚合，未含題目內容。建議搭配教師觀察補充判斷。
         </div>
       </main>
+
+      {/* 2026-06-01: 產生/重生報告墨水同意框 */}
+      <InkConfirmModal
+        open={!!inkAction}
+        warning="產生 AI 報告會消耗墨水（點數）"
+        onCancel={() => setInkAction(null)}
+        onConfirm={() => { const fn = inkAction; setInkAction(null); fn?.() }}
+      >
+        即將用 AI 產生這份學情報告。
+      </InkConfirmModal>
     </div>
   )
 }

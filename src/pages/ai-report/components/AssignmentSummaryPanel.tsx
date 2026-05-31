@@ -181,9 +181,7 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry, isStale
           {/* 隨時可手動重新生成、用於更換 prompt / 模型 / 上傳新題本後重跑 */}
           {onRetry && !isStale && (
             <button
-              onClick={() => {
-                if (window.confirm('確定要重新生成這份學情摘要？')) onRetry()
-              }}
+              onClick={onRetry}
               style={{
                 marginLeft: 'auto',
                 padding: '0.2rem 0.6rem',

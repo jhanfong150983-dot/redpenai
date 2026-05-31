@@ -1919,6 +1919,8 @@ export default function GradingPage({
   //   (卡片出現 ☑、底部出現確認列「已選 N ▶ 開始」)、執行完自動退出。
   const [advancedMode, setAdvancedMode] = useState<'phase_a' | 'phase_b' | null>(null)
   const [advancedMenuOpen, setAdvancedMenuOpen] = useState(false)
+  // 2026-06-01: 進階「無覆寫風險直接跑」時的墨水確認（有覆寫風險走 DangerConfirmModal 的 inkNote）
+  const [advInkConfirm, setAdvInkConfirm] = useState<null | { kind: 'phase_a' | 'phase_b'; count: number; run: () => void }>(null)
   const [correctionGuardModal, setCorrectionGuardModal] = useState<CorrectionGuardModalState | null>(
     null
   )
@@ -3435,8 +3437,8 @@ export default function GradingPage({
       setRecaptureConfirm({ submissions: inScope, cleared })
       return
     }
-    // 無清空風險、直接跑 Phase A only
-    await executeRecaptureOnly(inScope)
+    // 無清空風險、直接跑 Phase A only（先過墨水確認）
+    setAdvInkConfirm({ kind: 'phase_a', count: inScope.length, run: () => { void executeRecaptureOnly(inScope) } })
   }
 
   // 2026-05-17: Phase A only 執行器
@@ -4021,8 +4023,8 @@ export default function GradingPage({
       })
       return
     }
-    // 無風險、直接跑 Phase B only (fromCache)
-    await executeGradeOnlyCache(inScope)
+    // 無風險、直接跑 Phase B only (fromCache)（先過墨水確認）
+    setAdvInkConfirm({ kind: 'phase_b', count: inScope.length, run: () => { void executeGradeOnlyCache(inScope) } })
   }
 
   // 2026-05-31 一鍵 1c：對「本次一鍵的全 scope」跑一次統一 Phase B。
@@ -5573,6 +5575,16 @@ export default function GradingPage({
         </div>
       </InkConfirmModal>
 
+      {/* 2026-06-01: 進階「無覆寫風險直接跑」的墨水確認 */}
+      <InkConfirmModal
+        open={!!advInkConfirm}
+        warning={advInkConfirm?.kind === 'phase_a' ? '重新截取會消耗墨水（點數）' : '重新批改會消耗墨水（點數）'}
+        onCancel={() => setAdvInkConfirm(null)}
+        onConfirm={() => { const a = advInkConfirm; setAdvInkConfirm(null); a?.run() }}
+      >
+        即將{advInkConfirm?.kind === 'phase_a' ? '重新截取答案' : '重新批改'} <strong>{advInkConfirm?.count ?? 0}</strong> 份作業。
+      </InkConfirmModal>
+
       {/* 2026-05-30: 重新截取危險確認（severity medium：清讀值/分數、擋已完成訂正） */}
       <DangerConfirmModal
         open={!!recaptureConfirm}
@@ -5581,6 +5593,7 @@ export default function GradingPage({
         clears={['AI 讀取結果', '批改分數', '訂正狀態']}
         keeps={['學生作答照片']}
         affectedNoun="份作業"
+        inkNote="重新截取會消耗墨水（點數）"
         affected={(recaptureConfirm?.cleared ?? []).map((sub) => {
           const stu = students.find((s) => s.id === sub.studentId)
           const stage = deriveCardStage(sub, correctionStatusByStudent[sub.studentId])
@@ -5646,6 +5659,7 @@ export default function GradingPage({
         clears={['舊分數']}
         keeps={['訂正/申訴紀錄（逐題調和保留）']}
         affectedNoun="份已批改"
+        inkNote="重新批改會消耗墨水（點數）"
         affected={(gradeOverwriteConfirm?.overwriting ?? []).map((sub) => {
           const stu = students.find((s) => s.id === sub.studentId)
           return {
