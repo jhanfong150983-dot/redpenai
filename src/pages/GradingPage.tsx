@@ -195,14 +195,15 @@ export function submissionPendingReview(sub?: Submission, correctionStatus?: str
   // 原本卡片 deriveCardStage 就是無條件看 finalAnswers，這裡跟它對齊。
   const finalAnswers = sub.finalAnswers
   if (Array.isArray(finalAnswers) && finalAnswers.length > 0) {
-    const phaseAQids = sub.phaseAState?.questionIds
-    const expectedQids = ((Array.isArray(phaseAQids) && phaseAQids.length > 0
-      ? phaseAQids
-      : details.map((d) => d.questionId)).filter(Boolean)) as string[]
     const finalByQid = new Map(finalAnswers.map((fa) => [fa.questionId, fa.finalStudentAnswer]))
     const hasUnrecognizable = finalAnswers.some((fa) => (fa.finalStudentAnswer || '').trim() === '無法辨識') // B
-    const missing = expectedQids.some((q) => !finalByQid.has(q)) // A
-    return hasUnrecognizable || missing
+    // 2026-05-31: 「漏題」只算「需確認(needs_review/空白)且沒 finalAnswer」的題。
+    // 重跑 Phase A 後只留 manual finalAnswers、其餘清掉、但那些「一致」題即使沒 finalAnswer 也會在
+    // Phase B 自動採用新讀取、不需老師看 → 不能算 pending(否則重批完一致題會一直顯示「需要複核」)。
+    const decisions = (sub.phaseAState?.arbiterDecisions ?? []) as Array<{ questionId?: string; arbiterStatus?: string; finalAnswer?: string }>
+    const needsConfirmMissing = decisions.some((d) =>
+      questionNeedsConfirm(d.arbiterStatus, d.finalAnswer, typeByQid.get(d.questionId ?? '')) && !finalByQid.has(d.questionId ?? '')) // A
+    return hasUnrecognizable || needsConfirmMissing
   }
 
   // 未審查 / stale：用 arbiterDecisions（含 blank）
