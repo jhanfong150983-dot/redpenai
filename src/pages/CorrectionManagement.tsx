@@ -47,6 +47,7 @@ type DisputeItem = {
   cropImageUrl?: string
   sourceSubmissionId?: string
   studentAnswer?: string
+  correctAnswer?: string  // 2026-06-01: 答案卷答案（供與系統採用的答案左右對比）
 }
 
 // 把 Supabase Storage 內部路徑（corrections/crops/...webp）包成可載入的 HTTP URL。
@@ -507,14 +508,15 @@ export default function CorrectionManagement({
       if (!response.ok) throw new Error(data?.error || '載入申訴題目失敗')
       const items: DisputeItem[] = (data.corrections || [])
         .filter((c: { status?: string }) => c.status === 'disputed')
-        .map((c: { questionId?: string; questionText?: string; hintText?: string; disputeNote?: string; cropImageUrl?: string; sourceSubmissionId?: string; studentAnswer?: string }) => ({
+        .map((c: { questionId?: string; questionText?: string; hintText?: string; disputeNote?: string; cropImageUrl?: string; sourceSubmissionId?: string; studentAnswer?: string; correctAnswer?: string }) => ({
           questionId: c.questionId || '',
           questionText: c.questionText,
           hintText: c.hintText,
           disputeNote: c.disputeNote,
           cropImageUrl: c.cropImageUrl,
           sourceSubmissionId: c.sourceSubmissionId,
-          studentAnswer: c.studentAnswer
+          studentAnswer: c.studentAnswer,
+          correctAnswer: c.correctAnswer
         }))
       const initialResolutions: Record<string, { action: 'accept' | 'reject' | null; rejectionNote: string }> = {}
       items.forEach((item) => { initialResolutions[item.questionId] = { action: null, rejectionNote: '' } })
@@ -924,10 +926,16 @@ export default function CorrectionManagement({
                       ) : null
                     })()}
 
-                    {item.studentAnswer && (
-                      <div className="mb-2 rounded border border-sky-100 bg-sky-50 px-2 py-1">
-                        <p className="text-xs font-semibold text-sky-700">系統採用的答案</p>
-                        <p className="mt-0.5 text-xs text-sky-900 whitespace-pre-wrap break-words">{item.studentAnswer}</p>
+                    {(item.studentAnswer || item.correctAnswer) && (
+                      <div className="mb-2 grid grid-cols-2 gap-2">
+                        <div className="rounded border border-sky-100 bg-sky-50 px-2 py-1">
+                          <p className="text-xs font-semibold text-sky-700">系統採用的答案</p>
+                          <p className="mt-0.5 text-xs text-sky-900 whitespace-pre-wrap break-words">{item.studentAnswer || '—'}</p>
+                        </div>
+                        <div className="rounded border border-emerald-100 bg-emerald-50 px-2 py-1">
+                          <p className="text-xs font-semibold text-emerald-700">答案卷答案</p>
+                          <p className="mt-0.5 text-xs text-emerald-900 whitespace-pre-wrap break-words">{item.correctAnswer || '—'}</p>
+                        </div>
                       </div>
                     )}
 
