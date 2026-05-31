@@ -5922,14 +5922,14 @@ export default function GradingPage({
                         onClick={() => enterAdvanced('phase_a')}
                       >
                         <RefreshCw className="w-4 h-4 text-slate-400" />
-                        截取答案（Phase A）
+                        重新截取答案
                       </button>
                       <button
                         className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                         onClick={() => enterAdvanced('phase_b')}
                       >
                         <Sparkles className="w-4 h-4 text-slate-400" />
-                        批改作業（Phase B）
+                        重新批改作業
                       </button>
                     </div>
                   </>
@@ -5953,7 +5953,7 @@ export default function GradingPage({
                 {selectedSubmissionIds.size > 0 ? '取消全選' : '全選'}
               </Button>
               <span className="text-sm text-slate-600">
-                {advancedMode === 'phase_a' ? '截取答案（Phase A）' : '批改作業（Phase B）'}
+                {advancedMode === 'phase_a' ? '重新截取答案' : '重新批改作業'}
                 {' · 已選 '}
                 <strong className="text-slate-900">{selectedSubmissionCount}</strong>
                 {' 份'}
@@ -5971,7 +5971,7 @@ export default function GradingPage({
                   }
                 >
                   {advancedMode === 'phase_a' ? <RefreshCw className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
-                  開始{advancedMode === 'phase_a' ? '截取答案' : '批改作業'}（{selectedSubmissionCount}）
+                  開始{advancedMode === 'phase_a' ? '重新截取答案' : '重新批改作業'}（{selectedSubmissionCount}）
                 </Button>
               </div>
             </div>
