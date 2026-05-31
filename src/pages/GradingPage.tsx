@@ -3530,14 +3530,32 @@ export default function GradingPage({
           // 不設 totalScore（修法後）— 等 Phase B 跑完才有
           const phaseAGradingResult = { details: detailsFromPhaseA } as unknown as Submission['gradingResult']
           const updatedAtMs = Date.now()
+          // 2026-05-31: 重跑 Phase A → 只保留老師「親手輸入(source='manual')」的 finalAnswers、其餘清掉。
+          // 為什麼：之前「自動採用一致讀取」或「面板選某個 AI 讀取」的題(ai_read1/ai_read2/ai_arbiter)，
+          //   老師並沒有做真正的輸入決定。若不清、舊 finalAnswers 會遮蔽新 Phase A 的 needs_review
+          //   (submissionPendingReview 走「已審查」分支)→ 該重審的題進不了審查。
+          // 清掉的題用新 Phase A 重新決定(一致→Phase B 自動採用新讀取、不一致→重進審查)。
+          // 手改的 seed 進 decisions、Phase B 重建時保住(VJ/map_fill 由各自 detection 重建、seed 對它們無效、無害)。
+          const keptManualFA = (Array.isArray(sub.finalAnswers) ? sub.finalAnswers : [])
+            .filter((fa) => fa?.finalAnswerSource === 'manual')
+          const seededDecisions = new Map<string, ConsistencyDecision>()
+          for (const fa of keptManualFA) {
+            seededDecisions.set(fa.questionId, { questionId: fa.questionId, source: 'manual', finalAnswer: fa.finalStudentAnswer ?? '', confirmed: true })
+          }
           await db.submissions.update(sub.id, {
             status: 'synced',  // 待批改 / 待複核（細狀態由 deriveCardStage 從 phase_a_state 算）
             gradingResult: phaseAGradingResult,
+            finalAnswers: keptManualFA,  // 清掉非 manual、留手改
             score: undefined,
             aiScore: undefined,
             gradedAt: undefined,
             updatedAt: updatedAtMs
           })
+          // 把「只留 manual」的 finalAnswers 存回雲端、避免 sync 把舊的完整 finalAnswers 拉回來遮蔽
+          fetch('/api/data/save-final-answers', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ submissions: [{ id: sub.id, finalAnswers: keptManualFA }] })
+          }).catch(() => {/* non-fatal */})
           // 同步更新 React state、detail modal 立刻看到新資料、不用等 sync
           setSubmissions((prev) => {
             const next = new Map(prev)
@@ -3546,6 +3564,7 @@ export default function GradingPage({
               ...cur,
               status: 'synced',
               gradingResult: phaseAGradingResult,
+              finalAnswers: keptManualFA,
               score: undefined,
               aiScore: undefined,
               gradedAt: undefined,
@@ -3553,12 +3572,12 @@ export default function GradingPage({
             })
             return next
           })
-          // 加入成功 entries、供後續判斷是否進審查頁
+          // 加入成功 entries、供後續判斷是否進審查頁（decisions 預先帶入手改、Phase B 重建保留）
           successfulEntries.push({
             submissionId: sub.id,
             studentId: sub.studentId,
             phaseAResult,
-            decisions: new Map(),  // 老師審查時填
+            decisions: seededDecisions,
             imageBlob: sub.imageBlob
           })
           successCount++
