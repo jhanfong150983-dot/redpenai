@@ -5418,9 +5418,9 @@ export default function GradingPage({
             <h3 className="text-lg font-bold text-gray-900 mb-3">一鍵接著批改</h3>
             <div className="text-sm text-gray-700 mb-3">將處理 <strong>{unfinishedBuckets.total}</strong> 份未完成（已完成的不會重跑）：</div>
             <ul className="text-sm text-gray-700 space-y-1 mb-4 list-none">
-              {unfinishedBuckets.needA.length > 0 && <li>🔵 <strong>{unfinishedBuckets.needA.length}</strong> 份待批改 → 跑讀取 + 批改</li>}
+              {unfinishedBuckets.needA.length > 0 && <li>🔵 <strong>{unfinishedBuckets.needA.length}</strong> 份未擷取 → 擷取 + 批改</li>}
               {unfinishedBuckets.needReview.length > 0 && <li>🟡 <strong>{unfinishedBuckets.needReview.length}</strong> 份待複核 → 複核 + 批改</li>}
-              {unfinishedBuckets.needB.length > 0 && <li>🟢 <strong>{unfinishedBuckets.needB.length}</strong> 份待算分 → 批改</li>}
+              {unfinishedBuckets.needB.length > 0 && <li>🟢 <strong>{unfinishedBuckets.needB.length}</strong> 份待批改 → 批改</li>}
             </ul>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
               ⚠️ 會消耗約 <strong>{unfinishedBuckets.total}</strong> 份批改額度（墨水）。
