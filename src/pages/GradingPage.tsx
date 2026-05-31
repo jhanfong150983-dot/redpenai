@@ -3952,13 +3952,16 @@ export default function GradingPage({
       return
     }
     try {
-      // 1. 待批改 → 直接 Phase B(先跑完、避免跟 Phase A 搶 gradingPhase;silent=不跳中途結果視窗)
+      const phaseATargets = [...needA, ...needReview]
+      const hasPhaseA = phaseATargets.length > 0
+      // 1. 待批改 → 直接 Phase B(先跑完、避免跟 Phase A 搶 gradingPhase)。
+      //    有後續 Phase A 才 silent(讓最後 Phase A/複核的結果視窗當最終 modal);
+      //    只有 needB(無後續)→ 不 silent、讓 needB 的結果視窗當最終 modal。
       if (needB.length > 0) {
-        await executeGradeOnlyCache(needB, { silent: true })
+        await executeGradeOnlyCache(needB, { silent: hasPhaseA })
       }
       // 2. 未擷取 + 待複核 → Phase A(needReview 重讀、keep-manual 保留手改)→ 複核 → Phase B
-      const phaseATargets = [...needA, ...needReview]
-      if (phaseATargets.length > 0) {
+      if (hasPhaseA) {
         await executeRecaptureOnly(phaseATargets, { chainPhaseB: true })
       }
     } catch (e) {
@@ -5438,24 +5441,6 @@ export default function GradingPage({
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* 2026-05-31 Phase2: 不卡畫面的狀態列（跟著 gradingPhase 生命週期；複核時不擋畫面、只顯示進度） */}
-      {gradingPhase !== 'idle' && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[90] bg-white border border-slate-200 shadow-lg rounded-full px-4 py-2 flex items-center gap-3 text-sm">
-          {gradingPhase === 'awaiting_review'
-            ? <span className="text-amber-600 font-semibold">🟡 請複核</span>
-            : <Loader className="w-4 h-4 animate-spin text-sky-600" />}
-          <span className="text-slate-700">
-            {gradingPhase === 'phase_a_running' ? '擷取讀取中…'
-              : gradingPhase === 'awaiting_review' ? '有題目待你複核'
-              : gradingPhase === 'phase_b_running' ? '批改評分中…' : '處理中…'}
-          </span>
-          <span className="text-slate-300">|</span>
-          <span className="text-slate-500 text-xs">
-            未完成 🔵{unfinishedBuckets.needA.length} 🟡{unfinishedBuckets.needReview.length} 🟢{unfinishedBuckets.needB.length}
-          </span>
         </div>
       )}
 
