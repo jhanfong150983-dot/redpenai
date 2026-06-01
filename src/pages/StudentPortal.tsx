@@ -590,6 +590,16 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
   }, [tab, cameraMode, isSubmitting, loadOverview, selectedClassroomKey])
 
+  // 2026-06-01: 進入訂正 tab 當下先 silent 抓一次最新狀態。
+  // 避免師生競態：老師可能在學生切進來之前就重新批改/清掉訂正題目，
+  // 先刷新讓學生一進來就拿到最新題目，盡量在「花力氣前」就避免白工。
+  // （刻意只依賴 tab：只在切換進訂正頁時觸發一次、不在編輯途中打擾。）
+  useEffect(() => {
+    if (tab !== 'correction' || cameraMode !== null || isSubmitting) return
+    void loadOverview(selectedClassroomKey, { silent: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
+
 
   const uploadAssignments = useMemo(
     () =>
@@ -1234,6 +1244,12 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
             : null
         if (correctionResult?.gradingFailed) {
           setMessage(correctionResult.errorMessage || '批改失敗，請重新送出訂正。')
+        } else if (correctionResult?.correctionResolved === 'already_correct') {
+          // 老師在你訂正期間重新批改、這份已全對 → 不是白工，是好消息
+          setMessage('🎉 老師重新批改後，你這份已經全部答對，不需要訂正了！')
+        } else if (correctionResult?.correctionResolved === 'items_changed') {
+          // 老師重批後訂正題目變了 → 已自動刷新成最新題目，請依最新題目訂正
+          setMessage('老師重新批改了這份作業，訂正題目已更新，請依最新題目重新訂正。')
         } else if (correctionResult?.allDisputed) {
           setMessage('所有題目已申訴，等待老師審閱。')
         } else if (correctionResult?.passed) {
