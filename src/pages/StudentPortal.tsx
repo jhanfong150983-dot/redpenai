@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { blobToBase64, compressToTargetBytes } from '@/lib/imageCompression'
 import { safeToBlobWithFallback } from '@/lib/canvasToBlob'
+import { mergePageBlobs } from '@/lib/image-merge'
 import { getSubmissionImageUrl } from '@/lib/utils'
 import { buildApiUrl } from '@/lib/api-base'
 import {
@@ -128,39 +129,6 @@ function pageSignature(file: File): string {
 interface ValidatedDraft {
   draftSignature: string
   pages: Array<{ sig: string; result: PageValidationResult }>
-}
-
-async function mergeImagesVertically(files: (File | Blob)[]): Promise<Blob> {
-  if (files.length === 1) return files[0]
-
-  // 明確套用 EXIF orientation、避免合併後方向錯亂
-  const bitmaps = await Promise.all(
-    files.map((file) => createImageBitmap(file, { imageOrientation: 'from-image' }))
-  )
-  const width = Math.max(...bitmaps.map((bitmap) => bitmap.width))
-  const height = bitmaps.reduce((sum, bitmap) => sum + bitmap.height, 0)
-
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const context = canvas.getContext('2d')
-  if (!context) {
-    bitmaps.forEach((bitmap) => bitmap.close())
-    throw new Error('無法建立畫布')
-  }
-
-  let offsetY = 0
-  bitmaps.forEach((bitmap) => {
-    const offsetX = Math.floor((width - bitmap.width) / 2)
-    context.drawImage(bitmap, offsetX, offsetY)
-    offsetY += bitmap.height
-    bitmap.close()
-  })
-
-  return safeToBlobWithFallback(canvas, {
-    format: 'image/webp',
-    quality: 0.86
-  })
 }
 
 async function rotateImageFile(
@@ -1163,6 +1131,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       // 只有 upload 模式才產 main image；訂正模式直接送 correctionImages[] 給 server。
       let imageDataUrl: string | null = null
       let imageContentType: string | undefined
+      // 多頁合併的真實頁界（累積高度比例、不含最後一頁）。送給 server 存進 submissions.page_breaks、
+      // 批改時直接切在真界、不再靠 0.5 等分 fallback（會把一大一小的兩頁切歪、漏掉下緣題）。
+      let mergedPageBreaks: number[] = []
       if (mode === 'upload') {
         // 透視校正已在預覽階段（「確認完成」）完成，這裡直接用驗證快取的校正後 blob。
         let filesToMerge: (File | Blob)[] = mergedFiles
@@ -1177,10 +1148,16 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         }
         // 2026-05-13 拉高 upload 模式的目標、儘量保留畫質
         // Vercel function body 上限 4.5 MB、扣 JSON overhead + base64 1.33x 膨脹後、原圖 ≤ 3 MB 是安全值
-        const merged = await mergeImagesVertically(filesToMerge)
+        //
+        // mergePageBlobs（與老師端匯入同一套）會把每頁縮到同寬、各自保留長寬比、回傳真實 pageBreaks。
+        // 之前學生端用的 mergeImagesVertically 是原始像素直接堆疊（不正規化、不回 pageBreaks），
+        // 兩張拍攝解析度不同就會「一大一小」、server 拿不到頁界只能對半切 → 大張那頁下緣題被切掉。
+        const { blob: merged, pageBreaks } = await mergePageBlobs(filesToMerge)
+        // compressToTargetBytes 是等比縮放、不改變 pageBreaks 比例。
         const compressed = await compressToTargetBytes(merged, 3_000_000, { maxWidth: 2000 })
         imageDataUrl = await blobToBase64(compressed)
         imageContentType = compressed.type || 'image/webp'
+        mergedPageBreaks = pageBreaks
       }
 
       const requestPayload = {
@@ -1191,6 +1168,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           ? { imageBase64: imageDataUrl, contentType: imageContentType }
           : {}),
         pageCount: mode === 'correction' ? 1 : files.length,
+        ...(mergedPageBreaks.length > 0 ? { pageBreaks: mergedPageBreaks } : {}),
         ...(correctionImages.length > 0 ? { correctionImages } : {}),
         ...(disputedQuestions.length > 0 ? { disputedQuestions } : {})
       }
