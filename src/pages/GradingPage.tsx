@@ -550,7 +550,8 @@ function rebuildBlobFromBase64(base64: string): Blob {
 
 type GradingPhase = 'idle' | 'phase_a_running' | 'awaiting_review' | 'phase_b_running' | 'report_running'
 
-interface ConsistencyDecision {
+// 2026-06-02: export 供學生自助批改 StudentPortal 重用（單卷複核）。
+export interface ConsistencyDecision {
   questionId: string
   source: 'ai_read1' | 'ai_read2' | 'ai_arbiter' | 'manual' | 'unrecognizable' | 'blank'
   finalAnswer: string
@@ -570,7 +571,7 @@ interface ConsistencyDecision {
 // map_fill 特殊路徑：組 mapFillFinalReadings (per-position confirmed)
 // 一致的位置 → 自動用 AI1 read（兩 AI 相同）
 // 不一致的位置 → 用 decision.mapFillPerPosition[idx] 老師的選擇
-function buildFinalAnswerForQR(qr: PhaseAQuestionResult, decision: ConsistencyDecision | undefined): FinalAnswer {
+export function buildFinalAnswerForQR(qr: PhaseAQuestionResult, decision: ConsistencyDecision | undefined): FinalAnswer {
   // VJ 視覺判斷題：組 vjBlankConfirmed（auto_not_blank→有畫；review_blank→老師決定，沒選=空白）
   if (qr.questionType && ['diagram_color', 'map_symbol', 'grid_geometry'].includes(qr.questionType)
     && qr.visualJudgment && Array.isArray(qr.visualJudgment.perItem)) {
@@ -1002,7 +1003,7 @@ function GradingPipelineOverlay({
 // ─── OriginalPageViewer（Phase4「看原圖」） ───────────────────────────────────
 // 從合併圖切出 bbox 所在那一頁、整頁顯示 + 紅虛框標 AI 原本切的位置、可滾輪縮放 + 拖曳移動。
 // 這是「圖片放大標準＝簡易 overlay」的正當例外（用途＝整頁找答案、非瞄 crop）。
-function OriginalPageViewer({
+export function OriginalPageViewer({
   imageBlob,
   pageBreaks,
   bbox,
@@ -1155,7 +1156,7 @@ function OriginalPageViewer({
 
 // ─── ConsistencyQuestionCard ──────────────────────────────────────────────────
 
-function ConsistencyQuestionCard({
+export function ConsistencyQuestionCard({
   studentId: _studentId,
   questionResult,
   decision,

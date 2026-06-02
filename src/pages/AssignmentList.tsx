@@ -571,6 +571,8 @@ export default function AssignmentList({
           totalPages: akTemplate ? Math.max(1, ...((akTemplate.answerKey?.questions as Array<{id?:string}>) || []).map(q => parseInt(String(q?.id || '1').split('-')[0], 10) || 1)) : settingsAssignment.totalPages ?? 1,
           scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
           studentUploadEnabled: data.studentUploadEnabled,
+          allowStudentAiGrading: data.allowStudentAiGrading,
+          studentAiGradingLimit: data.studentAiGradingLimit,
           folder: data.folder || undefined, updatedAt: now,
         })
       } else {
@@ -578,6 +580,8 @@ export default function AssignmentList({
           title: data.title.trim(),
           scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
           studentUploadEnabled: data.studentUploadEnabled,
+          allowStudentAiGrading: data.allowStudentAiGrading,
+          studentAiGradingLimit: data.studentAiGradingLimit,
           folder: data.folder || undefined, updatedAt: now,
         }
         if (settingsAssignment.answerKey) {
@@ -2058,6 +2062,8 @@ export default function AssignmentList({
               scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
               folder: data.folder || undefined,
               studentUploadEnabled: data.studentUploadEnabled,
+              allowStudentAiGrading: data.allowStudentAiGrading,
+              studentAiGradingLimit: data.studentAiGradingLimit,
               updatedAt: now,
             }
             await db.assignments.add(newAssignment)
@@ -2146,6 +2152,8 @@ export default function AssignmentList({
             enWordOrderDeduction: settingsEnWordOrderDeduction,
           }}
           initialStudentUploadEnabled={settingsAssignment.studentUploadEnabled}
+          initialAllowStudentAiGrading={settingsAssignment.allowStudentAiGrading}
+          initialStudentAiGradingLimit={settingsAssignment.studentAiGradingLimit}
           initialAnswerKeyInfo={
             // 答案卷已被刪除（綁的 templateId 不在 db 裡）→ 視為 null，提示老師重選
             settingsAssignment.answerKey && !isAnswerKeyDeleted(settingsAssignment) ? {

@@ -372,6 +372,10 @@ export interface Assignment {
   questionBookletImagePaths?: string[]
   // 是否開放學生上傳作業
   studentUploadEnabled?: boolean
+  // 是否開放學生自助 AI 批改（預設關閉，老師主動打開才生效）
+  allowStudentAiGrading?: boolean
+  // 每位學生可自助批改次數上限（1~10，預設 1）
+  studentAiGradingLimit?: number
   updatedAt?: number
 }
 
@@ -609,6 +613,8 @@ export interface Submission {
   round?: number
   parentSubmissionId?: string
   actorUserId?: string
+  // 2026-06-02 學生自助批改：'student'=學生自批、'teacher'=老師批（null 視為 teacher）；供老師端「學生自批」徽章
+  gradedBy?: 'student' | 'teacher'
 }
 
 /**

@@ -723,6 +723,8 @@ export function useSync(options: UseSyncOptions = {}) {
         answerKeyTemplateId: a.answerKeyTemplateId ?? null,
         conceptTags: a.conceptTags,
         studentUploadEnabled: a.studentUploadEnabled,
+        allowStudentAiGrading: a.allowStudentAiGrading ?? false,
+        studentAiGradingLimit: a.studentAiGradingLimit ?? 1,
         answerSheetImagePaths: a.answerSheetImagePaths ?? null,
         questionBookletImagePaths: a.questionBookletImagePaths ?? null,
         answerSheetMode: a.answerSheetMode ?? null,
@@ -1182,6 +1184,10 @@ export function useSync(options: UseSyncOptions = {}) {
             (sub as Submission & { actorUserId?: string }).actorUserId ??
             (sub as { actor_user_id?: string }).actor_user_id ??
             undefined,
+          gradedBy:
+            (sub as Submission & { gradedBy?: 'student' | 'teacher' }).gradedBy ??
+            (sub as { graded_by?: 'student' | 'teacher' }).graded_by ??
+            undefined,
           imageUrl: imageUrl || undefined,
           thumbUrl,
           // 本地圖片資料（永遠保留）
@@ -1357,6 +1363,8 @@ export function useSync(options: UseSyncOptions = {}) {
             ?? (a as { question_booklet_image_paths?: string[] }).question_booklet_image_paths
             ?? localData?.questionBookletImagePaths,
           studentUploadEnabled: (a as any).studentUploadEnabled ?? (a as any).student_upload_enabled ?? (localData as any)?.studentUploadEnabled,
+          allowStudentAiGrading: (a as any).allowStudentAiGrading ?? (a as any).allow_student_ai_grading ?? (localData as any)?.allowStudentAiGrading,
+          studentAiGradingLimit: (a as any).studentAiGradingLimit ?? (a as any).student_ai_grading_limit ?? (localData as any)?.studentAiGradingLimit,
           updatedAt: localIsNewer ? localUpdatedAt : cloudUpdatedAt
         }
       })

@@ -37,6 +37,9 @@ export interface AssignmentFormData {
   selectedAnswerKeyId: string
   settings: GradingSettings
   studentUploadEnabled: boolean
+  // 2026-06-02 學生自助 AI 批改（預設關閉，老師主動打開才生效）
+  allowStudentAiGrading: boolean
+  studentAiGradingLimit: number
 }
 
 interface AnswerKeyOption {
@@ -60,6 +63,8 @@ interface AssignmentFormModalProps {
   initialDomain?: string
   initialSettings?: Partial<GradingSettings>
   initialStudentUploadEnabled?: boolean
+  initialAllowStudentAiGrading?: boolean
+  initialStudentAiGradingLimit?: number
   initialAnswerKeyInfo?: { name?: string; domain: string; questionCount: number; totalScore: number } | null
   // Options
   folders: string[]
@@ -145,6 +150,8 @@ export default function AssignmentFormModal({
   initialDomain,
   initialSettings,
   initialStudentUploadEnabled,
+  initialAllowStudentAiGrading,
+  initialStudentAiGradingLimit,
   initialAnswerKeyInfo,
   folders,
   answerKeys,
@@ -172,6 +179,11 @@ export default function AssignmentFormModal({
   })
   const [akSearch, setAkSearch] = useState('')
   const [studentUploadEnabled, setStudentUploadEnabled] = useState(initialStudentUploadEnabled ?? true)
+  // 2026-06-02 學生自助 AI 批改：預設「不允許」，老師主動開
+  const [allowStudentAiGrading, setAllowStudentAiGrading] = useState(initialAllowStudentAiGrading ?? false)
+  const [studentAiGradingLimit, setStudentAiGradingLimit] = useState(
+    Math.min(10, Math.max(1, initialStudentAiGradingLimit ?? 1))
+  )
 
   const selectedAK = answerKeys.find((ak) => ak.id === selectedAnswerKeyId)
   const domain = selectedAK?.domain || initialDomain || ''
@@ -256,6 +268,9 @@ export default function AssignmentFormModal({
       // requiredRulesSet 確保以下 cast 安全
       settings: settings as GradingSettings,
       studentUploadEnabled,
+      // 不開放繳交時自批一律關（學生根本沒卷可批）
+      allowStudentAiGrading: studentUploadEnabled ? allowStudentAiGrading : false,
+      studentAiGradingLimit,
     })
   }
 
@@ -419,6 +434,57 @@ export default function AssignmentFormModal({
                     {studentUploadEnabled && selectedAK && (
                       <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-xs text-blue-700">
                         學生需上傳 {akPageCount} 頁照片（{akOrientations.map((o, i) => `第${i + 1}頁${o === 'portrait' ? '直拍' : '橫拍'}`).join('、')}）
+                      </div>
+                    )}
+
+                    {/* 2026-06-02 學生自助 AI 批改（僅開放繳交時顯示，預設不允許） */}
+                    {studentUploadEnabled && (
+                      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50/60 px-4 py-3">
+                        <label className="block text-sm font-semibold text-gray-800 mb-2">學生自助 AI 批改</label>
+                        <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => setAllowStudentAiGrading(true)}
+                            className={`px-5 py-2 text-sm font-medium transition-colors ${
+                              allowStudentAiGrading
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            允許
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAllowStudentAiGrading(false)}
+                            className={`px-5 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
+                              !allowStudentAiGrading
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            不允許
+                          </button>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">
+                          學生上傳後可自己跑 AI 批改（含複核），費用記在老師帳上。
+                        </p>
+                        {allowStudentAiGrading && (
+                          <div className="mt-3 flex items-center gap-2 text-sm text-gray-700">
+                            <span>每位學生可自助批改</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={10}
+                              value={studentAiGradingLimit}
+                              onChange={(e) => {
+                                const n = parseInt(e.target.value, 10)
+                                setStudentAiGradingLimit(Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : 1)
+                              }}
+                              className="w-16 rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
+                            />
+                            <span>次（跑完才算一次）</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

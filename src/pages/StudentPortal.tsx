@@ -26,6 +26,25 @@ import {
   type PageValidationResult,
   type PageInput,
 } from '@/lib/photoValidation'
+import { Sparkles } from 'lucide-react'
+import InkConfirmModal from '@/components/InkConfirmModal'
+import { startInkSession, closeInkSession } from '@/lib/ink-session'
+import {
+  gradePhaseA,
+  gradePhaseBFromCache,
+  type PhaseAResult,
+  type PhaseAQuestionResult,
+  type GradingStageName,
+} from '@/lib/gemini'
+import type { AnswerKey } from '@/lib/db'
+// 2026-06-02: 學生自助批改沿用老師端複核畫面（最小抽取 export 自 GradingPage）
+import {
+  ConsistencyQuestionCard,
+  OriginalPageViewer,
+  buildFinalAnswerForQR,
+  questionNeedsConfirm,
+  type ConsistencyDecision,
+} from '@/pages/GradingPage'
 
 type StudentTab = 'overview' | 'upload' | 'correction'
 type StudentCameraMode = 'upload' | 'correction' | null
@@ -91,6 +110,12 @@ type StudentAssignmentItem = {
   gradingQueuePosition?: number
   gradingFailed?: boolean
   studentUploadEnabled?: boolean
+  // 2026-06-02 學生自助 AI 批改
+  allowStudentAiGrading?: boolean
+  studentAiGradingLimit?: number
+  studentAiGradingCount?: number
+  latestSubmissionGradedBy?: 'student' | 'teacher'
+  latestSubmissionStatus?: string
   pageOrientations?: ('portrait' | 'landscape')[] | null
 }
 
@@ -411,9 +436,306 @@ function getStatusStyle(status: string) {
   )
 }
 
+// ─── 學生自助 AI 批改流程（Phase A → 人工複核 → Phase B）──────────────────────
+// 2026-06-02: 沿用老師端複核畫面（ConsistencyQuestionCard / OriginalPageViewer），
+// 單卷一條龍。學生 client 不持有 answerKey（傳空殼，由 proxy server 端注入）。
+type AiGradeState =
+  | 'begin' | 'phase_a_running' | 'review' | 'phase_b_running' | 'finalizing' | 'done' | 'failed'
+
+const STAGE_TEXT: Record<string, string> = {
+  classify: '讀取你的作答…',
+  read: '辨識作答內容…',
+  arbiter: '核對一致性…',
+  accessor: '批改評分…',
+  explain: '整理結果…',
+}
+
+// 一題是否需要學生確認（與老師端 BatchConsistencyReviewSection.isNeedsReview 對齊）
+function studentQuestionNeedsReview(q: PhaseAQuestionResult): boolean {
+  if (q.arbiterResult) {
+    return questionNeedsConfirm(q.arbiterResult.arbiterStatus, q.arbiterResult.finalAnswer, q.questionType)
+  }
+  return q.consistencyStatus !== 'stable' // legacy fallback
+}
+
+function StudentGradingFlow({
+  item,
+  onClose,
+  onFinished,
+}: {
+  item: StudentAssignmentItem
+  onClose: () => void
+  onFinished: (result: { hasMistakes: boolean; score: number | null }) => void
+}) {
+  const [state, setState] = useState<AiGradeState>('begin')
+  const [stageMsg, setStageMsg] = useState('準備中…')
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [phaseA, setPhaseA] = useState<PhaseAResult | null>(null)
+  const [decisions, setDecisions] = useState<Map<string, ConsistencyDecision>>(new Map())
+  const [viewerQ, setViewerQ] = useState<PhaseAQuestionResult | null>(null)
+  const [doneResult, setDoneResult] = useState<{ hasMistakes: boolean; score: number | null } | null>(null)
+  const ctxRef = useRef<{
+    blob: Blob
+    pageBreaks: number[]
+    answerSheetMode: 'with_questions' | 'answer_only'
+    domain?: string
+    submissionId: string
+  } | null>(null)
+  const startedRef = useRef(false)
+
+  const onStage: (stage: GradingStageName, event: 'started' | 'completed') => void = (stage, event) => {
+    if (event === 'started') setStageMsg(STAGE_TEXT[stage] || '處理中…')
+  }
+
+  const fail = (msg: string) => { setErrorMsg(msg); setState('failed') }
+
+  const runPhaseB = useCallback(async (finalAnswers: ReturnType<typeof buildFinalAnswerForQR>[]) => {
+    const ctx = ctxRef.current
+    if (!ctx) { fail('批改內容遺失，請重試'); return }
+    setState('phase_b_running')
+    setStageMsg(STAGE_TEXT.accessor)
+    try {
+      const result = await gradePhaseBFromCache(
+        ctx.blob, ctx.submissionId, item.id, ctx.domain, ctx.answerSheetMode,
+        undefined, finalAnswers.length > 0 ? finalAnswers : undefined, onStage
+      )
+      setState('finalizing')
+      const resp = await fetch('/api/data/student-finalize-grading', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          assignmentId: item.id,
+          submissionId: ctx.submissionId,
+          gradingResult: result,
+          score: (result as { totalScore?: number })?.totalScore,
+        }),
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok) { fail(data?.error || '批改收尾失敗'); return }
+      try { await closeInkSession() } catch { /* noop */ }
+      const r = { hasMistakes: Boolean(data?.hasMistakes), score: typeof data?.score === 'number' ? data.score : null }
+      setDoneResult(r)
+      setState('done')
+    } catch (err) {
+      fail(err instanceof Error ? err.message : '批改失敗，請重試')
+    }
+  }, [item.id])
+
+  const start = useCallback(async () => {
+    const submissionId = item.latestSubmissionId
+    if (!submissionId) { fail('找不到已上傳的作業，請先上傳'); return }
+    try {
+      // 1) begin：先批先贏鎖 + 次數硬擋 + 佔 attempt + 並發節流 + 回批改 context
+      const beginResp = await fetch('/api/data/student-ai-grading-begin', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ assignmentId: item.id, submissionId }),
+      })
+      const begin = await beginResp.json().catch(() => ({}))
+      if (!beginResp.ok) {
+        const code = begin?.code
+        const msg =
+          code === 'NOT_ALLOWED' ? '老師未開放自助批改'
+          : code === 'LIMIT_REACHED' ? '已用完自助批改次數'
+          : code === 'ALREADY_GRADED' ? '此卷已批改，無法再自助批改'
+          : code === 'ALREADY_IN_PROGRESS' ? '此卷正在批改中，請稍候'
+          : code === 'TOO_MANY_CONCURRENT' ? '批改人數過多，請稍候再試'
+          : (begin?.error || '無法開始批改')
+        fail(msg); return
+      }
+      // 2) 取得作答圖 blob
+      const imgUrl = getSubmissionImageUrl({ id: submissionId })
+      if (!imgUrl) { fail('無法載入作答圖，請重試'); return }
+      const blobResp = await fetch(imgUrl, { credentials: 'include' })
+      if (!blobResp.ok) { fail('無法載入作答圖，請重試'); return }
+      const blob = await blobResp.blob()
+      ctxRef.current = {
+        blob,
+        pageBreaks: Array.isArray(begin?.pageBreaks) ? begin.pageBreaks : [],
+        answerSheetMode: begin?.answerSheetMode === 'answer_only' ? 'answer_only' : 'with_questions',
+        domain: begin?.domain || undefined,
+        submissionId,
+      }
+      // 3) ink session（費用記老師帳；session 有效時即使老師餘額歸零也讓批改跑完）
+      try { await startInkSession() } catch { /* gradePhaseA 內部會 ensureInkSessionFresh */ }
+
+      // 4) Phase A（學生 client 傳空殼 answerKey；proxy server 端依 assignmentId 注入 live 正解）
+      setState('phase_a_running')
+      setStageMsg(STAGE_TEXT.classify)
+      const placeholderKey = { questions: [] } as unknown as AnswerKey
+      const pa = await gradePhaseA(
+        blob, placeholderKey, ctxRef.current.pageBreaks, ctxRef.current.domain,
+        item.id, undefined, ctxRef.current.answerSheetMode, submissionId, 'student_upload', onStage
+      )
+      if (pa?.pipelineFailure) {
+        fail(pa.pipelineFailure.userMessage || 'AI 辨識失敗，請重試'); return
+      }
+      setPhaseA(pa)
+      const reviewQs = (pa.questionResults || []).filter(studentQuestionNeedsReview)
+      if (reviewQs.length === 0) {
+        await runPhaseB([]) // 無待複核題 → 直接 Phase B（server 用 arbiterDecisions 補答案）
+      } else {
+        setState('review')
+      }
+    } catch (err) {
+      fail(err instanceof Error ? err.message : '批改失敗，請重試')
+    }
+  }, [item.id, item.latestSubmissionId, runPhaseB])
+
+  useEffect(() => {
+    if (startedRef.current) return
+    startedRef.current = true
+    void start()
+  }, [start])
+
+  const reviewQs = phaseA ? (phaseA.questionResults || []).filter(studentQuestionNeedsReview) : []
+  const allConfirmed = reviewQs.length > 0 && reviewQs.every((q) => decisions.get(q.questionId)?.confirmed)
+
+  const handleDecision = (questionId: string, update: Partial<ConsistencyDecision>) => {
+    setDecisions((prev) => {
+      const next = new Map(prev)
+      const existing = next.get(questionId) || { questionId, source: 'ai_read1', finalAnswer: '', confirmed: false }
+      next.set(questionId, { ...existing, ...update, questionId } as ConsistencyDecision)
+      return next
+    })
+  }
+
+  const handleConfirmReview = async () => {
+    if (!phaseA) return
+    const finalAnswers = reviewQs.map((q) => buildFinalAnswerForQR(q, decisions.get(q.questionId)))
+    const ctx = ctxRef.current
+    if (!ctx) { fail('批改內容遺失，請重試'); return }
+    setState('phase_b_running')
+    try {
+      const resp = await fetch('/api/data/student-save-final-answers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ assignmentId: item.id, submissionId: ctx.submissionId, finalAnswers }),
+      })
+      if (!resp.ok) {
+        const d = await resp.json().catch(() => ({}))
+        fail(d?.error || '儲存複核結果失敗'); return
+      }
+    } catch (err) {
+      fail(err instanceof Error ? err.message : '儲存複核結果失敗'); return
+    }
+    await runPhaseB(finalAnswers)
+  }
+
+  const Spinner = () => (
+    <div className="flex flex-col items-center gap-3 py-10 text-center">
+      <Loader2 className="h-10 w-10 animate-spin text-emerald-500" />
+      <p className="text-sm font-medium text-slate-700">✨ AI 批改中</p>
+      <p className="text-xs text-slate-500">{stageMsg}</p>
+    </div>
+  )
+
+  return (
+    <div className="fixed inset-0 z-[200] flex flex-col bg-white">
+      {/* 頂列 */}
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+        <h2 className="text-base font-bold text-slate-900">AI 批改 · {item.title}</h2>
+        {(state === 'done' || state === 'failed') && (
+          <button onClick={onClose} className="rounded p-1 hover:bg-slate-100" aria-label="關閉">
+            <X className="h-5 w-5 text-slate-600" />
+          </button>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        {(state === 'begin' || state === 'phase_a_running' || state === 'phase_b_running' || state === 'finalizing') && (
+          <Spinner />
+        )}
+
+        {state === 'review' && phaseA && (
+          <div className="mx-auto max-w-xl space-y-3">
+            <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
+              <p className="text-sm font-bold text-slate-900">請確認這幾題你的答案</p>
+              <p className="mt-0.5 text-xs text-slate-600">AI 有 {reviewQs.length} 題看不太清楚，幫忙確認一下你寫的是哪個。</p>
+            </div>
+            <div className="space-y-2">
+              {reviewQs.map((q) => (
+                <ConsistencyQuestionCard
+                  key={q.questionId}
+                  studentId={item.id}
+                  questionResult={q}
+                  decision={decisions.get(q.questionId)}
+                  onDecision={handleDecision}
+                  disabled={false}
+                  onViewOriginal={() => setViewerQ(q)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {state === 'done' && doneResult && (
+          <div className="mx-auto max-w-md space-y-4 py-8 text-center">
+            <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-500" />
+            <p className="text-lg font-bold text-slate-900">批改完成！</p>
+            {item.showScore && typeof doneResult.score === 'number' && (
+              <p className="text-2xl font-extrabold text-sky-700">你的分數：{doneResult.score} 分</p>
+            )}
+            {doneResult.hasMistakes ? (
+              <p className="text-sm text-slate-600">有題目需要訂正，現在就開始吧。</p>
+            ) : (
+              <p className="text-sm text-emerald-700">全部完成，沒有需要訂正的題目！</p>
+            )}
+            <button
+              onClick={() => onFinished(doneResult)}
+              className="w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700"
+            >
+              {doneResult.hasMistakes ? '立即開始訂正' : '完成'}
+            </button>
+          </div>
+        )}
+
+        {state === 'failed' && (
+          <div className="mx-auto max-w-md space-y-4 py-8 text-center">
+            <AlertTriangle className="mx-auto h-12 w-12 text-rose-500" />
+            <p className="text-sm font-medium text-slate-700">{errorMsg || '批改失敗'}</p>
+            <button onClick={onClose} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              關閉
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 複核底部固定送出列 */}
+      {state === 'review' && (
+        <div className="border-t border-slate-200 px-4 py-3">
+          <div className="mx-auto flex max-w-xl items-center justify-between gap-3">
+            <span className="text-xs text-slate-500">
+              已確認 {reviewQs.filter((q) => decisions.get(q.questionId)?.confirmed).length}/{reviewQs.length} 題
+            </span>
+            <button
+              onClick={() => void handleConfirmReview()}
+              disabled={!allConfirmed}
+              className="rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              完成複核、繼續批改
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 看原圖 */}
+      {viewerQ && ctxRef.current && (
+        <OriginalPageViewer
+          imageBlob={ctxRef.current.blob}
+          pageBreaks={ctxRef.current.pageBreaks}
+          bbox={(viewerQ.answerBbox as { x: number; y: number; w: number; h: number } | undefined) ?? null}
+          questionId={viewerQ.questionId}
+          onClose={() => setViewerQ(null)}
+        />
+      )}
+    </div>
+  )
+}
+
 export default function StudentPortal({ onCaptureModeChange }: StudentPortalProps) {
   const [tab, setTab] = useState<StudentTab>('overview')
   const [isLoading, setIsLoading] = useState(false)
+  // 2026-06-02 學生自助 AI 批改：批改中的作業 + 墨水確認 modal 目標
+  const [aiGradingItem, setAiGradingItem] = useState<StudentAssignmentItem | null>(null)
+  const [aiGradeConfirmItem, setAiGradeConfirmItem] = useState<StudentAssignmentItem | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [overview, setOverview] = useState<StudentOverviewResponse | null>(null)
   const [selectedClassroomKey, setSelectedClassroomKey] = useState('')
@@ -1501,6 +1823,22 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                   draftFiles.length === requiredPages &&
                   !isLocked &&
                   validationOk
+                // 2026-06-02 第 4 步「批改」：永遠顯示、依條件灰鎖並標原因
+                const aiCount = item.studentAiGradingCount ?? 0
+                const aiLimit = Math.max(1, item.studentAiGradingLimit ?? 1)
+                let aiLockReason = ''
+                let aiCanGrade = false
+                if (item.allowStudentAiGrading !== true) {
+                  aiLockReason = '老師未開放自助批改'
+                } else if (item.status === 'not_uploaded' || !item.latestSubmissionId) {
+                  aiLockReason = '上傳後才能批改'
+                } else if (item.status !== 'uploaded') {
+                  aiLockReason = item.latestSubmissionGradedBy === 'teacher' ? '老師已批改，無法再自助批改' : '已批改'
+                } else if (aiCount >= aiLimit) {
+                  aiLockReason = '已用完批改次數'
+                } else {
+                  aiCanGrade = true
+                }
                 return (
                   <article
                     key={item.id}
@@ -1600,9 +1938,35 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                             )}
                             <span className="text-center leading-tight">送出作業</span>
                           </button>
+
+                          <span className="px-1 text-slate-300">›</span>
+
+                          {/* 第 4 步：AI 批改（永遠顯示、條件灰鎖） */}
+                          <button
+                            type="button"
+                            onClick={() => aiCanGrade && setAiGradeConfirmItem(item)}
+                            disabled={!aiCanGrade || isSubmitting}
+                            title={aiCanGrade ? '用 AI 批改我的作業' : aiLockReason}
+                            className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
+                              aiCanGrade && !isSubmitting
+                                ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                            }`}
+                          >
+                            <Sparkles className="h-4 w-4" />
+                            <span className="text-center leading-tight">
+                              AI 批改
+                              {aiCanGrade && (
+                                <span className="mt-0.5 block text-[10px] font-normal">還可 {aiLimit - aiCount} 次</span>
+                              )}
+                            </span>
+                          </button>
                         </div>
                       </div>
                     </div>
+                    {!aiCanGrade && aiLockReason && item.allowStudentAiGrading === true && (
+                      <p className="mt-2 text-right text-xs text-slate-400">AI 批改：{aiLockReason}</p>
+                    )}
                   </article>
                 )
               })}
@@ -2264,6 +2628,46 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
             </div>
           </div>
         </div>
+      )}
+
+      {/* 2026-06-02 學生自助 AI 批改：墨水確認 → 批改流程 overlay */}
+      {aiGradeConfirmItem && (
+        <InkConfirmModal
+          open
+          warning="AI 批改會消耗墨水（點數，記在老師帳上）"
+          confirmLabel="開始批改"
+          cancelLabel="取消"
+          onCancel={() => setAiGradeConfirmItem(null)}
+          onConfirm={() => {
+            const target = aiGradeConfirmItem
+            setAiGradeConfirmItem(null)
+            setAiGradingItem(target)
+          }}
+        >
+          <p>確定要用 AI 批改「{aiGradeConfirmItem.title}」嗎？</p>
+          <p className="mt-1 text-xs text-slate-500">批改完成後若有錯題，會自動進入訂正。</p>
+        </InkConfirmModal>
+      )}
+
+      {aiGradingItem && (
+        <StudentGradingFlow
+          item={aiGradingItem}
+          onClose={() => {
+            setAiGradingItem(null)
+            void loadOverview(selectedClassroomKey, { silent: true })
+          }}
+          onFinished={(result) => {
+            const finishedItem = aiGradingItem
+            setAiGradingItem(null)
+            void (async () => {
+              await loadOverview(selectedClassroomKey)
+              if (result.hasMistakes && finishedItem) {
+                setCorrectionAssignmentId(finishedItem.id)
+                setTab('correction')
+              }
+            })()
+          }}
+        />
       )}
     </div>
   )
