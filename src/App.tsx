@@ -15,6 +15,7 @@ import {
   ChevronDown,
   AlertTriangle,
   Link as LinkIcon,
+  School,
   X
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -120,6 +121,10 @@ type AuthState =
           dsns: string
           displayName?: string
           roleType?: string
+        }
+        schoolAdmin?: {
+          schoolId: string
+          schoolName: string
         }
         studentLookupStatus?: 'ok' | 'user_not_found' | 'system_error'
       }
@@ -1195,6 +1200,8 @@ function App() {
 
   const isAdmin =
     auth.status === 'authenticated' && auth.user.role === 'admin'
+  const hasSchoolAdmin =
+    auth.status === 'authenticated' && Boolean(auth.user.schoolAdmin?.schoolId)
   const hasStudentContext =
     auth.status === 'authenticated' && Boolean(auth.user.student?.id)
   const viewMode =
@@ -1541,10 +1548,12 @@ function App() {
     let nextAssignmentId: string | undefined
     if (parsedPage && parsedPage !== 'home') {
       const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'correction-history', 'ai-report']
-      const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail', 'school-admin-panel']
+      const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail']
       if (needsTracking.includes(parsedPage) && !canAccessTracking) {
         nextPage = 'home'
       } else if (needsAdmin.includes(parsedPage) && !isAdmin) {
+        nextPage = 'home'
+      } else if (parsedPage === 'school-admin-panel' && !isAdmin && !hasSchoolAdmin) {
         nextPage = 'home'
       } else if (PAGE_FALLBACK_WITHOUT_ID[parsedPage] && !parsed.assignmentId) {
         // /grading 沒 ID 等 → 退回 list 頁
@@ -1565,7 +1574,7 @@ function App() {
     writeCurrentPageToUrl(nextPage, nextAssignmentId, 'replace')
 
     setUrlPageHandled(true)
-  }, [auth.status, canAccessTracking, isAdmin, urlPageHandled])
+  }, [auth.status, canAccessTracking, isAdmin, hasSchoolAdmin, urlPageHandled])
 
   // currentPage 變動時，將狀態 push 到 URL（讓返回鍵能用）
   // Stage 6 起：grading / unified-import / correction 多帶 selectedAssignmentId
@@ -1596,9 +1605,10 @@ function App() {
 
       // 權限閘：URL 偽造試圖跳到無權限頁，把 URL 還原回 currentPage
       const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'correction-history', 'ai-report']
-      const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail', 'school-admin-panel']
+      const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail']
       if ((needsTracking.includes(target) && !canAccessTracking)
-        || (needsAdmin.includes(target) && !isAdmin)) {
+        || (needsAdmin.includes(target) && !isAdmin)
+        || (target === 'school-admin-panel' && !isAdmin && !hasSchoolAdmin)) {
         const currentId = (currentPage === 'grading' || currentPage === 'unified-import' || currentPage === 'correction')
           ? selectedAssignmentId || undefined
           : undefined
@@ -1628,7 +1638,7 @@ function App() {
 
     window.addEventListener('popstate', handlePopstate)
     return () => window.removeEventListener('popstate', handlePopstate)
-  }, [urlPageHandled, auth.status, currentPage, selectedAssignmentId, canAccessTracking, isAdmin, gradingPagePhase])
+  }, [urlPageHandled, auth.status, currentPage, selectedAssignmentId, canAccessTracking, isAdmin, hasSchoolAdmin, gradingPagePhase])
 
   // Stage 6：beforeunload 守門 — Phase A awaiting_review 時，按 F5 / 關分頁 / 改網址都會跳瀏覽器原生離開警告
   useEffect(() => {
@@ -1865,7 +1875,7 @@ function App() {
 
   // 學校管理層（教務主任）檢視頁
   if (currentPage === 'school-admin-panel') {
-    if (!isAdmin) {
+    if (!isAdmin && !hasSchoolAdmin) {
       return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center space-y-4">
@@ -2224,7 +2234,7 @@ function App() {
                           管理者面板
                         </button>
                       )}
-                      {isAdmin && (
+                      {(isAdmin || hasSchoolAdmin) && (
                         <button
                           type="button"
                           onClick={() => {
@@ -2233,7 +2243,7 @@ function App() {
                           }}
                           className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:border-emerald-300 hover:text-emerald-800"
                         >
-                          <Shield className="h-4 w-4" />
+                          <School className="h-4 w-4" />
                           學校檢視
                         </button>
                       )}
