@@ -2,16 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
   RefreshCw,
-  School,
   Users,
   ChevronRight,
   BookOpen,
-  Layers
+  Layers,
+  LayoutDashboard,
+  TrendingUp
 } from 'lucide-react'
 
-// 學校管理層（教務主任）檢視頁 — 第一版：學生總覽 + 跨科檔案。
-// 資料來自歸戶後的 school_person，經 /api/data/school-admin-overview（admin 限定）取得。
-// 設計刻意只做「總覽 + 跨科」，弱點地圖為後續疊加。
+// 學校管理層（教務主任）檢視頁。
+// 版面對齊教師端/學生端：頂部 logo bar + 左側功能選單(aside) + 右側內容(section)。
+// 第一版功能：學生總覽 + 跨科檔案（弱點分析為後續）。
+// 資料來自歸戶後的 school_person，經 /api/data/school-admin-overview 取得。
 
 interface SchoolRow {
   school_id: string
@@ -49,6 +51,13 @@ interface PersonInfo {
   email: string | null
 }
 
+type SchoolTab = 'overview' | 'weakness'
+
+const navItems: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashboard; enabled: boolean }> = [
+  { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
+  { key: 'weakness', label: '弱點分析', icon: TrendingUp, enabled: false }
+]
+
 async function fetchOverview(params: Record<string, string>): Promise<any> {
   const qs = new URLSearchParams(params).toString()
   const res = await fetch(`/api/data/school-admin-overview${qs ? `?${qs}` : ''}`, {
@@ -78,6 +87,7 @@ function scoreColor(score: number | null): string {
 }
 
 export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
+  const [tab, setTab] = useState<SchoolTab>('overview')
   const [school, setSchool] = useState<SchoolRow | null>(null)
   const [classes, setClasses] = useState<ClassRow[]>([])
   const [selectedClass, setSelectedClass] = useState<string | null>(null)
@@ -87,7 +97,6 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // 載入學校 + 班級
   const loadSchool = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -122,10 +131,7 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
       setPerson(null)
       setRecords([])
       try {
-        const { students: stu } = await fetchOverview({
-          schoolId: school.school_id,
-          classLabel: label
-        })
+        const { students: stu } = await fetchOverview({ schoolId: school.school_id, classLabel: label })
         setStudents(Array.isArray(stu) ? stu : [])
       } catch (err) {
         setError(err instanceof Error ? err.message : '讀取失敗')
@@ -150,7 +156,6 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
     }
   }, [])
 
-  // 跨科分組（person 檔案用）
   const recordsBySubject = useMemo(() => {
     const map = new Map<string, RecordRow[]>()
     for (const r of records) {
@@ -167,212 +172,271 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
     })
   }, [records])
 
-  // 麵包屑
-  const crumb = (
-    <div className="flex items-center gap-1.5 text-sm text-gray-500 flex-wrap">
-      <button
-        onClick={() => {
-          setSelectedClass(null)
-          setPerson(null)
-          setStudents([])
-        }}
-        className="hover:text-gray-900"
-      >
-        {school?.name || '學校'}
-      </button>
-      {selectedClass && (
-        <>
-          <ChevronRight className="w-3.5 h-3.5" />
-          <button
-            onClick={() => {
-              setPerson(null)
-              setRecords([])
-            }}
-            className="hover:text-gray-900"
-          >
-            {selectedClass}
-          </button>
-        </>
-      )}
-      {person && (
-        <>
-          <ChevronRight className="w-3.5 h-3.5" />
-          <span className="text-gray-900 font-medium">{person.name}</span>
-        </>
-      )}
-    </div>
-  )
+  const backToClasses = () => {
+    setSelectedClass(null)
+    setPerson(null)
+    setStudents([])
+  }
+  const backToStudents = () => {
+    setPerson(null)
+    setRecords([])
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="bg-white rounded-xl border border-slate-200 mb-6">
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button onClick={onBack} className="p-2 rounded-lg hover:bg-gray-100">
-                <ArrowLeft className="w-5 h-5 text-gray-600" />
-              </button>
-              <div className="flex items-center gap-2">
-                <School className="w-6 h-6 text-emerald-600" />
-                <h1 className="text-2xl font-bold text-gray-900">學校檢視</h1>
-              </div>
+    <div className="flex min-h-screen flex-col bg-[#f7f7f5]">
+      {/* 頂部 bar：對齊教師端 */}
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-[#f7f7f5]/95 px-4 py-2 backdrop-blur md:px-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <img
+              src="/logo.png"
+              alt="RedPen AI logo"
+              className="h-10 w-10 object-contain mix-blend-multiply md:h-12 md:w-12"
+            />
+            <div>
+              <h1 className="text-lg font-semibold text-slate-900 md:text-xl">RedPen AI</h1>
+              <p className="text-xs text-slate-500">學校檢視{school ? ` · ${school.name}` : ''}</p>
             </div>
+          </div>
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:border-slate-300"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            返回教師端
+          </button>
+        </div>
+      </header>
+
+      {/* 左選單 + 右內容：對齊學生端 */}
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="border-b border-slate-200 bg-[#F7F8FA] lg:border-b-0 lg:border-r">
+          <div className="h-full overflow-y-auto p-4 md:p-5">
+            <section>
+              <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                學校功能
+              </h2>
+              <nav className="space-y-0.5">
+                {navItems.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => item.enabled && setTab(item.key)}
+                    disabled={!item.enabled}
+                    className={`group flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition ${
+                      tab === item.key
+                        ? 'bg-sky-100 text-sky-700'
+                        : item.enabled
+                          ? 'text-slate-700 hover:bg-slate-200/55'
+                          : 'cursor-not-allowed text-slate-400'
+                    }`}
+                  >
+                    <span
+                      className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded ${
+                        tab === item.key ? 'bg-white text-sky-700' : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      <item.icon className="h-5 w-5" />
+                    </span>
+                    <span className="truncate text-base font-semibold">{item.label}</span>
+                    {!item.enabled && (
+                      <span className="ml-auto rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                        即將推出
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </nav>
+            </section>
+          </div>
+        </aside>
+
+        <section className="overflow-y-auto bg-white px-4 py-4 md:px-6 md:py-5">
+          {/* 標題列 + 重新整理 */}
+          <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
+            <h2 className="text-xl font-semibold text-slate-900">
+              {tab === 'overview' ? '學生總覽' : '弱點分析'}
+            </h2>
             <button
+              type="button"
               onClick={() => void loadSchool()}
-              className="p-2 rounded-lg hover:bg-gray-100"
-              title="重新整理"
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <RefreshCw className={`w-5 h-5 text-gray-600 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+              重新整理
             </button>
           </div>
 
-          {/* School summary */}
+          {/* 學校摘要 */}
           {school && (
-            <div className="px-6 py-4 flex flex-wrap items-center gap-6">
-              <div>
-                <div className="text-lg font-semibold text-gray-900">{school.name}</div>
-                <div className="text-xs text-gray-500">歸戶後統一學生身分</div>
+            <div className="mb-5 flex flex-wrap items-center gap-6 rounded-xl border border-slate-200 bg-slate-50/60 px-5 py-3">
+              <div className="flex items-center gap-2 text-slate-700">
+                <Users className="h-4 w-4 text-sky-600" />
+                <span className="text-lg font-semibold tabular-nums">{school.student_count}</span>
+                <span className="text-sm text-slate-500">名學生</span>
               </div>
-              <div className="flex items-center gap-2 text-gray-700">
-                <Users className="w-4 h-4 text-emerald-600" />
-                <span className="font-semibold">{school.student_count}</span>
-                <span className="text-sm text-gray-500">名學生</span>
+              <div className="flex items-center gap-2 text-slate-700">
+                <Layers className="h-4 w-4 text-sky-600" />
+                <span className="text-lg font-semibold tabular-nums">{school.class_count}</span>
+                <span className="text-sm text-slate-500">個班級</span>
               </div>
-              <div className="flex items-center gap-2 text-gray-700">
-                <Layers className="w-4 h-4 text-blue-600" />
-                <span className="font-semibold">{school.class_count}</span>
-                <span className="text-sm text-gray-500">個班級</span>
-              </div>
+              <span className="text-xs text-slate-400">歸戶後統一學生身分</span>
             </div>
           )}
-        </div>
 
-        {error && (
-          <div className="mb-4 px-4 py-3 rounded-lg bg-rose-50 border border-rose-200 text-sm text-rose-700">
-            {error}
-          </div>
-        )}
-
-        {school && <div className="mb-4">{crumb}</div>}
-
-        {/* Person 檔案（跨科） */}
-        {person ? (
-          <div className="space-y-4">
-            <div className="bg-white rounded-xl border border-slate-200 px-6 py-4">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold">
-                  {person.name?.slice(-2)}
-                </div>
-                <div>
-                  <div className="text-lg font-semibold text-gray-900">{person.name}</div>
-                  <div className="text-xs text-gray-500">
-                    學號 {person.provider_student_id || person.student_number || '—'} ·{' '}
-                    {recordsBySubject.length} 科 · {records.length} 份批改
-                  </div>
-                </div>
-              </div>
+          {error && (
+            <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {error}
             </div>
+          )}
 
-            {recordsBySubject.length === 0 && (
-              <div className="bg-white rounded-xl border border-slate-200 px-6 py-10 text-center text-gray-400">
-                此學生尚無批改紀錄
-              </div>
-            )}
-
-            {recordsBySubject.map(({ subject, rows, avg, count }) => (
-              <div key={subject} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                <div className="px-6 py-3 border-b border-gray-100 flex items-center justify-between bg-gray-50">
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-blue-600" />
-                    <span className="font-semibold text-gray-900">{subject}</span>
-                    <span className="text-xs text-gray-400">{count} 份</span>
-                  </div>
-                  {avg != null && (
-                    <span className="text-sm">
-                      平均 <span className={`font-bold ${scoreColor(avg)}`}>{avg}</span>
-                    </span>
+          {tab === 'weakness' ? (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center text-slate-400">
+              弱點分析即將推出
+            </div>
+          ) : (
+            <>
+              {/* 麵包屑 */}
+              {school && (selectedClass || person) && (
+                <div className="mb-4 flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
+                  <button onClick={backToClasses} className="hover:text-slate-900">
+                    全部班級
+                  </button>
+                  {selectedClass && (
+                    <>
+                      <ChevronRight className="h-3.5 w-3.5" />
+                      <button onClick={backToStudents} className="hover:text-slate-900">
+                        {selectedClass}
+                      </button>
+                    </>
+                  )}
+                  {person && (
+                    <>
+                      <ChevronRight className="h-3.5 w-3.5" />
+                      <span className="font-medium text-slate-900">{person.name}</span>
+                    </>
                   )}
                 </div>
-                <div className="divide-y divide-gray-50">
-                  {rows.map((r) => (
-                    <div key={r.submission_id} className="px-6 py-2.5 flex items-center justify-between">
-                      <div className="min-w-0">
-                        <div className="text-sm text-gray-900 truncate">{r.title || '（未命名）'}</div>
-                        <div className="text-xs text-gray-400">{formatDate(r.graded_at)}</div>
+              )}
+
+              {/* Person 跨科檔案 */}
+              {person ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 rounded-xl border border-slate-200 px-5 py-4">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-sky-100 font-bold text-sky-700">
+                      {person.name?.slice(-2)}
+                    </div>
+                    <div>
+                      <div className="text-lg font-semibold text-slate-900">{person.name}</div>
+                      <div className="text-xs text-slate-500">
+                        學號 {person.provider_student_id || person.student_number || '—'} ·{' '}
+                        {recordsBySubject.length} 科 · {records.length} 份批改
                       </div>
-                      <div className={`text-base font-bold ${scoreColor(r.score)}`}>
-                        {r.score == null ? '—' : r.score}
+                    </div>
+                  </div>
+
+                  {recordsBySubject.length === 0 && (
+                    <div className="rounded-xl border border-slate-200 px-6 py-10 text-center text-slate-400">
+                      此學生尚無批改紀錄
+                    </div>
+                  )}
+
+                  {recordsBySubject.map(({ subject, rows, avg, count }) => (
+                    <div key={subject} className="overflow-hidden rounded-xl border border-slate-200">
+                      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-5 py-3">
+                        <div className="flex items-center gap-2">
+                          <BookOpen className="h-4 w-4 text-sky-600" />
+                          <span className="font-semibold text-slate-900">{subject}</span>
+                          <span className="text-xs text-slate-400">{count} 份</span>
+                        </div>
+                        {avg != null && (
+                          <span className="text-sm">
+                            平均 <span className={`font-bold ${scoreColor(avg)}`}>{avg}</span>
+                          </span>
+                        )}
+                      </div>
+                      <div className="divide-y divide-slate-50">
+                        {rows.map((r) => (
+                          <div key={r.submission_id} className="flex items-center justify-between px-5 py-2.5">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm text-slate-900">{r.title || '（未命名）'}</div>
+                              <div className="text-xs text-slate-400">{formatDate(r.graded_at)}</div>
+                            </div>
+                            <div className={`text-base font-bold ${scoreColor(r.score)}`}>
+                              {r.score == null ? '—' : r.score}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   ))}
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : selectedClass ? (
-          /* 班級學生清單 */
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 text-sm font-semibold text-gray-700">
-              {selectedClass} · {students.length} 名學生
-            </div>
-            {students.length === 0 && !loading && (
-              <div className="px-6 py-10 text-center text-gray-400">此班尚無學生</div>
-            )}
-            <div className="divide-y divide-gray-50">
-              {students.map((s) => (
-                <button
-                  key={s.person_id}
-                  onClick={() => void openPerson(s.person_id)}
-                  className="w-full px-6 py-3 flex items-center justify-between hover:bg-emerald-50/50 text-left"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="w-8 text-sm text-gray-400 tabular-nums">
-                      {s.seat_number ?? '—'}
-                    </span>
-                    <span className="font-medium text-gray-900">{s.name}</span>
+              ) : selectedClass ? (
+                /* 班級學生清單 */
+                <div className="overflow-hidden rounded-xl border border-slate-200">
+                  <div className="border-b border-slate-100 bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700">
+                    {selectedClass} · {students.length} 名學生
                   </div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-gray-500">{s.subject_count} 科</span>
-                    <ChevronRight className="w-4 h-4 text-gray-300" />
+                  {students.length === 0 && !loading && (
+                    <div className="px-6 py-10 text-center text-slate-400">此班尚無學生</div>
+                  )}
+                  <div className="divide-y divide-slate-50">
+                    {students.map((s) => (
+                      <button
+                        key={s.person_id}
+                        onClick={() => void openPerson(s.person_id)}
+                        className="flex w-full items-center justify-between px-5 py-3 text-left hover:bg-sky-50/60"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="w-8 text-sm tabular-nums text-slate-400">{s.seat_number ?? '—'}</span>
+                          <span className="font-medium text-slate-900">{s.name}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-slate-500">{s.subject_count} 科</span>
+                          <ChevronRight className="h-4 w-4 text-slate-300" />
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          /* 班級清單（依年級分組） */
-          <div className="space-y-5">
-            {classes.length === 0 && !loading && (
-              <div className="bg-white rounded-xl border border-slate-200 px-6 py-10 text-center text-gray-400">
-                尚無班級資料
-              </div>
-            )}
-            {Object.entries(
-              classes.reduce<Record<string, ClassRow[]>>((acc, c) => {
-                const g = c.grade != null ? `${c.grade} 年級` : '其他'
-                ;(acc[g] = acc[g] || []).push(c)
-                return acc
-              }, {})
-            ).map(([grade, list]) => (
-              <div key={grade}>
-                <div className="text-sm font-semibold text-gray-500 mb-2">{grade}</div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                  {list.map((c) => (
-                    <button
-                      key={c.class_label}
-                      onClick={() => void openClass(c.class_label)}
-                      className="bg-white rounded-xl border border-slate-200 px-4 py-3 text-left hover:border-emerald-300 hover:shadow-sm transition"
-                    >
-                      <div className="font-semibold text-gray-900">{c.class_label}</div>
-                      <div className="text-xs text-gray-500 mt-1">{c.student_count} 名學生</div>
-                    </button>
+                </div>
+              ) : (
+                /* 班級清單（依年級分組） */
+                <div className="space-y-5">
+                  {classes.length === 0 && !loading && (
+                    <div className="rounded-xl border border-slate-200 px-6 py-10 text-center text-slate-400">
+                      尚無班級資料
+                    </div>
+                  )}
+                  {Object.entries(
+                    classes.reduce<Record<string, ClassRow[]>>((acc, c) => {
+                      const g = c.grade != null ? `${c.grade} 年級` : '其他'
+                      ;(acc[g] = acc[g] || []).push(c)
+                      return acc
+                    }, {})
+                  ).map(([grade, list]) => (
+                    <div key={grade}>
+                      <div className="mb-2 text-sm font-semibold text-slate-500">{grade}</div>
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                        {list.map((c) => (
+                          <button
+                            key={c.class_label}
+                            onClick={() => void openClass(c.class_label)}
+                            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-sky-300 hover:shadow-sm"
+                          >
+                            <div className="font-semibold text-slate-900">{c.class_label}</div>
+                            <div className="mt-1 text-xs text-slate-500">{c.student_count} 名學生</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              )}
+            </>
+          )}
+        </section>
       </div>
     </div>
   )
