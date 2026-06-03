@@ -86,6 +86,20 @@ function scoreColor(score: number | null): string {
   return 'text-rose-600'
 }
 
+const CN_NUM: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
+// 班名格式為「X年N班」：grade 從 DB 缺時，用班名前綴推年級；班序用 N 自然排序。
+function gradeFromLabel(label: string): number | null {
+  const m = label.match(/^([一二三四五六七八九])年/)
+  return m ? CN_NUM[m[1]] ?? null : null
+}
+function classNumFromLabel(label: string): number {
+  const m = label.match(/年(\d+)/)
+  return m ? parseInt(m[1], 10) : 9999
+}
+function effectiveGrade(c: ClassRow): number | null {
+  return c.grade != null ? c.grade : gradeFromLabel(c.class_label)
+}
+
 export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
   const [tab, setTab] = useState<SchoolTab>('overview')
   const [school, setSchool] = useState<SchoolRow | null>(null)
@@ -96,6 +110,7 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
   const [records, setRecords] = useState<RecordRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [gradeFilter, setGradeFilter] = useState<number | 'all'>('all')
 
   const loadSchool = useCallback(async () => {
     setLoading(true)
@@ -171,6 +186,32 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
       return { subject, rows, avg, count: rows.length }
     })
   }, [records])
+
+  // 依年級分組、組內依班序自然排序；grade 缺時用班名推算（消除「其他」）
+  const gradeGroups = useMemo(() => {
+    const map = new Map<number | null, ClassRow[]>()
+    for (const c of classes) {
+      const g = effectiveGrade(c)
+      if (!map.has(g)) map.set(g, [])
+      map.get(g)!.push(c)
+    }
+    const entries = Array.from(map.entries()).map(([grade, list]) => ({
+      grade,
+      label: grade != null ? `${grade} 年級` : '其他',
+      classes: [...list].sort((a, b) => classNumFromLabel(a.class_label) - classNumFromLabel(b.class_label))
+    }))
+    entries.sort((a, b) => {
+      if (a.grade == null) return 1
+      if (b.grade == null) return -1
+      return a.grade - b.grade
+    })
+    return entries
+  }, [classes])
+
+  const presentGrades = useMemo(
+    () => gradeGroups.filter((g) => g.grade != null).map((g) => g.grade as number),
+    [gradeGroups]
+  )
 
   const backToClasses = () => {
     setSelectedClass(null)
@@ -283,7 +324,6 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
                 <span className="text-lg font-semibold tabular-nums">{school.class_count}</span>
                 <span className="text-sm text-slate-500">個班級</span>
               </div>
-              <span className="text-xs text-slate-400">歸戶後統一學生身分</span>
             </div>
           )}
 
@@ -403,36 +443,61 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
                   </div>
                 </div>
               ) : (
-                /* 班級清單（依年級分組） */
+                /* 班級清單（年級篩選 + 依年級分組、班序自然排序） */
                 <div className="space-y-5">
                   {classes.length === 0 && !loading && (
                     <div className="rounded-xl border border-slate-200 px-6 py-10 text-center text-slate-400">
                       尚無班級資料
                     </div>
                   )}
-                  {Object.entries(
-                    classes.reduce<Record<string, ClassRow[]>>((acc, c) => {
-                      const g = c.grade != null ? `${c.grade} 年級` : '其他'
-                      ;(acc[g] = acc[g] || []).push(c)
-                      return acc
-                    }, {})
-                  ).map(([grade, list]) => (
-                    <div key={grade}>
-                      <div className="mb-2 text-sm font-semibold text-slate-500">{grade}</div>
-                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                        {list.map((c) => (
-                          <button
-                            key={c.class_label}
-                            onClick={() => void openClass(c.class_label)}
-                            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-sky-300 hover:shadow-sm"
-                          >
-                            <div className="font-semibold text-slate-900">{c.class_label}</div>
-                            <div className="mt-1 text-xs text-slate-500">{c.student_count} 名學生</div>
-                          </button>
-                        ))}
-                      </div>
+                  {classes.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setGradeFilter('all')}
+                        className={`rounded-full px-3 py-1 text-sm font-medium transition ${
+                          gradeFilter === 'all'
+                            ? 'bg-sky-600 text-white'
+                            : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        全部
+                      </button>
+                      {presentGrades.map((g) => (
+                        <button
+                          key={g}
+                          type="button"
+                          onClick={() => setGradeFilter(g)}
+                          className={`rounded-full px-3 py-1 text-sm font-medium transition ${
+                            gradeFilter === g
+                              ? 'bg-sky-600 text-white'
+                              : 'border border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                          }`}
+                        >
+                          {g} 年級
+                        </button>
+                      ))}
                     </div>
-                  ))}
+                  )}
+                  {gradeGroups
+                    .filter((group) => gradeFilter === 'all' || group.grade === gradeFilter)
+                    .map((group) => (
+                      <div key={group.label}>
+                        <div className="mb-2 text-sm font-semibold text-slate-500">{group.label}</div>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                          {group.classes.map((c) => (
+                            <button
+                              key={c.class_label}
+                              onClick={() => void openClass(c.class_label)}
+                              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-sky-300 hover:shadow-sm"
+                            >
+                              <div className="font-semibold text-slate-900">{c.class_label}</div>
+                              <div className="mt-1 text-xs text-slate-500">{c.student_count} 名學生</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                 </div>
               )}
             </>
