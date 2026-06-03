@@ -183,7 +183,8 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#f7f7f5]">
+    <div className="min-h-screen bg-[#f7f7f5]">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1280px] flex-col">
       {/* 頂部 bar：對齊教師端 */}
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-[#f7f7f5]/95 px-4 py-2 backdrop-blur md:px-6">
         <div className="flex items-center justify-between gap-3">
@@ -437,6 +438,7 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
             </>
           )}
         </section>
+      </div>
       </div>
     </div>
   )
