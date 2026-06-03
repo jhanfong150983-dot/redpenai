@@ -39,6 +39,7 @@ const CorrectionHistory = lazy(() => import('@/pages/CorrectionHistory'))
 const LandingPage = lazy(() => import('@/pages/LandingPage'))
 const AdminUserDetail = lazy(() => import('@/pages/AdminUserDetail'))
 const TeacherPreferences = lazy(() => import('@/pages/TeacherPreferences'))
+const SchoolAdminPanel = lazy(() => import('@/pages/SchoolAdminPanel'))
 
 import SyncIndicator from '@/components/SyncIndicator'
 import Button from '@/components/ui/Button'
@@ -83,6 +84,7 @@ type Page =
   | 'admin-user-detail'
   | 'ink-topup'
   | 'teacher-preferences'
+  | 'school-admin-panel'
 
 type AuthState =
   | { status: 'loading' }
@@ -315,7 +317,8 @@ const URL_SYNCABLE_PAGES: readonly Page[] = [
   'admin-panel',
   'admin-user-detail',
   'ink-topup',
-  'teacher-preferences'
+  'teacher-preferences',
+  'school-admin-panel'
 ]
 
 // 舊書籤相容：別名 → 規範化 Page
@@ -335,6 +338,7 @@ const PAGE_PATH_MAP: Partial<Record<Page, string>> = {
   'ink-topup': '/ink-topup',
   'teacher-preferences': '/preferences',
   'admin-panel': '/admin',
+  'school-admin-panel': '/school-admin',
   'answer-bank': '/answer-bank',
   'classroom-management': '/classroom',
   'gradebook': '/gradebook',
@@ -349,6 +353,7 @@ const PATH_PAGE_MAP: Record<string, Page> = {
   '/ink-topup': 'ink-topup',
   '/preferences': 'teacher-preferences',
   '/admin': 'admin-panel',
+  '/school-admin': 'school-admin-panel',
   '/answer-bank': 'answer-bank',
   '/classroom': 'classroom-management',
   '/gradebook': 'gradebook',
@@ -1536,7 +1541,7 @@ function App() {
     let nextAssignmentId: string | undefined
     if (parsedPage && parsedPage !== 'home') {
       const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'correction-history', 'ai-report']
-      const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail']
+      const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail', 'school-admin-panel']
       if (needsTracking.includes(parsedPage) && !canAccessTracking) {
         nextPage = 'home'
       } else if (needsAdmin.includes(parsedPage) && !isAdmin) {
@@ -1591,7 +1596,7 @@ function App() {
 
       // 權限閘：URL 偽造試圖跳到無權限頁，把 URL 還原回 currentPage
       const needsTracking: Page[] = ['gradebook', 'correction', 'correction-select', 'correction-history', 'ai-report']
-      const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail']
+      const needsAdmin: Page[] = ['admin-panel', 'admin-user-detail', 'school-admin-panel']
       if ((needsTracking.includes(target) && !canAccessTracking)
         || (needsAdmin.includes(target) && !isAdmin)) {
         const currentId = (currentPage === 'grading' || currentPage === 'unified-import' || currentPage === 'correction')
@@ -1854,6 +1859,32 @@ function App() {
             setCurrentPage('admin-user-detail')
           }}
         />
+      </Suspense>
+    )
+  }
+
+  // 學校管理層（教務主任）檢視頁
+  if (currentPage === 'school-admin-panel') {
+    if (!isAdmin) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
+            <p className="text-sm text-gray-600">只有管理者可以進入此頁面。</p>
+            <button
+              type="button"
+              onClick={() => setCurrentPage('home')}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+            >
+              返回首頁
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return (
+      <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}>
+        <SchoolAdminPanel onBack={() => setCurrentPage('home')} />
       </Suspense>
     )
   }
@@ -2191,6 +2222,19 @@ function App() {
                         >
                           <Shield className="h-4 w-4" />
                           管理者面板
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsUserMenuOpen(false)
+                            setCurrentPage('school-admin-panel')
+                          }}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:border-emerald-300 hover:text-emerald-800"
+                        >
+                          <Shield className="h-4 w-4" />
+                          學校檢視
                         </button>
                       )}
                       <button
