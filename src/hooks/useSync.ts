@@ -1226,6 +1226,9 @@ export function useSync(options: UseSyncOptions = {}) {
     const localGradeMap = new Map(
       existingClassrooms.map((c) => [c.id, c.grade])
     )
+    const localSchoolIdMap = new Map(
+      existingClassrooms.map((c) => [c.id, (c as Classroom & { school_id?: string }).school_id])
+    )
 
     const normalizedClassrooms: Classroom[] = classrooms
       .filter((c: Classroom) => c?.id && !deletedClassroomSet.has(c.id))
@@ -1241,10 +1244,13 @@ export function useSync(options: UseSyncOptions = {}) {
         const cloudGrade = parsedGrade != null && !isNaN(parsedGrade) ? parsedGrade : undefined
         // 如果雲端有 grade，使用雲端的；否則保留本地的（避免 push 前 pull 蓋掉本地值）
         const finalGrade = cloudGrade !== undefined ? cloudGrade : localGradeMap.get(c.id)
+        const cloudSchoolId = (c as Classroom & { school_id?: string }).school_id
+        const finalSchoolId = cloudSchoolId !== undefined ? cloudSchoolId : localSchoolIdMap.get(c.id)
         return {
           id: c.id,
           name: c.name,
           folder: finalFolder,
+          school_id: finalSchoolId,
           grade: finalGrade,
           updatedAt: toMillis(
             (c as Classroom & { updatedAt?: unknown }).updatedAt ??

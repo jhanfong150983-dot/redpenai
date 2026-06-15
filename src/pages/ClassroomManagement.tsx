@@ -247,6 +247,20 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     return map
   }, [orderedFolders, orderedItems])
 
+  // 同步班級（1Campus）偵測：有 school_id 即為同步班級；
+  // ' 1Campus' 為舊資料相容（尚未重新同步、folder 仍是舊的固定值）。同步班級禁止拖曳/刪除/移動。
+  const isSyncedClassroom = (c: Classroom) => !!c.school_id || c.folder === '1Campus'
+
+  // 哪些資料夾屬於「同步資料夾」（內含同步班級，或舊的 '1Campus' 資料夾）→ 禁止拖曳/刪除。
+  const syncedFolderSet = useMemo(() => {
+    const set = new Set<string>(['1Campus'])
+    items.forEach((item) => {
+      const f = item.classroom.folder
+      if (f && isSyncedClassroom(item.classroom)) set.add(f)
+    })
+    return set
+  }, [items])
+
   useEffect(() => {
     setExpandedFolders((prev) => {
       const kept = prev.filter((folder) => orderedFolders.includes(folder))
@@ -486,8 +500,8 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     const target = items.find((item) => item.classroom.id === targetClassroomId)
     if (!dragged || !target) return
 
-    // 禁止 1Campus 班級參與拖放排序
-    if (dragged.classroom.folder === '1Campus' || target.classroom.folder === '1Campus') return
+    // 禁止同步（1Campus）班級參與拖放排序
+    if (isSyncedClassroom(dragged.classroom) || isSyncedClassroom(target.classroom)) return
 
     try {
       if (dragged.classroom.folder !== target.classroom.folder) {
@@ -530,8 +544,8 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     e.preventDefault()
     if (!draggedFolderName || draggedFolderName === targetFolder) return
 
-    // 禁止 1Campus 資料夾參與拖放排序
-    if (draggedFolderName === '1Campus' || targetFolder === '1Campus') return
+    // 禁止同步資料夾參與拖放排序
+    if (syncedFolderSet.has(draggedFolderName) || syncedFolderSet.has(targetFolder)) return
 
     setFolderOrder((prev) => {
       const base = [...new Set([...prev, ...orderedFolders])]
@@ -547,14 +561,14 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
 
     if (!draggedClassroomId) return
 
-    // 禁止拖入 1Campus 資料夾
-    if (targetFolder === '1Campus') return
+    // 禁止拖入同步資料夾
+    if (syncedFolderSet.has(targetFolder)) return
 
     const classroom = items.find(item => item.classroom.id === draggedClassroomId)?.classroom
     if (!classroom) return
 
-    // 禁止拖出 1Campus 班級
-    if (classroom.folder === '1Campus') return
+    // 禁止拖出同步班級
+    if (isSyncedClassroom(classroom)) return
 
     // 更新資料夾
     const newFolder = targetFolder === '__uncategorized__' ? undefined : targetFolder
@@ -661,8 +675,8 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
 
   const handleDeleteFolder = async (folderName: string) => {
     if (isSaving) return
-    // 禁止刪除 1Campus 資料夾
-    if (folderName === '1Campus') return
+    // 禁止刪除同步資料夾
+    if (syncedFolderSet.has(folderName)) return
 
     const count = items.filter((item) => item.classroom.folder === folderName).length
     const message = count > 0
@@ -1061,7 +1075,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     <div
       key={item.classroom.id}
       data-tutorial-card={tutorialCard}
-      draggable={editingId !== item.classroom.id && item.classroom.folder !== '1Campus'}
+      draggable={editingId !== item.classroom.id && !isSyncedClassroom(item.classroom)}
       onDragStart={() => handleDragStart(item.classroom.id)}
       onDragOver={(e) => handleClassroomCardDragOver(e, item.classroom.id)}
       onDragLeave={() => {
@@ -1076,7 +1090,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
           ? 'border-green-400 ring-1 ring-green-300'
           : 'border-slate-200'
       } ${
-        item.classroom.folder === '1Campus'
+        isSyncedClassroom(item.classroom)
           ? 'cursor-default'
           : draggedClassroomId === item.classroom.id ? 'cursor-grabbing opacity-50' : 'cursor-grab'
       }`}
@@ -1108,7 +1122,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                 <p className="truncate text-sm font-semibold text-gray-900">
                   {item.classroom.name}
                 </p>
-                {item.classroom.folder === '1Campus' ? (
+                {isSyncedClassroom(item.classroom) ? (
                   <span className="shrink-0 inline-flex items-center rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-700">1campus</span>
                 ) : (
                   <button
@@ -1141,14 +1155,14 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
             type="button"
             onClick={(e) => {
               e.stopPropagation()
-              void openStudentEditor(item, item.classroom.folder === '1Campus')
+              void openStudentEditor(item, isSyncedClassroom(item.classroom))
             }}
             className="rounded-full border border-gray-200 bg-white p-1.5 text-gray-600 hover:bg-green-50 hover:text-green-700"
-            title={item.classroom.folder === '1Campus' ? '查看學生名單' : '編輯學生名單'}
+            title={isSyncedClassroom(item.classroom) ? '查看學生名單' : '編輯學生名單'}
           >
             <Users className="h-4 w-4" />
           </button>
-          {item.classroom.folder !== '1Campus' && (
+          {!isSyncedClassroom(item.classroom) && (
             <button
               type="button"
               onClick={(e) => {
@@ -1279,7 +1293,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                       <div
                         key={folder}
                         data-tutorial-folder={index === 0 ? 'first-folder' : undefined}
-                        draggable={editingFolderId !== folder && folder !== '1Campus'}
+                        draggable={editingFolderId !== folder && !syncedFolderSet.has(folder)}
                         onDragStart={() => handleFolderDragStart(folder)}
                         onDragEnd={handleDragEnd}
                         onDragOver={(e) => {
@@ -1365,7 +1379,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                                 </span>
                               </button>
                             )}
-                            {folder !== '1Campus' && (
+                            {!syncedFolderSet.has(folder) && (
                             <div className="flex items-center gap-1">
                               {editingFolderId !== folder && (
                                 <button

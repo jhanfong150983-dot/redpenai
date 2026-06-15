@@ -330,6 +330,7 @@ export interface Classroom {
   id: string
   name: string
   folder?: string // 資料夾分類（例如：112學年度、七年級）
+  school_id?: string // 1Campus 同步班級所屬學校（dsns）；用於多校分資料夾與同步班級保護
   grade?: number  // 年級（1–12），用於課綱概念篩選
   updatedAt?: number
 }
