@@ -122,6 +122,12 @@ type AuthState =
           displayName?: string
           roleType?: string
         }
+        campus1Bindings?: Array<{
+          account: string
+          dsns: string
+          displayName?: string
+          roleType?: string
+        }>
         schoolAdmin?: {
           schoolId: string
           schoolName: string
@@ -770,11 +776,20 @@ function App() {
     }
 
     // Google 登入但已有 1Campus 綁定 → 自動同步（僅老師帳號）
-    const binding = auth.user.campus1Binding
-    if (binding?.dsns && binding.roleType === 'teacher') {
-      // 避免重複同步：同一 session 只觸發一次
-      const syncKey = `campus1_auto_sync_${auth.user.id}`
-      if (window.sessionStorage.getItem(syncKey)) return
+    // 老師可能任教多校 → 逐校同步，各校用各自的 dsns、各自的 session 鎖避免重複觸發
+    const bindings =
+      auth.user.campus1Bindings && auth.user.campus1Bindings.length
+        ? auth.user.campus1Bindings
+        : auth.user.campus1Binding
+          ? [auth.user.campus1Binding]
+          : []
+    const teacherBindings = bindings.filter(
+      (b) => b?.dsns && b.roleType === 'teacher'
+    )
+    for (const binding of teacherBindings) {
+      // 避免重複同步：同一 session、同一校只觸發一次
+      const syncKey = `campus1_auto_sync_${auth.user.id}_${binding.dsns}`
+      if (window.sessionStorage.getItem(syncKey)) continue
       window.sessionStorage.setItem(syncKey, '1')
 
       console.log('[AUTO-SYNC] Google 登入偵測到 1Campus 綁定，自動同步 dsns=', binding.dsns)
@@ -784,7 +799,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dsns: binding.dsns })
       }).then((res) => {
-        console.log('[AUTO-SYNC] 班級同步 HTTP', res.status)
+        console.log('[AUTO-SYNC] 班級同步 HTTP', res.status, 'dsns=', binding.dsns)
         return res.json().then((data) => {
           console.log('[AUTO-SYNC] 班級同步結果:', data)
           requestSync(true)
@@ -2661,6 +2676,7 @@ function App() {
                   embedded
                   onBack={() => setCurrentPage('home')}
                   campus1Binding={auth.user.campus1Binding}
+                  campus1Bindings={auth.user.campus1Bindings}
                 />
               ) : (
                 <>

@@ -12,15 +12,18 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import { requestSync } from '@/lib/sync-events'
 
+interface Campus1Binding {
+  account: string
+  dsns: string
+  displayName?: string
+  roleType?: string
+}
+
 interface TeacherPreferencesProps {
   onBack?: () => void
   embedded?: boolean
-  campus1Binding?: {
-    account: string
-    dsns: string
-    displayName?: string
-    roleType?: string
-  }
+  campus1Binding?: Campus1Binding
+  campus1Bindings?: Campus1Binding[]
 }
 
 interface Preferences {
@@ -124,18 +127,39 @@ const DEFAULT_PREFS: Preferences = {
 export default function TeacherPreferences({
   onBack,
   embedded = false,
-  campus1Binding
+  campus1Binding,
+  campus1Bindings
 }: TeacherPreferencesProps) {
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFS)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [isCampus1Syncing, setIsCampus1Syncing] = useState(false)
+  // 哪一個 dsns 正在同步（同時只允許一校同步，避免併發）
+  const [syncingDsns, setSyncingDsns] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [campus1SyncMessage, setCampus1SyncMessage] = useState<{
-    type: 'success' | 'error'
-    text: string
-  } | null>(null)
+  // 同步結果訊息以 dsns 為 key，各校獨立顯示
+  const [campus1SyncMessages, setCampus1SyncMessages] = useState<
+    Record<string, { type: 'success' | 'error'; text: string }>
+  >({})
   const [saveSuccess, setSaveSuccess] = useState(false)
+
+  // 老師可能任教多校 → 優先用 campus1Bindings 清單，退回單一 campus1Binding。
+  // 完全中學「一人多部」(同 account、不同 dsns) 會有多列身分；同步端點以 dsns 為單位，
+  // 故同一 dsns 只保留一列，避免重複按鈕 / React key 衝突。
+  const syncBindings: Campus1Binding[] = (() => {
+    const raw = (
+      campus1Bindings && campus1Bindings.length
+        ? campus1Bindings
+        : campus1Binding
+          ? [campus1Binding]
+          : []
+    ).filter((b) => b && b.dsns)
+    const seen = new Set<string>()
+    return raw.filter((b) => {
+      if (seen.has(b.dsns)) return false
+      seen.add(b.dsns)
+      return true
+    })
+  })()
 
   const loadPreferences = useCallback(async () => {
     setIsLoading(true)
@@ -196,16 +220,23 @@ export default function TeacherPreferences({
     }
   }
 
-  const handleCampus1Sync = async () => {
-    if (isCampus1Syncing) return
-    const dsns = String(campus1Binding?.dsns || '').trim()
+  const handleCampus1Sync = async (rawDsns: string) => {
+    if (syncingDsns) return
+    const dsns = String(rawDsns || '').trim()
     if (!dsns) {
-      setCampus1SyncMessage({ type: 'error', text: '找不到 1Campus dsns，請重新綁定後再試' })
+      setCampus1SyncMessages((prev) => ({
+        ...prev,
+        ['']: { type: 'error', text: '找不到 1Campus dsns，請重新綁定後再試' }
+      }))
       return
     }
 
-    setCampus1SyncMessage(null)
-    setIsCampus1Syncing(true)
+    setCampus1SyncMessages((prev) => {
+      const next = { ...prev }
+      delete next[dsns]
+      return next
+    })
+    setSyncingDsns(dsns)
     try {
       const res = await fetch('/api/data/1campus-classroom-sync', {
         method: 'POST',
@@ -220,18 +251,21 @@ export default function TeacherPreferences({
 
       const synced = Number(data?.synced ?? 0)
       const total = Number(data?.total ?? 0)
-      setCampus1SyncMessage({
-        type: 'success',
-        text: `1Campus 同步完成：${synced}/${total} 班`
-      })
+      setCampus1SyncMessages((prev) => ({
+        ...prev,
+        [dsns]: { type: 'success', text: `同步完成：${synced}/${total} 班` }
+      }))
       requestSync(true)
     } catch (err) {
-      setCampus1SyncMessage({
-        type: 'error',
-        text: err instanceof Error ? err.message : '1Campus 同步失敗'
-      })
+      setCampus1SyncMessages((prev) => ({
+        ...prev,
+        [dsns]: {
+          type: 'error',
+          text: err instanceof Error ? err.message : '1Campus 同步失敗'
+        }
+      }))
     } finally {
-      setIsCampus1Syncing(false)
+      setSyncingDsns(null)
     }
   }
 
@@ -352,37 +386,57 @@ export default function TeacherPreferences({
               </SettingRow>
             </SectionCard>
 
-            {campus1Binding?.dsns && (
+            {syncBindings.length > 0 && (
               <SectionCard title="1Campus 同步" icon={RefreshCw}>
-                <SettingRow
-                  label="立即同步班級與學生"
-                  description={`來源：${campus1Binding.dsns}`}
-                >
-                  <button
-                    type="button"
-                    onClick={handleCampus1Sync}
-                    disabled={isCampus1Syncing}
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isCampus1Syncing ? (
-                      <Loader className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-4 w-4" />
-                    )}
-                    {isCampus1Syncing ? '同步中…' : '立即同步 1Campus'}
-                  </button>
-                </SettingRow>
-                {campus1SyncMessage && (
-                  <div
-                    className={`rounded-lg border px-3 py-2 text-sm ${
-                      campus1SyncMessage.type === 'success'
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : 'border-red-200 bg-red-50 text-red-700'
-                    }`}
-                  >
-                    {campus1SyncMessage.text}
-                  </div>
-                )}
+                {syncBindings.map((binding, index) => {
+                  const msg = campus1SyncMessages[binding.dsns]
+                  const isThisSyncing = syncingDsns === binding.dsns
+                  const multi = syncBindings.length > 1
+                  return (
+                    <div
+                      key={binding.dsns}
+                      className={
+                        index > 0
+                          ? 'space-y-2 border-t border-slate-100 pt-4'
+                          : 'space-y-2'
+                      }
+                    >
+                      <SettingRow
+                        label={
+                          multi
+                            ? `同步「${binding.displayName || binding.dsns}」班級與學生`
+                            : '立即同步班級與學生'
+                        }
+                        description={`來源：${binding.dsns}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleCampus1Sync(binding.dsns)}
+                          disabled={!!syncingDsns}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isThisSyncing ? (
+                            <Loader className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4" />
+                          )}
+                          {isThisSyncing ? '同步中…' : '立即同步 1Campus'}
+                        </button>
+                      </SettingRow>
+                      {msg && (
+                        <div
+                          className={`rounded-lg border px-3 py-2 text-sm ${
+                            msg.type === 'success'
+                              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                              : 'border-red-200 bg-red-50 text-red-700'
+                          }`}
+                        >
+                          {msg.text}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </SectionCard>
             )}
 
