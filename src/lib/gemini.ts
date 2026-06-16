@@ -1374,57 +1374,57 @@ function buildTypeSpecs(): string {
     - maxScore: 整題總分 = sum(parts[].maxScore)
     - answer: 留空（多空模式靠 parts、不用 answer 欄位）
 
-  ## 合題 vs 拆題判別
+  ## 合題 vs 拆題判別（依據＝「主要小題」邊界）
 
   | 場景 | 處理 |
   |---|---|
-  | 同句多空、不跨等號 (a + ( )( ) = ...) | **合題、用 parts** |
-  | 跨等號多步驟 ( = ( ) − ( ) = ( ) ) | 拆 N 個獨立 fill_blank、各有 answer |
   | 單空 | 單題、用 answer 欄位 |
+  | 同一個「主要小題」（有自己的題幹／圖／指示語）底下 ≥2 空 —— 不論用 (1)(2)、①②、或無標號、不論跨行跨句跨整段短文、空格之間有 = − × 任何符號 | **合題、用 parts（子標 (1)(2) → subId a/b…）、框一個包整題作答區的大 bbox** |
+  | 不同「主要小題」（各自有獨立題幹／圖／提問） | 各自成 entry、不合併 |
+
+  ⭐ 合併單位＝「主要小題」。一個主要小題底下所有空（含 (1)(2)(3)(4) 子標）→ 合成這一題的 parts；不同主要小題 → 各自成題。
+  🧭 怎麼分辨「主要小題」vs「子標」：
+    • 子標 (1)(2)(3)(4)／①②：共用上面同一句題幹、同一張圖、同一段短文、同一個算式 → 是 parts，要合進同一題。
+    • 主要小題：各自有完整獨立的題幹／圖／提問（例：各自一張圖配一個空的單字題、各自獨立編號的題目）→ 各自成題，不合。
+  ⛔ 不再有「跨等號鏈式計算拆題」例外（見範例 D）。
+  ⛔ 也不要過度合併：不同主要小題（第1題、第2題、第3題）即使相鄰也不可併成一題。
 
   ## 範例 A：同句多空、合題
-  題目：「(1)兩人同時向同方向前進、( 2 )分鐘後相距 20 公尺。
-        (2)兩人同時向相反方向前進、( 12 )分鐘後相遇。」（2 個括弧、不跨等號）
-  → 1 題 fill_blank、parts 2 個：
+  「(1)兩人同向前進、( 2 )分鐘後相距20公尺。(2)反向前進、( 12 )分鐘後相遇。」
+  → 1 題 fill_blank、parts 2 個：[{subId:"a",answer:"2"},{subId:"b",answer:"12"}]
+
+  ## 範例 B：短文／克漏字、多句多空、合題（⭐ 英語／國語最常見）
+  一段連續短文、題號只有一個，段內挖 5 個空（sleeping/cooking/eating/reading/writing）
+  → 1 題 fill_blank、parts 5 個、一個包整段短文的大 bbox。
+  ❌ 嚴禁把這段短文拆成 5 個獨立 entry（各一個 tiny bbox）。
+
+  ## 範例 C：堆疊子標、合題（⭐ 數學「下圖…」配 (1)(2)(3)(4) 各一行）
+  「2. 下圖是一個四角柱：(1)柱高是( 10 )cm。(2)底面積是( 84 )cm²。(3)體積是( 840 )cm³。(4)表面積是( 688 )cm²。」
+  → 這 4 個 (1)(2)(3)(4) 共用「同一張圖、同一個主要小題 2」→ 1 題 fill_blank、parts 4 個、一個包 (1)~(4) 整塊作答區的大 bbox：
   {
-    "id": "1-2-1",
+    "id": "1-2-2",
     "questionCategory": "fill_blank",
-    "answerBbox": { "x": 0.065, "y": 0.461, "w": 0.415, "h": 0.146 },
+    "answerBbox": { 包第2題 (1)~(4) 整塊 },
     "parts": [
-      { "subId": "a", "answer": "2", "maxScore": 2 },
-      { "subId": "b", "answer": "12", "maxScore": 2 }
+      { "subId": "a", "answer": "10",  "maxScore": 4 },
+      { "subId": "b", "answer": "84",  "maxScore": 4 },
+      { "subId": "c", "answer": "840", "maxScore": 4 },
+      { "subId": "d", "answer": "688", "maxScore": 4 }
     ],
-    "maxScore": 4
+    "maxScore": 16
   }
+  ❌ 嚴禁拆成 1-2-2-1 / 1-2-2-2 / 1-2-2-3 / 1-2-2-4 四個 tiny-bbox entry。
+  ⚠️ 但第1題（單空 94.2）、第3題、第4題 仍各自是獨立的主要小題 → 不要跟第2題併在一起。
 
-  ## 範例 B：同一行算式多空、合題（不跨等號）
-  題目：「2⅕×4.73 − 2.73×2⅕ = 2⅕ □ (4.73 □ 2.73)」
-  → 注意：「2⅕ □ (4.73 □ 2.73)」內有 2 個 □、彼此之間是 × 跟 (4.73 _ 2.73) 表達式、不跨等號 →
-  1 題 fill_blank、parts 2 個：
-  {
-    "id": "1-4-1",
-    "questionCategory": "fill_blank",
-    "answerBbox": { 包整個算式右半 },
-    "parts": [
-      { "subId": "a", "answer": "×", "maxScore": 2 },
-      { "subId": "b", "answer": "−", "maxScore": 2 }
-    ],
-    "maxScore": 4
-  }
+  ## 範例 D：鏈式計算（跨等號）也合題（取代舊拆題規則）
+  「底面積 = ( 100 ) − ( 12.56 ) = ( 87.44 )」屬同一主要小題 →
+  → 1 題 fill_blank、parts 3 個（每空各自 maxScore，逐空配分不變）：
+    parts=[{a:"100"},{b:"12.56"},{c:"87.44"}]
+  ⛔ 不再拆成 3 個獨立 entry。
 
-  ## 範例 C：鏈式計算跨等號、拆題（保持原規則）
-  題目：「底面積 = ( 100 ) − ( 12.56 ) = ( 87.44 )」（跨 2 個等號、3 個獨立計算步驟）
-  → 3 題獨立 fill_blank：
-    { "id": "1-1-1", "questionCategory": "fill_blank", "answer": "100", "answerBbox": {...} }
-    { "id": "1-1-2", "questionCategory": "fill_blank", "answer": "12.56", "answerBbox": {...} }
-    { "id": "1-1-3", "questionCategory": "fill_blank", "answer": "87.44", "answerBbox": {...} }
-
-  ❌ 錯誤示範 A：把同句多空（不跨等號）拆成 N 題、各有 tiny bbox 在每個 ( ) 上
-     → bbox 容易漂、應該合題用 parts
-  ❌ 錯誤示範 B：把多空答案合併成一個字串 "2, 12"
-     → parts 必須是陣列、每元素一個答案
-  ❌ 錯誤示範 C：跨等號的鏈式計算還用 parts 合題
-     → 跨等號要拆題、各為獨立計算步驟、各自 score
+  ❌ 錯誤示範 A：把同一主要小題的多空拆成 N 題、各 tiny bbox → 應合題用 parts
+  ❌ 錯誤示範 B：parts 寫成字串 "2, 12" → 必須陣列、每空一元素
+  ❌ 錯誤示範 C：把不同主要小題（第1題 vs 第2題）併成一題 → 各自成題
 
   ## 🚨 fill_blank 核心錨點（避免誤判其他題型）
 
@@ -5176,79 +5176,63 @@ export async function extractAnswerKeyFromImages(
       : isSinglePageOfMulti
         ? `【多頁模式 - 單頁批次】\n- 此份答案卷共 ${totalPages} 頁，本批次只傳給你「第 ${startPage} 頁」這一張\n- ID 前綴一律為 "${startPage}-"（本批所有題目第一段都固定是 ${startPage}）\n- ❌ 不要試圖生成其他頁的題目、只看眼前這張照片\n- totalScore 是這一頁所有題目的 maxScore 總和\n- _layoutDetected 陣列只放這一張照片的 layout（陣列長度 = 1）${pageIdRule}`
         : `【多張圖片處理 - 多頁模式】\n- 你會收到 ${answerSheetImages.length} 張答案卷圖片，每張照片有獨立的 ID 前綴：${pagePrefixList}\n- ⚠️ 嚴格禁止把第 2 張以後的題目用 "1-" 開頭，必須依照上方對應關係填入正確前綴\n- 請從所有圖片中提取題目，合併成一個完整的 AnswerKey${pageIdRule}\n- totalScore 是所有圖片中所有題目的 maxScore 總和`
-  // 2026-05-25 改版：fill_blank 多空現有 2 種處理（看是否跨等號）
-  // - 跨等號鏈式計算（= a = b = c）：仍拆 N 題、各題獨立 answer
-  // - 不跨等號（同表達式內多空 / 同句子多空）：合題、用 parts 陣列
-  // 詳細規則見 buildTypeSpecs 的 fill_blank 條目（含 NUMERIC ASSERTION）。
-  const chainCalcRule = isInferMode || isAnswerOnly ? '' : `\n\n🚨🚨🚨 fill_blank 多空格 — 決策樹（決定走「合題 parts」還是「拆 N 題」）：
+  // 2026-06-16 改版：fill_blank 合題依「主要小題」邊界（取代舊的「看是否跨等號」）
+  // - 一個主要小題（有自己題幹/圖/指示語）底下所有空 —— 含 (1)(2) 子標、堆疊子題、
+  //   短文克漏字、鏈式計算 —— 全合成 1 entry with parts、框一個大 bbox。
+  // - 不同主要小題各自成 entry、不過度合併。已移除「跨等號鏈式計算拆 N 題」例外。
+  // - 動機：AI 不擅長框小框，合併大框較不易框錯。實驗 local-only/fill_blank_qnum_merge_exp_2026-06-16。
+  // 詳細規則見 buildTypeSpecs 的 fill_blank 條目。
+  const chainCalcRule = isInferMode || isAnswerOnly ? '' : `\n\n🚨🚨🚨 fill_blank 多空格 — 決策樹（依據＝「主要小題」邊界）：
 
-  ## ⭐ BLOCKING DEFAULT — 合題 with parts（多空 fill_blank 預設行為）
+  ## ⭐ BLOCKING DEFAULT — 一個主要小題底下 ≥2 空 → 合題 with parts
 
-  只要一個印刷小題標號（②／(1)／(3)-①／A. 等）下 contains ≥ 2 個 ( ) 答案空格、
-  且各空之間 **沒有 = 號連接** → **強制合 1 個 fill_blank entry with parts**。
+  合併單位是「主要小題」（卷面上有自己題幹／圖／指示語的那一題）。
+  一個主要小題底下，凡有 ≥ 2 個答案空格（( )／____／□），**無論**：
+    • 用 (1)(2)(3)(4)、①② 子標列出、或無標號
+    • 空格分散在不同句子、不同行、橫跨整段短文
+    • 空格之間是文字、逗號、句號、換行、=、−、×、任何符號
+  → **強制合成 1 個 fill_blank entry with parts**（子標 (1)(2) → subId a/b…），
+    answerBbox 包整個主要小題的作答區（一個大框）。
 
-  這條是 DEFAULT、不是 example。看到多空、先預設要合題、除非滿足下方「拆題例外」。
+  看到多空，先判斷它們是不是「同一個主要小題」底下；是 → 合題。
 
-  涵蓋（不論單句／多句／多獨立提問）：
-    情境 A（同算式多空）：「2 □ × (4.73 □ 2.73)」
-    情境 B（同句多空）：「( 2 )分鐘後相距 20 公尺、( 12 )分鐘後相遇」
-    情境 C（同小題下、多個獨立提問各一空 ⭐ 最容易誤拆）：
-       「②觀察看看側面長方形的長是不是底面平行四邊形的邊長總和？(  是  )
-           側面長方形的面積是多少平方公分？(  198  )平方公分」
-       → 1 個 fill_blank entry、parts = [{subId:"a", answer:"是"}, {subId:"b", answer:"198"}]
-       ❌ 嚴禁拆成 2 個 entries（如 1-1-3-2="是" / 1-1-3-3="198"）→ classify crop bbox 會重疊、批改端「最接近中心」啟發法會兩題讀到同一格、grading 直接錯
-       ❌ 嚴禁只擷取第一空「是」、忽略第二空「198」
+  涵蓋（全部走合題）：
+    情境 A（同句多空）：「( 2 )分鐘後相距20公尺、( 12 )分鐘後相遇」→ 1 entry, parts×2
+    情境 B（短文／克漏字、多句多空 ⭐ 英語／國語最常見）：
+       一段連續短文、一個題號、段內挖 5 空 → 1 entry, parts×5, 包整段大 bbox。
+    情境 C（堆疊子標 ⭐ 數學「下圖…」配 (1)(2)(3)(4)）：
+       「2. 下圖四角柱：(1)柱高( 10 )(2)底面積( 84 )(3)體積( 840 )(4)表面積( 688 )」
+       共用同一張圖、同屬主要小題 2 → 1 entry, parts×4, 包 (1)~(4) 整塊。
+       ❌ 嚴禁拆成 4 個 tiny-bbox entry。
+    情境 D（鏈式計算、跨等號）：「= ( 100 ) − ( 12.56 ) = ( 87.44 )」同屬一主要小題
+       → 1 entry, parts×3（每 part 各自 maxScore）。⛔ 取代舊拆題規則。
 
-  合成範例 JSON：
-  {
-    "id": "1-1-3-2",
-    "questionCategory": "fill_blank",
-    "answerBbox": { 包整題（從印刷小題標號起、含所有 ( ) 答案空格） },
-    "parts": [
-      { "subId": "a", "answer": "是", "maxScore": 1 },
-      { "subId": "b", "answer": "198", "maxScore": 1 }
-    ],
-    "maxScore": 2
-  }
+  ## 🧭 怎麼分辨「主要小題」vs「子標」（決定合併邊界）
+  - 子標 (1)(2)(3)(4)／①②：共用上面同一句題幹、同一張圖、同一段短文、同一個算式 → 是 parts，合進同一題。
+  - 主要小題：各自有完整獨立的題幹／圖／提問 → 各自成題。
+    例：英語單字題每格配一張不同的圖 → 各自成題；數學第1題、第2題、第3題 → 各自成題。
 
-  ## 🚫 拆 N 題例外 — 僅限「跨等號鏈式計算」
-
-  「= ( 100 ) − ( 12.56 ) = ( 87.44 )」這種、兩空之間**有 = 號連接**、各為獨立計算步驟 →
-  拆 N 個 fill_blank：
-     id="1-1-1-1" answer="100"
-     id="1-1-1-2" answer="12.56"
-     id="1-1-1-3" answer="87.44"
-
-  ⚠️ 「跨等號」的具體標準：( 100 ) 跟 ( 12.56 ) 之間文字含「=」且整體是一個鏈式算式（左式 = 中式 = 右式）。
-  ⚠️ 若 ( ) 之間只是空格、逗號、句號、文字描述、換行 → 不算跨等號、走合題
+  ## 🚫 沒有「拆題例外」，但也不要過度合併
+  - 等號不再是分題依據；同一主要小題的鏈式計算也合題。
+  - ⛔ 不同主要小題（第1題 vs 第2題、各自獨立題幹）即使相鄰也不可併成一題。
 
   ## 自我檢查（送出前）
+  ❌ 同一主要小題的空被拆成多個 entry、各 tiny bbox → 應合成 1 entry with parts
+  ❌ 不同主要小題被併成一題 → 拆回各自的 entry
+  ❌ parts 寫成字串 "2, 12" → 必須陣列、每空一元素
+  ❌ 只填第一空、忽略其餘空 → 漏答案、補齊
+  ❌ 兩個 fill_blank entry 的 answerBbox 互相重疊（共享同一題幹／同段短文／同張圖）→ 強烈訊號該合題、立刻 merge
 
-  ❌ 錯誤示範 1：把同小題下多空拆成 N 題、各 tiny bbox 在 ( ) 上 → 應該合題
-  ❌ 錯誤示範 2：parts 寫成字串 "2, 12" → 必須陣列、每空一元素
-  ❌ 錯誤示範 3：只填第一空、忽略其餘空 → 漏答案、批改端直接錯
-  ❌ 錯誤示範 4：兩個 fill_blank entry 的 answerBbox 互相重疊（共享題幹區域）→ 強烈訊號該合題、立刻 merge 成 1 entry with parts
+  ## 🚨 範例 ID 範圍 disclaimer
+  範例 ID（如 "1-2-2"）只示意格式、不代表 section 上限。實際 <大題印刷號> 對應卷上印刷大題號（可 1~10+）。
 
-  ## 🚨 範例 ID 範圍 disclaimer（不要被範例限定）
-
-  上述範例 ID（如 "1-1-1-X", "1-2-1", "1-4-1"）**只示意格式、不代表 section 範圍上限**。
-  實際 <大題印刷號> 必須對應答案卷上印刷的大題編號、可以是 1, 2, 3, 4, 5, 6, 7, 8, 9, 10...
-  ❌ 不要因為範例只用 1-4 就硬把卷上印刷的大題 5, 6, 7, 8 重新編號為小題、塞回大題 1-4 範圍。
-  ✅ 卷上印「七、」「八、」→ 一定要生 1-7-X / 1-8-X 的 questions、保留印刷大題號。
-
-  ## 🚨 NUMERIC CHECK（強制檢查、避免漏題或誤合）
-
-  寫完 questions 陣列後、自我檢查：
-  1. **大題層級**：每個答案卷印刷的大題（一、二、三、... 或 1, 2, 3, ...）都必須有對應的 questions
-     - 沒有任何題目用該大題印刷號當第 2 段 → 你漏整個大題了、回去重看
-  2. **小題層級**：每個大題下的印刷小題（1, 2, 3, ...）都要有對應的 question entry
-     - fill_blank 單空 → 1 entry
-     - fill_blank 同小題下多空（不跨 = 號、含多獨立提問各一空）→ **1 entry with parts 陣列**（不要拆 N entries、也不要只填第一空）
-     - fill_blank 跨等號鏈式計算 → N entries per 小題（4-段 ID）
-     - word_problem / calculation 同題多 final（如「求...與...」）→ **1 entry**、answer 含所有 final（用學生分隔符拼接）
-     - 漏掉任一印刷小題 → 漏題、補上
-  3. **子題層級（僅 fill_blank 跨等號鏈式計算適用）**：印刷的子題標號 (1) (2) (3) 各為獨立 entry（用 4-段 ID 第 4 段表示）
-     - ⚠️ 此規則僅限 fill_blank 鏈式計算。word_problem / calculation 即使題幹有多提問、仍合 1 entry`
+  ## 🚨 NUMERIC CHECK（強制檢查、避免漏題或誤拆／誤合）
+  1. 每個印刷大題都要有對應 questions、漏了回去重看。
+  2. 每個「主要小題」對應 1 個 question entry：
+     - 單空 → 1 entry（answer）
+     - 同一主要小題下多空（含短文克漏字、堆疊子標、鏈式計算）→ **1 entry with parts**（不要拆、不要只填第一空）
+     - 不同主要小題 → 各自 1 entry（不要互相合併）
+  3. ⛔ 分題只看「主要小題」邊界，不要再依「有沒有等號」去拆 fill_blank。`
 
   const multiImagePrompt = `${prompt}\n\n${multiImageNote}${chainCalcRule}`.trim()
 
@@ -5697,7 +5681,13 @@ export async function gradePhaseA(
   // 解決問題：拆前 5 並行有些 AI1 read 飆 197s 撞 290s budget、現在獨立 300s 後絕對跑得完
 
   // 共用 fetch helper：自動處理 409 (ink session refresh) + 解析 candidates[0]
-  const postPhase = async (body: string): Promise<{ resp: Response; data: any; text: string | undefined }> => {
+  // 2026-06-03: 加暫時性失敗重試（至少 1 次）——解決 502 閘道錯誤（函式 OOM/崩潰）與
+  //   504 timeout（server 回 pipelineFailure MODEL_TIMEOUT/503）的偶發單槍失敗。
+  //   只重試「重跑可能會好」的暫時性錯誤；400/quality-gate/429 不在此重試（deterministic 或需長退避）。
+  const MAX_PHASE_RETRIES = 1
+  const TRANSIENT_HTTP_STATUSES = new Set([408, 502, 503, 504])
+  const RETRYABLE_FAILURE_CODES = new Set(['MODEL_TIMEOUT', 'MODEL_503_OVERLOAD'])
+  const postPhaseOnce = async (body: string): Promise<{ resp: Response; data: any; text: string | undefined }> => {
     let resp = await fetch(geminiProxyUrl, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body
     })
@@ -5718,6 +5708,30 @@ export async function gradePhaseA(
     }
     const text = (data as any)?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
     return { resp, data, text }
+  }
+  const postPhase = async (body: string): Promise<{ resp: Response; data: any; text: string | undefined }> => {
+    let lastResult: { resp: Response; data: any; text: string | undefined } | null = null
+    for (let attempt = 0; attempt <= MAX_PHASE_RETRIES; attempt++) {
+      const result = await postPhaseOnce(body)
+      // 是否為「重跑可能會好」的暫時性失敗：閘道層 5xx，或 server 包好的 timeout/過載 pipelineFailure
+      const failureCode = (result.data as any)?.pipelineFailure?.reasonCode
+      const isTransient =
+        (!result.resp.ok && TRANSIENT_HTTP_STATUSES.has(result.resp.status)) ||
+        (typeof failureCode === 'string' && RETRYABLE_FAILURE_CODES.has(failureCode))
+      if (isTransient && attempt < MAX_PHASE_RETRIES) {
+        const backoffMs = 1500 * (attempt + 1)
+        console.warn(
+          `[gradePhaseA] 暫時性失敗 (status=${result.resp.status} code=${failureCode || '-'})，` +
+          `${backoffMs}ms 後重試 ${attempt + 1}/${MAX_PHASE_RETRIES}...`
+        )
+        lastResult = result
+        await delay(backoffMs)
+        continue
+      }
+      return result
+    }
+    // 理論上不會到這（迴圈最後一圈一定 return），保險回最後一次結果
+    return lastResult as { resp: Response; data: any; text: string | undefined }
   }
 
   const baseBody = (sid: string | null) => ({
