@@ -7,6 +7,17 @@ import { safeToBlobWithFallback } from './canvasToBlob'
 import { getDefaultImageFormat } from './pdfToImage'
 
 /**
+ * 圖片/照片上傳張數上限（共用）。
+ *
+ * 為什麼是 4：學生卷與老師作業匯入會把多頁「合併成一張圖、塞進同一個 JSON 請求」上傳，
+ * 受 Vercel serverless body 4.5MB 上限約束（base64 會再膨脹 ~1.33 倍）。實測 4 頁在
+ * compressToTargetBytes 保證壓縮下可穩定收進上限且畫質足夠；超過 4 頁風險升高。
+ * 答案卷頁數 = 學生需上傳頁數（totalPages），故答案卷上傳同樣套此上限。
+ * 注意：題本（answer_only 的題目冊）是逐頁分開存 storage、不受 4.5MB 約束，不套此上限。
+ */
+export const MAX_UPLOAD_IMAGES = 4
+
+/**
  * 旋轉圖片 Blob
  * @param blob 原始圖片 Blob
  * @param degrees 旋轉角度 (0, 90, 180, 270)
@@ -229,60 +240,81 @@ export function validateBlobSize(
 export async function compressToTargetBytes(
   blob: Blob,
   targetBytes: number,
-  opts: { maxWidth?: number; format?: 'image/jpeg' | 'image/webp'; qualities?: number[] } = {}
+  opts: {
+    maxWidth?: number
+    minWidth?: number
+    format?: 'image/jpeg' | 'image/webp'
+    qualities?: number[]
+  } = {}
 ): Promise<Blob> {
   if (blob.size <= targetBytes) return blob
 
   // 預設參數
-  // 2026-05-13 quality 下限拉到 0.85、避免「為了塞檔案大小硬壓爛畫質」
-  // 撐不到目標檔案大小寧可送大檔（call site 已確保不會撞 Vercel 4.5 MB 上限）
+  // 2026-06-17 quality 階梯往下延伸到 0.56：
+  //   多頁（最多 4 頁）合併卷在 0.85 常常壓不到目標，舊版「撐不到就直接送大檔」
+  //   會撞 Vercel 4.5MB body 上限 → 學生上傳回 413「照片總量過大」。
+  //   A/B 實測（手寫鉛筆數學最難壓情境）：q0.8 老師核對/AI 辨識完全無感、
+  //   q0.56 筆跡仍清晰可讀，畫質餘裕充足。
+  //   階梯由高到低，一旦壓到目標即回傳，所以「本來就塞得下的圖」仍維持高品質、不退步。
   const maxWidth = opts.maxWidth ?? 1600
+  const minWidth = opts.minWidth ?? 1000
   const supportsWebP = getWebPSupportSync()
   const defaultFormat = supportsWebP ? 'image/webp' : 'image/jpeg'
   const format = opts.format ?? defaultFormat
-  const qualities = opts.qualities ?? [0.92, 0.88, 0.85]
+  const qualities = opts.qualities ?? [0.92, 0.88, 0.85, 0.8, 0.72, 0.64, 0.56]
 
   // 2026-05-26 明確套用 EXIF orientation、避免 iOS Safari 預設行為差異
   // 不套的話 canvas 畫出來的 pixels 沒旋轉、後面 dimension 檢查跟學生視角不一致
   const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' })
 
-  // 先縮放到 maxWidth（維持比例）
-  const scale = Math.min(1, maxWidth / bmp.width)
-  const w = Math.max(1, Math.round(bmp.width * scale))
-  const h = Math.max(1, Math.round(bmp.height * scale))
-
   const canvas = document.createElement('canvas')
-  canvas.width = w
-  canvas.height = h
   const ctx = canvas.getContext('2d')
   if (!ctx) {
     bmp.close()
     console.warn('[compressToTargetBytes] 無法建立 Canvas，放棄壓縮')
     return blob
   }
-  ctx.drawImage(bmp, 0, 0, w, h)
-  bmp.close()
 
-  console.log(`[compressToTargetBytes] 原始 ${(blob.size / 1024).toFixed(0)}KB, 縮放到 ${w}x${h}`)
+  // 寬度從 maxWidth 開始；跑完整條 quality 階梯仍壓不到目標、就把解析度往下降一階（×0.82）
+  // 再試一輪，直到 <= 目標 或 觸及 minWidth 下限。確保「一定塞得進 targetBytes」、不再送大檔撞上限。
+  let best: Blob | null = null
+  let curWidth = Math.min(maxWidth, bmp.width)
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const scale = curWidth / bmp.width
+    const w = Math.max(1, Math.round(bmp.width * scale))
+    const h = Math.max(1, Math.round(bmp.height * scale))
+    canvas.width = w
+    canvas.height = h
+    ctx.clearRect(0, 0, w, h)
+    ctx.drawImage(bmp, 0, 0, w, h)
+    console.log(`[compressToTargetBytes] 原始 ${(blob.size / 1024).toFixed(0)}KB, 嘗試 ${w}x${h}`)
 
-  // 再用多個 quality 嘗試壓到 targetBytes
-  for (const q of qualities) {
-    // eslint-disable-next-line no-await-in-loop
-    const out = await safeToBlobWithFallback(canvas, { format, quality: q })
-    console.log(`[compressToTargetBytes] quality=${q} -> ${(out.size / 1024).toFixed(0)}KB`)
-    if (out.size <= targetBytes) {
-      canvas.width = 0
-      canvas.height = 0
-      return out
+    for (const q of qualities) {
+      // eslint-disable-next-line no-await-in-loop
+      const out = await safeToBlobWithFallback(canvas, { format, quality: q })
+      console.log(`[compressToTargetBytes] ${w}x${h} quality=${q} -> ${(out.size / 1024).toFixed(0)}KB`)
+      if (!best || out.size < best.size) best = out
+      if (out.size <= targetBytes) {
+        bmp.close()
+        canvas.width = 0
+        canvas.height = 0
+        return out
+      }
     }
+
+    if (curWidth <= minWidth) break
+    curWidth = Math.max(minWidth, Math.round(curWidth * 0.82))
   }
 
-  // 仍超過就回傳最後一次（至少已降很多）
-  const out = await safeToBlobWithFallback(canvas, { format, quality: qualities[qualities.length - 1] })
+  // 已達最小解析度仍超過目標（極端情況）：回傳目前最小的一版（至少已降到最低）
+  bmp.close()
   canvas.width = 0
   canvas.height = 0
-  console.warn(`[compressToTargetBytes] 仍超過目標: ${(out.size / 1024).toFixed(0)}KB > ${(targetBytes / 1024).toFixed(0)}KB`)
-  return out
+  console.warn(
+    `[compressToTargetBytes] 已達最小解析度仍超過目標: ${(best!.size / 1024).toFixed(0)}KB > ${(targetBytes / 1024).toFixed(0)}KB`
+  )
+  return best!
 }
 
 /**

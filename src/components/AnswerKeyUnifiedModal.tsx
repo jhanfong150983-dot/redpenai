@@ -17,7 +17,7 @@ import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
-import { compressImageFile } from '@/lib/imageCompression'
+import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric } from '@/lib/db'
 import { QUESTION_CATEGORY_TO_BUCKET, QUESTION_CATEGORY_LABELS as CATEGORY_LABELS } from '@/lib/db'
 
@@ -287,6 +287,11 @@ export default function AnswerKeyUnifiedModal({
         else { setFileError(`不支援的檔案格式：${file.name}`); return }
       }
       if (blobs.length === 0) { setFileError('沒有可用的圖片'); return }
+      // 只限制「照片」張數；PDF 不限頁數（PDF 僅老師端匯入、且非相機拍攝、無 4.5MB 合併問題）
+      const imageCount = files.filter((f) => getFileType(f) === 'image').length
+      if (imageCount > MAX_UPLOAD_IMAGES) {
+        setFileError(`答案卷照片最多 ${MAX_UPLOAD_IMAGES} 張（PDF 不限頁數），目前選了 ${imageCount} 張`); return
+      }
       const compressed = await Promise.all(blobs.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
       // Clean up old URLs
       uploadedPages.forEach(p => URL.revokeObjectURL(p.url))
@@ -320,6 +325,12 @@ export default function AnswerKeyUnifiedModal({
         else { setFileError(`不支援的檔案格式：${file.name}`); return }
       }
       if (blobs.length === 0) { setFileError('沒有可用的圖片'); return }
+      // 只限制「照片」張數；含 PDF 的批次不套上限（PDF 不限頁數）
+      const newImageCount = files.filter((f) => getFileType(f) === 'image').length
+      const newHasPdf = files.some((f) => getFileType(f) === 'pdf')
+      if (!newHasPdf && uploadedPages.length + newImageCount > MAX_UPLOAD_IMAGES) {
+        setFileError(`答案卷照片最多 ${MAX_UPLOAD_IMAGES} 張（PDF 不限頁數），目前 ${uploadedPages.length} 張、又選了 ${newImageCount} 張`); return
+      }
       const compressed = await Promise.all(blobs.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
       const startIdx = uploadedPages.length
       const newPages = compressed.map((blob, i) => ({ index: startIdx + i, blob, url: URL.createObjectURL(blob) }))
@@ -1171,7 +1182,7 @@ export default function AnswerKeyUnifiedModal({
                             <span className="text-sm font-medium">
                               {isProcessingFiles ? '處理中…' : '點擊上傳答案卷圖片或 PDF'}
                             </span>
-                            <span className="text-xs text-rose-400/80">支援多檔上傳</span>
+                            <span className="text-xs text-rose-400/80">照片最多 {MAX_UPLOAD_IMAGES} 張，PDF 不限頁數</span>
                           </button>
                         ) : (
                           <div className="flex items-center justify-between mb-3">
