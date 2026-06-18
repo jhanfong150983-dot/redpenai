@@ -704,6 +704,20 @@ export default function AnswerKeyUnifiedModal({
     })
   }
 
+  // table_check：更新某列正確被勾的欄
+  const updateTableCheckRowAnswer = (qIdx: number, rowIdx: number, value: string) => {
+    setEditingKey((prev) => {
+      if (!prev) return prev
+      return { ...prev, questions: prev.questions.map((q, i) => {
+        if (i !== qIdx) return q
+        const rows = [...(q.rows ?? [])]
+        if (!rows[rowIdx]) return q
+        rows[rowIdx] = { ...rows[rowIdx], answer: value }
+        return { ...q, rows }
+      }) }
+    })
+  }
+
   // fill_blank 合題：更新某 part 的 answer
   const updateFillBlankPartAnswer = (qIdx: number, partIdx: number, value: string) => {
     setEditingKey((prev) => {
@@ -833,9 +847,10 @@ export default function AnswerKeyUnifiedModal({
   // UI 模式（依 bucket 顯示對應欄位）：
   // A = answer 標準答案、B = reference + acceptable、C = reference + rubric、D = answer + reference + rubric
   const showTableCells = selectedCategory === 'table_cell'
+  const showTableCheckRows = selectedCategory === 'table_check'
   const showFillBlankParts = selectedCategory === 'fill_blank'
     && Array.isArray(selectedQuestion?.parts) && (selectedQuestion?.parts?.length ?? 0) > 0
-  const showAnswerField = (selectedBucket === 'A' || selectedBucket === 'D') && !showTableCells && !showFillBlankParts
+  const showAnswerField = (selectedBucket === 'A' || selectedBucket === 'D') && !showTableCells && !showTableCheckRows && !showFillBlankParts
   const showAcceptableAnswers = selectedBucket === 'B'
   const showRubric = selectedBucket === 'C' || selectedBucket === 'D'
   const isVJ = VJ_CATEGORIES.includes(selectedCategory)
@@ -1357,6 +1372,15 @@ export default function AnswerKeyUnifiedModal({
                               })
                               return !hasAny
                             }
+                            // table_check：看 rows 是否每列都有非空 answer（被勾欄）
+                            if (q.questionCategory === 'table_check') {
+                              const rows = Array.isArray(q.rows) ? q.rows : []
+                              const allFilled = rows.length > 0 && rows.every((r) => {
+                                const ra = (r?.answer ?? '').trim()
+                                return ra && !PLACEHOLDER_ANSWERS.includes(ra)
+                              })
+                              return !allFilled
+                            }
                             // fill_blank 合題：看 parts 是否每空都有非空 answer
                             if (Array.isArray(q.parts) && q.parts.length > 0) {
                               const allFilled = q.parts.every((p) => {
@@ -1396,6 +1420,13 @@ export default function AnswerKeyUnifiedModal({
                             const ca = (c?.answer ?? '').trim()
                             return ca && !PLACEHOLDER_ANSWERS.includes(ca)
                           })
+                        // table_check：答案在 rows[].answer（被勾欄），每列都要有非空 answer
+                        const isTableCheckQ = q.questionCategory === 'table_check'
+                        const tableCheckHasAnswer = isTableCheckQ && Array.isArray(q.rows) && q.rows.length > 0
+                          && q.rows.every((r) => {
+                            const ra = (r?.answer ?? '').trim()
+                            return ra && !PLACEHOLDER_ANSWERS.includes(ra)
+                          })
                         // fill_blank 合題：答案在 parts[].answer，每空都要有非空 answer
                         const hasParts = Array.isArray(q.parts) && q.parts.length > 0
                         const partsAllFilled = hasParts && q.parts!.every((p) => {
@@ -1406,10 +1437,12 @@ export default function AnswerKeyUnifiedModal({
                         // 這三類也必填 answer 或 referenceAnswer）
                         const answerMissing = isTableCellQ
                           ? !tableCellHasAnswer
-                          : hasParts
-                            ? !partsAllFilled
-                            : ((!ans || PLACEHOLDER_ANSWERS.includes(ans))
-                              && (!ref || PLACEHOLDER_ANSWERS.includes(ref)))
+                          : isTableCheckQ
+                            ? !tableCheckHasAnswer
+                            : hasParts
+                              ? !partsAllFilled
+                              : ((!ans || PLACEHOLDER_ANSWERS.includes(ans))
+                                && (!ref || PLACEHOLDER_ANSWERS.includes(ref)))
                         const hasWarn = vocabWarn || multiFillWarn || answerMissing
                         const isSelected = idx === selectedIdx
                         return (
@@ -1589,6 +1622,52 @@ export default function AnswerKeyUnifiedModal({
                                         onChange={(e) => updateTableCellAnswer(selectedIdx, cIdx, e.target.value)}
                                         placeholder="標準答案"
                                       />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* table_check：每列正確勾選欄編輯 */}
+                          {showTableCheckRows && (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-500 text-xs">勾選表答案 ({(selectedQuestion.rows ?? []).length} 列)</span>
+                                {Array.isArray(selectedQuestion.checkColumns) && selectedQuestion.checkColumns.length > 0 && (
+                                  <span className="text-[10px] text-gray-400">可勾選欄：{selectedQuestion.checkColumns.join(' / ')}</span>
+                                )}
+                              </div>
+                              {(selectedQuestion.rows ?? []).length === 0 ? (
+                                <div className="text-xs text-red-600 px-2 py-1 bg-red-50 rounded">
+                                  ❌ 沒有 rows（AI 解析失敗，請重新解析或手動編輯）
+                                </div>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  {(selectedQuestion.rows ?? []).map((row, rIdx) => (
+                                    <div key={`${row.label}-${rIdx}`} className="flex items-center gap-2">
+                                      <span className="text-xs text-gray-700 w-24 shrink-0 truncate" title={row.label}>
+                                        {row.label || '—'}
+                                      </span>
+                                      {Array.isArray(selectedQuestion.checkColumns) && selectedQuestion.checkColumns.length > 0 ? (
+                                        <select
+                                          className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                                          value={row.answer ?? ''}
+                                          onChange={(e) => updateTableCheckRowAnswer(selectedIdx, rIdx, e.target.value)}
+                                        >
+                                          <option value="">（未設定）</option>
+                                          {selectedQuestion.checkColumns!.map((col) => (
+                                            <option key={col} value={col}>{col}</option>
+                                          ))}
+                                        </select>
+                                      ) : (
+                                        <input
+                                          className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                                          value={row.answer ?? ''}
+                                          onChange={(e) => updateTableCheckRowAnswer(selectedIdx, rIdx, e.target.value)}
+                                          placeholder="被勾欄標題（如 Yes）"
+                                        />
+                                      )}
                                     </div>
                                   ))}
                                 </div>

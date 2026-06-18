@@ -43,6 +43,7 @@ export type QuestionCategory =
   | 'circle_select_many'   // 多選圈選題：括號內預印選項，圈多個
   | 'single_check'         // 勾選題：□ 打勾 1 個
   | 'multi_check'          // 多選勾選題：□ 打勾多個
+  | 'table_check'          // 表格勾選題：矩陣表格每列在多欄（Yes/No、每天/有時/從不…）中勾一格，整表群組評分
   | 'true_false'           // 是非題：括號內手寫 ○ 或 ✗
   | 'fill_blank'           // 填空題：____ ／ □ 填 1 個值（單行底線/方框/括號，不含表格儲存格）
   | 'multi_fill'           // 多項填空題：多空格填多值（順序無關）
@@ -82,6 +83,7 @@ export const QUESTION_CATEGORY_TO_BUCKET: Record<QuestionCategory, QuestionBucke
   circle_select_many: 'A',
   single_check: 'A',
   multi_check: 'A',
+  table_check: 'A',
   true_false: 'A',
   fill_blank: 'A',
   multi_fill: 'A',
@@ -124,6 +126,7 @@ export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
   circle_select_many: '多選圈選題',
   single_check: '勾選題',
   multi_check: '多選勾選題',
+  table_check: '表格勾選題',
   true_false: '是非題',
   fill_blank: '填空題',
   multi_fill: '多項填空題',
@@ -281,6 +284,15 @@ export interface AnswerKeyQuestion {
     subId: string     // "a" | "b" | "c" | ... 依空格由左到右、由上到下順序
     answer: string    // 此空的標準答案
     maxScore?: number // 此空配分（不填則平均 = maxScore / parts.length）
+  }>
+
+  // 2026-06-18: table_check（表格勾選題）專用欄位（questionCategory='table_check'）
+  // 矩陣勾選表：每列在 checkColumns（如 ["Yes","No"]）中勾一欄。grading 入口正規化成 table_cell
+  // （每列→1 cell、answer=正確欄名）後重用 table_cell 機制。詳見 staged-grading normalizeTableCheckQuestion。
+  checkColumns?: string[]   // 可勾選的欄標題（如 ["Yes","No"]；不含不計分欄如 Note）
+  rows?: Array<{
+    label: string           // 該列的列標題（如 "bedroom"）
+    answer: string          // 該列正確被勾的欄標題（如 "Yes"）
   }>
 
   // 2026-05-28: map_fill 位置 spec（Direction Y）

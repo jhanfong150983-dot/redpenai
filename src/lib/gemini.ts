@@ -1201,7 +1201,9 @@ Q2-A：學生主要動作是什麼？  [8 選 1]
    └─ 圈多個 → circle_select_many
 
 ➌ 在 □ 打勾
-   ├─ 勾一個 → single_check
+   ⭐ 先看是不是「矩陣表格勾選」：□（或 ✓ 欄）排成**表格**、每列在多個欄位中勾格
+      （如 Yes/No 清單、每天/有時/從不 頻率表、自我檢核表）→ table_check（**整表 1 題**，不要逐列拆 single_check）
+   ├─ 勾一個（單列 □ 選項，非表格矩陣）→ single_check
    └─ 勾多個 → multi_check
 
 ➍ 寫 ○ 或 ✗ 符號（單一括號內手寫對錯符號）→ true_false
@@ -1347,6 +1349,47 @@ function buildTypeSpecs(): string {
   視覺：一列方框 □ + 選項；題目說「請勾出所有」
   動作：學生在多個 □ 內打勾
   answer：多位置編號用 "," 連接 — "1,3"
+
+▸ table_check 「表格勾選題」（矩陣勾選、整表群組評分）
+  視覺：矩陣表格（多列 × 多欄）+ 部分欄是可勾選欄（如 Yes/No、每天/有時/從不）+ 紅色 ✓/打勾
+  動作：學生在**每一列**的可勾選欄中勾選一格（每列勾一個欄）
+  ⭐ 整張表作為「1 題」，不要逐列拆成 single_check（逐列拆會失去整表 bbox、且範例列會造成位移）
+  🚨 看到「每列都有紅色 ✓ 的矩陣勾選表」**一定要建成 1 個 table_check**，不可整表跳過不建題：
+     - 不要因為旁邊標「無需評分」就跳過整表 —— 那只針對被標註的那一欄（如 Note 欄），勾選欄(Yes/No)仍要計分。
+     - 不要因為首列是「e.g./範例」示範就把整表當裝飾 —— 範例列底下的真實列就是答題列。
+     - 不要因為全部都勾同一欄（如全勾 Yes）就以為是印刷示範 —— 紅色 ✓ 是答案色、就是學生答案。
+
+  必填欄位：
+    - id：給整張表（如 "4-I-1"，依大題印刷號）
+    - questionCategory：'table_check'
+    - answerBbox：**整張表的外框 bbox**（從表格最上格線到最下格線、最左到最右）
+    - checkColumns：可勾選的欄標題陣列（如 ["Yes","No"]）。
+        ⚠️ **不計分的欄不放進來**（如標「無需評分／範例」的 Note 欄、純說明欄）。
+    - rows：每一「計分列」一元素：
+        { label: "該列的列標題（如 bedroom）", answer: "被勾欄的欄標題（如 Yes）" }
+        ⚠️ answer = checkColumns 之一的欄標題文字（精確比對）。
+    - maxScore：整題總分（預設 = rows 數量，老師可調）
+
+  ⚠️ 範例列處理：表格首列若是「e.g./例/範例」示範列 → **不放進 rows**（不計分、僅供學生對位），
+     rows 只放真正要計分的列。整表仍是 1 題、不因範例列多算一列。
+
+  範例：「House for Rent」勾選表，欄 = Rooms/Yes/No/Note（Note 標「無需評分」），
+        5 個計分列（bedroom/dining room/study room/bathroom/kitchen）全勾 Yes，首列 e.g. living room 為範例：
+    {
+      "id": "4-I-1",
+      "questionCategory": "table_check",
+      "maxScore": 5,
+      "checkColumns": ["Yes", "No"],
+      "rows": [
+        { "label": "bedroom",     "answer": "Yes" },
+        { "label": "dining room", "answer": "Yes" },
+        { "label": "study room",  "answer": "Yes" },
+        { "label": "bathroom",    "answer": "Yes" },
+        { "label": "kitchen",     "answer": "Yes" }
+      ]
+    }
+  ⚠️ 與 single_check 區別：single_check 是「一列 □ 選項勾 1 個」（單列）；table_check 是「多列矩陣、每列各勾一格」。
+  ⚠️ 與 table_cell 區別：table_cell 學生在格內**填值**；table_check 學生在格內**勾選欄位**（answer 是被勾的欄標題）。
 
 ▸ true_false 「是非題」
   視覺：單一括號 (   ) 接在敘述句後
