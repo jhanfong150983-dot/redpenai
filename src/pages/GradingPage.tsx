@@ -690,7 +690,8 @@ function _median(arr: number[]): number {
 
 type Bbox = { x: number; y: number; w: number; h: number }
 
-function computePeerBaseline(entries: BatchPhaseAEntry[], excludeSubId: string): Map<string, Bbox> {
+// baseline 值帶 n＝有幾份 peer 框到這題（缺框偵測用：多數 peer 都框到、這份卻沒框＝漏定位）。
+function computePeerBaseline(entries: BatchPhaseAEntry[], excludeSubId: string): Map<string, Bbox & { n: number }> {
   const bboxesByQid = new Map<string, Bbox[]>()
   for (const entry of entries) {
     if (entry.submissionId === excludeSubId) continue
@@ -701,13 +702,14 @@ function computePeerBaseline(entries: BatchPhaseAEntry[], excludeSubId: string):
       bboxesByQid.get(qr.questionId)!.push(bb)
     }
   }
-  const baseline = new Map<string, Bbox>()
+  const baseline = new Map<string, Bbox & { n: number }>()
   for (const [qid, list] of bboxesByQid) {
     baseline.set(qid, {
       x: _median(list.map((b) => b.x)),
       y: _median(list.map((b) => b.y)),
       w: _median(list.map((b) => b.w)),
       h: _median(list.map((b) => b.h)),
+      n: list.length,
     })
   }
   return baseline
@@ -721,20 +723,25 @@ const DX_RELIABLE_TYPES = new Set(['single_choice', 'multi_choice', 'true_false'
 
 function checkPeerOutliers(
   entry: BatchPhaseAEntry,
-  peerBaseline: Map<string, Bbox>,
-  opts: { dyThreshold?: number; dxThreshold?: number; minOutlierCount?: number } = {}
+  peerBaseline: Map<string, Bbox & { n?: number }>,
+  opts: { dyThreshold?: number; dxThreshold?: number; minOutlierCount?: number; detectMissing?: boolean; peerTotal?: number; missingConsensus?: number } = {}
 ): { trip: boolean; outlierCount: number; outlierQids: string[]; metrics: { dy_med: number; dx_med: number } } {
   // 預設＝answer_only 既有行為：dy-only、門檻 0.025、需 ≥10 格。
-  // PDF 模式傳 { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1 }：
+  // PDF 模式傳 { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1, detectMissing: true, peerTotal, missingConsensus: 0.7 }：
   //   逐格 |dy|>0.015(任型) 或 |dx|>0.08(僅位置固定型 DX_RELIABLE_TYPES)，任一格中即 trip。
   //   門檻依實測乾淨雜訊地板校準(401英語卷 30人)：乾淨 dy max 0.009、固定型 dx max 0.044；
   //   漂移實測 dy~0.024(18/20/27號) / dx~0.42(30號)。dx 不碰圈選/填空(乾淨即可達 0.04~0.16)。
-  const { dyThreshold = 0.025, dxThreshold = Infinity, minOutlierCount = 10 } = opts
+  // detectMissing：peer 多數(n/peerTotal ≥ missingConsensus)都框到的題、這份卻完全沒框 → 算漏定位 outlier、
+  //   重跑救回（classify 隨機、重擲常可框出）。with_questions 印刷題框恆在、缺框＝漏定位非空白；
+  //   answer_only 框在學生作答處、空白本就無框 → 預設關閉。
+  const { dyThreshold = 0.025, dxThreshold = Infinity, minOutlierCount = 10, detectMissing = false, peerTotal = 0, missingConsensus = 0.7 } = opts
   const outlierQids: string[] = []
+  const presentQids = new Set<string>()
   const dys: number[] = []
   const dxs: number[] = []
   for (const qr of entry.phaseAResult.questionResults) {
     const bb = qr.answerBbox as Bbox | undefined
+    if (bb && typeof bb.x === 'number') presentQids.add(qr.questionId)
     const peer = peerBaseline.get(qr.questionId)
     if (!bb || !peer) continue
     const dy = bb.y - peer.y
@@ -744,6 +751,13 @@ function checkPeerOutliers(
     const dyOut = Math.abs(dy) > dyThreshold
     const dxOut = Math.abs(dx) > dxThreshold && DX_RELIABLE_TYPES.has(qr.questionType ?? '')
     if (dyOut || dxOut) outlierQids.push(qr.questionId)
+  }
+  // 缺框偵測（與漂移分開、各自可觸發）
+  if (detectMissing && peerTotal > 0) {
+    for (const [qid, peer] of peerBaseline) {
+      const n = peer.n ?? 0
+      if (n / peerTotal >= missingConsensus && !presentQids.has(qid)) outlierQids.push(qid)
+    }
   }
   return {
     trip: outlierQids.length >= minOutlierCount,
@@ -3895,10 +3909,10 @@ export default function GradingPage({
     {
       const isPdfBatch = candidates.length > 0 && candidates.every((s) => s.source === 'teacher_scan')
       const peerCheckEnabled = assignment?.answerSheetMode === 'answer_only' || isPdfBatch
-      const peerOpts: { dyThreshold?: number; dxThreshold?: number; minOutlierCount?: number } =
+      const peerOpts: { dyThreshold?: number; dxThreshold?: number; minOutlierCount?: number; detectMissing?: boolean; peerTotal?: number; missingConsensus?: number } =
         assignment?.answerSheetMode === 'answer_only'
           ? {}
-          : { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1 }
+          : { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1, detectMissing: true, peerTotal: Math.max(0, successfulEntries.length - 1), missingConsensus: 0.7 }
       if (peerCheckEnabled && successfulEntries.length >= 5 && !stopRequestedRef.current) {
         setGradingMessage('框位比對中…')
         // overlay 顯示「品質檢查」格：started=1 → 出現該格、total=0 → 顯示「比對中…」。
