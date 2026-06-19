@@ -294,8 +294,8 @@ export const CARD_STAGE_LABEL: Record<CardStage, string> = {
  * /api/data/save-grading、塞一個 synthetic pipelineFailure metadata 讓 deriveCardStage
  * 能算出 phase_a_failed、卡片顯示紅色「擷取失敗」徽章。
  */
-async function persistGradingFailureFromException(submissionId: string, errorMessage: string) {
-  const failure: import('@/lib/gemini').PipelineFailure = {
+async function persistGradingFailureFromException(submissionId: string, errorMessage: string, failureOverride?: import('@/lib/gemini').PipelineFailure) {
+  const failure: import('@/lib/gemini').PipelineFailure = failureOverride ?? {
     stage: 'classify',
     reasonCode: 'CLIENT_EXCEPTION',
     // 2026-06-20: 老師看友善句（① AI 暫時出錯）；真實錯誤留 technical.metrics.errorMessage 供除錯
@@ -3947,18 +3947,18 @@ export default function GradingPage({
           setGradingMessage(`偵測到 ${trips.length} 份框位異常、重跑中…`)
           // total=N → overlay 顯示「重跑 done/N…」、隨重跑完成往上加。
           setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: trips.length } }))
-          // 漂移是 per-run 隨機(每次中不同卷、~10%/段)、非特定卷固定壞→驗證每次重跑結果、仍離群就再重擲，
-          // 最多 MAX_RERUN_ATTEMPTS 次(成功率~90%/次→3 次後殘留~0.1%)；重跑一次只驗一次救不回的會照存歪版。
-          const MAX_RERUN_ATTEMPTS = 3
+          // 2026-06-20: 重跑改「只 1 次」。理由：實測漂移分兩種——隨機(重跑換骰子、1 次≈90% 救回) 與
+          //   系統性(某張卷的某段每次都歪、4/4 重現、retry 無效、純浪費時間)。1 次救不回就視為系統性、
+          //   不再多擲，直接標 grading_failed（紅色失敗卡）交老師重新嘗試／檢查掃描；不靜默存歪版、也不灌 NR。
+          const MAX_RERUN_ATTEMPTS = 1
           await runWithConcurrency(
             trips, 3, 2000,
             async (entry) => {
               if (stopRequestedRef.current) return null
               const sub = candidates.find((s) => s.id === entry.submissionId)
               if (!sub?.imageBlob) return null
-              // 用穩定的 peer baseline(其他卷中位數、3 outlier 動不了 30-median)驗證每次重跑；快照一次避免並發干擾。
+              // 用穩定的 peer baseline(其他卷中位數、少數 outlier 動不了 median)驗證重跑；快照一次避免並發干擾。
               const baseline = computePeerBaseline(successfulEntries, entry.submissionId)
-              let lastRr: PhaseAResult | null = null
               for (let attempt = 1; attempt <= MAX_RERUN_ATTEMPTS; attempt++) {
                 if (stopRequestedRef.current) break
                 try {
@@ -3967,31 +3967,51 @@ export default function GradingPage({
                     undefined, assignment?.answerSheetMode, sub.id, sub.source
                   )
                   if (rr.pipelineFailure) continue
-                  lastRr = rr
                   const stillTrips = baseline.size >= 3 &&
                     checkPeerOutliers({ ...entry, phaseAResult: rr }, baseline, peerOpts).trip
                   if (!stillTrips) {
                     const newEntry = await buildAndPersistEntry(sub, rr)
-                    console.log(`[PeerCheck/recapture] ${entry.submissionId} 第 ${attempt} 次重跑框位正常`)
+                    console.log(`[PeerCheck/recapture] ${entry.submissionId} 重跑後框位正常`)
                     return { submissionId: entry.submissionId, newEntry }
                   }
                 } catch (e) {
                   console.error('[PeerCheck/recapture] rerun failed', e)
                 }
               }
-              // 重擲到上限仍離群：存最後一版(至少是新鮮一擲、不比原本差)、後續 needs_review 兜底交人工審查。
-              if (lastRr) {
-                console.warn(`[PeerCheck/recapture] ${entry.submissionId} 重跑 ${MAX_RERUN_ATTEMPTS} 次仍框位異常、交人工審查`)
-                const newEntry = await buildAndPersistEntry(sub, lastRr)
-                return { submissionId: entry.submissionId, newEntry }
+              // 重跑 1 次仍離群＝系統性漂移：標 grading_failed、交老師重新嘗試（不靜默存錯分、不灌 NR）。
+              console.warn(`[PeerCheck/recapture] ${entry.submissionId} 重跑仍框位異常、標記失敗交老師重試`)
+              const peerFailure: import('@/lib/gemini').PipelineFailure = {
+                stage: 'classify',
+                reasonCode: 'CLASSIFY_BBOX_PEER_OUTLIER',
+                userMessage: 'AI 對這張的答題位置抓得不太穩。再批一次多半會好；如果同一張一直這樣，建議看看掃描是否完整、清晰。',
+                userAction: '',
+                technical: { metrics: { peerOutlier: true } as Record<string, unknown> }
               }
-              return null
+              await persistGradingFailureFromException(sub.id, 'peer outlier persists after retry', peerFailure)
+              return { submissionId: entry.submissionId, studentId: entry.studentId, failed: true as const }
             },
             (_i, result) => {
               // 每份重跑完成(含失敗 null)都推進品質檢查進度條。
               setPipelineStageProgress((p) => ({ ...p, quality: { ...p.quality, done: p.quality.done + 1 } }))
               if (!result) return
               const idx = successfulEntries.findIndex((e) => e.submissionId === result.submissionId)
+              if ('failed' in result && result.failed) {
+                // 系統性漂移：移出成功清單(不進 NR/Phase B)、記為失敗、即時更新卡片為 grading_failed
+                if (idx >= 0) successfulEntries.splice(idx, 1)
+                const stu = students.find((s) => s.id === result.studentId)
+                const label = stu ? `${stu.seatNumber}號 ${stu.name}` : result.submissionId.slice(-8)
+                failReasons.push(`${label}: 答題位置抓不穩、請重新批改`)
+                failCount++
+                const failedSub = candidates.find((s) => s.id === result.submissionId)
+                if (failedSub) failedCandidates.push(failedSub)
+                setSubmissions((prev) => {
+                  const next = new Map(prev)
+                  const cur = Array.from(prev.values()).find((s) => s.id === result.submissionId)
+                  if (cur) next.set(cur.studentId, { ...cur, status: 'grading_failed', updatedAt: Date.now() })
+                  return next
+                })
+                return
+              }
               if (idx >= 0) successfulEntries[idx] = result.newEntry
             },
             stopRequestedRef
