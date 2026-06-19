@@ -1,6 +1,19 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { RefreshCw, AlertTriangle, Search, CheckCircle2, XCircle, AlertCircle, FileQuestion } from 'lucide-react'
 
+// 2026-06-20: 題號自然排序（"1-A-2"→[1,A,2]）。逐段比較、數字當數字、字母當字母。
+//   修 admin 批改品質題目順序亂掉（後端給的 detail.questions 非作業順序）。
+function cmpQid(a: string, b: string): number {
+  const pa = String(a).split('-'), pb = String(b).split('-')
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? '', y = pb[i] ?? ''
+    const nx = parseInt(x, 10), ny = parseInt(y, 10)
+    if (!Number.isNaN(nx) && !Number.isNaN(ny)) { if (nx !== ny) return nx - ny }
+    else if (x !== y) return x < y ? -1 : 1
+  }
+  return 0
+}
+
 type AssignmentInfo = {
   id: string
   title: string
@@ -494,7 +507,7 @@ function SubmissionViz({
               無題目資料
             </div>
           ) : (
-            detail.questions.map((q) => (
+            [...detail.questions].sort((a, b) => cmpQid(a.qid, b.qid)).map((q) => (
               <QuestionCard
                 key={q.qid}
                 question={q}
