@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Loader, BookOpen, Settings, Trash2, Search, Folder, Check,
   CheckCircle2, Circle, FileText, ChevronRight
@@ -164,7 +164,7 @@ export default function AssignmentFormModal({
 
   // ── Form state ──
   const [title, setTitle] = useState(initialTitle)
-  const [folder] = useState(initialFolder)
+  const [folder, setFolder] = useState(initialFolder)
   const [selectedAnswerKeyId, setSelectedAnswerKeyId] = useState('')
   // 編輯模式：initialSettings 帶入既有作業的值（非 null）→ 全欄位都已選妥
   // 新增模式：initialSettings undefined → 必填欄位 null，等老師選
@@ -184,6 +184,32 @@ export default function AssignmentFormModal({
   const [studentAiGradingLimit, setStudentAiGradingLimit] = useState(
     Math.min(10, Math.max(1, initialStudentAiGradingLimit ?? 1))
   )
+
+  // 2026-06-19: 本 Modal 常駐（!open 時 return null、不卸載），useState 初始值只在首次掛載生效。
+  //   重開時會殘留上一次的輸入（例如剛建完 402 作業、立刻開 403 會看到 402 的最後一步/標題）。
+  //   →「open 轉 true」時，把所有表單狀態重設為當前 props 的初始值（與上方 useState 初始化一致）。
+  //   只依賴 [open]，避免 initialSettings 等物件每次 render 換 identity 造成編輯途中被重設。
+  useEffect(() => {
+    if (!open) return
+    setActiveStep('basic')
+    setTitle(initialTitle)
+    setFolder(initialFolder)
+    setSelectedAnswerKeyId('')
+    setSettings({
+      strictness: initialSettings?.strictness ?? null,
+      scoringMode: initialSettings?.scoringMode ?? null,
+      fractionRule: initialSettings?.fractionRule ?? null,
+      enPunctuationCheck: initialSettings?.enPunctuationCheck ?? DEFAULT_FORM_SETTINGS.enPunctuationCheck,
+      enPunctuationDeduction: initialSettings?.enPunctuationDeduction ?? DEFAULT_FORM_SETTINGS.enPunctuationDeduction,
+      enWordOrderCheck: initialSettings?.enWordOrderCheck ?? DEFAULT_FORM_SETTINGS.enWordOrderCheck,
+      enWordOrderDeduction: initialSettings?.enWordOrderDeduction ?? DEFAULT_FORM_SETTINGS.enWordOrderDeduction,
+    })
+    setAkSearch('')
+    setStudentUploadEnabled(initialStudentUploadEnabled ?? true)
+    setAllowStudentAiGrading(initialAllowStudentAiGrading ?? false)
+    setStudentAiGradingLimit(Math.min(10, Math.max(1, initialStudentAiGradingLimit ?? 1)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const selectedAK = answerKeys.find((ak) => ak.id === selectedAnswerKeyId)
   const domain = selectedAK?.domain || initialDomain || ''
