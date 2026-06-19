@@ -712,15 +712,21 @@ function computePeerBaseline(entries: BatchPhaseAEntry[], excludeSubId: string):
   return baseline
 }
 
+// "2-E-1" → "2-E"；"3-G-2-2" → "3-G-2"。判斷「同一段是否一起偏移」用。
+function sectionOf(qid: string): string {
+  const parts = String(qid).split('-')
+  return parts.length > 1 ? parts.slice(0, -1).join('-') : String(qid)
+}
+
 function checkPeerOutliers(
   entry: BatchPhaseAEntry,
   peerBaseline: Map<string, Bbox>,
-  threshold = 0.025,
-  minOutlierCount = 10
+  opts: { threshold?: number; minOutlierCount?: number; sectionMinCount?: number } = {}
 ): { trip: boolean; outlierCount: number; outlierQids: string[]; metrics: { dy_med: number; dx_med: number } } {
-  // 只看 dy：AI classify 在 dx 方向變異很大（注釋類 handwriting-sizing），dx outlier 雜訊太多。
-  // dy 變異較小、shifted case 通常 dy 一致偏移 — 用 dy 訊號乾淨很多。
-  // minOutlierCount=10：代表至少整個 section（10 題）一致偏、不會被零星 AI 變異誤判。
+  const { threshold = 0.025, minOutlierCount = 10, sectionMinCount = 0 } = opts
+  // 只看 dy：AI classify 在 dx 方向變異很大（圈選/填空的作答 x 位置本來就因人、因「選了哪個選項」
+  // 而異——實測乾淨卷 dx std 最大到 0.08），dx outlier 雜訊太多、不可靠。
+  // dy 在同列上是固定的、shift 時整段一致偏移（dy std≈0.001、漂移≈0.05），訊號乾淨很多。
   const outlierQids: string[] = []
   const dys: number[] = []
   const dxs: number[] = []
@@ -736,8 +742,23 @@ function checkPeerOutliers(
       outlierQids.push(qr.questionId)
     }
   }
+  // trip 判定：
+  // - sectionMinCount > 0（PDF 嚴格模式）：同一「主要小題段」有 ≥ sectionMinCount 題一起偏移才算，
+  //   避免單題手寫雜訊誤判；PDF 版面像素級一致、門檻可收到 dy 0.01。
+  // - 否則（answer_only 既有模式）：總 outlier 數 ≥ minOutlierCount（至少整段一致偏）。
+  let trip: boolean
+  if (sectionMinCount > 0) {
+    const bySection = new Map<string, number>()
+    for (const qid of outlierQids) {
+      const sec = sectionOf(qid)
+      bySection.set(sec, (bySection.get(sec) ?? 0) + 1)
+    }
+    trip = [...bySection.values()].some((c) => c >= sectionMinCount)
+  } else {
+    trip = outlierQids.length >= minOutlierCount
+  }
   return {
-    trip: outlierQids.length >= minOutlierCount,
+    trip,
     outlierCount: outlierQids.length,
     outlierQids,
     metrics: { dy_med: +_median(dys).toFixed(4), dx_med: +_median(dxs).toFixed(4) },
@@ -4777,17 +4798,28 @@ export default function GradingPage({
           ? entries.filter((e) => !excludeIds.has(e.submissionId) && !e.phaseAResult.pipelineFailure)
           : entries
 
-        // ── Post-batch peer baseline 比對（answer_only only）──
+        // ── Post-batch peer baseline 比對（版面一致卷：answer_only 或 PDF）──
         // 用 batch 內其他 sub 的 bbox median 當基準、回頭檢查每份是否有 partial/全 shift。
-        // 跳過條件：非 answer_only、validEntries < 5（peer 太少不可靠）。
+        // 啟用條件：answer_only（既有）或 PDF 卷（source='teacher_scan'，版面像素級一致、
+        //   classify 偶發整欄抽歪可被可靠偵測）；且 validEntries >= 5（peer 太少不可靠）。
+        // PDF 用嚴格門檻（dy>0.01、同段≥3題）：dy std≈0.001、漂移≈0.05、空間大、零誤判。
+        //   照片卷（teacher_camera / student_upload）版面不一致、不啟用以免誤判。
         // 失敗動作：retry 整個 Phase A 一次、仍 outlier → grading_failed。
-        if (assignment?.answerSheetMode === 'answer_only' && validEntries.length >= 5 && !stopRequestedRef.current) {
+        const isPdfBatch =
+          validEntries.length > 0 &&
+          validEntries.every((e) => toGrade.find((s) => s.id === e.submissionId)?.source === 'teacher_scan')
+        const peerCheckEnabled = assignment?.answerSheetMode === 'answer_only' || isPdfBatch
+        const peerOpts: { threshold?: number; minOutlierCount?: number; sectionMinCount?: number } =
+          assignment?.answerSheetMode === 'answer_only'
+            ? {}
+            : { threshold: 0.01, sectionMinCount: 3 }
+        if (peerCheckEnabled && validEntries.length >= 5 && !stopRequestedRef.current) {
           setGradingMessage('Peer baseline 比對中…')
           const peerOutlierTrips: Array<{ entry: BatchPhaseAEntry; outlierCount: number; outlierQids: string[] }> = []
           for (const entry of validEntries) {
             const baseline = computePeerBaseline(validEntries, entry.submissionId)
             if (baseline.size < 3) continue
-            const result = checkPeerOutliers(entry, baseline)
+            const result = checkPeerOutliers(entry, baseline, peerOpts)
             if (result.trip) {
               peerOutlierTrips.push({ entry, outlierCount: result.outlierCount, outlierQids: result.outlierQids })
               console.warn(`[PeerCheck] ${entry.submissionId} 偵測到 ${result.outlierCount} 個 outlier qids`, result.outlierQids.slice(0, 5))
@@ -4856,7 +4888,7 @@ export default function GradingPage({
               // 用新結果建構臨時 entry、再驗 peer
               const tempEntry: BatchPhaseAEntry = { ...item.entry, phaseAResult: newResult }
               const baseline = computePeerBaseline(validEntries.filter((e) => e.submissionId !== item.entry.submissionId), item.entry.submissionId)
-              const recheck = checkPeerOutliers(tempEntry, baseline)
+              const recheck = checkPeerOutliers(tempEntry, baseline, peerOpts)
 
               if (recheck.trip) {
                 // 仍 outlier → grading_failed
