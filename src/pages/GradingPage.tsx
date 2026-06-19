@@ -828,6 +828,9 @@ export interface PipelineStageProgress {
   classify: { started: number; done: number; total: number }
   read: { started: number; done: number; total: number }
   arbiter: { started: number; done: number; total: number }
+  // 2026-06-19: quality＝UI-only 階段（peer 框位品質檢查 + 自動重跑），不對應 gemini.ts 的 AI pipeline stage。
+  //   total=0＝比對中；total>0＝重跑中(done/total)；started=0＝本次 run 沒做品質檢查(overlay 不顯示這格)。
+  quality: { started: number; done: number; total: number }
   accessor: { started: number; done: number; total: number }
   explain: { started: number; done: number; total: number }
 }
@@ -836,6 +839,7 @@ export const EMPTY_PIPELINE_STAGE_PROGRESS: PipelineStageProgress = {
   classify: { started: 0, done: 0, total: 0 },
   read: { started: 0, done: 0, total: 0 },
   arbiter: { started: 0, done: 0, total: 0 },
+  quality: { started: 0, done: 0, total: 0 },
   accessor: { started: 0, done: 0, total: 0 },
   explain: { started: 0, done: 0, total: 0 },
 }
@@ -850,17 +854,21 @@ interface GradingPipelineOverlayProps {
   onStop: () => void
 }
 
-const STAGE_ORDER: GradingStageName[] = ['classify', 'read', 'arbiter', 'accessor', 'explain']
-const STAGE_LABELS: Record<GradingStageName, string> = {
+// OverlayStageName＝AI pipeline stages（gemini.ts 的 GradingStageName）+ UI-only 的 'quality'。
+// quality 插在 Phase A(arbiter) 之後、Phase B(accessor) 之前＝框位品質檢查的時間點。
+type OverlayStageName = GradingStageName | 'quality'
+const STAGE_ORDER: OverlayStageName[] = ['classify', 'read', 'arbiter', 'quality', 'accessor', 'explain']
+const STAGE_LABELS: Record<OverlayStageName, string> = {
   classify: '版面掃描',
   read: '讀取答案',
   arbiter: '仔細校對',
+  quality: '品質檢查',
   accessor: '批改評分',
   explain: '生成引導',
 }
 
-function isStageInMode(stage: GradingStageName, mode: GradingPipelineMode): boolean {
-  if (mode === 'phase_a_only') return stage === 'classify' || stage === 'read' || stage === 'arbiter'
+function isStageInMode(stage: OverlayStageName, mode: GradingPipelineMode): boolean {
+  if (mode === 'phase_a_only') return stage === 'classify' || stage === 'read' || stage === 'arbiter' || stage === 'quality'
   if (mode === 'phase_b_only') return stage === 'accessor' || stage === 'explain'
   return true
 }
@@ -879,20 +887,31 @@ function GradingPipelineOverlay({
   //   done     — done === total 且 total > 0（全部完成）
   //   active   — started > 0 但 done < total（至少一份在跑這個 stage）
   //   pending  — started === 0（還沒有 submission 跑到這個 stage）
-  const stages = STAGE_ORDER.map((stage): { stage: GradingStageName; status: PipelineStageStatus; sublabel: string } => {
-    if (!isStageInMode(stage, mode)) {
-      return { stage, status: 'inactive', sublabel: '—' }
-    }
-    const { started, done, total } = stageProgress[stage]
-    if (total > 0 && done >= total) {
-      return { stage, status: 'done', sublabel: `${done}/${total}` }
-    }
-    if (started > 0) {
-      // 有人在跑、有人完成 → 顯示 done/total（active）
-      return { stage, status: 'active', sublabel: total > 0 ? `${done}/${total}` : '進行中…' }
-    }
-    return { stage, status: 'pending', sublabel: total > 0 ? `${done}/${total}` : '等待中' }
-  })
+  const stages = STAGE_ORDER
+    // quality 是動態階段：只有本次 run 真的做了框位品質檢查(started>0)才顯示這格；
+    // 照片卷/小批量不做 peer 檢查時就不冒出這格(維持原本步驟數)。
+    .filter((stage) => stage !== 'quality' || stageProgress.quality.started > 0)
+    .map((stage): { stage: OverlayStageName; status: PipelineStageStatus; sublabel: string } => {
+      if (!isStageInMode(stage, mode)) {
+        return { stage, status: 'inactive', sublabel: '—' }
+      }
+      if (stage === 'quality') {
+        // total=0＝比對中(尚未知幾份要重跑)；total>0＝重跑中(done/total)；done>=total＝已複查完成。
+        const { done, total } = stageProgress.quality
+        if (total === 0) return { stage, status: 'active', sublabel: '比對中…' }
+        if (done >= total) return { stage, status: 'done', sublabel: '已複查' }
+        return { stage, status: 'active', sublabel: `重跑 ${done}/${total}…` }
+      }
+      const { started, done, total } = stageProgress[stage]
+      if (total > 0 && done >= total) {
+        return { stage, status: 'done', sublabel: `${done}/${total}` }
+      }
+      if (started > 0) {
+        // 有人在跑、有人完成 → 顯示 done/total（active）
+        return { stage, status: 'active', sublabel: total > 0 ? `${done}/${total}` : '進行中…' }
+      }
+      return { stage, status: 'pending', sublabel: total > 0 ? `${done}/${total}` : '等待中' }
+    })
 
   // 是否在 Phase A 階段（用來決定要不要顯示需審查提示）— 任一 Phase A stage 還在跑
   const isPhaseA = stages.some(
@@ -2150,6 +2169,7 @@ export default function GradingPage({
         classify: { started: 0, done: 0, total: 0 },
         read: { started: 0, done: 0, total: 0 },
         arbiter: { started: 0, done: 0, total: 0 },
+        quality: { started: 0, done: 0, total: 0 },
         accessor: { started: entries.length, done: 0, total: entries.length },
         explain: { started: 0, done: 0, total: entries.length },
       })
@@ -3491,6 +3511,7 @@ export default function GradingPage({
       classify: { started: 0, done: 0, total: candidates.length },
       read: { started: 0, done: 0, total: candidates.length },
       arbiter: { started: 0, done: 0, total: candidates.length },
+      quality: { started: 0, done: 0, total: 0 },
       accessor: { started: 0, done: 0, total: 0 },
       explain: { started: 0, done: 0, total: 0 },
     })
@@ -3831,6 +3852,8 @@ export default function GradingPage({
           : { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1 }
       if (peerCheckEnabled && successfulEntries.length >= 5 && !stopRequestedRef.current) {
         setGradingMessage('框位比對中…')
+        // overlay 顯示「品質檢查」格：started=1 → 出現該格、total=0 → 顯示「比對中…」。
+        setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: 0 } }))
         const trips = successfulEntries.filter((entry) => {
           const baseline = computePeerBaseline(successfulEntries, entry.submissionId)
           if (baseline.size < 3) return false
@@ -3839,6 +3862,8 @@ export default function GradingPage({
         if (trips.length > 0) {
           console.warn(`[PeerCheck/recapture] ${trips.length} 份框位異常、自動重跑 Phase A`, trips.map((t) => t.submissionId))
           setGradingMessage(`偵測到 ${trips.length} 份框位異常、重跑中…`)
+          // total=N → overlay 顯示「重跑 done/N…」、隨重跑完成往上加。
+          setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: trips.length } }))
           await runWithConcurrency(
             trips, 3, 2000,
             async (entry) => {
@@ -3859,12 +3884,17 @@ export default function GradingPage({
               }
             },
             (_i, result) => {
+              // 每份重跑完成(含失敗 null)都推進品質檢查進度條。
+              setPipelineStageProgress((p) => ({ ...p, quality: { ...p.quality, done: p.quality.done + 1 } }))
               if (!result) return
               const idx = successfulEntries.findIndex((e) => e.submissionId === result.submissionId)
               if (idx >= 0) successfulEntries[idx] = result.newEntry
             },
             stopRequestedRef
           )
+        } else {
+          // 無漂移：品質檢查直接標記完成(done>=total) → overlay 顯示「已複查 ✓」、不卡在比對中。
+          setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 1, total: 1 } }))
         }
       }
     }
@@ -3957,6 +3987,7 @@ export default function GradingPage({
       classify: { started: 0, done: 0, total: 0 },
       read: { started: 0, done: 0, total: 0 },
       arbiter: { started: 0, done: 0, total: 0 },
+      quality: { started: 0, done: 0, total: 0 },
       accessor: { started: 0, done: 0, total: candidates.length },
       explain: { started: 0, done: 0, total: candidates.length },
     })
@@ -4450,6 +4481,7 @@ export default function GradingPage({
         classify: { started: 0, done: 0, total: toGrade.length },
         read: { started: 0, done: 0, total: toGrade.length },
         arbiter: { started: 0, done: 0, total: toGrade.length },
+        quality: { started: 0, done: 0, total: 0 },
         accessor: { started: 0, done: 0, total: toGrade.length },
         explain: { started: 0, done: 0, total: toGrade.length },
       })
