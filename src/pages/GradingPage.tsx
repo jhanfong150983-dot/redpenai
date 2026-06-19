@@ -712,8 +712,11 @@ function computePeerBaseline(entries: BatchPhaseAEntry[], excludeSubId: string):
   return baseline
 }
 
-// dx 只在「答案位置固定」型可靠；圈選/填空的作答 x 因人/因選項/因 passage 寬度天生變動，dx 不可用。
-const DX_RELIABLE_TYPES = new Set(['single_choice', 'multi_choice', 'true_false', 'table_cell', 'table_check', 'multi_fill'])
+// dx 只在「框＝印刷版面固定區域」型可靠；填空/作答框的 x 因人/因選項/因 passage 寬度天生變動，dx 不可用。
+// circle_select_one(with_questions 圈選題)：框是印刷選項整列、位置固定→實測 401 卷核心 std≈0.01、
+//   28-29/30 落在中位數±0.03，X 漂移(離群最大 0.105)可靠可偵測，故納入。
+//   注意：answer_only 模式 dxThreshold 預設 Infinity、dx 一律不檢查，本集合只影響 PDF/with_questions。
+const DX_RELIABLE_TYPES = new Set(['single_choice', 'multi_choice', 'true_false', 'table_cell', 'table_check', 'multi_fill', 'circle_select_one'])
 
 function checkPeerOutliers(
   entry: BatchPhaseAEntry,
@@ -1158,7 +1161,9 @@ export function OriginalPageViewer({
               />
               {localBbox && (
                 <div
-                  className="pointer-events-none absolute border-2 border-dashed border-red-500 bg-red-500/5"
+                  // 2026-06-19: 邊框改半透明(border-red-500/50)、移除填色(原 bg-red-500/5)，
+                  //   避免框壓在筆跡上時不透明紅線蓋住字、老師看不清原作答。
+                  className="pointer-events-none absolute border-2 border-dashed border-red-500/50"
                   style={{
                     left: `${localBbox.x * 100}%`,
                     top: `${localBbox.y * 100}%`,
@@ -3864,24 +3869,45 @@ export default function GradingPage({
           setGradingMessage(`偵測到 ${trips.length} 份框位異常、重跑中…`)
           // total=N → overlay 顯示「重跑 done/N…」、隨重跑完成往上加。
           setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: trips.length } }))
+          // 漂移是 per-run 隨機(每次中不同卷、~10%/段)、非特定卷固定壞→驗證每次重跑結果、仍離群就再重擲，
+          // 最多 MAX_RERUN_ATTEMPTS 次(成功率~90%/次→3 次後殘留~0.1%)；重跑一次只驗一次救不回的會照存歪版。
+          const MAX_RERUN_ATTEMPTS = 3
           await runWithConcurrency(
             trips, 3, 2000,
             async (entry) => {
               if (stopRequestedRef.current) return null
               const sub = candidates.find((s) => s.id === entry.submissionId)
               if (!sub?.imageBlob) return null
-              try {
-                const rr = await gradePhaseA(
-                  sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, assignment?.id,
-                  undefined, assignment?.answerSheetMode, sub.id, sub.source
-                )
-                if (rr.pipelineFailure) return null
-                const newEntry = await buildAndPersistEntry(sub, rr)
-                return { submissionId: entry.submissionId, newEntry }
-              } catch (e) {
-                console.error('[PeerCheck/recapture] rerun failed', e)
-                return null
+              // 用穩定的 peer baseline(其他卷中位數、3 outlier 動不了 30-median)驗證每次重跑；快照一次避免並發干擾。
+              const baseline = computePeerBaseline(successfulEntries, entry.submissionId)
+              let lastRr: PhaseAResult | null = null
+              for (let attempt = 1; attempt <= MAX_RERUN_ATTEMPTS; attempt++) {
+                if (stopRequestedRef.current) break
+                try {
+                  const rr = await gradePhaseA(
+                    sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, assignment?.id,
+                    undefined, assignment?.answerSheetMode, sub.id, sub.source
+                  )
+                  if (rr.pipelineFailure) continue
+                  lastRr = rr
+                  const stillTrips = baseline.size >= 3 &&
+                    checkPeerOutliers({ ...entry, phaseAResult: rr }, baseline, peerOpts).trip
+                  if (!stillTrips) {
+                    const newEntry = await buildAndPersistEntry(sub, rr)
+                    console.log(`[PeerCheck/recapture] ${entry.submissionId} 第 ${attempt} 次重跑框位正常`)
+                    return { submissionId: entry.submissionId, newEntry }
+                  }
+                } catch (e) {
+                  console.error('[PeerCheck/recapture] rerun failed', e)
+                }
               }
+              // 重擲到上限仍離群：存最後一版(至少是新鮮一擲、不比原本差)、後續 needs_review 兜底交人工審查。
+              if (lastRr) {
+                console.warn(`[PeerCheck/recapture] ${entry.submissionId} 重跑 ${MAX_RERUN_ATTEMPTS} 次仍框位異常、交人工審查`)
+                const newEntry = await buildAndPersistEntry(sub, lastRr)
+                return { submissionId: entry.submissionId, newEntry }
+              }
+              return null
             },
             (_i, result) => {
               // 每份重跑完成(含失敗 null)都推進品質檢查進度條。
