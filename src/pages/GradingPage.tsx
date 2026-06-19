@@ -3947,14 +3947,13 @@ export default function GradingPage({
       for (const p of statePeers) poolMap.set(p.submissionId, p)
       for (const e of successfulEntries) poolMap.set(e.submissionId, e)  // 本批新結果覆蓋同 id
       const peerPool = [...poolMap.values()]
-      const isSmallBatch = candidates.length < 5  // 單獨/小批＝通常是失敗卷的(自動)重跑、retry 已用掉→抓到直接失敗、不再重跑
 
       const peerOpts: { dyThreshold?: number; dxThreshold?: number; minOutlierCount?: number; detectMissing?: boolean; peerTotal?: number; missingConsensus?: number } =
         assignment?.answerSheetMode === 'answer_only'
           ? {}
           : { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1, detectMissing: true, peerTotal: Math.max(0, peerPool.length - 1), missingConsensus: 0.7 }
 
-      // 標記框位異常卷為 grading_failed（移出成功清單、計入失敗、即時更新卡片）。小批直接用、大批重跑耗盡也用。
+      // 標記框位異常卷為 grading_failed（移出成功清單、計入失敗、即時更新卡片）。重跑 1 次仍離群時呼叫。
       const failPeerOutlier = async (entry: BatchPhaseAEntry) => {
         const sub = candidates.find((s) => s.id === entry.submissionId)
         const peerFailure: import('@/lib/gemini').PipelineFailure = {
@@ -3990,16 +3989,9 @@ export default function GradingPage({
         })
         if (trips.length > 0) {
           setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: trips.length } }))
-          if (isSmallBatch) {
-            // 單獨/小批：直接標失敗卡、不重跑（這次通常已是失敗卷的重跑、retry 已用掉）
-            console.warn(`[PeerCheck/recapture] 小批 ${trips.length} 份框位異常、直接標失敗(不重跑)`, trips.map((t) => t.submissionId))
-            setGradingMessage(`偵測到 ${trips.length} 份框位異常`)
-            for (const entry of trips) {
-              await failPeerOutlier(entry)
-              setPipelineStageProgress((p) => ({ ...p, quality: { ...p.quality, done: p.quality.done + 1 } }))
-            }
-          } else {
-            // 整批：重跑 1 次 → 還歪 → 失敗卡（隨機漂移 1 次≈90% 救回；系統性 1 次確認後不再多擲）
+          // 2026-06-20: 不分批大小——一律用 peer pool(含同作業其他已批改卷)當基準、重跑 1 次→還歪→失敗卡。
+          //   單獨重跑也有完整基準可比、也值得 re-roll 一次救隨機漂移；系統性 1 次確認後失敗卡。
+          {
             console.warn(`[PeerCheck/recapture] ${trips.length} 份框位異常、自動重跑 Phase A`, trips.map((t) => t.submissionId))
             setGradingMessage(`偵測到 ${trips.length} 份框位異常、重跑中…`)
             const MAX_RERUN_ATTEMPTS = 1
