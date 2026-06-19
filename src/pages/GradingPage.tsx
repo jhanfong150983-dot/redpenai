@@ -1065,8 +1065,18 @@ export function OriginalPageViewer({
       const starts = [0, ...breaks]
       const ends = [...breaks, 1]
       const total = starts.length
-      // 用 bbox 中心 y 決定落在哪一頁；無 bbox → 第 1 頁
-      const cy = bbox ? bbox.y + bbox.h / 2 : 0
+      // 2026-06-20: 無有效 bbox（題目未定位/未裁切，如 classify 漏框）→ 顯示完整合併原圖、不切單頁、不畫框，
+      //   讓老師自己翻找答案（以往就是給完整原圖）。否則沒 bbox 會 cy=0、退到第 1 頁、看不到答案所在頁。
+      const hasBbox = !!bbox && Number(bbox.w) > 0 && Number(bbox.h) > 0
+      if (!hasBbox) {
+        outUrl = srcUrl  // 直接用整張合併圖（不 revoke、pageUrl 還要用；cleanup 會 revoke outUrl=srcUrl）
+        setLocalBbox(null)
+        setPageInfo({ index: -1, total })
+        setPageUrl(srcUrl)
+        return
+      }
+      // 用 bbox 中心 y 決定落在哪一頁
+      const cy = bbox.y + bbox.h / 2
       let idx = total - 1
       for (let i = 0; i < total; i++) {
         if (cy >= starts[i] && cy < ends[i]) { idx = i; break }
@@ -1130,7 +1140,9 @@ export function OriginalPageViewer({
       <div className="flex items-center justify-between px-4 py-2 text-sm text-white">
         <span className="truncate">
           題目 {questionId} 原圖
-          {pageInfo.total > 1 ? `（第 ${pageInfo.index + 1}/${pageInfo.total} 頁）` : ''}
+          {pageInfo.index === -1
+            ? (pageInfo.total > 1 ? `（完整原圖 · 共 ${pageInfo.total} 頁，此題未定位）` : '（完整原圖，此題未定位）')
+            : (pageInfo.total > 1 ? `（第 ${pageInfo.index + 1}/${pageInfo.total} 頁）` : '')}
           {localBbox ? ' · 紅框＝AI 原本切的位置' : ''}
         </span>
         <div className="flex items-center gap-1 shrink-0">
