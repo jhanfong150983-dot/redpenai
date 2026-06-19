@@ -19,7 +19,8 @@ import {
   CheckCircle2,
   CheckSquare,
   ChevronDown,
-  ZoomIn
+  ZoomIn,
+  Plus
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
 import { requestSync, waitForSync } from '@/lib/sync-events'
@@ -1885,7 +1886,17 @@ export default function GradingPage({
   embedded = false
 }: GradingPageProps) {
   const navigate = useNavigate()
-  const isBatchMode = !!(batchAssignmentIds && batchAssignmentIds.length > 1)
+  // 2026-06-19: 跨班「頁內新增班級」。base＝進頁時的作業集合(單班=[assignmentId] 或 prop 傳入的批次)，
+  //   addedAssignmentIds＝老師在批改頁按「＋新增班級」加進來的同答案卷其他班；合併 >1 即進 batch(跨班分組)模式。
+  const [addedAssignmentIds, setAddedAssignmentIds] = useState<string[]>([])
+  const includedAssignmentIds = useMemo(() => {
+    const base = batchAssignmentIds && batchAssignmentIds.length > 0 ? batchAssignmentIds : [assignmentId]
+    return [...new Set([...base, ...addedAssignmentIds])]
+  }, [batchAssignmentIds, assignmentId, addedAssignmentIds])
+  const isBatchMode = includedAssignmentIds.length > 1
+  // 同答案卷、尚未納入的其他班級（批改頁「＋新增班級」下拉用）
+  const [siblingClasses, setSiblingClasses] = useState<{ assignmentId: string; classroomId: string; className: string; uploadedCount: number; hasAnswerKey: boolean }[]>([])
+  const [addClassMenuOpen, setAddClassMenuOpen] = useState(false)
   const PREVIEW_LENS_SIZE = 140
   const PREVIEW_ZOOM_SCALE = 2.3
   const PREVIEW_ZOOM_PANEL_SIZE = 250
@@ -2813,7 +2824,7 @@ export default function GradingPage({
     setIsLoading(true)
     setError(null)
     try {
-      const allAssignmentIds = isBatchMode ? batchAssignmentIds! : [assignmentId]
+      const allAssignmentIds = includedAssignmentIds
 
       // 載入所有 assignments
       const allAssignmentsData = await Promise.all(allAssignmentIds.map((id) => db.assignments.get(id)))
@@ -3050,7 +3061,7 @@ export default function GradingPage({
       setError(err instanceof Error ? err.message : '載入失敗')
       setIsLoading(false)
     }
-  }, [assignmentId, isBatchMode, batchAssignmentIds, fetchCorrectionStatusByStudentId])
+  }, [assignmentId, includedAssignmentIds, fetchCorrectionStatusByStudentId])
 
   const syncAndReload = useCallback(async (timeoutMs = 15000) => {
     requestSync(true)
@@ -3065,6 +3076,27 @@ export default function GradingPage({
   useEffect(() => {
     void syncAndReload()
   }, [syncAndReload])
+
+  // 2026-06-19: 偵測「同一張答案卷模板、尚未納入」的其他班級，供批改頁「＋新增班級」下拉使用。
+  //   answerKeyTemplateId 無 Dexie 索引→toArray 後 filter(作業表小、AssignmentList 也這樣做)。
+  useEffect(() => {
+    let cancelled = false
+    const tplId = assignment?.answerKeyTemplateId
+    if (!tplId) { setSiblingClasses([]); return }
+    ;(async () => {
+      const all = await db.assignments.toArray()
+      const sibs = all.filter((a) => a.answerKeyTemplateId === tplId && !includedAssignmentIds.includes(a.id))
+      const out: typeof siblingClasses = []
+      for (const a of sibs) {
+        const cls = await db.classrooms.get(a.classroomId)
+        const cnt = await db.submissions.where('assignmentId').equals(a.id).count()
+        out.push({ assignmentId: a.id, classroomId: a.classroomId, className: cls?.name ?? '未知班級', uploadedCount: cnt, hasAnswerKey: !!a.answerKey })
+      }
+      out.sort((x, y) => x.className.localeCompare(y.className, 'zh-Hant'))
+      if (!cancelled) setSiblingClasses(out)
+    })()
+    return () => { cancelled = true }
+  }, [assignment?.answerKeyTemplateId, includedAssignmentIds])
 
   useEffect(() => {
     let cancelled = false
@@ -6102,6 +6134,59 @@ export default function GradingPage({
             </p>
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            {/* 2026-06-19: 跨班「＋新增班級」——同答案卷的其他班可加進來、共用同一組批改按鈕一起批改。
+                只在有可加入的班級且非進階勾選模式時出現。加錯了用「重設班級」回到原本進來那班。 */}
+            {advancedMode === null && siblingClasses.length > 0 && (
+              <div className="relative inline-flex">
+                <button
+                  type="button"
+                  onClick={() => setAddClassMenuOpen((v) => !v)}
+                  disabled={isGrading || isDownloading || isRefreshing}
+                  title="把同一張答案卷的其他班級加進來、一起批改"
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus className="w-4 h-4" />
+                  新增班級
+                </button>
+                {addClassMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-[105]" onClick={() => setAddClassMenuOpen(false)} />
+                    <div className="absolute right-0 top-full z-[106] mt-1 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                      <div className="px-3 py-1.5 text-xs font-medium text-slate-400">同答案卷的其他班級</div>
+                      {siblingClasses.map((sc) => {
+                        const disabled = sc.uploadedCount < 1 || !sc.hasAnswerKey
+                        return (
+                          <button
+                            key={sc.assignmentId}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => {
+                              setAddedAssignmentIds((prev) => prev.includes(sc.assignmentId) ? prev : [...prev, sc.assignmentId])
+                              setAddClassMenuOpen(false)
+                            }}
+                            className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                          >
+                            <span className="truncate">{sc.className}</span>
+                            <span className="shrink-0 text-xs text-slate-400">{sc.uploadedCount < 1 ? '未匯入' : `已上傳 ${sc.uploadedCount}`}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {advancedMode === null && addedAssignmentIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setAddedAssignmentIds([])}
+                disabled={isGrading || isDownloading || isRefreshing}
+                title="移除所有新增的班級、回到原本進來的那一班"
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                重設班級
+              </button>
+            )}
             {/* 2026-05-18: 待複核按鈕拿掉、user 在 PR2 設計討論時決定移除（卡片本身會用顏色標出待複核狀態） */}
             <Button
               variant="outline"
