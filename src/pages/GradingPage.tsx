@@ -298,8 +298,9 @@ async function persistGradingFailureFromException(submissionId: string, errorMes
   const failure: import('@/lib/gemini').PipelineFailure = {
     stage: 'classify',
     reasonCode: 'CLIENT_EXCEPTION',
-    userMessage: '批改流程發生錯誤、請重新批改試試',
-    userAction: '請按右上角「批改作業」重新批改',
+    // 2026-06-20: 老師看友善句（① AI 暫時出錯）；真實錯誤留 technical.metrics.errorMessage 供除錯
+    userMessage: '🙂 AI 剛剛有點忙、出了點小差錯。再請它批一次，通常就好了。',
+    userAction: '',
     technical: { metrics: { errorMessage } as Record<string, unknown> }
   }
   const failureGradingResult = { pipelineFailure: failure } as unknown as import('@/lib/db').GradingResult
@@ -5162,8 +5163,9 @@ export default function GradingPage({
                 const failure: import('@/lib/gemini').PipelineFailure = {
                   stage: 'classify',
                   reasonCode: 'CLASSIFY_BBOX_PEER_OUTLIER',
-                  userMessage: '批改失敗：這份作業的答題框跟其他學生的位置明顯不同，可能 AI 框錯位置。',
-                  userAction: '請重新批改這份作業（再跑一次 AI 通常能修正）。',
+                  // 2026-06-20: 老師看友善句（② 答題位置沒抓穩）；技術細節留 technical
+                  userMessage: 'AI 對這張的答題位置抓得不太穩。再批一次多半會好；如果同一張一直這樣，建議看看掃描是否完整、清晰。',
+                  userAction: '',
                   technical: { metrics: { outlierCount: recheck.outlierCount, dy_med: recheck.metrics.dy_med, dx_med: recheck.metrics.dx_med } as Record<string, unknown> }
                 }
                 phaseAFailures.push({ submissionId: item.entry.submissionId, studentId: item.entry.studentId, failure })
