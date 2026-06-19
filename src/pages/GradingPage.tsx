@@ -1047,6 +1047,7 @@ export function OriginalPageViewer({
   const [pageUrl, setPageUrl] = useState<string | null>(null)
   const [localBbox, setLocalBbox] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const [pageInfo, setPageInfo] = useState<{ index: number; total: number }>({ index: 0, total: 1 })
+  const [located, setLocated] = useState(true)  // 2026-06-20: 是否有 bbox 定位（無→依題號跳頁、不畫框）
   const [scale, setScale] = useState(1)
   const [tx, setTx] = useState(0)
   const [ty, setTy] = useState(0)
@@ -1065,21 +1066,19 @@ export function OriginalPageViewer({
       const starts = [0, ...breaks]
       const ends = [...breaks, 1]
       const total = starts.length
-      // 2026-06-20: 無有效 bbox（題目未定位/未裁切，如 classify 漏框）→ 顯示完整合併原圖、不切單頁、不畫框，
-      //   讓老師自己翻找答案（以往就是給完整原圖）。否則沒 bbox 會 cy=0、退到第 1 頁、看不到答案所在頁。
+      // 2026-06-20: 決定頁碼。有 bbox→用框中心 y；無 bbox（classify 漏框/未裁切）→ 用題號前綴當頁碼
+      //   （"3-G-2-2"→第 3 頁），仍切到對應頁、只是不畫框。避免沒 bbox 就退到第 1 頁、看不到答案所在頁。
       const hasBbox = !!bbox && Number(bbox.w) > 0 && Number(bbox.h) > 0
-      if (!hasBbox) {
-        outUrl = srcUrl  // 直接用整張合併圖（不 revoke、pageUrl 還要用；cleanup 會 revoke outUrl=srcUrl）
-        setLocalBbox(null)
-        setPageInfo({ index: -1, total })
-        setPageUrl(srcUrl)
-        return
-      }
-      // 用 bbox 中心 y 決定落在哪一頁
-      const cy = bbox.y + bbox.h / 2
-      let idx = total - 1
-      for (let i = 0; i < total; i++) {
-        if (cy >= starts[i] && cy < ends[i]) { idx = i; break }
+      let idx
+      if (hasBbox) {
+        const cy = bbox.y + bbox.h / 2
+        idx = total - 1
+        for (let i = 0; i < total; i++) {
+          if (cy >= starts[i] && cy < ends[i]) { idx = i; break }
+        }
+      } else {
+        const p = parseInt(String(questionId).split('-')[0], 10)
+        idx = Number.isFinite(p) && p >= 1 ? Math.min(total - 1, p - 1) : 0
       }
       const ps = starts[idx], pe = ends[idx]
       const span = pe - ps || 1
@@ -1095,14 +1094,17 @@ export function OriginalPageViewer({
       canvas.toBlob((b) => {
         if (cancelled || !b) return
         outUrl = URL.createObjectURL(b)
-        if (bbox) {
+        if (hasBbox) {
           setLocalBbox({
             x: Math.max(0, bbox.x),
             y: Math.max(0, (bbox.y - ps) / span),
             w: Math.min(1, bbox.w),
             h: Math.min(1, bbox.h / span),
           })
+        } else {
+          setLocalBbox(null)
         }
+        setLocated(hasBbox)
         setPageInfo({ index: idx, total })
         setPageUrl(outUrl)
       }, 'image/jpeg', 0.92)
@@ -1140,10 +1142,8 @@ export function OriginalPageViewer({
       <div className="flex items-center justify-between px-4 py-2 text-sm text-white">
         <span className="truncate">
           題目 {questionId} 原圖
-          {pageInfo.index === -1
-            ? (pageInfo.total > 1 ? `（完整原圖 · 共 ${pageInfo.total} 頁，此題未定位）` : '（完整原圖，此題未定位）')
-            : (pageInfo.total > 1 ? `（第 ${pageInfo.index + 1}/${pageInfo.total} 頁）` : '')}
-          {localBbox ? ' · 紅框＝AI 原本切的位置' : ''}
+          {pageInfo.total > 1 ? `（第 ${pageInfo.index + 1}/${pageInfo.total} 頁）` : ''}
+          {located ? (localBbox ? ' · 紅框＝AI 原本切的位置' : '') : ' · 此題未定位（依題號跳該頁）'}
         </span>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={reset} className="rounded px-2 py-1 text-xs hover:bg-white/10">重置</button>
