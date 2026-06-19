@@ -712,21 +712,20 @@ function computePeerBaseline(entries: BatchPhaseAEntry[], excludeSubId: string):
   return baseline
 }
 
-// "2-E-1" → "2-E"；"3-G-2-2" → "3-G-2"。判斷「同一段是否一起偏移」用。
-function sectionOf(qid: string): string {
-  const parts = String(qid).split('-')
-  return parts.length > 1 ? parts.slice(0, -1).join('-') : String(qid)
-}
+// dx 只在「答案位置固定」型可靠；圈選/填空的作答 x 因人/因選項/因 passage 寬度天生變動，dx 不可用。
+const DX_RELIABLE_TYPES = new Set(['single_choice', 'multi_choice', 'true_false', 'table_cell', 'table_check', 'multi_fill'])
 
 function checkPeerOutliers(
   entry: BatchPhaseAEntry,
   peerBaseline: Map<string, Bbox>,
-  opts: { threshold?: number; minOutlierCount?: number; sectionMinCount?: number } = {}
+  opts: { dyThreshold?: number; dxThreshold?: number; minOutlierCount?: number } = {}
 ): { trip: boolean; outlierCount: number; outlierQids: string[]; metrics: { dy_med: number; dx_med: number } } {
-  const { threshold = 0.025, minOutlierCount = 10, sectionMinCount = 0 } = opts
-  // 只看 dy：AI classify 在 dx 方向變異很大（圈選/填空的作答 x 位置本來就因人、因「選了哪個選項」
-  // 而異——實測乾淨卷 dx std 最大到 0.08），dx outlier 雜訊太多、不可靠。
-  // dy 在同列上是固定的、shift 時整段一致偏移（dy std≈0.001、漂移≈0.05），訊號乾淨很多。
+  // 預設＝answer_only 既有行為：dy-only、門檻 0.025、需 ≥10 格。
+  // PDF 模式傳 { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1 }：
+  //   逐格 |dy|>0.015(任型) 或 |dx|>0.08(僅位置固定型 DX_RELIABLE_TYPES)，任一格中即 trip。
+  //   門檻依實測乾淨雜訊地板校準(401英語卷 30人)：乾淨 dy max 0.009、固定型 dx max 0.044；
+  //   漂移實測 dy~0.024(18/20/27號) / dx~0.42(30號)。dx 不碰圈選/填空(乾淨即可達 0.04~0.16)。
+  const { dyThreshold = 0.025, dxThreshold = Infinity, minOutlierCount = 10 } = opts
   const outlierQids: string[] = []
   const dys: number[] = []
   const dxs: number[] = []
@@ -738,27 +737,12 @@ function checkPeerOutliers(
     const dx = bb.x - peer.x
     dys.push(dy)
     dxs.push(dx)
-    if (Math.abs(dy) > threshold) {
-      outlierQids.push(qr.questionId)
-    }
-  }
-  // trip 判定：
-  // - sectionMinCount > 0（PDF 嚴格模式）：同一「主要小題段」有 ≥ sectionMinCount 題一起偏移才算，
-  //   避免單題手寫雜訊誤判；PDF 版面像素級一致、門檻可收到 dy 0.01。
-  // - 否則（answer_only 既有模式）：總 outlier 數 ≥ minOutlierCount（至少整段一致偏）。
-  let trip: boolean
-  if (sectionMinCount > 0) {
-    const bySection = new Map<string, number>()
-    for (const qid of outlierQids) {
-      const sec = sectionOf(qid)
-      bySection.set(sec, (bySection.get(sec) ?? 0) + 1)
-    }
-    trip = [...bySection.values()].some((c) => c >= sectionMinCount)
-  } else {
-    trip = outlierQids.length >= minOutlierCount
+    const dyOut = Math.abs(dy) > dyThreshold
+    const dxOut = Math.abs(dx) > dxThreshold && DX_RELIABLE_TYPES.has(qr.questionType ?? '')
+    if (dyOut || dxOut) outlierQids.push(qr.questionId)
   }
   return {
-    trip,
+    trip: outlierQids.length >= minOutlierCount,
     outlierCount: outlierQids.length,
     outlierQids,
     metrics: { dy_med: +_median(dys).toFixed(4), dx_med: +_median(dxs).toFixed(4) },
@@ -3543,8 +3527,104 @@ export default function GradingPage({
     // 2026-05-18: 收集成功的 Phase A 結果、跑完判斷有沒有 needs_review、有就帶老師進審查頁
     const successfulEntries: BatchPhaseAEntry[] = []
 
+    // 2026-06-19: peer 漂移偵測後「重跑某份 Phase A」用的存檔工具（只給重跑用、主迴圈不動）。
+    // 鏡像主迴圈成功分支的存檔（details/phaseAState/finalAnswers/畫面更新），回傳更新後的 entry。
+    const buildAndPersistEntry = async (sub: Submission, phaseAResult: BatchPhaseAEntry['phaseAResult']): Promise<BatchPhaseAEntry> => {
+      const detailsFromPhaseA = phaseAResult.questionResults.map((qr) => {
+        const base = {
+          questionId: qr.questionId,
+          questionType: qr.questionType,
+          readAnswer1: qr.readAnswer1,
+          readAnswer2: qr.readAnswer2,
+          arbiterResult: qr.arbiterResult,
+          consistencyStatus: qr.consistencyStatus,
+          answerBbox: qr.answerBbox,
+          answerCropImageUrl: qr.answerCropImageUrl,
+        }
+        const vjPerItem = qr.visualJudgment?.perItem
+        if (['diagram_color', 'map_symbol', 'grid_geometry'].includes(qr.questionType || '')
+          && Array.isArray(vjPerItem) && vjPerItem.length > 0) {
+          const vjItemResults = vjPerItem.map((p) => ({
+            idx: p.idx,
+            label: p.label,
+            verdict: (p.hasMark === 'yes' ? 'pending' : 'blank') as 'pending' | 'blank',
+            reason: p.hasMark === 'yes' ? '有畫（待批改）' : '未作答',
+          }))
+          const anyDrawn = vjItemResults.some((r) => r.verdict !== 'blank')
+          return { ...base, studentAnswer: anyDrawn ? '圖上作答' : '未作答', vjItemResults }
+        }
+        return {
+          ...base,
+          studentAnswer: qr.questionType === 'map_fill'
+            ? ''
+            : (qr.arbiterResult?.finalAnswer || qr.readAnswer1?.studentAnswer || ''),
+        }
+      })
+      const phaseAGradingResult = { details: detailsFromPhaseA } as unknown as Submission['gradingResult']
+      const updatedAtMs = Date.now()
+      const keptManualFA = (Array.isArray(sub.finalAnswers) ? sub.finalAnswers : [])
+        .filter((fa) => fa?.finalAnswerSource === 'manual')
+      const seededDecisions = new Map<string, ConsistencyDecision>()
+      for (const fa of keptManualFA) {
+        seededDecisions.set(fa.questionId, { questionId: fa.questionId, source: 'manual', finalAnswer: fa.finalStudentAnswer ?? '', confirmed: true })
+      }
+      const localPhaseAState: NonNullable<Submission['phaseAState']> = {
+        ...(sub.phaseAState ?? {}),
+        arbiterDecisions: phaseAResult.questionResults.map((qr) => ({
+          questionId: qr.questionId,
+          arbiterStatus: qr.arbiterResult?.arbiterStatus,
+          finalAnswer: qr.arbiterResult?.finalAnswer,
+          consistent: qr.arbiterResult?.consistent,
+        })),
+        savedAt: new Date().toISOString(),
+      }
+      await db.submissions.update(sub.id, {
+        status: 'synced',
+        gradingResult: phaseAGradingResult,
+        phaseAState: localPhaseAState,
+        finalAnswers: keptManualFA,
+        score: undefined,
+        aiScore: undefined,
+        gradedAt: undefined,
+        updatedAt: updatedAtMs
+      })
+      fetch('/api/data/save-final-answers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ submissions: [{ id: sub.id, finalAnswers: keptManualFA }] })
+      }).catch(() => {/* non-fatal */})
+      setSubmissions((prev) => {
+        const next = new Map(prev)
+        const cur = Array.from(prev.values()).find((s) => s.id === sub.id)
+        if (cur) next.set(cur.studentId, {
+          ...cur,
+          status: 'synced',
+          gradingResult: phaseAGradingResult,
+          phaseAState: localPhaseAState,
+          finalAnswers: keptManualFA,
+          score: undefined,
+          aiScore: undefined,
+          gradedAt: undefined,
+          updatedAt: updatedAtMs
+        })
+        return next
+      })
+      return {
+        submissionId: sub.id,
+        studentId: sub.studentId,
+        phaseAResult,
+        decisions: seededDecisions,
+        imageBlob: sub.imageBlob!,  // 呼叫端(重跑)已 if(!sub?.imageBlob)return null 擋過、保證有圖
+        pageBreaks: sub.pageBreaks,
+      }
+    }
+
+    // 2026-06-19: 併發依頁數自動調小——classify 每份是 per-page 並行(Promise.all)、
+    // 「併發數 × 頁數」= 同時打 Gemini 的 call 數。4頁×5份=20 個同時→撞 Vercel 300s 上限→504。
+    // 控制同時 call 數 ≤~10：min(5, floor(10/頁數))，只對 ≥3 頁卷降載、1~2 頁維持 5(不動既有好行為)。
+    const pageCount = Math.max(1, assignment?.totalPages ?? 1)
+    const gradeConcurrency = Math.max(1, Math.min(5, Math.floor(10 / pageCount)))
     await runWithConcurrency(
-      candidates, 5, 2000,
+      candidates, gradeConcurrency, 2000,
       async (sub) => {
         if (stopRequestedRef.current) return null
         if (!sub.imageBlob) {
@@ -3737,6 +3817,57 @@ export default function GradingPage({
       },
       stopRequestedRef
     )
+
+    // ── 2026-06-19: Peer baseline 框位漂移偵測 + 自動重跑（智慧批改 / 重新截取 共用此路徑）──
+    // 版面一致卷(answer_only 或 PDF source=teacher_scan)：用同批其他卷的 per-qid bbox 中位數當基準，
+    // 抓出整欄漂移的卷→自動重跑 Phase A（重跑≈重擲骰子、漂移 ~2-3% 幾乎不會連中、必恢復）。
+    // 照片卷(teacher_camera/student_upload)版面不一致、不啟用以免誤判。門檻校準見 checkPeerOutliers。
+    {
+      const isPdfBatch = candidates.length > 0 && candidates.every((s) => s.source === 'teacher_scan')
+      const peerCheckEnabled = assignment?.answerSheetMode === 'answer_only' || isPdfBatch
+      const peerOpts: { dyThreshold?: number; dxThreshold?: number; minOutlierCount?: number } =
+        assignment?.answerSheetMode === 'answer_only'
+          ? {}
+          : { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1 }
+      if (peerCheckEnabled && successfulEntries.length >= 5 && !stopRequestedRef.current) {
+        setGradingMessage('框位比對中…')
+        const trips = successfulEntries.filter((entry) => {
+          const baseline = computePeerBaseline(successfulEntries, entry.submissionId)
+          if (baseline.size < 3) return false
+          return checkPeerOutliers(entry, baseline, peerOpts).trip
+        })
+        if (trips.length > 0) {
+          console.warn(`[PeerCheck/recapture] ${trips.length} 份框位異常、自動重跑 Phase A`, trips.map((t) => t.submissionId))
+          setGradingMessage(`偵測到 ${trips.length} 份框位異常、重跑中…`)
+          await runWithConcurrency(
+            trips, 3, 2000,
+            async (entry) => {
+              if (stopRequestedRef.current) return null
+              const sub = candidates.find((s) => s.id === entry.submissionId)
+              if (!sub?.imageBlob) return null
+              try {
+                const rr = await gradePhaseA(
+                  sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, assignment?.id,
+                  undefined, assignment?.answerSheetMode, sub.id, sub.source
+                )
+                if (rr.pipelineFailure) return null
+                const newEntry = await buildAndPersistEntry(sub, rr)
+                return { submissionId: entry.submissionId, newEntry }
+              } catch (e) {
+                console.error('[PeerCheck/recapture] rerun failed', e)
+                return null
+              }
+            },
+            (_i, result) => {
+              if (!result) return
+              const idx = successfulEntries.findIndex((e) => e.submissionId === result.submissionId)
+              if (idx >= 0) successfulEntries[idx] = result.newEntry
+            },
+            stopRequestedRef
+          )
+        }
+      }
+    }
 
     setIsGrading(false)
     setCurrentGradingStudent('')
@@ -4802,17 +4933,18 @@ export default function GradingPage({
         // 用 batch 內其他 sub 的 bbox median 當基準、回頭檢查每份是否有 partial/全 shift。
         // 啟用條件：answer_only（既有）或 PDF 卷（source='teacher_scan'，版面像素級一致、
         //   classify 偶發整欄抽歪可被可靠偵測）；且 validEntries >= 5（peer 太少不可靠）。
-        // PDF 用嚴格門檻（dy>0.01、同段≥3題）：dy std≈0.001、漂移≈0.05、空間大、零誤判。
+        // PDF 用校準門檻（逐格 |dy|>0.015 任型 或 |dx|>0.08 位置固定型，任一格即 trip）：
+        //   依 401英語卷 30人實測乾淨地板(dy max 0.009 / 固定型 dx max 0.044) vs 漂移(dy~0.024 / dx~0.42)。
         //   照片卷（teacher_camera / student_upload）版面不一致、不啟用以免誤判。
         // 失敗動作：retry 整個 Phase A 一次、仍 outlier → grading_failed。
         const isPdfBatch =
           validEntries.length > 0 &&
           validEntries.every((e) => toGrade.find((s) => s.id === e.submissionId)?.source === 'teacher_scan')
         const peerCheckEnabled = assignment?.answerSheetMode === 'answer_only' || isPdfBatch
-        const peerOpts: { threshold?: number; minOutlierCount?: number; sectionMinCount?: number } =
+        const peerOpts: { dyThreshold?: number; dxThreshold?: number; minOutlierCount?: number } =
           assignment?.answerSheetMode === 'answer_only'
             ? {}
-            : { threshold: 0.01, sectionMinCount: 3 }
+            : { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1 }
         if (peerCheckEnabled && validEntries.length >= 5 && !stopRequestedRef.current) {
           setGradingMessage('Peer baseline 比對中…')
           const peerOutlierTrips: Array<{ entry: BatchPhaseAEntry; outlierCount: number; outlierQids: string[] }> = []
