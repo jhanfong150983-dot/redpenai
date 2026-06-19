@@ -3699,7 +3699,7 @@ export default function GradingPage({
             ANSWER_KEY,
             sub.pageBreaks,
             assignment?.domain,
-            assignment?.id,
+            sub.assignmentId ?? assignment?.id,  // 跨班：記到各份自己的作業（非批改時 === assignment.id）
             undefined,  // classifyCorrections — 重新截取不帶老師舊修正
             assignment?.answerSheetMode,
             sub.id,
@@ -3917,7 +3917,7 @@ export default function GradingPage({
                 if (stopRequestedRef.current) break
                 try {
                   const rr = await gradePhaseA(
-                    sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, assignment?.id,
+                    sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
                     undefined, assignment?.answerSheetMode, sub.id, sub.source
                   )
                   if (rr.pipelineFailure) continue
@@ -4578,7 +4578,7 @@ export default function GradingPage({
             assignment.answerKey!,
             sub.pageBreaks,
             assignment.domain,
-            assignment.id,
+            sub.assignmentId ?? assignment.id,
             undefined,
             assignment.answerSheetMode,
             sub.id,
@@ -4920,7 +4920,7 @@ export default function GradingPage({
                 // answer_type_mismatch 已移除（AI3 一致性判官攔截）
               }
               // 品質重試：重跑完整 gradePhaseA（含 OCR-assist classify）、帶 corrections 提示
-              const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, assignment.id, corrections, assignment.answerSheetMode, sub.id, sub.source)
+              const phaseAResult = await gradePhaseA(sub.imageBlob, assignment.answerKey!, sub.pageBreaks, assignment.domain, sub.assignmentId ?? assignment.id, corrections, assignment.answerSheetMode, sub.id, sub.source)
               return { idx, phaseAResult }
             },
             (i, result, err) => {
@@ -5065,7 +5065,7 @@ export default function GradingPage({
                   assignment.answerKey!,
                   sub.pageBreaks,
                   assignment.domain,
-                  assignment.id,
+                  sub.assignmentId ?? assignment.id,
                   undefined,
                   assignment.answerSheetMode,
                   sub.id,
