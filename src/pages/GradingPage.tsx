@@ -6501,8 +6501,11 @@ export default function GradingPage({
                     const isLowScore = isUnscoredAssignment
                       ? (correctSummary ? correctSummary.ratio < 0.8 : true)
                       : (typeof maxScore === 'number' && maxScore > 0 ? scoreValue < maxScore * 0.8 : scoreValue < 60)
-                    // 2026-06-01: 待複核已折回未擷取、不再有待複核卡片徽章（恆 false、跟另一卡片路徑一致）
-                    const needsReview = deriveCardStage(submission, correctionStatusByStudent[student.id]) === 'pending_review'
+                    // 2026-06-19: 跨班卡片狀態徽章改用與單班相同的 deriveCardStage（補回待批改/已上傳/已掃描等）
+                    const cardStage = deriveCardStage(submission, correctionStatusByStudent[student.id])
+                    const needsReview = cardStage === 'pending_review'
+                    const pendingGrading = cardStage === 'pending_grading'
+                    const showResultBadge = cardStage === 'graded'
                     const isSelected = selectedSubmissionIds.has(submission?.id ?? '')
                     const isStub = isManualGradeStub(submission)
                     return (
@@ -6512,8 +6515,8 @@ export default function GradingPage({
                         // 2026-05-28: scroll perf — 同 flat 模式、批改模式跨班顯示時 100+ 卡片更需要
                         style={{ contentVisibility: 'auto', containIntrinsicSize: '160px 240px' }}
                       >
-                        {/* 勾選框 */}
-                        {submission && hasSubmissionImage(submission) && (
+                        {/* 勾選框：與單班一致、只在進階模式出現 */}
+                        {advancedMode !== null && submission && hasSubmissionImage(submission) && (
                           <div className="absolute top-2 left-2 z-10" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
@@ -6536,22 +6539,34 @@ export default function GradingPage({
                             'border-slate-200 hover:border-slate-300'
                           }`}
                         >
-                          <div className="relative aspect-[3/4] bg-gray-100">
+                          <div className="relative aspect-[4/3] bg-gray-100">
                             <SubmissionThumbnail submission={submission} />
-                            {status === 'graded' && !isStub && (
-                              <div className={`absolute top-1 right-1 rounded-full px-2 py-0.5 text-xs font-bold text-white shadow ${
-                                isLowScore ? 'bg-red-500' : 'bg-green-500'
-                              }`}>
-                                {isUnscoredAssignment && correctSummary ? `${correctSummary.correct}/${correctSummary.total}` : `${scoreValue}分`}
-                              </div>
-                            )}
+                            {/* 狀態徽章：與單班卡片完全一致（deriveCardStage 分支） */}
                             {isStub && (
-                              <div className="absolute top-1 right-1 rounded-full bg-emerald-500 px-2 py-0.5 text-xs font-bold text-white shadow">
-                                已批改
+                              <div className="absolute top-2 right-2 px-2 py-1 bg-emerald-500 text-white rounded-full text-xs font-semibold">已批改</div>
+                            )}
+                            {showResultBadge && !isStub && (
+                              <div className={`absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold ${!isLowScore ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
+                                {isUnscoredAssignment && correctSummary ? `${correctSummary.correct}/${correctSummary.total}` : `${scoreValue} 分`}
                               </div>
                             )}
                             {needsReview && (
-                              <div className="absolute top-1 left-1 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white shadow">複核</div>
+                              <div className="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 border border-amber-200">待複核</div>
+                            )}
+                            {pendingGrading && (
+                              <div className="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">待批改</div>
+                            )}
+                            {cardStage === 'phase_a_failed' && (
+                              <div className="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded-full text-xs font-semibold">擷取失敗</div>
+                            )}
+                            {cardStage === 'phase_b_failed' && (
+                              <div className="absolute top-2 right-2 px-2 py-1 bg-red-500 text-white rounded-full text-xs font-semibold">批改失敗</div>
+                            )}
+                            {status === 'scanned' && (
+                              <div className="absolute top-2 right-2 px-2 py-1 bg-blue-500 text-white rounded-full text-xs font-semibold">已掃描</div>
+                            )}
+                            {cardStage === 'not_extracted' && status === 'synced' && (
+                              <div className="absolute top-2 right-2 px-2 py-1 bg-purple-500 text-white rounded-full text-xs font-semibold">已上傳</div>
                             )}
                           </div>
                           <div className="px-2 py-2 text-left">
