@@ -688,6 +688,25 @@ function _median(arr: number[]): number {
   return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2
 }
 
+// 2026-06-20: 失敗原因安全轉字串。pipelineFailure.userMessage 或 throw 的 err 可能是物件，
+//   直接 `${}` 字串化會變 "[object Object]"（等於沒寫）。依序遞迴找可讀字串欄位、再退 JSON、最後 String()。
+function safeFailMsg(x: unknown, depth = 0): string {
+  if (x == null) return '未知錯誤'
+  if (typeof x === 'string') return x.trim() || '未知錯誤'
+  if (x instanceof Error) return x.message || '未知錯誤'
+  if (typeof x === 'object' && depth < 3) {
+    const o = x as Record<string, unknown>
+    for (const k of ['userMessage', 'message', 'error', 'reason']) {
+      if (o[k] != null) {
+        const r = safeFailMsg(o[k], depth + 1)
+        if (r && r !== '未知錯誤') return r
+      }
+    }
+    try { const s = JSON.stringify(x); if (s && s !== '{}' && s !== '[]') return s } catch { /* noop */ }
+  }
+  return String(x)
+}
+
 type Bbox = { x: number; y: number; w: number; h: number }
 
 // baseline 值帶 n＝有幾份 peer 框到這題（缺框偵測用：多數 peer 都框到、這份卻沒框＝漏定位）。
@@ -2179,7 +2198,7 @@ export default function GradingPage({
         const failReasons = upstreamPhaseAFailures.map((f) => {
           const stu = students.find((s) => s.id === f.studentId)
           const label = stu ? `${stu.seatNumber}號 ${stu.name}` : f.submissionId.slice(0, 8)
-          return `${label}：${f.failure.userMessage} ${f.failure.userAction}`
+          return `${label}：${safeFailMsg(f.failure.userMessage)}${typeof f.failure.userAction === 'string' && f.failure.userAction.trim() ? ' ' + f.failure.userAction.trim() : ''}`
         })
         setBatchPhaseAEntries([])
         setPendingPhaseAFailures([])
@@ -2450,7 +2469,7 @@ export default function GradingPage({
     const upstreamFailReasons = upstreamFails.map((f) => {
       const stu = students.find((s) => s.id === f.studentId)
       const label = stu ? `${stu.seatNumber}號 ${stu.name}` : f.submissionId.slice(0, 8)
-      return `${label}：${f.failure.userMessage} ${f.failure.userAction}`
+      return `${label}：${safeFailMsg(f.failure.userMessage)}${typeof f.failure.userAction === 'string' && f.failure.userAction.trim() ? ' ' + f.failure.userAction.trim() : ''}`
     })
     const totalEntries = entries.length + qualityFails.length + upstreamFails.length
 
@@ -2489,7 +2508,7 @@ export default function GradingPage({
     const upstreamFailReasons = upstreamFails.map((f) => {
       const stu = students.find((s) => s.id === f.studentId)
       const label = stu ? `${stu.seatNumber}號 ${stu.name}` : f.submissionId.slice(0, 8)
-      return `${label}：${f.failure.userMessage} ${f.failure.userAction}`
+      return `${label}：${safeFailMsg(f.failure.userMessage)}${typeof f.failure.userAction === 'string' && f.failure.userAction.trim() ? ' ' + f.failure.userAction.trim() : ''}`
     })
     setBatchPhaseAEntries([])
     setPendingPhaseAFailures([])
@@ -3735,7 +3754,7 @@ export default function GradingPage({
           if (phaseAResult.pipelineFailure) {
             const stu = students.find((s) => s.id === sub.studentId)
             const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
-            failReasons.push(`${label}: ${phaseAResult.pipelineFailure.userMessage}`)
+            failReasons.push(`${label}: ${safeFailMsg(phaseAResult.pipelineFailure)}`)
             failCount++
             failedCandidates.push(sub)
             // 寫入失敗 status、phaseAState 由 server 端 buildFailureReturn 寫入（PR1）
@@ -3874,7 +3893,7 @@ export default function GradingPage({
         } catch (err) {
           const stu = students.find((s) => s.id === sub.studentId)
           const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
-          const msg = err instanceof Error ? err.message : String(err)
+          const msg = safeFailMsg(err)
           failReasons.push(`${label}: ${msg}`)
           failCount++
           failedCandidates.push(sub)
@@ -4231,7 +4250,7 @@ export default function GradingPage({
         } catch (err) {
           const stu = students.find((s) => s.id === sub.studentId)
           const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
-          const msg = err instanceof Error ? err.message : String(err)
+          const msg = safeFailMsg(err)
           failReasons.push(`${label}: ${msg}`)
           failCount++
           console.error(`[gradeOnlyCache] failed for ${sub.id}:`, err)
