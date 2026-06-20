@@ -2437,7 +2437,10 @@ export default function GradingPage({
         setSubmissions((prev) => {
           const next = new Map(prev)
           const sub = Array.from(prev.values()).find((s) => s.id === entry.submissionId)
-          if (sub) next.set(sub.studentId, { ...sub, status: 'graded', score: totalScore, gradingResult })
+          // 2026-06-20: 本地一定要同步寫 gradedAt（+aiScore/scoreSource）。否則 isPhaseAStale 比
+          //   phaseAState.savedAt > gradedAt(=0) → true → deriveCardStage 不顯示「已批改」、卡片卡在「待批改」
+          //   直到 sync 才好。背景批(executeBatchPhaseB)走這條、特別明顯。
+          if (sub) next.set(sub.studentId, { ...sub, status: 'graded', score: totalScore, aiScore: totalScore, scoreSource: 'ai', gradingResult, gradedAt: gradedAtMs, updatedAt: gradedAtMs })
           return next
         })
 
@@ -2491,7 +2494,7 @@ export default function GradingPage({
           setSubmissions((prev) => {
             const next = new Map(prev)
             const sub = Array.from(prev.values()).find((s) => s.id === entry.submissionId)
-            if (sub) next.set(sub.studentId, { ...sub, status: 'graded', score: totalScore, gradingResult })
+            if (sub) next.set(sub.studentId, { ...sub, status: 'graded', score: totalScore, aiScore: totalScore, scoreSource: 'ai', gradingResult, gradedAt: retryGradedAt, updatedAt: retryGradedAt })
             return next
           })
           retrySuccess++
