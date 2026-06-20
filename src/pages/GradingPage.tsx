@@ -1093,12 +1093,14 @@ function GradingPipelineOverlay({
 export function OriginalPageViewer({
   imageBlob,
   pageBreaks,
+  totalPages,
   bbox,
   questionId,
   onClose,
 }: {
   imageBlob: Blob
   pageBreaks?: number[]
+  totalPages?: number  // 2026-06-20: pageBreaks 缺時用總頁數平均切、避免退成整張合併圖
   bbox?: { x: number; y: number; w: number; h: number } | null
   questionId: string
   onClose: () => void
@@ -1121,7 +1123,12 @@ export function OriginalPageViewer({
     img.onload = () => {
       if (cancelled) { URL.revokeObjectURL(srcUrl); return }
       const W = img.naturalWidth, H = img.naturalHeight
-      const breaks = (Array.isArray(pageBreaks) ? pageBreaks : []).filter((n) => typeof n === 'number' && n > 0 && n < 1)
+      let breaks = (Array.isArray(pageBreaks) ? pageBreaks : []).filter((n) => typeof n === 'number' && n > 0 && n < 1)
+      // 2026-06-20: pageBreaks 沒存到 DB（這批 page_breaks=null）時、退成整張合併圖。
+      //   改用總頁數平均切（PDF 各頁高度通常一致、夠準）→ 仍能切出該題那一頁。
+      if (breaks.length === 0 && typeof totalPages === 'number' && totalPages > 1) {
+        breaks = Array.from({ length: totalPages - 1 }, (_, i) => (i + 1) / totalPages)
+      }
       const starts = [0, ...breaks]
       const ends = [...breaks, 1]
       const total = starts.length
@@ -1171,7 +1178,7 @@ export function OriginalPageViewer({
     img.onerror = () => URL.revokeObjectURL(srcUrl)
     img.src = srcUrl
     return () => { cancelled = true; if (outUrl) URL.revokeObjectURL(outUrl) }
-  }, [imageBlob, pageBreaks, bbox])
+  }, [imageBlob, pageBreaks, totalPages, bbox, questionId])
 
   // Esc 關閉
   useEffect(() => {
@@ -1991,6 +1998,8 @@ function BatchConsistencyReviewSection({
         <OriginalPageViewer
           imageBlob={currentEntry.imageBlob}
           pageBreaks={currentEntry.pageBreaks}
+          // pageBreaks 沒存時用總頁數平均切：總頁數＝題號前綴最大值（"4-K-1"→4 頁）
+          totalPages={Math.max(1, ...currentEntry.phaseAResult.questionResults.map((q) => parseInt(String(q.questionId).split('-')[0], 10) || 1))}
           bbox={(viewerQ.answerBbox as { x: number; y: number; w: number; h: number } | undefined) ?? null}
           questionId={viewerQ.questionId}
           onClose={() => setViewerQ(null)}

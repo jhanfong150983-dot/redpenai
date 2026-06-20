@@ -721,6 +721,8 @@ function StudentGradingFlow({
         <OriginalPageViewer
           imageBlob={ctxRef.current.blob}
           pageBreaks={ctxRef.current.pageBreaks}
+          // pageBreaks 沒存時用總頁數平均切：總頁數＝題號前綴最大值
+          totalPages={phaseA ? Math.max(1, ...phaseA.questionResults.map((q) => parseInt(String(q.questionId).split('-')[0], 10) || 1)) : undefined}
           bbox={(viewerQ.answerBbox as { x: number; y: number; w: number; h: number } | undefined) ?? null}
           questionId={viewerQ.questionId}
           onClose={() => setViewerQ(null)}
