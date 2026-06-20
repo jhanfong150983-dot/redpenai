@@ -5732,7 +5732,12 @@ export async function gradePhaseA(
   answerSheetMode?: 'with_questions' | 'answer_only',
   submissionId?: string,
   submissionSource?: string,
-  onStage?: GradingStageCallback
+  onStage?: GradingStageCallback,
+  // 2026-06-20: 拆段控制（成本最佳化）。不傳＝原本一氣呵成跑完 3 call（向後相容）。
+  //   stopAfterClassify：只跑 call 1(classify)、回 { _phaseAClassifyContext }（含 bbox）給 peer 檢查。
+  //   resumeClassifyContext：跳過 call 1、用既有 context 直接跑 call 2(read)+3(arbiter)。
+  //   rerunPageNums：call 1 只重跑這幾頁(1-based)、其餘頁沿用 prior context（需配 resume-less 的 call 1 + 帶 prior）。
+  opts?: { stopAfterClassify?: boolean; resumeClassifyContext?: unknown; rerunPageNums?: number[]; priorClassifyContext?: unknown }
 ): Promise<PhaseAResult> {
   const normalizedAnswerKey = normalizeAnswerKeyShortAnswerDimensions(answerKey, domain)
   // 2026-05-17: ink session 改在每個 call 之前 ensureInkSessionFresh、不在這裡先拿（拆 3 call 後每個都自己刷一次）
@@ -5812,23 +5817,35 @@ export async function gradePhaseA(
   })
 
   // ── Call 1: phase_a_classify ────────────────────────────────────────────
-  onStage?.('classify', 'started')
-  const { sessionId: sid1 } = await ensureInkSessionFresh()
-  const body1 = JSON.stringify({
-    ...baseBody(sid1),
-    routeKey: 'grading.phase_a_classify',
-    answerKey: JSON.stringify(normalizedAnswerKey),
-    ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
-    ...(submissionSource ? { submissionSource } : {}),
-    ...(classifyCorrections && classifyCorrections.length > 0 ? { classifyCorrections } : {})
-  })
-  const r1 = await postPhase(body1)
+  // 2026-06-20: resumeClassifyContext 模式跳過 classify、直接用既有 context 跑 read+arbiter（省 classify 整段）。
   let classifyParsed: any = null
-  if (r1.text) { try { classifyParsed = JSON.parse(r1.text) } catch {} }
+  if (opts?.resumeClassifyContext) {
+    classifyParsed = { phaseAClassifyComplete: true, _phaseAClassifyContext: opts.resumeClassifyContext }
+    onStage?.('classify', 'completed')
+  } else {
+    onStage?.('classify', 'started')
+    const { sessionId: sid1 } = await ensureInkSessionFresh()
+    const body1 = JSON.stringify({
+      ...baseBody(sid1),
+      routeKey: 'grading.phase_a_classify',
+      answerKey: JSON.stringify(normalizedAnswerKey),
+      ...(pageBreaks && pageBreaks.length > 0 ? { pageBreaks } : {}),
+      ...(submissionSource ? { submissionSource } : {}),
+      ...(classifyCorrections && classifyCorrections.length > 0 ? { classifyCorrections } : {}),
+      // 2026-06-20: 只重跑指定頁(②)。server 只 AI-classify 這幾頁、其餘頁沿用 priorClassifyContext。
+      ...(opts?.rerunPageNums && opts.rerunPageNums.length > 0 ? { rerunPageNums: opts.rerunPageNums } : {}),
+      ...(opts?.priorClassifyContext ? { _phaseAClassifyContext: opts.priorClassifyContext } : {})
+    })
+    const r1 = await postPhase(body1)
+    if (r1.text) { try { classifyParsed = JSON.parse(r1.text) } catch {} }
 
-  if (classifyParsed?.pipelineFailure) {
-    console.warn('[gradePhaseA] classify pipelineFailure', classifyParsed.pipelineFailure)
-    return classifyParsed as PhaseAResult
+    if (classifyParsed?.pipelineFailure) {
+      console.warn('[gradePhaseA] classify pipelineFailure', classifyParsed.pipelineFailure)
+      return classifyParsed as PhaseAResult
+    }
+    if (!r1.resp.ok && !classifyParsed) {
+      throw new Error((r1.data as any)?.error || `Phase A classify failed: ${r1.resp.status}`)
+    }
   }
   // 舊版相容：server 一次跑完
   if (classifyParsed?.phaseAComplete) {
@@ -5841,10 +5858,14 @@ export async function gradePhaseA(
     return classifyParsed as PhaseAResult
   }
   if (!classifyParsed?.phaseAClassifyComplete || !classifyParsed?._phaseAClassifyContext) {
-    if (!r1.resp.ok) throw new Error((r1.data as any)?.error || `Phase A classify failed: ${r1.resp.status}`)
     throw new Error('Phase A: classify response missing phaseAClassifyComplete')
   }
   onStage?.('classify', 'completed')
+
+  // 2026-06-20: 只跑到 classify（給 peer 檢查），回 { _phaseAClassifyContext }，不跑 read+arbiter。
+  if (opts?.stopAfterClassify) {
+    return classifyParsed as PhaseAResult
+  }
   console.log('[gradePhaseA] classify 完成 → 進入 read call')
 
   // ── Call 2: phase_a (read) ──────────────────────────────────────────────
