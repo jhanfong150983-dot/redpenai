@@ -7052,8 +7052,11 @@ export default function GradingPage({
                     if (cs === 'correction_failed') return <p className="text-xs font-medium text-rose-600 mt-1">訂正未通過</p>
                     // 已批改 + 有錯題 + 未進入訂正流程 → 提示老師可派發
                     // 全對學生（mistakes 為空）維持空白、不增加雜訊
+                    // 2026-06-20: 用 cardStage(deriveCardStage) 而非原始 submission.status 判斷。
+                    //   原始 status 可能還是 'graded'(之前批過)、但 Phase A 重跑後 stale → cardStage 已是
+                    //   '待批改(pending_grading)'。若用原始 status 會在「待批改」卡片冒出舊錯題的「未派發訂正」=矛盾。
                     const mistakeCount = submission?.gradingResult?.mistakes?.length ?? 0
-                    if (submission?.status === 'graded' && mistakeCount > 0 && !isManualGradeStub(submission)) {
+                    if (cardStage === 'graded' && mistakeCount > 0 && !isManualGradeStub(submission)) {
                       return <p className="text-xs font-medium text-orange-500 mt-1">未派發訂正（{mistakeCount} 題）</p>
                     }
                     return null
