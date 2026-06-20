@@ -1804,9 +1804,15 @@ function BatchConsistencyReviewSection({
   }
 
   // 按學生分組：只收集需審查的學生
-  const needsReviewEntries = entries.filter(e =>
-    e.phaseAResult.questionResults.some(q => isNeedsReview(q))
-  )
+  // 2026-06-20: 依 submissionId 去重——串流 append 或重複進佇列時可能同一份卷出現多次，
+  //   會造成「確認後換到下一個 index 還是同一個學生、永遠複核不完」。去重根治。
+  const seenReviewIds = new Set<string>()
+  const needsReviewEntries = entries.filter(e => {
+    if (!e.phaseAResult.questionResults.some(q => isNeedsReview(q))) return false
+    if (seenReviewIds.has(e.submissionId)) return false
+    seenReviewIds.add(e.submissionId)
+    return true
+  })
   const stableCount = entries.length - needsReviewEntries.length
 
   // 一次一個學生：追蹤目前審查到第幾個
@@ -3891,6 +3897,7 @@ export default function GradingPage({
     if (isStreaming) {
       reviewAppendedCountRef.current = 0
       setReviewStreamingDone(false)
+      setBatchPhaseAEntries([])  // 清掉上一輪殘留、避免複核佇列出現重複/舊卷
       pipelineSemaphoreRef.current = makeSemaphore(gradeConcurrency + 1)
     }
     await runWithConcurrency(
@@ -4061,10 +4068,11 @@ export default function GradingPage({
             const needsRev = newEntry.phaseAResult.questionResults.some((qr) =>
               questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType))
             if (needsRev) {
-              // 需複核 → 進複核佇列、立刻讓老師開始看（不等其他卷批完）
+              // 需複核 → 進複核佇列、立刻讓老師開始看（不等其他卷批完）。
+              //   入口已 setBatchPhaseAEntries([]) 清空、每份 okSub 只處理一次、複核元件又依 submissionId 去重→不會重複。
               reviewAppendedCountRef.current++
               phaseAOnlyReviewModeRef.current = !opts?.chainPhaseB
-              setBatchPhaseAEntries((prev) => [...prev, newEntry])
+              setBatchPhaseAEntries((prev) => (prev.some((e) => e.submissionId === newEntry.submissionId) ? prev : [...prev, newEntry]))
               setGradingPhase('awaiting_review')
             } else {
               // 乾淨 → 立刻排 Phase B（共用 semaphore；加進已背景批清單讓 runOneClickPhaseB 跳過、不重複批）
