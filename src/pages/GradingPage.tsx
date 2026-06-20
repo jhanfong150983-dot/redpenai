@@ -2122,6 +2122,8 @@ export default function GradingPage({
 
   // Phase A/B 批次一致性審查
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
+  // 2026-06-20: 一鍵複核完→等背景 Phase B 批完+結算 的「結算中」loading 遮罩（避免複核畫面消失後一段空窗、老師以為結束了）
+  const [finalizingPhaseB, setFinalizingPhaseB] = useState(false)
   const backgroundPhaseBPromises = useRef<Promise<void>[]>([])
   const [batchPhaseAEntries, setBatchPhaseAEntries] = useState<BatchPhaseAEntry[]>([])
   // 2026-05-18: PR3——審查頁的 mode flag。phaseAOnlyReviewMode=true 時、
@@ -4468,45 +4470,51 @@ export default function GradingPage({
   const runOneClickPhaseB = async () => {
     const ids = oneClickScopeRef.current
     oneClickScopeRef.current = []
-    if (ids.length === 0) return
-    // 2026-06-20 省時：複核期間已背景批的乾淨卷 → 這裡跳過、不重複批；先等它們跑完（卡片/Dexie 都更新好）。
-    const bgIds = oneClickBgGradedIdsRef.current
-    oneClickBgGradedIdsRef.current = new Set()
-    if (backgroundPhaseBPromises.current.length > 0) {
-      await Promise.allSettled(backgroundPhaseBPromises.current)
-      backgroundPhaseBPromises.current = []
-    }
-    let bgSuccess = 0
-    for (const id of bgIds) {
-      const s = await db.submissions.get(id)
-      if (s?.status === 'graded') bgSuccess++
-    }
-    const restIds = ids.filter((id) => !bgIds.has(id))
-    const fresh: Submission[] = []
-    for (const id of restIds) {
-      const s = await db.submissions.get(id)
-      if (s) fresh.push(s)
-    }
-    const gradeable = fresh.filter((s) => {
-      const ps = s.phaseAState as { arbiterDecisions?: unknown[] } | undefined
-      const hasState = !!ps && Array.isArray(ps.arbiterDecisions) && ps.arbiterDecisions.length > 0
-      const failed = !!(s.gradingResult as { pipelineFailure?: unknown } | undefined)?.pipelineFailure
-      // 有 state 一定可批；沒 state 但也沒失敗（Path B 新擷取成功、sync 還沒回，server 端有 state）→ 仍批
-      return hasState || !failed
-    })
-    if (gradeable.length > 0) {
-      // noticeOffset：把背景批的乾淨卷數量加進結果視窗、總數才正確（不 silent → 當一鍵最終 modal）
-      await executeGradeOnlyCache(gradeable, { noticeOffset: { success: bgSuccess, total: bgIds.size } })
-    } else if (bgIds.size > 0) {
-      // 全部都是背景批的乾淨卷（沒有要複核後再批的）→ 直接顯示結果視窗
-      setGradeResultNotice({
-        stopped: false,
-        successCount: bgSuccess,
-        failCount: bgIds.size - bgSuccess,
-        totalCount: bgIds.size,
-        failReasons: [],
-        failedEntries: [],
+    if (ids.length === 0) { setFinalizingPhaseB(false); return }
+    try {
+      // 2026-06-20 省時：複核期間已背景批的乾淨卷 → 這裡跳過、不重複批；先等它們跑完（卡片/Dexie 都更新好）。
+      const bgIds = oneClickBgGradedIdsRef.current
+      oneClickBgGradedIdsRef.current = new Set()
+      if (backgroundPhaseBPromises.current.length > 0) {
+        await Promise.allSettled(backgroundPhaseBPromises.current)
+        backgroundPhaseBPromises.current = []
+      }
+      let bgSuccess = 0
+      for (const id of bgIds) {
+        const s = await db.submissions.get(id)
+        if (s?.status === 'graded') bgSuccess++
+      }
+      const restIds = ids.filter((id) => !bgIds.has(id))
+      const fresh: Submission[] = []
+      for (const id of restIds) {
+        const s = await db.submissions.get(id)
+        if (s) fresh.push(s)
+      }
+      const gradeable = fresh.filter((s) => {
+        const ps = s.phaseAState as { arbiterDecisions?: unknown[] } | undefined
+        const hasState = !!ps && Array.isArray(ps.arbiterDecisions) && ps.arbiterDecisions.length > 0
+        const failed = !!(s.gradingResult as { pipelineFailure?: unknown } | undefined)?.pipelineFailure
+        // 有 state 一定可批；沒 state 但也沒失敗（Path B 新擷取成功、sync 還沒回，server 端有 state）→ 仍批
+        return hasState || !failed
       })
+      if (gradeable.length > 0) {
+        // executeGradeOnlyCache 有自己的 loading 畫面、先收掉「結算中」遮罩交棒
+        setFinalizingPhaseB(false)
+        // noticeOffset：把背景批的乾淨卷數量加進結果視窗、總數才正確（不 silent → 當一鍵最終 modal）
+        await executeGradeOnlyCache(gradeable, { noticeOffset: { success: bgSuccess, total: bgIds.size } })
+      } else if (bgIds.size > 0) {
+        // 全部都是背景批的乾淨卷（沒有要複核後再批的）→ 直接顯示結果視窗
+        setGradeResultNotice({
+          stopped: false,
+          successCount: bgSuccess,
+          failCount: bgIds.size - bgSuccess,
+          totalCount: bgIds.size,
+          failReasons: [],
+          failedEntries: [],
+        })
+      }
+    } finally {
+      setFinalizingPhaseB(false)
     }
   }
 
@@ -4532,6 +4540,7 @@ export default function GradingPage({
         if (enteredReview) return
       }
       // 無待複核（全乾淨）或純 needB → 立刻對全 scope 跑統一 Phase B
+      setFinalizingPhaseB(true)  // 顯示「結算中」遮罩、覆蓋等背景 Phase B+結算的空窗
       await runOneClickPhaseB()
     } catch (e) {
       console.error('[oneClick] error', e)
@@ -6554,6 +6563,28 @@ export default function GradingPage({
           />
         )}
 
+        {/* 2026-06-20: 一鍵複核完→等背景 Phase B 批完+結算 的「結算中」遮罩。
+            蓋住「複核畫面消失→結算視窗出現」之間的空窗、老師才不會以為已經結束。 */}
+        {finalizingPhaseB && (
+          <>
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9998, backdropFilter: 'blur(2px)' }} />
+            <div style={{
+              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 9999,
+              background: '#fff', borderRadius: '1.25rem', boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+              padding: '2rem 2.5rem', minWidth: '420px', maxWidth: '90vw',
+              display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center',
+            }} role="status" aria-live="polite">
+              <span className="inline-block w-8 h-8 border-4 border-purple-400 border-t-transparent rounded-full animate-spin" />
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '1rem', fontWeight: 700, color: '#111827' }}>正在完成批改…</div>
+                <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>
+                  複核完成，正在批改評分與整理結果，請稍候…
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
         {!inkSessionReady && (
           <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl px-4 py-3 text-sm">
             正在建立批改會話，請稍候…
@@ -6661,6 +6692,8 @@ export default function GradingPage({
                   // 一鍵 1c：複核完 → 對全 scope 跑一次統一 Phase B（不顯示 Phase A notice、留給 Phase B 結果視窗）
                   console.log('✅ 全部審查完成（一鍵）→ 對全 scope 跑統一 Phase B')
                   phaseAStashRef.current = null
+                  // 2026-06-20: 顯示「結算中」遮罩、覆蓋「複核畫面消失→結算出現」之間的空窗（老師才不會以為結束了）
+                  setFinalizingPhaseB(true)
                   void runOneClickPhaseB()
                 } else {
                   console.log('✅ 全部審查完成（review only mode）、回卡片列表、不接 Phase B')
