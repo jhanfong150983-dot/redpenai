@@ -2053,6 +2053,8 @@ export default function GradingPage({
   // 流程：先全 Phase A(review-only)→ 複核 →（onAllDone 或無複核時）對「全 scope」跑一次統一 Phase B。
   // 非空 = 目前在一鍵流程中（當 flag 用）；runOneClickPhaseB 跑完清空。
   const oneClickScopeRef = useRef<string[]>([])
+  // 2026-06-20 省時：一鍵流程中「老師複核時就背景批掉」的乾淨卷 ID。runOneClickPhaseB 會跳過這些、不重複批。
+  const oneClickBgGradedIdsRef = useRef<Set<string>>(new Set())
   // 跨 review UI 持有 Phase A pipeline 失敗（最終 dialog 才會顯示）
   const [pendingPhaseAFailures, setPendingPhaseAFailures] = useState<Array<{ submissionId: string; studentId: string; failure: PipelineFailure }>>([])
   const [phaseANeedsReviewCount, setPhaseANeedsReviewCount] = useState(0)
@@ -4013,6 +4015,21 @@ export default function GradingPage({
       console.log(`[recaptureOnly] ${needsReviewEntries.length} 份有 needs_review、進審查頁`)
       // chainPhaseB=true → review-only 關閉、審查完接 Phase B；預設(undefined/false)→ review-only(現行)
       phaseAOnlyReviewModeRef.current = !opts?.chainPhaseB
+      // 2026-06-20 省時：一鍵流程下、老師複核的同時把「不用複核的乾淨卷」在背景先批 Phase B
+      //   （與複核時間重疊＝省掉這段 Phase B 的等待）。複核完 runOneClickPhaseB 會跳過這些已批的卷。
+      //   executeBatchPhaseB(background=true) 不動 grading phase/loading UI（其副作用 state 皆未使用、
+      //   phaseBTotalCount 維持 0 故 notice useEffect 不誤觸），安全在 awaiting_review 期間跑。
+      if (oneClickScopeRef.current.length > 0) {
+        const reviewIds = new Set(needsReviewEntries.map((e) => e.submissionId))
+        const cleanEntries = successfulEntries.filter((e) => !reviewIds.has(e.submissionId))
+        if (cleanEntries.length > 0) {
+          cleanEntries.forEach((e) => oneClickBgGradedIdsRef.current.add(e.submissionId))
+          console.log(`[oneClick] 複核時背景批 ${cleanEntries.length} 份乾淨卷 Phase B`)
+          backgroundPhaseBPromises.current.push(
+            executeBatchPhaseB(cleanEntries, true).catch((err) => console.error('背景批乾淨卷失敗:', err))
+          )
+        }
+      }
       setBatchPhaseAEntries(needsReviewEntries)
       setGradingPhase('awaiting_review')
       // 不顯示 notice、讓老師直接進審查；審查全部完成時用 stash 包 Phase A notice
@@ -4037,7 +4054,7 @@ export default function GradingPage({
     }
   }, [
     inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students,
-    partitionCandidatesByCorrection, clearCorrectionForRerunOnServer
+    partitionCandidatesByCorrection, clearCorrectionForRerunOnServer, executeBatchPhaseB
   ])
 
   // 2026-05-17: Phase B only with fromCache 執行器
@@ -4045,7 +4062,7 @@ export default function GradingPage({
   // 不重跑 Phase A（省 4 min）。對應「批改作業」按鈕觸發。
   // 2026-05-31: opts.silent —「一鍵接著批改」的 needB 步驟用。跑完不跳結果 notice
   //（避免一鍵流程中途彈出 needB 的結果視窗、跟後面 Phase A 的視窗打架）。預設 false=現行。
-  const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean }) => {
+  const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean; noticeOffset?: { success: number; total: number } }) => {
     if (candidates.length === 0) return
     if (inkSessionError) { alert(inkSessionError); return }
     if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
@@ -4258,11 +4275,13 @@ export default function GradingPage({
     setCurrentGradingStudent('')
     requestSync()  // 把 server 端寫的 score / gradingResult 拉回 local
     if (!opts?.silent) {
+      // noticeOffset：把「複核期間已背景批的乾淨卷」數量加進總數、結果視窗才是正確總數。
+      const off = opts?.noticeOffset
       setGradeResultNotice({
         stopped: stopRequestedRef.current,
-        successCount,
-        failCount,
-        totalCount: candidates.length,
+        successCount: successCount + (off?.success ?? 0),
+        failCount: failCount + ((off?.total ?? 0) - (off?.success ?? 0)),
+        totalCount: candidates.length + (off?.total ?? 0),
         failReasons: failReasons.slice(0, 10),
         failedEntries: [],
       })
@@ -4315,8 +4334,21 @@ export default function GradingPage({
     const ids = oneClickScopeRef.current
     oneClickScopeRef.current = []
     if (ids.length === 0) return
+    // 2026-06-20 省時：複核期間已背景批的乾淨卷 → 這裡跳過、不重複批；先等它們跑完（卡片/Dexie 都更新好）。
+    const bgIds = oneClickBgGradedIdsRef.current
+    oneClickBgGradedIdsRef.current = new Set()
+    if (backgroundPhaseBPromises.current.length > 0) {
+      await Promise.allSettled(backgroundPhaseBPromises.current)
+      backgroundPhaseBPromises.current = []
+    }
+    let bgSuccess = 0
+    for (const id of bgIds) {
+      const s = await db.submissions.get(id)
+      if (s?.status === 'graded') bgSuccess++
+    }
+    const restIds = ids.filter((id) => !bgIds.has(id))
     const fresh: Submission[] = []
-    for (const id of ids) {
+    for (const id of restIds) {
       const s = await db.submissions.get(id)
       if (s) fresh.push(s)
     }
@@ -4327,8 +4359,20 @@ export default function GradingPage({
       // 有 state 一定可批；沒 state 但也沒失敗（Path B 新擷取成功、sync 還沒回，server 端有 state）→ 仍批
       return hasState || !failed
     })
-    if (gradeable.length === 0) return
-    await executeGradeOnlyCache(gradeable)  // 不 silent → 結果視窗當一鍵最終 modal
+    if (gradeable.length > 0) {
+      // noticeOffset：把背景批的乾淨卷數量加進結果視窗、總數才正確（不 silent → 當一鍵最終 modal）
+      await executeGradeOnlyCache(gradeable, { noticeOffset: { success: bgSuccess, total: bgIds.size } })
+    } else if (bgIds.size > 0) {
+      // 全部都是背景批的乾淨卷（沒有要複核後再批的）→ 直接顯示結果視窗
+      setGradeResultNotice({
+        stopped: false,
+        successCount: bgSuccess,
+        failCount: bgIds.size - bgSuccess,
+        totalCount: bgIds.size,
+        failReasons: [],
+        failedEntries: [],
+      })
+    }
   }
 
   // 2026-05-31 Phase1c（重做）：一鍵接著批改——把所有未完成的接著批改到完成。
@@ -4344,6 +4388,7 @@ export default function GradingPage({
       return
     }
     oneClickScopeRef.current = scope.map((s) => s.id)
+    oneClickBgGradedIdsRef.current = new Set()
     try {
       const phaseATargets = [...needA, ...needReview]
       if (phaseATargets.length > 0) {
