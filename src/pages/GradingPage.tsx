@@ -3894,7 +3894,11 @@ export default function GradingPage({
     //   乾淨→立刻排 Phase B；需複核→塞進複核佇列(讓老師立刻開始看)，不等全部 read 完。
     //   共用 semaphore：read+arbiter 與 乾淨/複核卷 Phase B 共吃、把同時打 Gemini 的重請求壓住、防 504。
     //   read+arbiter 額外仍受 runWithConcurrency 的 gradeConcurrency 上限（保險：semaphore 萬一失效也不暴衝）。
-    const isStreaming = oneClickScopeRef.current.length > 0
+    // 2026-06-20: user 選穩定版——關掉「邊批邊插進複核」的串流(畫面會在複核↔loading 變來變去)。
+    //   改成：read 全部跑完(五段 overlay+進度)→一次進複核→複核完結算。乾淨卷複核時背景批(Option A)、
+    //   複核卷確認一份立刻背景批一份(Option B)仍保留(下方 success 分支 isStreaming=false 不走串流路由、
+    //   post-loop else 走「一次進複核」、onStudentConfirmed 的 Option B 仍以 oneClickScope 為閘)。
+    const isStreaming = false
     if (isStreaming) {
       reviewAppendedCountRef.current = 0
       setReviewStreamingDone(false)
