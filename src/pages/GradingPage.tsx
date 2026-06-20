@@ -3774,7 +3774,9 @@ export default function GradingPage({
             sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
             undefined, assignment?.answerSheetMode, sub.id, sub.source,
             // 每張 classify 完成就即時 +1（往上跑）；STAGE 2 系統檢查抓到歪的卷會把它 -1 退回重跑、對了再 +1。
-            (stage, event) => bumpStage(stage, event), { stopAfterClassify: true }
+            // clearForRerun：重新截取/重跑 → 請 server 先清空該卷舊的 grading_result/score/graded_at/phase_a_state
+            //   （修「重新截取沒清 server 分數」→ 待批改卡片殘留舊錯題/分數）。
+            (stage, event) => bumpStage(stage, event), { stopAfterClassify: true, clearForRerun: true }
           )
           if (r.pipelineFailure) { await markClassifyFail(sub, safeFailMsg(r.pipelineFailure), r.pipelineFailure); return null }
           const ctx = (r as unknown as { _phaseAClassifyContext?: unknown })._phaseAClassifyContext
