@@ -3631,97 +3631,6 @@ export default function GradingPage({
     // 2026-05-18: 收集成功的 Phase A 結果、跑完判斷有沒有 needs_review、有就帶老師進審查頁
     const successfulEntries: BatchPhaseAEntry[] = []
 
-    // 2026-06-19: peer 漂移偵測後「重跑某份 Phase A」用的存檔工具（只給重跑用、主迴圈不動）。
-    // 鏡像主迴圈成功分支的存檔（details/phaseAState/finalAnswers/畫面更新），回傳更新後的 entry。
-    const buildAndPersistEntry = async (sub: Submission, phaseAResult: BatchPhaseAEntry['phaseAResult']): Promise<BatchPhaseAEntry> => {
-      const detailsFromPhaseA = phaseAResult.questionResults.map((qr) => {
-        const base = {
-          questionId: qr.questionId,
-          questionType: qr.questionType,
-          readAnswer1: qr.readAnswer1,
-          readAnswer2: qr.readAnswer2,
-          arbiterResult: qr.arbiterResult,
-          consistencyStatus: qr.consistencyStatus,
-          answerBbox: qr.answerBbox,
-          answerCropImageUrl: qr.answerCropImageUrl,
-        }
-        const vjPerItem = qr.visualJudgment?.perItem
-        if (['diagram_color', 'map_symbol', 'grid_geometry'].includes(qr.questionType || '')
-          && Array.isArray(vjPerItem) && vjPerItem.length > 0) {
-          const vjItemResults = vjPerItem.map((p) => ({
-            idx: p.idx,
-            label: p.label,
-            verdict: (p.hasMark === 'yes' ? 'pending' : 'blank') as 'pending' | 'blank',
-            reason: p.hasMark === 'yes' ? '有畫（待批改）' : '未作答',
-          }))
-          const anyDrawn = vjItemResults.some((r) => r.verdict !== 'blank')
-          return { ...base, studentAnswer: anyDrawn ? '圖上作答' : '未作答', vjItemResults }
-        }
-        return {
-          ...base,
-          studentAnswer: qr.questionType === 'map_fill'
-            ? ''
-            : (qr.arbiterResult?.finalAnswer || qr.readAnswer1?.studentAnswer || ''),
-        }
-      })
-      const phaseAGradingResult = { details: detailsFromPhaseA } as unknown as Submission['gradingResult']
-      const updatedAtMs = Date.now()
-      const keptManualFA = (Array.isArray(sub.finalAnswers) ? sub.finalAnswers : [])
-        .filter((fa) => fa?.finalAnswerSource === 'manual')
-      const seededDecisions = new Map<string, ConsistencyDecision>()
-      for (const fa of keptManualFA) {
-        seededDecisions.set(fa.questionId, { questionId: fa.questionId, source: 'manual', finalAnswer: fa.finalStudentAnswer ?? '', confirmed: true })
-      }
-      const localPhaseAState: NonNullable<Submission['phaseAState']> = {
-        ...(sub.phaseAState ?? {}),
-        arbiterDecisions: phaseAResult.questionResults.map((qr) => ({
-          questionId: qr.questionId,
-          arbiterStatus: qr.arbiterResult?.arbiterStatus,
-          finalAnswer: qr.arbiterResult?.finalAnswer,
-          consistent: qr.arbiterResult?.consistent,
-        })),
-        savedAt: new Date().toISOString(),
-      }
-      await db.submissions.update(sub.id, {
-        status: 'synced',
-        gradingResult: phaseAGradingResult,
-        phaseAState: localPhaseAState,
-        finalAnswers: keptManualFA,
-        score: undefined,
-        aiScore: undefined,
-        gradedAt: undefined,
-        updatedAt: updatedAtMs
-      })
-      fetch('/api/data/save-final-answers', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ submissions: [{ id: sub.id, finalAnswers: keptManualFA }] })
-      }).catch(() => {/* non-fatal */})
-      setSubmissions((prev) => {
-        const next = new Map(prev)
-        const cur = Array.from(prev.values()).find((s) => s.id === sub.id)
-        if (cur) next.set(cur.studentId, {
-          ...cur,
-          status: 'synced',
-          gradingResult: phaseAGradingResult,
-          phaseAState: localPhaseAState,
-          finalAnswers: keptManualFA,
-          score: undefined,
-          aiScore: undefined,
-          gradedAt: undefined,
-          updatedAt: updatedAtMs
-        })
-        return next
-      })
-      return {
-        submissionId: sub.id,
-        studentId: sub.studentId,
-        phaseAResult,
-        decisions: seededDecisions,
-        imageBlob: sub.imageBlob!,  // 呼叫端(重跑)已 if(!sub?.imageBlob)return null 擋過、保證有圖
-        pageBreaks: sub.pageBreaks,
-      }
-    }
-
     // 2026-06-20: 把 classify-only 結果(_phaseAClassifyContext)包成 peer 檢查用的最小 entry（只需 bbox）。
     //   給「重跑只跑 classify」用：偵測漂移時不必跑完整 Phase A、用 classify context 的 bbox 直接比鄰卷。
     const classifyCtxToEntry = (sub: Submission, ctx: unknown): BatchPhaseAEntry => {
@@ -3738,23 +3647,155 @@ export default function GradingPage({
       } as unknown as BatchPhaseAEntry
     }
 
-    // 2026-06-19: 併發依頁數自動調小——classify 每份是 per-page 並行(Promise.all)、
-    // 「併發數 × 頁數」= 同時打 Gemini 的 call 數。4頁×5份=20 個同時→撞 Vercel 300s 上限→504。
-    // 控制同時 call 數 ≤~10：min(5, floor(10/頁數))，只對 ≥3 頁卷降載、1~2 頁維持 5(不動既有好行為)。
+    // 2026-06-20: 主流程＝classify → 系統檢查(retry 只重跑漂移頁) → read1/read2 → read3(arbiter)。
+    //   三段：先全部只跑 classify、用 peer baseline 抓框歪→只重跑該頁 classify 到對得上鄰卷→確認對了才跑 read。
+    //   好處：漂移卷的 read+arbiter 絕不在歪 bbox 上白跑（連第一輪都不浪費）。
+    // 併發依頁數自動調小——classify 每份 per-page 並行(Promise.all)、併發×頁數=同時打 Gemini 的 call 數、
+    //   4頁×5份=20 撞 Vercel 300s→504。控制 ≤~10：min(5, floor(10/頁數))、只對 ≥3 頁降載。
     const pageCount = Math.max(1, assignment?.totalPages ?? 1)
     const gradeConcurrency = Math.max(1, Math.min(5, Math.floor(10 / pageCount)))
+
+    // 共用失敗標記（classify / 系統檢查階段）：寫 grading_failed、計入失敗、即時更新卡片。
+    const markClassifyFail = async (sub: Submission, reason: string, failure?: import('@/lib/gemini').PipelineFailure) => {
+      const stu = students.find((s) => s.id === sub.studentId)
+      const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+      failReasons.push(`${label}: ${reason}`)
+      failCount++
+      failedCandidates.push(sub)
+      const { failureGradingResult, updatedAt } = await persistGradingFailureFromException(sub.id, reason, failure)
+      setSubmissions((prev) => {
+        const next = new Map(prev)
+        const cur = Array.from(prev.values()).find((s) => s.id === sub.id)
+        if (cur) next.set(cur.studentId, { ...cur, status: 'grading_failed', gradingResult: failureGradingResult, updatedAt })
+        return next
+      })
+    }
+
+    // ── STAGE 1：classify-all（只跑 call1、回 _phaseAClassifyContext）──
+    const classifyCtxBySub = new Map<string, unknown>()
+    const okSubs: Submission[] = []  // 通過 classify(+系統檢查)的卷、進 STAGE 3 跑 read
     await runWithConcurrency(
       candidates, gradeConcurrency, 2000,
       async (sub) => {
         if (stopRequestedRef.current) return null
-        if (!sub.imageBlob) {
-          const stu = students.find((s) => s.id === sub.studentId)
-          const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
-          failReasons.push(`${label}: 無圖片`)
-          failCount++
-          failedCandidates.push(sub)
-          return null
+        if (!sub.imageBlob) { await markClassifyFail(sub, '無圖片'); return null }
+        try {
+          const r = await gradePhaseA(
+            sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
+            undefined, assignment?.answerSheetMode, sub.id, sub.source,
+            (stage, event) => bumpStage(stage, event), { stopAfterClassify: true }
+          )
+          if (r.pipelineFailure) { await markClassifyFail(sub, safeFailMsg(r.pipelineFailure), r.pipelineFailure); return null }
+          const ctx = (r as unknown as { _phaseAClassifyContext?: unknown })._phaseAClassifyContext
+          if (!ctx) { await markClassifyFail(sub, 'classify 無回傳內容、請重試'); return null }
+          classifyCtxBySub.set(sub.id, ctx)
+          okSubs.push(sub)
+          return r
+        } catch (err) { await markClassifyFail(sub, safeFailMsg(err)); return null }
+      },
+      () => {},
+      stopRequestedRef
+    )
+
+    // ── STAGE 2：系統檢查（peer baseline 抓框歪）+ 只重跑漂移頁 classify 到對得上鄰卷 ──
+    {
+      const isPdfBatch = okSubs.length > 0 && okSubs.every((s) => s.source === 'teacher_scan')
+      const peerCheckEnabled = assignment?.answerSheetMode === 'answer_only' || isPdfBatch
+      // peer 基準＝本批 classify 結果 + submissions state 裡已有 bbox 的其他卷（單獨/小批也有基準）
+      const statePeers: BatchPhaseAEntry[] = []
+      for (const s of submissions.values()) {
+        const details = (s.gradingResult as { details?: Array<{ questionId: string; answerBbox?: Bbox; questionType?: string }> } | undefined)?.details
+        if (!Array.isArray(details) || !details.some((d) => d?.answerBbox && typeof d.answerBbox.x === 'number')) continue
+        statePeers.push({
+          submissionId: s.id, studentId: s.studentId,
+          phaseAResult: { questionResults: details.map((d) => ({ questionId: d.questionId, answerBbox: d.answerBbox, questionType: d.questionType })) },
+        } as unknown as BatchPhaseAEntry)
+      }
+      const poolMap = new Map<string, BatchPhaseAEntry>()
+      for (const p of statePeers) poolMap.set(p.submissionId, p)
+      for (const s of okSubs) poolMap.set(s.id, classifyCtxToEntry(s, classifyCtxBySub.get(s.id)))  // 本批 classify 覆蓋同 id
+      const peerPool = [...poolMap.values()]
+      const peerOpts: { dyThreshold?: number; dxThreshold?: number; minOutlierCount?: number; detectMissing?: boolean; peerTotal?: number; missingConsensus?: number } =
+        assignment?.answerSheetMode === 'answer_only'
+          ? {}
+          : { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1, detectMissing: true, peerTotal: Math.max(0, peerPool.length - 1), missingConsensus: 0.7 }
+
+      if (peerCheckEnabled && peerPool.length >= 5 && okSubs.length > 0 && !stopRequestedRef.current) {
+        setGradingMessage('框位比對中…')
+        setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: 0 } }))
+        const trips = okSubs.filter((sub) => {
+          const baseline = computePeerBaseline(peerPool, sub.id)
+          if (baseline.size < 3) return false
+          return checkPeerOutliers(classifyCtxToEntry(sub, classifyCtxBySub.get(sub.id)), baseline, peerOpts).trip
+        })
+        if (trips.length > 0) {
+          setGradingMessage(`偵測到 ${trips.length} 份框位異常、重跑中…`)
+          setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: trips.length } }))
+          const failedIds = new Set<string>()
+          const MAX_RERUN_ATTEMPTS = 3
+          await runWithConcurrency(
+            trips, 3, 2000,
+            async (sub) => {
+              if (stopRequestedRef.current || !sub.imageBlob) return null
+              const baseline = computePeerBaseline(peerPool, sub.id)
+              let ctx = classifyCtxBySub.get(sub.id)
+              // attempt1 全頁 classify-only（無可信 prior）；attempt2-3 只重跑漂移頁(partial、②、用前次 ctx 當 prior）
+              for (let attempt = 1; attempt <= MAX_RERUN_ATTEMPTS; attempt++) {
+                if (stopRequestedRef.current) break
+                const info = checkPeerOutliers(classifyCtxToEntry(sub, ctx), baseline, peerOpts)
+                if (!(baseline.size >= 3 && info.trip)) break  // 已對上鄰卷
+                const driftedPages = [...new Set(info.outlierQids
+                  .map((q) => parseInt(String(q).split('-')[0], 10))
+                  .filter((n) => Number.isFinite(n) && n > 0))]
+                try {
+                  const rr = await gradePhaseA(
+                    sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
+                    undefined, assignment?.answerSheetMode, sub.id, sub.source, undefined,
+                    attempt === 1
+                      ? { stopAfterClassify: true }
+                      : { stopAfterClassify: true, rerunPageNums: driftedPages.length > 0 ? driftedPages : undefined, priorClassifyContext: ctx }
+                  )
+                  if (rr.pipelineFailure) continue
+                  const newCtx = (rr as unknown as { _phaseAClassifyContext?: unknown })._phaseAClassifyContext
+                  if (newCtx) ctx = newCtx
+                } catch (e) { console.error('[PeerCheck/recapture] rerun classify failed', e) }
+              }
+              const finalTrip = baseline.size >= 3 && checkPeerOutliers(classifyCtxToEntry(sub, ctx), baseline, peerOpts).trip
+              if (finalTrip) {
+                failedIds.add(sub.id)
+                await markClassifyFail(sub, '答題位置抓不穩、請重新批改', {
+                  stage: 'classify', reasonCode: 'CLASSIFY_BBOX_PEER_OUTLIER',
+                  userMessage: 'AI 對這張的答題位置抓得不太穩。再批一次多半會好；如果同一張一直這樣，建議看看掃描是否完整、清晰。',
+                  userAction: '', technical: { metrics: { peerOutlier: true } as Record<string, unknown> }
+                })
+                console.warn(`[PeerCheck/recapture] ${sub.id} 重跑仍框位異常、標記失敗`)
+                return null
+              }
+              classifyCtxBySub.set(sub.id, ctx)  // 更新成對上鄰卷的乾淨 context
+              console.log(`[PeerCheck/recapture] ${sub.id} 重跑後框位正常`)
+              return sub.id
+            },
+            () => { setPipelineStageProgress((p) => ({ ...p, quality: { ...p.quality, done: p.quality.done + 1 } })) },
+            stopRequestedRef
+          )
+          if (failedIds.size > 0) {
+            for (let i = okSubs.length - 1; i >= 0; i--) if (failedIds.has(okSubs[i].id)) okSubs.splice(i, 1)
+          }
+        } else {
+          setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 1, total: 1 } }))
         }
+      }
+    }
+
+    // read/arbiter 進度 total 改為通過 classify 的卷數（部分卷可能在 classify/系統檢查失敗）
+    setPipelineStageProgress((p) => ({ ...p, read: { ...p.read, total: okSubs.length }, arbiter: { ...p.arbiter, total: okSubs.length } }))
+
+    // ── STAGE 3：read1 + read2 + read3(arbiter)（resume classify context、不重跑 classify）──
+    await runWithConcurrency(
+      okSubs, gradeConcurrency, 2000,
+      async (sub) => {
+        if (stopRequestedRef.current) return null
+        if (!sub.imageBlob) return null  // okSubs 已保證有圖
         try {
           const phaseAResult = await gradePhaseA(
             sub.imageBlob,
@@ -3766,7 +3807,10 @@ export default function GradingPage({
             assignment?.answerSheetMode,
             sub.id,
             sub.source,
-            (stage, event) => bumpStage(stage, event)
+            // classify 已在 STAGE 1 跑完並通過系統檢查；這裡只跑 read1/read2/read3(arbiter)。
+            // 過濾 classify 事件、避免 resume 模式重複計數 classify 進度。
+            (stage, event) => { if (stage !== 'classify') bumpStage(stage, event) },
+            { resumeClassifyContext: classifyCtxBySub.get(sub.id) }
           )
           if (phaseAResult.pipelineFailure) {
             const stu = students.find((s) => s.id === sub.studentId)
@@ -3933,160 +3977,12 @@ export default function GradingPage({
       },
       (_i, _result) => {
         completedCount++
-        setGradingProgress({ current: completedCount, total: candidates.length })
+        setGradingProgress({ current: completedCount, total: okSubs.length })
       },
       stopRequestedRef
     )
 
-    // ── 2026-06-19: Peer baseline 框位漂移偵測 + 自動重跑（智慧批改 / 重新截取 共用此路徑）──
-    // 版面一致卷(answer_only 或 PDF source=teacher_scan)：用同批其他卷的 per-qid bbox 中位數當基準，
-    // 抓出整欄漂移的卷→自動重跑 Phase A（重跑≈重擲骰子、漂移 ~2-3% 幾乎不會連中、必恢復）。
-    // 照片卷(teacher_camera/student_upload)版面不一致、不啟用以免誤判。門檻校準見 checkPeerOutliers。
-    {
-      const isPdfBatch = candidates.length > 0 && candidates.every((s) => s.source === 'teacher_scan')
-      const peerCheckEnabled = assignment?.answerSheetMode === 'answer_only' || isPdfBatch
-      // 2026-06-20: peer 基準改「同作業已批改的其他卷也算進來」、不只看當批。
-      //   修盲點：失敗卷的(自動)重跑常是「一份一份」跑、當批 <5 原本整個跳過偵測 → 單獨重跑的卷完全沒保護
-      //   (seat25 案例)。從 submissions state 撈已有 bbox 的其他卷補進 pool，單獨/小批也能比對。
-      //   撈不到 bbox(state 沒存)時 pool 不足 → 優雅略過、不退步。
-      const statePeers: BatchPhaseAEntry[] = []
-      for (const s of submissions.values()) {
-        const details = (s.gradingResult as { details?: Array<{ questionId: string; answerBbox?: Bbox; questionType?: string }> } | undefined)?.details
-        if (!Array.isArray(details) || !details.some((d) => d?.answerBbox && typeof d.answerBbox.x === 'number')) continue
-        statePeers.push({
-          submissionId: s.id,
-          studentId: s.studentId,
-          phaseAResult: { questionResults: details.map((d) => ({ questionId: d.questionId, answerBbox: d.answerBbox, questionType: d.questionType })) },
-        } as unknown as BatchPhaseAEntry)
-      }
-      const poolMap = new Map<string, BatchPhaseAEntry>()
-      for (const p of statePeers) poolMap.set(p.submissionId, p)
-      for (const e of successfulEntries) poolMap.set(e.submissionId, e)  // 本批新結果覆蓋同 id
-      const peerPool = [...poolMap.values()]
-
-      const peerOpts: { dyThreshold?: number; dxThreshold?: number; minOutlierCount?: number; detectMissing?: boolean; peerTotal?: number; missingConsensus?: number } =
-        assignment?.answerSheetMode === 'answer_only'
-          ? {}
-          : { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1, detectMissing: true, peerTotal: Math.max(0, peerPool.length - 1), missingConsensus: 0.7 }
-
-      // 標記框位異常卷為 grading_failed（移出成功清單、計入失敗、即時更新卡片）。重跑 1 次仍離群時呼叫。
-      const failPeerOutlier = async (entry: BatchPhaseAEntry) => {
-        const sub = candidates.find((s) => s.id === entry.submissionId)
-        const peerFailure: import('@/lib/gemini').PipelineFailure = {
-          stage: 'classify',
-          reasonCode: 'CLASSIFY_BBOX_PEER_OUTLIER',
-          userMessage: 'AI 對這張的答題位置抓得不太穩。再批一次多半會好；如果同一張一直這樣，建議看看掃描是否完整、清晰。',
-          userAction: '',
-          technical: { metrics: { peerOutlier: true } as Record<string, unknown> }
-        }
-        if (sub) await persistGradingFailureFromException(sub.id, 'peer outlier', peerFailure)
-        const idx = successfulEntries.findIndex((e) => e.submissionId === entry.submissionId)
-        if (idx >= 0) successfulEntries.splice(idx, 1)
-        const stu = students.find((s) => s.id === entry.studentId)
-        const label = stu ? `${stu.seatNumber}號 ${stu.name}` : entry.submissionId.slice(-8)
-        failReasons.push(`${label}: 答題位置抓不穩、請重新批改`)
-        failCount++
-        if (sub) failedCandidates.push(sub)
-        setSubmissions((prev) => {
-          const next = new Map(prev)
-          const cur = Array.from(prev.values()).find((s) => s.id === entry.submissionId)
-          if (cur) next.set(cur.studentId, { ...cur, status: 'grading_failed', updatedAt: Date.now() })
-          return next
-        })
-      }
-
-      if (peerCheckEnabled && peerPool.length >= 5 && successfulEntries.length > 0 && !stopRequestedRef.current) {
-        setGradingMessage('框位比對中…')
-        setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: 0 } }))
-        const trips = successfulEntries.filter((entry) => {
-          const baseline = computePeerBaseline(peerPool, entry.submissionId)
-          if (baseline.size < 3) return false
-          return checkPeerOutliers(entry, baseline, peerOpts).trip
-        })
-        if (trips.length > 0) {
-          setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: trips.length } }))
-          // 2026-06-20: 不分批大小——一律用 peer pool(含同作業其他已批改卷)當基準、重跑到對得上鄰卷為止(上限 3)。
-          //   漂移實證＝模型隨機 off-by-one(同圖同 model 約 50% 機率抽歪、2-E 這種均勻清單段最常中)；
-          //   鄰卷中位數已是正解，重跑挑「不再 outlier」的那次收下即可(座標仍 AI 自產、不違反不可外部覆寫)。
-          //   只重跑 1 次時兩次都歪≈25% 會冤枉成失敗卡；上限 3 次失敗率降到 ≈0.5³≈6%。系統性(3 次全歪)才失敗卡。
-          {
-            console.warn(`[PeerCheck/recapture] ${trips.length} 份框位異常、自動重跑 Phase A`, trips.map((t) => t.submissionId))
-            setGradingMessage(`偵測到 ${trips.length} 份框位異常、重跑中…`)
-            const MAX_RERUN_ATTEMPTS = 3
-            await runWithConcurrency(
-              trips, 3, 2000,
-              async (entry) => {
-                if (stopRequestedRef.current) return null
-                const sub = candidates.find((s) => s.id === entry.submissionId)
-                if (!sub?.imageBlob) return null
-                const baseline = computePeerBaseline(peerPool, entry.submissionId)
-                // 2026-06-20 成本最佳化：重跑「只跑 classify」、對上鄰卷後才 resume read+arbiter 一次。
-                //   attempt 1：全頁 classify-only(無可信 prior)；attempt 2-3：只重跑漂移頁(partial、②)、
-                //   用前一次的 classify context 當 prior、省掉重跑其他頁。漂移＝模型隨機 off-by-one，重擲到對。
-                let ctx: unknown = null
-                for (let attempt = 1; attempt <= MAX_RERUN_ATTEMPTS; attempt++) {
-                  if (stopRequestedRef.current) break
-                  try {
-                    let rr: PhaseAResult
-                    if (attempt === 1 || !ctx) {
-                      rr = await gradePhaseA(
-                        sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
-                        undefined, assignment?.answerSheetMode, sub.id, sub.source, undefined,
-                        { stopAfterClassify: true }
-                      )
-                    } else {
-                      const info = checkPeerOutliers(classifyCtxToEntry(sub, ctx), baseline, peerOpts)
-                      const driftedPages = [...new Set(info.outlierQids
-                        .map((q) => parseInt(String(q).split('-')[0], 10))
-                        .filter((n) => Number.isFinite(n) && n > 0))]
-                      rr = await gradePhaseA(
-                        sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
-                        undefined, assignment?.answerSheetMode, sub.id, sub.source, undefined,
-                        { stopAfterClassify: true, rerunPageNums: driftedPages.length > 0 ? driftedPages : undefined, priorClassifyContext: ctx }
-                      )
-                    }
-                    if (rr.pipelineFailure) continue
-                    const newCtx = (rr as unknown as { _phaseAClassifyContext?: unknown })._phaseAClassifyContext
-                    if (!newCtx) continue
-                    ctx = newCtx
-                    const stillTrips = baseline.size >= 3 &&
-                      checkPeerOutliers(classifyCtxToEntry(sub, ctx), baseline, peerOpts).trip
-                    if (!stillTrips) {
-                      // classify 對上鄰卷 → 只此時才跑 read+arbiter（resume、不重跑 classify）
-                      const full = await gradePhaseA(
-                        sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
-                        undefined, assignment?.answerSheetMode, sub.id, sub.source, (stage, event) => bumpStage(stage, event),
-                        { resumeClassifyContext: ctx }
-                      )
-                      if (full.pipelineFailure) { await failPeerOutlier(entry); return null }
-                      const newEntry = await buildAndPersistEntry(sub, full)
-                      console.log(`[PeerCheck/recapture] ${entry.submissionId} 重跑後框位正常（attempt=${attempt}）`)
-                      return { submissionId: entry.submissionId, newEntry }
-                    }
-                  } catch (e) {
-                    console.error('[PeerCheck/recapture] rerun failed', e)
-                  }
-                }
-                // 上限內都對不上鄰卷＝系統性→在 callback 內(已 await)標失敗、避免收尾後才寫入 failReasons
-                console.warn(`[PeerCheck/recapture] ${entry.submissionId} 重跑仍框位異常、標記失敗`)
-                await failPeerOutlier(entry)
-                return null
-              },
-              (_i, result) => {
-                setPipelineStageProgress((p) => ({ ...p, quality: { ...p.quality, done: p.quality.done + 1 } }))
-                if (!result) return
-                const idx = successfulEntries.findIndex((e) => e.submissionId === result.submissionId)
-                if (idx >= 0) successfulEntries[idx] = result.newEntry
-              },
-              stopRequestedRef
-            )
-          }
-        } else {
-          // 無漂移：品質檢查標記完成 → overlay「已複查 ✓」
-          setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 1, total: 1 } }))
-        }
-      }
-    }
+    // ── (舊) Peer baseline 偵測+重跑：已移到 STAGE 1/2（classify→系統檢查→read 之前）、此處整段移除 ──
 
     setIsGrading(false)
     setCurrentGradingStudent('')
