@@ -645,7 +645,11 @@ export function buildFinalAnswerForQR(qr: PhaseAQuestionResult, decision: Consis
   const src = decision?.source ?? 'ai_read1'
   return {
     questionId: qr.questionId,
-    finalStudentAnswer: src === 'unrecognizable' ? '無法辨識' : src === 'blank' ? '' : (decision?.finalAnswer ?? qr.readAnswer1.studentAnswer),
+    // 2026-06-20: qr.readAnswer1 可能 undefined（word_problem/calculation 等走 finalAnswerOnly read、
+    //   或某題沒讀到 → 不設 readAnswer1）。原本直接 .studentAnswer 會丟 TypeError、
+    //   讓 onStudentConfirmed 整個 throw → handleConfirmAndNext 的 await 被 reject(fire-and-forget)
+    //   → 後面的「下一位 / onAllDone」都不執行 →「確認送出沒反應」。改用可選鏈 + 預設空字串。
+    finalStudentAnswer: src === 'unrecognizable' ? '無法辨識' : src === 'blank' ? '' : (decision?.finalAnswer ?? qr.readAnswer1?.studentAnswer ?? ''),
     finalAnswerSource: src === 'blank' ? 'manual' : src,
   }
 }
@@ -1827,7 +1831,13 @@ function BatchConsistencyReviewSection({
     // 2026-06-01: 必須 await——onStudentConfirmed 會把複核後的 finalAnswers 寫進 Dexie，
     //   onAllDone→runOneClickPhaseB 會從 Dexie 重讀；不 await 會 race（讀到舊值、複核答案遺失、
     //   needs_review 題被 Phase B 判「無法辨識」0 分）。
-    await onStudentConfirmed(currentEntry)
+    // 2026-06-20: try/catch 防呆——onStudentConfirmed 萬一拋錯（存檔失敗等），仍要往下推進、
+    //   不能讓「下一位 / onAllDone」整個不執行 →「確認送出沒反應」卡住老師。
+    try {
+      await onStudentConfirmed(currentEntry)
+    } catch (err) {
+      console.error('[review] onStudentConfirmed 失敗、仍繼續推進避免卡住:', err)
+    }
     if (currentReviewIdx < needsReviewEntries.length - 1) {
       setCurrentReviewIdx(prev => prev + 1)
       // 切換學生後滾到審查區塊頂部，從第一題開始看
