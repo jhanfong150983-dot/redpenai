@@ -6490,6 +6490,17 @@ export default function GradingPage({
                   credentials: 'include',
                   body: JSON.stringify({ submissions: [{ id: entry.submissionId, finalAnswers }] })
                 }).catch((err) => console.warn('save-final-answers failed (non-fatal):', err))
+                // 2026-06-20 省時（只限智慧批改一條龍、oneClickScopeRef 非空）：確認一份就立刻背景批那份
+                //   （用剛存好的複核答案、entry.decisions），與後續複核時間重疊。加進已背景批清單→
+                //   onAllDone 的 runOneClickPhaseB 會跳過、不重複批、結果視窗用 offset 補回總數。
+                //   一般「重新截取」(非一鍵、oneClickScopeRef 空) 不觸發、維持 review-only 不自動批。
+                if (oneClickScopeRef.current.length > 0) {
+                  console.log(`✅ 學生 ${entry.studentId} 複核確認（一鍵）→ 立刻背景批 Phase B`)
+                  oneClickBgGradedIdsRef.current.add(entry.submissionId)
+                  backgroundPhaseBPromises.current.push(
+                    executeBatchPhaseB([entry], true).catch((err) => console.error('背景批複核卷失敗:', err))
+                  )
+                }
               } else {
                 // 一條龍 legacy mode：背景接 Phase B
                 console.log(`✅ 學生 ${entry.studentId} 確認完成，送 Accessor`)
