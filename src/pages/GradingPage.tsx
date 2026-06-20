@@ -1823,61 +1823,51 @@ function BatchConsistencyReviewSection({
   const stableCount = entries.length - needsReviewEntries.length
 
   // 一次一個學生：追蹤目前審查到第幾個
-  const [currentReviewIdx, setCurrentReviewIdx] = useState(0)
-  const [confirmedStudentIds, setConfirmedStudentIds] = useState<Set<string>>(new Set())
+  // 2026-06-20: 改用「待複核佇列」模型（不再用索引）——永遠顯示「第一個還沒確認的卷」、
+  //   確認一個就從佇列消失、自動換下一個。串流邊批邊進佇列也不會有索引錯位/閃現/卡住。
+  const [confirmedSubIds, setConfirmedSubIds] = useState<Set<string>>(new Set())
   // 2026-06-01 Phase4: 「看原圖」檢視器當前題（用 currentEntry 的圖 + pageBreaks）
   const [viewerQ, setViewerQ] = useState<PhaseAQuestionResult | null>(null)
 
-  const currentEntry = needsReviewEntries[currentReviewIdx]
+  const pendingEntries = needsReviewEntries.filter(e => !confirmedSubIds.has(e.submissionId))
+  const totalReview = needsReviewEntries.length
+  const doneReview = totalReview - pendingEntries.length
+  const currentEntry = pendingEntries[0]  // 永遠是第一個還沒確認的
   const currentReviewQs = currentEntry
     ? currentEntry.phaseAResult.questionResults.filter(q => isNeedsReview(q))
     : []
   const currentAllConfirmed = currentEntry
     ? currentReviewQs.every(q => currentEntry.decisions.get(q.questionId)?.confirmed)
     : false
+  const allDone = pendingEntries.length === 0  // 沒有待確認的卷
 
   const reviewSectionRef = useRef<HTMLDivElement>(null)
 
   const handleConfirmAndNext = async () => {
     if (!currentEntry) return
-    setConfirmedStudentIds(prev => new Set([...prev, currentEntry.studentId]))
+    // 標記這份已確認 → pendingEntries[0] 自動換成下一個還沒確認的（不需手動 advance、無索引錯位）
+    setConfirmedSubIds(prev => new Set([...prev, currentEntry.submissionId]))
     // 2026-06-01: 必須 await——onStudentConfirmed 會把複核後的 finalAnswers 寫進 Dexie，
-    //   onAllDone→runOneClickPhaseB 會從 Dexie 重讀；不 await 會 race（讀到舊值、複核答案遺失、
-    //   needs_review 題被 Phase B 判「無法辨識」0 分）。
-    // 2026-06-20: try/catch 防呆——onStudentConfirmed 萬一拋錯（存檔失敗等），仍要往下推進、
-    //   不能讓「下一位 / onAllDone」整個不執行 →「確認送出沒反應」卡住老師。
+    //   onAllDone→runOneClickPhaseB 會從 Dexie 重讀；不 await 會 race（讀到舊值、複核答案遺失）。
+    // 2026-06-20: try/catch 防呆——onStudentConfirmed 萬一拋錯，仍要繼續、不能卡住老師。
     try {
       await onStudentConfirmed(currentEntry)
     } catch (err) {
       console.error('[review] onStudentConfirmed 失敗、仍繼續推進避免卡住:', err)
     }
-    if (currentReviewIdx < needsReviewEntries.length - 1) {
-      setCurrentReviewIdx(prev => prev + 1)
-      // 切換學生後滾到審查區塊頂部，從第一題開始看
-      setTimeout(() => reviewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
-    }
-    // 收尾（onAllDone）不在這裡呼叫——交給下方 useEffect：串流時要等「read+arbiter 全跑完(streamingDone)
-    // ＋全部已確認」才收尾，避免老師太快確認完目前這份就提早觸發最終 Phase B。
+    setTimeout(() => reviewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
+    // 收尾（onAllDone）交給下方 useEffect：串流要等 streamingDone（read+arbiter 全完）＋佇列清空才收尾。
   }
 
-  const allDone = confirmedStudentIds.size >= needsReviewEntries.length
-
-  // 2026-06-20 串流複核：(1) 目前這份已確認、後面又串流進新的待複核卷 → 自動前進到下一份；
-  //   (2) streamingDone(read+arbiter 全完) ＋ 全部確認 → 收尾一次。非串流時 streamingDone 恆 true、
-  //   等同舊行為（確認完最後一份就收尾）。
+  // 串流結束(streamingDone) ＋ 待複核佇列清空 → 收尾一次。非串流時 streamingDone 恆 true（確認完即收尾）。
   const allDoneFiredRef = useRef(false)
   useEffect(() => {
-    if (currentEntry && confirmedStudentIds.has(currentEntry.studentId)
-      && currentReviewIdx < needsReviewEntries.length - 1) {
-      setCurrentReviewIdx(i => i + 1)
-      setTimeout(() => reviewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
-    }
     if (!allDoneFiredRef.current && streamingDone
-      && needsReviewEntries.length > 0 && confirmedStudentIds.size >= needsReviewEntries.length) {
+      && needsReviewEntries.length > 0 && pendingEntries.length === 0) {
       allDoneFiredRef.current = true
       onAllDone()
     }
-  }, [needsReviewEntries.length, confirmedStudentIds, currentReviewIdx, currentEntry, streamingDone, onAllDone])
+  }, [needsReviewEntries.length, pendingEntries.length, streamingDone, onAllDone])
 
   return (
     <div ref={reviewSectionRef} className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
@@ -1908,7 +1898,7 @@ function BatchConsistencyReviewSection({
       )}
 
       {/* 2026-06-20 串流：目前需複核的都看完了、但還有卷在批改 → 蓋全螢幕 loading 遮罩等下一份。
-          複核元件本身不卸載(維持在 DOM 底下、currentReviewIdx/confirmedStudentIds 不掉)、
+          複核元件本身不卸載(維持在 DOM 底下、confirmedSubIds/佇列狀態不掉)、
           新複核卷串流進來→caught-up 變 false→遮罩消失→複核畫面浮現。 */}
       {!streamingDone && allDone && needsReviewEntries.length > 0 && (
         <>
@@ -1945,7 +1935,7 @@ function BatchConsistencyReviewSection({
                 <span className="text-xs text-gray-500">({currentReviewQs.length} 題待確認)</span>
               </div>
               <span className="text-xs text-gray-500">
-                {currentReviewIdx + 1}/{needsReviewEntries.length}
+                {doneReview + 1}/{totalReview}
               </span>
             </div>
 
@@ -1971,9 +1961,9 @@ function BatchConsistencyReviewSection({
               className="w-full py-2.5 rounded-xl bg-purple-600 text-white font-bold text-sm hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               {currentAllConfirmed
-                ? currentReviewIdx < needsReviewEntries.length - 1
-                  ? `確認送出 → 下一位（${currentReviewIdx + 2}/${needsReviewEntries.length}）`
-                  : '確認送出（最後一位）'
+                ? pendingEntries.length > 1
+                  ? `確認送出 → 下一位（還有 ${pendingEntries.length - 1} 位）`
+                  : '確認送出'
                 : `請先選擇所有題目的答案`}
             </button>
           </div>
