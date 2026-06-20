@@ -3683,7 +3683,8 @@ export default function GradingPage({
           const r = await gradePhaseA(
             sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
             undefined, assignment?.answerSheetMode, sub.id, sub.source,
-            (stage, event) => bumpStage(stage, event), { stopAfterClassify: true }
+            // 只記 classify 「開始」；「完成 +1」改在 STAGE 2 通過系統檢查(retry 到正確)後才記。
+            (stage, event) => { if (event === 'started') bumpStage(stage, event) }, { stopAfterClassify: true }
           )
           if (r.pipelineFailure) { await markClassifyFail(sub, safeFailMsg(r.pipelineFailure), r.pipelineFailure); return null }
           const ctx = (r as unknown as { _phaseAClassifyContext?: unknown })._phaseAClassifyContext
@@ -3722,15 +3723,16 @@ export default function GradingPage({
 
       if (peerCheckEnabled && peerPool.length >= 5 && okSubs.length > 0 && !stopRequestedRef.current) {
         setGradingMessage('框位比對中…')
-        setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: 0 } }))
         const trips = okSubs.filter((sub) => {
           const baseline = computePeerBaseline(peerPool, sub.id)
           if (baseline.size < 3) return false
           return checkPeerOutliers(classifyCtxToEntry(sub, classifyCtxBySub.get(sub.id)), baseline, peerOpts).trip
         })
+        const tripIds = new Set(trips.map((s) => s.id))
+        // 沒漂移的卷＝classify 已通過系統檢查 → 記 classify 完成 +1（系統檢查算進 classify 階段、不另立一格）
+        for (const s of okSubs) if (!tripIds.has(s.id)) bumpStage('classify', 'completed')
         if (trips.length > 0) {
           setGradingMessage(`偵測到 ${trips.length} 份框位異常、重跑中…`)
-          setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: trips.length } }))
           const failedIds = new Set<string>()
           const MAX_RERUN_ATTEMPTS = 3
           await runWithConcurrency(
@@ -3772,23 +3774,31 @@ export default function GradingPage({
                 return null
               }
               classifyCtxBySub.set(sub.id, ctx)  // 更新成對上鄰卷的乾淨 context
+              bumpStage('classify', 'completed')  // 重跑到對得上鄰卷 → 此時才記 classify 完成 +1
               console.log(`[PeerCheck/recapture] ${sub.id} 重跑後框位正常`)
               return sub.id
             },
-            () => { setPipelineStageProgress((p) => ({ ...p, quality: { ...p.quality, done: p.quality.done + 1 } })) },
+            () => {},
             stopRequestedRef
           )
           if (failedIds.size > 0) {
             for (let i = okSubs.length - 1; i >= 0; i--) if (failedIds.has(okSubs[i].id)) okSubs.splice(i, 1)
           }
-        } else {
-          setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 1, total: 1 } }))
         }
+      } else {
+        // 沒做系統檢查(照片卷/小批量 pool<5)：classify 無從比對、直接視為完成、記 +1
+        okSubs.forEach(() => bumpStage('classify', 'completed'))
       }
     }
 
-    // read/arbiter 進度 total 改為通過 classify 的卷數（部分卷可能在 classify/系統檢查失敗）
-    setPipelineStageProgress((p) => ({ ...p, read: { ...p.read, total: okSubs.length }, arbiter: { ...p.arbiter, total: okSubs.length } }))
+    // classify/read/arbiter 進度 total 改為通過系統檢查的卷數（part 卷可能 classify/系統檢查失敗）。
+    //   classify 的 done 在 STAGE 2「通過系統檢查」時才 +1、故 done 會等於 okSubs.length=total → 顯示完成。
+    setPipelineStageProgress((p) => ({
+      ...p,
+      classify: { ...p.classify, total: okSubs.length },
+      read: { ...p.read, total: okSubs.length },
+      arbiter: { ...p.arbiter, total: okSubs.length },
+    }))
 
     // ── STAGE 3：read1 + read2 + read3(arbiter)（resume classify context、不重跑 classify）──
     await runWithConcurrency(
