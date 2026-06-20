@@ -1884,12 +1884,27 @@ function BatchConsistencyReviewSection({
         </div>
       )}
 
-      {/* 2026-06-20 串流：目前的都複核完了、但還有卷在批改 → 等待下一份串流進來 */}
+      {/* 2026-06-20 串流：目前需複核的都看完了、但還有卷在批改 → 蓋全螢幕 loading 遮罩等下一份。
+          複核元件本身不卸載(維持在 DOM 底下、currentReviewIdx/confirmedStudentIds 不掉)、
+          新複核卷串流進來→caught-up 變 false→遮罩消失→複核畫面浮現。 */}
       {!streamingDone && allDone && needsReviewEntries.length > 0 && (
-        <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-700 flex items-center gap-2">
-          <span className="inline-block w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
-          <span>目前的都複核完了，還有卷正在批改中…批好需要複核的會自動出現。</span>
-        </div>
+        <>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9998, backdropFilter: 'blur(2px)' }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', zIndex: 9999,
+            background: '#fff', borderRadius: '1.25rem', boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+            padding: '2rem 2.5rem', minWidth: '420px', maxWidth: '90vw',
+            display: 'flex', flexDirection: 'column', gap: '1rem', alignItems: 'center',
+          }} role="status" aria-live="polite">
+            <span className="inline-block w-8 h-8 border-4 border-purple-400 border-t-transparent rounded-full animate-spin" />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '1rem', fontWeight: 700, color: '#111827' }}>批改中…</div>
+              <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>
+                目前需要複核的都看完了，還有卷正在批改。批好需要複核的會自動跳出來。
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {/* 當前審查的學生 — 一次一個 */}
@@ -1942,8 +1957,8 @@ function BatchConsistencyReviewSection({
         )
       })()}
 
-      {/* 全部審查完 */}
-      {allDone && (
+      {/* 全部審查完（串流時要等 streamingDone 才算真的完成、否則只是目前這批看完、還有卷在串流） */}
+      {allDone && streamingDone && (
         <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-700 flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 shrink-0 text-green-500" />
           <span>
