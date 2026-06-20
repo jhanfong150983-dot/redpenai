@@ -71,6 +71,27 @@ function getRandomGradingMessage(): string {
  * @param fn 每個項目的處理函式，回傳 { ok, result?, error? }
  * @param onDone 每個項目完成時的 callback（可更新 UI 進度）
  */
+// 2026-06-20: 共用併發限制器（令牌桶）。串流管線中 read+arbiter / 乾淨卷 PhaseB / 複核卷 PhaseB
+//   共用同一個 semaphore、把同時打 Gemini 的重請求總量壓住，避免撞 Gemini/Vercel 300s → 504。
+function makeSemaphore(max: number) {
+  let active = 0
+  const waiters: Array<() => void> = []
+  const acquire = (): Promise<void> =>
+    new Promise((resolve) => {
+      if (active < max) { active++; resolve() } else waiters.push(resolve)
+    })
+  const release = () => {
+    active = Math.max(0, active - 1)
+    const next = waiters.shift()
+    if (next) { active++; next() }
+  }
+  const run = async <T,>(fn: () => Promise<T>): Promise<T> => {
+    await acquire()
+    try { return await fn() } finally { release() }
+  }
+  return { run }
+}
+
 async function runWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
@@ -1756,6 +1777,7 @@ function BatchConsistencyReviewSection({
   onAllDone,
   phaseBScoredCount = 0,
   phaseBTotalCount = 0,
+  streamingDone = true,
 }: {
   entries: BatchPhaseAEntry[]
   allStudents: Student[]
@@ -1764,6 +1786,9 @@ function BatchConsistencyReviewSection({
   onAllDone: () => void
   phaseBScoredCount?: number
   phaseBTotalCount?: number
+  // 2026-06-20 串流：false=還有卷在 read+arbiter、複核完目前的也先別收尾(防提早觸發最終 PhaseB)。
+  //   預設 true=非串流(一般重新截取)、行為與舊版相同。
+  streamingDone?: boolean
 }) {
   // isPhaseBRunning 不再使用（Accessor 在背景跑）
   // Helper: determine if a question needs human review
@@ -1807,13 +1832,29 @@ function BatchConsistencyReviewSection({
       setCurrentReviewIdx(prev => prev + 1)
       // 切換學生後滾到審查區塊頂部，從第一題開始看
       setTimeout(() => reviewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
-    } else {
-      // 全部審查完
-      onAllDone()
     }
+    // 收尾（onAllDone）不在這裡呼叫——交給下方 useEffect：串流時要等「read+arbiter 全跑完(streamingDone)
+    // ＋全部已確認」才收尾，避免老師太快確認完目前這份就提早觸發最終 Phase B。
   }
 
   const allDone = confirmedStudentIds.size >= needsReviewEntries.length
+
+  // 2026-06-20 串流複核：(1) 目前這份已確認、後面又串流進新的待複核卷 → 自動前進到下一份；
+  //   (2) streamingDone(read+arbiter 全完) ＋ 全部確認 → 收尾一次。非串流時 streamingDone 恆 true、
+  //   等同舊行為（確認完最後一份就收尾）。
+  const allDoneFiredRef = useRef(false)
+  useEffect(() => {
+    if (currentEntry && confirmedStudentIds.has(currentEntry.studentId)
+      && currentReviewIdx < needsReviewEntries.length - 1) {
+      setCurrentReviewIdx(i => i + 1)
+      setTimeout(() => reviewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
+    }
+    if (!allDoneFiredRef.current && streamingDone
+      && needsReviewEntries.length > 0 && confirmedStudentIds.size >= needsReviewEntries.length) {
+      allDoneFiredRef.current = true
+      onAllDone()
+    }
+  }, [needsReviewEntries.length, confirmedStudentIds, currentReviewIdx, currentEntry, streamingDone, onAllDone])
 
   return (
     <div ref={reviewSectionRef} className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
@@ -1840,6 +1881,14 @@ function BatchConsistencyReviewSection({
         <div className="rounded-lg bg-green-50 border border-green-200 px-4 py-2.5 text-sm text-green-700 flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 shrink-0 text-green-500" />
           <span><strong>{stableCount} 位</strong>同學答案一致，自動評分中</span>
+        </div>
+      )}
+
+      {/* 2026-06-20 串流：目前的都複核完了、但還有卷在批改 → 等待下一份串流進來 */}
+      {!streamingDone && allDone && needsReviewEntries.length > 0 && (
+        <div className="rounded-lg bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-700 flex items-center gap-2">
+          <span className="inline-block w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
+          <span>目前的都複核完了，還有卷正在批改中…批好需要複核的會自動出現。</span>
         </div>
       )}
 
@@ -2055,6 +2104,12 @@ export default function GradingPage({
   const oneClickScopeRef = useRef<string[]>([])
   // 2026-06-20 省時：一鍵流程中「老師複核時就背景批掉」的乾淨卷 ID。runOneClickPhaseB 會跳過這些、不重複批。
   const oneClickBgGradedIdsRef = useRef<Set<string>>(new Set())
+  // 2026-06-20 串流管線（只智慧批改）：read+arbiter/乾淨PhaseB/複核PhaseB 共用的併發限制器。
+  const pipelineSemaphoreRef = useRef<ReturnType<typeof makeSemaphore> | null>(null)
+  // STAGE 3 串流是否全部 read+arbiter 跑完（給複核元件當「可以收尾」閘門、防提早觸發最終 PhaseB）。
+  const [reviewStreamingDone, setReviewStreamingDone] = useState(true)
+  // 本次串流是否有任何需複核卷進過佇列（決定 executeRecaptureOnly 回傳 true=有複核 / false=直接收尾）。
+  const reviewAppendedCountRef = useRef(0)
   // 跨 review UI 持有 Phase A pipeline 失敗（最終 dialog 才會顯示）
   const [pendingPhaseAFailures, setPendingPhaseAFailures] = useState<Array<{ submissionId: string; studentId: string; failure: PipelineFailure }>>([])
   const [phaseANeedsReviewCount, setPhaseANeedsReviewCount] = useState(0)
@@ -3800,14 +3855,25 @@ export default function GradingPage({
     }))
 
     // ── STAGE 3：read1 + read2 + read3(arbiter)（resume classify context、不重跑 classify）──
+    // 2026-06-20 串流（只智慧批改 oneClickScope 非空）：read+arbiter 一份完就分流——
+    //   乾淨→立刻排 Phase B；需複核→塞進複核佇列(讓老師立刻開始看)，不等全部 read 完。
+    //   共用 semaphore：read+arbiter 與 乾淨/複核卷 Phase B 共吃、把同時打 Gemini 的重請求壓住、防 504。
+    //   read+arbiter 額外仍受 runWithConcurrency 的 gradeConcurrency 上限（保險：semaphore 萬一失效也不暴衝）。
+    const isStreaming = oneClickScopeRef.current.length > 0
+    if (isStreaming) {
+      reviewAppendedCountRef.current = 0
+      setReviewStreamingDone(false)
+      pipelineSemaphoreRef.current = makeSemaphore(gradeConcurrency + 1)
+    }
     await runWithConcurrency(
       okSubs, gradeConcurrency, 2000,
       async (sub) => {
         if (stopRequestedRef.current) return null
         if (!sub.imageBlob) return null  // okSubs 已保證有圖
+        const imageBlob = sub.imageBlob  // narrow Blob（給下方 closure 用、不然 closure 內會回 Blob|undefined）
         try {
-          const phaseAResult = await gradePhaseA(
-            sub.imageBlob,
+          const runReadArbiter = () => gradePhaseA(
+            imageBlob,
             ANSWER_KEY,
             sub.pageBreaks,
             assignment?.domain,
@@ -3821,6 +3887,8 @@ export default function GradingPage({
             (stage, event) => { if (stage !== 'classify') bumpStage(stage, event) },
             { resumeClassifyContext: classifyCtxBySub.get(sub.id) }
           )
+          const sem = isStreaming ? pipelineSemaphoreRef.current : null
+          const phaseAResult = sem ? await sem.run(runReadArbiter) : await runReadArbiter()
           if (phaseAResult.pipelineFailure) {
             const stu = students.find((s) => s.id === sub.studentId)
             const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
@@ -3950,15 +4018,36 @@ export default function GradingPage({
             return next
           })
           // 加入成功 entries、供後續判斷是否進審查頁（decisions 預先帶入手改、Phase B 重建保留）
-          successfulEntries.push({
+          const newEntry: BatchPhaseAEntry = {
             submissionId: sub.id,
             studentId: sub.studentId,
             phaseAResult,
             decisions: seededDecisions,
             imageBlob: sub.imageBlob,
             pageBreaks: sub.pageBreaks
-          })
+          }
+          successfulEntries.push(newEntry)
           successCount++
+          // 2026-06-20 串流分流（只智慧批改）：這份 read+arbiter 一完就立刻路由、不等其他卷。
+          if (isStreaming) {
+            const needsRev = newEntry.phaseAResult.questionResults.some((qr) =>
+              questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType))
+            if (needsRev) {
+              // 需複核 → 進複核佇列、立刻讓老師開始看（不等其他卷批完）
+              reviewAppendedCountRef.current++
+              phaseAOnlyReviewModeRef.current = !opts?.chainPhaseB
+              setBatchPhaseAEntries((prev) => [...prev, newEntry])
+              setGradingPhase('awaiting_review')
+            } else {
+              // 乾淨 → 立刻排 Phase B（共用 semaphore；加進已背景批清單讓 runOneClickPhaseB 跳過、不重複批）
+              oneClickBgGradedIdsRef.current.add(sub.id)
+              const semB = pipelineSemaphoreRef.current
+              const runB = () => executeBatchPhaseB([newEntry], true)
+              backgroundPhaseBPromises.current.push(
+                (semB ? semB.run(runB) : runB()).catch((err) => console.error('串流背景批乾淨卷失敗:', err))
+              )
+            }
+          }
           return phaseAResult
         } catch (err) {
           const stu = students.find((s) => s.id === sub.studentId)
@@ -4004,6 +4093,17 @@ export default function GradingPage({
       totalCount: candidates.length,
       failReasons: failReasons.slice(0, 10),
       failedCandidates,
+    }
+
+    // 2026-06-20 串流：分流已在 loop 內逐份做完（需複核→佇列、乾淨→已排 Phase B）。
+    //   標記 read+arbiter 全完→複核元件可收尾；有複核→交 onAllDone，無複核→回 false 讓 runOneClickPhaseB 批 needB。
+    if (isStreaming) {
+      setReviewStreamingDone(true)
+      if (reviewAppendedCountRef.current > 0) {
+        return true  // 複核已在串流中開始；streamingDone 後 onAllDone 觸發最終 Phase B
+      }
+      setGradingPhase('idle')
+      return false
     }
 
     // 2026-05-18: 篩出有 needs_review 的 entries、若有 → 進審查頁（不接 Phase B）
@@ -6497,8 +6597,11 @@ export default function GradingPage({
                 if (oneClickScopeRef.current.length > 0) {
                   console.log(`✅ 學生 ${entry.studentId} 複核確認（一鍵）→ 立刻背景批 Phase B`)
                   oneClickBgGradedIdsRef.current.add(entry.submissionId)
+                  // 共用 semaphore（與串流中的 read+arbiter / 乾淨卷 Phase B 同一個併發預算、防 504）
+                  const semR = pipelineSemaphoreRef.current
+                  const runR = () => executeBatchPhaseB([entry], true)
                   backgroundPhaseBPromises.current.push(
-                    executeBatchPhaseB([entry], true).catch((err) => console.error('背景批複核卷失敗:', err))
+                    (semR ? semR.run(runR) : runR()).catch((err) => console.error('背景批複核卷失敗:', err))
                   )
                 }
               } else {
@@ -6551,6 +6654,7 @@ export default function GradingPage({
             }}
             phaseBScoredCount={phaseBScoredCount}
             phaseBTotalCount={phaseBTotalCount}
+            streamingDone={reviewStreamingDone}
           />
         )}
 
