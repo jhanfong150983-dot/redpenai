@@ -3683,8 +3683,8 @@ export default function GradingPage({
           const r = await gradePhaseA(
             sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
             undefined, assignment?.answerSheetMode, sub.id, sub.source,
-            // 只記 classify 「開始」；「完成 +1」改在 STAGE 2 通過系統檢查(retry 到正確)後才記。
-            (stage, event) => { if (event === 'started') bumpStage(stage, event) }, { stopAfterClassify: true }
+            // 每張 classify 完成就即時 +1（往上跑）；STAGE 2 系統檢查抓到歪的卷會把它 -1 退回重跑、對了再 +1。
+            (stage, event) => bumpStage(stage, event), { stopAfterClassify: true }
           )
           if (r.pipelineFailure) { await markClassifyFail(sub, safeFailMsg(r.pipelineFailure), r.pipelineFailure); return null }
           const ctx = (r as unknown as { _phaseAClassifyContext?: unknown })._phaseAClassifyContext
@@ -3728,10 +3728,9 @@ export default function GradingPage({
           if (baseline.size < 3) return false
           return checkPeerOutliers(classifyCtxToEntry(sub, classifyCtxBySub.get(sub.id)), baseline, peerOpts).trip
         })
-        const tripIds = new Set(trips.map((s) => s.id))
-        // 沒漂移的卷＝classify 已通過系統檢查 → 記 classify 完成 +1（系統檢查算進 classify 階段、不另立一格）
-        for (const s of okSubs) if (!tripIds.has(s.id)) bumpStage('classify', 'completed')
         if (trips.length > 0) {
+          // 歪的卷退回（classify done -trips）→ 重跑、對得上鄰卷再 +1 回來；沒漂移的卷 STAGE 1 已 +1、不動。
+          setPipelineStageProgress((p) => ({ ...p, classify: { ...p.classify, done: Math.max(0, p.classify.done - trips.length) } }))
           setGradingMessage(`偵測到 ${trips.length} 份框位異常、重跑中…`)
           const failedIds = new Set<string>()
           const MAX_RERUN_ATTEMPTS = 3
@@ -3785,10 +3784,8 @@ export default function GradingPage({
             for (let i = okSubs.length - 1; i >= 0; i--) if (failedIds.has(okSubs[i].id)) okSubs.splice(i, 1)
           }
         }
-      } else {
-        // 沒做系統檢查(照片卷/小批量 pool<5)：classify 無從比對、直接視為完成、記 +1
-        okSubs.forEach(() => bumpStage('classify', 'completed'))
       }
+      // 沒做系統檢查(照片卷/小批 pool<5)或沒漂移：classify 已在 STAGE 1 即時 +1、不需再動
     }
 
     // classify/read/arbiter 進度 total 改為通過系統檢查的卷數（part 卷可能 classify/系統檢查失敗）。
