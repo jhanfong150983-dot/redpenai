@@ -3917,17 +3917,23 @@ export default function GradingPage({
     // ── STAGE 2：系統檢查（peer baseline 抓框歪）+ 只重跑漂移頁 classify 到對得上鄰卷 ──
     // pdfBoxApplied=true(PDF 抽樣已套統一框)→ 整段跳過。
     if (!pdfBoxApplied) {
-      const isPdfBatch = okSubs.length > 0 && okSubs.every((s) => s.source === 'teacher_scan')
-      const peerCheckEnabled = assignment?.answerSheetMode === 'answer_only' || isPdfBatch
-      // peer 基準＝本批 classify 結果 + submissions state 裡已有 bbox 的其他卷（單獨/小批也有基準）
+      // 2026-06-22: 混批拆子集——統一框只對 PDF 子集(teacher_scan)生效；混批時 PDF 卷仍拿回漂移修正、照片不碰。
+      const pdfOkSubs = okSubs.filter((s) => s.source === 'teacher_scan')
+      const photoOkSubs = okSubs.filter((s) => s.source !== 'teacher_scan')
+      const peerCheckEnabled = assignment?.answerSheetMode === 'answer_only'  // PDF 改由下方 pdfOkSubs 分支處理、不再進 peer-check
+      // peer 基準＝本批 classify 結果 + submissions state 裡已有 bbox 的其他卷（單獨/小批也有基準）。
+      //   另建 PDF-only 基準(statePeersPdf)給統一框、避免照片框污染 median/P90。
       const statePeers: BatchPhaseAEntry[] = []
+      const statePeersPdf: BatchPhaseAEntry[] = []
       for (const s of submissions.values()) {
         const details = (s.gradingResult as { details?: Array<{ questionId: string; answerBbox?: Bbox; questionType?: string }> } | undefined)?.details
         if (!Array.isArray(details) || !details.some((d) => d?.answerBbox && typeof d.answerBbox.x === 'number')) continue
-        statePeers.push({
+        const entry = {
           submissionId: s.id, studentId: s.studentId,
           phaseAResult: { questionResults: details.map((d) => ({ questionId: d.questionId, answerBbox: d.answerBbox, questionType: d.questionType })) },
-        } as unknown as BatchPhaseAEntry)
+        } as unknown as BatchPhaseAEntry
+        statePeers.push(entry)
+        if (s.source === 'teacher_scan') statePeersPdf.push(entry)
       }
       const poolMap = new Map<string, BatchPhaseAEntry>()
       for (const p of statePeers) poolMap.set(p.submissionId, p)
@@ -3938,15 +3944,18 @@ export default function GradingPage({
           ? {}
           : { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1, detectMissing: true, peerTotal: Math.max(0, peerPool.length - 1), missingConsensus: 0.7 }
 
-      if (isPdfBatch && peerPool.length >= 5 && okSubs.length > 0 && !stopRequestedRef.current) {
-        // 2026-06-21 PDF 統一框([[project_pdf_bbox_wh_p90]]):每題 bbox 覆蓋成 median x/y + P90 w/h
-        //   (全班同框、決定性)、取代 peer-outlier→retry。gate 純 teacher_scan(此 if 即 isPdfBatch)、
-        //   一般模式與答案卷模式的 PDF 都走這裡;照片(非 teacher_scan)走下面 else-if 維持原 peer-check。
+      // ── PDF 子集：median x/y + P90 w/h 統一框(決定性、修漂移)。池只含 teacher_scan、避免照片框污染 ──
+      const pdfPoolMap = new Map<string, BatchPhaseAEntry>()
+      for (const p of statePeersPdf) pdfPoolMap.set(p.submissionId, p)
+      for (const s of pdfOkSubs) pdfPoolMap.set(s.id, classifyCtxToEntry(s, classifyCtxBySub.get(s.id)))
+      const pdfPool = [...pdfPoolMap.values()]
+      if (pdfOkSubs.length > 0 && pdfPool.length >= 5 && !stopRequestedRef.current) {
+        // 2026-06-21 PDF 統一框([[project_pdf_bbox_wh_p90]])：median x/y + P90 w/h、全 PDF 卷同框、決定性。
         setGradingMessage('框位統一中…')
-        const unified = computeScanUnifiedBox(peerPool, 5)
+        const unified = computeScanUnifiedBox(pdfPool, 5)
         if (unified) {
           let nBox = 0
-          for (const sub of okSubs) {
+          for (const sub of pdfOkSubs) {
             const ctx = classifyCtxBySub.get(sub.id) as { classifyResult?: { alignedQuestions?: Array<{ questionId: string; answerBbox?: Bbox }> } } | undefined
             const aligned = ctx?.classifyResult?.alignedQuestions
             if (!Array.isArray(aligned)) continue
@@ -3955,11 +3964,13 @@ export default function GradingPage({
               if (u && q.answerBbox && typeof q.answerBbox.x === 'number') { q.answerBbox = { ...u }; nBox++ }
             }
           }
-          console.log(`[ScanUnifiedBox] PDF median-xy+P90-wh 覆蓋 ${okSubs.length} 份 / ${nBox} 框、不送 retry`)
+          console.log(`[ScanUnifiedBox] PDF median-xy+P90-wh 覆蓋 ${pdfOkSubs.length} 份 / ${nBox} 框、不送 retry`)
         }
-      } else if (peerCheckEnabled && peerPool.length >= 5 && okSubs.length > 0 && !stopRequestedRef.current) {
+      }
+      // ── answer_only 照片子集：原 peer-outlier 漂移檢查(版面一致才有意義；PDF 已由上方統一框處理) ──
+      if (peerCheckEnabled && peerPool.length >= 5 && photoOkSubs.length > 0 && !stopRequestedRef.current) {
         setGradingMessage('框位比對中…')
-        const trips = okSubs.filter((sub) => {
+        const trips = photoOkSubs.filter((sub) => {
           const baseline = computePeerBaseline(peerPool, sub.id)
           if (baseline.size < 3) return false
           return checkPeerOutliers(classifyCtxToEntry(sub, classifyCtxBySub.get(sub.id)), baseline, peerOpts).trip
