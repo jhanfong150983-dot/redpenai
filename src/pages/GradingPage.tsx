@@ -723,6 +723,42 @@ function _median(arr: number[]): number {
   return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2
 }
 
+// 百分位(nearest-rank)：穩健最大值用、忽略最極端離群。
+function _pct(arr: number[], p: number): number {
+  if (arr.length === 0) return 0
+  const s = [...arr].sort((a, b) => a - b)
+  const i = Math.min(s.length - 1, Math.max(0, Math.ceil(p * s.length) - 1))
+  return s[i]
+}
+
+// 2026-06-21 PDF 統一框(只給 teacher_scan、見 [[project_pdf_bbox_wh_p90]]):
+//   同印刷版面+同掃描器→每題答題框位置/尺寸對所有人本該一致。per-student classify 的差異純雜訊。
+//   → x/y 取 median(去雜訊+自動修正小偏移/大錨錯)、w/h 取 P90(夠大框得住、忽略爆框離群)。
+//   全班套同一個框、取代 retry(median/P90 決定性、不會再飄)。
+// 回傳 per-qid 統一框;pool 不足(<minN)時回 null(由 caller fallback 各自 classify 框)。
+function computeScanUnifiedBox(entries: BatchPhaseAEntry[], minN = 5): Map<string, Bbox> | null {
+  const byQid = new Map<string, Bbox[]>()
+  for (const entry of entries) {
+    for (const qr of entry.phaseAResult.questionResults) {
+      const bb = qr.answerBbox as Bbox | undefined
+      if (!bb || typeof bb.x !== 'number' || typeof bb.w !== 'number') continue
+      if (!byQid.has(qr.questionId)) byQid.set(qr.questionId, [])
+      byQid.get(qr.questionId)!.push(bb)
+    }
+  }
+  const out = new Map<string, Bbox>()
+  for (const [qid, list] of byQid) {
+    if (list.length < minN) continue // 該題框到的份數不足 → 不覆蓋、保留各自
+    out.set(qid, {
+      x: _median(list.map((b) => b.x)),
+      y: _median(list.map((b) => b.y)),
+      w: _pct(list.map((b) => b.w), 0.9),
+      h: _pct(list.map((b) => b.h), 0.9),
+    })
+  }
+  return out.size > 0 ? out : null
+}
+
 // 2026-06-20: 失敗原因安全轉字串。pipelineFailure.userMessage 或 throw 的 err 可能是物件，
 //   直接 `${}` 字串化會變 "[object Object]"（等於沒寫）。依序遞迴找可讀字串欄位、再退 JSON、最後 String()。
 function safeFailMsg(x: unknown, depth = 0): string {
@@ -3822,7 +3858,26 @@ export default function GradingPage({
           ? {}
           : { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1, detectMissing: true, peerTotal: Math.max(0, peerPool.length - 1), missingConsensus: 0.7 }
 
-      if (peerCheckEnabled && peerPool.length >= 5 && okSubs.length > 0 && !stopRequestedRef.current) {
+      if (isPdfBatch && peerPool.length >= 5 && okSubs.length > 0 && !stopRequestedRef.current) {
+        // 2026-06-21 PDF 統一框([[project_pdf_bbox_wh_p90]]):每題 bbox 覆蓋成 median x/y + P90 w/h
+        //   (全班同框、決定性)、取代 peer-outlier→retry。gate 純 teacher_scan(此 if 即 isPdfBatch)、
+        //   一般模式與答案卷模式的 PDF 都走這裡;照片(非 teacher_scan)走下面 else-if 維持原 peer-check。
+        setGradingMessage('框位統一中…')
+        const unified = computeScanUnifiedBox(peerPool, 5)
+        if (unified) {
+          let nBox = 0
+          for (const sub of okSubs) {
+            const ctx = classifyCtxBySub.get(sub.id) as { classifyResult?: { alignedQuestions?: Array<{ questionId: string; answerBbox?: Bbox }> } } | undefined
+            const aligned = ctx?.classifyResult?.alignedQuestions
+            if (!Array.isArray(aligned)) continue
+            for (const q of aligned) {
+              const u = unified.get(q.questionId)
+              if (u && q.answerBbox && typeof q.answerBbox.x === 'number') { q.answerBbox = { ...u }; nBox++ }
+            }
+          }
+          console.log(`[ScanUnifiedBox] PDF median-xy+P90-wh 覆蓋 ${okSubs.length} 份 / ${nBox} 框、不送 retry`)
+        }
+      } else if (peerCheckEnabled && peerPool.length >= 5 && okSubs.length > 0 && !stopRequestedRef.current) {
         setGradingMessage('框位比對中…')
         const trips = okSubs.filter((sub) => {
           const baseline = computePeerBaseline(peerPool, sub.id)
