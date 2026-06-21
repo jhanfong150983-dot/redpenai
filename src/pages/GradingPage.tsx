@@ -672,9 +672,18 @@ function rebuildFinalAnswersFromPhaseAState(
   const arbByQid = new Map(
     decisions.filter((d) => d?.questionId).map((d) => [d.questionId as string, d])
   )
-  const existingArr = Array.isArray(existing) ? existing : []
+  const existingArr0 = Array.isArray(existing) ? existing : []
+  // 2026-06-21 Bug B：manual 但「空白」的最終答案不再無條件保留。
+  //   它常是「複核當下該題還是 needs_review、老師判未作答」留下的空殼；Phase A 重跑後該題若已一致有內容，
+  //   這個空殼(keep-manual)會把它蓋成「未作答 / 0 分」(座23 實證：兩讀皆 "Indonesia…teacher" 卻 0 分)。
+  //   → 空白 manual 視為失效、剔除，讓該題回到 arbiter 重新判定：
+  //     仍 needs_review → 缺 finalAnswer → 由 Phase B 閘門(executeGradeOnlyCache)擋下送審；
+  //     兩讀一致有內容 → 下方補題迴圈採用新讀取；確實空白 → 仍補成 '' 未作答。
+  //   有內容的 manual(老師真的手改)完全不動 → 維持原案。
+  const existingArr = existingArr0.filter((fa) =>
+    !(fa.finalAnswerSource === 'manual' && !String(fa.finalStudentAnswer ?? '').trim()))
   const existingQids = new Set(existingArr.map((fa) => fa.questionId))
-  // 1. 既有題：手改(manual)保留、AI 自動題用最新 read 刷新
+  // 1. 既有題：手改(manual、非空)保留、AI 自動題用最新 read 刷新
   const refreshed = existingArr.map((fa) => {
     if (fa.finalAnswerSource === 'manual') return fa
     const arb = arbByQid.get(fa.questionId)
@@ -4279,6 +4288,11 @@ export default function GradingPage({
     let successCount = 0
     let failCount = 0
     const failReasons: string[] = []
+    // 2026-06-21 閘門：有「needs_review 但 finalAnswers 仍缺確認」的題 → 整卷跳過、不批、不標 graded。
+    //   修「智慧批改最後一步(runOneClickPhaseB)/重批」在老師沒審完待複核時、把待複核題靜默批成 0 分(無法辨識)的洞。
+    //   不動狀態機(deriveCardStage/submissionPendingReview 不變)、只在動作層擋；跳過的卷維持原狀(=未擷取)、
+    //   下次智慧批改會再帶進審查面板。blank 不會被擋(rebuildFinalAnswersFromPhaseAState 會補空字串 entry)、只擋真正 needs_review。
+    let heldForReviewCount = 0
 
     await runWithConcurrency(
       candidates, 5, 1000,
@@ -4297,6 +4311,23 @@ export default function GradingPage({
           const freshFinalAnswers = rebuildFinalAnswersFromPhaseAState(
             sub.phaseAState, sub.finalAnswers as FinalAnswer[] | undefined
           )
+          // ── 待複核閘門：仍有 needs_review 未確認 → 不批這份、保持原狀、列入結果面板 ──
+          const gateDecisions = (sub.phaseAState as { arbiterDecisions?: Array<{ questionId?: string; arbiterStatus?: string; finalAnswer?: string }> } | undefined)?.arbiterDecisions ?? []
+          if (gateDecisions.length > 0) {
+            const gateDetails = (sub.gradingResult as { details?: Array<{ questionId?: string; questionType?: string }> } | undefined)?.details ?? []
+            const gateTypeByQid = new Map(gateDetails.map((d) => [d.questionId, d.questionType]))
+            const gateFinalQids = new Set((freshFinalAnswers ?? []).map((fa) => fa.questionId))
+            const missingReview = gateDecisions.filter((d) =>
+              questionNeedsConfirm(d.arbiterStatus, d.finalAnswer, gateTypeByQid.get(d.questionId ?? '')) && !gateFinalQids.has(d.questionId ?? ''))
+            if (missingReview.length > 0) {
+              const stu = students.find((s) => s.id === sub.studentId)
+              const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+              failReasons.push(`${label}：${missingReview.length} 題待複核未確認、已跳過批改，請先完成人工審查`)
+              failCount++
+              heldForReviewCount++
+              return null
+            }
+          }
           const finalAnswersChanged =
             JSON.stringify(freshFinalAnswers ?? null) !== JSON.stringify((sub.finalAnswers as FinalAnswer[] | undefined) ?? null)
           const result = await gradePhaseBFromCache(
@@ -4415,6 +4446,10 @@ export default function GradingPage({
     setGradingPhase('idle')
     setCurrentGradingStudent('')
     requestSync()  // 把 server 端寫的 score / gradingResult 拉回 local
+    // 待複核被擋下的卷：在結果面板最上面提示老師「先去複核」（智慧批改會把它們帶回審查面板）
+    if (heldForReviewCount > 0) {
+      failReasons.unshift(`⚠ ${heldForReviewCount} 份有待複核題尚未確認、已跳過批改 — 請按「智慧批改」完成人工審查後再批`)
+    }
     if (!opts?.silent) {
       // noticeOffset：把「複核期間已背景批的乾淨卷」數量加進總數、結果視窗才是正確總數。
       const off = opts?.noticeOffset
