@@ -521,7 +521,10 @@ export default function AssignmentList({
       setChangeAnswerKeyConfirm({ data, gradedCount })
       return
     }
-    await commitSettingsSave(data, false)
+    // 2026-06-21 Bug F：換答案卷一律清(含 reads)、即使 gradedCount=0。
+    //   否則「已清過分數(gradedCount=0)但 reads 還在」的卷、再換一次答案卷也清不掉 reads。
+    //   純改設定(沒選新答案卷、akTemplate=null)→ doClear=false、不動批改。
+    await commitSettingsSave(data, !!akTemplate?.answerKey)
   }
 
   // 真正執行儲存設定；doClear=true 時連同清除既有批改 + 訂正/申訴（更換答案卷確認後走這裡）
