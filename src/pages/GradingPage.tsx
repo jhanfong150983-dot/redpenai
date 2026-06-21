@@ -3714,7 +3714,7 @@ export default function GradingPage({
   // 2026-05-31: 回傳 enteredReview（true=有 needs_review、已進審查頁；false=無、已收尾）。
   //   一鍵 1c 用此判斷要立刻跑統一 Phase B（false）還是等審查 onAllDone 再跑（true）。
   //   opts.suppressNotice：一鍵流程中不顯示 Phase A 自己的收尾 notice（讓統一 Phase B 的結果視窗當最終 modal）。
-  const executeRecaptureOnly = useCallback(async (candidates: Submission[], opts?: { chainPhaseB?: boolean; suppressNotice?: boolean }): Promise<boolean> => {
+  const executeRecaptureOnly = useCallback(async (candidates: Submission[], opts?: { chainPhaseB?: boolean; suppressNotice?: boolean; fullPipeline?: boolean }): Promise<boolean> => {
     if (candidates.length === 0) return false
     if (!assignment?.answerKey) { alert('找不到答案卷'); return false }
     if (inkSessionError) { alert(inkSessionError); return false }
@@ -3739,15 +3739,16 @@ export default function GradingPage({
     stopRequestedRef.current = false
     setGradingProgress({ current: 0, total: candidates.length })
     setGradingStartTime(Date.now())
-    // Phase A only mode：classify / read / arbiter 各 total = N、accessor / explain 不在本 run
-    setPipelineMode('phase_a_only')
+    // 2026-06-21: 一條龍 (fullPipeline) → 5 階段 both，Phase B(accessor/explain) 先以 pending(total=N、done=0) 顯示，
+    //   讓智慧批改全程同一個遮罩。獨立「重新截取」(無 fullPipeline) → 只顯示 Phase A 階段(phase_a_only)。
+    setPipelineMode(opts?.fullPipeline ? 'both' : 'phase_a_only')
     setPipelineStageProgress({
       classify: { started: 0, done: 0, total: candidates.length },
       read: { started: 0, done: 0, total: candidates.length },
       arbiter: { started: 0, done: 0, total: candidates.length },
       quality: { started: 0, done: 0, total: 0 },
-      accessor: { started: 0, done: 0, total: 0 },
-      explain: { started: 0, done: 0, total: 0 },
+      accessor: { started: 0, done: 0, total: opts?.fullPipeline ? candidates.length : 0 },
+      explain: { started: 0, done: 0, total: opts?.fullPipeline ? candidates.length : 0 },
     })
 
     // 圖片準備（同 executeGradeOnlyCache）
@@ -4332,7 +4333,7 @@ export default function GradingPage({
   // 不重跑 Phase A（省 4 min）。對應「批改作業」按鈕觸發。
   // 2026-05-31: opts.silent —「一鍵接著批改」的 needB 步驟用。跑完不跳結果 notice
   //（避免一鍵流程中途彈出 needB 的結果視窗、跟後面 Phase A 的視窗打架）。預設 false=現行。
-  const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean; noticeOffset?: { success: number; total: number } }) => {
+  const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean; noticeOffset?: { success: number; total: number }; fullPipeline?: boolean }) => {
     if (candidates.length === 0) return
     if (inkSessionError) { alert(inkSessionError); return }
     if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
@@ -4365,16 +4366,27 @@ export default function GradingPage({
     setPhaseBTotalCount(phaseBTotal)
     setPhaseBScoredCount(offDone)
     setGradingStartTime(Date.now())
-    // Phase B only mode：accessor / explain total = 全部(含背景已批)、起始 done=背景已批數
-    setPipelineMode('phase_b_only')
-    setPipelineStageProgress({
-      classify: { started: 0, done: 0, total: 0 },
-      read: { started: 0, done: 0, total: 0 },
-      arbiter: { started: 0, done: 0, total: 0 },
-      quality: { started: 0, done: 0, total: 0 },
-      accessor: { started: offDone, done: offDone, total: phaseBTotal },
-      explain: { started: offDone, done: offDone, total: phaseBTotal },
-    })
+    // 2026-06-21: 一條龍智慧批改 (fullPipeline) → 維持 5 階段 both、保留 Phase A 三階段跑完的打勾(不歸零)、
+    //   只補 Phase B 的 total。獨立「重新批改」(無 fullPipeline) → 只顯示 Phase B 階段(phase_b_only)。
+    if (opts?.fullPipeline) {
+      setPipelineMode('both')
+      setPipelineStageProgress((p) => ({
+        ...p,
+        accessor: { started: offDone, done: offDone, total: phaseBTotal },
+        explain: { started: offDone, done: offDone, total: phaseBTotal },
+      }))
+    } else {
+      // Phase B only mode：accessor / explain total = 全部(含背景已批)、起始 done=背景已批數
+      setPipelineMode('phase_b_only')
+      setPipelineStageProgress({
+        classify: { started: 0, done: 0, total: 0 },
+        read: { started: 0, done: 0, total: 0 },
+        arbiter: { started: 0, done: 0, total: 0 },
+        quality: { started: 0, done: 0, total: 0 },
+        accessor: { started: offDone, done: offDone, total: phaseBTotal },
+        explain: { started: offDone, done: offDone, total: phaseBTotal },
+      })
+    }
 
     // 圖片準備（從 cloud 載 / 從 base64 重建）
     const needPrepare = candidates.filter((s) => !s.imageBlob)
@@ -4664,7 +4676,7 @@ export default function GradingPage({
       if (gradeable.length > 0) {
         // executeGradeOnlyCache 會自己接管 overlay 並在結束時設 idle + 顯示結果視窗
         // noticeOffset：把背景批的乾淨卷數量加進結果視窗、總數才正確（不 silent → 當一鍵最終 modal）
-        await executeGradeOnlyCache(gradeable, { noticeOffset: { success: bgSuccess, total: bgIds.size } })
+        await executeGradeOnlyCache(gradeable, { noticeOffset: { success: bgSuccess, total: bgIds.size }, fullPipeline: true })
       } else if (bgIds.size > 0) {
         // 全部都是背景批的乾淨卷（沒有要複核後再批的）→ 收掉 overlay、直接顯示結果視窗
         setGradingPhase('idle')
@@ -4707,7 +4719,7 @@ export default function GradingPage({
       const phaseATargets = [...needA, ...needReview]
       if (phaseATargets.length > 0) {
         // Phase A（review-only、keep-manual 保留手改）。enteredReview=true → 等審查 onAllDone 再跑統一 Phase B。
-        const enteredReview = await executeRecaptureOnly(phaseATargets, { suppressNotice: true })
+        const enteredReview = await executeRecaptureOnly(phaseATargets, { suppressNotice: true, fullPipeline: true })
         if (enteredReview) return
       }
       // 無待複核（全乾淨）或純 needB → 立刻對全 scope 跑統一 Phase B
