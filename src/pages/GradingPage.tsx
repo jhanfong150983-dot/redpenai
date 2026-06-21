@@ -499,6 +499,9 @@ type GradeResultNotice = {
   totalCount: number
   failReasons: string[]
   failedEntries: BatchPhaseAEntry[]
+  // 2026-06-22: 從快取重批(executeGradeOnlyCache)失敗的卷——Phase A 仍在、可直接重跑 Phase B。
+  //   與 failedEntries(走 executeBatchPhaseB) 分開、各自的重試按鈕。
+  retryCacheSubs?: Submission[]
 }
 
 // 2026-05-18: Phase A only mode 專用 summary
@@ -790,6 +793,17 @@ function safeFailMsg(x: unknown, depth = 0): string {
     try { const s = JSON.stringify(x); if (s && s !== '{}' && s !== '[]') return s } catch { /* noop */ }
   }
   return String(x)
+}
+
+// 2026-06-22: Phase B（accessor/explain）丟出的 raw 錯誤（如 "Phase B accessor failed: 500"）人性化。
+//   這類是 HTTP 層 throw 的 Error、非 Phase A 的結構化 pipelineFailure，不會經過 server 端友善化 → 在這裡兜底。
+//   技術原碼仍由 console.error 保留。
+function humanizePhaseBFailMsg(raw: string): string {
+  const s = String(raw || '')
+  if (/failed:\s*5\d\d|\b50[023]\b|忙線|overload|unavailable/i.test(s)) return 'AI 批改服務暫時忙線，請按下方「重新批改」重試（通常一次就好）'
+  if (/timeout|逾時|\b504\b/i.test(s)) return '這份批改逾時了，請重試一次'
+  if (/empty response|無法解析|缺少|JSON|parse/i.test(s)) return 'AI 回傳格式異常，請重試一次'
+  return s
 }
 
 type Bbox = { x: number; y: number; w: number; h: number }
@@ -4425,6 +4439,7 @@ export default function GradingPage({
     let successCount = 0
     let failCount = 0
     const failReasons: string[] = []
+    const failedSubs: Submission[] = []  // 2026-06-22: 失敗卷收集、給結果視窗「重新批改」按鈕重跑 Phase B
     // 2026-06-21 閘門：有「needs_review 但 finalAnswers 仍缺確認」的題 → 整卷跳過、不批、不標 graded。
     //   修「智慧批改最後一步(runOneClickPhaseB)/重批」在老師沒審完待複核時、把待複核題靜默批成 0 分(無法辨識)的洞。
     //   不動狀態機(deriveCardStage/submissionPendingReview 不變)、只在動作層擋；跳過的卷維持原狀(=未擷取)、
@@ -4565,8 +4580,9 @@ export default function GradingPage({
         } catch (err) {
           const stu = students.find((s) => s.id === sub.studentId)
           const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
-          const msg = safeFailMsg(err)
+          const msg = humanizePhaseBFailMsg(safeFailMsg(err))
           failReasons.push(`${label}: ${msg}`)
+          failedSubs.push(sub)
           failCount++
           console.error(`[gradeOnlyCache] failed for ${sub.id}:`, err)
           return null
@@ -4597,6 +4613,7 @@ export default function GradingPage({
         totalCount: candidates.length + (off?.total ?? 0),
         failReasons: failReasons.slice(0, 10),
         failedEntries: [],
+        retryCacheSubs: failedSubs,
       })
     }
   }, [
@@ -6526,6 +6543,19 @@ export default function GradingPage({
                   className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-medium text-white hover:bg-rose-700 transition-colors"
                 >
                   重新批改失敗的 {gradeResultNotice.failedEntries.length} 份
+                </button>
+              )}
+              {/* 2026-06-22: 從快取重批失敗(Phase B accessor/explain 報錯)→ 重跑 executeGradeOnlyCache */}
+              {gradeResultNotice.retryCacheSubs && gradeResultNotice.retryCacheSubs.length > 0 && (
+                <button
+                  onClick={() => {
+                    const subs = gradeResultNotice.retryCacheSubs!
+                    setGradeResultNotice(null)
+                    void executeGradeOnlyCache(subs)
+                  }}
+                  className="w-full rounded-xl bg-rose-600 px-4 py-3 text-sm font-medium text-white hover:bg-rose-700 transition-colors"
+                >
+                  重新批改失敗的 {gradeResultNotice.retryCacheSubs.length} 份
                 </button>
               )}
               <button
