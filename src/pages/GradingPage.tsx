@@ -3806,37 +3806,86 @@ export default function GradingPage({
       })
     }
 
-    // ── STAGE 1：classify-all（只跑 call1、回 _phaseAClassifyContext）──
+    // ── STAGE 1：classify（只跑 call1、回 _phaseAClassifyContext）──
+    type ClassifyCtx = { classifyResult?: { alignedQuestions?: Array<{ questionId: string; questionType?: string; answerBbox?: Bbox }> }; ocrAssistMeta?: unknown }
     const classifyCtxBySub = new Map<string, unknown>()
     const okSubs: Submission[] = []  // 通過 classify(+系統檢查)的卷、進 STAGE 3 跑 read
-    await runWithConcurrency(
-      candidates, gradeConcurrency, 2000,
-      async (sub) => {
-        if (stopRequestedRef.current) return null
-        if (!sub.imageBlob) { await markClassifyFail(sub, '無圖片'); return null }
-        try {
-          const r = await gradePhaseA(
-            sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
-            undefined, assignment?.answerSheetMode, sub.id, sub.source,
-            // 每張 classify 完成就即時 +1（往上跑）；STAGE 2 系統檢查抓到歪的卷會把它 -1 退回重跑、對了再 +1。
-            // clearForRerun：重新截取/重跑 → 請 server 先清空該卷舊的 grading_result/score/graded_at/phase_a_state
-            //   （修「重新截取沒清 server 分數」→ 待批改卡片殘留舊錯題/分數）。
-            (stage, event) => bumpStage(stage, event), { stopAfterClassify: true, clearForRerun: true }
-          )
-          if (r.pipelineFailure) { await markClassifyFail(sub, safeFailMsg(r.pipelineFailure), r.pipelineFailure); return null }
-          const ctx = (r as unknown as { _phaseAClassifyContext?: unknown })._phaseAClassifyContext
-          if (!ctx) { await markClassifyFail(sub, 'classify 無回傳內容、請重試'); return null }
-          classifyCtxBySub.set(sub.id, ctx)
+    const classifyOne = async (sub: Submission) => {
+      if (stopRequestedRef.current) return null
+      if (!sub.imageBlob) { await markClassifyFail(sub, '無圖片'); return null }
+      try {
+        const r = await gradePhaseA(
+          sub.imageBlob, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
+          undefined, assignment?.answerSheetMode, sub.id, sub.source,
+          // 每張 classify 完成就即時 +1（往上跑）；STAGE 2 系統檢查抓到歪的卷會把它 -1 退回重跑、對了再 +1。
+          // clearForRerun：重新截取/重跑 → 請 server 先清空該卷舊的 grading_result/score/graded_at/phase_a_state。
+          (stage, event) => bumpStage(stage, event), { stopAfterClassify: true, clearForRerun: true }
+        )
+        if (r.pipelineFailure) { await markClassifyFail(sub, safeFailMsg(r.pipelineFailure), r.pipelineFailure); return null }
+        const ctx = (r as unknown as { _phaseAClassifyContext?: unknown })._phaseAClassifyContext
+        if (!ctx) { await markClassifyFail(sub, 'classify 無回傳內容、請重試'); return null }
+        classifyCtxBySub.set(sub.id, ctx)
+        okSubs.push(sub)
+        return r
+      } catch (err) { await markClassifyFail(sub, safeFailMsg(err)); return null }
+    }
+
+    // 2026-06-21 PDF 抽樣省 classify([[project_pdf_bbox_wh_p90]]):teacher_scan 大批 → 只 classify 到湊滿
+    //   PDF_SAMPLE_MIN 份「成功」、算統一框(median x/y + P90 w/h)、其餘卷不 classify、複製成功樣本結構+換框
+    //   當其 ctx 直接 read。省約一半 classify。失敗的卷不算數(往後補抽)。樣本不足/算不出框 → 退回 classify 全部。
+    const allTeacherScan = candidates.length > 0 && candidates.every((s) => s.source === 'teacher_scan')
+    const PDF_SAMPLE_MIN = 15
+    const usePdfSampling = allTeacherScan && candidates.length > PDF_SAMPLE_MIN + 3
+    let pdfBoxApplied = false
+    if (usePdfSampling) {
+      setGradingMessage('抽樣讀框中…')
+      const SAMPLE_CHUNK = PDF_SAMPLE_MIN + 3
+      let idx = 0
+      while (idx < candidates.length && okSubs.length < PDF_SAMPLE_MIN && !stopRequestedRef.current) {
+        const chunk = candidates.slice(idx, idx + SAMPLE_CHUNK)
+        idx += chunk.length
+        await runWithConcurrency(chunk, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
+      }
+      const sampleEntries = okSubs.map((s) => classifyCtxToEntry(s, classifyCtxBySub.get(s.id)))
+      const unified = computeScanUnifiedBox(sampleEntries, Math.min(PDF_SAMPLE_MIN, Math.max(5, okSubs.length)))
+      if (unified && okSubs.length >= 5) {
+        pdfBoxApplied = true
+        // 樣本卷:覆蓋成統一框
+        for (const sub of okSubs) {
+          const al = (classifyCtxBySub.get(sub.id) as ClassifyCtx | undefined)?.classifyResult?.alignedQuestions
+          if (Array.isArray(al)) for (const q of al) { const u = unified.get(q.questionId); if (u && q.answerBbox && typeof q.answerBbox.x === 'number') q.answerBbox = { ...u } }
+        }
+        // 未 classify 的卷:複製一份成功樣本結構 + 換統一框 → 當其 ctx(不 call classify、即時記進度)
+        // template 選「題目最完整(alignedQuestions 最多)」的樣本,避免拿到稀疏結構漏題。
+        const alignedLen = (id: string) => (classifyCtxBySub.get(id) as ClassifyCtx | undefined)?.classifyResult?.alignedQuestions?.length ?? 0
+        const templateId = okSubs.reduce((best, s) => alignedLen(s.id) > alignedLen(best) ? s.id : best, okSubs[0].id)
+        const templateCtx = classifyCtxBySub.get(templateId)
+        const processed = new Set([...okSubs.map((s) => s.id), ...failedCandidates.map((s) => s.id)])
+        const remaining = candidates.filter((s) => !processed.has(s.id) && s.imageBlob)
+        for (const sub of remaining) {
+          const cloned = JSON.parse(JSON.stringify(templateCtx)) as ClassifyCtx
+          const al = cloned?.classifyResult?.alignedQuestions
+          if (Array.isArray(al)) for (const q of al) { const u = unified.get(q.questionId); if (u) q.answerBbox = { ...u } }
+          cloned.ocrAssistMeta = { enabled: false, perPage: [] }
+          classifyCtxBySub.set(sub.id, cloned)
           okSubs.push(sub)
-          return r
-        } catch (err) { await markClassifyFail(sub, safeFailMsg(err)); return null }
-      },
-      () => {},
-      stopRequestedRef
-    )
+          bumpStage('classify', 'started'); bumpStage('classify', 'completed')
+        }
+        console.log(`[PdfSampling] classify 樣本 ${sampleEntries.length} 份 → 套統一框到其餘 ${remaining.length} 份(免 classify)`)
+      } else {
+        // 樣本不足/算不出統一框 → 退回:把還沒跑的補 classify(等同 classify 全部)
+        const processed = new Set([...okSubs.map((s) => s.id), ...failedCandidates.map((s) => s.id)])
+        const rest = candidates.filter((s) => !processed.has(s.id))
+        if (rest.length > 0) await runWithConcurrency(rest, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
+      }
+    } else {
+      // 非 PDF / 小批:classify 全部(原行為)
+      await runWithConcurrency(candidates, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
+    }
 
     // ── STAGE 2：系統檢查（peer baseline 抓框歪）+ 只重跑漂移頁 classify 到對得上鄰卷 ──
-    {
+    // pdfBoxApplied=true(PDF 抽樣已套統一框)→ 整段跳過。
+    if (!pdfBoxApplied) {
       const isPdfBatch = okSubs.length > 0 && okSubs.every((s) => s.source === 'teacher_scan')
       const peerCheckEnabled = assignment?.answerSheetMode === 'answer_only' || isPdfBatch
       // peer 基準＝本批 classify 結果 + submissions state 裡已有 bbox 的其他卷（單獨/小批也有基準）
