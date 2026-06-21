@@ -4343,18 +4343,23 @@ export default function GradingPage({
     setError(null)
     setStopRequested(false)
     stopRequestedRef.current = false
-    setPhaseBTotalCount(candidates.length)
-    setPhaseBScoredCount(0)
+    // 2026-06-21: 一鍵流程複核期間「乾淨卷已背景批掉」→ 這裡 candidates 只剩少數要批。
+    //   遮罩/進度 total 要把背景批的份數(noticeOffset.total)算進去、且把它們當已完成預填,
+    //   否則只顯示「0/1」而非「29/30」。
+    const offDone = opts?.noticeOffset?.total ?? 0
+    const phaseBTotal = candidates.length + offDone
+    setPhaseBTotalCount(phaseBTotal)
+    setPhaseBScoredCount(offDone)
     setGradingStartTime(Date.now())
-    // Phase B only mode：accessor / explain 各 total = N
+    // Phase B only mode：accessor / explain total = 全部(含背景已批)、起始 done=背景已批數
     setPipelineMode('phase_b_only')
     setPipelineStageProgress({
       classify: { started: 0, done: 0, total: 0 },
       read: { started: 0, done: 0, total: 0 },
       arbiter: { started: 0, done: 0, total: 0 },
       quality: { started: 0, done: 0, total: 0 },
-      accessor: { started: 0, done: 0, total: candidates.length },
-      explain: { started: 0, done: 0, total: candidates.length },
+      accessor: { started: offDone, done: offDone, total: phaseBTotal },
+      explain: { started: offDone, done: offDone, total: phaseBTotal },
     })
 
     // 圖片準備（從 cloud 載 / 從 base64 重建）
@@ -4543,7 +4548,7 @@ export default function GradingPage({
       },
       (_i, _result) => {
         completedCount++
-        setPhaseBScoredCount(completedCount)
+        setPhaseBScoredCount(offDone + completedCount)  // 含背景已批的份數
       },
       stopRequestedRef
     )
