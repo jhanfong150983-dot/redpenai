@@ -1988,7 +1988,9 @@ function BatchConsistencyReviewSection({
             <div className="space-y-2">
               {currentReviewQs.map(q => (
                 <ConsistencyQuestionCard
-                  key={q.questionId}
+                  // 2026-06-21 Bug G:key 帶 submissionId → 換到下一份同題時卡片 remount、
+                  //   manualInput 重置成空 → 點「人工輸入」會預帶這份的 read1、不殘留上一份的輸入。
+                  key={`${currentEntry.submissionId}:${q.questionId}`}
                   studentId={currentEntry.studentId}
                   questionResult={q}
                   decision={currentEntry.decisions.get(q.questionId)}
