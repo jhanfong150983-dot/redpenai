@@ -3863,36 +3863,41 @@ export default function GradingPage({
 
     // 2026-06-21 PDF 抽樣省 classify([[project_pdf_bbox_wh_p90]]):teacher_scan 大批 → 只 classify 到湊滿
     //   PDF_SAMPLE_MIN 份「成功」、算統一框(median x/y + P90 w/h)、其餘卷不 classify、複製成功樣本結構+換框
-    //   當其 ctx 直接 read。省約一半 classify。失敗的卷不算數(往後補抽)。樣本不足/算不出框 → 退回 classify 全部。
-    const allTeacherScan = candidates.length > 0 && candidates.every((s) => s.source === 'teacher_scan')
+    //   當其 ctx 直接 read。省約一半 classify。失敗的卷不算數(往後補抽)。
+    // 2026-06-22 混批拆 source：抽樣只對 PDF 子集；照片一律個別 classify。
+    //   ★必須湊滿 PDF_SAMPLE_MIN 份「成功」才套統一框省 classify；不足 15 → 回歸「PDF 也全部各自 classify」
+    //     (不用不足的樣本去算框；STAGE 2 仍會對已 classify 的 PDF 套統一框做漂移修正)。
+    const pdfCandidates = candidates.filter((s) => s.source === 'teacher_scan')
+    const photoCandidates = candidates.filter((s) => s.source !== 'teacher_scan')
     const PDF_SAMPLE_MIN = 15
-    const usePdfSampling = allTeacherScan && candidates.length > PDF_SAMPLE_MIN + 3
+    const usePdfSampling = pdfCandidates.length > PDF_SAMPLE_MIN + 3
     let pdfBoxApplied = false
     if (usePdfSampling) {
       setGradingMessage('抽樣讀框中…')
       const SAMPLE_CHUNK = PDF_SAMPLE_MIN + 3
       let idx = 0
-      while (idx < candidates.length && okSubs.length < PDF_SAMPLE_MIN && !stopRequestedRef.current) {
-        const chunk = candidates.slice(idx, idx + SAMPLE_CHUNK)
+      // 此時 okSubs 只會累積 PDF（照片在本段之後才 classify）→ okSubs.length 即 PDF 成功數
+      while (idx < pdfCandidates.length && okSubs.length < PDF_SAMPLE_MIN && !stopRequestedRef.current) {
+        const chunk = pdfCandidates.slice(idx, idx + SAMPLE_CHUNK)
         idx += chunk.length
         await runWithConcurrency(chunk, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
       }
       const sampleEntries = okSubs.map((s) => classifyCtxToEntry(s, classifyCtxBySub.get(s.id)))
-      const unified = computeScanUnifiedBox(sampleEntries, Math.min(PDF_SAMPLE_MIN, Math.max(5, okSubs.length)))
-      if (unified && okSubs.length >= 5) {
+      const unified = okSubs.length >= PDF_SAMPLE_MIN ? computeScanUnifiedBox(sampleEntries, PDF_SAMPLE_MIN) : null
+      if (unified && okSubs.length >= PDF_SAMPLE_MIN) {
         pdfBoxApplied = true
         // 樣本卷:覆蓋成統一框
         for (const sub of okSubs) {
           const al = (classifyCtxBySub.get(sub.id) as ClassifyCtx | undefined)?.classifyResult?.alignedQuestions
           if (Array.isArray(al)) for (const q of al) { const u = unified.get(q.questionId); if (u && q.answerBbox && typeof q.answerBbox.x === 'number') q.answerBbox = { ...u } }
         }
-        // 未 classify 的卷:複製一份成功樣本結構 + 換統一框 → 當其 ctx(不 call classify、即時記進度)
+        // 未 classify 的 PDF 卷:複製一份成功樣本結構 + 換統一框 → 當其 ctx(不 call classify、即時記進度)
         // template 選「題目最完整(alignedQuestions 最多)」的樣本,避免拿到稀疏結構漏題。
         const alignedLen = (id: string) => (classifyCtxBySub.get(id) as ClassifyCtx | undefined)?.classifyResult?.alignedQuestions?.length ?? 0
         const templateId = okSubs.reduce((best, s) => alignedLen(s.id) > alignedLen(best) ? s.id : best, okSubs[0].id)
         const templateCtx = classifyCtxBySub.get(templateId)
         const processed = new Set([...okSubs.map((s) => s.id), ...failedCandidates.map((s) => s.id)])
-        const remaining = candidates.filter((s) => !processed.has(s.id) && s.imageBlob)
+        const remaining = pdfCandidates.filter((s) => !processed.has(s.id) && s.imageBlob)
         for (const sub of remaining) {
           const cloned = JSON.parse(JSON.stringify(templateCtx)) as ClassifyCtx
           const al = cloned?.classifyResult?.alignedQuestions
@@ -3902,16 +3907,21 @@ export default function GradingPage({
           okSubs.push(sub)
           bumpStage('classify', 'started'); bumpStage('classify', 'completed')
         }
-        console.log(`[PdfSampling] classify 樣本 ${sampleEntries.length} 份 → 套統一框到其餘 ${remaining.length} 份(免 classify)`)
+        console.log(`[PdfSampling] classify PDF 樣本 ${sampleEntries.length} 份 → 套統一框到其餘 ${remaining.length} 份(免 classify)`)
       } else {
-        // 樣本不足/算不出統一框 → 退回:把還沒跑的補 classify(等同 classify 全部)
+        // ★湊不滿 15 份成功 → 回歸:PDF 也全部各自 classify(不用不足樣本算框；STAGE 2 再套統一框)
         const processed = new Set([...okSubs.map((s) => s.id), ...failedCandidates.map((s) => s.id)])
-        const rest = candidates.filter((s) => !processed.has(s.id))
+        const rest = pdfCandidates.filter((s) => !processed.has(s.id))
         if (rest.length > 0) await runWithConcurrency(rest, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
+        console.log(`[PdfSampling] PDF 成功樣本不足 ${PDF_SAMPLE_MIN} 份 → 回歸全 classify`)
       }
     } else {
-      // 非 PDF / 小批:classify 全部(原行為)
-      await runWithConcurrency(candidates, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
+      // PDF 子集 ≤18(或無 PDF):全部各自 classify(原行為)
+      if (pdfCandidates.length > 0) await runWithConcurrency(pdfCandidates, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
+    }
+    // 照片子集:一律個別 classify(不抽樣/不統一框)。放在 PDF 段之後 → 上面 okSubs 計數只含 PDF。
+    if (photoCandidates.length > 0 && !stopRequestedRef.current) {
+      await runWithConcurrency(photoCandidates, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
     }
 
     // ── STAGE 2：系統檢查（peer baseline 抓框歪）+ 只重跑漂移頁 classify 到對得上鄰卷 ──
