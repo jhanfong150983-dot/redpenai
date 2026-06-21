@@ -224,14 +224,19 @@ export default function AssignmentList({
           const ok = window.confirm(`此作業已有 ${gradedCount} 份批改結果，更換答案卷將清除所有批改。確定？`)
           if (!ok) { setIsSavingSettings(false); return }
           // 清除本地 Dexie 批改結果
+          // 2026-06-21 Bug F：換答案卷 = 答案卷有問題 → 連 reads(phaseAState)+finalAnswers 一起清、全部重來。
+          //   理由：read2 是「知答案」校對、classify 也依答案卷對位 → 舊讀取受舊(錯)答案卷污染、不可沿用，
+          //   否則智慧批改會用舊 reads 重算分(跳過重讀)。
           const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
           for (const sub of subs) {
-            if (sub.gradingResult || sub.score) {
+            if (sub.gradingResult || sub.score || sub.phaseAState || (Array.isArray(sub.finalAnswers) && sub.finalAnswers.length > 0)) {
               await db.submissions.update(sub.id, {
                 gradingResult: null as unknown as undefined,
                 score: null as unknown as undefined,
                 aiScore: null as unknown as undefined,
                 gradedAt: null as unknown as undefined,
+                phaseAState: null as unknown as undefined,
+                finalAnswers: null as unknown as undefined,
                 status: 'synced', updatedAt: now,
               })
             }
@@ -530,13 +535,14 @@ export default function AssignmentList({
 
       if (akTemplate?.answerKey) {
         if (doClear) {
-          // 清除本地 Dexie 批改結果
+          // 清除本地 Dexie 批改結果（含 reads/finalAnswers，理由同上 Bug F：換答案卷=全部重來）
           const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
           for (const sub of subs) {
-            if (sub.gradingResult || sub.score) {
+            if (sub.gradingResult || sub.score || sub.phaseAState || (Array.isArray(sub.finalAnswers) && sub.finalAnswers.length > 0)) {
               await db.submissions.update(sub.id, {
                 gradingResult: null as unknown as undefined, score: null as unknown as undefined,
                 aiScore: null as unknown as undefined, gradedAt: null as unknown as undefined,
+                phaseAState: null as unknown as undefined, finalAnswers: null as unknown as undefined,
                 status: 'synced', updatedAt: now,
               })
             }
