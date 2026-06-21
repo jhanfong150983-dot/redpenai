@@ -592,6 +592,14 @@ export interface ConsistencyDecision {
 
 // 2026-05-28: module-level helper — 對單一 questionResult 構造 FinalAnswer
 // map_fill 特殊路徑：組 mapFillFinalReadings (per-position confirmed)
+// 2026-06-21: 是非題人工輸入正規化——老師慣打 X/O(正統 ✗/○ 難打)→ 等價成 ✗/○。認不出的原樣不動。
+function normalizeTfManualInput(raw: string): string {
+  const s = String(raw ?? '').replace(/[.。．、,，:：;；()（）\s]/gu, '').trim()
+  if (/^[○〇OoＯ]$/u.test(s) || /^(?:對|是|正確|yes|true)$/iu.test(s)) return '○'
+  if (/^[✗✘×XxＸ叉]$/u.test(s) || /^(?:錯|否|不對|no|false)$/iu.test(s)) return '✗'
+  return raw
+}
+
 // 一致的位置 → 自動用 AI1 read（兩 AI 相同）
 // 不一致的位置 → 用 decision.mapFillPerPosition[idx] 老師的選擇
 export function buildFinalAnswerForQR(qr: PhaseAQuestionResult, decision: ConsistencyDecision | undefined): FinalAnswer {
@@ -643,13 +651,19 @@ export function buildFinalAnswerForQR(qr: PhaseAQuestionResult, decision: Consis
     }
   }
   const src = decision?.source ?? 'ai_read1'
+  // 2026-06-20: qr.readAnswer1 可能 undefined（word_problem/calculation 等走 finalAnswerOnly read、
+  //   或某題沒讀到 → 不設 readAnswer1）。原本直接 .studentAnswer 會丟 TypeError、
+  //   讓 onStudentConfirmed 整個 throw → handleConfirmAndNext 的 await 被 reject(fire-and-forget)
+  //   → 後面的「下一位 / onAllDone」都不執行 →「確認送出沒反應」。改用可選鏈 + 預設空字串。
+  const rawFinal = src === 'unrecognizable' ? '無法辨識' : src === 'blank' ? '' : (decision?.finalAnswer ?? qr.readAnswer1?.studentAnswer ?? '')
+  // 2026-06-21: 是非題人工輸入 X/O 等價成 ✗/○（老師慣打、正統符號難輸入）。只動 manual 的是非題、其餘原樣。
+  //   答案卷與 AI 讀取皆標準化成 ○/✗（gemini.ts 1D），正規化後才對得上、不會被誤判錯。
+  const finalStudentAnswer = (src === 'manual' && qr.questionType === 'true_false')
+    ? normalizeTfManualInput(rawFinal)
+    : rawFinal
   return {
     questionId: qr.questionId,
-    // 2026-06-20: qr.readAnswer1 可能 undefined（word_problem/calculation 等走 finalAnswerOnly read、
-    //   或某題沒讀到 → 不設 readAnswer1）。原本直接 .studentAnswer 會丟 TypeError、
-    //   讓 onStudentConfirmed 整個 throw → handleConfirmAndNext 的 await 被 reject(fire-and-forget)
-    //   → 後面的「下一位 / onAllDone」都不執行 →「確認送出沒反應」。改用可選鏈 + 預設空字串。
-    finalStudentAnswer: src === 'unrecognizable' ? '無法辨識' : src === 'blank' ? '' : (decision?.finalAnswer ?? qr.readAnswer1?.studentAnswer ?? ''),
+    finalStudentAnswer,
     finalAnswerSource: src === 'blank' ? 'manual' : src,
   }
 }
