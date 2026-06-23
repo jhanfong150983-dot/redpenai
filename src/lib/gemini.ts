@@ -1890,6 +1890,24 @@ function buildDomainRefinements(domain: string = '其他'): string {
   - subId 順序固定：冠詞在前（a）、單字在後（b）。answerBbox 框含「(a／an)」與單字空格的整句。
   - 冠詞答案只讀**被圈起來（答案色）的那一個**（a 或 an），不要兩個都收；看不清楚 → 該 part answer 填 "?"。
   - 配分：整題若 N 分、兩部分平分為整數（如 2 分 → 冠詞 1、單字 1）；卷面有明確配分標示則依標示。
+
+▸ 閱讀／聽力「問答題」（Q: … A: …，答句是一整句、句中部分單字加底線=計分關鍵詞）→ 🚨 一律 fill_blank「整句」：
+  - questionCategory = "fill_blank"，**單一 answer、不要拆 parts**。
+  - answer = **完整答句、逐字照印刷原樣**（含所有單字、冠詞、be 動詞、單位、句末標點）。
+    例：「He can get there by plane.」「It is five thousand and nine hundred dollars.」「They are eight hundred and seventy dollars.」「It is Class 512's idea.」
+  - maxScore = 題目配分。
+  - ❌ 嚴禁判 short_answer / word_problem（會留空 answer、無法比對）。
+  - ❌ 嚴禁拆 parts。
+  - 🚨 **以下兩類最容易被誤拆、但仍是「一整句答案」、一律整句不拆**：
+    ① 逗號分隔的清單：如「a T-shirt, shorts and sneakers」→ answer 整串照抄、**不要**拆成 T-shirt／shorts／sneakers 三個 part。
+    ② 數字的英文唸法：如「three thousand one hundred and twenty」「eight hundred and seventy dollars」→ answer 整串照抄、**不要**拆成 three／thousand／… 或 eight／seventy。
+  - ❌ 不要只抓底線詞當 answer——answer 要整句完整（底線只是計分提示、批改端自會逐詞比對）。
+  - 判別：答句是「一句完整英文句子 / 一串清單 / 一個數字唸法」→ 走本規則、整句一個 answer。
+
+▸ 看圖／聽力「排序」題（給多張圖或多個項目，學生在每個旁邊填 1、2、3…的順序號）→ 🚨 questionCategory = "ordering"：
+  - 指示語常見「Listen and Number」「排出順序」「填寫數字 1~N」。
+  - ❌ 不要判成 fill_blank（這不是填空、是排序）。
+  - answer = 依項目印刷順序串接的序號、逗號分隔（如 "1,6,3,4,5,2,8,7"）。
 `.trim(),
     社會: `
 【社會領域加成】
