@@ -5322,7 +5322,18 @@ export async function extractAnswerKeyFromImages(
      - 不同主要小題 → 各自 1 entry（不要互相合併）
   3. ⛔ 分題只看「主要小題」邊界，不要再依「有沒有等號」去拆 fill_blank。`
 
-  const multiImagePrompt = `${prompt}\n\n${multiImageNote}${chainCalcRule}`.trim()
+  // 2026-06-25 英語 fill_blank carve-out：模型常把「底線計分詞」誤當作答空格 → 觸發下方 chainCalcRule
+  //   「≥2空→parts」把整句問答答案拆碎、甚至整題漏掉。實驗 local-only/exp-extract-fillblank-2026-06-25：
+  //   3.5-flash 整句命中 58%→92%、漏題 2→0。只在英語領域、prepend 到 chainCalcRule 最前（最高優先）。
+  const englishFillBlankCarveOut = (isInferMode || isAnswerOnly || (opts?.domain || '') !== '英語') ? '' : `\n\n🚨🚨🚨🚨 英語領域最優先例外（凌駕下方所有「≥2空→parts」規則）：
+判斷「有幾個空格」時，**底線／粗體／顏色標記的單字一律 NOT 算空格**——它們只是計分關鍵詞提示、不是作答空格。
+若學生是在「一條連續作答線」上寫一個【完整英文句子 / 一串逗號清單 / 一個數字的英文唸法】當作答 → **永遠是 1 個 answer（整句照抄）、絕不拆 parts**，即使句中有 2 個以上底線詞。
+  例：「He wears a T-shirt, shorts and sneakers」有 3 個底線詞 → 仍是 1 個 answer、不拆。
+  例：「They are three thousand one hundred and twenty dollars」有 3 個底線詞 → 仍是 1 個 answer、不拆。
+只有當卷面有「實體分開、各自獨立的空格欄位（____／( )／□），學生逐格填不同字」時，才考慮 parts。
+`
+
+  const multiImagePrompt = `${prompt}\n\n${multiImageNote}${englishFillBlankCarveOut}${chainCalcRule}`.trim()
 
   // 準備多圖片請求（每張照片前插入頁碼標記，讓 AI 明確知道頁碼）
   const requestParts: GeminiRequestPart[] = [multiImagePrompt]
