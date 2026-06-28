@@ -37,8 +37,10 @@ const PAGED_GRADING_OVERLAP_PX = 60
 
 // 分頁批改並行數（不要太高，容易觸發 429）
 const PAGED_GRADING_CONCURRENCY = 2
-// 批量批改並行數（建議保守，避免放大 4-stage 呼叫壓力）
-const BATCH_GRADING_CONCURRENCY = 2
+// 批量批改並行數。2026-06-29：整班批改慢的主因＝這裡鎖 2（30 人=15 輪）。提高到 4（約 2x 快），
+// 搭配 model-adapter 429 已改 Retry-After+jitter 退避（撞限制能優雅恢復、不雪崩）。
+// 可用 VITE_BATCH_GRADING_CONCURRENCY 在不知 quota 時微調（撞 429 就調降、順就往上）。
+const BATCH_GRADING_CONCURRENCY = Math.max(1, Number(import.meta.env?.VITE_BATCH_GRADING_CONCURRENCY) || 4)
 // 每個 worker 完成一份後的節流延遲
 const BATCH_GRADING_STAGGER_MS = 800
 
