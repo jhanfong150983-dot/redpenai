@@ -37,10 +37,12 @@ const PAGED_GRADING_OVERLAP_PX = 60
 
 // 分頁批改並行數（不要太高，容易觸發 429）
 const PAGED_GRADING_CONCURRENCY = 2
-// 批量批改並行數。2026-06-29：整班批改慢的主因＝這裡鎖 2（30 人=15 輪）。提高到 4（約 2x 快），
-// 搭配 model-adapter 429 已改 Retry-After+jitter 退避（撞限制能優雅恢復、不雪崩）。
-// 可用 VITE_BATCH_GRADING_CONCURRENCY 在不知 quota 時微調（撞 429 就調降、順就往上）。
-const BATCH_GRADING_CONCURRENCY = Math.max(1, Number(import.meta.env?.VITE_BATCH_GRADING_CONCURRENCY) || 4)
+// 批量批改並行數。2026-06-29：整班批改慢的主因＝這裡鎖 2（30 人=15 輪）。提高到 8（比原始約 4x 快）。
+// 實測（同把 key 併發爬坡 local-only/exp-extract-fillblank-2026-06-25）：raw read call 並發到 64 都 0 個 429、
+// 延遲優雅成長(31→75s)；Vercel proxy maxDuration=300s（最慢 read 75s 仍 4x 餘裕）；Pro 並發數遠超所需。
+// 三關（Gemini 429 / Vercel duration / Vercel 並發）K=8(=16 並發 call) 皆 4x+ 餘裕。
+// 可用 VITE_BATCH_GRADING_CONCURRENCY 微調（撞 429 就調降、想更快可推 16；搭 model-adapter 429 Retry-After+jitter 退避）。
+const BATCH_GRADING_CONCURRENCY = Math.max(1, Number(import.meta.env?.VITE_BATCH_GRADING_CONCURRENCY) || 8)
 // 每個 worker 完成一份後的節流延遲
 const BATCH_GRADING_STAGGER_MS = 800
 
