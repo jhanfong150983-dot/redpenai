@@ -3816,10 +3816,14 @@ export default function GradingPage({
     // 2026-06-20: 主流程＝classify → 系統檢查(retry 只重跑漂移頁) → read1/read2 → read3(arbiter)。
     //   三段：先全部只跑 classify、用 peer baseline 抓框歪→只重跑該頁 classify 到對得上鄰卷→確認對了才跑 read。
     //   好處：漂移卷的 read+arbiter 絕不在歪 bbox 上白跑（連第一輪都不浪費）。
-    // 併發依頁數自動調小——classify 每份 per-page 並行(Promise.all)、併發×頁數=同時打 Gemini 的 call 數、
-    //   4頁×5份=20 撞 Vercel 300s→504。控制 ≤~10：min(5, floor(10/頁數))、只對 ≥3 頁降載。
+    // 併發依頁數自動調小——classify 每份 per-page 並行(Promise.all)、併發×頁數=同時打 Gemini 的 call 數。
+    //   2026-06-30 放寬上限 ≤10→≤30：實測(local-only/exp-extract-fillblank-2026-06-25 併發爬坡、同把 key)
+    //   64 並發 raw read call 都 0 個 429、延遲 31→75s 優雅成長；Vercel proxy maxDuration=300s(最慢 read 75s、4x餘裕)。
+    //   min(8, floor(30/頁數))：3頁→8(classify 24call/read 16call、皆遠在 64 內)、頁多自動降(6頁→5)避免單 classify 函式逼近 300s。
+    //   可用 VITE_GRADE_CONCURRENCY_CAP 微調絕對上限（撞 504/429 就調降）。
     const pageCount = Math.max(1, assignment?.totalPages ?? 1)
-    const gradeConcurrency = Math.max(1, Math.min(5, Math.floor(10 / pageCount)))
+    const gradeConcurrencyCap = Math.max(1, Number(import.meta.env?.VITE_GRADE_CONCURRENCY_CAP) || 8)
+    const gradeConcurrency = Math.max(1, Math.min(gradeConcurrencyCap, Math.floor(30 / pageCount)))
 
     // 共用失敗標記（classify / 系統檢查階段）：寫 grading_failed、計入失敗、即時更新卡片。
     const markClassifyFail = async (sub: Submission, reason: string, failure?: import('@/lib/gemini').PipelineFailure) => {
