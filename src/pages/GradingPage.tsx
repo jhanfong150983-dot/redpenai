@@ -28,6 +28,7 @@ import {
   gradePhaseA,
   gradePhaseB,
   gradePhaseBFromCache,
+  gradeOneQuestion,
   isGeminiAvailable,
   type PhaseAResult,
   type PhaseAQuestionResult,
@@ -4880,35 +4881,49 @@ export default function GradingPage({
     setGradingPhase('phase_b_running')
 
     type Cand = { score?: number; maxScore?: number; isCorrect?: boolean; studentAnswer?: string }
-    type DetailRow = { questionId?: string; score?: number; maxScore?: number; isCorrect?: boolean; studentAnswer?: string; reviewCandidates?: { ai_read1?: Cand | null; ai_read2?: Cand | null } }
-    const needRegrade: Submission[] = []
+    type DetailRow = { questionId?: string; questionType?: string; score?: number; maxScore?: number; isCorrect?: boolean; studentAnswer?: string; reviewCandidates?: { ai_read1?: Cand | null; ai_read2?: Cand | null } }
+    const VJ_MAP_TYPES = ['map_fill', 'diagram_color', 'map_symbol', 'grid_geometry']
+    const applyCand = (nd: DetailRow, c: Cand) => { nd.score = c.score ?? 0; nd.maxScore = c.maxScore ?? nd.maxScore; nd.isCorrect = c.isCorrect === true; nd.studentAnswer = c.studentAnswer ?? nd.studentAnswer }
+    // 單題 accessor 的 gradeBand（高中多選扣分公式）
+    const fzClassroom = assignment?.classroomId ? await db.classrooms.get(assignment.classroomId) : null
+    const fzGradeBand: 'k9' | 'high' = (fzClassroom?.grade ?? 0) >= 10 ? 'high' : 'k9'
+    const wholeRegrade: Submission[] = []
     for (const entry of reviewedEntries) {
       const sub = await db.submissions.get(entry.submissionId)
       if (!sub) continue
       const gr = (sub.gradingResult || {}) as { details?: DetailRow[]; totalScore?: number }
       const details: DetailRow[] = Array.isArray(gr.details) ? gr.details : []
-      let regrade = false
-      let total = 0
-      const newDetails = details.map((d) => {
-        const dec = entry.decisions.get(String(d.questionId))
-        if (dec) {
-          const cands = d.reviewCandidates
-          let c: Cand | null = null
-          if (dec.source === 'ai_read1') c = cands?.ai_read1 ?? null
-          else if (dec.source === 'ai_read2') c = cands?.ai_read2 ?? null
-          else if (dec.source === 'blank') c = { score: 0, maxScore: d.maxScore, isCorrect: false, studentAnswer: '' }
-          if (c) {
-            const nd = { ...d, score: c.score ?? 0, maxScore: c.maxScore ?? d.maxScore, isCorrect: c.isCorrect === true, studentAnswer: c.studentAnswer ?? d.studentAnswer }
-            total += typeof nd.score === 'number' ? nd.score : 0
-            return nd
-          }
-          // 人工輸入 / VJ / map_fill / 缺候選：若改選非 read2 必須 server 重算（read2 維持 provisional 分數即可）
-          if (dec.source !== 'ai_read2') regrade = true
-        }
-        total += typeof d.score === 'number' ? d.score : 0
-        return d
-      })
-      if (regrade) { needRegrade.push(sub); continue }
+      const byQid = new Map(details.map((d) => [String(d.questionId), { ...d } as DetailRow]))
+      let needWhole = false
+      const gradeOneTargets: Array<{ qid: string; answer: string }> = []
+      for (const d of details) {
+        const qid = String(d.questionId)
+        const dec = entry.decisions.get(qid)
+        if (!dec) continue
+        const nd = byQid.get(qid)!
+        const cands = d.reviewCandidates
+        if (dec.source === 'ai_read1' && cands?.ai_read1) applyCand(nd, cands.ai_read1)
+        else if (dec.source === 'ai_read2' && cands?.ai_read2) applyCand(nd, cands.ai_read2)
+        else if (dec.source === 'blank') { nd.score = 0; nd.isCorrect = false; nd.studentAnswer = '' }
+        else if (VJ_MAP_TYPES.includes(String(d.questionType || ''))) needWhole = true  // VJ/填圖：需整份 image pipeline 重批
+        else gradeOneTargets.push({ qid, answer: dec.finalAnswer ?? '' })  // 人工輸入/缺候選文字題：只重批這一題
+      }
+      if (needWhole) { wholeRegrade.push(sub); continue }
+      // 只送「人工輸入/缺候選」那幾題給 server 單題重批（不重批整份）
+      let gradeOneFailed = false
+      for (const t of gradeOneTargets) {
+        try {
+          const g = await gradeOneQuestion({
+            submissionId: sub.id, questionId: t.qid, assignmentId: sub.assignmentId || assignment?.id || '',
+            studentAnswer: t.answer, domain: assignment?.domain, answerSheetMode: assignment?.answerSheetMode, gradeBand: fzGradeBand
+          })
+          const nd = byQid.get(t.qid)
+          if (nd) { nd.score = g.score; nd.maxScore = g.maxScore; nd.isCorrect = g.isCorrect; nd.studentAnswer = g.studentAnswer }
+        } catch (e) { console.error('[finalize] 單題重批失敗、回退整份重批', e); gradeOneFailed = true }
+      }
+      if (gradeOneFailed) { wholeRegrade.push(sub); continue }
+      const newDetails = details.map((d) => byQid.get(String(d.questionId)) ?? d)
+      const total = newDetails.reduce((acc, d) => acc + (typeof d.score === 'number' ? d.score : 0), 0)
       const gradedAtMs = Date.now()
       const newGr = { ...gr, details: newDetails, totalScore: total } as Submission['gradingResult']
       await db.submissions.update(sub.id, { status: 'graded', score: total, aiScore: total, scoreSource: 'ai', gradingResult: newGr, gradedAt: gradedAtMs, updatedAt: gradedAtMs })
@@ -4923,9 +4938,9 @@ export default function GradingPage({
         body: JSON.stringify({ submissions: [{ id: sub.id, score: total, aiScore: total, scoreSource: 'ai', gradingResult: newGr, gradedAt: gradedAtMs }] })
       }).catch(() => {/* non-fatal */})
     }
-    // 人工輸入/VJ/map_fill 等需 AI 的卷 → server 重批（skipReviewGate、silent、不重複彈窗）
-    if (needRegrade.length > 0) {
-      await executeGradeOnlyCache(needRegrade, { silent: true, fullPipeline: true, skipReviewGate: true })
+    // 只有 VJ/填圖（需 image pipeline）才整份重批
+    if (wholeRegrade.length > 0) {
+      await executeGradeOnlyCache(wholeRegrade, { silent: true, fullPipeline: true, skipReviewGate: true })
     }
     requestSync()
     let success = 0

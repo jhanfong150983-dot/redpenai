@@ -6263,6 +6263,45 @@ export async function generateSingleQuestionGuidance(params: {
   return { studentGuidance: guidance, mistakeType: parsed?.mistakeType }
 }
 
+// 2026-06-30 末端審查「人工輸入」只重批那一題：server 抓答案卷、deterministic 或單題 accessor、回該題分數。
+//   （老師端動作 → 計費歸老師自己；答案卷 server live 抓、不經 client。）
+export async function gradeOneQuestion(params: {
+  submissionId: string
+  questionId: string
+  assignmentId: string
+  studentAnswer: string
+  domain?: string
+  answerSheetMode?: 'with_questions' | 'answer_only'
+  gradeBand?: 'k9' | 'high'
+}): Promise<{ questionId: string; score: number; maxScore: number; isCorrect: boolean; studentAnswer: string }> {
+  const { submissionId, questionId, assignmentId, studentAnswer, domain, answerSheetMode, gradeBand } = params
+  const { sessionId: sid } = await ensureInkSessionFresh()
+  const body = JSON.stringify({
+    model: currentModelName,
+    contents: [{ role: 'user', parts: [{ text: 'grade_one' }] }],
+    inkSessionId: sid,
+    routeKey: 'grading.grade_one',
+    submissionId, questionId, assignmentId, studentAnswer,
+    ...(domain ? { domain } : {}),
+    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {}),
+    ...(gradeBand ? { gradeBand } : {})
+  })
+  let resp = await fetch(geminiProxyUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body })
+  if (resp.status === 409) {
+    setInkSessionId(null)
+    const { sessionId: newSid } = await startInkSession()
+    const rp = JSON.parse(body); rp.inkSessionId = newSid
+    resp = await fetch(geminiProxyUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(rp) })
+  }
+  const data = await resp.json().catch(() => null) as Record<string, unknown> | null
+  if (typeof (data as any)?.ink?.balanceAfter === 'number') dispatchInkBalance((data as any).ink.balanceAfter)
+  if (!resp.ok) throw new Error((typeof (data as any)?.error === 'string' && (data as any).error) || '單題批改失敗、請稍後再試')
+  const text = (data as any)?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
+  if (!text) throw new Error('單題批改回覆為空')
+  const p = JSON.parse(text.replace(/```json|```/g, '').trim()) as { questionId?: string; score?: number; maxScore?: number; isCorrect?: boolean; studentAnswer?: string }
+  return { questionId: p.questionId ?? questionId, score: Number(p.score) || 0, maxScore: Number(p.maxScore) || 0, isCorrect: p.isCorrect === true, studentAnswer: p.studentAnswer ?? studentAnswer }
+}
+
 /**
  * 非同步概念標記：對已抽取的答案鍵題目，發送獨立 API 請求取得 108課綱 concept_code
  * 回傳 Record<questionId, { code, label }>，失敗時回傳空物件
