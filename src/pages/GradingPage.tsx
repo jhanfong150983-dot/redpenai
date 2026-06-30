@@ -4907,6 +4907,9 @@ export default function GradingPage({
   ) => {
     reviewAfterBEntriesRef.current = []
     reviewAfterBModeRef.current = true
+    // 開新一輪先清上一輪殘留的結果視窗/審查殘留（避免「批改完成」彈窗疊在新一輪審查上）
+    setGradeResultNotice(null)
+    setPhaseAResultNotice(null)
     // ① Phase A（未擷取+待複核）：跑完 stash entries、不進審查（executeRecaptureOnly reviewAfterB 分支）
     const phaseATargets = [...needA, ...needReview]
     if (phaseATargets.length > 0) {
@@ -4930,6 +4933,9 @@ export default function GradingPage({
         questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType)))
     if (nrEntries.length > 0) {
       phaseAOnlyReviewModeRef.current = true  // onStudentConfirmed 走「只存 final_answers」分支（reviewAfterB 另擋背景批）
+      // 進審查前清掉上一輪殘留的結果視窗（否則「批改完成」彈窗會疊在審查畫面上、看起來像審查+批改完成同時出現）
+      setGradeResultNotice(null)
+      setPhaseAResultNotice(null)
       setReviewStreamingDone(true)
       setBatchPhaseAEntries(nrEntries)
       setGradingPhase('awaiting_review')
