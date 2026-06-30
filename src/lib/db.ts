@@ -249,6 +249,11 @@ export interface AnswerKeyQuestion {
   // 例如："表格中欄標題為「22」的格子"、"題幹「擲出來的點數和可能大於1嗎？」旁的括號"
   anchorHint?: string
 
+  // fill_blank 作答位置（由 answer_key.extract 標記，版面固定屬性）
+  // 'front'=答案寫在題號左側獨立答案欄（如文意字彙）／'inline'=寫在句中空格
+  // classify 階段據此決定：front 只框左欄、inline 框句中
+  answerPos?: 'front' | 'inline'
+
   // 表格座標定位（由 answer_key.extract 產生）
   // 用於 classify 階段精準定位表格中的答案格，比 anchorHint 更可靠
   // ⚠️ legacy: 新 table_cell 群組批改 type 已不使用此欄位；保留供舊 fill_blank+tablePosition 既有資料
