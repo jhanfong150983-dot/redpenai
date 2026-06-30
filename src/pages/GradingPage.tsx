@@ -2220,7 +2220,7 @@ export default function GradingPage({
   const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<Set<string>>(new Set())
   // 2026-06-01 Phase3: 進階模式——預設無勾選框(畫面清爽)。按【進階】選 Phase A/B 後才進勾選模式
   //   (卡片出現 ☑、底部出現確認列「已選 N ▶ 開始」)、執行完自動退出。
-  const [advancedMode, setAdvancedMode] = useState<'phase_a' | 'phase_b' | null>(null)
+  const [advancedMode, setAdvancedMode] = useState<'phase_a' | 'phase_b' | 'full' | null>(null)
   const [advancedMenuOpen, setAdvancedMenuOpen] = useState(false)
   // 2026-06-01: 進階「無覆寫風險直接跑」時的墨水確認（有覆寫風險走 DangerConfirmModal 的 inkNote）
   const [advInkConfirm, setAdvInkConfirm] = useState<null | { kind: 'phase_a' | 'phase_b'; count: number; run: () => void }>(null)
@@ -4943,12 +4943,12 @@ export default function GradingPage({
   //   正確排序（消除 v1 兩限制）：① 先對「未擷取+待複核」跑 Phase A(review-only)
   //   ② 有待複核 → 複核（onAllDone）③ 複核完 / 無複核 → 對「全 scope(needA+needReview+needB)」跑一次統一 Phase B。
   //   一次 Phase B = 正確總數、乾淨的不會停在「待批改」。
-  const handleOneClickContinue = async () => {
-    setOneClickConfirmOpen(false)
-    const { needA, needReview, needB } = unfinishedBuckets
+  // 2026-06-30：一鍵批改核心——對給定的三桶卷跑「A → 審查 → B」（gated 時 A → B → 末端審查 → finalize）。
+  //   handleOneClickContinue（全部未完成）與 handleIndividualFullGrade（個別勾選）共用、確保兩者走同一條流程。
+  const runOneClickForBuckets = async (needA: Submission[], needReview: Submission[], needB: Submission[]) => {
     const scope = [...needA, ...needReview, ...needB]
     if (scope.length === 0) {
-      alert('沒有未完成的作業')
+      alert('沒有可批改的作業')
       return
     }
     oneClickScopeRef.current = scope.map((s) => s.id)
@@ -4987,12 +4987,38 @@ export default function GradingPage({
     }
   }
 
+  const handleOneClickContinue = async () => {
+    setOneClickConfirmOpen(false)
+    const { needA, needReview, needB } = unfinishedBuckets
+    if (needA.length + needReview.length + needB.length === 0) {
+      alert('沒有未完成的作業')
+      return
+    }
+    await runOneClickForBuckets(needA, needReview, needB)
+  }
+
+  // 2026-06-30 個別批改：老師在進階勾選模式選定的卷、不論目前狀態一律跑「完整流程」(擷取→讀取→審查→批改)。
+  //   已批改/批改失敗/待批改的也重頭跑 Phase A（個別批改＝把這幾份徹底重做一次），待複核的進審查、其餘跑 A。
+  const handleIndividualFullGrade = async () => {
+    const inScope = stageAggregates.inScope
+    if (inScope.length === 0) { alert('請先勾選要批改的作業'); return }
+    const needA: Submission[] = []; const needReview: Submission[] = []; const needB: Submission[] = []
+    for (const s of inScope) {
+      const stage = deriveCardStage(s, correctionStatusByStudent[s.studentId])
+      if (stage === 'not_submitted' || stage === 'manual_marked') continue  // 未繳交/手動標記不批
+      if (stage === 'pending_review') needReview.push(s)
+      else if (stage === 'pending_grading' || stage === 'phase_b_failed') needB.push(s)
+      else needA.push(s)  // not_extracted / phase_a_failed / graded → 完整重跑 Phase A
+    }
+    await runOneClickForBuckets(needA, needReview, needB)
+  }
+
   // 2026-06-01 Phase3: 進階模式 helper。
   //   enterAdvanced：選定 Phase A/B、清掉殘留勾選、進勾選模式（卡片出現 ☑、底部出現確認列）。
   //   exitAdvanced：取消、退出勾選模式並清勾選。
   //   startAdvanced：執行選定動作（handleRecaptureAll/handleGradeOnly 各自會跳 block/warning modal、
   //     並同步讀取當下 selectedSubmissionIds 的 stageAggregates）→ 先退出勾選模式（藏 ☑/底部列、不影響 handler）。
-  const enterAdvanced = (mode: 'phase_a' | 'phase_b') => {
+  const enterAdvanced = (mode: 'phase_a' | 'phase_b' | 'full') => {
     setAdvancedMenuOpen(false)
     setSelectedSubmissionIds(new Set())
     setAdvancedMode(mode)
@@ -5006,6 +5032,7 @@ export default function GradingPage({
     setAdvancedMode(null)  // 藏 ☑/底部列；handler 同步讀 stageAggregates memo（本 tick 未變）、不受影響
     if (mode === 'phase_a') void handleRecaptureAll()
     else if (mode === 'phase_b') void handleGradeOnly()
+    else if (mode === 'full') void handleIndividualFullGrade()
   }
 
   // 2026-05-17: handleGradeAll 已被 handleRecaptureAll + handleGradeOnly 取代、保留作 legacy fallback。
@@ -6934,6 +6961,13 @@ export default function GradingPage({
                       <div className="px-3 py-1.5 text-xs font-medium text-slate-400">進階（單獨選份數）</div>
                       <button
                         className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        onClick={() => enterAdvanced('full')}
+                      >
+                        <Sparkles className="w-4 h-4 text-green-500" />
+                        個別批改（完整流程）
+                      </button>
+                      <button
+                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                         onClick={() => enterAdvanced('phase_a')}
                       >
                         <RefreshCw className="w-4 h-4 text-slate-400" />
@@ -6968,7 +7002,7 @@ export default function GradingPage({
                 {selectedSubmissionIds.size > 0 ? '取消全選' : '全選'}
               </Button>
               <span className="text-sm text-slate-600">
-                {advancedMode === 'phase_a' ? '重新截取答案' : '重新批改作業'}
+                {advancedMode === 'phase_a' ? '重新截取答案' : advancedMode === 'full' ? '個別批改（完整流程）' : '重新批改作業'}
                 {' · 已選 '}
                 <strong className="text-slate-900">{selectedSubmissionCount}</strong>
                 {' 份'}
@@ -6986,7 +7020,7 @@ export default function GradingPage({
                   }
                 >
                   {advancedMode === 'phase_a' ? <RefreshCw className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
-                  開始{advancedMode === 'phase_a' ? '重新截取答案' : '重新批改作業'}（{selectedSubmissionCount}）
+                  開始{advancedMode === 'phase_a' ? '重新截取答案' : advancedMode === 'full' ? '個別批改' : '重新批改作業'}（{selectedSubmissionCount}）
                 </Button>
               </div>
             </div>
