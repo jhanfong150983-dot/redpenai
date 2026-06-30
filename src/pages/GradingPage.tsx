@@ -1657,34 +1657,48 @@ export function ConsistencyQuestionCard({
     return `（${r.status}）`
   }
 
-  // Diff highlighting: compare two strings character by character and return JSX with colored spans
+  // Diff highlighting: LCS 字元級 diff，只框「真正不同」的字。
+  // 2026-06-30：改用 LCS（取代同索引逐字比對）——原本一遇到插入/刪除一個字(如 s'x vs s'ix)
+  //   後面索引就錯位、整段被當不同 → 整片黃。LCS 能正確對齊、只標差異處，老師只看一個地方就好。
   const renderDiffHighlight = (text: string, otherText: string | null): React.ReactNode => {
     if (!otherText || text === otherText) return `「${text}」`
-    // Simple char-level diff: walk both strings, highlight mismatches
-    const parts: React.ReactNode[] = ['「']
-    let i = 0
-    while (i < text.length) {
-      // Find next diff region
-      if (i < otherText.length && text[i] === otherText[i]) {
-        // Same char — collect consecutive same chars
-        let end = i
-        while (end < text.length && end < otherText.length && text[end] === otherText[end]) end++
-        parts.push(<span key={`s${i}`}>{text.slice(i, end)}</span>)
-        i = end
-      } else {
-        // Different — collect consecutive different chars
-        let end = i
-        while (end < text.length && (end >= otherText.length || text[end] !== otherText[end])) end++
-        parts.push(
-          <span key={`d${i}`} className="bg-yellow-200 text-red-700 font-bold rounded px-0.5">{text.slice(i, end)}</span>
-        )
-        i = end
+    const n = text.length, m = otherText.length
+    // 防呆：超長字串不跑 O(n*m)（審查的答案都很短，正常不會走到）
+    if (n > 4000 || m > 4000) return `「${text}」`
+    const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0))
+    for (let a = 1; a <= n; a++) {
+      for (let b = 1; b <= m; b++) {
+        dp[a][b] = text[a - 1] === otherText[b - 1]
+          ? dp[a - 1][b - 1] + 1
+          : Math.max(dp[a - 1][b], dp[a][b - 1])
       }
     }
+    // backtrack：標出 text 中「屬於最長共同子序列」的字（= 兩讀都有、不算差異）
+    const matched: boolean[] = new Array(n).fill(false)
+    let a = n, b = m
+    while (a > 0 && b > 0) {
+      if (text[a - 1] === otherText[b - 1]) { matched[a - 1] = true; a--; b-- }
+      else if (dp[a - 1][b] >= dp[a][b - 1]) a--
+      else b--
+    }
+    // 把連續同狀態的字併成一段、相同的正常顯示、不同的標黃
+    const parts: React.ReactNode[] = ['「']
+    let k = 0
+    while (k < n) {
+      const isMatch = matched[k]
+      let end = k
+      while (end < n && matched[end] === isMatch) end++
+      const chunk = text.slice(k, end)
+      parts.push(isMatch
+        ? <span key={`s${k}`}>{chunk}</span>
+        : <span key={`d${k}`} className="bg-yellow-200 text-red-700 font-bold rounded px-0.5">{chunk}</span>)
+      k = end
+    }
     parts.push('」')
-    // If other text is longer, show trailing extra
-    if (otherText.length > text.length) {
-      parts.push(<span key="extra" className="text-gray-500 text-[9px] ml-1">（對方多 {otherText.length - text.length} 字）</span>)
+    // 對方比你多出的字數（otherText 未被 LCS 涵蓋的字元數）
+    const extra = m - dp[n][m]
+    if (extra > 0) {
+      parts.push(<span key="extra" className="text-gray-500 text-[9px] ml-1">（對方多 {extra} 字）</span>)
     }
     return <>{parts}</>
   }
