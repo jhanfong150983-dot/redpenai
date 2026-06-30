@@ -991,6 +991,7 @@ function buildGlobalTaskAndFormat(): string {
     "id": "1",                              // 題號（必填）
     "idPath": ["1"],                        // 題號階層陣列
     "questionCategory": "fill_blank",        // 25 種 type 之一（必填，見 Decision Tree + Type Specs）
+    "answerPos": "front",                    // 僅 fill_blank 輸出：front=答案寫在題號左側獨立答案欄／inline=寫在句中空格。非 fill_blank 省略。判準見 fill_blank Type Spec
     "bucket": "A",                           // A/B/C/D，可省略（系統自動推導）
     "orderMode": "strict",                   // strict | unordered
     "unorderedGroupId": "1",                 // orderMode=unordered 時必填（同組共用）
@@ -1403,6 +1404,16 @@ function buildTypeSpecs(): string {
 ▸ fill_blank 「填空題」（支援單空 / 多空兩種模式）
   視覺：____ ／ □ ／ 表格儲存格 + 紅色手寫文字
   動作：學生在空格內填寫一個值（含單位）
+
+  ## 🚨 answerPos 作答位置（fill_blank 必填，值＝ "front" 或 "inline"）
+  判斷學生「實際把答案寫在哪」，輸出到該題 JSON 的 answerPos 欄位：
+  - **"front"**：題號**左側有一條獨立的答案欄／橫線**（與句子分離、專門寫答案），學生把完整答案寫在那條左欄上。
+    常見於「文意字彙／字彙填空」：句子裡可能另有首尾字母提示（如 e___t、f___e），但**真正的作答區是題號左邊那條線**。
+  - **"inline"**：答案寫在**句子之中的空格**（____ ／( ) ／□ 夾在題幹文字裡），題號左邊**沒有**獨立答案欄。
+  判準（看題號的「左邊」）：題號左側有沒有一條「與句子分離、專門寫答案」的橫線/欄位？
+    有 → "front"；沒有、空格在句中 → "inline"。
+  ⚠️ 多空模式（parts，短文克漏字／表格子題）一律 "inline"（作答區在句中或格中）。
+  ⚠️ 同一大題所有題的 answerPos 通常一致（整個大題同版面）；逐題判斷但結果應一致。
 
   ## 單空模式（最常見）
   answer：完整正解含單位 — "15 公分" / "彰" / "ㄓㄤ"
@@ -6183,6 +6194,69 @@ export async function gradePhaseBFromCache(
   const parsed = JSON.parse(r2.text.replace(/```json|```/g, '').trim()) as GradingResult
   onStage?.('explain', 'completed')
   return parsed
+}
+
+// 2026-06-30 錯題引導 on-demand：學生在訂正卡按「需要引導」、填「哪裡不懂」後生成單題引導。
+//   防濫用：消極/空白說明擋下（client 先擋、server 端再擋一次不可繞過）。
+//   費用：走 grading.* route → server 端自動把點數歸老師（resolveBillingUserId）。
+//   答案保密：標準答案由 server live 抓、絕不經 client（prompt 在 server 組）。
+export function isMeaningfulConfusion(text: string): boolean {
+  const raw = (text || '').trim()
+  if (!raw) return false
+  const stripped = raw.replace(/[\s,，。.!！?？、~～:：;；]/g, '')
+  if (stripped.length < 4) return false  // 太短（「不會」「不懂」「不知道」）一律擋
+  if (/^(這題|這個|題目|整題)?(我)?(都|完全|就是|統統|根本)?(不(知道|曉得|懂|會|清楚|明白|瞭解|知)|看不懂|沒(有|概念|想法)|毫無頭緒|忘記了?|忘了|未填|無|不太懂|不太會)$/.test(stripped)) return false
+  const meaningful = stripped.replace(/(不知道|不曉得|不清楚|不明白|看不懂|不懂|不會|沒概念|沒想法|毫無頭緒|忘記了?|忘了|不太懂|不太會|這題|這個|這道|題目|整題|我|都|完全|就是|根本)/g, '')
+  if (meaningful.length < 3) return false
+  return true
+}
+
+export async function generateSingleQuestionGuidance(params: {
+  submissionId: string
+  questionId: string
+  assignmentId: string
+  studentConfusion: string
+  answerSheetMode?: 'with_questions' | 'answer_only'
+}): Promise<{ studentGuidance: string; mistakeType?: string }> {
+  const { submissionId, questionId, assignmentId, studentConfusion, answerSheetMode } = params
+  if (!isMeaningfulConfusion(studentConfusion)) {
+    throw new Error('請具體說明你卡在哪裡（例如：哪個步驟、哪個字看不懂），不要只填「不會 / 不知道」。')
+  }
+  const { sessionId: sid } = await ensureInkSessionFresh()
+  const body = JSON.stringify({
+    model: currentModelName,
+    contents: [{ role: 'user', parts: [{ text: 'error_guidance' }] }],
+    inkSessionId: sid,
+    routeKey: 'grading.error_guidance',
+    submissionId,
+    questionId,
+    assignmentId,
+    studentConfusion,
+    ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
+  })
+  let resp = await fetch(geminiProxyUrl, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body
+  })
+  if (resp.status === 409) {
+    setInkSessionId(null)
+    const { sessionId: newSid } = await startInkSession()
+    const reparsed = JSON.parse(body); reparsed.inkSessionId = newSid
+    resp = await fetch(geminiProxyUrl, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(reparsed)
+    })
+  }
+  const data = await resp.json().catch(() => null) as Record<string, unknown> | null
+  if (typeof (data as any)?.ink?.balanceAfter === 'number') dispatchInkBalance((data as any).ink.balanceAfter)
+  if (!resp.ok) {
+    const msg = (typeof (data as any)?.error === 'string' && (data as any).error) || '生成引導失敗、請稍後再試'
+    throw new Error(msg)
+  }
+  const text = (data as any)?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
+  if (!text) throw new Error('生成引導回覆為空')
+  const parsed = JSON.parse(text.replace(/```json|```/g, '').trim()) as { studentGuidance?: string; mistakeType?: string }
+  const guidance = (parsed?.studentGuidance || '').trim()
+  if (!guidance) throw new Error('生成引導回覆為空')
+  return { studentGuidance: guidance, mistakeType: parsed?.mistakeType }
 }
 
 /**

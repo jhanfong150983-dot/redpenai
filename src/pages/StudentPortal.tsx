@@ -32,6 +32,8 @@ import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import {
   gradePhaseA,
   gradePhaseBFromCache,
+  generateSingleQuestionGuidance,
+  isMeaningfulConfusion,
   type PhaseAResult,
   type PhaseAQuestionResult,
   type GradingStageName,
@@ -765,6 +767,35 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   // Per-question action state: questionId → { type: 'photo'|'dispute', file?: File, note?: string }
   const [questionActions, setQuestionActions] = useState<Record<string, { type: 'photo' | 'dispute'; file?: File; note?: string }>>({})
   const [disputeNoteInput, setDisputeNoteInput] = useState<Record<string, string>>({})
+  // 2026-06-30 錯題引導 on-demand：學生卡住才按按鈕、填「哪裡不懂」生成單題引導（防濫用 + 引導更精準）。
+  const [guidanceModalFor, setGuidanceModalFor] = useState<string | null>(null)
+  const [confusionInput, setConfusionInput] = useState<Record<string, string>>({})
+  const [localGuidance, setLocalGuidance] = useState<Record<string, string>>({})
+  const [generatingGuidanceFor, setGeneratingGuidanceFor] = useState<string | null>(null)
+  const [guidanceError, setGuidanceError] = useState<string>('')
+  const handleGenerateGuidance = async (qId: string, item: { questionId?: string; sourceSubmissionId?: string }) => {
+    setGuidanceError('')
+    const confusion = (confusionInput[qId] || '').trim()
+    if (!isMeaningfulConfusion(confusion)) {
+      setGuidanceError('請具體說明你卡在哪裡（例如：哪個步驟、哪個字看不懂），不要只填「不會 / 不知道」。')
+      return
+    }
+    const submissionId = item.sourceSubmissionId
+    const questionId = item.questionId
+    if (!submissionId || !questionId) { setGuidanceError('資料不完整、無法生成引導。'); return }
+    setGeneratingGuidanceFor(qId)
+    try {
+      const { studentGuidance } = await generateSingleQuestionGuidance({
+        submissionId, questionId, assignmentId: correctionAssignmentId, studentConfusion: confusion,
+      })
+      setLocalGuidance((prev) => ({ ...prev, [qId]: studentGuidance }))
+      setGuidanceModalFor(null)
+    } catch (e) {
+      setGuidanceError(e instanceof Error ? e.message : '生成引導失敗、請稍後再試。')
+    } finally {
+      setGeneratingGuidanceFor(null)
+    }
+  }
   const [showDisputeNoteFor, setShowDisputeNoteFor] = useState<string | null>(null)
   const [correctionCropCache, setCorrectionCropCache] = useState<Record<string, string | null>>({})
   const correctionCropCacheRef = useRef<Record<string, string | null>>({})
@@ -2100,11 +2131,62 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         </div>
                       )}
 
-                      {/* Hint */}
-                      {item.hintText && (
-                        <div className="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
-                          <p className="text-xs font-semibold text-amber-700">錯題指引</p>
-                          <p className="mt-0.5 text-xs text-amber-800">{item.hintText}</p>
+                      {/* 錯題引導 on-demand：一開始不顯示、學生卡住才按「需要引導」、填「哪裡不懂」才生成。 */}
+                      {(() => {
+                        const guidanceText = localGuidance[qId] || item.hintText
+                        if (guidanceText) {
+                          return (
+                            <div className="mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+                              <p className="text-xs font-semibold text-amber-700">錯題引導</p>
+                              <p className="mt-0.5 whitespace-pre-wrap text-xs text-amber-800">{guidanceText}</p>
+                            </div>
+                          )
+                        }
+                        if (guidanceModalFor === qId) return null
+                        return (
+                          <button
+                            type="button"
+                            disabled={isSubmitting || generatingGuidanceFor === qId}
+                            onClick={() => { setGuidanceError(''); setGuidanceModalFor(qId) }}
+                            className="mb-2 inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {generatingGuidanceFor === qId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                            需要引導
+                          </button>
+                        )
+                      })()}
+
+                      {/* 錯題引導 abuse-gate modal：必須具體說明「哪裡不懂」才能生成（擋消極/空白）。 */}
+                      {guidanceModalFor === qId && (
+                        <div className="mb-2 space-y-2 rounded border border-amber-200 bg-amber-50 p-2">
+                          <p className="text-xs font-semibold text-amber-800">這題你「哪裡」不懂？具體說明才能生成引導</p>
+                          <textarea
+                            rows={3}
+                            value={confusionInput[qId] || ''}
+                            onChange={(e) => setConfusionInput((prev) => ({ ...prev, [qId]: e.target.value }))}
+                            placeholder="例如：我不知道為什麼要先算括號裡面 / 這個英文字的時態我看不懂…"
+                            className="w-full rounded border border-amber-300 bg-white px-2 py-1 text-xs text-slate-800 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                          />
+                          {guidanceError && <p className="text-xs text-rose-600">{guidanceError}</p>}
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              disabled={generatingGuidanceFor === qId}
+                              onClick={() => void handleGenerateGuidance(qId, item)}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+                            >
+                              {generatingGuidanceFor === qId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                              生成引導
+                            </button>
+                            <button
+                              type="button"
+                              disabled={generatingGuidanceFor === qId}
+                              onClick={() => { setGuidanceModalFor(null); setGuidanceError('') }}
+                              className="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50"
+                            >
+                              取消
+                            </button>
+                          </div>
                         </div>
                       )}
 
