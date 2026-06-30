@@ -4884,7 +4884,8 @@ export default function GradingPage({
       setGradingMessage('正在完成批改評分、整理結果…')
       setIsGrading(true)
       setGradingPhase('phase_b_running')
-      await executeGradeOnlyCache(changedSubs, { noticeOffset: { success: offSuccess, total: unchangedTotal }, fullPipeline: true })
+      // skipReviewGate：末端審查已完成、老師選擇已存進 finalAnswers，待複核閘門在此不該再擋（否則被跳過、分數停在暫定值 read2、且彈假「失敗」）。
+      await executeGradeOnlyCache(changedSubs, { noticeOffset: { success: offSuccess, total: unchangedTotal }, fullPipeline: true, skipReviewGate: true })
     } else {
       setGradingPhase('idle')
       setIsGrading(false)
