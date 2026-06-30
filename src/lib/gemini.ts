@@ -6021,6 +6021,7 @@ export async function gradePhaseB(
     routeKey: 'grading.phase_b',
     phaseAResult: phaseAForServer,
     finalAnswers,
+    skipExplain: true,  // 2026-06-30 錯題引導改 on-demand：Phase B 不跑 explain、只算分
     ...(domain ? { domain } : {}),
     ...(assignmentId ? { assignmentId } : {}),
     ...(submissionId ? { submissionId } : {}),
@@ -6134,6 +6135,7 @@ export async function gradePhaseBFromCache(
     contents: [{ role: 'user', parts: [{ inlineData: { mimeType, data: imageBase64 } }] }],
     ...(sid ? { inkSessionId: sid } : {}),
     fromCache: true,
+    skipExplain: true,  // 2026-06-30 錯題引導改 on-demand：accessor call 直接回最終結果、不再打 explain
     submissionId,
     ...(finalAnswersOverride && finalAnswersOverride.length > 0 ? { finalAnswers: finalAnswersOverride } : {}),
     ...(domain ? { domain } : {}),
