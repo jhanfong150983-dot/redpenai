@@ -182,10 +182,10 @@ export function isPhaseAStale(sub: Submission | undefined, correctionStatus?: st
   return pasAt > 0 && pasAt > gradedAt
 }
 
-// 2026-06-30 [審查後移重構步驟2]：gated flag。開時走「A → B(全批、NR 用 read2 provisional) → 末端審查 → finalize」。
-//   關（預設）＝現行流程（A → 末端審查在 A/B 之間 → B）、本檔所有 gated 分支皆 inert。
-//   ⚠ 必須與 server env REVIEW_AFTER_B 對齊：server 在 gradePhaseBFromCache 對 NR 補 read2 provisional 也由該 env 控。
-const REVIEW_AFTER_B = import.meta.env?.VITE_REVIEW_AFTER_B === 'true'
+// 2026-06-30 [審查後移重構步驟2]：流程「A → B(全批、NR 用 read2 provisional) → 末端審查 → finalize」。
+//   2026-06-30 改為**預設開**（kill-switch：VITE_REVIEW_AFTER_B='false' 才回舊流程 A→審查→B）。
+//   ⚠ 必須與 server REVIEW_AFTER_B 對齊（server 預設也已改開、'false' 才關）：server 在 gradePhaseBFromCache 對 NR 補 read2 provisional。
+const REVIEW_AFTER_B = import.meta.env?.VITE_REVIEW_AFTER_B !== 'false'
 
 // 2026-06-30 [審查後移重構步驟2]：末端審查顯示「標準答案」用——讓老師不用翻答案卷就能二選一。
 //   精確題用 answer；多元/評價題用 referenceAnswer；再 fallback acceptableAnswers。
