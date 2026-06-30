@@ -1361,6 +1361,7 @@ export function ConsistencyQuestionCard({
   onViewOriginal,
   standardAnswer,
   provisional,
+  candidates,
 }: {
   studentId: string
   questionResult: PhaseAQuestionResult
@@ -1371,6 +1372,8 @@ export function ConsistencyQuestionCard({
   // 2026-06-30 [審查後移重構步驟2]：末端審查模式才帶——標準答案 + 統一 Phase B 暫定分數。
   standardAnswer?: string
   provisional?: { score?: number; maxScore?: number; isCorrect?: boolean }
+  // 2026-06-30 [批兩候選]：read1/read2 兩候選各自的分數（老師點哪個就知道對錯/得幾分）。
+  candidates?: { ai_read1?: { score?: number; maxScore?: number; isCorrect?: boolean } | null; ai_read2?: { score?: number; maxScore?: number; isCorrect?: boolean } | null }
 }) {
   const [manualInput, setManualInput] = useState('')
   const [zoomedImg, setZoomedImg] = useState(false)
@@ -1803,6 +1806,11 @@ export function ConsistencyQuestionCard({
               return t1 !== null && t2 !== null && t1 !== t2 ? renderDiffHighlight(t1, t2) : formatAnswer(readAnswer1)
             })()}
           </span>
+          {candidates?.ai_read1 && typeof candidates.ai_read1.score === 'number' && (
+            <span className={`mt-0.5 inline-block w-fit rounded px-1.5 py-0.5 text-[10px] font-bold ${candidates.ai_read1.isCorrect ? 'bg-green-100 text-green-700' : 'bg-rose-100 text-rose-700'}`}>
+              {candidates.ai_read1.isCorrect ? '✓' : '✗'} {candidates.ai_read1.score}/{candidates.ai_read1.maxScore}
+            </span>
+          )}
         </button>
 
         {/* AI2 全局讀取 */}
@@ -1824,6 +1832,11 @@ export function ConsistencyQuestionCard({
               return t1 !== null && t2 !== null && t1 !== t2 ? renderDiffHighlight(t2, t1) : formatAnswer(readAnswer2)
             })()}
           </span>
+          {candidates?.ai_read2 && typeof candidates.ai_read2.score === 'number' && (
+            <span className={`mt-0.5 inline-block w-fit rounded px-1.5 py-0.5 text-[10px] font-bold ${candidates.ai_read2.isCorrect ? 'bg-green-100 text-green-700' : 'bg-rose-100 text-rose-700'}`}>
+              {candidates.ai_read2.isCorrect ? '✓' : '✗'} {candidates.ai_read2.score}/{candidates.ai_read2.maxScore}
+            </span>
+          )}
         </button>
 
         {/* 空白 */}
@@ -2045,11 +2058,13 @@ function BatchConsistencyReviewSection({
       {currentEntry && !allDone && (() => {
         const student = allStudents.find(s => s.id === currentEntry.studentId)
         // 2026-06-30 [審查後移重構步驟2]：取這份卷統一 Phase B 寫的 per-question provisional 分數（給卡片顯示）。
+        type RvCand = { score?: number; maxScore?: number; isCorrect?: boolean }
+        type RvDetail = { questionId?: string; score?: number; maxScore?: number; isCorrect?: boolean; reviewCandidates?: { ai_read1?: RvCand | null; ai_read2?: RvCand | null } }
         const provisionalByQid = (() => {
           if (!reviewAfterB) return null
           const sub = submissionsByStudentId?.get(currentEntry.studentId)
-          const details = (sub?.gradingResult as { details?: Array<{ questionId?: string; score?: number; maxScore?: number; isCorrect?: boolean }> } | undefined)?.details ?? []
-          const m = new Map<string, { score?: number; maxScore?: number; isCorrect?: boolean }>()
+          const details = (sub?.gradingResult as { details?: RvDetail[] } | undefined)?.details ?? []
+          const m = new Map<string, RvDetail>()
           for (const d of details) { if (d?.questionId) m.set(String(d.questionId), d) }
           return m
         })()
@@ -2084,6 +2099,7 @@ function BatchConsistencyReviewSection({
                   onViewOriginal={() => setViewerQ(q)}
                   standardAnswer={reviewAfterB ? standardAnswerText(answerKeyByQid?.get(q.questionId)) : undefined}
                   provisional={provisionalByQid?.get(q.questionId)}
+                  candidates={provisionalByQid?.get(q.questionId)?.reviewCandidates}
                 />
               ))}
             </div>
@@ -4454,7 +4470,7 @@ export default function GradingPage({
   // 不重跑 Phase A（省 4 min）。對應「批改作業」按鈕觸發。
   // 2026-05-31: opts.silent —「一鍵接著批改」的 needB 步驟用。跑完不跳結果 notice
   //（避免一鍵流程中途彈出 needB 的結果視窗、跟後面 Phase A 的視窗打架）。預設 false=現行。
-  const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean; noticeOffset?: { success: number; total: number }; fullPipeline?: boolean; skipReviewGate?: boolean }) => {
+  const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean; noticeOffset?: { success: number; total: number }; fullPipeline?: boolean; skipReviewGate?: boolean; withReviewCandidates?: boolean }) => {
     if (candidates.length === 0) return
     if (inkSessionError) { alert(inkSessionError); return }
     if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
@@ -4600,7 +4616,8 @@ export default function GradingPage({
             assignment?.answerSheetMode,
             gradeBand,
             freshFinalAnswers,
-            (stage, event) => bumpStage(stage, event)
+            (stage, event) => bumpStage(stage, event),
+            opts?.withReviewCandidates === true
           )
           // 訂正/申訴中的學生：走 reconcile（server 端逐題調和 + 存回原卷、回傳調整後的 grade）。
           // 其餘學生：直接 save-grading。
@@ -4844,60 +4861,84 @@ export default function GradingPage({
     })
   }
 
-  // 2026-06-30 [審查後移重構步驟2] 末端 finalize：審查完成後，只對「老師選擇與 provisional 不同」的卷重批。
-  //   provisional 主候選＝read2（server fromCache 對 NR 補的）；老師若仍選 read2 → 該題分數不變、可不重批。
-  //   任一 NR 題 decision.source ≠ 'ai_read2'（選 read1/manual/blank/未選）→ 整卷送 executeGradeOnlyCache 重批（帶老師 finalAnswers、閘門正常）。
-  //   未變動卷已在統一 Phase B 拿到正確分；用 noticeOffset 把它們補進最終結果視窗總數。
+  // 2026-06-30 [批兩候選] 末端 finalize：審查完成後，用 provisional 趟算好的 reviewCandidates（每題 read1/read2 分數）
+  //   在前端直接套用老師選擇、重算總分、寫回——**不跑第二趟 Phase B**（這就是「批兩候選」的重點）。
+  //   只有「人工輸入(manual)/VJ/map_fill/缺候選且改選非 read2」的卷才回退 server 重批（量少、需 AI）。
   const finalizeReviewAfterB = async (reviewedEntries: BatchPhaseAEntry[]) => {
     reviewAfterBModeRef.current = false
     phaseAOnlyReviewModeRef.current = false
+    setGradeResultNotice(null)
+    setPhaseAResultNotice(null)
     setBatchPhaseAEntries([])
-    requestSync()
     const scopeIds = oneClickScopeRef.current
     oneClickScopeRef.current = []
-    const changedIds = new Set<string>()
+    setPipelineMode('both')
+    setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, started: Math.max(1, p.accessor.started) } }))
+    setGradingMessage('正在套用審查結果、整理成績…')
+    setIsGrading(true)
+    setGradingPhase('phase_b_running')
+
+    type Cand = { score?: number; maxScore?: number; isCorrect?: boolean; studentAnswer?: string }
+    type DetailRow = { questionId?: string; score?: number; maxScore?: number; isCorrect?: boolean; studentAnswer?: string; reviewCandidates?: { ai_read1?: Cand | null; ai_read2?: Cand | null } }
+    const needRegrade: Submission[] = []
     for (const entry of reviewedEntries) {
-      const nrQs = entry.phaseAResult.questionResults.filter((qr) =>
-        questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType))
-      const changed = nrQs.some((qr) => {
-        const d = entry.decisions.get(qr.questionId)
-        return !d || d.source !== 'ai_read2'
+      const sub = await db.submissions.get(entry.submissionId)
+      if (!sub) continue
+      const gr = (sub.gradingResult || {}) as { details?: DetailRow[]; totalScore?: number }
+      const details: DetailRow[] = Array.isArray(gr.details) ? gr.details : []
+      let regrade = false
+      let total = 0
+      const newDetails = details.map((d) => {
+        const dec = entry.decisions.get(String(d.questionId))
+        if (dec) {
+          const cands = d.reviewCandidates
+          let c: Cand | null = null
+          if (dec.source === 'ai_read1') c = cands?.ai_read1 ?? null
+          else if (dec.source === 'ai_read2') c = cands?.ai_read2 ?? null
+          else if (dec.source === 'blank') c = { score: 0, maxScore: d.maxScore, isCorrect: false, studentAnswer: '' }
+          if (c) {
+            const nd = { ...d, score: c.score ?? 0, maxScore: c.maxScore ?? d.maxScore, isCorrect: c.isCorrect === true, studentAnswer: c.studentAnswer ?? d.studentAnswer }
+            total += typeof nd.score === 'number' ? nd.score : 0
+            return nd
+          }
+          // 人工輸入 / VJ / map_fill / 缺候選：若改選非 read2 必須 server 重算（read2 維持 provisional 分數即可）
+          if (dec.source !== 'ai_read2') regrade = true
+        }
+        total += typeof d.score === 'number' ? d.score : 0
+        return d
       })
-      if (changed) changedIds.add(entry.submissionId)
-    }
-    // 未變動卷（乾淨 + NR 仍選 read2）已在統一 Phase B 批好——數出成功數當 offset
-    let offSuccess = 0
-    const unchangedTotal = scopeIds.length - changedIds.size
-    for (const id of scopeIds) {
-      if (changedIds.has(id)) continue
-      const s = await db.submissions.get(id)
-      if (s?.status === 'graded') offSuccess++
-    }
-    const changedSubs: Submission[] = []
-    for (const id of changedIds) {
-      const s = await db.submissions.get(id)
-      if (s) changedSubs.push(s)
-    }
-    if (changedSubs.length > 0) {
-      setPipelineMode('both')
-      setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, started: Math.max(1, p.accessor.started) } }))
-      setGradingMessage('正在完成批改評分、整理結果…')
-      setIsGrading(true)
-      setGradingPhase('phase_b_running')
-      // skipReviewGate：末端審查已完成、老師選擇已存進 finalAnswers，待複核閘門在此不該再擋（否則被跳過、分數停在暫定值 read2、且彈假「失敗」）。
-      await executeGradeOnlyCache(changedSubs, { noticeOffset: { success: offSuccess, total: unchangedTotal }, fullPipeline: true, skipReviewGate: true })
-    } else {
-      setGradingPhase('idle')
-      setIsGrading(false)
-      setGradeResultNotice({
-        stopped: false,
-        successCount: offSuccess,
-        failCount: unchangedTotal - offSuccess,
-        totalCount: scopeIds.length,
-        failReasons: [],
-        failedEntries: [],
+      if (regrade) { needRegrade.push(sub); continue }
+      const gradedAtMs = Date.now()
+      const newGr = { ...gr, details: newDetails, totalScore: total } as Submission['gradingResult']
+      await db.submissions.update(sub.id, { status: 'graded', score: total, aiScore: total, scoreSource: 'ai', gradingResult: newGr, gradedAt: gradedAtMs, updatedAt: gradedAtMs })
+      setSubmissions((prev) => {
+        const next = new Map(prev)
+        const cur = Array.from(prev.values()).find((s) => s.id === sub.id)
+        if (cur) next.set(cur.studentId, { ...cur, status: 'graded', score: total, aiScore: total, scoreSource: 'ai', gradingResult: newGr, gradedAt: gradedAtMs, updatedAt: gradedAtMs })
+        return next
       })
+      fetch('/api/data/save-grading', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ submissions: [{ id: sub.id, score: total, aiScore: total, scoreSource: 'ai', gradingResult: newGr, gradedAt: gradedAtMs }] })
+      }).catch(() => {/* non-fatal */})
     }
+    // 人工輸入/VJ/map_fill 等需 AI 的卷 → server 重批（skipReviewGate、silent、不重複彈窗）
+    if (needRegrade.length > 0) {
+      await executeGradeOnlyCache(needRegrade, { silent: true, fullPipeline: true, skipReviewGate: true })
+    }
+    requestSync()
+    let success = 0
+    for (const id of scopeIds) { const s = await db.submissions.get(id); if (s?.status === 'graded') success++ }
+    setGradingPhase('idle')
+    setIsGrading(false)
+    setGradeResultNotice({
+      stopped: false,
+      successCount: success,
+      failCount: scopeIds.length - success,
+      totalCount: scopeIds.length,
+      failReasons: [],
+      failedEntries: [],
+    })
   }
 
   // 2026-06-30 [審查後移重構步驟2] 新流程編排：A → B(全批、NR provisional) → 末端審查 → finalize。
@@ -4924,7 +4965,8 @@ export default function GradingPage({
     setGradingPhase('phase_b_running')
     const gradeable = await loadGradeableFromScope(oneClickScopeRef.current)
     if (gradeable.length > 0) {
-      await executeGradeOnlyCache(gradeable, { silent: true, fullPipeline: true, skipReviewGate: true })
+      // withReviewCandidates：provisional 趟讓 server 對 NR 題算 read1/read2 兩候選分數→末端審查點選即定、finalize 不再跑第二趟 Phase B
+      await executeGradeOnlyCache(gradeable, { silent: true, fullPipeline: true, skipReviewGate: true, withReviewCandidates: true })
     }
     // ③ 末端審查：用 stash 的 Phase A entries 篩出 NR 卷（此時 provisional 分數已寫入、審查面板可顯示）。
     requestSync()  // 拉統一 Phase B 寫的 score/gradingResult 回 local、審查卡片才看得到 provisional 分

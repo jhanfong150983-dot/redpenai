@@ -6098,7 +6098,8 @@ export async function gradePhaseBFromCache(
   answerSheetMode?: 'with_questions' | 'answer_only',
   gradeBand?: 'k9' | 'high',
   finalAnswersOverride?: FinalAnswer[],
-  onStage?: GradingStageCallback
+  onStage?: GradingStageCallback,
+  withReviewCandidates?: boolean  // 2026-06-30 批兩候選：provisional 趟帶 true、server 算 read1/read2 兩候選分數附 detail
 ): Promise<GradingResult> {
   const compressed = await compressForGemini(submissionImageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, 'phase-b-cache')
   const imageBase64 = await blobToBase64(compressed)
@@ -6136,6 +6137,7 @@ export async function gradePhaseBFromCache(
     ...(sid ? { inkSessionId: sid } : {}),
     fromCache: true,
     skipExplain: true,  // 2026-06-30 錯題引導改 on-demand：accessor call 直接回最終結果、不再打 explain
+    ...(withReviewCandidates ? { withReviewCandidates: true } : {}),  // 批兩候選：server 算 read1/read2 候選分數
     submissionId,
     ...(finalAnswersOverride && finalAnswersOverride.length > 0 ? { finalAnswers: finalAnswersOverride } : {}),
     ...(domain ? { domain } : {}),
