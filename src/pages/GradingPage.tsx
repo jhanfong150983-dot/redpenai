@@ -1008,7 +1008,8 @@ interface GradingPipelineOverlayProps {
 // OverlayStageName＝AI pipeline stages（gemini.ts 的 GradingStageName）+ UI-only 的 'quality'。
 // quality 插在 Phase A(arbiter) 之後、Phase B(accessor) 之前＝框位品質檢查的時間點。
 type OverlayStageName = GradingStageName | 'quality'
-const STAGE_ORDER: OverlayStageName[] = ['classify', 'read', 'arbiter', 'quality', 'accessor', 'explain']
+// 2026-06-30：錯題引導改學生端 on-demand、批改管線不再跑 explain → loading overlay 不再顯示「生成引導」階段。
+const STAGE_ORDER: OverlayStageName[] = ['classify', 'read', 'arbiter', 'quality', 'accessor']
 const STAGE_LABELS: Record<OverlayStageName, string> = {
   classify: '版面掃描',
   read: '讀取答案',
@@ -1020,7 +1021,7 @@ const STAGE_LABELS: Record<OverlayStageName, string> = {
 
 function isStageInMode(stage: OverlayStageName, mode: GradingPipelineMode): boolean {
   if (mode === 'phase_a_only') return stage === 'classify' || stage === 'read' || stage === 'arbiter' || stage === 'quality'
-  if (mode === 'phase_b_only') return stage === 'accessor' || stage === 'explain'
+  if (mode === 'phase_b_only') return stage === 'accessor'
   return true
 }
 
