@@ -182,6 +182,21 @@ export function isPhaseAStale(sub: Submission | undefined, correctionStatus?: st
   return pasAt > 0 && pasAt > gradedAt
 }
 
+// 2026-06-30 [審查後移重構步驟2]：gated flag。開時走「A → B(全批、NR 用 read2 provisional) → 末端審查 → finalize」。
+//   關（預設）＝現行流程（A → 末端審查在 A/B 之間 → B）、本檔所有 gated 分支皆 inert。
+//   ⚠ 必須與 server env REVIEW_AFTER_B 對齊：server 在 gradePhaseBFromCache 對 NR 補 read2 provisional 也由該 env 控。
+const REVIEW_AFTER_B = import.meta.env?.VITE_REVIEW_AFTER_B === 'true'
+
+// 2026-06-30 [審查後移重構步驟2]：末端審查顯示「標準答案」用——讓老師不用翻答案卷就能二選一。
+//   精確題用 answer；多元/評價題用 referenceAnswer；再 fallback acceptableAnswers。
+function standardAnswerText(q?: { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[] }): string {
+  if (!q) return ''
+  if (q.answer && q.answer.trim()) return q.answer.trim()
+  if (q.referenceAnswer && q.referenceAnswer.trim()) return q.referenceAnswer.trim()
+  if (Array.isArray(q.acceptableAnswers) && q.acceptableAnswers.length > 0) return q.acceptableAnswers.join(' / ')
+  return ''
+}
+
 // 2026-05-30: 「需老師確認」的單一定義（卡片 + detail banner + 審查面板 + Phase B 閘門共用）
 const VJ_REVIEW_TYPES = ['diagram_color', 'map_symbol', 'grid_geometry']
 /**
@@ -1344,6 +1359,8 @@ export function ConsistencyQuestionCard({
   onDecision,
   disabled,
   onViewOriginal,
+  standardAnswer,
+  provisional,
 }: {
   studentId: string
   questionResult: PhaseAQuestionResult
@@ -1351,6 +1368,9 @@ export function ConsistencyQuestionCard({
   onDecision: (questionId: string, update: Partial<ConsistencyDecision>) => void
   disabled: boolean
   onViewOriginal?: () => void  // 2026-06-01 Phase4:「看原圖」開整頁檢視器
+  // 2026-06-30 [審查後移重構步驟2]：末端審查模式才帶——標準答案 + 統一 Phase B 暫定分數。
+  standardAnswer?: string
+  provisional?: { score?: number; maxScore?: number; isCorrect?: boolean }
 }) {
   const [manualInput, setManualInput] = useState('')
   const [zoomedImg, setZoomedImg] = useState(false)
@@ -1690,6 +1710,27 @@ export function ConsistencyQuestionCard({
         </span>
       </div>
 
+      {/* 2026-06-30 [審查後移重構步驟2]：末端審查——顯示標準答案（不用翻答案卷）+ 暫定分數（read2 先批的）。 */}
+      {(standardAnswer || provisional) && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          {standardAnswer && (
+            <span className="inline-flex items-center gap-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-1">
+              <span className="font-semibold">標準答案</span>
+              <span className="font-medium break-all">{standardAnswer}</span>
+            </span>
+          )}
+          {provisional && typeof provisional.score === 'number' && (
+            <span className={`inline-flex items-center gap-1 rounded px-2 py-1 border ${
+              provisional.isCorrect ? 'bg-green-50 border-green-200 text-green-700' : 'bg-amber-50 border-amber-200 text-amber-700'
+            }`}>
+              <span className="font-semibold">暫定分數</span>
+              <span className="font-medium">{provisional.score}{typeof provisional.maxScore === 'number' ? `/${provisional.maxScore}` : ''}</span>
+              <span className="text-[10px]">（{provisional.isCorrect ? '✓ 對' : '✗ 待確認'}）</span>
+            </span>
+          )}
+        </div>
+      )}
+
       {consistencyReason && (
         <div className="flex items-start gap-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
           <span className="shrink-0">💡</span>
@@ -1862,6 +1903,9 @@ function BatchConsistencyReviewSection({
   phaseBScoredCount = 0,
   phaseBTotalCount = 0,
   streamingDone = true,
+  reviewAfterB = false,
+  answerKeyByQid,
+  submissionsByStudentId,
 }: {
   entries: BatchPhaseAEntry[]
   allStudents: Student[]
@@ -1873,6 +1917,10 @@ function BatchConsistencyReviewSection({
   // 2026-06-20 串流：false=還有卷在 read+arbiter、複核完目前的也先別收尾(防提早觸發最終 PhaseB)。
   //   預設 true=非串流(一般重新截取)、行為與舊版相同。
   streamingDone?: boolean
+  // 2026-06-30 [審查後移重構步驟2]：末端審查模式——顯示標準答案 + 統一 Phase B 的 provisional 分數。
+  reviewAfterB?: boolean
+  answerKeyByQid?: Map<string, { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[] }>
+  submissionsByStudentId?: Map<string, Submission>
 }) {
   // isPhaseBRunning 不再使用（Accessor 在背景跑）
   // Helper: determine if a question needs human review
@@ -1996,6 +2044,15 @@ function BatchConsistencyReviewSection({
       {/* 當前審查的學生 — 一次一個 */}
       {currentEntry && !allDone && (() => {
         const student = allStudents.find(s => s.id === currentEntry.studentId)
+        // 2026-06-30 [審查後移重構步驟2]：取這份卷統一 Phase B 寫的 per-question provisional 分數（給卡片顯示）。
+        const provisionalByQid = (() => {
+          if (!reviewAfterB) return null
+          const sub = submissionsByStudentId?.get(currentEntry.studentId)
+          const details = (sub?.gradingResult as { details?: Array<{ questionId?: string; score?: number; maxScore?: number; isCorrect?: boolean }> } | undefined)?.details ?? []
+          const m = new Map<string, { score?: number; maxScore?: number; isCorrect?: boolean }>()
+          for (const d of details) { if (d?.questionId) m.set(String(d.questionId), d) }
+          return m
+        })()
 
         return (
           <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 space-y-3">
@@ -2025,6 +2082,8 @@ function BatchConsistencyReviewSection({
                   onDecision={(questionId, update) => onDecision(currentEntry.studentId, questionId, update)}
                   disabled={false}
                   onViewOriginal={() => setViewerQ(q)}
+                  standardAnswer={reviewAfterB ? standardAnswerText(answerKeyByQid?.get(q.questionId)) : undefined}
+                  provisional={provisionalByQid?.get(q.questionId)}
                 />
               ))}
             </div>
@@ -2215,6 +2274,11 @@ export default function GradingPage({
   const [reviewStreamingDone, setReviewStreamingDone] = useState(true)
   // 本次串流是否有任何需複核卷進過佇列（決定 executeRecaptureOnly 回傳 true=有複核 / false=直接收尾）。
   const reviewAppendedCountRef = useRef(0)
+  // 2026-06-30 [審查後移重構步驟2]：本次 reviewAfterB 流程的所有成功 Phase A entries（含乾淨與 NR）。
+  //   Phase A 階段不進審查、先 stash；統一 Phase B(全批) 跑完後再用這份篩 NR 卷進末端審查。
+  const reviewAfterBEntriesRef = useRef<BatchPhaseAEntry[]>([])
+  // 目前是否在 reviewAfterB 末端審查中（決定 onAllDone/onStudentConfirmed 走 finalize 重批分支）。
+  const reviewAfterBModeRef = useRef(false)
   // 跨 review UI 持有 Phase A pipeline 失敗（最終 dialog 才會顯示）
   const [pendingPhaseAFailures, setPendingPhaseAFailures] = useState<Array<{ submissionId: string; studentId: string; failure: PipelineFailure }>>([])
   const [phaseANeedsReviewCount, setPhaseANeedsReviewCount] = useState(0)
@@ -2234,6 +2298,14 @@ export default function GradingPage({
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
   const isBusy = isGrading || isDownloading
   const selectedSubmissionCount = selectedSubmissionIds.size
+
+  // 2026-06-30 [審查後移重構步驟2]：末端審查面板顯示「標準答案」用的 questionId → AnswerKeyQuestion map。
+  const reviewAnswerKeyByQid = useMemo(() => {
+    const m = new Map<string, { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[] }>()
+    const qs = (assignment?.answerKey?.questions as Array<{ id?: string; answer?: string; referenceAnswer?: string; acceptableAnswers?: string[] }> | undefined) ?? []
+    for (const q of qs) { if (q?.id) m.set(String(q.id), q) }
+    return m
+  }, [assignment?.answerKey])
 
   // 2026-05-17: Phase A / Phase B 分離設計——卡片狀態彙總（給按鈕邏輯用）
   // 規則：無勾選 = 全部（排除未繳交 + 手動標記）、有勾選 = 對勾選
@@ -3728,7 +3800,7 @@ export default function GradingPage({
   // 2026-05-31: 回傳 enteredReview（true=有 needs_review、已進審查頁；false=無、已收尾）。
   //   一鍵 1c 用此判斷要立刻跑統一 Phase B（false）還是等審查 onAllDone 再跑（true）。
   //   opts.suppressNotice：一鍵流程中不顯示 Phase A 自己的收尾 notice（讓統一 Phase B 的結果視窗當最終 modal）。
-  const executeRecaptureOnly = useCallback(async (candidates: Submission[], opts?: { chainPhaseB?: boolean; suppressNotice?: boolean; fullPipeline?: boolean }): Promise<boolean> => {
+  const executeRecaptureOnly = useCallback(async (candidates: Submission[], opts?: { chainPhaseB?: boolean; suppressNotice?: boolean; fullPipeline?: boolean; reviewAfterB?: boolean }): Promise<boolean> => {
     if (candidates.length === 0) return false
     if (!assignment?.answerKey) { alert('找不到答案卷'); return false }
     if (inkSessionError) { alert(inkSessionError); return false }
@@ -4316,6 +4388,16 @@ export default function GradingPage({
       return false
     }
 
+    // 2026-06-30 [審查後移重構步驟2]：reviewAfterB 模式——Phase A 階段「不進審查」，只把全部成功 entries
+    //   stash 起來，交回 orchestrator(runReviewAfterBFlow)：先跑統一 Phase B(全批、NR 用 read2 provisional)、
+    //   B 跑完才用這份篩出 NR 卷進末端審查。乾淨卷也不在此處背景批（統一 Phase B 會涵蓋全 scope）。
+    if (opts?.reviewAfterB) {
+      reviewAfterBEntriesRef.current = successfulEntries
+      phaseAStashRef.current = null
+      setGradingPhase('idle')
+      return false
+    }
+
     // 2026-05-18: 篩出有 needs_review 的 entries、若有 → 進審查頁（不接 Phase B）
     // 2026-05-30: 含 blank（空白要老師確認）
     const needsReviewEntries = successfulEntries.filter((entry) =>
@@ -4372,7 +4454,7 @@ export default function GradingPage({
   // 不重跑 Phase A（省 4 min）。對應「批改作業」按鈕觸發。
   // 2026-05-31: opts.silent —「一鍵接著批改」的 needB 步驟用。跑完不跳結果 notice
   //（避免一鍵流程中途彈出 needB 的結果視窗、跟後面 Phase A 的視窗打架）。預設 false=現行。
-  const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean; noticeOffset?: { success: number; total: number }; fullPipeline?: boolean }) => {
+  const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean; noticeOffset?: { success: number; total: number }; fullPipeline?: boolean; skipReviewGate?: boolean }) => {
     if (candidates.length === 0) return
     if (inkSessionError) { alert(inkSessionError); return }
     if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
@@ -4489,8 +4571,11 @@ export default function GradingPage({
             sub.phaseAState, sub.finalAnswers as FinalAnswer[] | undefined
           )
           // ── 待複核閘門：仍有 needs_review 未確認 → 不批這份、保持原狀、列入結果面板 ──
+          // 2026-06-30 [審查後移重構步驟2]：reviewAfterB 統一 Phase B(全批) 階段刻意 skipReviewGate——
+          //   NR 題此時尚無老師 finalAnswers（審查在 B 之後），server 端用 read2 補 provisional 先批暫定分；
+          //   閘門若不跳會把所有 NR 卷整份跳過、拿不到 provisional 分數。末端審查後的 finalize 重批不帶此旗、閘門正常生效。
           const gateDecisions = (sub.phaseAState as { arbiterDecisions?: Array<{ questionId?: string; arbiterStatus?: string; finalAnswer?: string }> } | undefined)?.arbiterDecisions ?? []
-          if (gateDecisions.length > 0) {
+          if (!opts?.skipReviewGate && gateDecisions.length > 0) {
             const gateDetails = (sub.gradingResult as { details?: Array<{ questionId?: string; questionType?: string }> } | undefined)?.details ?? []
             const gateTypeByQid = new Map(gateDetails.map((d) => [d.questionId, d.questionType]))
             const gateFinalQids = new Set((freshFinalAnswers ?? []).map((fa) => fa.questionId))
@@ -4743,6 +4828,117 @@ export default function GradingPage({
     }
   }
 
+  // 2026-06-30 [審查後移重構步驟2]：把 oneClickScope 內「狀態可批」的卷從 Dexie 讀成 fresh Submission。
+  //   與 runOneClickPhaseB 同一套 gradeable 判斷（有 state 一定可批；沒 state 但沒失敗也批）。
+  const loadGradeableFromScope = async (ids: string[]): Promise<Submission[]> => {
+    const fresh: Submission[] = []
+    for (const id of ids) {
+      const s = await db.submissions.get(id)
+      if (s) fresh.push(s)
+    }
+    return fresh.filter((s) => {
+      const ps = s.phaseAState as { arbiterDecisions?: unknown[] } | undefined
+      const hasState = !!ps && Array.isArray(ps.arbiterDecisions) && ps.arbiterDecisions.length > 0
+      const failed = !!(s.gradingResult as { pipelineFailure?: unknown } | undefined)?.pipelineFailure
+      return hasState || !failed
+    })
+  }
+
+  // 2026-06-30 [審查後移重構步驟2] 末端 finalize：審查完成後，只對「老師選擇與 provisional 不同」的卷重批。
+  //   provisional 主候選＝read2（server fromCache 對 NR 補的）；老師若仍選 read2 → 該題分數不變、可不重批。
+  //   任一 NR 題 decision.source ≠ 'ai_read2'（選 read1/manual/blank/未選）→ 整卷送 executeGradeOnlyCache 重批（帶老師 finalAnswers、閘門正常）。
+  //   未變動卷已在統一 Phase B 拿到正確分；用 noticeOffset 把它們補進最終結果視窗總數。
+  const finalizeReviewAfterB = async (reviewedEntries: BatchPhaseAEntry[]) => {
+    reviewAfterBModeRef.current = false
+    phaseAOnlyReviewModeRef.current = false
+    setBatchPhaseAEntries([])
+    requestSync()
+    const scopeIds = oneClickScopeRef.current
+    oneClickScopeRef.current = []
+    const changedIds = new Set<string>()
+    for (const entry of reviewedEntries) {
+      const nrQs = entry.phaseAResult.questionResults.filter((qr) =>
+        questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType))
+      const changed = nrQs.some((qr) => {
+        const d = entry.decisions.get(qr.questionId)
+        return !d || d.source !== 'ai_read2'
+      })
+      if (changed) changedIds.add(entry.submissionId)
+    }
+    // 未變動卷（乾淨 + NR 仍選 read2）已在統一 Phase B 批好——數出成功數當 offset
+    let offSuccess = 0
+    const unchangedTotal = scopeIds.length - changedIds.size
+    for (const id of scopeIds) {
+      if (changedIds.has(id)) continue
+      const s = await db.submissions.get(id)
+      if (s?.status === 'graded') offSuccess++
+    }
+    const changedSubs: Submission[] = []
+    for (const id of changedIds) {
+      const s = await db.submissions.get(id)
+      if (s) changedSubs.push(s)
+    }
+    if (changedSubs.length > 0) {
+      setPipelineMode('both')
+      setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, started: Math.max(1, p.accessor.started) } }))
+      setGradingMessage('正在完成批改評分、整理結果…')
+      setIsGrading(true)
+      setGradingPhase('phase_b_running')
+      await executeGradeOnlyCache(changedSubs, { noticeOffset: { success: offSuccess, total: unchangedTotal }, fullPipeline: true })
+    } else {
+      setGradingPhase('idle')
+      setIsGrading(false)
+      setGradeResultNotice({
+        stopped: false,
+        successCount: offSuccess,
+        failCount: unchangedTotal - offSuccess,
+        totalCount: scopeIds.length,
+        failReasons: [],
+        failedEntries: [],
+      })
+    }
+  }
+
+  // 2026-06-30 [審查後移重構步驟2] 新流程編排：A → B(全批、NR provisional) → 末端審查 → finalize。
+  //   與現行 handleOneClickContinue 最大差別＝「審查移到 B 之後」。gated VITE_REVIEW_AFTER_B；旗關不會進這裡。
+  const runReviewAfterBFlow = async (
+    needA: Submission[], needReview: Submission[], _needB: Submission[]
+  ) => {
+    reviewAfterBEntriesRef.current = []
+    reviewAfterBModeRef.current = true
+    // ① Phase A（未擷取+待複核）：跑完 stash entries、不進審查（executeRecaptureOnly reviewAfterB 分支）
+    const phaseATargets = [...needA, ...needReview]
+    if (phaseATargets.length > 0) {
+      await executeRecaptureOnly(phaseATargets, { suppressNotice: true, fullPipeline: true, reviewAfterB: true })
+    }
+    // ② 統一 Phase B（全 scope）：乾淨卷正常批、NR 卷由 server 用 read2 補 provisional 先批暫定分。
+    //    silent＝先不彈最終結果視窗（審查還沒做）；skipReviewGate＝NR 沒老師答案也要批 provisional。
+    setPipelineMode('both')
+    setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, started: Math.max(1, p.accessor.started) } }))
+    setGradingMessage('AI 批改評分中…')
+    setIsGrading(true)
+    setGradingPhase('phase_b_running')
+    const gradeable = await loadGradeableFromScope(oneClickScopeRef.current)
+    if (gradeable.length > 0) {
+      await executeGradeOnlyCache(gradeable, { silent: true, fullPipeline: true, skipReviewGate: true })
+    }
+    // ③ 末端審查：用 stash 的 Phase A entries 篩出 NR 卷（此時 provisional 分數已寫入、審查面板可顯示）。
+    requestSync()  // 拉統一 Phase B 寫的 score/gradingResult 回 local、審查卡片才看得到 provisional 分
+    const nrEntries = reviewAfterBEntriesRef.current.filter((e) =>
+      e.phaseAResult.questionResults.some((qr) =>
+        questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType)))
+    if (nrEntries.length > 0) {
+      phaseAOnlyReviewModeRef.current = true  // onStudentConfirmed 走「只存 final_answers」分支（reviewAfterB 另擋背景批）
+      setReviewStreamingDone(true)
+      setBatchPhaseAEntries(nrEntries)
+      setGradingPhase('awaiting_review')
+      setIsGrading(false)
+    } else {
+      // 無 NR → 直接 finalize（全 scope 已在統一 Phase B 批好、彈結果視窗）
+      await finalizeReviewAfterB([])
+    }
+  }
+
   // 2026-05-31 Phase1c（重做）：一鍵接著批改——把所有未完成的接著批改到完成。
   //   正確排序（消除 v1 兩限制）：① 先對「未擷取+待複核」跑 Phase A(review-only)
   //   ② 有待複核 → 複核（onAllDone）③ 複核完 / 無複核 → 對「全 scope(needA+needReview+needB)」跑一次統一 Phase B。
@@ -4757,6 +4953,19 @@ export default function GradingPage({
     }
     oneClickScopeRef.current = scope.map((s) => s.id)
     oneClickBgGradedIdsRef.current = new Set()
+    // 2026-06-30 [審查後移重構步驟2]：旗開時走新編排（A → B 全批 → 末端審查 → finalize）。旗關＝下方現行流程。
+    if (REVIEW_AFTER_B) {
+      try {
+        await runReviewAfterBFlow(needA, needReview, needB)
+      } catch (e) {
+        console.error('[reviewAfterB] error', e)
+        oneClickScopeRef.current = []
+        reviewAfterBModeRef.current = false
+        setGradingPhase('idle')
+        setIsGrading(false)
+      }
+      return
+    }
     try {
       const phaseATargets = [...needA, ...needReview]
       if (phaseATargets.length > 0) {
@@ -6817,6 +7026,9 @@ export default function GradingPage({
           <BatchConsistencyReviewSection
             entries={batchPhaseAEntries}
             allStudents={students}
+            reviewAfterB={reviewAfterBModeRef.current}
+            answerKeyByQid={reviewAnswerKeyByQid}
+            submissionsByStudentId={submissions}
             onDecision={handleBatchDecision}
             onStudentConfirmed={async (entry) => {
               if (phaseAOnlyReviewModeRef.current) {
@@ -6882,7 +7094,9 @@ export default function GradingPage({
                 //   （用剛存好的複核答案、entry.decisions），與後續複核時間重疊。加進已背景批清單→
                 //   onAllDone 的 runOneClickPhaseB 會跳過、不重複批、結果視窗用 offset 補回總數。
                 //   一般「重新截取」(非一鍵、oneClickScopeRef 空) 不觸發、維持 review-only 不自動批。
-                if (oneClickScopeRef.current.length > 0) {
+                // 2026-06-30 [審查後移重構步驟2]：reviewAfterB 模式只存 final_answers、不在此背景批——
+                //   重批集中在 finalizeReviewAfterB（只重批選擇有變的卷、走統一 fromCache 路徑、避免雙路徑/雙批）。
+                if (oneClickScopeRef.current.length > 0 && !reviewAfterBModeRef.current) {
                   console.log(`✅ 學生 ${entry.studentId} 複核確認（一鍵）→ 立刻背景批 Phase B`)
                   oneClickBgGradedIdsRef.current.add(entry.submissionId)
                   // 共用 semaphore（與串流中的 read+arbiter / 乾淨卷 Phase B 同一個併發預算、防 504）
@@ -6903,6 +7117,12 @@ export default function GradingPage({
               }
             }}
             onAllDone={() => {
+              // 2026-06-30 [審查後移重構步驟2]：末端審查完成 → finalize（只重批選擇有變的卷、彈最終結果視窗）。
+              if (reviewAfterBModeRef.current) {
+                console.log('✅ 末端審查完成（reviewAfterB）→ finalize')
+                void finalizeReviewAfterB(batchPhaseAEntries)
+                return
+              }
               if (phaseAOnlyReviewModeRef.current) {
                 const reviewedCount = batchPhaseAEntries.length
                 phaseAOnlyReviewModeRef.current = false
