@@ -46,6 +46,27 @@ const BATCH_GRADING_CONCURRENCY = Math.max(1, Number(import.meta.env?.VITE_BATCH
 // 每個 worker 完成一份後的節流延遲
 const BATCH_GRADING_STAGGER_MS = 800
 
+// 2026-06-30：read 階段專屬「全域」限流閘（跨所有批改路徑共用、module 級狀態）。
+//   為什麼只 gate read：read1+read2 是多 crop 重 call，高併發下會「整批 mass-blank」(回 HTTP 200 但內容全空、
+//   不是 429/504 → 既有以 429 為準的併發監控抓不到) → 兩讀分歧爆 NR、批改跨次極不一致(同卷一次 4 題 NR、一次 17 題)。
+//   classify/arbiter/accessor 不過閘、維持各自批次併行(8)——classify 8 沒問題、問題只在 read。
+//   因為所有批改路徑(executeGrading / executeRecaptureOnly / 重跑)的 read 都走 gradePhaseA 的 Call 2，
+//   在那一支包這個閘就能「一處覆蓋全部路徑、只節流 read」。可用 VITE_READ_STAGE_CONCURRENCY 微調。
+const READ_STAGE_CONCURRENCY = Math.max(1, Number(import.meta.env?.VITE_READ_STAGE_CONCURRENCY) || 4)
+let _readActive = 0
+const _readQueue: Array<() => void> = []
+async function withReadSlot<T>(fn: () => Promise<T>): Promise<T> {
+  while (_readActive >= READ_STAGE_CONCURRENCY) {
+    await new Promise<void>((resolve) => { _readQueue.push(resolve) })
+  }
+  _readActive++
+  try { return await fn() } finally {
+    _readActive--
+    const next = _readQueue.shift()
+    if (next) next()
+  }
+}
+
 // Gemini 圖片壓縮的解析度底線
 const GEMINI_MIN_WIDTH = 1200      // 一般字 + 手寫仍清楚
 const GEMINI_HARD_MIN_WIDTH = 1024 // 再低就容易糊，寧可大一點
@@ -5929,7 +5950,8 @@ export async function gradePhaseA(
     _phaseAClassifyContext: classifyParsed._phaseAClassifyContext,
     ...(submissionSource ? { submissionSource } : {})
   })
-  const r2 = await postPhase(body2)
+  // 2026-06-30：read call 過全域 read 限流閘（防高併發 mass-blank）；classify(Call1)/arbiter(Call3) 不過閘。
+  const r2 = await withReadSlot(() => postPhase(body2))
   let readParsed: any = null
   if (r2.text) { try { readParsed = JSON.parse(r2.text) } catch {} }
 
