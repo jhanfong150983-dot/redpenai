@@ -52,7 +52,8 @@ const BATCH_GRADING_STAGGER_MS = 800
 //   classify/arbiter/accessor 不過閘、維持各自批次併行(8)——classify 8 沒問題、問題只在 read。
 //   因為所有批改路徑(executeGrading / executeRecaptureOnly / 重跑)的 read 都走 gradePhaseA 的 Call 2，
 //   在那一支包這個閘就能「一處覆蓋全部路徑、只節流 read」。可用 VITE_READ_STAGE_CONCURRENCY 微調。
-const READ_STAGE_CONCURRENCY = Math.max(1, Number(import.meta.env?.VITE_READ_STAGE_CONCURRENCY) || 4)
+// 2026-07-02：預設 8(user：type-split 不太 mass-blank、要 8)。⚠️若關 type-split(走全域 2.5)、8 會較易 mass-blank、宜降回 4。
+const READ_STAGE_CONCURRENCY = Math.max(1, Number(import.meta.env?.VITE_READ_STAGE_CONCURRENCY) || 8)
 let _readActive = 0
 const _readQueue: Array<() => void> = []
 async function withReadSlot<T>(fn: () => Promise<T>): Promise<T> {
