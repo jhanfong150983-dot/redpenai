@@ -77,7 +77,12 @@ async function compressForGemini(
   targetBytes: number,
   label: string
 ): Promise<Blob> {
-  if (blob.size <= targetBytes) return blob
+  // 2026-07-02：加 15% 容忍帶——「只超標一點點」不重壓。
+  //   實證災難：1205KB 卷只超 1.2MB 門檻 5KB → 重壓 webp q82 只省 56KB(4%)，但已壓縮過的 webp
+  //   二次壓縮世代損失讓細手寫行糊掉 → read1 盲讀整句丟字(「It is idea」)、read2 知答讀得出
+  //   → 全班 fill_blank 假性 NR(沙盒 100% 重現：原圖 read1 stable 16/16、重壓後 2/16)。
+  //   1.38MB(base64 ~1.9MB) 離 Vercel 4.5MB body 限制仍遠、安全。
+  if (blob.size <= targetBytes * 1.15) return blob
 
   // 策略：逐步降低品質和解析度，但不低於 hardMinWidth
   const strategies = [
