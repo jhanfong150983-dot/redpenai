@@ -199,16 +199,15 @@ function standardAnswerText(q?: { answer?: string; referenceAnswer?: string; acc
 }
 
 // 2026-05-30: 「需老師確認」的單一定義（卡片 + detail banner + 審查面板 + Phase B 閘門共用）
-const VJ_REVIEW_TYPES = ['diagram_color', 'map_symbol', 'grid_geometry']
 /**
  * 一題是否需要老師確認 = AI 標 needs_review，或「答案空白」需確認真空白。
  * map_fill / VJ 有自己的逐位置 / 逐柱確認流程（排除、不走這條空白判斷）。
  */
-export function questionNeedsConfirm(arbiterStatus?: string, finalAnswer?: string, questionType?: string): boolean {
+export function questionNeedsConfirm(arbiterStatus?: string, _finalAnswer?: string, _questionType?: string): boolean {
   if (arbiterStatus === 'needs_review') return true
-  if (questionType === 'map_fill' || VJ_REVIEW_TYPES.includes(questionType || '')) return false
-  // 空白（arbiter 同意但最終答案空）→ 要老師在審查面板確認「真空白 / 其實有寫」
-  if (arbiterStatus === 'arbitrated_agree' && !(finalAnswer || '').trim()) return true
+  // 2026-07-02 user 指示：兩個 read 都空白＝真空白、不要再進審查。
+  //   arbitrated_agree + 空答案 ⟺ 兩讀皆空 → 直接判未作答、不再要老師「確認真空白」。
+  //   (classify 漂移已由 STAGE 2 peer-baseline + PDF 統一框在 read 前處理，兩獨立讀皆空即真空白。)
   return false
 }
 
