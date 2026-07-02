@@ -1426,6 +1426,29 @@ export function ConsistencyQuestionCard({
   //   卡片顯示「已選人工輸入卻是空框、要先點 read1 才出現」——這正是跨卷殘留的錯覺來源。
   const manualSelected = manualTouched || (decision?.source === 'manual' && manualInput.trim().length > 0)
 
+  // ── 2026-07-02 排序題人工輸入：對應版面的「格子陣列」而非單一文字框 ──
+  //   老師照上方原圖、由左到右由上到下逐格填數字、系統自動組成序列並檢查 1~N 各一次。
+  const isOrdering = questionResult.questionType === 'ordering'
+  const orderTokens = (s?: string | null) => String(s ?? '').split(/[,，、\s]+/).map((t) => t.trim()).filter(Boolean)
+  const orderN = isOrdering
+    ? Math.max(orderTokens(standardAnswer).length, orderTokens(readAnswer1?.studentAnswer).length, orderTokens(readAnswer2?.studentAnswer).length)
+    : 0
+  const [orderCells, setOrderCells] = useState<string[]>(() => {
+    if (!isOrdering || orderN === 0) return []
+    const base = decision?.source === 'manual' ? orderTokens(decision.finalAnswer) : orderTokens(readAnswer1?.studentAnswer)
+    return Array.from({ length: orderN }, (_, i) => base[i] ?? '')
+  })
+  const commitOrderCells = (cells: string[]) => {
+    setManualTouched(true)
+    setOrderCells(cells)
+    const filled = cells.map((c) => c.trim())
+    const joined = filled.join(',')
+    const nonEmpty = filled.filter(Boolean)
+    const complete = nonEmpty.length === orderN && new Set(nonEmpty).size === nonEmpty.length
+    setManualInput(joined)
+    onDecision(questionId, { source: 'manual', finalAnswer: joined, confirmed: complete })
+  }
+
   const borderClass = isConfirmed
     ? 'border-green-200 bg-green-50'
     : isUnstable
@@ -1941,7 +1964,44 @@ export function ConsistencyQuestionCard({
           >
             {manualSelected && manualInput ? `人工輸入：${manualInput}` : '人工輸入…'}
           </button>
-          {manualSelected && (
+          {manualSelected && (isOrdering && orderN > 0 ? (
+            <div className="mt-1.5 space-y-1.5">
+              <div className="text-[11px] text-gray-500">
+                對照上方原圖，<span className="font-semibold text-gray-700">由左到右、由上到下</span>依序填入每格的數字：
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {orderCells.map((v, i) => (
+                  <div key={i} className="flex flex-col items-center">
+                    <span className="text-[9px] leading-none text-gray-400 mb-0.5">{i + 1}</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={v}
+                      disabled={disabled}
+                      className="w-9 h-9 text-center rounded-md border-2 border-blue-300 text-sm font-semibold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50"
+                      onChange={(e) => {
+                        const next = [...orderCells]
+                        next[i] = e.target.value.replace(/[^0-9]/g, '').slice(-2)
+                        commitOrderCells(next)
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+              {(() => {
+                const ne = orderCells.map((c) => c.trim()).filter(Boolean)
+                const dup = new Set(ne).size !== ne.length
+                const missing = ne.length !== orderN
+                return dup || missing ? (
+                  <div className="text-[11px] text-amber-700">
+                    ⚠ {dup ? '有重複數字；' : ''}{missing ? `尚有格未填（需 ${orderN} 格、1~${orderN} 各一次）` : ''}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-green-700">✓ 已填滿 {orderN} 格、無重複</div>
+                )
+              })()}
+            </div>
+          ) : (
             <textarea
               rows={2}
               value={manualInput}
@@ -1959,7 +2019,7 @@ export function ConsistencyQuestionCard({
                 })
               }}
             />
-          )}
+          ))}
         </div>
       </div>
     </div>
