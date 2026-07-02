@@ -1414,11 +1414,17 @@ export function ConsistencyQuestionCard({
   // 2026-06-30 [批兩候選]：read1/read2 兩候選各自的分數（老師點哪個就知道對錯/得幾分）。
   candidates?: { ai_read1?: { score?: number; maxScore?: number; isCorrect?: boolean } | null; ai_read2?: { score?: number; maxScore?: number; isCorrect?: boolean } | null }
 }) {
-  const [manualInput, setManualInput] = useState('')
+  // manualInput 以「本卷的 decision」為初值（卡片 key 帶 submissionId、換卷會 remount 重算）。
+  const [manualInput, setManualInput] = useState(() => decision?.source === 'manual' ? (decision.finalAnswer ?? '') : '')
+  // 2026-07-02：老師本次是否真的點過「人工輸入」。用來區分「重跑 seed 進來的空手改」與「老師主動選人工輸入」。
+  const [manualTouched, setManualTouched] = useState(false)
   const [zoomedImg, setZoomedImg] = useState(false)
   const { questionId, consistencyStatus, consistencyReason, readAnswer1, readAnswer2, answerCropImageUrl, arbiterResult } = questionResult
   const isUnstable = consistencyStatus === 'unstable'
   const isConfirmed = decision?.confirmed
+  // 「人工輸入」視為已選＝有實質內容、或老師本次明確點過。避免 source='manual' 但內容為空時
+  //   卡片顯示「已選人工輸入卻是空框、要先點 read1 才出現」——這正是跨卷殘留的錯覺來源。
+  const manualSelected = manualTouched || (decision?.source === 'manual' && manualInput.trim().length > 0)
 
   const borderClass = isConfirmed
     ? 'border-green-200 bg-green-50'
@@ -1743,6 +1749,7 @@ export function ConsistencyQuestionCard({
   // 切換到人工輸入時，以讀取1為預填基底（方便修改）
   // 計算題/應用題只預填最終答案，避免老師看到一大串算式
   const switchToManual = () => {
+    setManualTouched(true)
     let prefill = manualInput || ''
     if (!prefill && readAnswer1.studentAnswer) {
       prefill = isCalcType
@@ -1927,14 +1934,14 @@ export function ConsistencyQuestionCard({
             disabled={disabled}
             onClick={!disabled ? switchToManual : undefined}
             className={`w-full rounded-lg border-2 px-3 py-2.5 text-left text-xs font-semibold transition-colors disabled:cursor-not-allowed ${
-              decision?.source === 'manual'
+              manualSelected
                 ? 'border-blue-400 bg-blue-50 text-blue-800 shadow-sm'
                 : 'border-gray-200 bg-white text-blue-600 hover:border-blue-300 hover:bg-blue-50/40'
             }`}
           >
-            {decision?.source === 'manual' && manualInput ? `人工輸入：${manualInput}` : '人工輸入…'}
+            {manualSelected && manualInput ? `人工輸入：${manualInput}` : '人工輸入…'}
           </button>
-          {decision?.source === 'manual' && (
+          {manualSelected && (
             <textarea
               rows={2}
               value={manualInput}
@@ -1943,6 +1950,7 @@ export function ConsistencyQuestionCard({
               className="mt-1.5 w-full rounded-lg border border-blue-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50 resize-y"
               autoFocus={shouldAutoFocusOnDesktop()}
               onChange={(e) => {
+                setManualTouched(true)
                 setManualInput(e.target.value)
                 onDecision(questionId, {
                   source: 'manual',
@@ -4350,6 +4358,9 @@ export default function GradingPage({
             .filter((fa) => fa?.finalAnswerSource === 'manual')
           const seededDecisions = new Map<string, ConsistencyDecision>()
           for (const fa of keptManualFA) {
+            // 2026-07-02：只 seed「有內容」的手改。空手改不 seed→避免下一份卡片顯示
+            //   「人工輸入已選但框是空的」(confirmed:true 還會讓空答案靜默過關)。
+            if (!String(fa.finalStudentAnswer ?? '').trim()) continue
             seededDecisions.set(fa.questionId, { questionId: fa.questionId, source: 'manual', finalAnswer: fa.finalStudentAnswer ?? '', confirmed: true })
           }
           // 2026-06-01: 本地立刻寫入新的 phaseAState（鏡像 server staged-grading.js:8861 的寫法）。
