@@ -764,6 +764,43 @@ function _pct(arr: number[], p: number): number {
   return s[i]
 }
 
+// 2026-07-02 PDF classify 統一框「跨次持久化」([[project_pdf_bbox_wh_p90]] 延伸):
+//   同印刷版面 PDF 很穩定→抽 18 份算好的統一框範本存進 assignment.pdf_classify_template、
+//   之後同一作業的所有批改直接套範本、完全跳過 classify(省一半 API)。
+//   ⚠ 只給 PDF/teacher_scan 用；照片路徑完全不碰。全程 fail-safe(任何錯就退回正常 classify)。
+//   失效保護:存 qids+totalPages,答案卷題目集或頁數變了就作廢重新抽樣。
+type PdfClassifyTemplate = { ctx: unknown; qids: string[]; totalPages: number; savedAt: number }
+async function fetchPdfTemplate(assignmentId?: string): Promise<PdfClassifyTemplate | null> {
+  if (!assignmentId) return null
+  try {
+    const res = await fetch('/api/data/pdf-classify-template', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ assignmentId, mode: 'get' }),
+    })
+    if (!res.ok) return null
+    const j = await res.json().catch(() => null)
+    const t = j?.template
+    if (t && typeof t === 'object' && t.ctx && Array.isArray(t.qids)) return t as PdfClassifyTemplate
+    return null
+  } catch { return null }
+}
+async function savePdfTemplate(assignmentId: string | undefined, template: PdfClassifyTemplate): Promise<void> {
+  if (!assignmentId) return
+  try {
+    await fetch('/api/data/pdf-classify-template', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ assignmentId, mode: 'set', template }),
+    })
+  } catch { /* fail-safe:存不進去不影響本次批改 */ }
+}
+// 範本是否仍對得上目前答案卷(題目集合 + 頁數都相同才有效)。
+function isPdfTemplateValid(t: PdfClassifyTemplate | null, currentQids: string[], totalPages: number): boolean {
+  if (!t || !Array.isArray(t.qids) || t.totalPages !== totalPages) return false
+  if (t.qids.length !== currentQids.length) return false
+  const a = new Set(t.qids)
+  return currentQids.every((q) => a.has(q))
+}
+
 // 2026-06-21 PDF 統一框(只給 teacher_scan、見 [[project_pdf_bbox_wh_p90]]):
 //   同印刷版面+同掃描器→每題答題框位置/尺寸對所有人本該一致。per-student classify 的差異純雜訊。
 //   → x/y 取 median(去雜訊+自動修正小偏移/大錨錯)、w/h 取 P90(夠大框得住、忽略爆框離群)。
@@ -3980,6 +4017,28 @@ export default function GradingPage({
     const PDF_SAMPLE_MIN = 15
     const usePdfSampling = pdfCandidates.length > PDF_SAMPLE_MIN + 3
     let pdfBoxApplied = false
+    // 目前答案卷的題目 id 集合(範本失效判斷用:題目集或頁數變了就作廢)。
+    const currentQids = ((ANSWER_KEY?.questions as Array<{ id?: string }> | undefined) ?? []).map((q) => String(q?.id ?? '')).filter(Boolean)
+    // ── 跨次持久化:先試作業存好的 PDF 統一框範本 → 有效就全套、完全跳過 classify(省 API)。──
+    //   只對 PDF/teacher_scan;fail-safe(fetch/驗證失敗一律退回下方正常 classify);照片路徑完全不碰。
+    let pdfTemplateApplied = false
+    if (pdfCandidates.length > 0 && !stopRequestedRef.current) {
+      const saved = await fetchPdfTemplate(assignment?.id)
+      if (saved && isPdfTemplateValid(saved, currentQids, pageCount)) {
+        for (const sub of pdfCandidates) {
+          if (!sub.imageBlob) continue
+          const cloned = JSON.parse(JSON.stringify(saved.ctx)) as ClassifyCtx
+          cloned.ocrAssistMeta = { enabled: false, perPage: [] }
+          classifyCtxBySub.set(sub.id, cloned)
+          okSubs.push(sub)
+          bumpStage('classify', 'started'); bumpStage('classify', 'completed')
+        }
+        pdfBoxApplied = true
+        pdfTemplateApplied = true
+        console.log(`[PdfTemplate] 套用作業存檔統一框到 ${pdfCandidates.length} 份 PDF、全跳過 classify`)
+      }
+    }
+    if (!pdfTemplateApplied) {
     if (usePdfSampling) {
       setGradingMessage('抽樣讀框中…')
       const SAMPLE_CHUNK = PDF_SAMPLE_MIN + 3
@@ -4016,6 +4075,14 @@ export default function GradingPage({
           bumpStage('classify', 'started'); bumpStage('classify', 'completed')
         }
         console.log(`[PdfSampling] classify PDF 樣本 ${sampleEntries.length} 份 → 套統一框到其餘 ${remaining.length} 份(免 classify)`)
+        // 跨次持久化:把本次算好的統一框範本存進作業、之後同作業批改直接套(省 classify)。fail-safe。
+        try {
+          const saveCtx = JSON.parse(JSON.stringify(templateCtx)) as ClassifyCtx
+          const sal = saveCtx?.classifyResult?.alignedQuestions
+          if (Array.isArray(sal)) for (const q of sal) { const u = unified.get(q.questionId); if (u) q.answerBbox = { ...u } }
+          saveCtx.ocrAssistMeta = { enabled: false, perPage: [] }
+          if (currentQids.length > 0) void savePdfTemplate(assignment?.id, { ctx: saveCtx, qids: currentQids, totalPages: pageCount, savedAt: Date.now() })
+        } catch { /* fail-safe:存不進去不影響本次批改 */ }
       } else {
         // ★湊不滿 15 份成功 → 回歸:PDF 也全部各自 classify(不用不足樣本算框；STAGE 2 再套統一框)
         const processed = new Set([...okSubs.map((s) => s.id), ...failedCandidates.map((s) => s.id)])
@@ -4027,6 +4094,7 @@ export default function GradingPage({
       // PDF 子集 ≤18(或無 PDF):全部各自 classify(原行為)
       if (pdfCandidates.length > 0) await runWithConcurrency(pdfCandidates, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
     }
+    } // end if(!pdfTemplateApplied) — 套到存檔範本時整個 PDF classify/抽樣段跳過
     // 照片子集:一律個別 classify(不抽樣/不統一框)。放在 PDF 段之後 → 上面 okSubs 計數只含 PDF。
     if (photoCandidates.length > 0 && !stopRequestedRef.current) {
       await runWithConcurrency(photoCandidates, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
