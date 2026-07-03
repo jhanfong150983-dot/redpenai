@@ -5215,6 +5215,12 @@ export default function GradingPage({
         const qid = String(d.questionId)
         const dec = entry.decisions.get(qid)
         if (!dec) continue
+        // 2026-07-03：finalize 只套「老師本輪的決定」。續審 entries 對非 NR 題 seed 了 ai_arbiter(confirmed)
+        //   決策(供 finalAnswers 重建)——它是 AI 原判、provisional 分數已在 details、不需重批；
+        //   不跳過會讓每題都進 gradeOneTargets → 整班數百個串行單題重批、卡死在「批改評分」。
+        //   未確認的決策(prefill 殘留)也不套用。
+        if (dec.source === 'ai_arbiter') continue
+        if (dec.confirmed !== true) continue
         const nd = byQid.get(qid)!
         const cands = d.reviewCandidates
         if (dec.source === 'ai_read1' && cands?.ai_read1) applyCand(nd, cands.ai_read1)
