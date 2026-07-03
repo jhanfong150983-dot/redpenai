@@ -1421,9 +1421,12 @@ export function ConsistencyQuestionCard({
   const { questionId, consistencyStatus, consistencyReason, readAnswer1, readAnswer2, answerCropImageUrl, arbiterResult } = questionResult
   const isUnstable = consistencyStatus === 'unstable'
   const isConfirmed = decision?.confirmed
-  // 「人工輸入」視為已選＝有實質內容、或老師本次明確點過。避免 source='manual' 但內容為空時
-  //   卡片顯示「已選人工輸入卻是空框、要先點 read1 才出現」——這正是跨卷殘留的錯覺來源。
-  const manualSelected = manualTouched || (decision?.source === 'manual' && manualInput.trim().length > 0)
+  // 2026-07-03 重定義「人工輸入已選」：必須「目前 decision 就是 manual」且「本次點過或已確認」。
+  //   修兩個實測 bug：①重跑 seed 的上一輪手改(source='manual'有內容)一進場就顯示已選——改要求
+  //   manualTouched(本次點過) 或 confirmed(本次輸入過內容)，seed 的 confirmed=false 不會亮。
+  //   ②manualTouched 黏性害「選了空白後 textarea 不關」——加 source==='manual' 前置條件、
+  //   老師改選空白/read1/read2 時 source 變了就自動收起。
+  const manualSelected = decision?.source === 'manual' && (manualTouched || decision?.confirmed === true)
 
   // ── 2026-07-02 排序題人工輸入：對應版面的「格子陣列」而非單一文字框 ──
   //   老師照上方原圖、由左到右由上到下逐格填數字、系統自動組成序列並檢查 1~N 各一次。
@@ -4420,7 +4423,10 @@ export default function GradingPage({
             // 2026-07-02：只 seed「有內容」的手改。空手改不 seed→避免下一份卡片顯示
             //   「人工輸入已選但框是空的」(confirmed:true 還會讓空答案靜默過關)。
             if (!String(fa.finalStudentAnswer ?? '').trim()) continue
-            seededDecisions.set(fa.questionId, { questionId: fa.questionId, source: 'manual', finalAnswer: fa.finalStudentAnswer ?? '', confirmed: true })
+            // 2026-07-03：confirmed 改 false——上一輪手改只當「prefill」保留(老師點人工輸入時字會出現)、
+            //   不當「已選/已確認」：老師反映「一進審查就被選好+寫上答案、可是我都還沒看」。
+            //   confirmed:false → 卡片不顯示已選、確認送出被擋、老師必須本輪親自決定。
+            seededDecisions.set(fa.questionId, { questionId: fa.questionId, source: 'manual', finalAnswer: fa.finalStudentAnswer ?? '', confirmed: false })
           }
           // 2026-06-01: 本地立刻寫入新的 phaseAState（鏡像 server staged-grading.js:8861 的寫法）。
           // 否則本地 arbiterDecisions 仍是「重跑前」的舊版、submissionPendingReview / deriveCardStage
