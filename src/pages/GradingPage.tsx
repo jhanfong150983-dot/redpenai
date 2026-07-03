@@ -2528,19 +2528,35 @@ export default function GradingPage({
   const resumeBannerShownRef = useRef(false)
   const [resumeReview, setResumeReview] = useState<null | { mode: 'banner' | 'mini'; count: number }>(null)
   const [isResuming, setIsResuming] = useState(false)
+  // 2026-07-03 fix：reviewAfterB 架構下 NR 卷在「審查前」就被統一 Phase B 批了暫定分(status='graded')，
+  //   submissionPendingReview 開頭「graded→false」短路 → 中斷的末端審查偵測不到(實測整批 graded)。
+  //   新訊號＝graded 但 arbiterDecisions 有 needs_review 且 finalAnswers 沒覆蓋那題(老師還沒確認)。
+  //   舊流程(Phase A 完未批)仍由 submissionPendingReview 涵蓋、兩者取聯集。
+  const hasUnresolvedReview = useCallback((s: Submission): boolean => {
+    const pa = s.phaseAState as { arbiterDecisions?: Array<{ questionId?: string; arbiterStatus?: string }> } | undefined
+    const ads = Array.isArray(pa?.arbiterDecisions) ? pa!.arbiterDecisions! : []
+    if (ads.length === 0) return false
+    if (s.gradingResult && (s.gradingResult as { manuallyReviewed?: boolean }).manuallyReviewed) return false
+    if (isPhaseAStale(s) && s.status === 'graded') return false  // 答案卷變過等 stale 情況不提供續審
+    const faQids = new Set((Array.isArray(s.finalAnswers) ? s.finalAnswers : []).map((f) => f.questionId))
+    return ads.some((d) => d.arbiterStatus === 'needs_review' && d.questionId && !faQids.has(d.questionId))
+  }, [])
+  const findResumePending = useCallback(() => (
+    Array.from(submissions.values()).filter((s) => s.imageBlob && (submissionPendingReview(s) || hasUnresolvedReview(s)))
+  ), [submissions, hasUnresolvedReview])
   useEffect(() => {
     if (resumeBannerShownRef.current) return
     if (isGrading || gradingPhase !== 'idle' || batchPhaseAEntries.length > 0) return
-    const pend = Array.from(submissions.values()).filter((s) => s.imageBlob && submissionPendingReview(s))
+    const pend = findResumePending()
     if (pend.length > 0) {
       resumeBannerShownRef.current = true
       setResumeReview({ mode: 'banner', count: pend.length })
     }
-  }, [submissions, isGrading, gradingPhase, batchPhaseAEntries.length])
+  }, [submissions, isGrading, gradingPhase, batchPhaseAEntries.length, findResumePending])
   const startResumeReview = async () => {
     setIsResuming(true)
     try {
-      const pend = Array.from(submissions.values()).filter((s) => s.imageBlob && submissionPendingReview(s))
+      const pend = findResumePending()
       // 按座號排、審查順序穩定
       const seatOf = (s: Submission) => students.find((st) => st.id === s.studentId)?.seatNumber ?? 9999
       pend.sort((a, b) => seatOf(a) - seatOf(b))
