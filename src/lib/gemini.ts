@@ -2145,7 +2145,7 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
 3. **section 標題**指出大致題型範疇，但每格的 questionCategory 最終由「答案內容」決定。
 4. **空格也要建立題目項**（answer 為空），讓老師之後手動填入。
 
-## 1. questionCategory 規則（必須使用以下 5 種之一）
+## 1. questionCategory 規則（必須使用以下 6 種之一）
 
 【規則優先順序】section header 優先於答案內容；答案內容只在 section 不能決定時使用。
 
@@ -2171,9 +2171,18 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
 
 ⚠️ true_false 與 single_choice 區分：T/F 兩個字母在「是非題」section 中是 true_false（"T"=對、"F"=錯）；在「單選題」section 中可能是選項代號 → single_choice。**section header 永遠優先**。
 
+### 1B2. 繪圖題（格內正解是「圖」不是文字 → grid_geometry）
+- 格內老師的正解**以圖為主**（描邊、畫線段、對稱軸、三視圖、幾何作圖、在格線/圖形上畫記），不是文字或算式
+  → questionCategory = "grid_geometry"
+- 答案放 referenceAnswer 欄位：一句話描述正解圖的內容與判準（如「畫出該圖形的一條對稱線段（任一條合法的對稱線段皆可）」「依立體圖完成前視圖、右視圖、上視圖」）
+- 格內若印有步驟配分（如「步驟1(2分) 步驟2(1分)」）→ maxScore = 各步驟配分總和，並把步驟配分寫進 referenceAnswer
+- 不需要 rubricsDimensions（系統會另行對圖生成視覺評分規則）
+- ⚠️ 只有「圖為主」的格子才用 grid_geometry；文字／算式推導仍是 short_answer
+
 ### 1C. 欄位選擇規則（重要）
 - single_choice / multi_choice / fill_blank / true_false → 答案放 answer 欄位
 - short_answer → 答案放 referenceAnswer 欄位（不是 answer），且必填 rubricsDimensions
+- grid_geometry → 答案放 referenceAnswer 欄位（描述正解圖），不需要 rubricsDimensions
 - 即使老師寫的 short_answer 文字很短（如「一樣大」「正確」），仍是 referenceAnswer
 
 ### 1D. true_false 答案標準化
@@ -2182,7 +2191,7 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
 - 錯 / 不正確 / ✗ / × / N / F → 統一輸出 "✗"
 （讓批改階段不用處理多種符號變體）
 
-⚠️ 名稱必須完全一致：single_choice / multi_choice / fill_blank / short_answer / true_false。
+⚠️ 名稱必須完全一致：single_choice / multi_choice / fill_blank / short_answer / true_false / grid_geometry。
    禁止使用 fill_variants、circle_select_one、compound_* 或其他舊系統名稱。
 
 ## 2. 題號規則
@@ -2212,10 +2221,26 @@ bbox 定位由後續的 locate.answer_only 階段視覺搜尋決定。
 🚨 嚴禁把 sub-cell 子格（3-1-1 等）視為與主欄同層（誤用 3-1, 3-2, 3-3 來表示）。
    正確做法：父欄若本身也有答案用 3-1；子格用 3-1-1, 3-1-2, 3-1-3。
 
+## 4C. ⚠️ 一格多小題 ＝ 一題多答案 → parts（重要）
+當一個格子**沒有實體子格分隔線**、但格內寫了多個小題答案（子標 (1)(2)(3)／①②③、或多行各自獨立的小題答案）：
+- 這是「一題、多個答案」→ 輸出 **1 個 entry with parts**。🚨 禁止拆成多題、禁止用 4 段 sub-cell ID。
+- parts 陣列每小題一元素：{"subId": "a", "answer": "該小題答案", "maxScore": 該小題配分}
+  - subId 依 a / b / c / d… 順序對應 (1)(2)(3)(4)…
+  - 各小題配分：卷面有標示就照標示填；沒標示就填「整題總分 ÷ 小題數」（均分、必填、不可省略）
+  - 小題答案含推導過程時，answer 只放最終答案（如「答：否」→ "否"）
+- 整題 maxScore = 該格標示的總配分（如「3.(4分)」→ 4）
+- questionCategory：小題答案是數值／算式／短語 → "fill_blank"（頂層 answer 欄位省略、答案全在 parts）
+- 例：格子標「3.(4分)」、內寫 (1) 6700000-x (2) x>6700000-x (3) x≥5000000 (4) 推導後答否
+  → 1 entry：{"id":"2-3","questionCategory":"fill_blank","maxScore":4,"parts":[{"subId":"a","answer":"6700000-x","maxScore":1},{"subId":"b","answer":"x>6700000-x","maxScore":1},{"subId":"c","answer":"x>=5000000","maxScore":1},{"subId":"d","answer":"否","maxScore":1}]}
+- ⛔ 只要格內有 ≥2 個子標小題答案，就**必定**輸出 parts——即使其中某小題寫了多行推導，也**禁止**因此把整格改成 short_answer（該小題的 answer 只放最終結論，如「答：否」→ "否"）。
+- 4B 的 sub-cell 拆題**只適用於卷面有實體子格分隔線**的格子；沒有分隔線一律走本節 parts。
+
 ## 5. maxScore 推論
 - 優先從 section 標題抓「每題 X 分」（例：「一、單選題（12題 每題4分 共48分）」→ 每題 4 分）
 - 找不到「每題 X 分」就從 section 總分均分（總分 / 題數）
 - 都沒寫 → 預設 1
+- ⛔ 同一 section 除非卷面明標「各題不同配分」，否則每題 maxScore 必須相同（總分均分）；禁止自創遞增／遞減或分段配分
+- ⚠️ 答案卡上的「得分換算表」（對題數↔得分的對照列表，如「對題／錯題／得分」表）**不是題目、也不是各題配分**：不可抽成題目、不可據以分配 maxScore
 - short_answer：必填 rubricsDimensions（兩維度：作答依據 + 結論表達），兩維度 maxScore 加總 = 該題 maxScore
 
 ## 6. _layoutDetected（必填，且要在 questions 之前生成）
