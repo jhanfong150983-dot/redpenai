@@ -5182,6 +5182,9 @@ export default function GradingPage({
   //   在前端直接套用老師選擇、重算總分、寫回——**不跑第二趟 Phase B**（這就是「批兩候選」的重點）。
   //   只有「人工輸入(manual)/VJ/map_fill/缺候選且改選非 read2」的卷才回退 server 重批（量少、需 AI）。
   const finalizeReviewAfterB = async (reviewedEntries: BatchPhaseAEntry[]) => {
+    // 2026-07-05: [finalize] 計時 log——實測「審查完→結果視窗」等很久且無遮罩，加 log 供下次定位時間都花在哪。
+    const fzT0 = Date.now()
+    console.log(`[finalize] start entries=${reviewedEntries.length}`)
     reviewAfterBModeRef.current = false
     phaseAOnlyReviewModeRef.current = false
     setGradeResultNotice(null)
@@ -5231,16 +5234,26 @@ export default function GradingPage({
       }
       if (needWhole) { wholeRegrade.push(sub); continue }
       // 只送「人工輸入/缺候選」那幾題給 server 單題重批（不重批整份）
+      // 2026-07-05: 串行改小批並行（3 併發）＋動態進度訊息——手改題多時 finalize 等待從 N×數秒壓到 ~N/3。
       let gradeOneFailed = false
-      for (const t of gradeOneTargets) {
-        try {
-          const g = await gradeOneQuestion({
-            submissionId: sub.id, questionId: t.qid, assignmentId: sub.assignmentId || assignment?.id || '',
-            studentAnswer: t.answer, domain: assignment?.domain, answerSheetMode: assignment?.answerSheetMode, gradeBand: fzGradeBand
-          })
-          const nd = byQid.get(t.qid)
-          if (nd) { nd.score = g.score; nd.maxScore = g.maxScore; nd.isCorrect = g.isCorrect; nd.studentAnswer = g.studentAnswer }
-        } catch (e) { console.error('[finalize] 單題重批失敗、回退整份重批', e); gradeOneFailed = true }
+      const GRADE_ONE_CONC = 3
+      let gradeOneDone = 0
+      for (let gi = 0; gi < gradeOneTargets.length; gi += GRADE_ONE_CONC) {
+        const batch = gradeOneTargets.slice(gi, gi + GRADE_ONE_CONC)
+        await Promise.all(batch.map(async (t) => {
+          const qT0 = Date.now()
+          try {
+            const g = await gradeOneQuestion({
+              submissionId: sub.id, questionId: t.qid, assignmentId: sub.assignmentId || assignment?.id || '',
+              studentAnswer: t.answer, domain: assignment?.domain, answerSheetMode: assignment?.answerSheetMode, gradeBand: fzGradeBand
+            })
+            const nd = byQid.get(t.qid)
+            if (nd) { nd.score = g.score; nd.maxScore = g.maxScore; nd.isCorrect = g.isCorrect; nd.studentAnswer = g.studentAnswer }
+          } catch (e) { console.error('[finalize] 單題重批失敗、回退整份重批', e); gradeOneFailed = true }
+          gradeOneDone++
+          console.log(`[finalize] gradeOne ${t.qid} ${Date.now() - qT0}ms (${gradeOneDone}/${gradeOneTargets.length})`)
+        }))
+        setGradingMessage(`正在重批手動輸入的題目（${Math.min(gradeOneDone, gradeOneTargets.length)}/${gradeOneTargets.length}）…`)
       }
       if (gradeOneFailed) { wholeRegrade.push(sub); continue }
       const newDetails = details.map((d) => byQid.get(String(d.questionId)) ?? d)
@@ -5261,11 +5274,18 @@ export default function GradingPage({
     }
     // 只有 VJ/填圖（需 image pipeline）才整份重批
     if (wholeRegrade.length > 0) {
+      console.log(`[finalize] wholeRegrade ${wholeRegrade.length} 份（VJ/填圖手動決定）`)
+      setGradingMessage(`正在重批含繪圖/填圖手動決定的 ${wholeRegrade.length} 份…`)
       await executeGradeOnlyCache(wholeRegrade, { silent: true, fullPipeline: true, skipReviewGate: true })
+      // executeGradeOnlyCache 結尾會把 gradingPhase/isGrading 收掉；後面還有收尾工作＋結果視窗，拉回遮罩狀態避免空窗
+      setIsGrading(true)
+      setGradingPhase('phase_b_running')
+      setGradingMessage('正在整理成績…')
     }
     requestSync()
     let success = 0
     for (const id of scopeIds) { const s = await db.submissions.get(id); if (s?.status === 'graded') success++ }
+    console.log(`[finalize] done in ${Date.now() - fzT0}ms（scope=${scopeIds.length}、graded=${success}）`)
     setGradingPhase('idle')
     setIsGrading(false)
     setGradeResultNotice({
@@ -7423,7 +7443,10 @@ export default function GradingPage({
         )}
 
         {/* Grading pipeline overlay (下載圖片、Phase A、Phase B 統一顯示遮罩) */}
-        {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'phase_b_running') && (
+        {/* 2026-07-05: 條件加 isGrading 保險——實測「審查完→finalize→結果視窗」間出現無遮罩可點卡片的空窗，
+            改為只要 isGrading（且不在審查互動中）就一律有遮罩，堵所有 gradingPhase 漏設/被重設的路徑。 */}
+        {(isDownloading || gradingPhase === 'phase_a_running' || gradingPhase === 'phase_b_running'
+          || (isGrading && gradingPhase !== 'awaiting_review')) && (
           <GradingPipelineOverlay
             mode={pipelineMode}
             stageProgress={pipelineStageProgress}
