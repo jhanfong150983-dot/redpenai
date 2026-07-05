@@ -5192,8 +5192,13 @@ export default function GradingPage({
     setBatchPhaseAEntries([])
     const scopeIds = oneClickScopeRef.current
     oneClickScopeRef.current = []
-    setPipelineMode('both')
-    setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, started: Math.max(1, p.accessor.started) } }))
+    // 2026-07-05: 進度條重設——原本沿用上一輪 Phase A/B 的殘留進度（版面掃描 29/29、讀取答案 28/29 轉圈…），
+    //   老師看起來像「又在重讀答案」。finalize 只套審查結果，改顯示單一「批改評分」階段、進度＝審查卷數。
+    setPipelineMode('phase_b_only')
+    setPipelineStageProgress({
+      ...EMPTY_PIPELINE_STAGE_PROGRESS,
+      accessor: { started: 1, done: 0, total: Math.max(1, reviewedEntries.length) },
+    })
     setGradingMessage('正在套用審查結果、整理成績…')
     // 2026-07-05: 清掉 provisional Phase B 殘留的計數器——否則下面設 phase_b_running 時、
     //   legacy「背景 Accessor 完成監聽」effect(scored>=total>0 就彈結果視窗+收遮罩)會被殘值誤觸發：
@@ -5276,6 +5281,7 @@ export default function GradingPage({
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ submissions: [{ id: sub.id, score: total, aiScore: total, scoreSource: 'ai', gradingResult: newGr, gradedAt: gradedAtMs }] })
       }).catch(() => {/* non-fatal */})
+      setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, done: Math.min(p.accessor.total, p.accessor.done + 1) } }))
     }
     // 只有 VJ/填圖（需 image pipeline）才整份重批
     if (wholeRegrade.length > 0) {
