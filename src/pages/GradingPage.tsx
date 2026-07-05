@@ -2025,15 +2025,47 @@ export function ConsistencyQuestionCard({
           {partRows.map((r) => {
             const std = standardParts?.find((p) => String(p.subId ?? '') === r.subId)?.answer
             const sel = partSel[r.subId]
+            const sameEditing = r.same && sel?.origin === 'edit'
             return (
-              <div key={r.subId} className={`rounded-lg border-2 px-2 py-1.5 ${r.same ? 'border-green-200 bg-green-50' : sel ? 'border-blue-300 bg-blue-50/40' : 'border-amber-300 bg-amber-50'}`}>
+              <div key={r.subId} className={`rounded-lg border-2 px-2 py-1.5 ${r.same && !sameEditing ? 'border-green-200 bg-green-50' : sel ? 'border-blue-300 bg-blue-50/40' : 'border-amber-300 bg-amber-50'}`}>
                 <div className="flex items-center gap-1.5 flex-wrap text-xs">
                   <span className="font-bold text-gray-700">({r.subId})</span>
                   {std ? (
                     <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">標準 {std}</span>
                   ) : null}
-                  {r.same ? (
-                    <span className="font-medium text-green-800 break-all">「{r.v1 || '（空白）'}」<span className="text-[10px] text-green-600 ml-1">✓ 兩讀一致</span></span>
+                  {r.same && !sameEditing ? (
+                    <>
+                      <span className="font-medium text-green-800 break-all">「{r.v1 || '（空白）'}」<span className="text-[10px] text-green-600 ml-1">✓ 兩讀一致</span></span>
+                      {/* 2026-07-05 user 實測：兩讀一致但「都讀錯」時無從修改 → 一致列也給手改入口 */}
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => commitPartSel({ ...partSel, [r.subId]: { origin: 'edit', value: r.v1 } })}
+                        className="ml-auto rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                        title="兩讀一致但讀錯了？點此手改"
+                      >
+                        ✎ 改
+                      </button>
+                    </>
+                  ) : sameEditing ? (
+                    <>
+                      <input
+                        type="text"
+                        disabled={disabled}
+                        value={sel?.value ?? ''}
+                        autoFocus
+                        className="flex-1 min-w-[90px] rounded border border-blue-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
+                        onChange={(e) => commitPartSel({ ...partSel, [r.subId]: { origin: 'edit', value: e.target.value } })}
+                      />
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => commitPartSel({ ...partSel, [r.subId]: { origin: 'r2', value: r.v2 } })}
+                        className="rounded border border-gray-300 bg-white px-1.5 py-0.5 text-[10px] text-gray-500 hover:border-green-400 hover:text-green-600 transition-colors"
+                      >
+                        還原一致值
+                      </button>
+                    </>
                   ) : (
                     <>
                       <button
