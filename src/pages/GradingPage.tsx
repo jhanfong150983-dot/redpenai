@@ -4546,6 +4546,9 @@ export default function GradingPage({
       // ── answer_only 照片子集：原 peer-outlier 漂移檢查(版面一致才有意義；PDF 已由上方統一框處理) ──
       if (peerCheckEnabled && peerPool.length >= 5 && photoOkSubs.length > 0 && !stopRequestedRef.current) {
         setGradingMessage('框位比對中…')
+        // 2026-07-06: 品質檢查 chip 一直沒被填值（設計在但從未 set → overlay 永不顯示、
+        //   系統檢查期間五格全靜止像卡死）。比對開始 → started=1（顯示「比對中…」）。
+        setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: 0, total: 0 } }))
         const trips = photoOkSubs.filter((sub) => {
           const baseline = computePeerBaseline(peerPool, sub.id)
           if (baseline.size < 3) return false
@@ -4553,7 +4556,7 @@ export default function GradingPage({
         })
         if (trips.length > 0) {
           // 歪的卷退回（classify done -trips）→ 重跑、對得上鄰卷再 +1 回來；沒漂移的卷 STAGE 1 已 +1、不動。
-          setPipelineStageProgress((p) => ({ ...p, classify: { ...p.classify, done: Math.max(0, p.classify.done - trips.length) } }))
+          setPipelineStageProgress((p) => ({ ...p, classify: { ...p.classify, done: Math.max(0, p.classify.done - trips.length) }, quality: { started: 1, done: 0, total: trips.length } }))
           setGradingMessage(`偵測到 ${trips.length} 份框位異常、重跑中…`)
           const failedIds = new Set<string>()
           const MAX_RERUN_ATTEMPTS = 3
@@ -4597,6 +4600,7 @@ export default function GradingPage({
               }
               classifyCtxBySub.set(sub.id, ctx)  // 更新成對上鄰卷的乾淨 context
               bumpStage('classify', 'completed')  // 重跑到對得上鄰卷 → 此時才記 classify 完成 +1
+              setPipelineStageProgress((p) => ({ ...p, quality: { ...p.quality, done: p.quality.done + 1 } }))
               console.log(`[PeerCheck/recapture] ${sub.id} 重跑後框位正常`)
               return sub.id
             },
@@ -4607,6 +4611,8 @@ export default function GradingPage({
             for (let i = okSubs.length - 1; i >= 0; i--) if (failedIds.has(okSubs[i].id)) okSubs.splice(i, 1)
           }
         }
+        // 檢查段結束 → chip 顯示「已複查」（done 補滿 total；沒漂移時 total=0 → 1/1）
+        setPipelineStageProgress((p) => ({ ...p, quality: { started: 1, done: Math.max(p.quality.total, 1), total: Math.max(p.quality.total, 1) } }))
       }
       // 沒做系統檢查(照片卷/小批 pool<5)或沒漂移：classify 已在 STAGE 1 即時 +1、不需再動
     }
@@ -5450,7 +5456,9 @@ export default function GradingPage({
     if (wholeRegrade.length > 0) {
       console.log(`[finalize] wholeRegrade ${wholeRegrade.length} 份（VJ/填圖手動決定）`)
       setGradingMessage(`正在重批含繪圖/填圖手動決定的 ${wholeRegrade.length} 份…`)
-      await executeGradeOnlyCache(wholeRegrade, { silent: true, fullPipeline: true, skipReviewGate: true })
+      // 2026-07-06: fullPipeline:false——finalize 的進度已重設為單階段（批改評分），fullPipeline:true 會把
+      //   遮罩切回五階段模式、但版面掃描/讀取進度是 0/0 →顯示「等待中」像要從頭重跑整班（顯示 bug）。
+      await executeGradeOnlyCache(wholeRegrade, { silent: true, fullPipeline: false, skipReviewGate: true })
       // executeGradeOnlyCache 結尾會把 gradingPhase/isGrading 收掉；後面還有收尾工作＋結果視窗，拉回遮罩狀態避免空窗
       // 同上：先清計數器再重開 phase_b_running，防 legacy 背景完成監聽被 executeGradeOnlyCache 殘值誤觸發
       setPhaseBScoredCount(0)
