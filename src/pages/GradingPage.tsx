@@ -1495,6 +1495,7 @@ export function ConsistencyQuestionCard({
   disabled,
   onViewOriginal,
   standardAnswer,
+  standardParts,
   provisional,
   candidates,
 }: {
@@ -1506,6 +1507,7 @@ export function ConsistencyQuestionCard({
   onViewOriginal?: () => void  // 2026-06-01 Phase4:「看原圖」開整頁檢視器
   // 2026-06-30 [審查後移重構步驟2]：末端審查模式才帶——標準答案 + 統一 Phase B 暫定分數。
   standardAnswer?: string
+  standardParts?: Array<{ subId?: string; answer?: string }>
   provisional?: { score?: number; maxScore?: number; isCorrect?: boolean }
   // 2026-06-30 [批兩候選]：read1/read2 兩候選各自的分數（老師點哪個就知道對錯/得幾分）。
   candidates?: { ai_read1?: { score?: number; maxScore?: number; isCorrect?: boolean } | null; ai_read2?: { score?: number; maxScore?: number; isCorrect?: boolean } | null }
@@ -1546,6 +1548,48 @@ export function ConsistencyQuestionCard({
     const complete = nonEmpty.length === orderN && new Set(nonEmpty).size === nonEmpty.length
     setManualInput(joined)
     onDecision(questionId, { source: 'manual', finalAnswer: joined, confirmed: complete })
+  }
+
+  // ── 2026-07-05 合題（fill_blank parts）四小格審查 ──
+  //   兩讀都有 partValues → 不再顯示兩條混著計算過程的長字串，改逐小題一列：
+  //   兩讀一致的列綠底自動採用、老師只處理真正分歧的列（點 read1/read2 值或直接微改）。
+  const pv1 = readAnswer1?.partValues
+  const pv2 = readAnswer2?.partValues
+  const isPartsQ = questionResult.questionType === 'fill_blank'
+    && Array.isArray(pv1) && Array.isArray(pv2) && pv1.length >= 2 && pv1.length === pv2.length
+  // 寬鬆等值（顯示分歧判定用、與 server 摺疊規則對齊：空白/≤≥/×*/括號/大小寫）
+  const partFold = (s: string) => s.toLowerCase().replace(/\s+/g, '')
+    .replace(/[≤≦]/g, '<=').replace(/[≥≧]/g, '>=').replace(/\*/g, '×').replace(/[（()）]/g, '')
+  const partRows = isPartsQ
+    ? pv1!.map((p) => {
+        const v2 = pv2!.find((x) => x.subId === p.subId)?.student ?? ''
+        const v1 = p.student ?? ''
+        return { subId: p.subId, v1, v2, same: partFold(v1) === partFold(v2) }
+      })
+    : []
+  const [partSel, setPartSel] = useState<Record<string, { origin: 'r1' | 'r2' | 'edit'; value: string }>>(() => {
+    const init: Record<string, { origin: 'r1' | 'r2' | 'edit'; value: string }> = {}
+    for (const r of partRows) if (r.same) init[r.subId] = { origin: 'r2', value: r.v2 }
+    return init
+  })
+  const commitPartSel = (next: Record<string, { origin: 'r1' | 'r2' | 'edit'; value: string }>) => {
+    setPartSel(next)
+    const resolved = partRows.every((r) => next[r.subId] !== undefined)
+    const joined = partRows.map((r) => next[r.subId]?.value ?? '').join(', ')
+    if (!resolved) {
+      onDecision(questionId, { source: 'manual', finalAnswer: joined, confirmed: false })
+      return
+    }
+    // 分歧列全選同一側且無手改 → 用該側候選（暫定分沿用）；否則 manual（finalize 單題重批）
+    const diffOrigins = partRows.filter((r) => !r.same).map((r) => next[r.subId]!.origin)
+    const hasEdit = Object.values(next).some((s) => s.origin === 'edit')
+    if (!hasEdit && diffOrigins.length > 0 && diffOrigins.every((o) => o === 'r1')) {
+      onDecision(questionId, { source: 'ai_read1', finalAnswer: readAnswer1.studentAnswer, confirmed: true })
+    } else if (!hasEdit && diffOrigins.every((o) => o === 'r2')) {
+      onDecision(questionId, { source: 'ai_read2', finalAnswer: readAnswer2.studentAnswer, confirmed: true })
+    } else {
+      onDecision(questionId, { source: 'manual', finalAnswer: joined, confirmed: true })
+    }
   }
 
   const borderClass = isConfirmed
@@ -1868,15 +1912,19 @@ export function ConsistencyQuestionCard({
     return <>{parts}</>
   }
 
-  // 切換到人工輸入時，以讀取1為預填基底（方便修改）
-  // 計算題/應用題只預填最終答案，避免老師看到一大串算式
+  // 切換到人工輸入時的預填基底（方便修改）：
+  // 2026-07-05: 老師已點選 read1/read2 其一 → 以「該候選」預填（user 回饋：有時 read2 更接近、
+  //   選好再開人工輸入只需微改）；沒選過才預設 read1。計算題/應用題只預填最終答案、避免一大串算式。
   const switchToManual = () => {
     setManualTouched(true)
     let prefill = manualInput || ''
-    if (!prefill && readAnswer1.studentAnswer) {
-      prefill = isCalcType
-        ? (extractFinalAnswer(readAnswer1.studentAnswer) ?? readAnswer1.studentAnswer)
-        : readAnswer1.studentAnswer
+    if (!prefill) {
+      const basis = decision?.source === 'ai_read2' ? readAnswer2 : readAnswer1
+      if (basis?.studentAnswer) {
+        prefill = isCalcType
+          ? (extractFinalAnswer(basis.studentAnswer) ?? basis.studentAnswer)
+          : basis.studentAnswer
+      }
     }
     setManualInput(prefill)
     onDecision(questionId, {
@@ -1968,6 +2016,78 @@ export function ConsistencyQuestionCard({
         </div>
       )}
 
+      {/* ── 2026-07-05 合題四小格：兩讀 partValues 齊備 → 逐小題確認（取代兩條混計算過程的長字串） ── */}
+      {isPartsQ && (
+        <div className={`space-y-1.5 ${disabled ? 'opacity-60' : ''}`}>
+          <div className="text-[11px] text-gray-500">
+            合題逐小題確認：<span className="text-green-700 font-semibold">綠底＝兩讀一致（自動採用）</span>；其餘列請點選 AI1/AI2 其一、或直接在輸入格微改。
+          </div>
+          {partRows.map((r) => {
+            const std = standardParts?.find((p) => String(p.subId ?? '') === r.subId)?.answer
+            const sel = partSel[r.subId]
+            return (
+              <div key={r.subId} className={`rounded-lg border-2 px-2 py-1.5 ${r.same ? 'border-green-200 bg-green-50' : sel ? 'border-blue-300 bg-blue-50/40' : 'border-amber-300 bg-amber-50'}`}>
+                <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                  <span className="font-bold text-gray-700">({r.subId})</span>
+                  {std ? (
+                    <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5">標準 {std}</span>
+                  ) : null}
+                  {r.same ? (
+                    <span className="font-medium text-green-800 break-all">「{r.v1 || '（空白）'}」<span className="text-[10px] text-green-600 ml-1">✓ 兩讀一致</span></span>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => commitPartSel({ ...partSel, [r.subId]: { origin: 'r1', value: r.v1 } })}
+                        className={`rounded border-2 px-2 py-1 text-left break-all ${sel?.origin === 'r1' ? 'border-purple-500 bg-purple-50 text-purple-900 font-semibold' : 'border-gray-200 bg-white hover:border-purple-300'}`}
+                      >
+                        <span className="text-[9px] text-gray-400 mr-1">AI1</span>{r.v1 || '（空白）'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => commitPartSel({ ...partSel, [r.subId]: { origin: 'r2', value: r.v2 } })}
+                        className={`rounded border-2 px-2 py-1 text-left break-all ${sel?.origin === 'r2' ? 'border-purple-500 bg-purple-50 text-purple-900 font-semibold' : 'border-gray-200 bg-white hover:border-purple-300'}`}
+                      >
+                        <span className="text-[9px] text-gray-400 mr-1">AI2</span>{r.v2 || '（空白）'}
+                      </button>
+                      <input
+                        type="text"
+                        disabled={disabled}
+                        value={sel?.value ?? ''}
+                        placeholder="點選或手改…"
+                        className="flex-1 min-w-[90px] rounded border border-blue-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
+                        onChange={(e) => commitPartSel({ ...partSel, [r.subId]: { origin: 'edit', value: e.target.value } })}
+                      />
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+          {partRows.every((r) => r.same) && !isConfirmed && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => commitPartSel(partSel)}
+              className="w-full py-2 rounded-lg bg-green-600 text-white text-xs font-bold hover:bg-green-700 transition-colors"
+            >
+              兩讀全部一致 → 採用
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onViewOriginal?.()}
+            className="w-full py-1.5 rounded-lg border border-gray-200 bg-white text-[11px] text-slate-600 hover:border-slate-400 transition-colors flex items-center justify-center gap-1"
+          >
+            <ZoomIn className="w-3 h-3" /> 看原圖
+          </button>
+        </div>
+      )}
+
+      {!isPartsQ && (
       <div className={`grid grid-cols-2 gap-2 ${disabled ? 'opacity-60' : ''}`}>
         {/* 讀取 1 */}
         <button
@@ -2121,6 +2241,7 @@ export function ConsistencyQuestionCard({
           ))}
         </div>
       </div>
+      )}
     </div>
   )
 }
@@ -2152,7 +2273,7 @@ function BatchConsistencyReviewSection({
   streamingDone?: boolean
   // 2026-06-30 [審查後移重構步驟2]：末端審查模式——顯示標準答案 + 統一 Phase B 的 provisional 分數。
   reviewAfterB?: boolean
-  answerKeyByQid?: Map<string, { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[] }>
+  answerKeyByQid?: Map<string, { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[]; parts?: Array<{ subId?: string; answer?: string }> }>
   submissionsByStudentId?: Map<string, Submission>
 }) {
   // isPhaseBRunning 不再使用（Accessor 在背景跑）
@@ -2318,6 +2439,7 @@ function BatchConsistencyReviewSection({
                   disabled={false}
                   onViewOriginal={() => setViewerQ(q)}
                   standardAnswer={reviewAfterB ? standardAnswerText(answerKeyByQid?.get(q.questionId)) : undefined}
+                  standardParts={reviewAfterB ? answerKeyByQid?.get(q.questionId)?.parts : undefined}
                   provisional={provisionalByQid?.get(q.questionId)}
                   candidates={provisionalByQid?.get(q.questionId)?.reviewCandidates}
                 />
@@ -2597,8 +2719,8 @@ export default function GradingPage({
 
   // 2026-06-30 [審查後移重構步驟2]：末端審查面板顯示「標準答案」用的 questionId → AnswerKeyQuestion map。
   const reviewAnswerKeyByQid = useMemo(() => {
-    const m = new Map<string, { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[] }>()
-    const qs = (assignment?.answerKey?.questions as Array<{ id?: string; answer?: string; referenceAnswer?: string; acceptableAnswers?: string[] }> | undefined) ?? []
+    const m = new Map<string, { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[]; parts?: Array<{ subId?: string; answer?: string }> }>()
+    const qs = (assignment?.answerKey?.questions as Array<{ id?: string; answer?: string; referenceAnswer?: string; acceptableAnswers?: string[]; parts?: Array<{ subId?: string; answer?: string }> }> | undefined) ?? []
     for (const q of qs) { if (q?.id) m.set(String(q.id), q) }
     return m
   }, [assignment?.answerKey])

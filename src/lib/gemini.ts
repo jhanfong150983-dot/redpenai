@@ -260,8 +260,9 @@ export interface PhaseAQuestionResult {
   questionType?: string
   consistencyStatus: 'stable' | 'diff' | 'unstable'
   consistencyReason?: string
-  readAnswer1: { status: string; studentAnswer: string }
-  readAnswer2: { status: string; studentAnswer: string }
+  // 2026-07-05: partValues＝合題（fill_blank parts）逐空讀值（server questionResults 傳下來、審查卡四小格用）
+  readAnswer1: { status: string; studentAnswer: string; partValues?: Array<{ subId: string; student: string }> }
+  readAnswer2: { status: string; studentAnswer: string; partValues?: Array<{ subId: string; student: string }> }
   answerCropImageUrl?: string
   answerBbox?: { x: number; y: number; w: number; h: number }
   arbiterResult?: ArbiterResult  // 三AI辯證裁決結果（新架構）
