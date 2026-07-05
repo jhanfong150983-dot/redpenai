@@ -1060,7 +1060,7 @@ function ForensicSupportBadge({ support }: { support?: string }) {
 
 // ─── GradingPipelineOverlay ───────────────────────────────────────────────────
 // Full-screen lock mask + floating modal card shown during Phase A / Phase B
-// 2026-05-18: 5 階段顯示（classify / read / arbiter / accessor / explain）
+// 2026-05-18: 階段顯示；2026-06-30 拔 explain 後常駐 4 階段（classify / read / arbiter / accessor）+ 動態 quality
 
 type PipelineStageStatus = 'pending' | 'active' | 'done' | 'inactive'
 
@@ -1226,7 +1226,7 @@ function GradingPipelineOverlay({
           <div style={{ fontSize: '0.8rem', color: '#6b7280', marginTop: '0.25rem' }}>{gradingMessage}</div>
         </div>
 
-        {/* Pipeline stages — 5 階段 */}
+        {/* Pipeline stages — 常駐 4 階段 + 動態品質檢查 */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%', padding: '0 0.25rem', gap: '0.25rem' }}>
           {stages.map((s, i) => (
             <PipelineStage
@@ -2866,7 +2866,7 @@ export default function GradingPage({
   const [phaseBScoredCount, setPhaseBScoredCount] = useState(0)
   const [phaseBTotalCount, setPhaseBTotalCount] = useState(0)
 
-  // 2026-05-18: 5-stage 進度（classify / read / arbiter / accessor / explain）
+  // 2026-05-18: 階段進度（常駐 4 階段 classify / read / arbiter / accessor；explain 已拔、quality 動態）
   // started = 已開始該 stage 的份數、done = 已完成的份數、total = 預期處理份數
   // 因為 pipeline 並行、每份 submission 獨立往下跑、所以多個 stage 可同時 active
   const [pipelineStageProgress, setPipelineStageProgress] = useState<PipelineStageProgress>(EMPTY_PIPELINE_STAGE_PROGRESS)
@@ -4284,7 +4284,7 @@ export default function GradingPage({
     stopRequestedRef.current = false
     setGradingProgress({ current: 0, total: candidates.length })
     setGradingStartTime(Date.now())
-    // 2026-06-21: 一條龍 (fullPipeline) → 5 階段 both，Phase B(accessor/explain) 先以 pending(total=N、done=0) 顯示，
+    // 2026-06-21: 一條龍 (fullPipeline) → 4 階段 both，Phase B(accessor) 先以 pending(total=N、done=0) 顯示，
     //   讓智慧批改全程同一個遮罩。獨立「重新截取」(無 fullPipeline) → 只顯示 Phase A 階段(phase_a_only)。
     setPipelineMode(opts?.fullPipeline ? 'both' : 'phase_a_only')
     setPipelineStageProgress({
@@ -4632,7 +4632,7 @@ export default function GradingPage({
     //   共用 semaphore：read+arbiter 與 乾淨/複核卷 Phase B 共吃、把同時打 Gemini 的重請求壓住、防 504。
     //   read+arbiter 額外仍受 runWithConcurrency 的 gradeConcurrency 上限（保險：semaphore 萬一失效也不暴衝）。
     // 2026-06-20: user 選穩定版——關掉「邊批邊插進複核」的串流(畫面會在複核↔loading 變來變去)。
-    //   改成：read 全部跑完(五段 overlay+進度)→一次進複核→複核完結算。乾淨卷複核時背景批(Option A)、
+    //   改成：read 全部跑完(4 段 overlay+進度)→一次進複核→複核完結算。乾淨卷複核時背景批(Option A)、
     //   複核卷確認一份立刻背景批一份(Option B)仍保留(下方 success 分支 isStreaming=false 不走串流路由、
     //   post-loop else 走「一次進複核」、onStudentConfirmed 的 Option B 仍以 oneClickScope 為閘)。
     const isStreaming = false
@@ -4989,7 +4989,7 @@ export default function GradingPage({
     setPhaseBTotalCount(phaseBTotal)
     setPhaseBScoredCount(offDone)
     setGradingStartTime(Date.now())
-    // 2026-06-21: 一條龍智慧批改 (fullPipeline) → 維持 5 階段 both、保留 Phase A 三階段跑完的打勾(不歸零)、
+    // 2026-06-21: 一條龍智慧批改 (fullPipeline) → 維持 4 階段 both、保留 Phase A 三階段跑完的打勾(不歸零)、
     //   只補 Phase B 的 total。獨立「重新批改」(無 fullPipeline) → 只顯示 Phase B 階段(phase_b_only)。
     if (opts?.fullPipeline) {
       setPipelineMode('both')
@@ -5457,7 +5457,7 @@ export default function GradingPage({
       console.log(`[finalize] wholeRegrade ${wholeRegrade.length} 份（VJ/填圖手動決定）`)
       setGradingMessage(`正在重批含繪圖/填圖手動決定的 ${wholeRegrade.length} 份…`)
       // 2026-07-06: fullPipeline:false——finalize 的進度已重設為單階段（批改評分），fullPipeline:true 會把
-      //   遮罩切回五階段模式、但版面掃描/讀取進度是 0/0 →顯示「等待中」像要從頭重跑整班（顯示 bug）。
+      //   遮罩切回 4 階段模式、但版面掃描/讀取進度是 0/0 →顯示「等待中」像要從頭重跑整班（顯示 bug）。
       await executeGradeOnlyCache(wholeRegrade, { silent: true, fullPipeline: false, skipReviewGate: true })
       // executeGradeOnlyCache 結尾會把 gradingPhase/isGrading 收掉；後面還有收尾工作＋結果視窗，拉回遮罩狀態避免空窗
       // 同上：先清計數器再重開 phase_b_running，防 legacy 背景完成監聽被 executeGradeOnlyCache 殘值誤觸發
@@ -5568,7 +5568,7 @@ export default function GradingPage({
         if (enteredReview) return
       }
       // 無待複核（全乾淨）或純 needB → 立刻對全 scope 跑統一 Phase B
-      // 沿用既有 5 段 overlay 顯示「結算中」、覆蓋等背景 Phase B+結算的空窗
+      // 沿用既有 4 段 overlay 顯示「結算中」、覆蓋等背景 Phase B+結算的空窗
       setPipelineMode('both')
       setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, started: Math.max(1, p.accessor.started) } }))
       setGradingMessage('正在完成批改評分、整理結果…')
@@ -5816,7 +5816,7 @@ export default function GradingPage({
       setGradingMessage('定位答案中…')
       setGradingPhase('phase_a_running')
       setPhaseANeedsReviewCount(0)
-      // 5-stage overlay：全程 mode (Phase A → Phase B)、初始 started=0/done=0
+      // 4-stage overlay：全程 mode (Phase A → Phase B)、初始 started=0/done=0
       setPipelineMode('both')
       setPipelineStageProgress({
         classify: { started: 0, done: 0, total: toGrade.length },
@@ -7800,7 +7800,7 @@ export default function GradingPage({
                   // 一鍵 1c：複核完 → 對全 scope 跑一次統一 Phase B（不顯示 Phase A notice、留給 Phase B 結果視窗）
                   console.log('✅ 全部審查完成（一鍵）→ 對全 scope 跑統一 Phase B')
                   phaseAStashRef.current = null
-                  // 2026-06-20: 沿用既有 5 段 overlay 顯示「結算中」（前 3 段已完成、批改評分/生成引導 接著跑），
+                  // 2026-06-20: 沿用既有 4 段 overlay 顯示「結算中」（前 3 段已完成、批改評分接著跑），
                   //   覆蓋「複核畫面消失→結算出現」之間的空窗、老師才不會以為結束了。
                   setPipelineMode('both')
                   setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, started: Math.max(1, p.accessor.started) } }))
