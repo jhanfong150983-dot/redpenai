@@ -5195,6 +5195,11 @@ export default function GradingPage({
     setPipelineMode('both')
     setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, started: Math.max(1, p.accessor.started) } }))
     setGradingMessage('正在套用審查結果、整理成績…')
+    // 2026-07-05: 清掉 provisional Phase B 殘留的計數器——否則下面設 phase_b_running 時、
+    //   legacy「背景 Accessor 完成監聽」effect(scored>=total>0 就彈結果視窗+收遮罩)會被殘值誤觸發：
+    //   搶先彈一次「批改完成」並殺掉遮罩、finalize 收尾完又彈第二次（user 實測截圖：同 modal 跳 2 次、中間無遮罩）。
+    setPhaseBScoredCount(0)
+    setPhaseBTotalCount(0)
     setIsGrading(true)
     setGradingPhase('phase_b_running')
 
@@ -5278,6 +5283,9 @@ export default function GradingPage({
       setGradingMessage(`正在重批含繪圖/填圖手動決定的 ${wholeRegrade.length} 份…`)
       await executeGradeOnlyCache(wholeRegrade, { silent: true, fullPipeline: true, skipReviewGate: true })
       // executeGradeOnlyCache 結尾會把 gradingPhase/isGrading 收掉；後面還有收尾工作＋結果視窗，拉回遮罩狀態避免空窗
+      // 同上：先清計數器再重開 phase_b_running，防 legacy 背景完成監聽被 executeGradeOnlyCache 殘值誤觸發
+      setPhaseBScoredCount(0)
+      setPhaseBTotalCount(0)
       setIsGrading(true)
       setGradingPhase('phase_b_running')
       setGradingMessage('正在整理成績…')
@@ -5335,6 +5343,9 @@ export default function GradingPage({
       // 進審查前清掉上一輪殘留的結果視窗（否則「批改完成」彈窗會疊在審查畫面上、看起來像審查+批改完成同時出現）
       setGradeResultNotice(null)
       setPhaseAResultNotice(null)
+      // 2026-07-05: 進審查前清 Phase B 計數器殘值（防之後 finalize 設 phase_b_running 時 legacy 完成監聽誤觸發雙 modal）
+      setPhaseBScoredCount(0)
+      setPhaseBTotalCount(0)
       setReviewStreamingDone(true)
       setBatchPhaseAEntries(nrEntries)
       setGradingPhase('awaiting_review')
