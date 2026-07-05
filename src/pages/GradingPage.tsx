@@ -777,8 +777,8 @@ async function cropDataUrlFromBlob(
 async function buildResumeEntry(sub: Submission): Promise<BatchPhaseAEntry | null> {
   const pa = sub.phaseAState as {
     arbiterDecisions?: Array<{ questionId?: string; arbiterStatus?: string; finalAnswer?: string }>
-    readAnswer1?: Array<{ questionId: string; status: string; answer: string }>
-    readAnswer2?: Array<{ questionId: string; status: string; answer: string }>
+    readAnswer1?: Array<{ questionId: string; status: string; answer: string; partValues?: Array<{ subId: string; student: string }> }>
+    readAnswer2?: Array<{ questionId: string; status: string; answer: string; partValues?: Array<{ subId: string; student: string }> }>
   } | undefined
   const ad = Array.isArray(pa?.arbiterDecisions) ? pa!.arbiterDecisions! : []
   const details = ((sub.gradingResult as { details?: ResumeDetailRow[] } | undefined)?.details) ?? []
@@ -801,8 +801,9 @@ async function buildResumeEntry(sub: Submission): Promise<BatchPhaseAEntry | nul
       questionId: qid,
       questionType: d.questionType,
       consistencyStatus: isNR ? 'diff' : 'stable',
-      readAnswer1: { status: resumeAnswerStatus(r1Text), studentAnswer: r1Text || '未作答' },
-      readAnswer2: { status: resumeAnswerStatus(r2Text), studentAnswer: r2Text || '未作答' },
+      // 2026-07-05b: partValues 現已持久化於 phase_a_state → 續審也能重建四小格
+      readAnswer1: { status: resumeAnswerStatus(r1Text), studentAnswer: r1Text || '未作答', partValues: r1ByQid.get(qid)?.partValues },
+      readAnswer2: { status: resumeAnswerStatus(r2Text), studentAnswer: r2Text || '未作答', partValues: r2ByQid.get(qid)?.partValues },
       answerBbox: d.answerBbox,
       arbiterResult: { arbiterStatus, finalAnswer: dec?.finalAnswer }
     }
@@ -1557,8 +1558,14 @@ export function ConsistencyQuestionCard({
   const pv2 = readAnswer2?.partValues
   const isPartsQ = questionResult.questionType === 'fill_blank'
     && Array.isArray(pv1) && Array.isArray(pv2) && pv1.length >= 2 && pv1.length === pv2.length
-  // 寬鬆等值（顯示分歧判定用、與 server 摺疊規則對齊：空白/≤≥/×*/括號/大小寫）
-  const partFold = (s: string) => s.toLowerCase().replace(/\s+/g, '')
+  // 寬鬆等值（顯示分歧判定用、與 server 摺疊規則對齊：空白/≤≥/×*/括號/大小寫/隱形字元）
+  // 2026-07-05b: 加「同形不同碼」摺疊——user 實測兩讀肉眼全同（X≧20000000·1/4）仍標分歧，
+  //   差在中點的 Unicode 變體（·⋅∙‧・）/全形拉丁（Ｘ）/零寬字元。
+  const partFold = (s: string) => s.toLowerCase()
+    .replace(/[​-‍⁠﻿]/g, '')
+    .replace(/[·⋅∙‧・]/g, '×')
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/\s+/g, '')
     .replace(/[≤≦]/g, '<=').replace(/[≥≧]/g, '>=').replace(/\*/g, '×').replace(/[（()）]/g, '')
   const partRows = isPartsQ
     ? pv1!.map((p) => {
