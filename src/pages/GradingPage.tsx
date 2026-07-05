@@ -1567,6 +1567,8 @@ export function ConsistencyQuestionCard({
     .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
     .replace(/\s+/g, '')
     .replace(/[≤≦]/g, '<=').replace(/[≥≧]/g, '>=').replace(/\*/g, '×').replace(/[（()）]/g, '')
+    // 2026-07-06: 「數字x數字」夾心的字母 x 視為乘號（手寫 × 同形、兩讀轉寫不同）；變數 x 兩側非數字不動
+    .replace(/(?<=\d)x(?=\d)/g, '×')
   const partRows = isPartsQ
     ? pv1!.map((p) => {
         const v2 = pv2!.find((x) => x.subId === p.subId)?.student ?? ''
