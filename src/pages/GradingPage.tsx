@@ -5390,7 +5390,16 @@ export default function GradingPage({
       ...EMPTY_PIPELINE_STAGE_PROGRESS,
       accessor: { started: 1, done: 0, total: Math.max(1, reviewedEntries.length) },
     })
-    setGradingMessage('正在套用審查結果、整理成績…')
+    // 2026-07-06: 訊息如實反映 AI 工作量（user 回饋：「套用審查結果」讓人以為零 AI call、
+    //   但手動輸入的題其實要單題送 AI 重批）。開場統計手改題數、有就寫明。
+    const manualQTotal = reviewedEntries.reduce((n, e) => {
+      let c = 0
+      for (const d of e.decisions.values()) if (d.source === 'manual' && d.confirmed === true) c++
+      return n + c
+    }, 0)
+    setGradingMessage(manualQTotal > 0
+      ? `正在套用審查結果（${manualQTotal} 題手動輸入需 AI 重批）…`
+      : '正在套用審查結果、整理成績…')
     // 2026-07-05: 清掉 provisional Phase B 殘留的計數器——否則下面設 phase_b_running 時、
     //   legacy「背景 Accessor 完成監聽」effect(scored>=total>0 就彈結果視窗+收遮罩)會被殘值誤觸發：
     //   搶先彈一次「批改完成」並殺掉遮罩、finalize 收尾完又彈第二次（user 實測截圖：同 modal 跳 2 次、中間無遮罩）。
@@ -5430,7 +5439,15 @@ export default function GradingPage({
         if (dec.source === 'ai_read1' && cands?.ai_read1) applyCand(nd, cands.ai_read1)
         else if (dec.source === 'ai_read2' && cands?.ai_read2) applyCand(nd, cands.ai_read2)
         else if (dec.source === 'blank') { nd.score = 0; nd.isCorrect = false; nd.studentAnswer = '' }
-        else if (VJ_MAP_TYPES.includes(String(d.questionType || ''))) needWhole = true  // VJ/填圖：需整份 image pipeline 重批
+        else if (VJ_MAP_TYPES.includes(String(d.questionType || ''))) {
+          // 2026-07-06 user 回饋「全選沒畫還要重批＝浪費」：provisional 批改時「待確認項」本來就
+          //   假設為空白計分（buildFinalAnswerForQR：沒選=空白）→ 老師全選「沒畫」＝與暫定分假設
+          //   完全相同、分數不變 → 跳過整份重批、沿用 provisional。只有「有畫」的確認才需 AI 重批。
+          const vjItems = dec.vjPerItem
+          const allBlank = String(d.questionType) !== 'map_fill'
+            && Array.isArray(vjItems) && vjItems.length > 0 && vjItems.every((it) => it.isBlank === true)
+          if (!allBlank) needWhole = true  // 有「有畫」確認或 map_fill → 整份 image pipeline 重批
+        }
         else gradeOneTargets.push({ qid, answer: dec.finalAnswer ?? '' })  // 人工輸入/缺候選文字題：只重批這一題
       }
       if (needWhole) { wholeRegrade.push(sub); continue }
