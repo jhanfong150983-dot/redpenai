@@ -5544,6 +5544,16 @@ export default function GradingPage({
     const streamAB = (import.meta.env?.VITE_STREAM_A_TO_B ?? 'true') !== 'false'
     const phaseATargets = [...needA, ...needReview]
     const bOpts = { silent: true, fullPipeline: true, skipReviewGate: true, withReviewCandidates: true } as const
+    // 2026-07-06: 純 Phase B 重批（老師改完答案後重批、A 段早已完成）——進度條重設原本掛在
+    //   executeRecaptureOnly 入口、A 不跑就沒人重設 → 沿用上一輪 finalize 殘留（「批改評分 26/26 ＋
+    //   三格等待中」的怪畫面、user 實測）。無 A 目標時自己重設成單階段。
+    if (phaseATargets.length === 0) {
+      setPipelineMode('phase_b_only')
+      setPipelineStageProgress({
+        ...EMPTY_PIPELINE_STAGE_PROGRESS,
+        accessor: { started: 1, done: 0, total: Math.max(1, oneClickScopeRef.current.length) },
+      })
+    }
     if (streamAB) {
       const phaseBClassroomS = assignment?.classroomId ? await db.classrooms.get(assignment.classroomId) : null
       const streamEnv: GradeCacheEnv = {
