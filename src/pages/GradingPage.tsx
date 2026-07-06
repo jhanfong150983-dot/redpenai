@@ -5409,9 +5409,15 @@ export default function GradingPage({
     setGradingPhase('phase_b_running')
 
     type Cand = { score?: number; maxScore?: number; isCorrect?: boolean; studentAnswer?: string }
-    type DetailRow = { questionId?: string; questionType?: string; score?: number; maxScore?: number; isCorrect?: boolean; studentAnswer?: string; reviewCandidates?: { ai_read1?: Cand | null; ai_read2?: Cand | null } }
+    type DetailRow = { questionId?: string; questionType?: string; score?: number; maxScore?: number; isCorrect?: boolean; studentAnswer?: string; reason?: string; reviewCandidates?: { ai_read1?: Cand | null; ai_read2?: Cand | null } }
     const VJ_MAP_TYPES = ['map_fill', 'diagram_color', 'map_symbol', 'grid_geometry']
-    const applyCand = (nd: DetailRow, c: Cand) => { nd.score = c.score ?? 0; nd.maxScore = c.maxScore ?? nd.maxScore; nd.isCorrect = c.isCorrect === true; nd.studentAnswer = c.studentAnswer ?? nd.studentAnswer }
+    const applyCand = (nd: DetailRow, c: Cand) => {
+      // 2026-07-06: 老師選的讀值與原 detail 不同 → 舊理由（依舊讀值寫的）已失效、換成審查採用說明
+      if ((c.studentAnswer ?? '') !== (nd.studentAnswer ?? '')) {
+        nd.reason = `老師審查採用此讀值${c.isCorrect === true ? '，判定正確' : '，判定錯誤'}`
+      }
+      nd.score = c.score ?? 0; nd.maxScore = c.maxScore ?? nd.maxScore; nd.isCorrect = c.isCorrect === true; nd.studentAnswer = c.studentAnswer ?? nd.studentAnswer
+    }
     // 單題 accessor 的 gradeBand（高中多選扣分公式）
     const fzClassroom = assignment?.classroomId ? await db.classrooms.get(assignment.classroomId) : null
     const fzGradeBand: 'k9' | 'high' = (fzClassroom?.grade ?? 0) >= 10 ? 'high' : 'k9'
@@ -5438,7 +5444,7 @@ export default function GradingPage({
         const cands = d.reviewCandidates
         if (dec.source === 'ai_read1' && cands?.ai_read1) applyCand(nd, cands.ai_read1)
         else if (dec.source === 'ai_read2' && cands?.ai_read2) applyCand(nd, cands.ai_read2)
-        else if (dec.source === 'blank') { nd.score = 0; nd.isCorrect = false; nd.studentAnswer = '' }
+        else if (dec.source === 'blank') { nd.score = 0; nd.isCorrect = false; nd.studentAnswer = ''; nd.reason = '老師審查確認：未作答' }
         else if (VJ_MAP_TYPES.includes(String(d.questionType || ''))) {
           // 2026-07-06 user 回饋「全選沒畫還要重批＝浪費」：provisional 批改時「待確認項」本來就
           //   假設為空白計分（buildFinalAnswerForQR：沒選=空白）→ 老師全選「沒畫」＝與暫定分假設
@@ -5466,7 +5472,7 @@ export default function GradingPage({
               studentAnswer: t.answer, domain: assignment?.domain, answerSheetMode: assignment?.answerSheetMode, gradeBand: fzGradeBand
             })
             const nd = byQid.get(t.qid)
-            if (nd) { nd.score = g.score; nd.maxScore = g.maxScore; nd.isCorrect = g.isCorrect; nd.studentAnswer = g.studentAnswer }
+            if (nd) { nd.score = g.score; nd.maxScore = g.maxScore; nd.isCorrect = g.isCorrect; nd.studentAnswer = g.studentAnswer; if (g.scoringReason) nd.reason = g.scoringReason }
           } catch (e) { console.error('[finalize] 單題重批失敗、回退整份重批', e); gradeOneFailed = true }
           gradeOneDone++
           console.log(`[finalize] gradeOne ${t.qid} ${Date.now() - qT0}ms (${gradeOneDone}/${gradeOneTargets.length})`)

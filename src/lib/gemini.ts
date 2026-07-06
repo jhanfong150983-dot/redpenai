@@ -6327,7 +6327,7 @@ export async function gradeOneQuestion(params: {
   domain?: string
   answerSheetMode?: 'with_questions' | 'answer_only'
   gradeBand?: 'k9' | 'high'
-}): Promise<{ questionId: string; score: number; maxScore: number; isCorrect: boolean; studentAnswer: string }> {
+}): Promise<{ questionId: string; score: number; maxScore: number; isCorrect: boolean; studentAnswer: string; scoringReason?: string }> {
   const { submissionId, questionId, assignmentId, studentAnswer, domain, answerSheetMode, gradeBand } = params
   const { sessionId: sid } = await ensureInkSessionFresh()
   const body = JSON.stringify({
@@ -6352,8 +6352,9 @@ export async function gradeOneQuestion(params: {
   if (!resp.ok) throw new Error((typeof (data as any)?.error === 'string' && (data as any).error) || '單題批改失敗、請稍後再試')
   const text = (data as any)?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined
   if (!text) throw new Error('單題批改回覆為空')
-  const p = JSON.parse(text.replace(/```json|```/g, '').trim()) as { questionId?: string; score?: number; maxScore?: number; isCorrect?: boolean; studentAnswer?: string }
-  return { questionId: p.questionId ?? questionId, score: Number(p.score) || 0, maxScore: Number(p.maxScore) || 0, isCorrect: p.isCorrect === true, studentAnswer: p.studentAnswer ?? studentAnswer }
+  const p = JSON.parse(text.replace(/```json|```/g, '').trim()) as { questionId?: string; score?: number; maxScore?: number; isCorrect?: boolean; studentAnswer?: string; scoringReason?: string }
+  // 2026-07-06: 帶回 scoringReason——finalize 手改重批後把 detail 的判定理由一併更新（user 實測：分數變了理由還是舊的）
+  return { questionId: p.questionId ?? questionId, score: Number(p.score) || 0, maxScore: Number(p.maxScore) || 0, isCorrect: p.isCorrect === true, studentAnswer: p.studentAnswer ?? studentAnswer, scoringReason: typeof p.scoringReason === 'string' ? p.scoringReason : undefined }
 }
 
 /**
