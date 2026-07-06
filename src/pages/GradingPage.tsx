@@ -4259,7 +4259,7 @@ export default function GradingPage({
   // 2026-05-31: 回傳 enteredReview（true=有 needs_review、已進審查頁；false=無、已收尾）。
   //   一鍵 1c 用此判斷要立刻跑統一 Phase B（false）還是等審查 onAllDone 再跑（true）。
   //   opts.suppressNotice：一鍵流程中不顯示 Phase A 自己的收尾 notice（讓統一 Phase B 的結果視窗當最終 modal）。
-  const executeRecaptureOnly = useCallback(async (candidates: Submission[], opts?: { chainPhaseB?: boolean; suppressNotice?: boolean; fullPipeline?: boolean; reviewAfterB?: boolean }): Promise<boolean> => {
+  const executeRecaptureOnly = useCallback(async (candidates: Submission[], opts?: { chainPhaseB?: boolean; suppressNotice?: boolean; fullPipeline?: boolean; reviewAfterB?: boolean; onSubPhaseADone?: (sub: Submission) => void }): Promise<boolean> => {
     if (candidates.length === 0) return false
     if (!assignment?.answerKey) { alert('找不到答案卷'); return false }
     if (inkSessionError) { alert(inkSessionError); return false }
@@ -4811,6 +4811,11 @@ export default function GradingPage({
           }
           successfulEntries.push(newEntry)
           successCount++
+          // 2026-07-06 [提速落地①]：reviewAfterB 串流——單卷 Phase A 完成即通知 orchestrator 進統一 Phase B
+          //   （不等全班 read 完；沙盒 E3 實測柵欄→串流 14.7→8.4 分）。phaseAState/finalAnswers 已寫入 Dexie。
+          if (opts?.reviewAfterB && opts?.onSubPhaseADone) {
+            try { opts.onSubPhaseADone(sub) } catch (e) { console.error('[streamAB] dispatch 失敗', e) }
+          }
           // 2026-06-20 串流分流（只智慧批改）：這份 read+arbiter 一完就立刻路由、不等其他卷。
           if (isStreaming) {
             const needsRev = newEntry.phaseAResult.questionResults.some((qr) =>
@@ -4956,6 +4961,162 @@ export default function GradingPage({
   // 不重跑 Phase A（省 4 min）。對應「批改作業」按鈕觸發。
   // 2026-05-31: opts.silent —「一鍵接著批改」的 needB 步驟用。跑完不跳結果 notice
   //（避免一鍵流程中途彈出 needB 的結果視窗、跟後面 Phase A 的視窗打架）。預設 false=現行。
+  // ── 2026-07-06 [提速落地・共用核心]：單卷 Phase B fromCache ─────────────────
+  //   executeGradeOnlyCache（批次）與 reviewAfterB 串流（單卷 A 完成即批、落地①）共用；
+  //   行為與原 executeGradeOnlyCache 迴圈體一致。計數/清單由呼叫方以 env 持有。
+  type GradeCacheEnv = {
+    opts?: { silent?: boolean; noticeOffset?: { success: number; total: number }; fullPipeline?: boolean; skipReviewGate?: boolean; withReviewCandidates?: boolean }
+    gradeBand: 'k9' | 'high'
+    reconcileStudentIds: Set<string>
+    counters: { successCount: number; failCount: number; heldForReviewCount: number }
+    failReasons: string[]
+    failedSubs: Submission[]
+  }
+  const gradeOneFromCacheCore = async (sub: Submission, env: GradeCacheEnv): Promise<unknown> => {
+        if (stopRequestedRef.current) return null
+        if (!sub.imageBlob) {
+          const stu = students.find((s) => s.id === sub.studentId)
+          const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+          env.failReasons.push(`${label}: 無圖片`)
+          env.counters.failCount++
+          return null
+        }
+        try {
+          // 2026-05-31: Phase A 重跑後、finalAnswers 在 sync 是 local-first 凍結 → 用刷新後的 phaseAState
+          //   重建 AI 自動題的最終答案（保留 source='manual'）、否則 Phase A 白跑、Phase B 批的是舊答案。
+          const freshFinalAnswers = rebuildFinalAnswersFromPhaseAState(
+            sub.phaseAState, sub.finalAnswers as FinalAnswer[] | undefined
+          )
+          // ── 待複核閘門：仍有 needs_review 未確認 → 不批這份、保持原狀、列入結果面板 ──
+          // 2026-06-30 [審查後移重構步驟2]：reviewAfterB 統一 Phase B(全批) 階段刻意 skipReviewGate——
+          //   NR 題此時尚無老師 finalAnswers（審查在 B 之後），server 端用 read2 補 provisional 先批暫定分；
+          //   閘門若不跳會把所有 NR 卷整份跳過、拿不到 provisional 分數。末端審查後的 finalize 重批不帶此旗、閘門正常生效。
+          const gateDecisions = (sub.phaseAState as { arbiterDecisions?: Array<{ questionId?: string; arbiterStatus?: string; finalAnswer?: string }> } | undefined)?.arbiterDecisions ?? []
+          if (!env.opts?.skipReviewGate && gateDecisions.length > 0) {
+            const gateDetails = (sub.gradingResult as { details?: Array<{ questionId?: string; questionType?: string }> } | undefined)?.details ?? []
+            const gateTypeByQid = new Map(gateDetails.map((d) => [d.questionId, d.questionType]))
+            const gateFinalQids = new Set((freshFinalAnswers ?? []).map((fa) => fa.questionId))
+            const missingReview = gateDecisions.filter((d) =>
+              questionNeedsConfirm(d.arbiterStatus, d.finalAnswer, gateTypeByQid.get(d.questionId ?? '')) && !gateFinalQids.has(d.questionId ?? ''))
+            if (missingReview.length > 0) {
+              const stu = students.find((s) => s.id === sub.studentId)
+              const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+              env.failReasons.push(`${label}：${missingReview.length} 題待複核未確認、已跳過批改，請先完成人工審查`)
+              env.counters.failCount++
+              env.counters.heldForReviewCount++
+              return null
+            }
+          }
+          const finalAnswersChanged =
+            JSON.stringify(freshFinalAnswers ?? null) !== JSON.stringify((sub.finalAnswers as FinalAnswer[] | undefined) ?? null)
+          const result = await gradePhaseBFromCache(
+            sub.imageBlob,
+            sub.id,
+            assignment?.id,
+            assignment?.domain,
+            assignment?.answerSheetMode,
+            env.gradeBand,
+            freshFinalAnswers,
+            (stage, event) => bumpStage(stage, event),
+            env.opts?.withReviewCandidates === true
+          )
+          // 訂正/申訴中的學生：走 reconcile（server 端逐題調和 + 存回原卷、回傳調整後的 grade）。
+          // 其餘學生：直接 save-grading。
+          let finalResult = result
+          if (env.reconcileStudentIds.has(sub.studentId)) {
+            try {
+              const rc = await fetch('/api/data/reconcile-phase-b-regrade', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                  assignmentId: assignment?.id,
+                  studentId: sub.studentId,
+                  submissionId: sub.id,
+                  gradingResult: result,
+                }),
+              })
+              const rcData = await rc.json().catch(() => ({}))
+              if (rc.ok && rcData?.gradingResult) {
+                finalResult = rcData.gradingResult
+                console.log(`[reconcile] ${sub.studentId.slice(-6)} → ${rcData.newStatus}`, rcData.reconcile)
+              } else {
+                console.warn(`[reconcile] failed ${sub.id}:`, rcData?.error)
+              }
+            } catch (e) {
+              console.warn(`[reconcile] error ${sub.id}:`, e)
+            }
+          }
+          const totalScore = finalResult.totalScore ?? 0
+          const gradedAtMs = Date.now()
+          // Phase A 重跑刷新了最終答案 → 一併寫回 local（local-first sync 會保留）、讓 detail/品質頁「最終」也同步
+          const finalAnswersPatch = (finalAnswersChanged && Array.isArray(freshFinalAnswers))
+            ? { finalAnswers: freshFinalAnswers }
+            : {}
+          await db.submissions.update(sub.id, {
+            status: 'graded',
+            score: totalScore,
+            aiScore: totalScore,
+            scoreSource: 'ai',
+            gradingResult: finalResult,
+            gradedAt: gradedAtMs,
+            updatedAt: gradedAtMs,
+            ...finalAnswersPatch,
+          })
+          // 同步更新 React state、detail modal 立刻看到新分數
+          setSubmissions((prev) => {
+            const next = new Map(prev)
+            const cur = Array.from(prev.values()).find((s) => s.id === sub.id)
+            if (cur) next.set(cur.studentId, {
+              ...cur,
+              status: 'graded',
+              score: totalScore,
+              aiScore: totalScore,
+              scoreSource: 'ai',
+              gradingResult: finalResult,
+              gradedAt: gradedAtMs,
+              updatedAt: gradedAtMs,
+              ...finalAnswersPatch,
+            })
+            return next
+          })
+          // 重建後的最終答案存回雲端（解決 final_answers 跟最新 read desync、品質頁「最終」顯示一致）
+          if (finalAnswersChanged && Array.isArray(freshFinalAnswers)) {
+            fetch('/api/data/save-final-answers', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ submissions: [{ id: sub.id, finalAnswers: freshFinalAnswers }] })
+            }).catch(() => {/* non-fatal */})
+          }
+          // reconcile 已在 server 端存回原卷；非 reconcile 學生才需 save-grading（避免覆蓋 reconcile 結果）
+          if (!env.reconcileStudentIds.has(sub.studentId)) {
+            fetch('/api/data/save-grading', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                submissions: [{
+                  id: sub.id, score: totalScore, aiScore: totalScore, scoreSource: 'ai',
+                  gradingResult: finalResult, gradedAt: gradedAtMs
+                }]
+              })
+            }).catch(() => {/* non-fatal */})
+          }
+          env.counters.successCount++
+          return finalResult
+        } catch (err) {
+          const stu = students.find((s) => s.id === sub.studentId)
+          const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+          const msg = humanizePhaseBFailMsg(safeFailMsg(err))
+          env.failReasons.push(`${label}: ${msg}`)
+          env.failedSubs.push(sub)
+          env.counters.failCount++
+          console.error(`[gradeOnlyCache] failed for ${sub.id}:`, err)
+          return null
+        }
+  }
+
   const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean; noticeOffset?: { success: number; total: number }; fullPipeline?: boolean; skipReviewGate?: boolean; withReviewCandidates?: boolean }) => {
     if (candidates.length === 0) return
     if (inkSessionError) { alert(inkSessionError); return }
@@ -5055,158 +5216,19 @@ export default function GradingPage({
     //   下次智慧批改會再帶進審查面板。blank 不會被擋(rebuildFinalAnswersFromPhaseAState 會補空字串 entry)、只擋真正 needs_review。
     let heldForReviewCount = 0
 
+    const env: GradeCacheEnv = { opts, gradeBand, reconcileStudentIds, counters: { successCount: 0, failCount: 0, heldForReviewCount: 0 }, failReasons, failedSubs }
     await runWithConcurrency(
       candidates, 5, 1000,
-      async (sub) => {
-        if (stopRequestedRef.current) return null
-        if (!sub.imageBlob) {
-          const stu = students.find((s) => s.id === sub.studentId)
-          const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
-          failReasons.push(`${label}: 無圖片`)
-          failCount++
-          return null
-        }
-        try {
-          // 2026-05-31: Phase A 重跑後、finalAnswers 在 sync 是 local-first 凍結 → 用刷新後的 phaseAState
-          //   重建 AI 自動題的最終答案（保留 source='manual'）、否則 Phase A 白跑、Phase B 批的是舊答案。
-          const freshFinalAnswers = rebuildFinalAnswersFromPhaseAState(
-            sub.phaseAState, sub.finalAnswers as FinalAnswer[] | undefined
-          )
-          // ── 待複核閘門：仍有 needs_review 未確認 → 不批這份、保持原狀、列入結果面板 ──
-          // 2026-06-30 [審查後移重構步驟2]：reviewAfterB 統一 Phase B(全批) 階段刻意 skipReviewGate——
-          //   NR 題此時尚無老師 finalAnswers（審查在 B 之後），server 端用 read2 補 provisional 先批暫定分；
-          //   閘門若不跳會把所有 NR 卷整份跳過、拿不到 provisional 分數。末端審查後的 finalize 重批不帶此旗、閘門正常生效。
-          const gateDecisions = (sub.phaseAState as { arbiterDecisions?: Array<{ questionId?: string; arbiterStatus?: string; finalAnswer?: string }> } | undefined)?.arbiterDecisions ?? []
-          if (!opts?.skipReviewGate && gateDecisions.length > 0) {
-            const gateDetails = (sub.gradingResult as { details?: Array<{ questionId?: string; questionType?: string }> } | undefined)?.details ?? []
-            const gateTypeByQid = new Map(gateDetails.map((d) => [d.questionId, d.questionType]))
-            const gateFinalQids = new Set((freshFinalAnswers ?? []).map((fa) => fa.questionId))
-            const missingReview = gateDecisions.filter((d) =>
-              questionNeedsConfirm(d.arbiterStatus, d.finalAnswer, gateTypeByQid.get(d.questionId ?? '')) && !gateFinalQids.has(d.questionId ?? ''))
-            if (missingReview.length > 0) {
-              const stu = students.find((s) => s.id === sub.studentId)
-              const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
-              failReasons.push(`${label}：${missingReview.length} 題待複核未確認、已跳過批改，請先完成人工審查`)
-              failCount++
-              heldForReviewCount++
-              return null
-            }
-          }
-          const finalAnswersChanged =
-            JSON.stringify(freshFinalAnswers ?? null) !== JSON.stringify((sub.finalAnswers as FinalAnswer[] | undefined) ?? null)
-          const result = await gradePhaseBFromCache(
-            sub.imageBlob,
-            sub.id,
-            assignment?.id,
-            assignment?.domain,
-            assignment?.answerSheetMode,
-            gradeBand,
-            freshFinalAnswers,
-            (stage, event) => bumpStage(stage, event),
-            opts?.withReviewCandidates === true
-          )
-          // 訂正/申訴中的學生：走 reconcile（server 端逐題調和 + 存回原卷、回傳調整後的 grade）。
-          // 其餘學生：直接 save-grading。
-          let finalResult = result
-          if (reconcileStudentIds.has(sub.studentId)) {
-            try {
-              const rc = await fetch('/api/data/reconcile-phase-b-regrade', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                  assignmentId: assignment?.id,
-                  studentId: sub.studentId,
-                  submissionId: sub.id,
-                  gradingResult: result,
-                }),
-              })
-              const rcData = await rc.json().catch(() => ({}))
-              if (rc.ok && rcData?.gradingResult) {
-                finalResult = rcData.gradingResult
-                console.log(`[reconcile] ${sub.studentId.slice(-6)} → ${rcData.newStatus}`, rcData.reconcile)
-              } else {
-                console.warn(`[reconcile] failed ${sub.id}:`, rcData?.error)
-              }
-            } catch (e) {
-              console.warn(`[reconcile] error ${sub.id}:`, e)
-            }
-          }
-          const totalScore = finalResult.totalScore ?? 0
-          const gradedAtMs = Date.now()
-          // Phase A 重跑刷新了最終答案 → 一併寫回 local（local-first sync 會保留）、讓 detail/品質頁「最終」也同步
-          const finalAnswersPatch = (finalAnswersChanged && Array.isArray(freshFinalAnswers))
-            ? { finalAnswers: freshFinalAnswers }
-            : {}
-          await db.submissions.update(sub.id, {
-            status: 'graded',
-            score: totalScore,
-            aiScore: totalScore,
-            scoreSource: 'ai',
-            gradingResult: finalResult,
-            gradedAt: gradedAtMs,
-            updatedAt: gradedAtMs,
-            ...finalAnswersPatch,
-          })
-          // 同步更新 React state、detail modal 立刻看到新分數
-          setSubmissions((prev) => {
-            const next = new Map(prev)
-            const cur = Array.from(prev.values()).find((s) => s.id === sub.id)
-            if (cur) next.set(cur.studentId, {
-              ...cur,
-              status: 'graded',
-              score: totalScore,
-              aiScore: totalScore,
-              scoreSource: 'ai',
-              gradingResult: finalResult,
-              gradedAt: gradedAtMs,
-              updatedAt: gradedAtMs,
-              ...finalAnswersPatch,
-            })
-            return next
-          })
-          // 重建後的最終答案存回雲端（解決 final_answers 跟最新 read desync、品質頁「最終」顯示一致）
-          if (finalAnswersChanged && Array.isArray(freshFinalAnswers)) {
-            fetch('/api/data/save-final-answers', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ submissions: [{ id: sub.id, finalAnswers: freshFinalAnswers }] })
-            }).catch(() => {/* non-fatal */})
-          }
-          // reconcile 已在 server 端存回原卷；非 reconcile 學生才需 save-grading（避免覆蓋 reconcile 結果）
-          if (!reconcileStudentIds.has(sub.studentId)) {
-            fetch('/api/data/save-grading', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({
-                submissions: [{
-                  id: sub.id, score: totalScore, aiScore: totalScore, scoreSource: 'ai',
-                  gradingResult: finalResult, gradedAt: gradedAtMs
-                }]
-              })
-            }).catch(() => {/* non-fatal */})
-          }
-          successCount++
-          return finalResult
-        } catch (err) {
-          const stu = students.find((s) => s.id === sub.studentId)
-          const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
-          const msg = humanizePhaseBFailMsg(safeFailMsg(err))
-          failReasons.push(`${label}: ${msg}`)
-          failedSubs.push(sub)
-          failCount++
-          console.error(`[gradeOnlyCache] failed for ${sub.id}:`, err)
-          return null
-        }
-      },
+      (sub) => gradeOneFromCacheCore(sub, env),
       (_i, _result) => {
         completedCount++
         setPhaseBScoredCount(offDone + completedCount)  // 含背景已批的份數
       },
       stopRequestedRef
     )
+    successCount = env.counters.successCount
+    failCount = env.counters.failCount
+    heldForReviewCount = env.counters.heldForReviewCount
 
     setIsGrading(false)
     setGradingPhase('idle')
@@ -5493,22 +5515,71 @@ export default function GradingPage({
     // 開新一輪先清上一輪殘留的結果視窗/審查殘留（避免「批改完成」彈窗疊在新一輪審查上）
     setGradeResultNotice(null)
     setPhaseAResultNotice(null)
-    // ① Phase A（未擷取+待複核）：跑完 stash entries、不進審查（executeRecaptureOnly reviewAfterB 分支）
+    // ① + ② 2026-07-06 [提速落地①]：A→B 串流化（沙盒 E3：柵欄 14.7 分→串流 8.4 分）——
+    //   單卷 Phase A 完成即進統一 Phase B（provisional、withReviewCandidates），不等全班 read 完。
+    //   kill-switch：VITE_STREAM_A_TO_B='false' 回到柵欄（A 全班→B 全班）。
+    const streamAB = (import.meta.env?.VITE_STREAM_A_TO_B ?? 'true') !== 'false'
     const phaseATargets = [...needA, ...needReview]
-    if (phaseATargets.length > 0) {
-      await executeRecaptureOnly(phaseATargets, { suppressNotice: true, fullPipeline: true, reviewAfterB: true })
-    }
-    // ② 統一 Phase B（全 scope）：乾淨卷正常批、NR 卷由 server 用 read2 補 provisional 先批暫定分。
-    //    silent＝先不彈最終結果視窗（審查還沒做）；skipReviewGate＝NR 沒老師答案也要批 provisional。
-    setPipelineMode('both')
-    setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, started: Math.max(1, p.accessor.started) } }))
-    setGradingMessage('AI 批改評分中…')
-    setIsGrading(true)
-    setGradingPhase('phase_b_running')
-    const gradeable = await loadGradeableFromScope(oneClickScopeRef.current)
-    if (gradeable.length > 0) {
-      // withReviewCandidates：provisional 趟讓 server 對 NR 題算 read1/read2 兩候選分數→末端審查點選即定、finalize 不再跑第二趟 Phase B
-      await executeGradeOnlyCache(gradeable, { silent: true, fullPipeline: true, skipReviewGate: true, withReviewCandidates: true })
+    const bOpts = { silent: true, fullPipeline: true, skipReviewGate: true, withReviewCandidates: true } as const
+    if (streamAB) {
+      const phaseBClassroomS = assignment?.classroomId ? await db.classrooms.get(assignment.classroomId) : null
+      const streamEnv: GradeCacheEnv = {
+        opts: bOpts,
+        gradeBand: (phaseBClassroomS?.grade ?? 0) >= 10 ? 'high' : 'k9',
+        reconcileStudentIds: new Set(
+          Array.from(submissions.values())
+            .filter((s) => ['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed', 'correction_passed'].includes(correctionStatusByStudent[s.studentId] ?? ''))
+            .map((s) => s.studentId)
+        ),
+        counters: { successCount: 0, failCount: 0, heldForReviewCount: 0 },
+        failReasons: [], failedSubs: [],
+      }
+      const bSem = makeSemaphore(5)
+      const bPromises: Promise<unknown>[] = []
+      const streamed = new Set<string>()
+      const dispatchB = (sub: Submission) => {
+        if (streamed.has(sub.id) || stopRequestedRef.current) return
+        streamed.add(sub.id)
+        bPromises.push(bSem.run(async () => {
+          // 重讀 Dexie 拿剛寫入的 phaseAState（hook 觸發前已 await 寫入）；imageBlob 沿用記憶體版
+          const fresh = await db.submissions.get(sub.id)
+          const target = fresh ? { ...fresh, imageBlob: fresh.imageBlob ?? sub.imageBlob } : sub
+          await gradeOneFromCacheCore(target as Submission, streamEnv)
+          setPhaseBScoredCount((v) => v + 1)
+        }).catch((e) => console.error('[streamAB] 單卷 Phase B 失敗', e)))
+      }
+      // needB 桶（本輪不跑 A、已有 phase_a_state）先行派發、與 Phase A 重疊
+      const aTargetIds = new Set(phaseATargets.map((x) => x.id))
+      const preGradeable = await loadGradeableFromScope(oneClickScopeRef.current.filter((id) => !aTargetIds.has(id)))
+      for (const sub of preGradeable) dispatchB(sub)
+      // Phase A（帶單卷完成 hook、完成一卷派一卷）
+      if (phaseATargets.length > 0) {
+        await executeRecaptureOnly(phaseATargets, { suppressNotice: true, fullPipeline: true, reviewAfterB: true, onSubPhaseADone: dispatchB })
+      }
+      // A 全完：掃 scope 補派遺漏（A 失敗卷 loadGradeable 會自然排除）、切到 Phase B 顯示、等全部 B 完成
+      setPipelineMode('both')
+      setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, started: Math.max(1, p.accessor.started) } }))
+      setGradingMessage('AI 批改評分中…')
+      setIsGrading(true)
+      setGradingPhase('phase_b_running')
+      const gradeable = await loadGradeableFromScope(oneClickScopeRef.current)
+      for (const sub of gradeable) dispatchB(sub)
+      await Promise.all(bPromises)
+      requestSync()
+    } else {
+      // ── 柵欄舊路（kill-switch 用）：A 全班 → B 全班 ──
+      if (phaseATargets.length > 0) {
+        await executeRecaptureOnly(phaseATargets, { suppressNotice: true, fullPipeline: true, reviewAfterB: true })
+      }
+      setPipelineMode('both')
+      setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, started: Math.max(1, p.accessor.started) } }))
+      setGradingMessage('AI 批改評分中…')
+      setIsGrading(true)
+      setGradingPhase('phase_b_running')
+      const gradeable = await loadGradeableFromScope(oneClickScopeRef.current)
+      if (gradeable.length > 0) {
+        await executeGradeOnlyCache(gradeable, bOpts)
+      }
     }
     // ③ 末端審查：用 stash 的 Phase A entries 篩出 NR 卷（此時 provisional 分數已寫入、審查面板可顯示）。
     requestSync()  // 拉統一 Phase B 寫的 score/gradingResult 回 local、審查卡片才看得到 provisional 分
