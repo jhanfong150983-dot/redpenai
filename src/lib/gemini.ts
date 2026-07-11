@@ -6207,7 +6207,16 @@ export async function gradePhaseBFromCache(
     ...baseBody(sid1),
     routeKey: 'grading.phase_b_accessor'
   })
-  const r1 = await postPhaseB(body1)
+  // 2026-07-11: 502/503/504 退避重試——串流模式下 Phase A arbiter 函數（層級鏈使其存活 +11~45s）
+  //   與 Phase B 派發重疊、偶發撞 Vercel 併發上限 → proxy 秒回 503（函數未執行、server 零痕跡）。
+  //   槽位數秒即釋放、退避重試即過。實案：07-11 早上 32 份全滅＋round8 座11 單份（console 503 實錘）。
+  let r1 = await postPhaseB(body1)
+  for (let attempt = 0; !r1.resp.ok && [502, 503, 504].includes(r1.resp.status) && attempt < 3; attempt++) {
+    const waitMs = 5000 * (attempt + 1) + Math.random() * 3000
+    console.warn(`[gradePhaseBFromCache] accessor ${r1.resp.status}、${Math.round(waitMs / 1000)}s 後重試（${attempt + 1}/3）`)
+    await new Promise((r) => setTimeout(r, waitMs))
+    r1 = await postPhaseB(body1)
+  }
   if (!r1.resp.ok) {
     const err = (r1.data as any) || {}
     let errMsg = `Phase B accessor failed: ${r1.resp.status}`

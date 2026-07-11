@@ -5570,6 +5570,9 @@ export default function GradingPage({
       const bSem = makeSemaphore(5)
       const bPromises: Promise<unknown>[] = []
       const streamed = new Set<string>()
+      // 2026-07-11: 串流 Phase B 失敗收集——之前只 console.error、失敗清單又被進審查前的
+      //   setGradeResultNotice(null) 吞掉 → 07-11 早上 32 份全滅無聲（Vercel 併發 503）。
+      const streamBFailures: string[] = []
       const dispatchB = (sub: Submission) => {
         if (streamed.has(sub.id) || stopRequestedRef.current) return
         streamed.add(sub.id)
@@ -5579,7 +5582,11 @@ export default function GradingPage({
           const target = fresh ? { ...fresh, imageBlob: fresh.imageBlob ?? sub.imageBlob } : sub
           await gradeOneFromCacheCore(target as Submission, streamEnv)
           setPhaseBScoredCount((v) => v + 1)
-        }).catch((e) => console.error('[streamAB] 單卷 Phase B 失敗', e)))
+        }).catch((e) => {
+          console.error('[streamAB] 單卷 Phase B 失敗', e)
+          const stu = students.find((s) => s.id === sub.studentId)
+          streamBFailures.push(stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8))
+        }))
       }
       // needB 桶（本輪不跑 A、已有 phase_a_state）先行派發、與 Phase A 重疊
       const aTargetIds = new Set(phaseATargets.map((x) => x.id))
@@ -5599,6 +5606,10 @@ export default function GradingPage({
       for (const sub of gradeable) dispatchB(sub)
       await Promise.all(bPromises)
       requestSync()
+      // 失敗必開口：banner 常駐顯示（不用 modal、不被審查畫面清掉）
+      if (streamBFailures.length > 0) {
+        setError(`⚠ ${streamBFailures.length} 份評分未完成（${streamBFailures.slice(0, 5).join('、')}${streamBFailures.length > 5 ? '…' : ''}）：多為伺服器暫時忙線，請再按一次「智慧批改」補批。`)
+      }
     } else {
       // ── 柵欄舊路（kill-switch 用）：A 全班 → B 全班 ──
       if (phaseATargets.length > 0) {
