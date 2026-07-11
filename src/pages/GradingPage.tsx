@@ -4974,6 +4974,15 @@ export default function GradingPage({
   }
   const gradeOneFromCacheCore = async (sub: Submission, env: GradeCacheEnv): Promise<unknown> => {
         if (stopRequestedRef.current) return null
+        // 2026-07-12: 缺圖自動補救——串流 needB 路徑沒有 needPrepare 前置（完整批改才有），
+        //   本地 blob 遺失（16號實測）會走「無圖片」靜默跳過、進度卻照 +1 → 卡待批改。
+        //   先試 base64 重建、再試雲端下載，都失敗才放棄。
+        if (!sub.imageBlob) {
+          try {
+            if (sub.imageBase64) sub.imageBlob = rebuildBlobFromBase64(sub.imageBase64)
+            else sub.imageBlob = await downloadImageFromSupabase(sub.id)
+          } catch (e) { console.error(`[gradeOneFromCacheCore] 圖片補下載失敗 ${sub.id}:`, e) }
+        }
         if (!sub.imageBlob) {
           const stu = students.find((s) => s.id === sub.studentId)
           const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
@@ -5607,8 +5616,11 @@ export default function GradingPage({
       await Promise.all(bPromises)
       requestSync()
       // 失敗必開口：banner 常駐顯示（不用 modal、不被審查畫面清掉）
-      if (streamBFailures.length > 0) {
-        setError(`⚠ ${streamBFailures.length} 份評分未完成（${streamBFailures.slice(0, 5).join('、')}${streamBFailures.length > 5 ? '…' : ''}）：多為伺服器暫時忙線，請再按一次「智慧批改」補批。`)
+      // 2026-07-12: 軟失敗（無圖片/待複核擋下等 failReasons）也要進 banner——16號實測「無圖片」
+      //   靜默跳過、進度照 +1、畫面顯示成功——軟失敗與例外同等級對待。
+      const allBFailures = [...streamBFailures, ...streamEnv.failReasons]
+      if (allBFailures.length > 0) {
+        setError(`⚠ ${allBFailures.length} 份評分未完成（${allBFailures.slice(0, 5).join('、')}${allBFailures.length > 5 ? '…' : ''}）：請再按一次「智慧批改」補批；若重複出現請回報。`)
       }
     } else {
       // ── 柵欄舊路（kill-switch 用）：A 全班 → B 全班 ──
