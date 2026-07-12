@@ -7637,11 +7637,13 @@ export default function GradingPage({
               重新整理
             </Button>
             {/*
-              2026-06-01 Phase3: 分段式「智慧批改 ▼」主按鈕。左半=智慧批改(一鍵接著批改)、右半 ▼=進階選單。
+              2026-06-01 Phase3: 分段式「智慧批改 ▼」主按鈕。左半=智慧批改(一鍵接著批改)、右半 ▼=個別批改。
               進階勾選模式中(advancedMode!==null)整顆收起、動作改由底部確認列驅動。
               total=0 時左半鎖住改字「已批改完成」、▼ 仍可點(讓老師仍能挑份重跑)。
-              ▼ 選單：截取答案(Phase A)/批改作業(Phase B)→ 進勾選模式(卡片出 ☑ + 底部確認列)、
-              動作仍走既有 handleRecaptureAll / handleGradeOnly(含 block/warning modal、用 selectedSubmissionIds)。
+              2026-07-12 改版（user 拍板）：▼ 選單拔掉「重新截取(只跑A)」「重新批改(只跑B)」兩個半程入口——
+              user 按「重新截取」以為是全部重批→全班卡待批改（「跑到一半停下來」的合法路徑=設計錯誤）。
+              只留「個別批改」＝自動路由一條龍（已批改→全程重跑、待批改→補評分、待複核→審查），一律跑到出分。
+              handleRecaptureAll/handleGradeOnly 保留給其他呼叫點（結果視窗重試等），不再從選單暴露。
             */}
             {advancedMode === null && (
               <div className="relative inline-flex">
@@ -7664,8 +7666,8 @@ export default function GradingPage({
                     type="button"
                     onClick={() => setAdvancedMenuOpen((v) => !v)}
                     disabled={advTriggerDisabled}
-                    title="進階：單獨選份數跑擷取或批改"
-                    aria-label="進階"
+                    title="個別批改：單獨勾選要批改的份數"
+                    aria-label="個別批改"
                     className={`inline-flex items-center rounded-r-lg border border-l-0 px-2 py-2 transition-colors active:scale-[0.98] ${
                       advTriggerDisabled
                         ? 'border-slate-300 bg-white text-slate-400 cursor-not-allowed active:scale-100'
@@ -7679,27 +7681,13 @@ export default function GradingPage({
                   <>
                     <div className="fixed inset-0 z-[105]" onClick={() => setAdvancedMenuOpen(false)} />
                     <div className="absolute right-0 top-full z-[106] mt-1 w-56 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-                      <div className="px-3 py-1.5 text-xs font-medium text-slate-400">進階（單獨選份數）</div>
+                      <div className="px-3 py-1.5 text-xs font-medium text-slate-400">單獨選份數</div>
                       <button
                         className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
                         onClick={() => enterAdvanced('full')}
                       >
                         <Sparkles className="w-4 h-4 text-green-500" />
-                        個別批改（完整流程）
-                      </button>
-                      <button
-                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                        onClick={() => enterAdvanced('phase_a')}
-                      >
-                        <RefreshCw className="w-4 h-4 text-slate-400" />
-                        重新截取答案
-                      </button>
-                      <button
-                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50"
-                        onClick={() => enterAdvanced('phase_b')}
-                      >
-                        <Sparkles className="w-4 h-4 text-slate-400" />
-                        重新批改作業
+                        個別批改
                       </button>
                     </div>
                   </>
@@ -7723,7 +7711,7 @@ export default function GradingPage({
                 {selectedSubmissionIds.size > 0 ? '取消全選' : '全選'}
               </Button>
               <span className="text-sm text-slate-600">
-                {advancedMode === 'phase_a' ? '重新截取答案' : advancedMode === 'full' ? '個別批改（完整流程）' : '重新批改作業'}
+                {advancedMode === 'phase_a' ? '重新截取答案' : advancedMode === 'full' ? '個別批改' : '重新批改作業'}
                 {' · 已選 '}
                 <strong className="text-slate-900">{selectedSubmissionCount}</strong>
                 {' 份'}
