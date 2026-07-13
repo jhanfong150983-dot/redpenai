@@ -8017,6 +8017,8 @@ export default function GradingPage({
                     const showResultBadge = cardStage === 'graded'
                     const isSelected = selectedSubmissionIds.has(submission?.id ?? '')
                     const isStub = isManualGradeStub(submission)
+                    // 2026-07-13 系統信心指數（server 查表計算）：卡片左上角、低=值得點進去抽查
+                    const paperConf = Number(submission?.gradingResult?.paperConfidence)
                     return (
                       <div
                         key={student.id}
@@ -8050,6 +8052,14 @@ export default function GradingPage({
                         >
                           <div className="relative aspect-[4/3] bg-gray-100">
                             <SubmissionThumbnail submission={submission} />
+                            {showResultBadge && !isStub && advancedMode === null && Number.isFinite(paperConf) && (
+                              <div
+                                className={`absolute top-2 left-2 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${paperConf >= 90 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : paperConf >= 70 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-red-50 text-red-600 border-red-200'}`}
+                                title="系統信心指數：每題判定路徑的歷史正確率平均。偏低＝值得點進卡片看一眼"
+                              >
+                                信心 {paperConf}
+                              </div>
+                            )}
                             {/* 狀態徽章：與單班卡片完全一致（deriveCardStage 分支） */}
                             {isStub && (
                               <div className="absolute top-2 right-2 px-2 py-1 bg-emerald-500 text-white rounded-full text-xs font-semibold">已批改</div>
@@ -8122,6 +8132,8 @@ export default function GradingPage({
             const showResultBadge = cardStage === 'graded'
             const needsReview = cardStage === 'pending_review'
             const pendingGrading = cardStage === 'pending_grading'
+            // 2026-07-13 系統信心指數（server 查表計算）：卡片左上角、低=值得點進去抽查
+            const paperConf = Number(gradingResult?.paperConfidence)
             const resultBadgeText = isUnscoredAssignment
               ? (correctSummary ? `${correctSummary.correct}/${correctSummary.total}` : '')
               : `${scoreValue} 分`
@@ -8142,6 +8154,14 @@ export default function GradingPage({
                 <div className="relative">
                   <div className="aspect-[4/3] bg-gray-100 rounded-t-xl overflow-hidden flex items-center justify-center relative">
                     <SubmissionThumbnail submission={submission} />
+                    {showResultBadge && !isStub && advancedMode === null && Number.isFinite(paperConf) && (
+                      <div
+                        className={`absolute top-2 left-2 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${paperConf >= 90 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : paperConf >= 70 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-red-50 text-red-600 border-red-200'}`}
+                        title="系統信心指數：每題判定路徑的歷史正確率平均。偏低＝值得點進卡片看一眼"
+                      >
+                        信心 {paperConf}
+                      </div>
+                    )}
                     {/* 2026-05-28 perf: 拔掉 badge 的 shadow、box-shadow 是 compositor layer 大戶
                         28 卡 × 每張 1 個 badge × shadow = 至少 28 個 layer */}
                     {isStub && (

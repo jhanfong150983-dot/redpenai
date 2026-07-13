@@ -558,6 +558,9 @@ export interface GradingResult {
   // 老師手動點過「標記已複核」後設 true，讓 isSubmissionNeedsReview 直接 short-circuit 回 false，
   // 避免 details 中仍有 studentAnswer='未作答' 導致警告框繼續顯示
   manuallyReviewed?: boolean
+  // 2026-07-13 系統信心指數（server 純查表計算=每題旅程歷史正確率的整卷平均、零 AI）：
+  //   卡片左上角顯示、老師據此決定要不要點進去抽查。詳見 server buildFinalGradingResult。
+  paperConfidence?: number
 }
 
 // Phase A pipeline 失敗：classify / read / arbiter 階段 retry 後仍 FAIL、整份未批改。
