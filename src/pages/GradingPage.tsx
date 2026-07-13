@@ -3983,6 +3983,8 @@ export default function GradingPage({
                 typeof d.systemConfidence === 'number' && Number.isFinite(d.systemConfidence)
                   ? d.systemConfidence
                   : undefined,
+              // 2026-07-13 老師接管編輯：AI 原判快照（有=顯示回復鈕、紅底熄滅）
+              _aiOriginal: d._aiOriginal ?? undefined,
             }
           })
         )
@@ -6683,12 +6685,25 @@ export default function GradingPage({
 
   // 2026-05-18 PR3: 單題學生答案 inline edit、debounce 1s 後 auto save
   // 寫進 gradingResult.details[i].studentAnswer + final_answers[i] + 雲端 save-final-answers
-  // 已批改的卷子改答案：score 不會自動重算（會在 UI 顯示「分數已過時、建議重新批改」）
+  // 2026-07-13 改版（user 拍板）：改答案＝老師接管、不再退回待批改/不需重批——
+  //   理由換「已經由老師編輯」、首次編輯快照 AI 原判（_aiOriginal）供回復鈕還原、分數狀態全保留。
+  //   重批唯一情境=答案卷被改（重大事件）、屆時 AI 直接覆蓋老師編輯、不提醒（user 拍板）。
   const studentAnswerSaveTimeoutsRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
+  const snapshotAiOriginal = (d: any) => d._aiOriginal ?? {
+    studentAnswer: d.studentAnswer ?? '',
+    score: Number.isFinite(Number(d.score)) ? Number(d.score) : 0,
+    maxScore: Number.isFinite(Number(d.maxScore)) ? Number(d.maxScore) : 0,
+    isCorrect: d.isCorrect === true,
+    reason: d.reason ?? '',
+    comment: d.comment ?? '',
+    systemConfidence: typeof d.systemConfidence === 'number' ? d.systemConfidence : undefined,
+  }
   const handleDetailStudentAnswerChange = (index: number, newAnswer: string) => {
     if (!selectedSubmission) return
-    // 即時更新 editableDetails（UI 立刻反映）
-    setEditableDetails((prev) => prev.map((d, i) => (i === index ? { ...d, studentAnswer: newAnswer } : d)))
+    // 即時更新 editableDetails（UI 立刻反映、含接管標記）
+    setEditableDetails((prev) => prev.map((d, i) => (
+      i === index ? { ...d, studentAnswer: newAnswer, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: snapshotAiOriginal(d) } : d
+    )))
 
     // Debounce 1s 後 persist
     const prevTimeout = studentAnswerSaveTimeoutsRef.current.get(index)
@@ -6698,9 +6713,13 @@ export default function GradingPage({
       const subId = selectedSubmission.submission.id
       const submission = await db.submissions.get(subId)
       if (!submission) return
-      const latestDetails = (submission.gradingResult as { details?: Array<{ questionId: string; studentAnswer?: string }> } | undefined)?.details
+      const latestDetails = (submission.gradingResult as { details?: Array<Record<string, unknown>> } | undefined)?.details
       const updatedDetails = Array.isArray(latestDetails)
-        ? latestDetails.map((d, i) => (i === index ? { ...d, studentAnswer: newAnswer } : d))
+        ? latestDetails.map((d: any, i) => (
+            i === index
+              ? { ...d, studentAnswer: newAnswer, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: snapshotAiOriginal(d) }
+              : d
+          ))
         : null
       if (!updatedDetails) return
       const newGradingResult = { ...(submission.gradingResult || {}), details: updatedDetails } as Submission['gradingResult']
@@ -6731,21 +6750,12 @@ export default function GradingPage({
             }
       })
       const now = Date.now()
-      // 2026-05-18: 動到答案 = 卡片自動回退到「待批改」、score / aiScore / gradedAt 清掉
-      // 老師看卡片狀態就知道要重評、不需要 banner 提示
-      // 對應 user 的設計精神：「動答案就要重批改」、避免「graded 但分數過時」這中間態
-      const isCurrentlyGraded = submission.status === 'graded'
+      // 2026-07-13: 老師接管——改答案不再退回待批改、分數/狀態/gradedAt 全保留
+      //   （舊行為「動答案就要重批」已由 user 拍板廢除：老師是最終權威、AI 不需重算）
       const updatedSubFields: Partial<Submission> = {
         gradingResult: newGradingResult,
         finalAnswers: newFinalAnswers,
-        updatedAt: now,
-        ...(isCurrentlyGraded ? {
-          status: 'synced' as const,
-          score: undefined,
-          aiScore: undefined,
-          scoreSource: undefined,
-          gradedAt: undefined
-        } : {})
+        updatedAt: now
       }
       await db.submissions.update(subId, updatedSubFields)
       setSubmissions((prev) => {
@@ -6766,8 +6776,8 @@ export default function GradingPage({
         credentials: 'include',
         body: JSON.stringify({ submissions: [{ id: subId, finalAnswers: newFinalAnswers }] })
       }).catch((err) => console.warn('save-final-answers failed (non-fatal):', err))
-      // 若卡片從 graded 退回 synced、也要通知 server 清 score / status
-      if (isCurrentlyGraded) {
+      // 2026-07-13: gradingResult（理由=已經由老師編輯＋_aiOriginal 快照）也要寫回雲端、分數欄位原樣帶回
+      if (submission.status === 'graded') {
         void fetch('/api/data/save-grading', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -6775,15 +6785,15 @@ export default function GradingPage({
           body: JSON.stringify({
             submissions: [{
               id: subId,
-              status: 'synced',
-              score: null,
-              aiScore: null,
-              scoreSource: null,
-              gradedAt: null,
+              score: submission.score ?? null,
+              aiScore: submission.aiScore ?? null,
+              scoreSource: submission.scoreSource ?? null,
+              gradedAt: submission.gradedAt ?? null,
               gradingResult: newGradingResult
-            }]
+            }],
+            fromManualScoreEdit: true
           })
-        }).catch((err) => console.warn('save-grading (revert) failed (non-fatal):', err))
+        }).catch((err) => console.warn('save-grading (teacher-edit) failed (non-fatal):', err))
       }
     }, 1000)
     studentAnswerSaveTimeoutsRef.current.set(index, timeout)
@@ -6876,8 +6886,9 @@ export default function GradingPage({
     if (isBusy || isSavingScore) return
     if (!selectedSubmission) return
 
+    // 2026-07-13 老師接管：改分數同樣換理由＋快照 AI 原判（回復鈕用）
     const updatedDetails = editableDetails.map((d: any, i: number) =>
-      i === index ? { ...d, score: scoreValue } : d
+      i === index ? { ...d, score: scoreValue, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: snapshotAiOriginal(d) } : d
     )
     setEditableDetails(updatedDetails)
 
@@ -6957,6 +6968,61 @@ export default function GradingPage({
       }).catch(() => {})
       requestSync()
 
+      const updated = await db.submissions.get(id)
+      if (updated) {
+        setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
+        const student = students.find((s) => s.id === updated.studentId)
+        if (student) setSelectedSubmission({ submission: updated, student })
+      }
+    } finally {
+      setIsSavingScore(false)
+    }
+  }
+
+  // 2026-07-13 回復鈕（user 拍板）：老師誤植時一鍵還原該題到 AI 原判（_aiOriginal 快照、非上一步）、
+  //   快照清除、總分/錯題清單重算、finalAnswers 該題退回 ai_read1。
+  const handleDetailRestore = async (index: number) => {
+    if (isBusy || isSavingScore || !selectedSubmission) return
+    const id = selectedSubmission.submission.id
+    const submission = await db.submissions.get(id)
+    if (!submission) return
+    const latestDetails = (submission.gradingResult as { details?: Array<Record<string, unknown>> } | undefined)?.details
+    if (!Array.isArray(latestDetails)) return
+    const target: any = latestDetails[index]
+    const snap = target?._aiOriginal
+    if (!snap) return
+    const restoredRow: any = { ...target, ...snap }
+    delete restoredRow._aiOriginal
+    const updatedDetails = latestDetails.map((d, i) => (i === index ? restoredRow : d))
+    const newTotal = parseFloat(updatedDetails.reduce((s: number, d: any) => s + (Number.isFinite(Number(d.score)) ? Number(d.score) : 0), 0).toFixed(1))
+    const newGradingResult: any = { ...(submission.gradingResult || {}), details: updatedDetails, totalScore: newTotal }
+    // 錯題清單重算（同改分數邏輯）
+    const oldMistakesByQid = new Map<string, any>()
+    for (const m of (Array.isArray(submission.gradingResult?.mistakes) ? submission.gradingResult.mistakes : []) as any[]) {
+      if (m?.questionId) oldMistakesByQid.set(m.questionId, m)
+    }
+    newGradingResult.mistakes = updatedDetails
+      .filter((d: any) => d?.isCorrect === false && d?.questionId)
+      .map((d: any) => oldMistakesByQid.get(d.questionId) ?? ({ questionId: d.questionId, questionText: '', studentAnswer: d.studentAnswer || '', correctAnswer: '', reason: d.reason || '' }))
+    // finalAnswers 該題退回 AI 讀值
+    const newFinalAnswers = (Array.isArray(submission.finalAnswers) ? submission.finalAnswers : []).map((fa) =>
+      fa.questionId === restoredRow.questionId
+        ? { ...fa, finalStudentAnswer: String(snap.studentAnswer ?? ''), finalAnswerSource: 'ai_read1' as const }
+        : fa
+    )
+    setIsSavingScore(true)
+    try {
+      const now = Date.now()
+      await db.submissions.update(id, { gradingResult: newGradingResult, finalAnswers: newFinalAnswers, score: newTotal, aiScore: newTotal, updatedAt: now })
+      setEditableDetails((prev) => prev.map((d: any, i: number) => (i === index ? { ...d, ...snap, _aiOriginal: undefined } : d)))
+      void fetch('/api/data/save-final-answers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ submissions: [{ id, finalAnswers: newFinalAnswers }] })
+      }).catch(() => {})
+      void fetch('/api/data/save-grading', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ submissions: [{ id, score: newTotal, aiScore: newTotal, scoreSource: 'ai', gradingResult: newGradingResult, gradedAt: submission.gradedAt ?? now }], fromManualScoreEdit: true })
+      }).catch(() => {})
       const updated = await db.submissions.get(id)
       if (updated) {
         setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
@@ -8552,7 +8618,9 @@ export default function GradingPage({
                         // 2026-05-18: 學生答案是「無法辨識」→ 卡片底色標紅、老師一眼看到要再複核哪一題
                         const isUnrecognizable = String(d.studentAnswer || '').trim() === '無法辨識'
                         // 2026-07-13: 系統信心 <70（邊界攔/調號攔維持等旅程）→ 同樣紅底、掛「低信心」小標
-                        const isLowConf = Number.isFinite(Number(d.systemConfidence)) && Number(d.systemConfidence) < 70
+                        //   老師編輯過（_aiOriginal 存在）＝已人工裁決 → 紅底熄滅
+                        const isTeacherEdited = !!d._aiOriginal
+                        const isLowConf = !isTeacherEdited && Number.isFinite(Number(d.systemConfidence)) && Number(d.systemConfidence) < 70
                         // 2026-05-28: map_fill 已 pivot 到 Phase A 3-AI、studentAnswer 是老師確認後的逗號分隔地名、
                         // 不再需要鎖編輯欄（老師可微調個別字、之後 deterministic match 再算分）
                         const isVisualEval = false
@@ -8579,6 +8647,18 @@ export default function GradingPage({
                                   <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-100 text-rose-700 border border-rose-200" title="系統對這題的判定信心偏低，建議看一眼">
                                     低信心
                                   </span>
+                                )}
+                                {isTeacherEdited && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); void handleDetailRestore(i) }}
+                                    disabled={isBusy || isSavingScore}
+                                    className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200"
+                                    title="還原成 AI 原本的批改內容（答案、分數、理由）"
+                                  >
+                                    <RefreshCw className="w-3 h-3" />
+                                    回復 AI 批改
+                                  </button>
                                 )}
                               </div>
                               <div

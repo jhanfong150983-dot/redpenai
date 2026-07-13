@@ -497,6 +497,17 @@ export interface GradingDetail {
   // 2026-07-13 系統信心指數（server 查表、內部用不對外顯示數字）：<70 的題在詳情紅底＋卡片掛「低信心」
   systemConfidence?: number
   confidenceJourney?: string
+  // 2026-07-13 老師接管編輯（user 拍板）：老師改答案/分數不再觸發重批、理由換「已經由老師編輯」；
+  //   首次編輯時快照 AI 原判於此、題號旁回復鈕可一鍵還原（回到 AI 原判、非上一步）
+  _aiOriginal?: {
+    studentAnswer?: string
+    score?: number
+    maxScore?: number
+    isCorrect?: boolean
+    reason?: string
+    comment?: string
+    systemConfidence?: number
+  }
   answerCropImageUrl?: string
   mistakeTypeCodes?: string[]
   studentGuidance?: string
