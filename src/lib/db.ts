@@ -494,6 +494,9 @@ export interface GradingDetail {
   readAnswer1?: { status: string; studentAnswer: string }
   readAnswer2?: { status: string; studentAnswer: string }
   finalAnswerSource?: 'ai_read1' | 'ai_read2' | 'manual'
+  // 2026-07-13 系統信心指數（server 查表、內部用不對外顯示數字）：<70 的題在詳情紅底＋卡片掛「低信心」
+  systemConfidence?: number
+  confidenceJourney?: string
   answerCropImageUrl?: string
   mistakeTypeCodes?: string[]
   studentGuidance?: string

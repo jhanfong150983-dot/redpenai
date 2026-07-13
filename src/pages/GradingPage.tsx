@@ -3978,6 +3978,11 @@ export default function GradingPage({
               partResults: Array.isArray(d.partResults) ? d.partResults : undefined,
               // VJ 逐柱（render 逐柱按鈕 + toggle 用）— 白名單原本漏了
               vjItemResults,
+              // 2026-07-13 系統信心（內部值、<70 題目列紅底）
+              systemConfidence:
+                typeof d.systemConfidence === 'number' && Number.isFinite(d.systemConfidence)
+                  ? d.systemConfidence
+                  : undefined,
             }
           })
         )
@@ -8017,8 +8022,10 @@ export default function GradingPage({
                     const showResultBadge = cardStage === 'graded'
                     const isSelected = selectedSubmissionIds.has(submission?.id ?? '')
                     const isStub = isManualGradeStub(submission)
-                    // 2026-07-13 系統信心指數（server 查表計算）：卡片左上角、低=值得點進去抽查
-                    const paperConf = Number(submission?.gradingResult?.paperConfidence)
+                    // 2026-07-13 系統信心（內部值不顯示數字）：任一題 <70 → 卡片左上角掛「低信心」引導點進去
+                    const hasLowConf = (submission?.gradingResult?.details ?? []).some(
+                      (d) => Number.isFinite(Number(d?.systemConfidence)) && Number(d?.systemConfidence) < 70
+                    )
                     return (
                       <div
                         key={student.id}
@@ -8052,12 +8059,12 @@ export default function GradingPage({
                         >
                           <div className="relative aspect-[4/3] bg-gray-100">
                             <SubmissionThumbnail submission={submission} />
-                            {showResultBadge && !isStub && advancedMode === null && Number.isFinite(paperConf) && (
+                            {showResultBadge && !isStub && advancedMode === null && hasLowConf && (
                               <div
-                                className={`absolute top-2 left-2 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${paperConf >= 90 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : paperConf >= 70 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-red-50 text-red-600 border-red-200'}`}
-                                title="系統信心指數：每題判定路徑的歷史正確率平均。偏低＝值得點進卡片看一眼"
+                                className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-50 text-rose-600 border-rose-200"
+                                title="這份有系統判定信心偏低的題目，建議點進去看一眼（低信心題會以紅底標出）"
                               >
-                                信心 {paperConf}
+                                低信心
                               </div>
                             )}
                             {/* 狀態徽章：與單班卡片完全一致（deriveCardStage 分支） */}
@@ -8132,8 +8139,10 @@ export default function GradingPage({
             const showResultBadge = cardStage === 'graded'
             const needsReview = cardStage === 'pending_review'
             const pendingGrading = cardStage === 'pending_grading'
-            // 2026-07-13 系統信心指數（server 查表計算）：卡片左上角、低=值得點進去抽查
-            const paperConf = Number(gradingResult?.paperConfidence)
+            // 2026-07-13 系統信心（內部值不顯示數字）：任一題 <70 → 卡片左上角掛「低信心」引導點進去
+            const hasLowConf = (gradingResult?.details ?? []).some(
+              (d) => Number.isFinite(Number(d?.systemConfidence)) && Number(d?.systemConfidence) < 70
+            )
             const resultBadgeText = isUnscoredAssignment
               ? (correctSummary ? `${correctSummary.correct}/${correctSummary.total}` : '')
               : `${scoreValue} 分`
@@ -8154,12 +8163,12 @@ export default function GradingPage({
                 <div className="relative">
                   <div className="aspect-[4/3] bg-gray-100 rounded-t-xl overflow-hidden flex items-center justify-center relative">
                     <SubmissionThumbnail submission={submission} />
-                    {showResultBadge && !isStub && advancedMode === null && Number.isFinite(paperConf) && (
+                    {showResultBadge && !isStub && advancedMode === null && hasLowConf && (
                       <div
-                        className={`absolute top-2 left-2 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${paperConf >= 90 ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : paperConf >= 70 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-red-50 text-red-600 border-red-200'}`}
-                        title="系統信心指數：每題判定路徑的歷史正確率平均。偏低＝值得點進卡片看一眼"
+                        className="absolute top-2 left-2 px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-rose-50 text-rose-600 border-rose-200"
+                        title="這份有系統判定信心偏低的題目，建議點進去看一眼（低信心題會以紅底標出）"
                       >
-                        信心 {paperConf}
+                        低信心
                       </div>
                     )}
                     {/* 2026-05-28 perf: 拔掉 badge 的 shadow、box-shadow 是 compositor layer 大戶
@@ -8542,6 +8551,8 @@ export default function GradingPage({
                           || isPhaseAStale(selectedSubmission.submission, correctionStatusByStudent[selectedSubmission.submission.studentId])
                         // 2026-05-18: 學生答案是「無法辨識」→ 卡片底色標紅、老師一眼看到要再複核哪一題
                         const isUnrecognizable = String(d.studentAnswer || '').trim() === '無法辨識'
+                        // 2026-07-13: 系統信心 <70（邊界攔/調號攔維持等旅程）→ 同樣紅底、掛「低信心」小標
+                        const isLowConf = Number.isFinite(Number(d.systemConfidence)) && Number(d.systemConfidence) < 70
                         // 2026-05-28: map_fill 已 pivot 到 Phase A 3-AI、studentAnswer 是老師確認後的逗號分隔地名、
                         // 不再需要鎖編輯欄（老師可微調個別字、之後 deterministic match 再算分）
                         const isVisualEval = false
@@ -8554,7 +8565,7 @@ export default function GradingPage({
                           <div
                             key={questionId}
                             className={`border rounded-lg p-3 text-xs space-y-2 ${
-                              isUnrecognizable
+                              (isUnrecognizable || isLowConf)
                                 ? 'border-rose-300 bg-rose-50'  // 紅底紅框、強烈視覺提示
                                 : 'border-gray-200 bg-gray-50'
                             }`}
@@ -8564,6 +8575,11 @@ export default function GradingPage({
                                 <span className="font-semibold text-gray-800">
                                   題目 {questionId}
                                 </span>
+                                {isLowConf && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-100 text-rose-700 border border-rose-200" title="系統對這題的判定信心偏低，建議看一眼">
+                                    低信心
+                                  </span>
+                                )}
                               </div>
                               <div
                                 className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
