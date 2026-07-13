@@ -690,8 +690,11 @@ export function buildFinalAnswerForQR(qr: PhaseAQuestionResult, decision: Consis
 // 為什麼：sync 對 finalAnswers 是 local-first（useSync.ts:1105、保護老師 detail edit）、對 phaseAState 是
 //   server-first（line 1096）→ Phase A 重跑刷新了 phaseAState 的新 read、finalAnswers 卻凍在舊值、
 //   重批又直接拿舊 finalAnswers（executeGradeOnlyCache:3708）去批 → Phase A 等於白跑、批的是舊（可能 AI 誤讀）的答案。
-// 修：重建非手改題的最終答案 = phaseAState.arbiterDecisions 解出的最新 read；**只保留 source='manual'**
-//   （老師在 detail 明確手改、含 VJ 逐柱 / map_fill 逐格 / 無法辨識改字、其 source 皆為 'manual'）。
+// 修：重建最終答案 = phaseAState.arbiterDecisions 解出的最新 read。
+// 2026-07-13（user 拍板）：**manual 不再是權威轉錄**——重批（含只跑 Phase B 的重批）一律用
+//   最新 AI 讀值重建、manual 條目同樣被刷新（source 翻回 ai_read1）。理由：①與「重批=AI 直接
+//   覆蓋老師編輯」的既定裁決一致 ②舊人工輸入殘留會讓重批「批不動」那幾格（社會卷 8 格實例）。
+//   老師編輯的存活範圍=從編輯到下一次重批為止；重批後不滿意再用接管編輯改回。
 function rebuildFinalAnswersFromPhaseAState(
   phaseAState: Submission['phaseAState'] | undefined,
   existing: FinalAnswer[] | undefined
@@ -715,11 +718,14 @@ function rebuildFinalAnswersFromPhaseAState(
   const existingArr = existingArr0.filter((fa) =>
     !(fa.finalAnswerSource === 'manual' && !String(fa.finalStudentAnswer ?? '').trim()))
   const existingQids = new Set(existingArr.map((fa) => fa.questionId))
-  // 1. 既有題：手改(manual、非空)保留、AI 自動題用最新 read 刷新
+  // 1. 既有題一律用最新 read 刷新（2026-07-13：manual 不再保留——重批=AI 全新判讀；
+  //    曾為 manual 的題重建成乾淨的 ai_read1 條目、丟棄舊 VJ 逐柱/逐格等人工欄位避免殘留干擾）
   const refreshed = existingArr.map((fa) => {
-    if (fa.finalAnswerSource === 'manual') return fa
     const arb = arbByQid.get(fa.questionId)
     if (!arb || typeof arb.finalAnswer !== 'string') return fa
+    if (fa.finalAnswerSource === 'manual') {
+      return { questionId: fa.questionId, finalStudentAnswer: arb.finalAnswer, finalAnswerSource: 'ai_read1' as const }
+    }
     return { ...fa, finalStudentAnswer: arb.finalAnswer }
   })
   // 2. 2026-05-31 一鍵 1c 重做需要:arbiterDecisions 有、但 existing 沒有的題 → 補進來。
