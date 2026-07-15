@@ -323,8 +323,9 @@ export interface AnswerKey {
   questions: AnswerKeyQuestion[]
   totalScore: number
   strictness?: 'strict' | 'standard' | 'lenient'
-  // 2026-07-15 單位錯誤計分（作業層級、user 拍板）：zero=全有全無(預設)、half=數值對單位錯給一半
-  unitErrorRule?: 'zero' | 'half'
+  // 2026-07-15 單位錯誤計分（作業層級、user 拍板）：zero=全有全無(預設)、half=給一半、deduct=扣固定分
+  unitErrorRule?: 'zero' | 'half' | 'deduct'
+  unitErrorDeduction?: number  // deduct 模式的扣分數（下限 0 分）
   // 配分設定（老師選擇的配分方式，用於還原/重新套用）
   scoreMode?: 'ai_auto' | 'fixed_per_question' | 'fixed_total' | 'fixed_both'
   fixedPerScore?: number  // 每題固定分（scoreMode=fixed_per_question 或 fixed_both 時）

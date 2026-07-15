@@ -13,7 +13,8 @@ export interface GradingSettings {
   strictness: 'strict' | 'standard' | 'lenient'
   scoringMode: 'scored' | 'unscored'
   fractionRule: 'require_simplified' | 'allow_equivalent'
-  unitErrorRule: 'zero' | 'half'
+  unitErrorRule: 'zero' | 'half' | 'deduct'
+  unitErrorDeduction: number
   enPunctuationCheck: boolean
   enPunctuationDeduction: number
   enWordOrderCheck: boolean
@@ -26,7 +27,8 @@ type FormSettings = {
   strictness: 'strict' | 'standard' | 'lenient' | null
   scoringMode: 'scored' | 'unscored' | null
   fractionRule: 'require_simplified' | 'allow_equivalent' | null
-  unitErrorRule: 'zero' | 'half'
+  unitErrorRule: 'zero' | 'half' | 'deduct'
+  unitErrorDeduction: number
   enPunctuationCheck: boolean
   enPunctuationDeduction: number
   enWordOrderCheck: boolean
@@ -83,6 +85,7 @@ const DEFAULT_FORM_SETTINGS: FormSettings = {
   scoringMode: null,
   fractionRule: null,
   unitErrorRule: 'zero',
+  unitErrorDeduction: 1,
   enPunctuationCheck: false,
   enPunctuationDeduction: 1,
   enWordOrderCheck: false,
@@ -176,6 +179,7 @@ export default function AssignmentFormModal({
     scoringMode: initialSettings?.scoringMode ?? null,
     fractionRule: initialSettings?.fractionRule ?? null,
     unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
+    unitErrorDeduction: initialSettings?.unitErrorDeduction ?? 1,
     enPunctuationCheck: initialSettings?.enPunctuationCheck ?? DEFAULT_FORM_SETTINGS.enPunctuationCheck,
     enPunctuationDeduction: initialSettings?.enPunctuationDeduction ?? DEFAULT_FORM_SETTINGS.enPunctuationDeduction,
     enWordOrderCheck: initialSettings?.enWordOrderCheck ?? DEFAULT_FORM_SETTINGS.enWordOrderCheck,
@@ -204,6 +208,7 @@ export default function AssignmentFormModal({
       scoringMode: initialSettings?.scoringMode ?? null,
       fractionRule: initialSettings?.fractionRule ?? null,
       unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
+      unitErrorDeduction: initialSettings?.unitErrorDeduction ?? 1,
       enPunctuationCheck: initialSettings?.enPunctuationCheck ?? DEFAULT_FORM_SETTINGS.enPunctuationCheck,
       enPunctuationDeduction: initialSettings?.enPunctuationDeduction ?? DEFAULT_FORM_SETTINGS.enPunctuationDeduction,
       enWordOrderCheck: initialSettings?.enWordOrderCheck ?? DEFAULT_FORM_SETTINGS.enWordOrderCheck,
@@ -732,11 +737,39 @@ export default function AssignmentFormModal({
                           >
                             給一半分數
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSetting('unitErrorRule', 'deduct')}
+                            className={`px-4 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
+                              settings.unitErrorRule === 'deduct'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            扣固定分數
+                          </button>
                         </div>
+                        {settings.unitErrorRule === 'deduct' && (
+                          <div className="mt-2 flex items-center gap-2 text-sm text-gray-700">
+                            <span>每題單位錯扣</span>
+                            <input
+                              type="number"
+                              min={0.5}
+                              max={20}
+                              step={0.5}
+                              value={settings.unitErrorDeduction}
+                              onChange={(e) => updateSetting('unitErrorDeduction', Math.max(0.5, Math.min(20, Number(e.target.value) || 1)))}
+                              className="w-20 px-2 py-1 rounded border border-gray-300 text-center focus:outline-none focus:ring-2 focus:ring-green-300"
+                            />
+                            <span>分（扣到該題 0 分為止）</span>
+                          </div>
+                        )}
                         <p className="mt-2 text-xs text-slate-500">
                           {settings.unitErrorRule === 'zero'
                             ? '數值對但單位錯（如 477.28 cm² vs 477.28 m²）→ 整題 0 分'
-                            : '數值對但單位錯或缺單位 → 給該題一半分數；數值錯仍 0 分'}
+                            : settings.unitErrorRule === 'half'
+                              ? '數值對但單位錯或缺單位 → 給該題一半分數；數值錯仍 0 分'
+                              : `數值對但單位錯或缺單位 → 該題扣 ${settings.unitErrorDeduction} 分；數值錯仍 0 分`}
                         </p>
                       </div>
                     </div>
