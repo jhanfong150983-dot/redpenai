@@ -608,6 +608,14 @@ export default function AssignmentList({
         await db.assignments.update(settingsAssignment.id, updates)
       }
       requestSync()
+      // 2026-07-15 嚴格度變更提示：嚴格度只影響 AI rubric 判分（Phase B）、已批改的卷要重批才套用
+      {
+        const prevStrictness = (settingsAssignment.answerKey as { strictness?: string } | undefined)?.strictness || 'standard'
+        const nextStrictness = data.settings.strictness || 'standard'
+        if (!akTemplate?.answerKey && nextStrictness !== prevStrictness && (settingsAssignment.gradedCount ?? 0) > 0) {
+          window.alert('批改嚴格度已變更：已批改的卷子需重新批改後才會套用新的嚴格度。')
+        }
+      }
       const dbData = await db.assignments.where('classroomId').anyOf(classrooms.map((c) => c.id)).toArray()
       const subs = await db.submissions.toArray()
       const subCountMap = new Map<string, { uploaded: number; graded: number }>()
