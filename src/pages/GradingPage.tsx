@@ -4370,12 +4370,22 @@ export default function GradingPage({
     const gradeConcurrency = Math.max(1, Math.min(gradeConcurrencyCap, Math.floor(30 / pageCount)))
 
     // 共用失敗標記（classify / 系統檢查階段）：寫 grading_failed、計入失敗、即時更新卡片。
+    // 2026-07-15 系統性 classify 失敗剎車（user 拍板：數學卷答案卷頁序與考卷 2/3 頁對調實測——
+    //   27 卷 × 每卷 4+4 個 classify call 全部白燒）：批次尚無任何成功卷、且第一份失敗原因就是
+    //   「涵蓋率過低」（整頁找不到題目＝答案卷結構/頁序 vs 考卷不一致的簽名、非單卷雜訊）→ 中止整批。
+    let systemicClassifyHalt = false
     const markClassifyFail = async (sub: Submission, reason: string, failure?: import('@/lib/gemini').PipelineFailure) => {
       const stu = students.find((s) => s.id === sub.studentId)
       const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
       failReasons.push(`${label}: ${reason}`)
       failCount++
       failedCandidates.push(sub)
+      if (!systemicClassifyHalt && okSubs.length === 0
+          && (failure as { reasonCode?: string } | undefined)?.reasonCode === 'CLASSIFY_LOW_COVERAGE') {
+        systemicClassifyHalt = true
+        stopRequestedRef.current = true
+        setError('⚠ 已暫停整批批改：第一份卷的題目位置就大面積對不上答案卷（整頁找不到題目）。這通常是「答案卷的頁面順序或題目結構」與學生考卷不一致（例如答案卷掃描頁序顛倒、或剛重新抽取過答案卷）——請先檢查答案卷再重新批改，其餘卷已停止、避免白跑。')
+      }
       const { failureGradingResult, updatedAt } = await persistGradingFailureFromException(sub.id, reason, failure)
       setSubmissions((prev) => {
         const next = new Map(prev)
