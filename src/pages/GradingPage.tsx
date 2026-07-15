@@ -5130,11 +5130,27 @@ export default function GradingPage({
         } catch (err) {
           const stu = students.find((s) => s.id === sub.studentId)
           const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
-          const msg = humanizePhaseBFailMsg(safeFailMsg(err))
+          const rawMsg = safeFailMsg(err)
+          const msg = humanizePhaseBFailMsg(rawMsg)
           env.failReasons.push(`${label}: ${msg}`)
           env.failedSubs.push(sub)
           env.counters.failCount++
           console.error(`[gradeOnlyCache] failed for ${sub.id}:`, err)
+          // 2026-07-15 殭屍快取自癒（座16 實測）：server 端 phase_a_state 不存在＝本地 phaseAState
+          //   必屬殭屍（sync 不拉大 JSONB、清除後本地不會失效）→ 清掉本地副本，卡片回到「未擷取」，
+          //   下次「智慧批改」才會真的重跑 Phase A（否則分桶永遠派回 Phase B、同錯死循環）。
+          if (/phase_a_state/.test(rawMsg) && /找不到|not found/i.test(rawMsg)) {
+            try {
+              await db.submissions.update(sub.id, { phaseAState: null as unknown as undefined, updatedAt: Date.now() })
+              setSubmissions((prev) => {
+                const next = new Map(prev)
+                const cur = Array.from(prev.values()).find((s) => s.id === sub.id)
+                if (cur) next.set(cur.studentId, { ...cur, phaseAState: undefined, updatedAt: Date.now() })
+                return next
+              })
+              console.warn(`[gradeOnlyCache] ${sub.id} 本地殭屍 phaseAState 已清除（server 端不存在）`)
+            } catch (clearErr) { console.warn('[gradeOnlyCache] 清殭屍快取失敗', clearErr) }
+          }
           return null
         }
   }
@@ -5386,8 +5402,19 @@ export default function GradingPage({
     return fresh.filter((s) => {
       const ps = s.phaseAState as { arbiterDecisions?: unknown[] } | undefined
       const hasState = !!ps && Array.isArray(ps.arbiterDecisions) && ps.arbiterDecisions.length > 0
-      const failed = !!(s.gradingResult as { pipelineFailure?: unknown } | undefined)?.pipelineFailure
-      return hasState || !failed
+      // 2026-07-15 座16 實測：本輪 Phase A 失敗（classify 500）但 Dexie 留著舊 phaseAState
+      //（sync 不拉大 JSONB、殭屍快取不會失效）→ 舊條件 hasState||!failed 讓它照樣被派 Phase B
+      //   fromCache → server 端 phase_a_state=NULL → 噴「找不到」二次錯誤蓋掉真正的失敗原因。
+      //   改：A 側失敗（classify/read 等）＝本地 state 必屬殭屍 → 一律排除；
+      //   B 側失敗（accessor/explain/phase_b）＝A state 有效 → 可批（與 deriveCardStage 分流一致）。
+      const failure = (s.gradingResult as { pipelineFailure?: { stage?: string } } | undefined)?.pipelineFailure
+      if (failure) {
+        const stage = failure.stage ?? ''
+        const isPhaseBStage = stage === 'accessor' || stage === 'explain' || stage === 'phase_b'
+        return isPhaseBStage
+      }
+      void hasState  // 無失敗紀錄一律可批（同舊行為 !failed；無本地 state 者 fromCache 用 server 快取）
+      return true
     })
   }
 
