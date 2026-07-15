@@ -452,6 +452,7 @@ export default function AssignmentList({
   const [settingsStrictness, setSettingsStrictness] = useState<'strict' | 'standard' | 'lenient'>('standard')
   const [settingsScoringMode, setSettingsScoringMode] = useState<'scored' | 'unscored'>('scored')
   const [settingsFractionRule, setSettingsFractionRule] = useState<'require_simplified' | 'allow_equivalent'>('require_simplified')
+  const [settingsUnitErrorRule, setSettingsUnitErrorRule] = useState<'zero' | 'half'>('zero')
   const [settingsEnPunctuationCheck, setSettingsEnPunctuationCheck] = useState(false)
   const [settingsEnPunctuationDeduction, setSettingsEnPunctuationDeduction] = useState(1)
   const [settingsEnWordOrderCheck, setSettingsEnWordOrderCheck] = useState(false)
@@ -467,6 +468,7 @@ export default function AssignmentList({
     setSettingsStrictness((ak?.strictness as 'strict' | 'standard' | 'lenient') || 'standard')
     setSettingsScoringMode(assignment.scoringMode === 'unscored' ? 'unscored' : 'scored')
     setSettingsFractionRule((ak?.fractionRule as 'require_simplified' | 'allow_equivalent') || 'require_simplified')
+    setSettingsUnitErrorRule((ak?.unitErrorRule as 'zero' | 'half') || 'zero')
     setSettingsEnPunctuationCheck(!!ak?.englishRules?.punctuationCheck?.enabled)
     setSettingsEnPunctuationDeduction(ak?.englishRules?.punctuationCheck?.deductionPerError ?? 1)
     setSettingsEnWordOrderCheck(!!ak?.englishRules?.wordOrderCheck?.enabled)
@@ -567,7 +569,7 @@ export default function AssignmentList({
         }
         const newAK = JSON.parse(JSON.stringify(akTemplate.answerKey))
         newAK.strictness = data.settings.strictness
-        if (akTemplate.domain === '數學') newAK.fractionRule = data.settings.fractionRule
+        if (akTemplate.domain === '數學') { newAK.fractionRule = data.settings.fractionRule; newAK.unitErrorRule = data.settings.unitErrorRule }
         if (akTemplate.domain === '英語') {
           newAK.englishRules = {
             ...(data.settings.enPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: data.settings.enPunctuationDeduction } } : {}),
@@ -596,7 +598,7 @@ export default function AssignmentList({
         if (settingsAssignment.answerKey) {
           const ak = JSON.parse(JSON.stringify(settingsAssignment.answerKey))
           ak.strictness = data.settings.strictness
-          if (domain === '數學') ak.fractionRule = data.settings.fractionRule
+          if (domain === '數學') { ak.fractionRule = data.settings.fractionRule; ak.unitErrorRule = data.settings.unitErrorRule }
           if (domain === '英語') {
             ak.englishRules = {
               ...(data.settings.enPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: data.settings.enPunctuationDeduction } } : {}),
@@ -2060,7 +2062,7 @@ export default function AssignmentList({
               const cloned: AnswerKey = JSON.parse(JSON.stringify(akTemplate.answerKey))
               domain = akTemplate.domain
               cloned.strictness = data.settings.strictness
-              if (domain === '數學') cloned.fractionRule = data.settings.fractionRule
+              if (domain === '數學') { cloned.fractionRule = data.settings.fractionRule; cloned.unitErrorRule = data.settings.unitErrorRule }
               if (domain === '英語') {
                 cloned.englishRules = {
                   ...(data.settings.enPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: data.settings.enPunctuationDeduction } } : {}),
@@ -2163,6 +2165,7 @@ export default function AssignmentList({
             strictness: settingsStrictness,
             scoringMode: settingsScoringMode,
             fractionRule: settingsFractionRule,
+            unitErrorRule: settingsUnitErrorRule,
             enPunctuationCheck: settingsEnPunctuationCheck,
             enPunctuationDeduction: settingsEnPunctuationDeduction,
             enWordOrderCheck: settingsEnWordOrderCheck,

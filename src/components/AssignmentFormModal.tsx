@@ -13,6 +13,7 @@ export interface GradingSettings {
   strictness: 'strict' | 'standard' | 'lenient'
   scoringMode: 'scored' | 'unscored'
   fractionRule: 'require_simplified' | 'allow_equivalent'
+  unitErrorRule: 'zero' | 'half'
   enPunctuationCheck: boolean
   enPunctuationDeduction: number
   enWordOrderCheck: boolean
@@ -25,6 +26,7 @@ type FormSettings = {
   strictness: 'strict' | 'standard' | 'lenient' | null
   scoringMode: 'scored' | 'unscored' | null
   fractionRule: 'require_simplified' | 'allow_equivalent' | null
+  unitErrorRule: 'zero' | 'half'
   enPunctuationCheck: boolean
   enPunctuationDeduction: number
   enWordOrderCheck: boolean
@@ -80,6 +82,7 @@ const DEFAULT_FORM_SETTINGS: FormSettings = {
   strictness: null,
   scoringMode: null,
   fractionRule: null,
+  unitErrorRule: 'zero',
   enPunctuationCheck: false,
   enPunctuationDeduction: 1,
   enWordOrderCheck: false,
@@ -172,6 +175,7 @@ export default function AssignmentFormModal({
     strictness: initialSettings?.strictness ?? null,
     scoringMode: initialSettings?.scoringMode ?? null,
     fractionRule: initialSettings?.fractionRule ?? null,
+    unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
     enPunctuationCheck: initialSettings?.enPunctuationCheck ?? DEFAULT_FORM_SETTINGS.enPunctuationCheck,
     enPunctuationDeduction: initialSettings?.enPunctuationDeduction ?? DEFAULT_FORM_SETTINGS.enPunctuationDeduction,
     enWordOrderCheck: initialSettings?.enWordOrderCheck ?? DEFAULT_FORM_SETTINGS.enWordOrderCheck,
@@ -199,6 +203,7 @@ export default function AssignmentFormModal({
       strictness: initialSettings?.strictness ?? null,
       scoringMode: initialSettings?.scoringMode ?? null,
       fractionRule: initialSettings?.fractionRule ?? null,
+      unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
       enPunctuationCheck: initialSettings?.enPunctuationCheck ?? DEFAULT_FORM_SETTINGS.enPunctuationCheck,
       enPunctuationDeduction: initialSettings?.enPunctuationDeduction ?? DEFAULT_FORM_SETTINGS.enPunctuationDeduction,
       enWordOrderCheck: initialSettings?.enWordOrderCheck ?? DEFAULT_FORM_SETTINGS.enWordOrderCheck,
@@ -701,6 +706,39 @@ export default function AssignmentFormModal({
                           ? '請選擇分數規則'
                           : settings.fractionRule === 'require_simplified' ? '2/4 判錯，必須寫 1/2' : '2/4 = 1/2 都算對'}
                       </p>
+                      {/* 2026-07-15 單位錯誤計分（user 拍板留給老師設定） */}
+                      <div className="mt-4">
+                        <label className="block text-sm font-semibold text-gray-800 mb-2">單位錯誤計分</label>
+                        <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => updateSetting('unitErrorRule', 'zero')}
+                            className={`px-4 py-2 text-sm font-medium transition-colors ${
+                              settings.unitErrorRule === 'zero'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            整題 0 分
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSetting('unitErrorRule', 'half')}
+                            className={`px-4 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
+                              settings.unitErrorRule === 'half'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            給一半分數
+                          </button>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">
+                          {settings.unitErrorRule === 'zero'
+                            ? '數值對但單位錯（如 477.28 cm² vs 477.28 m²）→ 整題 0 分'
+                            : '數值對但單位錯或缺單位 → 給該題一半分數；數值錯仍 0 分'}
+                        </p>
+                      </div>
                     </div>
                   )}
 
