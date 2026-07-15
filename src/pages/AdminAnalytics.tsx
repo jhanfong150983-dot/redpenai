@@ -92,7 +92,11 @@ type TokenUsageData = {
   realCallCount: number
 }
 
-type UnitEconRow = { key: string; count: number; twd: number; avg: number; median: number; avgCalls: number }
+type UnitEconRow = {
+  key: string; count: number; twd: number; avg: number; median: number; avgCalls: number
+  // 單次批改（server 端時間聚類拆輪次、只算 ≥5 call 的完整輪）
+  runMedian: number; runCount: number; runsPerSub: number
+}
 
 // 四模式 modeKey → 人話標籤（answerSheetMode × submissionSource、見 server gradingModeKey）
 const MODE_LABELS: Record<string, string> = {
@@ -656,9 +660,9 @@ function UnitEconTable({ title, rows, labelOf }: {
             <tr className="text-left text-gray-500 border-b border-gray-100">
               <th className="px-2 py-1.5 text-xs font-medium">分組</th>
               <th className="px-2 py-1.5 text-right text-xs font-medium">份數</th>
-              <th className="px-2 py-1.5 text-right text-xs font-medium">單份中位</th>
-              <th className="px-2 py-1.5 text-right text-xs font-medium">單份平均</th>
-              <th className="px-2 py-1.5 text-right text-xs font-medium">call/份</th>
+              <th className="px-2 py-1.5 text-right text-xs font-medium" title="時間聚類拆輪次後、批改一輪的中位成本">單次中位</th>
+              <th className="px-2 py-1.5 text-right text-xs font-medium" title="該卷在區間內所有輪次累積的中位成本">累積中位</th>
+              <th className="px-2 py-1.5 text-right text-xs font-medium">輪/份</th>
             </tr>
           </thead>
           <tbody>
@@ -671,9 +675,9 @@ function UnitEconTable({ title, rows, labelOf }: {
                   {labelOf ? labelOf(r.key) : r.key}
                 </td>
                 <td className="px-2 py-1.5 text-right text-xs text-gray-600">{r.count.toLocaleString()}</td>
-                <td className="px-2 py-1.5 text-right text-xs font-semibold text-gray-900">{fmtTwd(r.median)}</td>
-                <td className="px-2 py-1.5 text-right text-xs text-gray-600">{fmtTwd(r.avg)}</td>
-                <td className="px-2 py-1.5 text-right text-xs text-gray-500">{r.avgCalls}</td>
+                <td className="px-2 py-1.5 text-right text-xs font-semibold text-gray-900">{r.runCount > 0 ? fmtTwd(r.runMedian) : '—'}</td>
+                <td className="px-2 py-1.5 text-right text-xs text-gray-600">{fmtTwd(r.median)}</td>
+                <td className="px-2 py-1.5 text-right text-xs text-gray-500">{r.runsPerSub || '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -974,7 +978,8 @@ function TokenTab() {
                 <UnitEconTable title="按頁數" rows={data.unitEcon.byPages} />
               </div>
               <div className="text-xs text-gray-400 mt-2">
-                以「每份 submission 在區間內的批改類成本」為單位統計；中位數＝典型一份的成本（平均會被重批多次的卷墊高）。
+                <b>單次中位</b>＝批改一輪的典型成本（同卷 call 間隔超過 30 分鐘視為新一輪、不足 5 call 的微小輪不計）——回答「批改一份多少錢」看這個。
+                <b>累積中位</b>＝該卷在區間內所有輪次加總；<b>輪/份</b>＝平均每份被批了幾輪（重批倍率）。
                 模式＝作業型態（一般/答案卷）× 上傳來源（照片/PDF）。份數少的分組參考價值低。
               </div>
             </SectionCard>
