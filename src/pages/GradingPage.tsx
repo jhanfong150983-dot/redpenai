@@ -8860,6 +8860,24 @@ export default function GradingPage({
                               </span>
                             </div>
 
+                            {/* 2026-07-15 老師接管編輯時顯示正確答案（user：改了答案不知道對不對、沒依據給分）*/}
+                            {isTeacherEdited && (() => {
+                              const akQ = ((assignment?.answerKey as { questions?: Array<{ id?: string; answer?: string; referenceAnswer?: string; parts?: Array<{ subId?: string; answer?: string }> }> } | undefined)?.questions ?? [])
+                                .find((q) => String(q?.id ?? '') === String(d.questionId ?? ''))
+                              if (!akQ) return null
+                              const partsText = Array.isArray(akQ.parts) && akQ.parts.length > 0
+                                ? akQ.parts.map((p) => `${p.subId ? `(${p.subId}) ` : ''}${p.answer ?? ''}`).join('、')
+                                : ''
+                              const keyText = partsText || String(akQ.answer ?? akQ.referenceAnswer ?? '').trim()
+                              if (!keyText) return null
+                              return (
+                                <div className="text-xs flex items-start gap-2 mt-1 px-2 py-1.5 rounded bg-emerald-50 border border-emerald-100">
+                                  <span className="mt-0.5 shrink-0 text-emerald-700 font-semibold">正確答案：</span>
+                                  <span className="text-emerald-800 whitespace-pre-line flex-1 break-words">{keyText}</span>
+                                </div>
+                              )
+                            })()}
+
                             {/* table_cell 群組批改：顯示每 cell 對錯細節 */}
                             {/* 2026-05-28: 未批改（含 Phase A stale）→ 隱藏舊 cell 對錯 */}
                             {!isNotGradedYet && Array.isArray(d.cellResults) && d.cellResults.length > 0 && (
