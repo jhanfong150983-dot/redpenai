@@ -4466,8 +4466,24 @@ export default function GradingPage({
         const alignedLen = (id: string) => (classifyCtxBySub.get(id) as ClassifyCtx | undefined)?.classifyResult?.alignedQuestions?.length ?? 0
         const templateId = okSubs.reduce((best, s) => alignedLen(s.id) > alignedLen(best) ? s.id : best, okSubs[0].id)
         const templateCtx = classifyCtxBySub.get(templateId)
+        // 2026-07-15 classify 失敗卷救援（座16 數學卷實測：抽樣時 classify 500 → 進 failedCandidates →
+        //   舊碼把失敗卷排除在套框名單外、統一框算好了卻沒人回頭救它——PDF 同版面、統一框正是失敗卷的救援。
+        //   救「有圖片」的 classify 失敗 PDF 卷：套範本結構+統一框、免 classify 直接進 read；
+        //   撤銷失敗計數（成功後 read/Phase B 自然覆蓋失敗標記；後續 read 再失敗會重新標）。
+        const rescueSubs = failedCandidates.filter((s) => s.source === 'teacher_scan' && s.imageBlob && !classifyCtxBySub.has(s.id))
+        if (rescueSubs.length > 0) {
+          const rescuedIds = new Set(rescueSubs.map((s) => s.id))
+          for (let i = failedCandidates.length - 1; i >= 0; i--) if (rescuedIds.has(failedCandidates[i].id)) failedCandidates.splice(i, 1)
+          for (const sub of rescueSubs) {
+            const stu = students.find((s) => s.id === sub.studentId)
+            const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+            const ri = failReasons.findIndex((r) => r.startsWith(`${label}: `))
+            if (ri >= 0) { failReasons.splice(ri, 1); failCount-- }
+          }
+          console.log(`[PdfSampling] 統一框救援 classify 失敗卷 ${rescueSubs.length} 份（免 classify 進 read）`)
+        }
         const processed = new Set([...okSubs.map((s) => s.id), ...failedCandidates.map((s) => s.id)])
-        const remaining = pdfCandidates.filter((s) => !processed.has(s.id) && s.imageBlob)
+        const remaining = [...pdfCandidates.filter((s) => !processed.has(s.id) && s.imageBlob && !rescueSubs.some((r) => r.id === s.id)), ...rescueSubs]
         for (const sub of remaining) {
           const cloned = JSON.parse(JSON.stringify(templateCtx)) as ClassifyCtx
           const al = cloned?.classifyResult?.alignedQuestions
@@ -4477,7 +4493,7 @@ export default function GradingPage({
           okSubs.push(sub)
           bumpStage('classify', 'started'); bumpStage('classify', 'completed')
         }
-        console.log(`[PdfSampling] classify PDF 樣本 ${sampleEntries.length} 份 → 套統一框到其餘 ${remaining.length} 份(免 classify)`)
+        console.log(`[PdfSampling] classify PDF 樣本 ${sampleEntries.length} 份 → 套統一框到其餘 ${remaining.length} 份(免 classify、含救援 ${rescueSubs.length})`)
         // 跨次持久化:把本次算好的統一框範本存進作業、之後同作業批改直接套(省 classify)。fail-safe。
         try {
           const saveCtx = JSON.parse(JSON.stringify(templateCtx)) as ClassifyCtx
