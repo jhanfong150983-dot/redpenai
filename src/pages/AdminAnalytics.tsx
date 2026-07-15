@@ -81,10 +81,25 @@ type TokenUsageData = {
     correction_twd: number
     submission_count: number
   }[]
+  unitEcon?: {
+    byMode: UnitEconRow[]
+    byDomain: UnitEconRow[]
+    byPages: UnitEconRow[]
+  } | null
   timeSeries: { date: string; stages: Record<string, number> }[]
   teachers: { id: string; name: string | null; email: string | null }[]
   adminTestCount: number
   realCallCount: number
+}
+
+type UnitEconRow = { key: string; count: number; twd: number; avg: number; median: number; avgCalls: number }
+
+// 四模式 modeKey → 人話標籤（answerSheetMode × submissionSource、見 server gradingModeKey）
+const MODE_LABELS: Record<string, string> = {
+  wq_photo: '一般＋照片（書本作業）',
+  wq_pdf: '一般＋PDF（考卷/學習單）',
+  ao_photo: '答案卷＋照片（小考）',
+  ao_pdf: '答案卷＋PDF（大考）',
 }
 
 // ─── Shared components ────────────────────────────────────────────────────────
@@ -627,6 +642,47 @@ function CategoryStackedChart({ daily, height = 180 }: {
   )
 }
 
+function UnitEconTable({ title, rows, labelOf }: {
+  title: string
+  rows: UnitEconRow[]
+  labelOf?: (key: string) => string
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 overflow-hidden">
+      <div className="px-3 py-2 bg-gray-50 text-xs font-semibold text-gray-700 border-b border-gray-200">{title}</div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-gray-500 border-b border-gray-100">
+              <th className="px-2 py-1.5 text-xs font-medium">分組</th>
+              <th className="px-2 py-1.5 text-right text-xs font-medium">份數</th>
+              <th className="px-2 py-1.5 text-right text-xs font-medium">單份中位</th>
+              <th className="px-2 py-1.5 text-right text-xs font-medium">單份平均</th>
+              <th className="px-2 py-1.5 text-right text-xs font-medium">call/份</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr><td colSpan={5} className="px-2 py-4 text-center text-xs text-gray-400">無資料</td></tr>
+            )}
+            {rows.map(r => (
+              <tr key={r.key} className="border-t border-gray-50">
+                <td className="px-2 py-1.5 text-xs text-gray-700 max-w-[140px] truncate" title={labelOf ? labelOf(r.key) : r.key}>
+                  {labelOf ? labelOf(r.key) : r.key}
+                </td>
+                <td className="px-2 py-1.5 text-right text-xs text-gray-600">{r.count.toLocaleString()}</td>
+                <td className="px-2 py-1.5 text-right text-xs font-semibold text-gray-900">{fmtTwd(r.median)}</td>
+                <td className="px-2 py-1.5 text-right text-xs text-gray-600">{fmtTwd(r.avg)}</td>
+                <td className="px-2 py-1.5 text-right text-xs text-gray-500">{r.avgCalls}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 function TokenTab() {
   const [data, setData] = useState<TokenUsageData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -907,6 +963,22 @@ function TokenTab() {
               單份批改＝批改成本 ÷ 該區間有用量的提交份數；同一份卷重批會墊高單份數字。
             </div>
           </SectionCard>
+
+          {/* 2026-07-15: 單位成本比較（模式/領域/頁數）——給營運/投資評估用 */}
+          {data.unitEcon && (
+            <SectionCard title="單位成本比較（單份批改）" icon={<Coins className="w-4 h-4 text-teal-500" />}>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <UnitEconTable title="按模式" rows={data.unitEcon.byMode}
+                  labelOf={k => MODE_LABELS[k] || k} />
+                <UnitEconTable title="按領域" rows={data.unitEcon.byDomain} />
+                <UnitEconTable title="按頁數" rows={data.unitEcon.byPages} />
+              </div>
+              <div className="text-xs text-gray-400 mt-2">
+                以「每份 submission 在區間內的批改類成本」為單位統計；中位數＝典型一份的成本（平均會被重批多次的卷墊高）。
+                模式＝作業型態（一般/答案卷）× 上傳來源（照片/PDF）。份數少的分組參考價值低。
+              </div>
+            </SectionCard>
+          )}
         </>
       )}
     </div>
