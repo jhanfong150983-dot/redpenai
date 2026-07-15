@@ -454,6 +454,8 @@ export default function AssignmentList({
   const [settingsFractionRule, setSettingsFractionRule] = useState<'require_simplified' | 'allow_equivalent'>('require_simplified')
   const [settingsUnitErrorRule, setSettingsUnitErrorRule] = useState<'zero' | 'half' | 'deduct'>('zero')
   const [settingsUnitErrorDeduction, setSettingsUnitErrorDeduction] = useState<number>(1)
+  const [settingsProcessCreditRule, setSettingsProcessCreditRule] = useState<'none' | 'half' | 'deduct'>('none')
+  const [settingsProcessCreditDeduction, setSettingsProcessCreditDeduction] = useState<number>(1)
   const [settingsEnPunctuationCheck, setSettingsEnPunctuationCheck] = useState(false)
   const [settingsEnPunctuationDeduction, setSettingsEnPunctuationDeduction] = useState(1)
   const [settingsEnWordOrderCheck, setSettingsEnWordOrderCheck] = useState(false)
@@ -471,6 +473,8 @@ export default function AssignmentList({
     setSettingsFractionRule((ak?.fractionRule as 'require_simplified' | 'allow_equivalent') || 'require_simplified')
     setSettingsUnitErrorRule((ak?.unitErrorRule as 'zero' | 'half' | 'deduct') || 'zero')
     setSettingsUnitErrorDeduction(Number(ak?.unitErrorDeduction) || 1)
+    setSettingsProcessCreditRule((ak?.processCreditRule as 'none' | 'half' | 'deduct') || 'none')
+    setSettingsProcessCreditDeduction(Number(ak?.processCreditDeduction) || 1)
     setSettingsEnPunctuationCheck(!!ak?.englishRules?.punctuationCheck?.enabled)
     setSettingsEnPunctuationDeduction(ak?.englishRules?.punctuationCheck?.deductionPerError ?? 1)
     setSettingsEnWordOrderCheck(!!ak?.englishRules?.wordOrderCheck?.enabled)
@@ -571,7 +575,7 @@ export default function AssignmentList({
         }
         const newAK = JSON.parse(JSON.stringify(akTemplate.answerKey))
         newAK.strictness = data.settings.strictness
-        if (akTemplate.domain === '數學') { newAK.fractionRule = data.settings.fractionRule; newAK.unitErrorRule = data.settings.unitErrorRule; newAK.unitErrorDeduction = data.settings.unitErrorDeduction }
+        if (akTemplate.domain === '數學') { newAK.fractionRule = data.settings.fractionRule; newAK.unitErrorRule = data.settings.unitErrorRule; newAK.unitErrorDeduction = data.settings.unitErrorDeduction; newAK.processCreditRule = data.settings.processCreditRule; newAK.processCreditDeduction = data.settings.processCreditDeduction }
         if (akTemplate.domain === '英語') {
           newAK.englishRules = {
             ...(data.settings.enPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: data.settings.enPunctuationDeduction } } : {}),
@@ -600,7 +604,7 @@ export default function AssignmentList({
         if (settingsAssignment.answerKey) {
           const ak = JSON.parse(JSON.stringify(settingsAssignment.answerKey))
           ak.strictness = data.settings.strictness
-          if (domain === '數學') { ak.fractionRule = data.settings.fractionRule; ak.unitErrorRule = data.settings.unitErrorRule; ak.unitErrorDeduction = data.settings.unitErrorDeduction }
+          if (domain === '數學') { ak.fractionRule = data.settings.fractionRule; ak.unitErrorRule = data.settings.unitErrorRule; ak.unitErrorDeduction = data.settings.unitErrorDeduction; ak.processCreditRule = data.settings.processCreditRule; ak.processCreditDeduction = data.settings.processCreditDeduction }
           if (domain === '英語') {
             ak.englishRules = {
               ...(data.settings.enPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: data.settings.enPunctuationDeduction } } : {}),
@@ -2064,7 +2068,7 @@ export default function AssignmentList({
               const cloned: AnswerKey = JSON.parse(JSON.stringify(akTemplate.answerKey))
               domain = akTemplate.domain
               cloned.strictness = data.settings.strictness
-              if (domain === '數學') { cloned.fractionRule = data.settings.fractionRule; cloned.unitErrorRule = data.settings.unitErrorRule; cloned.unitErrorDeduction = data.settings.unitErrorDeduction }
+              if (domain === '數學') { cloned.fractionRule = data.settings.fractionRule; cloned.unitErrorRule = data.settings.unitErrorRule; cloned.unitErrorDeduction = data.settings.unitErrorDeduction; cloned.processCreditRule = data.settings.processCreditRule; cloned.processCreditDeduction = data.settings.processCreditDeduction }
               if (domain === '英語') {
                 cloned.englishRules = {
                   ...(data.settings.enPunctuationCheck ? { punctuationCheck: { enabled: true, deductionPerError: data.settings.enPunctuationDeduction } } : {}),
@@ -2169,6 +2173,8 @@ export default function AssignmentList({
             fractionRule: settingsFractionRule,
             unitErrorRule: settingsUnitErrorRule,
             unitErrorDeduction: settingsUnitErrorDeduction,
+            processCreditRule: settingsProcessCreditRule,
+            processCreditDeduction: settingsProcessCreditDeduction,
             enPunctuationCheck: settingsEnPunctuationCheck,
             enPunctuationDeduction: settingsEnPunctuationDeduction,
             enWordOrderCheck: settingsEnWordOrderCheck,

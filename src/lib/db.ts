@@ -326,6 +326,9 @@ export interface AnswerKey {
   // 2026-07-15 單位錯誤計分（作業層級、user 拍板）：zero=全有全無(預設)、half=給一半、deduct=扣固定分
   unitErrorRule?: 'zero' | 'half' | 'deduct'
   unitErrorDeduction?: number  // deduct 模式的扣分數（下限 0 分）
+  // 2026-07-16 應用題過程分（user 拍板）：答案錯但過程正確到最後一步 → none=不給分(預設)/half/deduct
+  processCreditRule?: 'none' | 'half' | 'deduct'
+  processCreditDeduction?: number
   // 配分設定（老師選擇的配分方式，用於還原/重新套用）
   scoreMode?: 'ai_auto' | 'fixed_per_question' | 'fixed_total' | 'fixed_both'
   fixedPerScore?: number  // 每題固定分（scoreMode=fixed_per_question 或 fixed_both 時）

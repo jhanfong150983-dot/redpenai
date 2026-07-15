@@ -15,6 +15,8 @@ export interface GradingSettings {
   fractionRule: 'require_simplified' | 'allow_equivalent'
   unitErrorRule: 'zero' | 'half' | 'deduct'
   unitErrorDeduction: number
+  processCreditRule: 'none' | 'half' | 'deduct'
+  processCreditDeduction: number
   enPunctuationCheck: boolean
   enPunctuationDeduction: number
   enWordOrderCheck: boolean
@@ -29,6 +31,8 @@ type FormSettings = {
   fractionRule: 'require_simplified' | 'allow_equivalent' | null
   unitErrorRule: 'zero' | 'half' | 'deduct'
   unitErrorDeduction: number
+  processCreditRule: 'none' | 'half' | 'deduct'
+  processCreditDeduction: number
   enPunctuationCheck: boolean
   enPunctuationDeduction: number
   enWordOrderCheck: boolean
@@ -86,6 +90,8 @@ const DEFAULT_FORM_SETTINGS: FormSettings = {
   fractionRule: null,
   unitErrorRule: 'zero',
   unitErrorDeduction: 1,
+  processCreditRule: 'none',
+  processCreditDeduction: 1,
   enPunctuationCheck: false,
   enPunctuationDeduction: 1,
   enWordOrderCheck: false,
@@ -180,6 +186,8 @@ export default function AssignmentFormModal({
     fractionRule: initialSettings?.fractionRule ?? null,
     unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
     unitErrorDeduction: initialSettings?.unitErrorDeduction ?? 1,
+    processCreditRule: initialSettings?.processCreditRule ?? 'none',
+    processCreditDeduction: initialSettings?.processCreditDeduction ?? 1,
     enPunctuationCheck: initialSettings?.enPunctuationCheck ?? DEFAULT_FORM_SETTINGS.enPunctuationCheck,
     enPunctuationDeduction: initialSettings?.enPunctuationDeduction ?? DEFAULT_FORM_SETTINGS.enPunctuationDeduction,
     enWordOrderCheck: initialSettings?.enWordOrderCheck ?? DEFAULT_FORM_SETTINGS.enWordOrderCheck,
@@ -209,6 +217,8 @@ export default function AssignmentFormModal({
       fractionRule: initialSettings?.fractionRule ?? null,
       unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
       unitErrorDeduction: initialSettings?.unitErrorDeduction ?? 1,
+      processCreditRule: initialSettings?.processCreditRule ?? 'none',
+      processCreditDeduction: initialSettings?.processCreditDeduction ?? 1,
       enPunctuationCheck: initialSettings?.enPunctuationCheck ?? DEFAULT_FORM_SETTINGS.enPunctuationCheck,
       enPunctuationDeduction: initialSettings?.enPunctuationDeduction ?? DEFAULT_FORM_SETTINGS.enPunctuationDeduction,
       enWordOrderCheck: initialSettings?.enWordOrderCheck ?? DEFAULT_FORM_SETTINGS.enWordOrderCheck,
@@ -770,6 +780,65 @@ export default function AssignmentFormModal({
                             : settings.unitErrorRule === 'half'
                               ? '數值對但單位錯或缺單位 → 給該題一半分數；數值錯仍 0 分'
                               : `數值對但單位錯或缺單位 → 該題扣 ${settings.unitErrorDeduction} 分；數值錯仍 0 分`}
+                        </p>
+                      </div>
+                      {/* 2026-07-16 應用題過程分（user 拍板：答案錯但過程對→AI 看手寫過程窄判定、依此給部分分） */}
+                      <div className="mt-4">
+                        <label className="block text-sm font-semibold text-gray-800 mb-2">應用題過程分</label>
+                        <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => updateSetting('processCreditRule', 'none')}
+                            className={`px-4 py-2 text-sm font-medium transition-colors ${
+                              settings.processCreditRule === 'none'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            不給分
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSetting('processCreditRule', 'half')}
+                            className={`px-4 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
+                              settings.processCreditRule === 'half'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            給一半分數
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateSetting('processCreditRule', 'deduct')}
+                            className={`px-4 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
+                              settings.processCreditRule === 'deduct'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            扣固定分數
+                          </button>
+                        </div>
+                        {settings.processCreditRule === 'deduct' && (
+                          <div className="mt-2 flex items-center gap-2 text-sm text-gray-700">
+                            <span>過程對但答案錯，每題扣</span>
+                            <input
+                              type="number"
+                              min={0.5}
+                              max={20}
+                              step={0.5}
+                              value={settings.processCreditDeduction}
+                              onChange={(e) => updateSetting('processCreditDeduction', Math.max(0.5, Math.min(20, Number(e.target.value) || 1)))}
+                              className="w-20 px-2 py-1 rounded border border-gray-300 text-center focus:outline-none focus:ring-2 focus:ring-green-300"
+                            />
+                            <span>分（扣到該題 0 分為止）</span>
+                          </div>
+                        )}
+                        <p className="mt-2 text-xs text-slate-500">
+                          {settings.processCreditRule === 'none'
+                            ? '應用題最終答案錯 → 整題 0 分（不看過程）'
+                            : `最終答案錯時 AI 會檢視手寫計算過程：列式與過程正確、僅最後算錯/抄錯 → ${settings.processCreditRule === 'half' ? '給該題一半分數' : `該題扣 ${settings.processCreditDeduction} 分`}；過程本身有錯仍 0 分`}
                         </p>
                       </div>
                     </div>
