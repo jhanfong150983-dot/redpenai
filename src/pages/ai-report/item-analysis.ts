@@ -69,6 +69,10 @@ export type ItemAnalysisResult = {
   alpha: number | null
   dBandCounts: Record<string, number>
   flagged: Array<{ questionId: string; why: string }>
+  /** 每卷總分（作業總覽用） */
+  totals: number[]
+  /** 整卷滿分（各題配分合計） */
+  examMaxScore: number
 }
 
 const CHOICE_LIKE = new Set(['single_choice', 'true_false', 'single_check', 'circle_select_one'])
@@ -294,6 +298,8 @@ export function computeItemAnalysis(
     meanD,
     alpha,
     dBandCounts,
-    flagged
+    flagged,
+    totals,
+    examMaxScore: qList.reduce((a, q) => a + q.maxScore, 0)
   }
 }

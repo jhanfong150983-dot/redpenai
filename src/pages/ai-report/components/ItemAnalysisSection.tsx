@@ -10,7 +10,7 @@ type Props = {
   submissions: ItemAnalysisSubmissionLike[]
 }
 
-const BAND_STYLE: Record<string, { bg: string; fg: string }> = {
+export const BAND_STYLE: Record<string, { bg: string; fg: string }> = {
   優良: { bg: '#dcfce7', fg: '#15803d' },
   良好: { bg: '#e0f2fe', fg: '#0369a1' },
   尚可: { bg: '#fef9c3', fg: '#a16207' },
@@ -18,13 +18,13 @@ const BAND_STYLE: Record<string, { bg: string; fg: string }> = {
   '—': { bg: '#f1f5f9', fg: '#64748b' },
 }
 
-const P_STYLE: Record<string, { bg: string; fg: string }> = {
+export const P_STYLE: Record<string, { bg: string; fg: string }> = {
   適中: { bg: '#f1f5f9', fg: '#475569' },
   偏易: { bg: '#f1f5f9', fg: '#64748b' },
   偏難: { bg: '#ffedd5', fg: '#c2410c' },
 }
 
-function Badge({ text, palette }: { text: string; palette: { bg: string; fg: string } }) {
+export function Badge({ text, palette }: { text: string; palette: { bg: string; fg: string } }) {
   return (
     <span style={{
       display: 'inline-block', padding: '1px 6px', borderRadius: 6,
@@ -34,7 +34,7 @@ function Badge({ text, palette }: { text: string; palette: { bg: string; fg: str
 }
 
 // 答案分布橫條：單一量值比例條——正解綠、其他灰、未答/無法辨識淺灰；文字標籤永遠並列
-function DistributionBar({ item }: { item: ItemStat }) {
+export function DistributionBar({ item }: { item: ItemStat }) {
   const total = item.n || 1
   const segs = item.distribution.slice(0, 6)
   const rest = item.n - segs.reduce((a, o) => a + o.count, 0)

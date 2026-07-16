@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import type { Submission } from '@/lib/db'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
 import ItemAnalysisSection from './ai-report/components/ItemAnalysisSection'
+import AssignmentOverviewSection from './ai-report/components/AssignmentOverviewSection'
 import type { ItemAnalysisQuestion } from './ai-report/item-analysis'
 import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
@@ -264,7 +265,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   >({})
   // 手動觸發領域診斷重生（後補題本後可用，繞過 cache）
   const [domainDiagnosisRegenCounter, setDomainDiagnosisRegenCounter] = useState(0)
-  const [activeTab, setActiveTab] = useState<'class' | 'items' | 'domain' | 'student'>('class')
+  const [activeTab, setActiveTab] = useState<'overview' | 'class' | 'items' | 'domain' | 'student'>('overview')
   // 2026-06-01: 生成/重生報告會花墨水 → 先跳同意框，同意才跑（存待執行動作）
   const [inkAction, setInkAction] = useState<(() => void) | null>(null)
   const requestInk = useCallback((fn: () => void) => setInkAction(() => fn), [])
@@ -899,8 +900,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 mb-6">
           <div className="flex">
             {([
-              { id: 'class', label: '作業診斷性快報' },
+              { id: 'overview', label: '作業總覽' },
               { id: 'items', label: '試題分析' },
+              { id: 'class', label: '作業診斷性快報' },
               { id: 'domain', label: '領域診斷性快報' },
               { id: 'student', label: '班級診斷性快報' },
             ] as const).map((tab) => (
@@ -969,6 +971,24 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   new Date(latestGradedAt) > new Date(assignmentSummary.updated_at)
                 )}
               />
+            </section>
+          )}
+
+          {/* 2026-07-16 作業總覽（user 拍板資料層重構）：純程式即時、零墨水 */}
+          {activeTab === 'overview' && (
+            <section>
+              {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 3 ? (
+                <AssignmentOverviewSection
+                  questions={itemAnalysisQuestions}
+                  submissions={itemAnalysisSubmissions}
+                />
+              ) : (
+                <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
+                  {itemAnalysisSubmissions.length < 3
+                    ? '此作業已批改的卷數不足 3 份，暫無法統計。'
+                    : '請先選擇一份有答案卷的作業。'}
+                </section>
+              )}
             </section>
           )}
 
