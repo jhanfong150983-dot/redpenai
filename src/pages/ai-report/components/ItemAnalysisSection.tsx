@@ -4,10 +4,15 @@
 import { useMemo, useState } from 'react'
 import { computeItemAnalysis } from '../item-analysis'
 import type { ItemAnalysisQuestion, ItemAnalysisSubmissionLike, ItemStat } from '../item-analysis'
+import QuestionErrorFeaturesModal from './QuestionErrorFeaturesModal'
 
 type Props = {
   questions: ItemAnalysisQuestion[]
   submissions: ItemAnalysisSubmissionLike[]
+  /** 有帶齊這三個才會出現「AI 歸納錯誤樣態」按鈕（開放文字題） */
+  assignmentId?: string
+  domain?: string
+  requestInk?: (fn: () => void) => void
 }
 
 export const BAND_STYLE: Record<string, { bg: string; fg: string }> = {
@@ -36,7 +41,7 @@ export function Badge({ text, palette }: { text: string; palette: { bg: string; 
 // 答案分布橫條：單一量值比例條——正解綠、其他灰、未答/無法辨識淺灰；文字標籤永遠並列。
 // 2026-07-16 修（user 抓到湊不滿人數）：開放文字題（樣態幾乎人人不同）逐字樣態沒有統計意義、
 //   前 6 個以外被截掉還漏掉未答段 → 改「答對/答錯/未答」聚合視角；樣態條保證含未答段＋「其他」尾巴。
-export function DistributionBar({ item }: { item: ItemStat }) {
+export function DistributionBar({ item, onAiFeatures }: { item: ItemStat; onAiFeatures?: () => void }) {
   const total = item.n || 1
   const nonBlankVariants = item.distribution.filter((o) => !o.isBlank)
   const blankTotal = item.blankCount + item.unrecognizableCount
@@ -67,30 +72,16 @@ export function DistributionBar({ item }: { item: ItemStat }) {
             </span>
           ))}
         </div>
-        {/* 2026-07-16 user 拍板：開放文字題可點開看全部樣態——錯的排前面（檢討課素材、也是迷思概念聚類的免費版） */}
-        <details style={{ marginTop: 2 }}>
-          <summary style={{ fontSize: 11, color: '#0369a1', cursor: 'pointer', userSelect: 'none' }}>
-            展開作答樣態（{nonBlankVariants.length} 種）
-          </summary>
-          <div style={{ maxHeight: 220, overflowY: 'auto', marginTop: 4, padding: '4px 8px', background: '#f8fafc', borderRadius: 6 }}>
-            {[...nonBlankVariants]
-              .sort((a, b) => {
-                const aOk = a.correctVotes / a.count >= 0.5 ? 1 : 0
-                const bOk = b.correctVotes / b.count >= 0.5 ? 1 : 0
-                return aOk - bOk || b.count - a.count // 錯的在前、各按人數
-              })
-              .map((o) => {
-                const ok = o.correctVotes / o.count >= 0.5
-                return (
-                  <div key={o.label} style={{ fontSize: 11, lineHeight: 1.7, display: 'flex', gap: 6, alignItems: 'baseline' }}>
-                    <span style={{ color: ok ? '#15803d' : '#b91c1c', fontWeight: 700, flexShrink: 0 }}>{ok ? '✓' : '✗'}</span>
-                    <span style={{ color: '#334155', wordBreak: 'break-all' }}>{o.label}</span>
-                    {o.count > 1 && <span style={{ color: '#94a3b8', flexShrink: 0 }}>×{o.count}</span>}
-                  </div>
-                )
-              })}
-          </div>
-        </details>
+        {/* 2026-07-16 user 二次拍板：取消系統性樣態列舉（訊息量太大）→ 改 AI 歸納 modal（on-demand、結果持久化） */}
+        {onAiFeatures && (item.n - item.correctCount - blankTotal) >= 3 && (
+          <button
+            type="button"
+            onClick={onAiFeatures}
+            style={{ marginTop: 2, fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          >
+            🔎 AI 歸納錯誤樣態
+          </button>
+        )}
       </div>
     )
   }
@@ -131,10 +122,12 @@ export function DistributionBar({ item }: { item: ItemStat }) {
   )
 }
 
-export default function ItemAnalysisSection({ questions, submissions }: Props) {
+export default function ItemAnalysisSection({ questions, submissions, assignmentId, domain, requestInk }: Props) {
   const result = useMemo(() => computeItemAnalysis(questions, submissions), [questions, submissions])
   const [showAll, setShowAll] = useState(false)
+  const [aiItem, setAiItem] = useState<ItemStat | null>(null)
   if (!result) return null
+  const aiEnabled = Boolean(assignmentId && requestInk)
 
   const tiles: Array<{ label: string; value: string; hint?: string }> = [
     { label: '樣本數', value: `${result.n} 卷`, hint: `高低分組各 ${result.groupSize} 人（27%）` },
@@ -210,12 +203,24 @@ export default function ItemAnalysisSection({ questions, submissions }: Props) {
                 <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
                   {it.correctCount}／{it.wrongCount}／{it.blankCount + it.unrecognizableCount}
                 </td>
-                <td style={{ padding: '6px 8px' }}><DistributionBar item={it} /></td>
+                <td style={{ padding: '6px 8px' }}>
+                  <DistributionBar item={it} onAiFeatures={aiEnabled ? () => setAiItem(it) : undefined} />
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {aiEnabled && (
+        <QuestionErrorFeaturesModal
+          open={!!aiItem}
+          onClose={() => setAiItem(null)}
+          assignmentId={assignmentId!}
+          domain={domain ?? ''}
+          item={aiItem}
+          requestInk={requestInk!}
+        />
+      )}
       {result.items.length > 60 && !showAll && (
         <button type="button" onClick={() => setShowAll(true)} style={{ marginTop: 8, fontSize: 12, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer' }}>
           顯示全部 {result.items.length} 題

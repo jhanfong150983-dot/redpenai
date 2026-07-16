@@ -981,6 +981,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 <AssignmentOverviewSection
                   questions={itemAnalysisQuestions}
                   submissions={itemAnalysisSubmissions}
+                  assignmentId={selectedAssignmentId}
+                  domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
+                  requestInk={requestInk}
                 />
               ) : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
@@ -999,6 +1002,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 <ItemAnalysisSection
                   questions={itemAnalysisQuestions}
                   submissions={itemAnalysisSubmissions}
+                  assignmentId={selectedAssignmentId}
+                  domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
+                  requestInk={requestInk}
                 />
               ) : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>

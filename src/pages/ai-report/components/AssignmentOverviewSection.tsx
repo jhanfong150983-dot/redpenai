@@ -3,12 +3,16 @@
 //       檢討順序清單（錯最多的題、附答案樣態——老師開檢討課的現成講次）。
 import { useMemo, useState } from 'react'
 import { computeItemAnalysis } from '../item-analysis'
-import type { ItemAnalysisQuestion, ItemAnalysisSubmissionLike } from '../item-analysis'
+import type { ItemAnalysisQuestion, ItemAnalysisSubmissionLike, ItemStat } from '../item-analysis'
 import { Badge, DistributionBar, BAND_STYLE, P_STYLE } from './ItemAnalysisSection'
+import QuestionErrorFeaturesModal from './QuestionErrorFeaturesModal'
 
 type Props = {
   questions: ItemAnalysisQuestion[]
   submissions: ItemAnalysisSubmissionLike[]
+  assignmentId?: string
+  domain?: string
+  requestInk?: (fn: () => void) => void
 }
 
 // 台灣常用五分數帶（以整卷滿分為 100% 折算、滿分非 100 也適用）
@@ -20,10 +24,12 @@ const BANDS = [
   { label: '60 以下', min: -Infinity, max: 0.6 },
 ]
 
-export default function AssignmentOverviewSection({ questions, submissions }: Props) {
+export default function AssignmentOverviewSection({ questions, submissions, assignmentId, domain, requestInk }: Props) {
   const result = useMemo(() => computeItemAnalysis(questions, submissions), [questions, submissions])
   const [showAllReview, setShowAllReview] = useState(false)
+  const [aiItem, setAiItem] = useState<ItemStat | null>(null)
   if (!result) return null
+  const aiEnabled = Boolean(assignmentId && requestInk)
 
   const { totals, examMaxScore, n } = result
   const sorted = [...totals].sort((a, b) => a - b)
@@ -129,12 +135,24 @@ export default function AssignmentOverviewSection({ questions, submissions }: Pr
                     <Badge text={it.pBand} palette={P_STYLE[it.pBand]} />{' '}
                     <Badge text={it.dBand} palette={BAND_STYLE[it.dBand]} />
                   </td>
-                  <td style={{ padding: '6px 8px' }}><DistributionBar item={it} /></td>
+                  <td style={{ padding: '6px 8px' }}>
+                    <DistributionBar item={it} onAiFeatures={aiEnabled ? () => setAiItem(it) : undefined} />
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {aiEnabled && (
+          <QuestionErrorFeaturesModal
+            open={!!aiItem}
+            onClose={() => setAiItem(null)}
+            assignmentId={assignmentId!}
+            domain={domain ?? ''}
+            item={aiItem}
+            requestInk={requestInk!}
+          />
+        )}
         {!showAllReview && reviewItems.length > defaultList.length && (
           <button type="button" onClick={() => setShowAllReview(true)} style={{ marginTop: 8, fontSize: 12, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer' }}>
             顯示全部 {reviewItems.length} 題

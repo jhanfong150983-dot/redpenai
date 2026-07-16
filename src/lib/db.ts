@@ -702,6 +702,20 @@ export interface DomainDiagnosisCache {
   updatedAt: number
 }
 
+// 2026-07-16 開放題錯誤特徵 AI 歸納快取（跑過一次、之後隨開隨看；資料變更以 signature 判斷可重新分析）
+export interface QuestionErrorFeaturesCache {
+  cacheKey: string        // `${assignmentId}::${questionId}`
+  assignmentId: string
+  questionId: string
+  signature: string       // `${n}:${correct}:${wrong}`
+  payload: {
+    features: Array<{ feature: string; count: number; examples: string[]; note: string }>
+    nonsense: string[]
+    teachingFocus: string
+  }
+  updatedAt: number
+}
+
 export interface GradebookCustomColumn {
   id: string
   classroomId: string
@@ -733,6 +747,7 @@ class RedPenDatabase extends Dexie {
   folders!: EntityTable<Folder, 'id'>
   teacherSummaryCache!: EntityTable<TeacherSummaryCache, 'cacheKey'>
   domainDiagnosisCache!: EntityTable<DomainDiagnosisCache, 'cacheKey'>
+  questionErrorFeaturesCache!: EntityTable<QuestionErrorFeaturesCache, 'cacheKey'>
   gradebookCustomColumns!: EntityTable<GradebookCustomColumn, 'id'>
   gradebookCustomScores!: EntityTable<GradebookCustomScore, 'id'>
   answerKeyTemplates!: EntityTable<AnswerKeyTemplate, 'id'>
@@ -1149,6 +1164,11 @@ class RedPenDatabase extends Dexie {
           a.boundAnswerKeyVersion = 1
         }
       })
+    })
+
+    // version 13: 開放題錯誤特徵 AI 歸納快取（2026-07-16）
+    this.version(13).stores({
+      questionErrorFeaturesCache: '&cacheKey, assignmentId, updatedAt'
     })
 
     const setUpdatedAt = (value: unknown) => {
