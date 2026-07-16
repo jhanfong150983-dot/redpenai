@@ -82,7 +82,17 @@ export default function QuestionErrorFeaturesModal({ open, onClose, assignmentId
           </div>
         )}
 
-        {loading && <div style={{ textAlign: 'center', padding: 24, color: '#64748b', fontSize: 13 }}>AI 歸納中、約 10~20 秒…</div>}
+        {loading && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '28px 0' }}>
+            <div
+              className="animate-spin"
+              style={{ width: 34, height: 34, borderRadius: '50%', border: '3px solid #dbeafe', borderTopColor: '#2563eb' }}
+            />
+            <div className="animate-pulse" style={{ color: '#64748b', fontSize: 13 }}>
+              AI 正在閱讀全班的錯誤作答、歸納特徵…（約 10~20 秒）
+            </div>
+          </div>
+        )}
         {error && <div style={{ background: '#fee2e2', color: '#b91c1c', borderRadius: 8, padding: '8px 12px', fontSize: 12, marginBottom: 8 }}>{error}</div>}
 
         {payload && !loading && (
