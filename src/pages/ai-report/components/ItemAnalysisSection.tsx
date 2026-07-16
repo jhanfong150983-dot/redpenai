@@ -1,0 +1,175 @@
+// 試題分析區（2026-07-16 第一波、user 拍板）：純程式即時渲染、零 AI 零點數。
+// 摘要磚（樣本/平均難易/平均鑑別/信度α）＋逐題表（P/D/高低分組/對錯空/答案分布橫條/品質標記）。
+// 視覺規範：正解＝語意綠＋文字標籤、其他樣態中性灰、未答淺灰；徽章一律帶文字、不靠顏色單獨傳達。
+import { useMemo, useState } from 'react'
+import { computeItemAnalysis } from '../item-analysis'
+import type { ItemAnalysisQuestion, ItemAnalysisSubmissionLike, ItemStat } from '../item-analysis'
+
+type Props = {
+  questions: ItemAnalysisQuestion[]
+  submissions: ItemAnalysisSubmissionLike[]
+}
+
+const BAND_STYLE: Record<string, { bg: string; fg: string }> = {
+  優良: { bg: '#dcfce7', fg: '#15803d' },
+  良好: { bg: '#e0f2fe', fg: '#0369a1' },
+  尚可: { bg: '#fef9c3', fg: '#a16207' },
+  需檢視: { bg: '#fee2e2', fg: '#b91c1c' },
+  '—': { bg: '#f1f5f9', fg: '#64748b' },
+}
+
+const P_STYLE: Record<string, { bg: string; fg: string }> = {
+  適中: { bg: '#f1f5f9', fg: '#475569' },
+  偏易: { bg: '#f1f5f9', fg: '#64748b' },
+  偏難: { bg: '#ffedd5', fg: '#c2410c' },
+}
+
+function Badge({ text, palette }: { text: string; palette: { bg: string; fg: string } }) {
+  return (
+    <span style={{
+      display: 'inline-block', padding: '1px 6px', borderRadius: 6,
+      background: palette.bg, color: palette.fg, fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap'
+    }}>{text}</span>
+  )
+}
+
+// 答案分布橫條：單一量值比例條——正解綠、其他灰、未答/無法辨識淺灰；文字標籤永遠並列
+function DistributionBar({ item }: { item: ItemStat }) {
+  const total = item.n || 1
+  const segs = item.distribution.slice(0, 6)
+  const rest = item.n - segs.reduce((a, o) => a + o.count, 0)
+  return (
+    <div style={{ minWidth: 150 }}>
+      <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: '#f8fafc' }}>
+        {segs.map((o) => (
+          <div
+            key={o.label}
+            title={`${o.label}：${o.count} 人（高分組 ${o.highCount}、低分組 ${o.lowCount}）${o.isKey ? '＝正解' : ''}`}
+            style={{
+              width: `${(o.count / total) * 100}%`,
+              background: o.isKey ? '#16a34a' : o.isBlank ? '#e2e8f0' : '#94a3b8',
+              borderRight: '2px solid #fff',
+            }}
+          />
+        ))}
+        {rest > 0 && <div style={{ width: `${(rest / total) * 100}%`, background: '#cbd5e1' }} />}
+      </div>
+      <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.5, wordBreak: 'break-all' }}>
+        {segs.map((o) => (
+          <span key={o.label} style={{ marginRight: 8, whiteSpace: 'nowrap' }}>
+            <span style={{ color: o.isKey ? '#15803d' : '#64748b', fontWeight: o.isKey ? 700 : 400 }}>
+              {o.isKey ? '✓' : ''}{o.label.length > 12 ? `${o.label.slice(0, 12)}…` : o.label}
+            </span>
+            ×{o.count}
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function ItemAnalysisSection({ questions, submissions }: Props) {
+  const result = useMemo(() => computeItemAnalysis(questions, submissions), [questions, submissions])
+  const [showAll, setShowAll] = useState(false)
+  if (!result) return null
+
+  const tiles: Array<{ label: string; value: string; hint?: string }> = [
+    { label: '樣本數', value: `${result.n} 卷`, hint: `高低分組各 ${result.groupSize} 人（27%）` },
+    { label: '平均難易度 P', value: result.meanP.toFixed(2), hint: '0.4~0.8 為適中' },
+    { label: '平均鑑別度 D', value: result.meanD.toFixed(2), hint: '≥0.4 優良、<0.2 需檢視' },
+    { label: '信度 α', value: result.alpha === null ? '—' : result.alpha.toFixed(2), hint: result.alpha !== null && result.alpha < 0.7 ? '偏低（<0.7）' : 'Cronbach’s α' },
+  ]
+  const bandOrder = ['優良', '良好', '尚可', '需檢視', '—']
+  const rows = showAll ? result.items : result.items.slice(0, 60)
+
+  return (
+    <section className="card" style={{ marginTop: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+        <h3 style={{ margin: 0, fontSize: 16 }}>試題分析</h3>
+        <span style={{ fontSize: 12, color: '#64748b' }}>純統計、即時計算、不耗墨水</span>
+        {result.lowSample && (
+          <span style={{ fontSize: 12, color: '#a16207' }}>⚠ 樣本 &lt;12 卷、高低分組指標僅供參考</span>
+        )}
+      </div>
+
+      {/* 摘要磚 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8, margin: '12px 0' }}>
+        {tiles.map((t) => (
+          <div key={t.label} style={{ background: '#f8fafc', borderRadius: 8, padding: '8px 12px' }}>
+            <div style={{ fontSize: 11, color: '#64748b' }}>{t.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#0f172a' }}>{t.value}</div>
+            {t.hint && <div style={{ fontSize: 10, color: '#94a3b8' }}>{t.hint}</div>}
+          </div>
+        ))}
+        <div style={{ background: '#f8fafc', borderRadius: 8, padding: '8px 12px' }}>
+          <div style={{ fontSize: 11, color: '#64748b' }}>鑑別度分布</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
+            {bandOrder.filter((b) => result.dBandCounts[b]).map((b) => (
+              <Badge key={b} text={`${b} ${result.dBandCounts[b]}題`} palette={BAND_STYLE[b]} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* 需檢視清單 */}
+      {result.flagged.length > 0 && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#78350f' }}>
+          <strong>建議檢視（{result.flagged.length} 題）：</strong>
+          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+            {result.flagged.map((f) => (
+              <li key={f.questionId}><strong>{f.questionId}</strong>　{f.why}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* 逐題表 */}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ color: '#64748b', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>
+              <th style={{ padding: '6px 8px' }}>題號</th>
+              <th style={{ padding: '6px 8px' }}>難易 P</th>
+              <th style={{ padding: '6px 8px' }}>鑑別 D</th>
+              <th style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} title="高分組（前27%）得分率">高分組</th>
+              <th style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} title="低分組（後27%）得分率">低分組</th>
+              <th style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>對／錯／未答</th>
+              <th style={{ padding: '6px 8px' }}>答案分布（✓＝正解；滑鼠停留看高低分組人數）</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((it) => (
+              <tr key={it.questionId} style={{ borderBottom: '1px solid #f1f5f9', verticalAlign: 'top' }}>
+                <td style={{ padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  {it.questionId}
+                  {it.keySuspect && <span title="多數學生齊答同一個非正解、建議確認解答"> 🚩</span>}
+                  {it.partialCredit && <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>得分率制</div>}
+                </td>
+                <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                  {it.p.toFixed(2)}　<Badge text={it.pBand} palette={P_STYLE[it.pBand]} />
+                </td>
+                <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                  {it.dBand === '—' ? '—' : it.d.toFixed(2)}　<Badge text={it.dBand} palette={BAND_STYLE[it.dBand]} />
+                </td>
+                <td style={{ padding: '6px 8px' }}>{Math.round(it.ph * 100)}%</td>
+                <td style={{ padding: '6px 8px' }}>{Math.round(it.pl * 100)}%</td>
+                <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
+                  {it.correctCount}／{it.wrongCount}／{it.blankCount + it.unrecognizableCount}
+                </td>
+                <td style={{ padding: '6px 8px' }}><DistributionBar item={it} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {result.items.length > 60 && !showAll && (
+        <button type="button" onClick={() => setShowAll(true)} style={{ marginTop: 8, fontSize: 12, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer' }}>
+          顯示全部 {result.items.length} 題
+        </button>
+      )}
+      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>
+        P＝(高分組＋低分組得分率)/2、D＝高分組−低分組（Ebel 標準）；非全有全無題以得分率計。🚩＝多數齊答非正解、建議確認解答。
+      </div>
+    </section>
+  )
+}

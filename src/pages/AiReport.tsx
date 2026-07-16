@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { db } from '@/lib/db'
 import type { Submission } from '@/lib/db'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
+import ItemAnalysisSection from './ai-report/components/ItemAnalysisSection'
+import type { ItemAnalysisQuestion } from './ai-report/item-analysis'
 import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
 import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
@@ -401,6 +403,27 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   const classroomOptions = useMemo(
     () => syncData?.classrooms ?? [],
     [syncData]
+  )
+
+  // 2026-07-16 試題分析（純程式、user 拍板第一波）：選定作業的 answerKey 題目清單（Dexie）
+  const [itemAnalysisQuestions, setItemAnalysisQuestions] = useState<ItemAnalysisQuestion[]>([])
+  useEffect(() => {
+    if (!selectedAssignmentId) { setItemAnalysisQuestions([]); return }
+    db.assignments.get(selectedAssignmentId)
+      .then((a) => {
+        const qs = (a?.answerKey as { questions?: ItemAnalysisQuestion[] } | undefined)?.questions
+        setItemAnalysisQuestions(Array.isArray(qs) ? qs : [])
+      })
+      .catch(() => setItemAnalysisQuestions([]))
+  }, [selectedAssignmentId])
+
+  const itemAnalysisSubmissions = useMemo(
+    () => localSubmissions.filter(
+      (s) => s.assignmentId === selectedAssignmentId
+        && s.gradingResult
+        && s.source !== 'student_correction'
+    ),
+    [localSubmissions, selectedAssignmentId]
   )
 
   useEffect(() => {
@@ -945,6 +968,13 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   new Date(latestGradedAt) > new Date(assignmentSummary.updated_at)
                 )}
               />
+              {/* 2026-07-16 試題分析：純程式即時、零墨水（user 拍板第一波） */}
+              {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 3 && (
+                <ItemAnalysisSection
+                  questions={itemAnalysisQuestions}
+                  submissions={itemAnalysisSubmissions}
+                />
+              )}
             </section>
           )}
 
