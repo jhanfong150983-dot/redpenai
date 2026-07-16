@@ -264,7 +264,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   >({})
   // 手動觸發領域診斷重生（後補題本後可用，繞過 cache）
   const [domainDiagnosisRegenCounter, setDomainDiagnosisRegenCounter] = useState(0)
-  const [activeTab, setActiveTab] = useState<'class' | 'domain' | 'student'>('class')
+  const [activeTab, setActiveTab] = useState<'class' | 'items' | 'domain' | 'student'>('class')
   // 2026-06-01: 生成/重生報告會花墨水 → 先跳同意框，同意才跑（存待執行動作）
   const [inkAction, setInkAction] = useState<(() => void) | null>(null)
   const requestInk = useCallback((fn: () => void) => setInkAction(() => fn), [])
@@ -900,6 +900,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           <div className="flex">
             {([
               { id: 'class', label: '作業診斷性快報' },
+              { id: 'items', label: '試題分析' },
               { id: 'domain', label: '領域診斷性快報' },
               { id: 'student', label: '班級診斷性快報' },
             ] as const).map((tab) => (
@@ -968,12 +969,23 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   new Date(latestGradedAt) > new Date(assignmentSummary.updated_at)
                 )}
               />
-              {/* 2026-07-16 試題分析：純程式即時、零墨水（user 拍板第一波） */}
-              {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 3 && (
+            </section>
+          )}
+
+          {/* 2026-07-16 試題分析獨立 tab（user 拍板）：純程式即時、零墨水 */}
+          {activeTab === 'items' && (
+            <section>
+              {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 3 ? (
                 <ItemAnalysisSection
                   questions={itemAnalysisQuestions}
                   submissions={itemAnalysisSubmissions}
                 />
+              ) : (
+                <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
+                  {itemAnalysisSubmissions.length < 3
+                    ? '此作業已批改的卷數不足 3 份，暫無法進行試題分析。'
+                    : '請先選擇一份有答案卷的作業。'}
+                </section>
               )}
             </section>
           )}
