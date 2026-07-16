@@ -1,6 +1,7 @@
 // AI 歸納錯誤樣態 modal（2026-07-16、user 拍板）：點開 → 有快取直接看；沒有 → 「開始 AI 歸納」
 // （經頁面的墨水確認）→ 跑完存 Dexie、下次隨開隨看。資料變更（signature 不符）→ 提示可重新分析。
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { ItemStat } from '../item-analysis'
 import {
   generateErrorFeatures, readErrorFeaturesCache, errorFeaturesSignature,
@@ -38,6 +39,8 @@ export default function QuestionErrorFeaturesModal({ open, onClose, assignmentId
   }, [open, assignmentId, item])
 
   if (!open || !item) return null
+  // 2026-07-16 user 抓到遮罩沒蓋滿：modal 渲染在表格深處、被上層容器的 transform/overflow 困住
+  //   → portal 到 document.body＋z-index 對齊 InkConfirmModal 層級
 
   const run = () => requestInk(() => {
     setLoading(true); setError(null)
@@ -47,9 +50,9 @@ export default function QuestionErrorFeaturesModal({ open, onClose, assignmentId
       .finally(() => setLoading(false))
   })
 
-  return (
+  return createPortal(
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', zIndex: 110, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={onClose}
     >
       <div
@@ -133,6 +136,7 @@ export default function QuestionErrorFeaturesModal({ open, onClose, assignmentId
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
