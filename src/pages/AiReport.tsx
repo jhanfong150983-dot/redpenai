@@ -408,14 +408,16 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
 
   // 2026-07-16 試題分析（純程式、user 拍板第一波）：選定作業的 answerKey 題目清單（Dexie）
   const [itemAnalysisQuestions, setItemAnalysisQuestions] = useState<ItemAnalysisQuestion[]>([])
+  const [itemAnalysisTemplateId, setItemAnalysisTemplateId] = useState('')
   useEffect(() => {
-    if (!selectedAssignmentId) { setItemAnalysisQuestions([]); return }
+    if (!selectedAssignmentId) { setItemAnalysisQuestions([]); setItemAnalysisTemplateId(''); return }
     db.assignments.get(selectedAssignmentId)
       .then((a) => {
         const qs = (a?.answerKey as { questions?: ItemAnalysisQuestion[] } | undefined)?.questions
         setItemAnalysisQuestions(Array.isArray(qs) ? qs : [])
+        setItemAnalysisTemplateId(a?.answerKeyTemplateId ?? '')
       })
-      .catch(() => setItemAnalysisQuestions([]))
+      .catch(() => { setItemAnalysisQuestions([]); setItemAnalysisTemplateId('') })
   }, [selectedAssignmentId])
 
   const itemAnalysisSubmissions = useMemo(
@@ -983,6 +985,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   submissions={itemAnalysisSubmissions}
                   assignmentId={selectedAssignmentId}
                   domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
+                  templateId={itemAnalysisTemplateId}
                   requestInk={requestInk}
                 />
               ) : (
@@ -1004,6 +1007,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   submissions={itemAnalysisSubmissions}
                   assignmentId={selectedAssignmentId}
                   domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
+                  templateId={itemAnalysisTemplateId}
                   requestInk={requestInk}
                 />
               ) : (

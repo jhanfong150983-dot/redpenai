@@ -12,6 +12,7 @@ type Props = {
   /** 有帶齊這三個才會出現「AI 歸納錯誤樣態」按鈕（開放文字題） */
   assignmentId?: string
   domain?: string
+  templateId?: string
   requestInk?: (fn: () => void) => void
 }
 
@@ -122,7 +123,7 @@ export function DistributionBar({ item, onAiFeatures }: { item: ItemStat; onAiFe
   )
 }
 
-export default function ItemAnalysisSection({ questions, submissions, assignmentId, domain, requestInk }: Props) {
+export default function ItemAnalysisSection({ questions, submissions, assignmentId, domain, templateId, requestInk }: Props) {
   const result = useMemo(() => computeItemAnalysis(questions, submissions), [questions, submissions])
   const [showAll, setShowAll] = useState(false)
   const [aiItem, setAiItem] = useState<ItemStat | null>(null)
@@ -218,6 +219,11 @@ export default function ItemAnalysisSection({ questions, submissions, assignment
           assignmentId={assignmentId!}
           domain={domain ?? ''}
           item={aiItem}
+          stemSource={(() => {
+            if (!aiItem || !templateId) return null
+            const q = questions.find((x) => String(x.id ?? x.questionId ?? '') === aiItem.questionId)
+            return q?.answerBbox ? { templateId, pageIndex: q.pageIndex ?? 0, bbox: q.answerBbox } : null
+          })()}
           requestInk={requestInk!}
         />
       )}

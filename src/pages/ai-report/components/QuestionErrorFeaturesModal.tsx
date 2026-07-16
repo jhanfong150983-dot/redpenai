@@ -5,7 +5,7 @@ import type { ItemStat } from '../item-analysis'
 import {
   generateErrorFeatures, readErrorFeaturesCache, errorFeaturesSignature,
 } from '../error-features'
-import type { ErrorFeaturesPayload } from '../error-features'
+import type { ErrorFeaturesPayload, StemSource } from '../error-features'
 
 type Props = {
   open: boolean
@@ -13,11 +13,13 @@ type Props = {
   assignmentId: string
   domain: string
   item: ItemStat | null
+  /** 題幹裁圖來源（答案卷模板該題區域；null=純文字分析） */
+  stemSource?: StemSource | null
   /** 頁面的墨水確認包裝（AiReport 的 requestInk）：確認後才執行傳入的 fn */
   requestInk: (fn: () => void) => void
 }
 
-export default function QuestionErrorFeaturesModal({ open, onClose, assignmentId, domain, item, requestInk }: Props) {
+export default function QuestionErrorFeaturesModal({ open, onClose, assignmentId, domain, item, stemSource, requestInk }: Props) {
   const [payload, setPayload] = useState<ErrorFeaturesPayload | null>(null)
   const [cachedAt, setCachedAt] = useState<number | null>(null)
   const [stale, setStale] = useState(false)
@@ -39,7 +41,7 @@ export default function QuestionErrorFeaturesModal({ open, onClose, assignmentId
 
   const run = () => requestInk(() => {
     setLoading(true); setError(null)
-    generateErrorFeatures(assignmentId, item, domain)
+    generateErrorFeatures(assignmentId, item, domain, stemSource ?? null)
       .then((p) => { setPayload(p); setCachedAt(Date.now()); setStale(false) })
       .catch((e) => setError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false))
@@ -91,6 +93,9 @@ export default function QuestionErrorFeaturesModal({ open, onClose, assignmentId
               <div key={f.feature} style={{ borderLeft: '3px solid #3b82f6', padding: '4px 10px', marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
                   {f.feature}　<span style={{ color: '#2563eb' }}>{f.count} 人次</span>
+                  {f.cause && f.cause !== '無法判斷' && (
+                    <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 600, color: '#7c3aed', background: '#f3e8ff', borderRadius: 6, padding: '1px 6px' }}>{f.cause}</span>
+                  )}
                 </div>
                 {f.examples.length > 0 && (
                   <div style={{ fontSize: 12, color: '#64748b', margin: '2px 0' }}>例：{f.examples.join('　／　')}</div>

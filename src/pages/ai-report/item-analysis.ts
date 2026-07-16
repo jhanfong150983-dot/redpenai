@@ -12,6 +12,9 @@ export type ItemAnalysisQuestion = {
   answer?: string
   referenceAnswer?: string
   parts?: Array<{ subId?: string; answer?: string }>
+  /** 題幹裁圖用（答案卷模板座標） */
+  answerBbox?: { x: number; y: number; w: number; h: number }
+  pageIndex?: number
 }
 
 type DetailLike = {

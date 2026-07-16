@@ -12,6 +12,7 @@ type Props = {
   submissions: ItemAnalysisSubmissionLike[]
   assignmentId?: string
   domain?: string
+  templateId?: string
   requestInk?: (fn: () => void) => void
 }
 
@@ -24,7 +25,7 @@ const BANDS = [
   { label: '60 以下', min: -Infinity, max: 0.6 },
 ]
 
-export default function AssignmentOverviewSection({ questions, submissions, assignmentId, domain, requestInk }: Props) {
+export default function AssignmentOverviewSection({ questions, submissions, assignmentId, domain, templateId, requestInk }: Props) {
   const result = useMemo(() => computeItemAnalysis(questions, submissions), [questions, submissions])
   const [showAllReview, setShowAllReview] = useState(false)
   const [aiItem, setAiItem] = useState<ItemStat | null>(null)
@@ -150,6 +151,11 @@ export default function AssignmentOverviewSection({ questions, submissions, assi
             assignmentId={assignmentId!}
             domain={domain ?? ''}
             item={aiItem}
+            stemSource={(() => {
+              if (!aiItem || !templateId) return null
+              const q = questions.find((x) => String(x.id ?? x.questionId ?? '') === aiItem.questionId)
+              return q?.answerBbox ? { templateId, pageIndex: q.pageIndex ?? 0, bbox: q.answerBbox } : null
+            })()}
             requestInk={requestInk!}
           />
         )}
