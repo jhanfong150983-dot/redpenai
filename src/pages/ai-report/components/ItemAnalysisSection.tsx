@@ -66,8 +66,31 @@ export function DistributionBar({ item }: { item: ItemStat }) {
               ×{s.count}
             </span>
           ))}
-          <span style={{ color: '#94a3b8' }}>（開放作答、樣態各異）</span>
         </div>
+        {/* 2026-07-16 user 拍板：開放文字題可點開看全部樣態——錯的排前面（檢討課素材、也是迷思概念聚類的免費版） */}
+        <details style={{ marginTop: 2 }}>
+          <summary style={{ fontSize: 11, color: '#0369a1', cursor: 'pointer', userSelect: 'none' }}>
+            展開作答樣態（{nonBlankVariants.length} 種）
+          </summary>
+          <div style={{ maxHeight: 220, overflowY: 'auto', marginTop: 4, padding: '4px 8px', background: '#f8fafc', borderRadius: 6 }}>
+            {[...nonBlankVariants]
+              .sort((a, b) => {
+                const aOk = a.correctVotes / a.count >= 0.5 ? 1 : 0
+                const bOk = b.correctVotes / b.count >= 0.5 ? 1 : 0
+                return aOk - bOk || b.count - a.count // 錯的在前、各按人數
+              })
+              .map((o) => {
+                const ok = o.correctVotes / o.count >= 0.5
+                return (
+                  <div key={o.label} style={{ fontSize: 11, lineHeight: 1.7, display: 'flex', gap: 6, alignItems: 'baseline' }}>
+                    <span style={{ color: ok ? '#15803d' : '#b91c1c', fontWeight: 700, flexShrink: 0 }}>{ok ? '✓' : '✗'}</span>
+                    <span style={{ color: '#334155', wordBreak: 'break-all' }}>{o.label}</span>
+                    {o.count > 1 && <span style={{ color: '#94a3b8', flexShrink: 0 }}>×{o.count}</span>}
+                  </div>
+                )
+              })}
+          </div>
+        </details>
       </div>
     )
   }

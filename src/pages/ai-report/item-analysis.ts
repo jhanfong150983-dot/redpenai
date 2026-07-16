@@ -33,6 +33,8 @@ export type OptionStat = {
   lowCount: number
   isKey: boolean
   isBlank: boolean
+  /** 這個樣態被判「對」的份數（開放文字題展開樣態時分組用） */
+  correctVotes: number
 }
 
 export type ItemStat = {
@@ -177,7 +179,7 @@ export function computeItemAnalysis(
     let correct = 0, wrong = 0, blank = 0, unrec = 0, present = 0
     let partialCredit = false
     let sumAll = 0, sumHigh = 0, cntHigh = 0, sumLow = 0, cntLow = 0
-    const dist = new Map<string, { count: number; high: number; low: number }>()
+    const dist = new Map<string, { count: number; high: number; low: number; correct: number }>()
 
     papers.forEach((byQ, pi) => {
       const d = byQ.get(q.id)
@@ -193,10 +195,11 @@ export function computeItemAnalysis(
       else if (label === UNREC_LABEL) unrec++
       if (d.isCorrect === true) correct++
       else wrong++
-      const entry = dist.get(label) ?? { count: 0, high: 0, low: 0 }
+      const entry = dist.get(label) ?? { count: 0, high: 0, low: 0, correct: 0 }
       entry.count++
       if (highSet.has(pi)) entry.high++
       if (lowSet.has(pi)) entry.low++
+      if (d.isCorrect === true) entry.correct++
       dist.set(label, entry)
     })
     if (!present) continue
@@ -209,7 +212,8 @@ export function computeItemAnalysis(
         highCount: v.high,
         lowCount: v.low,
         isKey: label === keyNorm && keyNorm !== BLANK_LABEL,
-        isBlank: label === BLANK_LABEL || label === UNREC_LABEL
+        isBlank: label === BLANK_LABEL || label === UNREC_LABEL,
+        correctVotes: v.correct
       }))
       .sort((a, b) => (a.isBlank !== b.isBlank ? (a.isBlank ? 1 : -1) : b.count - a.count))
 
