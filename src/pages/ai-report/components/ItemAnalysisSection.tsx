@@ -111,17 +111,8 @@ export default function ItemAnalysisSection({ questions, submissions }: Props) {
         </div>
       </div>
 
-      {/* 需檢視清單 */}
-      {result.flagged.length > 0 && (
-        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#78350f' }}>
-          <strong>建議檢視（{result.flagged.length} 題）：</strong>
-          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
-            {result.flagged.map((f) => (
-              <li key={f.questionId}><strong>{f.questionId}</strong>　{f.why}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* 2026-07-16 user 拍板：「建議檢視」清單拿掉——老師直接看表格的難易/鑑別徽章即可；
+          flagged 仍由 computeItemAnalysis 計算（留給未來自動提示用）、只是不渲染 */}
 
       {/* 逐題表 */}
       <div style={{ overflowX: 'auto' }}>
