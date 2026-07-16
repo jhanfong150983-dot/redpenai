@@ -33,29 +33,67 @@ export function Badge({ text, palette }: { text: string; palette: { bg: string; 
   )
 }
 
-// 答案分布橫條：單一量值比例條——正解綠、其他灰、未答/無法辨識淺灰；文字標籤永遠並列
+// 答案分布橫條：單一量值比例條——正解綠、其他灰、未答/無法辨識淺灰；文字標籤永遠並列。
+// 2026-07-16 修（user 抓到湊不滿人數）：開放文字題（樣態幾乎人人不同）逐字樣態沒有統計意義、
+//   前 6 個以外被截掉還漏掉未答段 → 改「答對/答錯/未答」聚合視角；樣態條保證含未答段＋「其他」尾巴。
 export function DistributionBar({ item }: { item: ItemStat }) {
   const total = item.n || 1
-  const segs = item.distribution.slice(0, 6)
-  const rest = item.n - segs.reduce((a, o) => a + o.count, 0)
+  const nonBlankVariants = item.distribution.filter((o) => !o.isBlank)
+  const blankTotal = item.blankCount + item.unrecognizableCount
+  // 開放文字題判定：非選擇類且樣態太碎（>6 種、或最多的樣態也只有 1-2 人）
+  const isOpenText = !item.isChoiceLike
+    && (nonBlankVariants.length > 6 || (nonBlankVariants[0]?.count ?? 0) <= 2)
+
+  if (isOpenText) {
+    const wrongCount = item.n - item.correctCount - blankTotal
+    const segs = [
+      { label: '答對', count: item.correctCount, color: '#16a34a' },
+      { label: '答錯', count: Math.max(0, wrongCount), color: '#94a3b8' },
+      { label: '未作答', count: blankTotal, color: '#e2e8f0' },
+    ].filter((s) => s.count > 0)
+    return (
+      <div style={{ minWidth: 150 }}>
+        <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: '#f8fafc' }}>
+          {segs.map((s) => (
+            <div key={s.label} title={`${s.label}：${s.count} 人`}
+              style={{ width: `${(s.count / total) * 100}%`, background: s.color, borderRight: '2px solid #fff' }} />
+          ))}
+        </div>
+        <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+          {segs.map((s) => (
+            <span key={s.label} style={{ marginRight: 8, whiteSpace: 'nowrap' }}>
+              <span style={{ color: s.label === '答對' ? '#15803d' : '#64748b', fontWeight: s.label === '答對' ? 700 : 400 }}>{s.label}</span>
+              ×{s.count}
+            </span>
+          ))}
+          <span style={{ color: '#94a3b8' }}>（開放作答、樣態各異）</span>
+        </div>
+      </div>
+    )
+  }
+
+  // 樣態條：前 5 個非空樣態＋未答段（保證顯示）＋其他
+  const topVariants = nonBlankVariants.slice(0, 5)
+  const otherCount = item.n - topVariants.reduce((a, o) => a + o.count, 0) - blankTotal
   return (
     <div style={{ minWidth: 150 }}>
       <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', background: '#f8fafc' }}>
-        {segs.map((o) => (
+        {topVariants.map((o) => (
           <div
             key={o.label}
             title={`${o.label}：${o.count} 人（高分組 ${o.highCount}、低分組 ${o.lowCount}）${o.isKey ? '＝正解' : ''}`}
             style={{
               width: `${(o.count / total) * 100}%`,
-              background: o.isKey ? '#16a34a' : o.isBlank ? '#e2e8f0' : '#94a3b8',
+              background: o.isKey ? '#16a34a' : '#94a3b8',
               borderRight: '2px solid #fff',
             }}
           />
         ))}
-        {rest > 0 && <div style={{ width: `${(rest / total) * 100}%`, background: '#cbd5e1' }} />}
+        {otherCount > 0 && <div title={`其他樣態：${otherCount} 人`} style={{ width: `${(otherCount / total) * 100}%`, background: '#cbd5e1', borderRight: '2px solid #fff' }} />}
+        {blankTotal > 0 && <div title={`未作答／無法辨識：${blankTotal} 人`} style={{ width: `${(blankTotal / total) * 100}%`, background: '#e2e8f0' }} />}
       </div>
       <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.5, wordBreak: 'break-all' }}>
-        {segs.map((o) => (
+        {topVariants.map((o) => (
           <span key={o.label} style={{ marginRight: 8, whiteSpace: 'nowrap' }}>
             <span style={{ color: o.isKey ? '#15803d' : '#64748b', fontWeight: o.isKey ? 700 : 400 }}>
               {o.isKey ? '✓' : ''}{o.label.length > 12 ? `${o.label.slice(0, 12)}…` : o.label}
@@ -63,6 +101,8 @@ export function DistributionBar({ item }: { item: ItemStat }) {
             ×{o.count}
           </span>
         ))}
+        {otherCount > 0 && <span style={{ marginRight: 8, whiteSpace: 'nowrap' }}>其他×{otherCount}</span>}
+        {blankTotal > 0 && <span style={{ whiteSpace: 'nowrap' }}>未答×{blankTotal}</span>}
       </div>
     </div>
   )

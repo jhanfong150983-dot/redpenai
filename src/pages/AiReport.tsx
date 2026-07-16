@@ -936,7 +936,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 ))}
               </select>
             </label>
-            {activeTab === 'class' && (
+            {(activeTab === 'class' || activeTab === 'overview' || activeTab === 'items') && (
               <label>
                 作業
                 <select
