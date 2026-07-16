@@ -13,8 +13,10 @@ export type ErrorFeature = {
   count: number
   examples: string[]
   note: string
-  /** 深層歸因（單字不熟/文法規則未掌握/題意理解錯誤/概念未學會/計算失誤/抄寫粗心/無法判斷） */
+  /** 深層歸因粗分類（按領域給選項、供跨題統計聚合；「其他」時看 causeDetail） */
   cause?: string
+  /** 開放式歸因自述（cause=其他時必有；其餘情況為補充） */
+  causeDetail?: string
 }
 
 /** 題幹裁圖來源（答案卷模板上該題的區域） */
@@ -75,6 +77,7 @@ function buildPrompt(item: ItemStat, domain: string, gradeHint: string, hasStemI
       return wrongTimes > 1 ? `${o.label}（×${wrongTimes}）` : o.label
     })
   const blankTotal = item.blankCount + item.unrecognizableCount
+  const causeTaxonomy = causeTaxonomyFor(domain || '')
   return `你是${gradeHint}${domain || ''}老師的教學助理。這一題的正解：「${item.keyAnswer}」。
 ${hasStemImage ? '附圖是答案卷上本題的區域（含印刷題幹與正解標示）——先讀懂這題在考什麼，歸因時對照題目要求。' : ''}
 以下是全班 ${wrongVariants.length} 種「被判錯」的學生作答（×N 表示 N 份相同）：
@@ -86,11 +89,28 @@ ${blankTotal > 0 ? `另有 ${blankTotal} 人未作答。` : ''}
 - count: 有此特徵的作答數
 - examples: 最多 2 個代表例（原文節錄）
 - note: 一句話教學提示
-- cause: 深層歸因——從「單字不熟／文法規則未掌握／題意理解錯誤／概念未學會／計算失誤／抄寫粗心／無法判斷」選最貼近的一個
-⚠ 歸因鐵則：只根據作答內容與題目要求歸因；「不專心、態度差、能力低」這類跨題行為從單一題看不出來、一律不得使用；證據不足就填「無法判斷」。
+- cause: 深層歸因分類——優先從下列分類選最貼近的一個（供跨題統計聚合用）：
+${causeTaxonomy}
+  真的都不貼近才用「其他」、並在 causeDetail 用一句話自述你的歸因；證據不足填「無法判斷」。
+- causeDetail: 選填。cause=其他時必填自述；其他情況可補充更精確的歸因描述（如「受中文語序影響的詞序錯誤」）。
+⚠ 歸因鐵則：只根據作答內容與題目要求歸因；「不專心、態度差、能力低」這類跨題行為從單一題看不出來、一律不得使用。
 只列 count≥2 的特徵、按 count 由多到少排序；「內容明顯不成句/亂答」的作答不計入特徵、單獨列在 nonsense。
 最後給 teachingFocus：給老師的 2 句檢討課重點。
-只輸出 JSON：{"features":[{"feature":"...","count":0,"examples":["..."],"note":"...","cause":"..."}],"nonsense":["..."],"teachingFocus":"..."}`
+只輸出 JSON：{"features":[{"feature":"...","count":0,"examples":["..."],"note":"...","cause":"...","causeDetail":"..."}],"nonsense":["..."],"teachingFocus":"..."}`
+}
+
+// 歸因分類按領域給（粗分類供統計聚合；AI 的細緻歸因在 feature/note/causeDetail 自由發揮）
+function causeTaxonomyFor(domain: string): string {
+  if (domain.includes('數學')) {
+    return '「概念未學會／公式或規則誤用／計算失誤／題意理解錯誤／單位或量感不熟／抄寫粗心／其他／無法判斷」'
+  }
+  if (domain.includes('英語')) {
+    return '「單字不熟／文法規則未掌握／拼字錯誤／題意理解錯誤／中文直譯影響／抄寫粗心／其他／無法判斷」'
+  }
+  if (domain.includes('社會') || domain.includes('自然')) {
+    return '「概念混淆／知識未記熟／題意理解錯誤（含負向題型陷阱）／表達不完整／抄寫粗心／其他／無法判斷」'
+  }
+  return '「概念未學會／規則未掌握／題意理解錯誤／記憶不熟／抄寫粗心／其他／無法判斷」'
 }
 
 // 從答案卷模板裁「題幹帶」：整頁寬、作答框上下各擴 6% 頁高（題幹通常緊鄰作答區）。
@@ -164,7 +184,8 @@ export async function generateErrorFeatures(
         count: Number(f.count) || 0,
         examples: Array.isArray(f.examples) ? f.examples.map(String).slice(0, 2) : [],
         note: String(f.note ?? ''),
-        cause: f.cause ? String(f.cause) : undefined
+        cause: f.cause ? String(f.cause) : undefined,
+        causeDetail: f.causeDetail ? String(f.causeDetail) : undefined
       })),
     nonsense: Array.isArray(parsed.nonsense) ? parsed.nonsense.map(String) : [],
     teachingFocus: String(parsed.teachingFocus ?? '')

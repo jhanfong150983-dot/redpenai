@@ -94,7 +94,12 @@ export default function QuestionErrorFeaturesModal({ open, onClose, assignmentId
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
                   {f.feature}　<span style={{ color: '#2563eb' }}>{f.count} 人次</span>
                   {f.cause && f.cause !== '無法判斷' && (
-                    <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 600, color: '#7c3aed', background: '#f3e8ff', borderRadius: 6, padding: '1px 6px' }}>{f.cause}</span>
+                    <span
+                      title={f.causeDetail || undefined}
+                      style={{ marginLeft: 6, fontSize: 11, fontWeight: 600, color: '#7c3aed', background: '#f3e8ff', borderRadius: 6, padding: '1px 6px' }}
+                    >
+                      {f.cause === '其他' && f.causeDetail ? f.causeDetail : f.cause}
+                    </span>
                   )}
                 </div>
                 {f.examples.length > 0 && (
