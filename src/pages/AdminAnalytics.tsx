@@ -98,6 +98,7 @@ type UnitEconRow = {
   key: string; count: number; twd: number; avg: number; median: number; avgCalls: number
   // 單次批改（server 端時間聚類拆輪次、只算 ≥5 call 的完整輪）
   runMedian: number; runCount: number; runsPerSub: number
+  runPerQMedian?: number | null  // 單輪成本/題 中位（需 assignments.total_questions、2026-07-18）
 }
 
 // 四模式 modeKey → 人話標籤（answerSheetMode × submissionSource、見 server gradingModeKey）
@@ -663,13 +664,14 @@ function UnitEconTable({ title, rows, labelOf }: {
               <th className="px-2 py-1.5 text-xs font-medium">分組</th>
               <th className="px-2 py-1.5 text-right text-xs font-medium">份數</th>
               <th className="px-2 py-1.5 text-right text-xs font-medium" title="時間聚類拆輪次後、批改一輪的中位成本">單次中位</th>
+              <th className="px-2 py-1.5 text-right text-xs font-medium" title="單輪成本÷該卷題數的中位（B2B 報價口徑；無題數資料顯示 —）">單次/題</th>
               <th className="px-2 py-1.5 text-right text-xs font-medium" title="該卷在區間內所有輪次累積的中位成本">累積中位</th>
               <th className="px-2 py-1.5 text-right text-xs font-medium">輪/份</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
-              <tr><td colSpan={5} className="px-2 py-4 text-center text-xs text-gray-400">無資料</td></tr>
+              <tr><td colSpan={6} className="px-2 py-4 text-center text-xs text-gray-400">無資料</td></tr>
             )}
             {rows.map(r => (
               <tr key={r.key} className="border-t border-gray-50">
@@ -678,6 +680,7 @@ function UnitEconTable({ title, rows, labelOf }: {
                 </td>
                 <td className="px-2 py-1.5 text-right text-xs text-gray-600">{r.count.toLocaleString()}</td>
                 <td className="px-2 py-1.5 text-right text-xs font-semibold text-gray-900">{r.runCount > 0 ? fmtTwd(r.runMedian) : '—'}</td>
+                <td className="px-2 py-1.5 text-right text-xs text-gray-600">{r.runPerQMedian != null ? fmtTwd(r.runPerQMedian) : '—'}</td>
                 <td className="px-2 py-1.5 text-right text-xs text-gray-600">{fmtTwd(r.median)}</td>
                 <td className="px-2 py-1.5 text-right text-xs text-gray-500">{r.runsPerSub || '—'}</td>
               </tr>
