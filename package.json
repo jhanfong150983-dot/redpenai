@@ -23,6 +23,7 @@
     "framer-motion": "^12.23.28",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.561.0",
     "pdfjs-dist": "^5.4.449",
     "react": "^18.3.1",

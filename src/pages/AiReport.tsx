@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import type { Submission } from '@/lib/db'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
 import ItemAnalysisSection from './ai-report/components/ItemAnalysisSection'
+import { ParentReportModal } from './ai-report/components/ParentReportModal'
 import AssignmentOverviewSection from './ai-report/components/AssignmentOverviewSection'
 import type { ItemAnalysisQuestion } from './ai-report/item-analysis'
 import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
@@ -266,6 +267,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   // 手動觸發領域診斷重生（後補題本後可用，繞過 cache）
   const [domainDiagnosisRegenCounter, setDomainDiagnosisRegenCounter] = useState(0)
   const [activeTab, setActiveTab] = useState<'overview' | 'class' | 'items' | 'domain' | 'student'>('overview')
+  const [parentReportOpen, setParentReportOpen] = useState(false)
   // 2026-06-01: 生成/重生報告會花墨水 → 先跳同意框，同意才跑（存待執行動作）
   const [inkAction, setInkAction] = useState<(() => void) | null>(null)
   const requestInk = useCallback((fn: () => void) => setInkAction(() => fn), [])
@@ -1002,14 +1004,30 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           {activeTab === 'items' && (
             <section>
               {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 3 ? (
-                <ItemAnalysisSection
-                  questions={itemAnalysisQuestions}
-                  submissions={itemAnalysisSubmissions}
-                  assignmentId={selectedAssignmentId}
-                  domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
-                  templateId={itemAnalysisTemplateId}
-                  requestInk={requestInk}
-                />
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setParentReportOpen(true)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                        padding: '8px 14px', fontSize: '13px', fontWeight: 600,
+                        color: '#fff', background: '#1E4D8C', border: 'none',
+                        borderRadius: '8px', cursor: 'pointer',
+                      }}
+                    >
+                      產生家長報告（全班 PDF）
+                    </button>
+                  </div>
+                  <ItemAnalysisSection
+                    questions={itemAnalysisQuestions}
+                    submissions={itemAnalysisSubmissions}
+                    assignmentId={selectedAssignmentId}
+                    domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
+                    templateId={itemAnalysisTemplateId}
+                    requestInk={requestInk}
+                  />
+                </>
               ) : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   {itemAnalysisSubmissions.length < 3
@@ -1019,6 +1037,22 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               )}
             </section>
           )}
+
+          <ParentReportModal
+            open={parentReportOpen}
+            onClose={() => setParentReportOpen(false)}
+            questions={itemAnalysisQuestions}
+            submissions={itemAnalysisSubmissions}
+            students={classFilteredStudents}
+            className={selectedClassroomName}
+            subject={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
+            assignmentTitle={
+              (() => {
+                const a = assignmentById.get(selectedAssignmentId)
+                return a ? getAssignmentTitle(a) : ''
+              })()
+            }
+          />
 
           {activeTab === 'domain' && (
             <section style={{ minWidth: 0 }}>
