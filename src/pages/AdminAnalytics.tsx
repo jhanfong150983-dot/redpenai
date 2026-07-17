@@ -86,6 +86,7 @@ type TokenUsageData = {
     byMode: UnitEconRow[]
     byDomain: UnitEconRow[]
     byPages: UnitEconRow[]
+    byQuestions?: UnitEconRow[]  // 按題數（server 待 assignments.total_questions 欄位就緒後提供）
   } | null
   timeSeries: { date: string; stages: Record<string, number> }[]
   teachers: { id: string; name: string | null; email: string | null }[]
@@ -699,6 +700,7 @@ function TokenTab() {
   const [toDate, setToDate] = useState(toLocalDateStr(today))
   const [userId, setUserId] = useState('')
   const [includeAdmin, setIncludeAdmin] = useState(true)  // 預設含 admin 測試資料
+  const [unitDim, setUnitDim] = useState<'mode' | 'domain' | 'pages' | 'questions'>('mode')  // 單位成本比較 tab
 
   const fetchData = useCallback(async () => {
     setLoading(true); setError('')
@@ -973,15 +975,29 @@ function TokenTab() {
             </div>
           </SectionCard>
 
-          {/* 2026-07-15: 單位成本比較（模式/領域/頁數）——給營運/投資評估用 */}
+          {/* 2026-07-15: 單位成本比較——給營運/投資評估用；2026-07-18 改單表+tab 切換 */}
           {data.unitEcon && (
             <SectionCard title="單位成本比較（單份批改）" icon={<Coins className="w-4 h-4 text-teal-500" />}>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <UnitEconTable title="按模式" rows={data.unitEcon.byMode}
-                  labelOf={k => MODE_LABELS[k] || k} />
-                <UnitEconTable title="按領域" rows={data.unitEcon.byDomain} />
-                <UnitEconTable title="按頁數" rows={data.unitEcon.byPages} />
+              <div className="flex items-center gap-1 mb-3">
+                {([
+                  ['mode', '按模式'], ['domain', '按領域'], ['pages', '按頁數'],
+                  ...(data.unitEcon.byQuestions ? [['questions', '按題數'] as const] : []),
+                ] as const).map(([dim, label]) => (
+                  <button key={dim} onClick={() => setUnitDim(dim)}
+                    className={`px-3 py-1 text-xs rounded-lg border ${unitDim === dim
+                      ? 'border-teal-300 bg-teal-50 text-teal-700 font-semibold'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+                    {label}
+                  </button>
+                ))}
               </div>
+              <UnitEconTable
+                title={{ mode: '按模式', domain: '按領域', pages: '按頁數', questions: '按題數' }[unitDim]}
+                rows={(unitDim === 'mode' ? data.unitEcon.byMode
+                  : unitDim === 'domain' ? data.unitEcon.byDomain
+                  : unitDim === 'questions' ? (data.unitEcon.byQuestions ?? [])
+                  : data.unitEcon.byPages)}
+                labelOf={unitDim === 'mode' ? (k => MODE_LABELS[k] || k) : undefined} />
               <div className="text-xs text-gray-400 mt-2">
                 <b>單次中位</b>＝批改一輪的典型成本（同卷 call 間隔超過 30 分鐘視為新一輪、不足 5 call 的微小輪不計）——回答「批改一份多少錢」看這個。
                 <b>累積中位</b>＝該卷在區間內所有輪次加總；<b>輪/份</b>＝平均每份被批了幾輪（重批倍率）。
