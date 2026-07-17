@@ -57,6 +57,7 @@ type TokenUsageData = {
     totalCalls: number
     totalInputTokens: number
     totalOutputTokens: number
+    totalThoughtsTokens?: number  // 2026-07-17 server 新增：thinking tokens（另計、已含在成本）
     totalUsdCost: number
     totalTwdCost: number
   }
@@ -691,10 +692,10 @@ function TokenTab() {
   const [data, setData] = useState<TokenUsageData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  // 預設：本月（從本月 1 號到今天）— 用本地時間、避免時區 off-by-one
+  // 2026-07-17 預設改近 5 天（本月首載 3 萬+ rows 太慢、要看長區間再自己調）— 用本地時間、避免時區 off-by-one
   const today = new Date()
-  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-  const [fromDate, setFromDate] = useState(toLocalDateStr(firstOfMonth))
+  const fiveDaysAgo = new Date(today); fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 4)
+  const [fromDate, setFromDate] = useState(toLocalDateStr(fiveDaysAgo))
   const [toDate, setToDate] = useState(toLocalDateStr(today))
   const [userId, setUserId] = useState('')
   const [includeAdmin, setIncludeAdmin] = useState(true)  // 預設含 admin 測試資料
@@ -719,12 +720,14 @@ function TokenTab() {
   useEffect(() => { void fetchData() }, [fetchData])
 
   // 預設時間範圍 quick picks（全部用本地時間、避免 UTC off-by-one）
-  function setRange(range: 'today' | 'week' | 'month' | '30d') {
+  function setRange(range: 'today' | '5d' | 'week' | 'month' | '30d') {
     const now = new Date()
     const to = toLocalDateStr(now)
     let from = to
     if (range === 'today') {
       from = to
+    } else if (range === '5d') {
+      const d = new Date(now); d.setDate(d.getDate() - 4); from = toLocalDateStr(d)
     } else if (range === 'week') {
       const d = new Date(now); d.setDate(d.getDate() - 6); from = toLocalDateStr(d)
     } else if (range === 'month') {
@@ -751,6 +754,7 @@ function TokenTab() {
       <SectionCard title="篩選條件" icon={<Activity className="w-4 h-4 text-purple-500" />}>
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={() => setRange('today')} className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 hover:bg-purple-50">今天</button>
+          <button onClick={() => setRange('5d')} className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 hover:bg-purple-50">近 5 天</button>
           <button onClick={() => setRange('week')} className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 hover:bg-purple-50">近 7 天</button>
           <button onClick={() => setRange('month')} className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 hover:bg-purple-50">本月</button>
           <button onClick={() => setRange('30d')} className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 hover:bg-purple-50">近 30 天</button>
@@ -799,7 +803,8 @@ function TokenTab() {
                 <StatCard icon={<BarChart3 className="w-5 h-5 text-blue-500" />} iconBg="bg-blue-50"
                   label="Input tokens" value={(s.totalInputTokens ?? 0).toLocaleString()} sub={`${s.totalCalls ?? 0} 次呼叫`} />
                 <StatCard icon={<BarChart3 className="w-5 h-5 text-emerald-500" />} iconBg="bg-emerald-50"
-                  label="Output tokens" value={(s.totalOutputTokens ?? 0).toLocaleString()} />
+                  label="Output tokens" value={(s.totalOutputTokens ?? 0).toLocaleString()}
+                  sub={`thinking ${(s.totalThoughtsTokens ?? 0).toLocaleString()}（成本已含）`} />
                 <StatCard icon={<Cpu className="w-5 h-5 text-amber-500" />} iconBg="bg-amber-50"
                   label="USD 估算成本" value={`$${(s.totalUsdCost ?? 0).toFixed(2)}`} />
                 <StatCard icon={<Coins className="w-5 h-5 text-indigo-500" />} iconBg="bg-indigo-50"
