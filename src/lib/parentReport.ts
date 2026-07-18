@@ -58,6 +58,10 @@ export type WrongItem = {
 }
 export type WeakKp = { kp: string; tip: string }
 export type WeakTopic = { topic: string; band: 'red' | 'amber'; ratePct: number; total: number; wrong: number; weakKps: WeakKp[] }
+// 精熟程度總覽（第三段）：每個知識點的三級
+export type KpLevel = 'expert' | 'basic' | 'weak' // 精熟／基礎／待加強
+export type KpMastery = { kp: string; level: KpLevel }
+export type TopicMastery = { topic: string; band: 'red' | 'amber' | 'green'; ratePct: number; kps: KpMastery[] }
 export type StudentReport = {
   studentId: string
   name: string
@@ -78,7 +82,8 @@ export type StudentReport = {
   moreWrongCount: number
   // 2026-07-19 加強地圖（依大主題分組、建議掛在知識點）；hasAnalysis=false 時退回 wrongs 清單
   hasAnalysis: boolean
-  weakTopics: WeakTopic[]
+  topicMastery: TopicMastery[] // 第三段：全部主題+知識點的精熟程度總覽
+  weakTopics: WeakTopic[]      // 第四段：需要加強（帶建議）
   strongTopics: string[]
   comment: string
 }
@@ -250,27 +255,50 @@ export function assembleParentReports(
       reason: String(x.d.reason ?? '').trim(),
     }))
 
-    // 加強地圖：依大主題分組、算掌握度紅黃綠、抓弱知識點、配共用建議
-    const topicAgg = new Map<string, { got: number; max: number; total: number; wrong: number; wrongKp: Map<string, number> }>()
+    // 依大主題彙整 + 逐知識點精熟度
+    const topicAgg = new Map<string, { got: number; max: number; total: number; wrong: number; wrongKp: Map<string, number>; order: number }>()
+    const kpAgg = new Map<string, { got: number; max: number; topic: string; order: number }>()
+    let ord = 0
     for (const d of p.details) {
       const qid = String(d.questionId ?? '').trim()
       const topic = qTopicById.get(qid)
       if (!topic) continue
       const mx = num(d.maxScore) > 0 ? num(d.maxScore) : (qMaxById.get(qid) || 0)
       if (!(mx > 0)) continue
-      if (!topicAgg.has(topic)) topicAgg.set(topic, { got: 0, max: 0, total: 0, wrong: 0, wrongKp: new Map() })
+      const got = Math.max(0, Math.min(mx, num(d.score)))
+      if (!topicAgg.has(topic)) topicAgg.set(topic, { got: 0, max: 0, total: 0, wrong: 0, wrongKp: new Map(), order: ord++ })
       const e = topicAgg.get(topic)!
-      e.max += mx; e.got += Math.max(0, Math.min(mx, num(d.score))); e.total++
-      if (d.isCorrect !== true) { e.wrong++; for (const kp of (qKpsById.get(qid) ?? [])) e.wrongKp.set(kp, (e.wrongKp.get(kp) ?? 0) + 1) }
+      e.max += mx; e.got += got; e.total++
+      if (d.isCorrect !== true) e.wrong++
+      for (const kp of (qKpsById.get(qid) ?? [])) {
+        if (!kpAgg.has(kp)) kpAgg.set(kp, { got: 0, max: 0, topic, order: kpAgg.size })
+        const k = kpAgg.get(kp)!; k.got += got; k.max += mx
+        if (d.isCorrect !== true) e.wrongKp.set(kp, (e.wrongKp.get(kp) ?? 0) + 1)
+      }
     }
+    const bandOf = (rate: number): 'red' | 'amber' | 'green' => rate >= 0.8 ? 'green' : rate >= 0.6 ? 'amber' : 'red'
+    const levelOf = (rate: number): KpLevel => rate >= 0.8 ? 'expert' : rate >= 0.5 ? 'basic' : 'weak'
+    // 第三段：每主題底下所有知識點的精熟度（弱的排前面）
+    const kpsByTopic = new Map<string, KpMastery[]>()
+    for (const [kp, k] of kpAgg) {
+      const lvl = levelOf(k.max > 0 ? k.got / k.max : 1)
+      if (!kpsByTopic.has(k.topic)) kpsByTopic.set(k.topic, [])
+      kpsByTopic.get(k.topic)!.push({ kp, level: lvl })
+    }
+    const lvlRank = { weak: 0, basic: 1, expert: 2 }
     const allTopics = [...topicAgg.entries()].map(([topic, e]) => {
       const rate = e.max > 0 ? e.got / e.max : 1
-      const band: 'red' | 'amber' | 'green' = rate >= 0.8 ? 'green' : rate >= 0.6 ? 'amber' : 'red'
-      const weakKps: WeakKp[] = [...e.wrongKp.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
-        .map(([kp]) => ({ kp, tip: kpTips[kp] ?? '' }))
-      return { topic, band, ratePct: Math.round(rate * 100), total: e.total, wrong: e.wrong, weakKps }
+      const band = bandOf(rate)
+      const kps = (kpsByTopic.get(topic) ?? []).sort((a, b) => lvlRank[a.level] - lvlRank[b.level])
+      const weakKps: WeakKp[] = [...e.wrongKp.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([kp]) => ({ kp, tip: kpTips[kp] ?? '' }))
+      return { topic, band, ratePct: Math.round(rate * 100), total: e.total, wrong: e.wrong, weakKps, kps, order: e.order }
     })
-    const weakTopics: WeakTopic[] = allTopics.filter((t): t is WeakTopic => t.band !== 'green').sort((a, b) => a.ratePct - b.ratePct)
+    const topicMastery: TopicMastery[] = allTopics
+      .slice().sort((a, b) => a.ratePct - b.ratePct)
+      .map((t) => ({ topic: t.topic, band: t.band, ratePct: t.ratePct, kps: t.kps }))
+    const weakTopics: WeakTopic[] = allTopics.filter((t) => t.band !== 'green')
+      .map((t) => ({ topic: t.topic, band: t.band as 'red' | 'amber', ratePct: t.ratePct, total: t.total, wrong: t.wrong, weakKps: t.weakKps }))
+      .sort((a, b) => a.ratePct - b.ratePct)
     const strongTopics = allTopics.filter((t) => t.band === 'green').map((t) => t.topic)
 
     const ratioPct = examMax > 0 ? (p.total / examMax) * 100 : 0
@@ -293,6 +321,7 @@ export function assembleParentReports(
       wrongs,
       moreWrongCount: Math.max(0, wrongAll.length - wrongs.length),
       hasAnalysis: anyAnalysis,
+      topicMastery,
       weakTopics,
       strongTopics,
       comment: '',
@@ -457,6 +486,21 @@ export const REPORT_CSS = `
 .pr-strong { margin-top:6px; font-size:12.5px; color:#2E6B4F; line-height:1.7; background:#EAF5EF; border:1px solid #CDE8D9; border-radius:5px; padding:9px 13px; }
 .pr-strong b { color:#1F5C42; }
 .pr-allgood { font-size:12.5px; color:#2E6B4F; padding:10px 4px; }
+/* 第三段 精熟程度總覽（全部知識點、三色點） */
+.pr-mlegend { font-size:11px; color:#7B8794; margin-bottom:11px; }
+.pr-mlgd-dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin:0 4px 0 14px; vertical-align:middle; }
+.pr-mrow { margin-bottom:10px; padding-bottom:9px; border-bottom:1px solid #F0F2F5; }
+.pr-mtopic { font-size:13px; font-weight:700; color:#1F2933; margin-bottom:5px; }
+.pr-mtopic-badge { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 8px; border-radius:3px; margin-left:8px; }
+.pr-kchip { display:inline-block; font-size:12px; color:#3E4A56; margin:2px 14px 2px 0; white-space:nowrap; }
+.pr-kdot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+.dot-expert { background:#2E7D5B; }
+.dot-basic { background:#C77D0A; }
+.dot-weak { background:#C2402A; }
+.badge-green { background:#E6F4EC; color:#2E6B4F; }
+.badge-amber { background:#F4E4C1; color:#8A5A08; }
+.badge-red { background:#F6D5CE; color:#A5331F; }
+.pr-page2 { break-before: page; page-break-before: always; }
 .pr-note { border:1px solid #D9DEE4; border-left:3px solid #C2402A; padding:12px 16px; font-size:13px; line-height:1.85; color:#52606D; }
 .pr-note .sig { text-align:right; color:#7B8794; font-size:12px; margin-top:6px; }
 .pr-note .ph { color:#A6AEB8; }
@@ -506,7 +550,17 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
   const weakMapHtml = (r.weakTopics.length
     ? topicCards
     : `<div class="pr-allgood">本次各單元表現都不錯，沒有明顯要加強的地方，繼續保持！</div>`) + strongLine
+  // 第三段：精熟程度總覽（全部主題+知識點、三色點）
+  const masteryLegend = `<div class="pr-mlegend">精熟程度：<span class="pr-mlgd-dot dot-expert"></span>精熟　<span class="pr-mlgd-dot dot-basic"></span>基礎　<span class="pr-mlgd-dot dot-weak"></span>待加強</div>`
+  const masteryHtml = r.topicMastery.map((t) => {
+    const badge = t.band === 'green' ? 'badge-green' : t.band === 'amber' ? 'badge-amber' : 'badge-red'
+    const badgeText = t.band === 'green' ? '精熟' : t.band === 'amber' ? '基礎' : '待加強'
+    const chips = t.kps.map((k) => `<span class="pr-kchip"><span class="pr-kdot dot-${k.level}"></span>${esc(k.kp)}</span>`).join('')
+    return `<div class="pr-mrow"><div class="pr-mtopic">${esc(t.topic)}<span class="pr-mtopic-badge ${badge}">${badgeText}</span></div>${chips}</div>`
+  }).join('')
   const commentHtml = r.comment ? esc(r.comment) : `<span class="ph">（老師評語）</span>`
+  const noteHtml = `<div class="pr-note">${commentHtml}<div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>`
+  const footHtml = `<table class="pr-foot"><tbody><tr><td>本報告由 AI 批改系統彙整、評語經任課老師審閱．答對率以本次評量實際作答計算</td><td class="r">${esc(h.schoolName)}・${esc(h.subject)}科</td></tr></tbody></table>`
 
   return `<div class="pr-root">
     <table class="pr-mast"><tbody><tr>
@@ -548,16 +602,27 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
       <td class="txt">紅色＝明顯偏低、值得優先加強</td>
     </tr></tbody></table>
 
-    <div class="pr-sec">三、需要加強的地方</div>
-    ${r.hasAnalysis ? weakMapHtml : `<table class="pr-wtab"><thead><tr><th class="qcell">題號</th><th>作答狀況與訂正方向</th></tr></thead><tbody>${wrongsHtml}</tbody></table>${moreRow}`}
+    ${r.hasAnalysis ? `
+    <div class="pr-sec">三、各主題知識點的精熟程度</div>
+    ${masteryLegend}
+    ${masteryHtml}
+
+    <div class="pr-page2">
+      <div class="pr-sec">四、需要加強的地方</div>
+      ${weakMapHtml}
+
+      <div class="pr-sec">五、老師的話</div>
+      ${noteHtml}
+
+      ${footHtml}
+    </div>` : `
+    <div class="pr-sec">三、重點錯題與訂正方向</div>
+    <table class="pr-wtab"><thead><tr><th class="qcell">題號</th><th>作答狀況與訂正方向</th></tr></thead><tbody>${wrongsHtml}</tbody></table>${moreRow}
 
     <div class="pr-sec">四、老師的話</div>
-    <div class="pr-note">${commentHtml}<div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>
+    ${noteHtml}
 
-    <table class="pr-foot"><tbody><tr>
-      <td>本報告由 AI 批改系統彙整、評語經任課老師審閱．答對率以本次評量實際作答計算</td>
-      <td class="r">${esc(h.schoolName)}・${esc(h.subject)}科</td>
-    </tr></tbody></table>
+    ${footHtml}`}
   </div>`
 }
 
