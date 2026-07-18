@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FileDown, Eye, RefreshCw, Loader2, Sparkles, Settings, CheckSquare } from 'lucide-react'
 import {
-  assembleParentReports, generateParentComment, createReportPdfBlob,
-  downloadSingleReport, downloadReportsAsZip,
+  assembleParentReports, generateParentComment,
+  previewReport, printSingleReport, printReports,
   loadReportHeaderSettings, loadCachedComments, saveCachedComment,
   type PRQuestion, type PRSubmission, type PRStudent, type ReportHeader, type StudentReport,
 } from '@/lib/parentReport'
@@ -37,8 +37,7 @@ export function ParentReportTab({
   const [multiSelect, setMultiSelect] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [batchGen, setBatchGen] = useState<{ done: number; total: number } | null>(null)
-  const [rowBusy, setRowBusy] = useState<Record<string, 'download' | 'gen' | 'preview' | undefined>>({})
-  const [batchDownload, setBatchDownload] = useState<{ done: number; total: number } | null>(null)
+  const [rowBusy, setRowBusy] = useState<Record<string, 'gen' | undefined>>({})
   const [settings, setSettings] = useState(loadReportHeaderSettings())
   const [msg, setMsg] = useState('')
 
@@ -67,7 +66,12 @@ export function ParentReportTab({
   const allSelected = reports.length > 0 && selected.size === reports.length
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(reports.map((r) => r.studentId)))
 
-  const busy = batchGen !== null || batchDownload !== null
+  const busy = batchGen !== null
+
+  const onPopupBlocked = (e: unknown) => {
+    if (e instanceof Error && e.message === 'POPUP_BLOCKED') setMsg('瀏覽器擋掉了新視窗，請允許本站的彈出視窗後再試一次')
+    else setMsg('開啟報告失敗，請再試一次')
+  }
 
   // 單列：生成 / 重新生成評語
   const genOne = async (r: StudentReport) => {
@@ -76,21 +80,8 @@ export function ParentReportTab({
     if (text) setComment(r.studentId, text); else setMsg('評語生成失敗，請再試一次或手動輸入')
     setRowBusy((p) => ({ ...p, [r.studentId]: undefined }))
   }
-  const previewOne = async (r: StudentReport) => {
-    setRowBusy((p) => ({ ...p, [r.studentId]: 'preview' }))
-    try {
-      const blob = await createReportPdfBlob(r, header)
-      const url = URL.createObjectURL(blob)
-      window.open(url, '_blank')
-      setTimeout(() => URL.revokeObjectURL(url), 30000)
-    } catch { setMsg('預覽失敗，請再試一次') }
-    setRowBusy((p) => ({ ...p, [r.studentId]: undefined }))
-  }
-  const downloadOne = async (r: StudentReport) => {
-    setRowBusy((p) => ({ ...p, [r.studentId]: 'download' }))
-    try { await downloadSingleReport(r, header) } catch { setMsg('下載失敗，請再試一次') }
-    setRowBusy((p) => ({ ...p, [r.studentId]: undefined }))
-  }
+  const previewOne = (r: StudentReport) => { setMsg(''); try { previewReport(r, header) } catch (e) { onPopupBlocked(e) } }
+  const printOne = (r: StudentReport) => { setMsg(''); try { printSingleReport(r, header) } catch (e) { onPopupBlocked(e) } }
 
   // 批次（多選模式）：只對「勾選、且尚無評語」的生成，保護已編輯內容
   const genSelected = async () => {
@@ -105,14 +96,10 @@ export function ParentReportTab({
     })
     setBatchGen(null)
   }
-  const downloadSelected = async () => {
+  const printSelected = () => {
     const picked = reports.filter((r) => selected.has(r.studentId))
-    if (!picked.length) { setMsg('請先勾選要下載的學生'); return }
-    setMsg(''); setBatchDownload({ done: 0, total: picked.length })
-    try {
-      await downloadReportsAsZip(picked, header, { onProgress: (done, total) => setBatchDownload({ done, total }) })
-    } catch { setMsg('批次下載失敗，請再試一次') }
-    setBatchDownload(null)
+    if (!picked.length) { setMsg('請先勾選要列印的學生'); return }
+    setMsg(''); try { printReports(picked, header) } catch (e) { onPopupBlocked(e) }
   }
 
   const enterMulti = () => { setMultiSelect(true); setSelected(new Set()) }
@@ -150,11 +137,12 @@ export function ParentReportTab({
               {batchGen ? `生成評語 ${batchGen.done}/${batchGen.total}` : `生成教師評語（${selected.size}）`}
             </button>
             <button
-              onClick={downloadSelected} disabled={busy || selected.size === 0}
+              onClick={printSelected} disabled={busy || selected.size === 0}
               className="flex items-center gap-1.5 rounded-lg border border-sky-600 px-3 py-1.5 text-sm font-medium text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
+              title="合併成一份多頁 PDF（列印時選「另存為 PDF」）"
             >
-              {batchDownload ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-              {batchDownload ? `打包中 ${batchDownload.done}/${batchDownload.total}` : `下載報告（${selected.size}）`}
+              <FileDown className="h-4 w-4" />
+              {`列印／存 PDF（${selected.size}）`}
             </button>
             <button onClick={exitMulti} disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-40">取消多選</button>
           </>
@@ -213,13 +201,13 @@ export function ParentReportTab({
                         {rb === 'gen' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (r.comment ? <RefreshCw className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />)}
                         {r.comment ? '重新生成' : '生成評語'}
                       </button>
-                      <button onClick={() => previewOne(r)} disabled={!!rb || busy} title="預覽"
+                      <button onClick={() => previewOne(r)} disabled={!!rb || busy} title="預覽（新分頁檢視）"
                         className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40">
-                        {rb === 'preview' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+                        <Eye className="h-4 w-4" />
                       </button>
-                      <button onClick={() => downloadOne(r)} disabled={!!rb || busy} title="下載 PDF"
+                      <button onClick={() => printOne(r)} disabled={!!rb || busy} title="列印／存成 PDF"
                         className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40">
-                        {rb === 'download' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                        <FileDown className="h-4 w-4" />
                       </button>
                     </div>
                   </td>
@@ -230,7 +218,7 @@ export function ParentReportTab({
         </table>
       </div>
       <p className="text-xs text-slate-400">
-        預設一位一位處理：按「生成評語」→ 可直接修改（自動保留）→「下載」。要一次處理多位，按右上「多選」。
+        預設一位一位處理：按「生成評語」→ 可直接修改（自動保留）→「列印／存成 PDF」（會開新分頁、在列印視窗選「另存為 PDF」）。要一次處理多位，按右上「多選」。
       </p>
     </div>
   )
