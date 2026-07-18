@@ -1,7 +1,7 @@
-// 家長報告分頁（2026-07-18 改版、user 拍板獨立 tab）：生成評語→逐生編輯→單獨/批次下載 PDF。
-//   設定（校名/校徽/老師）在偏好設定頁維護；評語編輯後存 localStorage（依作業快取、跨次保留）。
+// 家長報告分頁（2026-07-18 互動改版、user 拍板）：預設一份一份處理（每列自帶生成/重新生成+預覽+下載）；
+//   右上「多選」開關才顯示勾選框與批次（生成評語 / 下載報告）。設定在偏好設定頁；評語編輯存 localStorage 依作業快取。
 import { useEffect, useMemo, useState } from 'react'
-import { FileDown, Eye, RefreshCw, Loader2, Sparkles, Settings } from 'lucide-react'
+import { FileDown, Eye, RefreshCw, Loader2, Sparkles, Settings, CheckSquare } from 'lucide-react'
 import {
   assembleParentReports, generateParentComment, createReportPdfBlob,
   downloadSingleReport, downloadReportsAsZip,
@@ -34,16 +34,14 @@ export function ParentReportTab({
   questions, submissions, students, assignmentId, className, subject, assignmentTitle, onOpenPreferences,
 }: Props) {
   const [reports, setReports] = useState<StudentReport[]>([])
+  const [multiSelect, setMultiSelect] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [commentPhase, setCommentPhase] = useState<'idle' | 'running'>('idle')
-  const [commentProgress, setCommentProgress] = useState({ done: 0, total: 0 })
-  const [rowBusy, setRowBusy] = useState<Record<string, 'download' | 'regen' | 'preview' | undefined>>({})
-  const [batchBusy, setBatchBusy] = useState(false)
-  const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 })
+  const [batchGen, setBatchGen] = useState<{ done: number; total: number } | null>(null)
+  const [rowBusy, setRowBusy] = useState<Record<string, 'download' | 'gen' | 'preview' | undefined>>({})
+  const [batchDownload, setBatchDownload] = useState<{ done: number; total: number } | null>(null)
   const [settings, setSettings] = useState(loadReportHeaderSettings())
   const [msg, setMsg] = useState('')
 
-  // 組裝報告 + 套用快取評語
   useEffect(() => {
     setSettings(loadReportHeaderSettings())
     let list: StudentReport[] = []
@@ -51,7 +49,7 @@ export function ParentReportTab({
     const cached = loadCachedComments(assignmentId)
     for (const r of list) if (cached[r.studentId]) r.comment = cached[r.studentId]
     setReports(list)
-    setSelected(new Set(list.map((r) => r.studentId)))
+    setSelected(new Set()) // 預設不勾選
     setMsg('')
   }, [questions, submissions, students, assignmentId])
 
@@ -69,25 +67,13 @@ export function ParentReportTab({
   const allSelected = reports.length > 0 && selected.size === reports.length
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(reports.map((r) => r.studentId)))
 
-  const hasComments = reports.some((r) => r.comment)
-  const emptyCount = reports.filter((r) => !r.comment).length
+  const busy = batchGen !== null || batchDownload !== null
 
-  const genComments = async () => {
-    const targets = reports.filter((r) => !r.comment) // 只補空的、不蓋掉老師改過的
-    if (!targets.length) return
-    setCommentPhase('running'); setCommentProgress({ done: 0, total: targets.length }); setMsg('')
-    let done = 0
-    await runWithConcurrency(targets, 4, async (r) => {
-      const text = await generateParentComment(r, subject)
-      if (text) setComment(r.studentId, text)
-      done += 1; setCommentProgress({ done, total: targets.length })
-    })
-    setCommentPhase('idle')
-  }
-  const regenOne = async (r: StudentReport) => {
-    setRowBusy((p) => ({ ...p, [r.studentId]: 'regen' }))
+  // 單列：生成 / 重新生成評語
+  const genOne = async (r: StudentReport) => {
+    setRowBusy((p) => ({ ...p, [r.studentId]: 'gen' }))
     const text = await generateParentComment(r, subject)
-    if (text) setComment(r.studentId, text)
+    if (text) setComment(r.studentId, text); else setMsg('評語生成失敗，請再試一次或手動輸入')
     setRowBusy((p) => ({ ...p, [r.studentId]: undefined }))
   }
   const previewOne = async (r: StudentReport) => {
@@ -105,25 +91,39 @@ export function ParentReportTab({
     try { await downloadSingleReport(r, header) } catch { setMsg('下載失敗，請再試一次') }
     setRowBusy((p) => ({ ...p, [r.studentId]: undefined }))
   }
-  const downloadBatch = async () => {
+
+  // 批次（多選模式）：只對「勾選、且尚無評語」的生成，保護已編輯內容
+  const genSelected = async () => {
+    const targets = reports.filter((r) => selected.has(r.studentId) && !r.comment)
+    if (!targets.length) { setMsg('勾選的學生都已有評語（如要重寫，請用各列的「重新生成」）'); return }
+    setMsg(''); setBatchGen({ done: 0, total: targets.length })
+    let done = 0
+    await runWithConcurrency(targets, 4, async (r) => {
+      const text = await generateParentComment(r, subject)
+      if (text) setComment(r.studentId, text)
+      done += 1; setBatchGen({ done, total: targets.length })
+    })
+    setBatchGen(null)
+  }
+  const downloadSelected = async () => {
     const picked = reports.filter((r) => selected.has(r.studentId))
     if (!picked.length) { setMsg('請先勾選要下載的學生'); return }
-    setBatchBusy(true); setBatchProgress({ done: 0, total: picked.length }); setMsg('')
+    setMsg(''); setBatchDownload({ done: 0, total: picked.length })
     try {
-      await downloadReportsAsZip(picked, header, { onProgress: (done, total) => setBatchProgress({ done, total }) })
+      await downloadReportsAsZip(picked, header, { onProgress: (done, total) => setBatchDownload({ done, total }) })
     } catch { setMsg('批次下載失敗，請再試一次') }
-    setBatchBusy(false)
+    setBatchDownload(null)
   }
+
+  const enterMulti = () => { setMultiSelect(true); setSelected(new Set()) }
+  const exitMulti = () => { setMultiSelect(false); setSelected(new Set()) }
 
   if (!reports.length) {
     return <section className="card" style={{ color: '#64748b', fontSize: 13 }}>此作業已批改的卷數不足，暫無法產生家長報告。</section>
   }
 
-  const busy = commentPhase === 'running' || batchBusy
-
   return (
     <div className="space-y-3">
-      {/* 設定狀態列 */}
       {!settings.schoolName && (
         <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
           <span>尚未設定學校名稱，報告抬頭會空白。</span>
@@ -135,24 +135,34 @@ export function ParentReportTab({
 
       {/* 工具列 */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-        <button
-          onClick={genComments} disabled={busy || emptyCount === 0}
-          className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {commentPhase === 'running' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          {commentPhase === 'running' ? `生成評語 ${commentProgress.done}/${commentProgress.total}` : hasComments ? `補生成評語（${emptyCount}）` : '生成老師評語'}
-        </button>
+        <span className="text-sm text-slate-500">{multiSelect ? `已勾選 ${selected.size} / ${reports.length} 位` : `共 ${reports.length} 位學生`}</span>
         <div className="flex-1" />
-        <label className="flex items-center gap-1.5 text-sm text-slate-500">
-          <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-sky-600" />全選
-        </label>
-        <button
-          onClick={downloadBatch} disabled={busy || selected.size === 0}
-          className="flex items-center gap-1.5 rounded-lg border border-sky-600 px-3 py-1.5 text-sm font-medium text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {batchBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-          {batchBusy ? `打包中 ${batchProgress.done}/${batchProgress.total}` : `批次下載（${selected.size}）`}
-        </button>
+        {multiSelect ? (
+          <>
+            <label className="flex items-center gap-1.5 text-sm text-slate-500">
+              <input type="checkbox" checked={allSelected} onChange={toggleAll} className="h-4 w-4 accent-sky-600" />全選
+            </label>
+            <button
+              onClick={genSelected} disabled={busy || selected.size === 0}
+              className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {batchGen ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {batchGen ? `生成評語 ${batchGen.done}/${batchGen.total}` : `生成教師評語（${selected.size}）`}
+            </button>
+            <button
+              onClick={downloadSelected} disabled={busy || selected.size === 0}
+              className="flex items-center gap-1.5 rounded-lg border border-sky-600 px-3 py-1.5 text-sm font-medium text-sky-700 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {batchDownload ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+              {batchDownload ? `打包中 ${batchDownload.done}/${batchDownload.total}` : `下載報告（${selected.size}）`}
+            </button>
+            <button onClick={exitMulti} disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 disabled:opacity-40">取消多選</button>
+          </>
+        ) : (
+          <button onClick={enterMulti} className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
+            <CheckSquare className="h-4 w-4" />多選
+          </button>
+        )}
       </div>
 
       {msg && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{msg}</div>}
@@ -162,11 +172,11 @@ export function ParentReportTab({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs text-slate-500">
-              <th className="w-10 px-3 py-2"></th>
+              {multiSelect && <th className="w-10 px-3 py-2"></th>}
               <th className="w-28 px-2 py-2">座號 · 姓名</th>
               <th className="w-16 px-2 py-2 text-right">分數</th>
               <th className="px-2 py-2">老師的話（可編輯）</th>
-              <th className="w-32 px-2 py-2 text-center">操作</th>
+              <th className="w-52 px-2 py-2 text-center">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -174,9 +184,11 @@ export function ParentReportTab({
               const rb = rowBusy[r.studentId]
               return (
                 <tr key={r.studentId} className="border-b border-slate-50 last:border-0 align-top">
-                  <td className="px-3 py-2.5">
-                    <input type="checkbox" checked={selected.has(r.studentId)} onChange={() => toggle(r.studentId)} className="h-4 w-4 accent-sky-600" />
-                  </td>
+                  {multiSelect && (
+                    <td className="px-3 py-2.5">
+                      <input type="checkbox" checked={selected.has(r.studentId)} onChange={() => toggle(r.studentId)} className="h-4 w-4 accent-sky-600" />
+                    </td>
+                  )}
                   <td className="px-2 py-2.5">
                     <span className="font-medium text-slate-800">{r.seat}</span>
                     <span className="ml-1.5 text-slate-600">{r.name}</span>
@@ -189,16 +201,17 @@ export function ParentReportTab({
                     <textarea
                       value={r.comment}
                       onChange={(e) => setComment(r.studentId, e.target.value)}
-                      placeholder={commentPhase === 'running' ? '生成中…' : '按上方「生成老師評語」，或直接手動輸入'}
+                      placeholder="按右側「生成評語」，或直接手動輸入"
                       rows={3}
                       className="w-full resize-y rounded-md border border-slate-200 px-2.5 py-1.5 text-[13px] leading-relaxed text-slate-700 focus:border-sky-400 focus:outline-none"
                     />
                   </td>
                   <td className="px-2 py-2.5">
                     <div className="flex items-center justify-center gap-1">
-                      <button onClick={() => regenOne(r)} disabled={!!rb || busy} title="重新生成評語"
-                        className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40">
-                        {rb === 'regen' ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                      <button onClick={() => genOne(r)} disabled={!!rb || busy}
+                        className="flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 disabled:opacity-40">
+                        {rb === 'gen' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (r.comment ? <RefreshCw className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />)}
+                        {r.comment ? '重新生成' : '生成評語'}
                       </button>
                       <button onClick={() => previewOne(r)} disabled={!!rb || busy} title="預覽"
                         className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40">
@@ -217,7 +230,7 @@ export function ParentReportTab({
         </table>
       </div>
       <p className="text-xs text-slate-400">
-        評語由 AI 依批改結果生成，你可以直接修改；修改會自動保留。下載的 PDF 一位學生一份，可個別或勾選批次打包。
+        預設一位一位處理：按「生成評語」→ 可直接修改（自動保留）→「下載」。要一次處理多位，按右上「多選」。
       </p>
     </div>
   )
