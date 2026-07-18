@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import {
   ArrowLeft,
   Loader,
@@ -7,8 +7,11 @@ import {
   RotateCcw,
   RefreshCw,
   CheckCircle2,
+  FileText,
+  Image as ImageIcon,
   AlertCircle
 } from 'lucide-react'
+import { loadReportHeaderSettings, saveReportHeaderSettings, type ReportHeaderSettings } from '@/lib/parentReport'
 import { NumericInput } from '@/components/NumericInput'
 import { requestSync } from '@/lib/sync-events'
 
@@ -440,6 +443,9 @@ export default function TeacherPreferences({
               </SectionCard>
             )}
 
+            {/* 家長報告設定（localStorage、本機保留、與上方 server 設定分開即時儲存） */}
+            <ParentReportSettings />
+
             {/* 儲存按鈕 */}
             <div className="flex items-center justify-end gap-3 pb-8">
               {saveSuccess && (
@@ -466,5 +472,77 @@ export default function TeacherPreferences({
         )}
       </div>
     </div>
+  )
+}
+
+// 家長報告抬頭設定（校名/校徽/老師）——本機即時儲存（localStorage），供學情報告「家長報告」分頁一鍵套用。
+function ParentReportSettings() {
+  const [v, setV] = useState<ReportHeaderSettings>(loadReportHeaderSettings())
+  const [saved, setSaved] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [err, setErr] = useState('')
+
+  const update = (patch: Partial<ReportHeaderSettings>) => {
+    const next = { ...v, ...patch }
+    setV(next)
+    saveReportHeaderSettings(next)
+    setSaved(true)
+    window.setTimeout(() => setSaved(false), 1500)
+  }
+  const onPickCrest = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 2 * 1024 * 1024) { setErr('校徽圖片請小於 2MB'); return }
+    setErr('')
+    const reader = new FileReader()
+    reader.onload = () => update({ crestDataUrl: typeof reader.result === 'string' ? reader.result : undefined })
+    reader.readAsDataURL(file)
+  }
+
+  return (
+    <SectionCard title="家長報告設定" icon={FileText}>
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-800">學校名稱</label>
+          <input
+            value={v.schoolName}
+            onChange={(e) => update({ schoolName: e.target.value })}
+            placeholder="例：○○私立高級中學附設國中部"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
+          />
+          <p className="mt-1 text-xs text-slate-400">顯示在家長報告的抬頭。</p>
+        </div>
+
+        <div className="flex gap-4">
+          <div className="flex-1">
+            <label className="mb-1.5 block text-sm font-medium text-slate-800">任課老師（選填）</label>
+            <input
+              value={v.teacherName ?? ''}
+              onChange={(e) => update({ teacherName: e.target.value })}
+              placeholder="例：林○○"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-sky-400 focus:outline-none focus:ring-1 focus:ring-sky-400"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-800">校徽（選填）</label>
+            <div className="flex items-center gap-2">
+              {v.crestDataUrl
+                ? <img src={v.crestDataUrl} alt="校徽" className="h-10 w-10 rounded border border-slate-200 object-contain" />
+                : <div className="flex h-10 w-10 items-center justify-center rounded border border-dashed border-slate-300 text-slate-300"><ImageIcon className="h-4 w-4" /></div>}
+              <button type="button" onClick={() => fileRef.current?.click()} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50">
+                {v.crestDataUrl ? '更換' : '上傳'}
+              </button>
+              {v.crestDataUrl && <button type="button" onClick={() => update({ crestDataUrl: undefined })} className="text-sm text-slate-400 hover:text-slate-600">移除</button>}
+              <input ref={fileRef} type="file" accept="image/*" onChange={onPickCrest} className="hidden" />
+            </div>
+          </div>
+        </div>
+
+        {err && <p className="text-sm text-red-600">{err}</p>}
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          {saved ? <span className="flex items-center gap-1 text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" />已儲存</span> : <span>修改會自動儲存於本機。</span>}
+        </div>
+      </div>
+    </SectionCard>
   )
 }

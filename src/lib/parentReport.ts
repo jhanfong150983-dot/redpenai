@@ -466,68 +466,102 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
   </div>`
 }
 
-// ── 批量產出：每生一頁 PDF → jszip 打包下載 ──
+// ── 本地儲存：報告抬頭設定（老師個人、偏好設定頁維護）＋ 老師編輯過的評語（依作業快取） ──
+const HEADER_STORE_KEY = 'parentReport.header.v1'
+export type ReportHeaderSettings = { schoolName: string; crestDataUrl?: string; teacherName?: string }
+export function loadReportHeaderSettings(): ReportHeaderSettings {
+  try { const v = JSON.parse(localStorage.getItem(HEADER_STORE_KEY) || '{}'); return { schoolName: v.schoolName || '', crestDataUrl: v.crestDataUrl, teacherName: v.teacherName } } catch { return { schoolName: '' } }
+}
+export function saveReportHeaderSettings(v: ReportHeaderSettings): void {
+  try { localStorage.setItem(HEADER_STORE_KEY, JSON.stringify(v)) } catch { /* quota */ }
+}
+
+const commentsKey = (assignmentId: string) => `parentReport.comments.${assignmentId}`
+export function loadCachedComments(assignmentId: string): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(commentsKey(assignmentId)) || '{}') } catch { return {} }
+}
+export function saveCachedComment(assignmentId: string, studentId: string, comment: string): void {
+  try {
+    const all = loadCachedComments(assignmentId)
+    if (comment) all[studentId] = comment; else delete all[studentId]
+    localStorage.setItem(commentsKey(assignmentId), JSON.stringify(all))
+  } catch { /* quota */ }
+}
+
+// ── PDF 產出：單份 blob（個別下載/預覽）＋ 批次 zip（勾選下載） ──
 export type GenerateOptions = { onProgress?: (done: number, total: number) => void }
 
 function safeFileName(s: string): string {
   return String(s).replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '').slice(0, 60)
 }
+export function reportFileName(r: StudentReport): string {
+  return `${String(r.seat).padStart(2, '0')}_${safeFileName(r.name)}.pdf`
+}
 
-export async function generateParentReportZip(
-  reports: StudentReport[],
-  header: ReportHeader,
-  options: GenerateOptions = {}
-): Promise<{ generated: number }> {
-  if (!reports.length) return { generated: 0 }
-  const [{ default: html2canvas }, jsPDFModule, jsZipModule] = await Promise.all([
-    import('html2canvas'), import('jspdf'), import('jszip'),
-  ])
+// 掛載離屏 staging（注入樣式 + 隱藏容器），回傳「渲染單份→PDF blob」的函式與卸載函式。
+async function mountStaging() {
+  const [{ default: html2canvas }, jsPDFModule] = await Promise.all([import('html2canvas'), import('jspdf')])
   const JsPDF = jsPDFModule.jsPDF
-  const JSZip = jsZipModule.default
-  const zip = new JSZip()
-
-  // 注入版面樣式
   const styleEl = document.createElement('style')
   styleEl.textContent = REPORT_CSS
   document.head.appendChild(styleEl)
-
   const host = document.createElement('div')
   host.style.cssText = 'position:fixed;left:-100000px;top:0;width:794px;height:1123px;pointer-events:none;z-index:-1;'
   document.body.appendChild(host)
+  const renderOne = async (r: StudentReport, header: ReportHeader): Promise<Blob> => {
+    host.innerHTML = renderReportHtml(r, header)
+    const target = host.firstElementChild as HTMLElement
+    const canvas = await html2canvas(target, {
+      scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false,
+      width: 794, height: 1123, windowWidth: 794, windowHeight: 1123,
+    })
+    const imgData = canvas.toDataURL('image/jpeg', 0.92)
+    const doc = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
+    doc.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST')
+    return doc.output('blob')
+  }
+  return { renderOne, unmount: () => { host.remove(); styleEl.remove() } }
+}
 
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename
+  document.body.appendChild(a); a.click(); a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
+/** 產生單一學生報告的 PDF Blob（供個別下載、預覽用）。 */
+export async function createReportPdfBlob(report: StudentReport, header: ReportHeader): Promise<Blob> {
+  const { renderOne, unmount } = await mountStaging()
+  try { return await renderOne(report, header) } finally { unmount() }
+}
+
+/** 直接下載單一學生報告 PDF。 */
+export async function downloadSingleReport(report: StudentReport, header: ReportHeader): Promise<void> {
+  const blob = await createReportPdfBlob(report, header)
+  triggerDownload(blob, reportFileName(report))
+}
+
+/** 批次：多位學生一起打包 zip 下載。 */
+export async function downloadReportsAsZip(
+  reports: StudentReport[], header: ReportHeader, options: GenerateOptions = {}
+): Promise<{ generated: number }> {
+  if (!reports.length) return { generated: 0 }
+  const [{ default: JSZip }, staging] = await Promise.all([import('jszip').then((m) => ({ default: m.default })), mountStaging()])
+  const zip = new JSZip()
   try {
     for (let i = 0; i < reports.length; i++) {
-      const r = reports[i]
-      host.innerHTML = renderReportHtml(r, header)
-      const target = host.firstElementChild as HTMLElement | null
-      if (!target) continue
-      const canvas = await html2canvas(target, {
-        scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false,
-        width: 794, height: 1123, windowWidth: 794, windowHeight: 1123,
-      })
-      const imgData = canvas.toDataURL('image/jpeg', 0.92)
-      const doc = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
-      doc.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST')
-      const blob = doc.output('blob')
-      const fname = `${String(r.seat).padStart(2, '0')}_${safeFileName(r.name)}.pdf`
-      zip.file(fname, blob)
+      const blob = await staging.renderOne(reports[i], header)
+      zip.file(reportFileName(reports[i]), blob)
       options.onProgress?.(i + 1, reports.length)
     }
     const zipBlob = await zip.generateAsync({ type: 'blob' })
     const today = new Date()
     const dateKey = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`
-    const zipName = `家長報告_${safeFileName(header.className)}_${safeFileName(header.assignmentTitle)}_${dateKey}.zip`
-    const url = URL.createObjectURL(zipBlob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = zipName
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 4000)
+    triggerDownload(zipBlob, `家長報告_${safeFileName(header.className)}_${safeFileName(header.assignmentTitle)}_${dateKey}.zip`)
   } finally {
-    host.remove()
-    styleEl.remove()
+    staging.unmount()
   }
   return { generated: reports.length }
 }
