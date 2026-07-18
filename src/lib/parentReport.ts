@@ -509,15 +509,17 @@ export function saveCachedComment(assignmentId: string, studentId: string, comme
   } catch { /* quota */ }
 }
 
-// ── PDF 產出：改用瀏覽器原生列印（2026-07-18、user 拍板） ──
-// 為什麼不用 html2canvas：它有自己一套 CSS 排版引擎、對 table/vertical-align/text-align 的計算與瀏覽器不同 →
-//   跑版無法靠改 CSS 磨平（實測 artifact 瀏覽器渲染正確、html2canvas 輸出歪）。改開新視窗用瀏覽器原生列印，
-//   渲染 100% 與畫面一致，老師在列印對話框選「另存為 PDF」。單份=一份、批次=合併多頁一份。
+// ── PDF 產出：伺服器端 headless Chrome 渲染（2026-07-18、user 拍板） ──
+// 為什麼不用 html2canvas / 瀏覽器列印：html2canvas 排版引擎與瀏覽器不同會跑版；瀏覽器列印要開網頁+列印對話框，
+//   user 要「按下去直接得到 PDF 檔」。改由後端 /api/report/parent-pdf 用真 Chrome 渲染回傳 PDF 位元組，
+//   渲染 100% 準、直接下載檔案、個別檔+zip 都保留。中文字型靠 HTML 內的 Google Fonts Noto Sans TC（後端開網路抓）。
+const PDF_ENDPOINT = '/api/report/parent-pdf'
+const FONT_LINK = '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet">'
 
-// 組一份可列印的完整 HTML（含 REPORT_CSS + 列印分頁規則）。
+// 組一份可渲染的完整 HTML（含字型連結、REPORT_CSS、A4 分頁規則）。多份時每份一頁（page-break）。
 function buildPrintDocument(reports: StudentReport[], header: ReportHeader): string {
   const pages = reports.map((r) => renderReportHtml(r, header)).join('\n')
-  return `<!doctype html><html><head><meta charset="utf-8"><title>家長學習報告</title>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>家長學習報告</title>${FONT_LINK}
 <style>
 @page { size: A4; margin: 0; }
 html, body { margin: 0; padding: 0; background: #fff; }
@@ -527,32 +529,65 @@ ${REPORT_CSS}
 </style></head><body>${pages}</body></html>`
 }
 
-// 開新視窗寫入報告 HTML；autoPrint=true 時載入後自動叫出列印對話框。
-function openReportWindow(reports: StudentReport[], header: ReportHeader, autoPrint: boolean): void {
-  const win = window.open('', '_blank')
-  if (!win) throw new Error('POPUP_BLOCKED')
-  win.document.open()
-  win.document.write(buildPrintDocument(reports, header))
-  win.document.close()
-  if (autoPrint) {
-    // 給版面/校徽(data URI)一點載入時間再列印；只叫一次（用旗標防重複）。
-    let printed = false
-    const doPrint = () => { if (printed) return; printed = true; try { win.focus(); win.print() } catch { /* 使用者可自行 Ctrl+P */ } }
-    win.onload = doPrint
-    setTimeout(doPrint, 500)
+async function fetchReportPdf(reports: StudentReport[], header: ReportHeader): Promise<Blob> {
+  const res = await fetch(PDF_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ html: buildPrintDocument(reports, header) }),
+  })
+  if (!res.ok) {
+    let msg = `PDF 產生失敗（${res.status}）`
+    try { const j = await res.json(); if (j?.error) msg = j.error } catch { /* 非 JSON */ }
+    throw new Error(msg)
   }
+  return await res.blob()
 }
 
-/** 預覽：開新分頁檢視報告（不自動列印，老師可自行 Ctrl+P）。 */
-export function previewReport(report: StudentReport, header: ReportHeader): void {
-  openReportWindow([report], header, false)
+function safeFileName(s: string): string {
+  return String(s).replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '').slice(0, 60)
 }
-/** 單份：開新分頁並叫出列印對話框（老師選「另存為 PDF」得到這位學生的一份 PDF）。 */
-export function printSingleReport(report: StudentReport, header: ReportHeader): void {
-  openReportWindow([report], header, true)
+export function reportFileName(r: StudentReport): string {
+  return `${String(r.seat).padStart(2, '0')}_${safeFileName(r.name)}.pdf`
 }
-/** 批次：多位學生合併為多頁 A4、一次列印（另存為 PDF＝一份含多位的 PDF）。 */
-export function printReports(reports: StudentReport[], header: ReportHeader): void {
-  if (!reports.length) return
-  openReportWindow(reports, header, true)
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename
+  document.body.appendChild(a); a.click(); a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 4000)
+}
+
+/** 單份 PDF Blob（供下載、預覽）。 */
+export async function createReportPdfBlob(report: StudentReport, header: ReportHeader): Promise<Blob> {
+  return fetchReportPdf([report], header)
+}
+/** 單份：直接下載這位學生的 PDF 檔。 */
+export async function downloadSingleReport(report: StudentReport, header: ReportHeader): Promise<void> {
+  const blob = await createReportPdfBlob(report, header)
+  triggerDownload(blob, reportFileName(report))
+}
+/** 批次：每位一份 PDF、打包 zip 下載（並發 3、逐份回報進度）。 */
+export type GenerateOptions = { onProgress?: (done: number, total: number) => void }
+export async function downloadReportsAsZip(
+  reports: StudentReport[], header: ReportHeader, options: GenerateOptions = {}
+): Promise<{ generated: number; failed: number }> {
+  if (!reports.length) return { generated: 0, failed: 0 }
+  const { default: JSZip } = await import('jszip')
+  const zip = new JSZip()
+  let done = 0, failed = 0
+  const limit = 3
+  let idx = 0
+  await Promise.all(Array.from({ length: Math.min(limit, reports.length) }, async () => {
+    while (idx < reports.length) {
+      const r = reports[idx++]
+      try { zip.file(reportFileName(r), await createReportPdfBlob(r, header)) } catch { failed++ }
+      done++; options.onProgress?.(done, reports.length)
+    }
+  }))
+  const zipBlob = await zip.generateAsync({ type: 'blob' })
+  const today = new Date()
+  const dateKey = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`
+  triggerDownload(zipBlob, `家長報告_${safeFileName(header.className)}_${safeFileName(header.assignmentTitle)}_${dateKey}.zip`)
+  return { generated: reports.length - failed, failed }
 }
