@@ -346,10 +346,11 @@ export const REPORT_CSS = `
 .pr-hero { width:100%; border-collapse:collapse; border:1px solid #D9DEE4; }
 .pr-hero td { vertical-align:middle; padding:16px 20px; }
 .pr-scorecell { width:188px; text-align:center; border-right:1px solid #E8ECF0; }
-.pr-score .n { font-size:54px; font-weight:800; line-height:1; color:#1E4D8C; }
+.pr-score { text-align:center; }
+.pr-score .n { font-size:52px; font-weight:800; line-height:1.05; color:#1E4D8C; text-align:center; }
 .pr-score .n.low { color:#C2402A; }
-.pr-score .o { font-size:12px; color:#7B8794; margin-top:4px; }
-.pr-score .g { display:inline-block; margin-top:8px; font-size:12px; font-weight:700; letter-spacing:.08em; padding:3px 12px; border-radius:3px; background:#E3EBF5; color:#1E4D8C; }
+.pr-score .o { font-size:12px; color:#7B8794; margin-top:6px; text-align:center; }
+.pr-score .g { display:inline-block; margin-top:10px; font-size:12px; font-weight:700; letter-spacing:.08em; padding:3px 14px; border-radius:3px; background:#E3EBF5; color:#1E4D8C; }
 .pr-score .g.low { background:#FBEAE6; color:#C2402A; }
 .pr-dist .cap { font-size:11px; color:#7B8794; margin-bottom:12px; }
 .pr-bar { position:relative; height:22px; margin:0 4px; }
@@ -374,10 +375,12 @@ export const REPORT_CSS = `
 .pr-track .fill.low { background:#C2402A; }
 .pr-track .cls { position:absolute; top:-3px; width:2px; height:18px; margin-left:-1px; background:#7B8794; }
 .pr-types .pct { width:46px; text-align:right; font-size:12.5px; font-weight:700; }
-.pr-tlgd { font-size:11px; color:#7B8794; margin-top:8px; }
-.pr-tlgd span { margin-right:16px; }
-.pr-tlgd .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:middle; }
-.pr-tlgd .cl { display:inline-block; width:2px; height:12px; background:#7B8794; margin-right:5px; vertical-align:middle; }
+.pr-tlgd { border-collapse:collapse; margin-top:8px; font-size:11px; color:#7B8794; }
+.pr-tlgd td { vertical-align:middle; padding:0; }
+.pr-tlgd .chipcell { width:16px; }
+.pr-tlgd .txt { padding-right:18px; padding-left:5px; white-space:nowrap; }
+.pr-tlgd .sw { width:10px; height:10px; border-radius:2px; }
+.pr-tlgd .cl { width:2px; height:12px; background:#7B8794; margin:0 auto; }
 
 .pr-wtab { width:100%; border-collapse:collapse; font-size:12.5px; }
 .pr-wtab th { text-align:left; font-size:11px; font-weight:500; color:#7B8794; letter-spacing:.06em; padding:4px 8px 6px; border-bottom:1px solid #D9DEE4; }
@@ -464,7 +467,11 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
 
     <div class="pr-sec">二、各題型答對率（與班級平均對照）</div>
     <table class="pr-types"><tbody>${typesHtml}</tbody></table>
-    <div class="pr-tlgd"><span><span class="sw" style="background:#1E4D8C"></span>孩子的答對率</span><span><span class="cl"></span>班級平均</span><span>紅色＝明顯偏低、值得優先加強</span></div>
+    <table class="pr-tlgd"><tbody><tr>
+      <td class="chipcell"><div class="sw" style="background:#1E4D8C"></div></td><td class="txt">孩子的答對率</td>
+      <td class="chipcell"><div class="cl"></div></td><td class="txt">班級平均</td>
+      <td class="txt">紅色＝明顯偏低、值得優先加強</td>
+    </tr></tbody></table>
 
     <div class="pr-sec">三、重點錯題與訂正方向</div>
     <table class="pr-wtab"><thead><tr><th class="qcell">題號</th><th>作答狀況與訂正方向</th></tr></thead><tbody>${wrongsHtml}</tbody></table>
