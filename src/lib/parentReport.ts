@@ -15,6 +15,8 @@ export type PRQuestion = {
   maxScore?: number
   answer?: string
   referenceAnswer?: string
+  /** 2026-07-19 試題分析（backfill 到 answer_key）：大主題 topic + 知識點 knowledgePoints */
+  analysis?: { topic?: string; knowledgePoints?: string[]; ability?: string; cnaArea?: string; note?: string }
 }
 export type PRDetail = {
   questionId?: string
@@ -54,6 +56,8 @@ export type WrongItem = {
   referenceAnswer: string
   reason: string
 }
+export type WeakKp = { kp: string; tip: string }
+export type WeakTopic = { topic: string; band: 'red' | 'amber'; ratePct: number; total: number; wrong: number; weakKps: WeakKp[] }
 export type StudentReport = {
   studentId: string
   name: string
@@ -72,6 +76,10 @@ export type StudentReport = {
   typeRates: TypeRate[]
   wrongs: WrongItem[]
   moreWrongCount: number
+  // 2026-07-19 加強地圖（依大主題分組、建議掛在知識點）；hasAnalysis=false 時退回 wrongs 清單
+  hasAnalysis: boolean
+  weakTopics: WeakTopic[]
+  strongTopics: string[]
   comment: string
 }
 
@@ -132,18 +140,26 @@ export function assembleParentReports(
   questions: PRQuestion[],
   submissions: PRSubmission[],
   students: PRStudent[],
-  opts: { maxWrongs?: number } = {}
+  opts: { maxWrongs?: number; kpTips?: Record<string, string> } = {}
 ): StudentReport[] {
   const maxWrongs = opts.maxWrongs ?? 5
+  const kpTips = opts.kpTips ?? {}
   const qMaxById = new Map<string, number>()
   const qTypeById = new Map<string, string>()
   const qAnswerById = new Map<string, string>()
+  const qTopicById = new Map<string, string>()
+  const qKpsById = new Map<string, string[]>()
+  let anyAnalysis = false
   for (const q of questions) {
     const id = String(q.id ?? q.questionId ?? '').trim()
     if (!id) continue
     qMaxById.set(id, num(q.maxScore))
     qTypeById.set(id, String(q.questionCategory ?? q.questionType ?? '').trim())
     qAnswerById.set(id, String(q.answer ?? q.referenceAnswer ?? '').trim())
+    const topic = String(q.analysis?.topic ?? '').trim()
+    const kps = (q.analysis?.knowledgePoints ?? []).map((k) => String(k).trim()).filter((k) => k && k !== '無法對應')
+    if (topic && topic !== '無法對應') { qTopicById.set(id, topic); anyAnalysis = true }
+    if (kps.length) qKpsById.set(id, kps)
   }
   const examMax = questions.reduce((a, q) => a + num(q.maxScore), 0)
 
@@ -234,6 +250,29 @@ export function assembleParentReports(
       reason: String(x.d.reason ?? '').trim(),
     }))
 
+    // 加強地圖：依大主題分組、算掌握度紅黃綠、抓弱知識點、配共用建議
+    const topicAgg = new Map<string, { got: number; max: number; total: number; wrong: number; wrongKp: Map<string, number> }>()
+    for (const d of p.details) {
+      const qid = String(d.questionId ?? '').trim()
+      const topic = qTopicById.get(qid)
+      if (!topic) continue
+      const mx = num(d.maxScore) > 0 ? num(d.maxScore) : (qMaxById.get(qid) || 0)
+      if (!(mx > 0)) continue
+      if (!topicAgg.has(topic)) topicAgg.set(topic, { got: 0, max: 0, total: 0, wrong: 0, wrongKp: new Map() })
+      const e = topicAgg.get(topic)!
+      e.max += mx; e.got += Math.max(0, Math.min(mx, num(d.score))); e.total++
+      if (d.isCorrect !== true) { e.wrong++; for (const kp of (qKpsById.get(qid) ?? [])) e.wrongKp.set(kp, (e.wrongKp.get(kp) ?? 0) + 1) }
+    }
+    const allTopics = [...topicAgg.entries()].map(([topic, e]) => {
+      const rate = e.max > 0 ? e.got / e.max : 1
+      const band: 'red' | 'amber' | 'green' = rate >= 0.8 ? 'green' : rate >= 0.6 ? 'amber' : 'red'
+      const weakKps: WeakKp[] = [...e.wrongKp.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+        .map(([kp]) => ({ kp, tip: kpTips[kp] ?? '' }))
+      return { topic, band, ratePct: Math.round(rate * 100), total: e.total, wrong: e.wrong, weakKps }
+    })
+    const weakTopics: WeakTopic[] = allTopics.filter((t): t is WeakTopic => t.band !== 'green').sort((a, b) => a.ratePct - b.ratePct)
+    const strongTopics = allTopics.filter((t) => t.band === 'green').map((t) => t.topic)
+
     const ratioPct = examMax > 0 ? (p.total / examMax) * 100 : 0
     reports.push({
       studentId: p.studentId,
@@ -253,6 +292,9 @@ export function assembleParentReports(
       typeRates,
       wrongs,
       moreWrongCount: Math.max(0, wrongAll.length - wrongs.length),
+      hasAnalysis: anyAnalysis,
+      weakTopics,
+      strongTopics,
       comment: '',
     })
   }
@@ -271,11 +313,16 @@ async function ensureInkSessionId(): Promise<string | null> {
   } catch { return null }
 }
 function buildCommentPrompt(r: StudentReport, subject: string): string {
-  const strong = r.typeRates.filter((t) => t.studentRate >= 80).map((t) => t.label).slice(0, 3)
-  const weak = r.typeRates.filter((t) => t.studentRate < 65).map((t) => t.label).slice(0, 3)
-  const wrongLines = r.wrongs.slice(0, 4)
-    .map((w) => `・${formatQuestionLabel(w.questionId)}（${w.typeLabel}）：${w.reason || '答錯'}`)
-    .join('\n') || '（無明顯錯題）'
+  // 有試題分析 → 用「單元＋知識點」給評語更精準；否則退回題型/錯題
+  const strong = r.hasAnalysis
+    ? r.strongTopics.slice(0, 3)
+    : r.typeRates.filter((t) => t.studentRate >= 80).map((t) => t.label).slice(0, 3)
+  const weak = r.hasAnalysis
+    ? r.weakTopics.slice(0, 3).map((t) => t.topic)
+    : r.typeRates.filter((t) => t.studentRate < 65).map((t) => t.label).slice(0, 3)
+  const wrongLines = r.hasAnalysis
+    ? (r.weakTopics.slice(0, 3).map((t) => `・${t.topic}：${t.weakKps.map((k) => k.kp).join('、') || '整體不穩'}`).join('\n') || '（各單元表現都不錯）')
+    : (r.wrongs.slice(0, 4).map((w) => `・${formatQuestionLabel(w.questionId)}（${w.typeLabel}）：${w.reason || '答錯'}`).join('\n') || '（無明顯錯題）')
   return `你是一位溫暖但務實的${subject}老師，正在為家長寫一段簡短的學習回饋（給家長看，稱呼學生用姓名）。
 根據以下這位學生本次評量的表現，寫一段 80～120 字的繁體中文回饋：先肯定表現好的地方，再具體點出「一個」最該加強的重點與一句可行的建議。語氣鼓勵、正向、像老師親口對家長說的話。不要條列、不要 markdown、不要提到分數數字，只輸出這段回饋文字本身。
 
@@ -394,6 +441,22 @@ export const REPORT_CSS = `
 .pr-ans .r { color:#1E4D8C; font-weight:600; }
 .pr-fix { color:#52606D; display:block; }
 .pr-more { font-size:11px; color:#7B8794; padding:6px 8px; }
+/* 加強地圖（依大主題分組、建議掛知識點） */
+.pr-topic { border:1px solid #E8ECF0; border-left-width:4px; border-radius:5px; padding:11px 14px; margin-bottom:9px; }
+.pr-topic.red { border-left-color:#C2402A; background:#FCF3F1; }
+.pr-topic.amber { border-left-color:#C77D0A; background:#FCF7EC; }
+.pr-topic-name { font-size:14px; font-weight:700; color:#1F2933; }
+.pr-topic-badge { display:inline-block; font-size:11px; font-weight:700; padding:1px 8px; border-radius:3px; margin-left:8px; }
+.pr-topic-badge.red { background:#F6D5CE; color:#A5331F; }
+.pr-topic-badge.amber { background:#F4E4C1; color:#8A5A08; }
+.pr-topic-stat { font-size:11.5px; color:#7B8794; margin-left:8px; }
+.pr-topic-lead { font-size:11.5px; color:#7B8794; margin:6px 0 5px; }
+.pr-kp { margin-bottom:6px; }
+.pr-kp-name { font-size:13px; font-weight:700; color:#3E4A56; }
+.pr-kp-tip { display:block; font-size:12.5px; color:#1E4D8C; line-height:1.7; background:#EEF3FA; border-radius:4px; padding:5px 10px; margin-top:3px; }
+.pr-strong { margin-top:6px; font-size:12.5px; color:#2E6B4F; line-height:1.7; background:#EAF5EF; border:1px solid #CDE8D9; border-radius:5px; padding:9px 13px; }
+.pr-strong b { color:#1F5C42; }
+.pr-allgood { font-size:12.5px; color:#2E6B4F; padding:10px 4px; }
 .pr-note { border:1px solid #D9DEE4; border-left:3px solid #C2402A; padding:12px 16px; font-size:13px; line-height:1.85; color:#52606D; }
 .pr-note .sig { text-align:right; color:#7B8794; font-size:12px; margin-top:6px; }
 .pr-note .ph { color:#A6AEB8; }
@@ -433,6 +496,16 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
   }).join('') : `<tr><td colspan="2" style="text-align:center;color:#7B8794;padding:14px">本次沒有明顯失分的題目，表現很好！</td></tr>`
   const moreRow = r.moreWrongCount > 0
     ? `<div class="pr-more">另有 ${r.moreWrongCount} 題失分，完整內容請見孩子的考卷。</div>` : ''
+  // 加強地圖：弱單元卡片（大主題分組＋知識點建議）＋強項一行；全對時給正向句
+  const topicCards = r.weakTopics.map((t) => `<div class="pr-topic ${t.band}">
+      <div><span class="pr-topic-name">${esc(t.topic)}</span><span class="pr-topic-badge ${t.band}">${t.band === 'red' ? '待加強' : '不太穩'}</span><span class="pr-topic-stat">本單元 ${t.total} 題・錯 ${t.wrong} 題</span></div>
+      ${t.weakKps.length ? `<div class="pr-topic-lead">這次主要卡在：</div>` + t.weakKps.map((k) => `<div class="pr-kp"><span class="pr-kp-name">・${esc(k.kp)}</span>${k.tip ? `<span class="pr-kp-tip">💡 ${esc(k.tip)}</span>` : ''}</div>`).join('') : ''}
+    </div>`).join('')
+  const strongLine = r.strongTopics.length
+    ? `<div class="pr-strong">🟢 <b>表現不錯的部分</b>：${esc(r.strongTopics.join('、'))}——這些單元大多答對，觀念紮實，繼續保持！</div>` : ''
+  const weakMapHtml = (r.weakTopics.length
+    ? topicCards
+    : `<div class="pr-allgood">本次各單元表現都不錯，沒有明顯要加強的地方，繼續保持！</div>`) + strongLine
   const commentHtml = r.comment ? esc(r.comment) : `<span class="ph">（老師評語）</span>`
 
   return `<div class="pr-root">
@@ -475,9 +548,8 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
       <td class="txt">紅色＝明顯偏低、值得優先加強</td>
     </tr></tbody></table>
 
-    <div class="pr-sec">三、重點錯題與訂正方向</div>
-    <table class="pr-wtab"><thead><tr><th class="qcell">題號</th><th>作答狀況與訂正方向</th></tr></thead><tbody>${wrongsHtml}</tbody></table>
-    ${moreRow}
+    <div class="pr-sec">三、需要加強的地方</div>
+    ${r.hasAnalysis ? weakMapHtml : `<table class="pr-wtab"><thead><tr><th class="qcell">題號</th><th>作答狀況與訂正方向</th></tr></thead><tbody>${wrongsHtml}</tbody></table>${moreRow}`}
 
     <div class="pr-sec">四、老師的話</div>
     <div class="pr-note">${commentHtml}<div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>

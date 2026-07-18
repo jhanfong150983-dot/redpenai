@@ -410,15 +410,17 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   // 2026-07-16 試題分析（純程式、user 拍板第一波）：選定作業的 answerKey 題目清單（Dexie）
   const [itemAnalysisQuestions, setItemAnalysisQuestions] = useState<ItemAnalysisQuestion[]>([])
   const [itemAnalysisTemplateId, setItemAnalysisTemplateId] = useState('')
+  const [itemAnalysisKpTips, setItemAnalysisKpTips] = useState<Record<string, string>>({})  // 2026-07-19 知識點在家建議（answer_key.kpTips）
   useEffect(() => {
-    if (!selectedAssignmentId) { setItemAnalysisQuestions([]); setItemAnalysisTemplateId(''); return }
+    if (!selectedAssignmentId) { setItemAnalysisQuestions([]); setItemAnalysisTemplateId(''); setItemAnalysisKpTips({}); return }
     db.assignments.get(selectedAssignmentId)
       .then((a) => {
-        const qs = (a?.answerKey as { questions?: ItemAnalysisQuestion[] } | undefined)?.questions
-        setItemAnalysisQuestions(Array.isArray(qs) ? qs : [])
+        const ak = a?.answerKey as { questions?: ItemAnalysisQuestion[]; kpTips?: Record<string, string> } | undefined
+        setItemAnalysisQuestions(Array.isArray(ak?.questions) ? ak!.questions! : [])
         setItemAnalysisTemplateId(a?.answerKeyTemplateId ?? '')
+        setItemAnalysisKpTips(ak?.kpTips && typeof ak.kpTips === 'object' ? ak.kpTips : {})
       })
-      .catch(() => { setItemAnalysisQuestions([]); setItemAnalysisTemplateId('') })
+      .catch(() => { setItemAnalysisQuestions([]); setItemAnalysisTemplateId(''); setItemAnalysisKpTips({}) })
   }, [selectedAssignmentId])
 
   const itemAnalysisSubmissions = useMemo(
@@ -1026,6 +1028,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   questions={itemAnalysisQuestions}
                   submissions={itemAnalysisSubmissions}
                   students={classFilteredStudents}
+                  kpTips={itemAnalysisKpTips}
                   assignmentId={selectedAssignmentId}
                   className={selectedClassroomName}
                   subject={assignmentById.get(selectedAssignmentId)?.domain ?? ''}

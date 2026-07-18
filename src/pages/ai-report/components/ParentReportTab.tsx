@@ -23,6 +23,7 @@ type Props = {
   questions: PRQuestion[]
   submissions: PRSubmission[]
   students: PRStudent[]
+  kpTips?: Record<string, string>
   assignmentId: string
   className: string
   subject: string
@@ -31,7 +32,7 @@ type Props = {
 }
 
 export function ParentReportTab({
-  questions, submissions, students, assignmentId, className, subject, assignmentTitle, onOpenPreferences,
+  questions, submissions, students, kpTips, assignmentId, className, subject, assignmentTitle, onOpenPreferences,
 }: Props) {
   const [reports, setReports] = useState<StudentReport[]>([])
   const [multiSelect, setMultiSelect] = useState(false)
@@ -46,13 +47,13 @@ export function ParentReportTab({
   useEffect(() => {
     setSettings(loadReportHeaderSettings())
     let list: StudentReport[] = []
-    try { list = assembleParentReports(questions, submissions, students) } catch { list = [] }
+    try { list = assembleParentReports(questions, submissions, students, { kpTips }) } catch { list = [] }
     const cached = loadCachedComments(assignmentId)
     for (const r of list) if (cached[r.studentId]) r.comment = cached[r.studentId]
     setReports(list)
     setSelected(new Set()) // 預設不勾選
     setMsg('')
-  }, [questions, submissions, students, assignmentId])
+  }, [questions, submissions, students, kpTips, assignmentId])
 
   const header: ReportHeader = useMemo(() => ({
     schoolName: settings.schoolName || '', crestDataUrl: settings.crestDataUrl,
