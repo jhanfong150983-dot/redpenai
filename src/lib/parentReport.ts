@@ -95,6 +95,16 @@ function typeLabelOf(t?: string): string {
   return TYPE_LABEL[k] || '其他'
 }
 
+// questionId 格式＝「{頁碼}-{小題...}」（第一段=1-based 頁碼，實測三卷皆符）→ 家長看得懂的「第N頁 X-Y題」。
+// 非此格式（第一段非數字/只有一段）退回原樣「第 {id} 題」。
+function formatQuestionLabel(qid: string): string {
+  const parts = String(qid).split('-')
+  if (parts.length >= 2 && /^\d+$/.test(parts[0])) {
+    return `第${parts[0]}頁 ${parts.slice(1).join('-')}題`
+  }
+  return `第 ${qid} 題`
+}
+
 function parseDetails(gradingResult: unknown): PRDetail[] {
   let gr = gradingResult
   if (typeof gr === 'string') { try { gr = JSON.parse(gr) } catch { return [] } }
@@ -264,7 +274,7 @@ function buildCommentPrompt(r: StudentReport, subject: string): string {
   const strong = r.typeRates.filter((t) => t.studentRate >= 80).map((t) => t.label).slice(0, 3)
   const weak = r.typeRates.filter((t) => t.studentRate < 65).map((t) => t.label).slice(0, 3)
   const wrongLines = r.wrongs.slice(0, 4)
-    .map((w) => `・第${w.questionId}題（${w.typeLabel}）：${w.reason || '答錯'}`)
+    .map((w) => `・${formatQuestionLabel(w.questionId)}（${w.typeLabel}）：${w.reason || '答錯'}`)
     .join('\n') || '（無明顯錯題）'
   return `你是一位溫暖但務實的${subject}老師，正在為家長寫一段簡短的學習回饋（給家長看，稱呼學生用姓名）。
 根據以下這位學生本次評量的表現，寫一段 80～120 字的繁體中文回饋：先肯定表現好的地方，再具體點出「一個」最該加強的重點與一句可行的建議。語氣鼓勵、正向、像老師親口對家長說的話。不要條列、不要 markdown、不要提到分數數字，只輸出這段回饋文字本身。
@@ -399,7 +409,7 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     const ansLine = (w.studentAnswer || w.referenceAnswer)
       ? `<div class="pr-ans">孩子的答案：<span class="y">${esc(w.studentAnswer || '（未作答）')}</span>${w.referenceAnswer ? `　正確答案：<span class="r">${esc(w.referenceAnswer)}</span>` : ''}</div>`
       : ''
-    return `<tr><td style="width:118px"><span class="qno">第 ${esc(w.questionId)} 題</span><span class="qt">${esc(w.typeLabel)}</span></td>
+    return `<tr><td style="width:118px"><span class="qno">${esc(formatQuestionLabel(w.questionId))}</span><span class="qt">${esc(w.typeLabel)}</span></td>
       <td>${ansLine}<span class="pr-fix">✎ ${esc(w.reason || '請對照正確答案重新檢視這一題。')}</span></td></tr>`
   }).join('') : `<tr><td colspan="2" style="text-align:center;color:#7B8794;padding:14px">本次沒有明顯失分的題目，表現很好！</td></tr>`
   const moreRow = r.moreWrongCount > 0
