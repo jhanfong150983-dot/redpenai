@@ -134,7 +134,7 @@ export function assembleParentReports(
   students: PRStudent[],
   opts: { maxWrongs?: number } = {}
 ): StudentReport[] {
-  const maxWrongs = opts.maxWrongs ?? 6
+  const maxWrongs = opts.maxWrongs ?? 5
   const qMaxById = new Map<string, number>()
   const qTypeById = new Map<string, string>()
   const qAnswerById = new Map<string, string>()
@@ -317,8 +317,8 @@ export async function generateParentComment(r: StudentReport, subject: string): 
 
 // ── 版面 CSS（注入 document.head、html2canvas 依 getComputedStyle 生效） ──
 export const REPORT_CSS = `
-.pr-root { width:794px; height:1123px; box-sizing:border-box; padding:44px 48px 36px; background:#fff; color:#1F2933;
-  font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei','Heiti TC',sans-serif; position:relative; overflow:hidden; }
+.pr-root { width:794px; box-sizing:border-box; padding:40px 48px 32px; background:#fff; color:#1F2933;
+  font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei','Heiti TC',sans-serif; position:relative; }
 .pr-root * { box-sizing:border-box; }
 .pr-mast { display:flex; align-items:center; gap:16px; padding-bottom:16px; border-bottom:3px solid #1E4D8C; }
 .pr-crest { width:56px; height:56px; flex:none; object-fit:contain; }
@@ -333,9 +333,9 @@ export const REPORT_CSS = `
 .pr-stu .k { font-size:11px; color:#7B8794; letter-spacing:.06em; }
 .pr-stu .v { font-weight:700; }
 .pr-stu .grow { flex:1; }
-.pr-sec { font-size:13px; letter-spacing:.16em; color:#1E4D8C; margin:22px 0 12px; display:flex; align-items:center; gap:10px; font-weight:700; }
+.pr-sec { font-size:13px; letter-spacing:.16em; color:#1E4D8C; margin:16px 0 9px; display:flex; align-items:center; gap:10px; font-weight:700; }
 .pr-sec .ln { flex:1; height:1px; background:#D9DEE4; }
-.pr-hero { display:flex; gap:26px; align-items:center; border:1px solid #D9DEE4; border-radius:6px; padding:18px 22px; }
+.pr-hero { display:flex; gap:26px; align-items:center; border:1px solid #D9DEE4; border-radius:6px; padding:14px 22px; }
 .pr-score { width:180px; text-align:center; border-right:1px solid #E8ECF0; padding-right:22px; flex:none; }
 .pr-score .n { font-size:58px; font-weight:800; line-height:1; color:#1E4D8C; }
 .pr-score .n.low { color:#C2402A; }
@@ -379,8 +379,8 @@ export const REPORT_CSS = `
 .pr-note { border:1px solid #D9DEE4; border-left:3px solid #C2402A; border-radius:3px; padding:12px 16px; font-size:13px; line-height:1.85; color:#52606D; min-height:56px; }
 .pr-note .sig { text-align:right; color:#7B8794; font-size:12px; margin-top:6px; }
 .pr-note .ph { color:#A6AEB8; }
-.pr-foot { position:absolute; left:48px; right:48px; bottom:28px; padding-top:12px; border-top:1px solid #D9DEE4;
-  display:flex; justify-content:space-between; align-items:baseline; font-size:10.5px; color:#7B8794; }
+.pr-foot { margin-top:18px; padding-top:12px; border-top:1px solid #D9DEE4;
+  display:flex; justify-content:space-between; align-items:baseline; gap:16px; font-size:10.5px; color:#7B8794; }
 `
 
 function esc(s: string): string {
@@ -506,18 +506,23 @@ async function mountStaging() {
   styleEl.textContent = REPORT_CSS
   document.head.appendChild(styleEl)
   const host = document.createElement('div')
-  host.style.cssText = 'position:fixed;left:-100000px;top:0;width:794px;height:1123px;pointer-events:none;z-index:-1;'
+  // 高度不固定：讓內容自然流動、html2canvas 依實際高度截圖（避免固定 A4 高度硬切、頁尾疊到長內容）。
+  host.style.cssText = 'position:fixed;left:-100000px;top:0;width:794px;pointer-events:none;z-index:-1;background:#fff;'
   document.body.appendChild(host)
+  const PAGE_W = 210, PAGE_H = 297
   const renderOne = async (r: StudentReport, header: ReportHeader): Promise<Blob> => {
     host.innerHTML = renderReportHtml(r, header)
     const target = host.firstElementChild as HTMLElement
     const canvas = await html2canvas(target, {
       scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false,
-      width: 794, height: 1123, windowWidth: 794, windowHeight: 1123,
+      width: 794, windowWidth: 794,
     })
     const imgData = canvas.toDataURL('image/jpeg', 0.92)
     const doc = new JsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
-    doc.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST')
+    // 依實際長寬比放進 A4：正常內容滿版寬、頂端對齊；內容過長時整體縮到一頁高、水平置中（永不切、永不疊）。
+    let w = PAGE_W, h = (PAGE_W * canvas.height) / canvas.width, x = 0
+    if (h > PAGE_H) { h = PAGE_H; w = (PAGE_H * canvas.width) / canvas.height; x = (PAGE_W - w) / 2 }
+    doc.addImage(imgData, 'JPEG', x, 0, w, h, undefined, 'FAST')
     return doc.output('blob')
   }
   return { renderOne, unmount: () => { host.remove(); styleEl.remove() } }
