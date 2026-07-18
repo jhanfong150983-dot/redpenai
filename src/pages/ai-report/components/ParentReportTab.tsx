@@ -1,7 +1,7 @@
 // 家長報告分頁（2026-07-18 互動改版、user 拍板）：預設一份一份處理（每列自帶生成/重新生成+預覽+下載）；
 //   右上「多選」開關才顯示勾選框與批次（生成評語 / 下載報告）。設定在偏好設定頁；評語編輯存 localStorage 依作業快取。
 import { useEffect, useMemo, useState } from 'react'
-import { FileDown, Eye, RefreshCw, Loader2, Sparkles, Settings, CheckSquare } from 'lucide-react'
+import { FileDown, Eye, RefreshCw, Loader2, Sparkles, Settings, CheckSquare, X } from 'lucide-react'
 import {
   assembleParentReports, generateParentComment,
   createReportPdfBlob, downloadSingleReport, downloadReportsAsZip,
@@ -12,17 +12,6 @@ import {
 function formatDateZh(d: Date): string {
   return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`
 }
-// 預覽分頁在 PDF 產生完成前顯示的 loading 畫面（純內嵌、無外部資源）。
-const PREVIEW_LOADING_HTML = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>產生報告中…</title>
-<style>
-  html,body{height:100%;margin:0}
-  body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
-    font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei',system-ui,sans-serif;color:#52606D;background:#F4F6F8}
-  .sp{width:38px;height:38px;border:4px solid #D9E2EC;border-top-color:#1E4D8C;border-radius:50%;animation:s .8s linear infinite}
-  @keyframes s{to{transform:rotate(360deg)}}
-  p{font-size:14px;letter-spacing:.05em;margin:0}
-</style></head><body><div class="sp"></div><p>報告產生中，請稍候…</p></body></html>`
-
 async function runWithConcurrency<T>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<void>) {
   let i = 0
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -50,6 +39,7 @@ export function ParentReportTab({
   const [batchGen, setBatchGen] = useState<{ done: number; total: number } | null>(null)
   const [batchPdf, setBatchPdf] = useState<{ done: number; total: number } | null>(null)
   const [rowBusy, setRowBusy] = useState<Record<string, 'gen' | 'download' | 'preview' | undefined>>({})
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [settings, setSettings] = useState(loadReportHeaderSettings())
   const [msg, setMsg] = useState('')
 
@@ -87,20 +77,16 @@ export function ParentReportTab({
     if (text) setComment(r.studentId, text); else setMsg('評語生成失敗，請再試一次或手動輸入')
     setRowBusy((p) => ({ ...p, [r.studentId]: undefined }))
   }
-  // 預覽：先同步開分頁並寫入 loading 畫面（避免 await 後 window.open 被彈窗攔截、也不留空白），拿到 PDF 再導向。
+  // 預覽：icon 轉圈 → 拿到 PDF 後在 App 內彈窗顯示（不開新分頁、免彈窗攔截）。
   const previewOne = async (r: StudentReport) => {
-    setMsg('')
-    const win = window.open('', '_blank')
-    if (win) { win.document.write(PREVIEW_LOADING_HTML); win.document.close() }
-    setRowBusy((p) => ({ ...p, [r.studentId]: 'preview' }))
+    setMsg(''); setRowBusy((p) => ({ ...p, [r.studentId]: 'preview' }))
     try {
       const blob = await createReportPdfBlob(r, header)
-      const url = URL.createObjectURL(blob)
-      if (win) { win.location.href = url } else { window.open(url, '_blank') }
-      setTimeout(() => URL.revokeObjectURL(url), 60000)
-    } catch (e) { if (win) win.close(); setMsg(e instanceof Error ? e.message : '預覽失敗，請再試一次') }
+      setPreviewUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob) })
+    } catch (e) { setMsg(e instanceof Error ? e.message : '預覽失敗，請再試一次') }
     setRowBusy((p) => ({ ...p, [r.studentId]: undefined }))
   }
+  const closePreview = () => { setPreviewUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null }) }
   const downloadOne = async (r: StudentReport) => {
     setMsg(''); setRowBusy((p) => ({ ...p, [r.studentId]: 'download' }))
     try { await downloadSingleReport(r, header) } catch (e) { setMsg(e instanceof Error ? e.message : '下載失敗，請再試一次') }
@@ -249,6 +235,21 @@ export function ParentReportTab({
       <p className="text-xs text-slate-400">
         預設一位一位處理：按「生成評語」→ 可直接修改（自動保留）→「下載」得到那位學生的 PDF。要一次處理多位，按右上「多選」勾選後批次下載（打包 zip）。
       </p>
+
+      {/* 預覽彈窗（App 內嵌 PDF、不開新分頁） */}
+      {previewUrl && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/50 p-4" onClick={closePreview}>
+          <div className="flex h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+              <span className="text-sm font-medium text-slate-700">報告預覽</span>
+              <button onClick={closePreview} className="rounded p-1 text-slate-400 hover:bg-slate-100" aria-label="關閉">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <iframe src={previewUrl} title="家長報告預覽" className="w-full flex-1 border-0" />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
