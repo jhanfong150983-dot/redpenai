@@ -486,24 +486,16 @@ export const REPORT_CSS = `
 .pr-strong { margin-top:6px; font-size:12.5px; color:#2E6B4F; line-height:1.7; background:#EAF5EF; border:1px solid #CDE8D9; border-radius:5px; padding:9px 13px; }
 .pr-strong b { color:#1F5C42; }
 .pr-allgood { font-size:12.5px; color:#2E6B4F; padding:10px 4px; }
-/* 第三段 精熟程度總覽：逐知識點長條圖（長度=精熟度、顏色分三級） */
-.pr-mlegend { font-size:11px; color:#7B8794; margin-bottom:10px; }
-.pr-mlgd-dot { display:inline-block; width:10px; height:9px; border-radius:2px; margin:0 4px 0 14px; vertical-align:middle; }
-.pr-mtopic { font-size:12.5px; font-weight:700; color:#1F2933; margin:9px 0 4px; }
+/* 第三段 精熟程度總覽：知識點熱力圖（每知識點一格、顏色=狀態） */
+.pr-mlegend { font-size:11px; color:#7B8794; margin-bottom:12px; }
+.pr-mlgd-dot { display:inline-block; width:11px; height:10px; border-radius:2px; margin:0 4px 0 14px; vertical-align:middle; }
+.pr-mtopic { font-size:12.5px; font-weight:700; color:#1F2933; margin:12px 0 7px; }
 .pr-mtopic-badge { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 8px; border-radius:3px; margin-left:8px; }
-.pr-mtbl { width:100%; border-collapse:collapse; }
-.pr-mtbl td { vertical-align:middle; padding:1.5px 0; }
-.pr-mtbl .kn { width:170px; font-size:11.5px; color:#3E4A56; padding-right:10px; }
-.pr-mtbl .bc { padding-right:8px; }
-.pr-mbar { position:relative; height:11px; background:#EEF1F4; border-radius:2px; }
-.pr-mbar > i { position:absolute; left:0; top:0; bottom:0; border-radius:2px; }
-.pr-mbar > i.expert { background:#2E7D5B; }
-.pr-mbar > i.basic { background:#C77D0A; }
-.pr-mbar > i.weak { background:#C2402A; }
-.pr-mtbl .lv { width:52px; font-size:11px; font-weight:700; text-align:right; }
-.pr-mtbl .lv.expert { color:#2E6B4F; }
-.pr-mtbl .lv.basic { color:#8A5A08; }
-.pr-mtbl .lv.weak { color:#A5331F; }
+.pr-cgrid { display:flex; flex-wrap:wrap; gap:6px; }
+.pr-cell { font-size:11.5px; padding:5px 10px; border-radius:4px; color:#fff; }
+.pr-cell.expert { background:#2E7D5B; }
+.pr-cell.basic { background:#C77D0A; }
+.pr-cell.weak { background:#C2402A; }
 .badge-green { background:#E6F4EC; color:#2E6B4F; }
 .badge-amber { background:#F4E4C1; color:#8A5A08; }
 .badge-red { background:#F6D5CE; color:#A5331F; }
@@ -558,13 +550,12 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     ? topicCards
     : `<div class="pr-allgood">本次各單元表現都不錯，沒有明顯要加強的地方，繼續保持！</div>`) + strongLine
   // 第三段：精熟程度總覽（全部主題+知識點、三色點）
-  const masteryLegend = `<div class="pr-mlegend">精熟程度（長條越長＝掌握越好）：<span class="pr-mlgd-dot dot-expert" style="background:#2E7D5B"></span>精熟　<span class="pr-mlgd-dot dot-basic" style="background:#C77D0A"></span>基礎　<span class="pr-mlgd-dot dot-weak" style="background:#C2402A"></span>待加強</div>`
-  const lvlText = { expert: '精熟', basic: '基礎', weak: '待加強' }
+  const masteryLegend = `<div class="pr-mlegend">每一格是一個知識點，顏色代表掌握狀態：<span class="pr-mlgd-dot" style="background:#2E7D5B"></span>精熟　<span class="pr-mlgd-dot" style="background:#C77D0A"></span>基礎　<span class="pr-mlgd-dot" style="background:#C2402A"></span>待加強</div>`
   const masteryHtml = r.topicMastery.map((t) => {
     const badge = t.band === 'green' ? 'badge-green' : t.band === 'amber' ? 'badge-amber' : 'badge-red'
     const badgeText = t.band === 'green' ? '精熟' : t.band === 'amber' ? '基礎' : '待加強'
-    const rows = t.kps.map((k) => `<tr><td class="kn">${esc(k.kp)}</td><td class="bc"><div class="pr-mbar"><i class="${k.level}" style="width:${Math.max(4, k.ratePct)}%"></i></div></td><td class="lv ${k.level}">${lvlText[k.level]}</td></tr>`).join('')
-    return `<div class="pr-mtopic">${esc(t.topic)}<span class="pr-mtopic-badge ${badge}">${badgeText}</span></div><table class="pr-mtbl"><tbody>${rows}</tbody></table>`
+    const cells = t.kps.map((k) => `<span class="pr-cell ${k.level}">${esc(k.kp)}</span>`).join('')
+    return `<div class="pr-mtopic">${esc(t.topic)}<span class="pr-mtopic-badge ${badge}">${badgeText}</span></div><div class="pr-cgrid">${cells}</div>`
   }).join('')
   const commentHtml = r.comment ? esc(r.comment) : `<span class="ph">（老師評語）</span>`
   const noteHtml = `<div class="pr-note">${commentHtml}<div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>`
