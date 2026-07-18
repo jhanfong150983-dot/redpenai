@@ -330,10 +330,10 @@ export const REPORT_CSS = `
 .pr-crest { width:56px; height:56px; object-fit:contain; display:block; }
 .pr-crest-ph { width:56px; height:56px; border:2px solid #1E4D8C; border-radius:6px; }
 .pr-school .nm { font-size:20px; font-weight:700; letter-spacing:.08em; }
-.pr-titlecell { width:172px; text-align:right; }
+.pr-titlecell { text-align:right; white-space:nowrap; }
 .pr-title .zh { font-size:16px; font-weight:700; letter-spacing:.18em; color:#1E4D8C; white-space:nowrap; }
-.pr-title .mt { font-size:11px; color:#7B8794; margin-top:4px; line-height:1.6; }
-.pr-asgn { font-size:12.5px; color:#52606D; text-align:center; margin:9px 0 0; letter-spacing:.02em; }
+.pr-title .mt { font-size:11px; color:#7B8794; margin-top:4px; line-height:1.5; white-space:nowrap; }
+.pr-title .asgn2 { font-size:10.5px; color:#7B8794; margin-top:2px; white-space:nowrap; }
 
 .pr-stu { width:100%; border-collapse:collapse; margin:14px 0 20px; border:1px solid #D9DEE4; }
 .pr-stu td { vertical-align:middle; text-align:center; padding:9px 10px; font-size:13px; border-left:1px solid #E8ECF0; }
@@ -440,9 +440,9 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
       <td class="crestcell">${crest}</td>
       <td class="pr-school"><div class="nm">${esc(h.schoolName || ' ')}</div></td>
       <td class="pr-titlecell"><div class="pr-title"><div class="zh">${esc(h.subject || '')}　學習報告</div>
-        <div class="mt">${esc(h.dateStr)}</div></div></td>
+        <div class="mt">${esc(h.dateStr)}</div>
+        ${h.assignmentTitle ? `<div class="asgn2">${esc(h.assignmentTitle)}</div>` : ''}</div></td>
     </tr></tbody></table>
-    ${h.assignmentTitle ? `<div class="pr-asgn">${esc(h.assignmentTitle)}</div>` : ''}
 
     <table class="pr-stu"><tbody><tr>
       <td><span class="k">班級</span><span class="v">${esc(h.className || '—')}</span></td>
