@@ -544,11 +544,9 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
       <div><span class="pr-topic-name">${esc(t.topic)}</span><span class="pr-topic-badge ${t.band}">${t.band === 'red' ? '待加強' : '不太穩'}</span><span class="pr-topic-stat">本單元 ${t.total} 題・錯 ${t.wrong} 題</span></div>
       ${t.weakKps.length ? `<div class="pr-topic-lead">這次主要卡在：</div>` + t.weakKps.map((k) => `<div class="pr-kp"><span class="pr-kp-name">・${esc(k.kp)}</span>${k.tip ? `<span class="pr-kp-tip">💡 ${esc(k.tip)}</span>` : ''}</div>`).join('') : ''}
     </div>`).join('')
-  const strongLine = r.strongTopics.length
-    ? `<div class="pr-strong">🟢 <b>表現不錯的部分</b>：${esc(r.strongTopics.join('、'))}——這些單元大多答對，觀念紮實，繼續保持！</div>` : ''
-  const weakMapHtml = (r.weakTopics.length
+  const weakMapHtml = r.weakTopics.length
     ? topicCards
-    : `<div class="pr-allgood">本次各單元表現都不錯，沒有明顯要加強的地方，繼續保持！</div>`) + strongLine
+    : `<div class="pr-allgood">本次各單元表現都不錯，沒有明顯要加強的地方，繼續保持！</div>`
   // 第三段：精熟程度總覽（全部主題+知識點、三色點）
   const masteryLegend = `<div class="pr-mlegend">每一格是一個知識點，顏色代表掌握狀態：<span class="pr-mlgd-dot" style="background:#2E7D5B"></span>精熟　<span class="pr-mlgd-dot" style="background:#C77D0A"></span>基礎　<span class="pr-mlgd-dot" style="background:#C2402A"></span>待加強</div>`
   const masteryHtml = r.topicMastery.map((t) => {
