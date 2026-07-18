@@ -58,9 +58,9 @@ export type WrongItem = {
 }
 export type WeakKp = { kp: string; tip: string }
 export type WeakTopic = { topic: string; band: 'red' | 'amber'; ratePct: number; total: number; wrong: number; weakKps: WeakKp[] }
-// 精熟程度總覽（第三段）：每個知識點的三級
+// 精熟程度總覽（第三段）：每個知識點的三級 + 精熟百分比（長條圖用）
 export type KpLevel = 'expert' | 'basic' | 'weak' // 精熟／基礎／待加強
-export type KpMastery = { kp: string; level: KpLevel }
+export type KpMastery = { kp: string; level: KpLevel; ratePct: number }
 export type TopicMastery = { topic: string; band: 'red' | 'amber' | 'green'; ratePct: number; kps: KpMastery[] }
 export type StudentReport = {
   studentId: string
@@ -281,9 +281,9 @@ export function assembleParentReports(
     // 第三段：每主題底下所有知識點的精熟度（弱的排前面）
     const kpsByTopic = new Map<string, KpMastery[]>()
     for (const [kp, k] of kpAgg) {
-      const lvl = levelOf(k.max > 0 ? k.got / k.max : 1)
+      const rate = k.max > 0 ? k.got / k.max : 1
       if (!kpsByTopic.has(k.topic)) kpsByTopic.set(k.topic, [])
-      kpsByTopic.get(k.topic)!.push({ kp, level: lvl })
+      kpsByTopic.get(k.topic)!.push({ kp, level: levelOf(rate), ratePct: Math.round(rate * 100) })
     }
     const lvlRank = { weak: 0, basic: 1, expert: 2 }
     const allTopics = [...topicAgg.entries()].map(([topic, e]) => {
@@ -486,17 +486,24 @@ export const REPORT_CSS = `
 .pr-strong { margin-top:6px; font-size:12.5px; color:#2E6B4F; line-height:1.7; background:#EAF5EF; border:1px solid #CDE8D9; border-radius:5px; padding:9px 13px; }
 .pr-strong b { color:#1F5C42; }
 .pr-allgood { font-size:12.5px; color:#2E6B4F; padding:10px 4px; }
-/* 第三段 精熟程度總覽（全部知識點、三色點） */
-.pr-mlegend { font-size:11px; color:#7B8794; margin-bottom:11px; }
-.pr-mlgd-dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin:0 4px 0 14px; vertical-align:middle; }
-.pr-mrow { margin-bottom:10px; padding-bottom:9px; border-bottom:1px solid #F0F2F5; }
-.pr-mtopic { font-size:13px; font-weight:700; color:#1F2933; margin-bottom:5px; }
+/* 第三段 精熟程度總覽：逐知識點長條圖（長度=精熟度、顏色分三級） */
+.pr-mlegend { font-size:11px; color:#7B8794; margin-bottom:10px; }
+.pr-mlgd-dot { display:inline-block; width:10px; height:9px; border-radius:2px; margin:0 4px 0 14px; vertical-align:middle; }
+.pr-mtopic { font-size:12.5px; font-weight:700; color:#1F2933; margin:9px 0 4px; }
 .pr-mtopic-badge { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 8px; border-radius:3px; margin-left:8px; }
-.pr-kchip { display:inline-block; font-size:12px; color:#3E4A56; margin:2px 14px 2px 0; white-space:nowrap; }
-.pr-kdot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; vertical-align:middle; }
-.dot-expert { background:#2E7D5B; }
-.dot-basic { background:#C77D0A; }
-.dot-weak { background:#C2402A; }
+.pr-mtbl { width:100%; border-collapse:collapse; }
+.pr-mtbl td { vertical-align:middle; padding:1.5px 0; }
+.pr-mtbl .kn { width:170px; font-size:11.5px; color:#3E4A56; padding-right:10px; }
+.pr-mtbl .bc { padding-right:8px; }
+.pr-mbar { position:relative; height:11px; background:#EEF1F4; border-radius:2px; }
+.pr-mbar > i { position:absolute; left:0; top:0; bottom:0; border-radius:2px; }
+.pr-mbar > i.expert { background:#2E7D5B; }
+.pr-mbar > i.basic { background:#C77D0A; }
+.pr-mbar > i.weak { background:#C2402A; }
+.pr-mtbl .lv { width:52px; font-size:11px; font-weight:700; text-align:right; }
+.pr-mtbl .lv.expert { color:#2E6B4F; }
+.pr-mtbl .lv.basic { color:#8A5A08; }
+.pr-mtbl .lv.weak { color:#A5331F; }
 .badge-green { background:#E6F4EC; color:#2E6B4F; }
 .badge-amber { background:#F4E4C1; color:#8A5A08; }
 .badge-red { background:#F6D5CE; color:#A5331F; }
@@ -551,12 +558,13 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     ? topicCards
     : `<div class="pr-allgood">本次各單元表現都不錯，沒有明顯要加強的地方，繼續保持！</div>`) + strongLine
   // 第三段：精熟程度總覽（全部主題+知識點、三色點）
-  const masteryLegend = `<div class="pr-mlegend">精熟程度：<span class="pr-mlgd-dot dot-expert"></span>精熟　<span class="pr-mlgd-dot dot-basic"></span>基礎　<span class="pr-mlgd-dot dot-weak"></span>待加強</div>`
+  const masteryLegend = `<div class="pr-mlegend">精熟程度（長條越長＝掌握越好）：<span class="pr-mlgd-dot dot-expert" style="background:#2E7D5B"></span>精熟　<span class="pr-mlgd-dot dot-basic" style="background:#C77D0A"></span>基礎　<span class="pr-mlgd-dot dot-weak" style="background:#C2402A"></span>待加強</div>`
+  const lvlText = { expert: '精熟', basic: '基礎', weak: '待加強' }
   const masteryHtml = r.topicMastery.map((t) => {
     const badge = t.band === 'green' ? 'badge-green' : t.band === 'amber' ? 'badge-amber' : 'badge-red'
     const badgeText = t.band === 'green' ? '精熟' : t.band === 'amber' ? '基礎' : '待加強'
-    const chips = t.kps.map((k) => `<span class="pr-kchip"><span class="pr-kdot dot-${k.level}"></span>${esc(k.kp)}</span>`).join('')
-    return `<div class="pr-mrow"><div class="pr-mtopic">${esc(t.topic)}<span class="pr-mtopic-badge ${badge}">${badgeText}</span></div>${chips}</div>`
+    const rows = t.kps.map((k) => `<tr><td class="kn">${esc(k.kp)}</td><td class="bc"><div class="pr-mbar"><i class="${k.level}" style="width:${Math.max(4, k.ratePct)}%"></i></div></td><td class="lv ${k.level}">${lvlText[k.level]}</td></tr>`).join('')
+    return `<div class="pr-mtopic">${esc(t.topic)}<span class="pr-mtopic-badge ${badge}">${badgeText}</span></div><table class="pr-mtbl"><tbody>${rows}</tbody></table>`
   }).join('')
   const commentHtml = r.comment ? esc(r.comment) : `<span class="ph">（老師評語）</span>`
   const noteHtml = `<div class="pr-note">${commentHtml}<div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>`
