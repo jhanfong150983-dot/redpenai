@@ -315,60 +315,74 @@ export async function generateParentComment(r: StudentReport, subject: string): 
   } catch { return '' }
 }
 
-// ── 版面 CSS（注入 document.head、html2canvas 依 getComputedStyle 生效） ──
+// ── 版面 CSS ──
+// ⚠ html2canvas 相容性鐵則：一律 table 佈局＋垂直 middle、絕不用 flexbox 對齊或 CSS transform
+//   （2026-07-18 實測跑版根因＝transform:translateX 與 flex align 在 html2canvas 渲染不準）。
+//   置中：table-cell vertical-align:middle + text-align；橫向定位：left/right 絕對定位＋固定寬 margin，不用 transform。
 export const REPORT_CSS = `
 .pr-root { width:794px; box-sizing:border-box; padding:40px 48px 32px; background:#fff; color:#1F2933;
-  font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei','Heiti TC',sans-serif; position:relative; }
+  font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei','Heiti TC',sans-serif; }
 .pr-root * { box-sizing:border-box; }
-.pr-mast { display:flex; align-items:center; gap:16px; padding-bottom:16px; border-bottom:3px solid #1E4D8C; }
-.pr-crest { width:56px; height:56px; flex:none; object-fit:contain; }
-.pr-school { flex:1; }
-.pr-school .nm { font-size:20px; font-weight:700; letter-spacing:.12em; }
-.pr-title { text-align:right; }
-.pr-title .zh { font-size:16px; font-weight:700; letter-spacing:.24em; color:#1E4D8C; }
-.pr-title .mt { font-size:11px; color:#7B8794; margin-top:4px; line-height:1.5; }
-.pr-stu { display:flex; margin:14px 0 20px; border:1px solid #D9DEE4; border-radius:4px; overflow:hidden; font-size:13px; }
-.pr-stu .c { padding:8px 16px; display:flex; gap:8px; align-items:baseline; }
-.pr-stu .c + .c { border-left:1px solid #E8ECF0; }
-.pr-stu .k { font-size:11px; color:#7B8794; letter-spacing:.06em; }
+
+.pr-mast { width:100%; border-collapse:collapse; border-bottom:3px solid #1E4D8C; }
+.pr-mast td { vertical-align:middle; padding-bottom:14px; }
+.pr-mast .crestcell { width:72px; }
+.pr-crest { width:56px; height:56px; object-fit:contain; display:block; }
+.pr-crest-ph { width:56px; height:56px; border:2px solid #1E4D8C; border-radius:6px; }
+.pr-school .nm { font-size:20px; font-weight:700; letter-spacing:.08em; }
+.pr-titlecell { width:230px; text-align:right; }
+.pr-title .zh { font-size:16px; font-weight:700; letter-spacing:.18em; color:#1E4D8C; }
+.pr-title .mt { font-size:11px; color:#7B8794; margin-top:4px; line-height:1.6; }
+
+.pr-stu { width:100%; border-collapse:collapse; margin:14px 0 20px; border:1px solid #D9DEE4; }
+.pr-stu td { vertical-align:middle; text-align:center; padding:9px 10px; font-size:13px; border-left:1px solid #E8ECF0; }
+.pr-stu td:first-child { border-left:none; }
+.pr-stu .k { font-size:11px; color:#7B8794; margin-right:6px; }
 .pr-stu .v { font-weight:700; }
-.pr-stu .grow { flex:1; }
-.pr-sec { font-size:13px; letter-spacing:.16em; color:#1E4D8C; margin:16px 0 9px; display:flex; align-items:center; gap:10px; font-weight:700; }
-.pr-sec .ln { flex:1; height:1px; background:#D9DEE4; }
-.pr-hero { display:flex; gap:26px; align-items:center; border:1px solid #D9DEE4; border-radius:6px; padding:14px 22px; }
-.pr-score { width:180px; text-align:center; border-right:1px solid #E8ECF0; padding-right:22px; flex:none; }
-.pr-score .n { font-size:58px; font-weight:800; line-height:1; color:#1E4D8C; }
+
+.pr-sec { font-size:13px; letter-spacing:.12em; color:#1E4D8C; font-weight:700; margin:16px 0 9px;
+  border-bottom:1px solid #D9DEE4; padding-bottom:6px; }
+
+.pr-hero { width:100%; border-collapse:collapse; border:1px solid #D9DEE4; }
+.pr-hero td { vertical-align:middle; padding:16px 20px; }
+.pr-scorecell { width:188px; text-align:center; border-right:1px solid #E8ECF0; }
+.pr-score .n { font-size:54px; font-weight:800; line-height:1; color:#1E4D8C; }
 .pr-score .n.low { color:#C2402A; }
 .pr-score .o { font-size:12px; color:#7B8794; margin-top:4px; }
-.pr-score .g { display:inline-block; margin-top:10px; font-size:12px; font-weight:700; letter-spacing:.08em; padding:3px 12px; border-radius:3px; background:#E3EBF5; color:#1E4D8C; }
+.pr-score .g { display:inline-block; margin-top:8px; font-size:12px; font-weight:700; letter-spacing:.08em; padding:3px 12px; border-radius:3px; background:#E3EBF5; color:#1E4D8C; }
 .pr-score .g.low { background:#FBEAE6; color:#C2402A; }
-.pr-dist { flex:1; }
-.pr-dist .cap { font-size:11px; color:#7B8794; letter-spacing:.05em; margin-bottom:16px; }
-.pr-bar { position:relative; height:40px; margin:0 6px; }
-.pr-bar .axis { position:absolute; left:0; right:0; top:24px; height:2px; background:#E8ECF0; }
-.pr-bar .band { position:absolute; top:20px; height:10px; background:#C4CEDA; border-radius:3px; }
-.pr-bar .me { position:absolute; top:12px; width:3px; height:26px; background:#1E4D8C; border-radius:2px; }
+.pr-dist .cap { font-size:11px; color:#7B8794; margin-bottom:12px; }
+.pr-bar { position:relative; height:22px; margin:0 4px; }
+.pr-bar .axis { position:absolute; left:0; right:0; top:10px; height:2px; background:#E8ECF0; }
+.pr-bar .band { position:absolute; top:6px; height:10px; background:#C4CEDA; border-radius:3px; }
+.pr-bar .me { position:absolute; top:1px; width:3px; height:20px; margin-left:-1px; background:#1E4D8C; border-radius:2px; }
 .pr-bar .me.low { background:#C2402A; }
-.pr-bar .melbl { position:absolute; top:-4px; font-size:11px; font-weight:700; color:#1E4D8C; transform:translateX(-50%); white-space:nowrap; }
-.pr-bar .melbl.low { color:#C2402A; }
-.pr-bar .tk { position:absolute; top:30px; font-size:10px; color:#7B8794; transform:translateX(-50%); white-space:nowrap; }
-.pr-keys { display:flex; gap:18px; font-size:11px; color:#52606D; margin-top:8px; }
+.pr-ticks { position:relative; height:14px; margin-top:2px; }
+.pr-ticks .lo { position:absolute; left:0; font-size:10px; color:#7B8794; }
+.pr-ticks .hi { position:absolute; right:0; font-size:10px; color:#7B8794; }
+.pr-keys { margin-top:6px; font-size:11px; color:#52606D; }
+.pr-keys span { margin-right:16px; }
 .pr-keys b { color:#1F2933; }
-.pr-types { display:flex; flex-direction:column; gap:8px; }
-.pr-trow { display:flex; align-items:center; gap:12px; font-size:12.5px; }
-.pr-trow .lbl { width:74px; color:#52606D; flex:none; }
-.pr-trow .track { flex:1; height:12px; background:#E8ECF0; border-radius:2px; position:relative; }
-.pr-trow .fill { position:absolute; left:0; top:0; bottom:0; border-radius:2px 4px 4px 2px; background:#1E4D8C; }
-.pr-trow .fill.mid { background:#6E86A8; }
-.pr-trow .fill.low { background:#C2402A; }
-.pr-trow .cls { position:absolute; top:-3px; width:2px; height:18px; background:#7B8794; }
-.pr-trow .pct { width:40px; text-align:right; font-weight:700; flex:none; }
-.pr-tlgd { font-size:11px; color:#7B8794; margin-top:10px; display:flex; gap:16px; }
-.pr-tlgd .sw { display:inline-block; width:10px; height:10px; border-radius:2px; vertical-align:-1px; margin-right:5px; }
-.pr-tlgd .cl { display:inline-block; width:2px; height:12px; background:#7B8794; vertical-align:-2px; margin-right:5px; }
+
+.pr-types { width:100%; border-collapse:collapse; }
+.pr-types td { vertical-align:middle; padding:4px 0; }
+.pr-types .lbl { width:76px; font-size:12.5px; color:#52606D; }
+.pr-types .barcell { padding:0 12px; }
+.pr-track { position:relative; height:12px; background:#E8ECF0; border-radius:2px; }
+.pr-track .fill { position:absolute; left:0; top:0; bottom:0; border-radius:2px 4px 4px 2px; background:#1E4D8C; }
+.pr-track .fill.mid { background:#6E86A8; }
+.pr-track .fill.low { background:#C2402A; }
+.pr-track .cls { position:absolute; top:-3px; width:2px; height:18px; margin-left:-1px; background:#7B8794; }
+.pr-types .pct { width:46px; text-align:right; font-size:12.5px; font-weight:700; }
+.pr-tlgd { font-size:11px; color:#7B8794; margin-top:8px; }
+.pr-tlgd span { margin-right:16px; }
+.pr-tlgd .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+.pr-tlgd .cl { display:inline-block; width:2px; height:12px; background:#7B8794; margin-right:5px; vertical-align:middle; }
+
 .pr-wtab { width:100%; border-collapse:collapse; font-size:12.5px; }
 .pr-wtab th { text-align:left; font-size:11px; font-weight:500; color:#7B8794; letter-spacing:.06em; padding:4px 8px 6px; border-bottom:1px solid #D9DEE4; }
 .pr-wtab td { padding:8px; border-bottom:1px solid #E8ECF0; vertical-align:top; }
+.pr-wtab .qcell { width:120px; }
 .pr-wtab .qno { font-weight:700; color:#1E4D8C; white-space:nowrap; }
 .pr-wtab .qt { font-size:11px; color:#7B8794; display:block; margin-top:2px; }
 .pr-ans { margin-bottom:3px; }
@@ -376,11 +390,12 @@ export const REPORT_CSS = `
 .pr-ans .r { color:#1E4D8C; font-weight:600; }
 .pr-fix { color:#52606D; display:block; }
 .pr-more { font-size:11px; color:#7B8794; padding:6px 8px; }
-.pr-note { border:1px solid #D9DEE4; border-left:3px solid #C2402A; border-radius:3px; padding:12px 16px; font-size:13px; line-height:1.85; color:#52606D; min-height:56px; }
+.pr-note { border:1px solid #D9DEE4; border-left:3px solid #C2402A; padding:12px 16px; font-size:13px; line-height:1.85; color:#52606D; }
 .pr-note .sig { text-align:right; color:#7B8794; font-size:12px; margin-top:6px; }
 .pr-note .ph { color:#A6AEB8; }
-.pr-foot { margin-top:18px; padding-top:12px; border-top:1px solid #D9DEE4;
-  display:flex; justify-content:space-between; align-items:baseline; gap:16px; font-size:10.5px; color:#7B8794; }
+.pr-foot { width:100%; border-collapse:collapse; margin-top:18px; border-top:1px solid #D9DEE4; }
+.pr-foot td { padding-top:12px; font-size:10.5px; color:#7B8794; vertical-align:top; }
+.pr-foot .r { text-align:right; white-space:nowrap; }
 `
 
 function esc(s: string): string {
@@ -395,74 +410,73 @@ function posPct(v: number, min: number, max: number): number {
 export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
   const crest = h.crestDataUrl
     ? `<img class="pr-crest" src="${esc(h.crestDataUrl)}" alt="校徽">`
-    : `<div class="pr-crest" style="border:2px solid #1E4D8C;border-radius:6px;"></div>`
+    : `<div class="pr-crest-ph"></div>`
   const mePos = posPct(r.score, r.classMin, r.classMax)
   const bandL = posPct(r.classP25, r.classMin, r.classMax)
   const bandR = posPct(r.classP75, r.classMin, r.classMax)
   const typesHtml = r.typeRates.map((t) => {
     const cls = t.studentRate < 60 ? 'low' : t.studentRate < 75 ? 'mid' : ''
-    return `<div class="pr-trow"><span class="lbl">${esc(t.label)}</span>
-      <span class="track"><i class="fill ${cls}" style="width:${t.studentRate}%"></i><span class="cls" style="left:${t.classRate}%"></span></span>
-      <span class="pct">${t.studentRate}%</span></div>`
+    return `<tr><td class="lbl">${esc(t.label)}</td>
+      <td class="barcell"><div class="pr-track"><div class="fill ${cls}" style="width:${t.studentRate}%"></div><div class="cls" style="left:${t.classRate}%"></div></div></td>
+      <td class="pct">${t.studentRate}%</td></tr>`
   }).join('')
   const wrongsHtml = r.wrongs.length ? r.wrongs.map((w) => {
     const ansLine = (w.studentAnswer || w.referenceAnswer)
       ? `<div class="pr-ans">孩子的答案：<span class="y">${esc(w.studentAnswer || '（未作答）')}</span>${w.referenceAnswer ? `　正確答案：<span class="r">${esc(w.referenceAnswer)}</span>` : ''}</div>`
       : ''
-    return `<tr><td style="width:118px"><span class="qno">${esc(formatQuestionLabel(w.questionId))}</span><span class="qt">${esc(w.typeLabel)}</span></td>
+    return `<tr><td class="qcell"><span class="qno">${esc(formatQuestionLabel(w.questionId))}</span><span class="qt">${esc(w.typeLabel)}</span></td>
       <td>${ansLine}<span class="pr-fix">✎ ${esc(w.reason || '請對照正確答案重新檢視這一題。')}</span></td></tr>`
   }).join('') : `<tr><td colspan="2" style="text-align:center;color:#7B8794;padding:14px">本次沒有明顯失分的題目，表現很好！</td></tr>`
   const moreRow = r.moreWrongCount > 0
     ? `<div class="pr-more">另有 ${r.moreWrongCount} 題失分，完整內容請見孩子的考卷。</div>` : ''
-  const commentHtml = r.comment
-    ? esc(r.comment)
-    : `<span class="ph">（老師評語）</span>`
+  const commentHtml = r.comment ? esc(r.comment) : `<span class="ph">（老師評語）</span>`
 
   return `<div class="pr-root">
-    <div class="pr-mast">
-      ${crest}
-      <div class="pr-school"><div class="nm">${esc(h.schoolName || '　')}</div></div>
-      <div class="pr-title"><div class="zh">${esc(h.subject || '')}　學習報告</div>
-        <div class="mt">${esc(h.assignmentTitle || '')}<br>${esc(h.dateStr)}</div></div>
-    </div>
+    <table class="pr-mast"><tbody><tr>
+      <td class="crestcell">${crest}</td>
+      <td class="pr-school"><div class="nm">${esc(h.schoolName || ' ')}</div></td>
+      <td class="pr-titlecell"><div class="pr-title"><div class="zh">${esc(h.subject || '')}　學習報告</div>
+        <div class="mt">${esc(h.assignmentTitle || '')}<br>${esc(h.dateStr)}</div></div></td>
+    </tr></tbody></table>
 
-    <div class="pr-stu">
-      <div class="c"><span class="k">班級</span><span class="v">${esc(h.className || '—')}</span></div>
-      <div class="c"><span class="k">座號</span><span class="v">${esc(r.seat)}</span></div>
-      <div class="c grow"><span class="k">姓名</span><span class="v">${esc(r.name)}</span></div>
-      ${h.teacherName ? `<div class="c"><span class="k">任課老師</span><span class="v">${esc(h.teacherName)}</span></div>` : ''}
-    </div>
+    <table class="pr-stu"><tbody><tr>
+      <td><span class="k">班級</span><span class="v">${esc(h.className || '—')}</span></td>
+      <td><span class="k">座號</span><span class="v">${esc(r.seat)}</span></td>
+      <td><span class="k">姓名</span><span class="v">${esc(r.name)}</span></td>
+      ${h.teacherName ? `<td><span class="k">任課老師</span><span class="v">${esc(h.teacherName)}</span></td>` : ''}
+    </tr></tbody></table>
 
-    <div class="pr-sec">一、本次成績與班級位置<span class="ln"></span></div>
-    <div class="pr-hero">
-      <div class="pr-score"><div class="n${r.isLow ? ' low' : ''}">${r.score}</div>
+    <div class="pr-sec">一、本次成績與班級位置</div>
+    <table class="pr-hero"><tbody><tr>
+      <td class="pr-scorecell"><div class="pr-score"><div class="n${r.isLow ? ' low' : ''}">${r.score}</div>
         <div class="o">滿分 ${r.examMax} 分</div>
-        <div class="g${r.isLow ? ' low' : ''}">${esc(r.gradeLabel)}</div></div>
-      <div class="pr-dist"><div class="cap">孩子在班上的落點</div>
+        <div class="g${r.isLow ? ' low' : ''}">${esc(r.gradeLabel)}</div></div></td>
+      <td><div class="pr-dist"><div class="cap">孩子在班上的落點（標記為本人、灰帶為多數同學）</div>
         <div class="pr-bar">
           <div class="axis"></div>
           <div class="band" style="left:${bandL}%;width:${Math.max(2, bandR - bandL)}%"></div>
           <div class="me${r.isLow ? ' low' : ''}" style="left:${mePos}%"></div>
-          <div class="melbl${r.isLow ? ' low' : ''}" style="left:${mePos}%">${r.score}</div>
-          <div class="tk" style="left:2%">最低 ${r.classMin}</div>
-          <div class="tk" style="left:98%">最高 ${r.classMax}</div>
         </div>
-        <div class="pr-keys"><span>班級平均 <b>${r.classAvg}</b></span><span>中位數 <b>${r.classMedian}</b></span><span>灰帶＝多數同學落點</span></div>
-      </div>
-    </div>
+        <div class="pr-ticks"><span class="lo">最低 ${r.classMin}</span><span class="hi">最高 ${r.classMax}</span></div>
+        <div class="pr-keys"><span>本次得分 <b>${r.score}</b></span><span>班級平均 <b>${r.classAvg}</b></span><span>中位數 <b>${r.classMedian}</b></span></div>
+      </div></td>
+    </tr></tbody></table>
 
-    <div class="pr-sec">二、各題型答對率（與班級平均對照）<span class="ln"></span></div>
-    <div class="pr-types">${typesHtml}</div>
+    <div class="pr-sec">二、各題型答對率（與班級平均對照）</div>
+    <table class="pr-types"><tbody>${typesHtml}</tbody></table>
     <div class="pr-tlgd"><span><span class="sw" style="background:#1E4D8C"></span>孩子的答對率</span><span><span class="cl"></span>班級平均</span><span>紅色＝明顯偏低、值得優先加強</span></div>
 
-    <div class="pr-sec">三、重點錯題與訂正方向<span class="ln"></span></div>
-    <table class="pr-wtab"><thead><tr><th style="width:118px">題號</th><th>作答狀況與訂正方向</th></tr></thead><tbody>${wrongsHtml}</tbody></table>
+    <div class="pr-sec">三、重點錯題與訂正方向</div>
+    <table class="pr-wtab"><thead><tr><th class="qcell">題號</th><th>作答狀況與訂正方向</th></tr></thead><tbody>${wrongsHtml}</tbody></table>
     ${moreRow}
 
-    <div class="pr-sec">四、老師的話<span class="ln"></span></div>
+    <div class="pr-sec">四、老師的話</div>
     <div class="pr-note">${commentHtml}<div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>
 
-    <div class="pr-foot"><span>本報告由 AI 批改系統彙整、評語經任課老師審閱．答對率以本次評量實際作答計算</span><span>${esc(h.schoolName)}・${esc(h.subject)}科</span></div>
+    <table class="pr-foot"><tbody><tr>
+      <td>本報告由 AI 批改系統彙整、評語經任課老師審閱．答對率以本次評量實際作答計算</td>
+      <td class="r">${esc(h.schoolName)}・${esc(h.subject)}科</td>
+    </tr></tbody></table>
   </div>`
 }
 
