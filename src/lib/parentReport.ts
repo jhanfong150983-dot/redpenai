@@ -524,8 +524,9 @@ function buildPrintDocument(reports: StudentReport[], header: ReportHeader): str
 @page { size: A4; margin: 0; }
 html, body { margin: 0; padding: 0; background: #fff; }
 ${REPORT_CSS}
-.pr-root { page-break-after: always; }
-.pr-root:last-child { page-break-after: auto; }
+/* 分頁用 break-before（每份報告之「前」分頁、第一份除外）→ 結尾不會多出空白頁 */
+.pr-root { break-before: page; page-break-before: always; }
+.pr-root:first-child { break-before: auto; page-break-before: auto; }
 </style></head><body>${pages}</body></html>`
 }
 
