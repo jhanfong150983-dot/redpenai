@@ -12,6 +12,17 @@ import {
 function formatDateZh(d: Date): string {
   return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`
 }
+// 預覽分頁在 PDF 產生完成前顯示的 loading 畫面（純內嵌、無外部資源）。
+const PREVIEW_LOADING_HTML = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>產生報告中…</title>
+<style>
+  html,body{height:100%;margin:0}
+  body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+    font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei',system-ui,sans-serif;color:#52606D;background:#F4F6F8}
+  .sp{width:38px;height:38px;border:4px solid #D9E2EC;border-top-color:#1E4D8C;border-radius:50%;animation:s .8s linear infinite}
+  @keyframes s{to{transform:rotate(360deg)}}
+  p{font-size:14px;letter-spacing:.05em;margin:0}
+</style></head><body><div class="sp"></div><p>報告產生中，請稍候…</p></body></html>`
+
 async function runWithConcurrency<T>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<void>) {
   let i = 0
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -76,10 +87,11 @@ export function ParentReportTab({
     if (text) setComment(r.studentId, text); else setMsg('評語生成失敗，請再試一次或手動輸入')
     setRowBusy((p) => ({ ...p, [r.studentId]: undefined }))
   }
-  // 預覽：先同步開空白分頁（避免 await 後 window.open 被彈窗攔截），拿到 PDF 再導向。
+  // 預覽：先同步開分頁並寫入 loading 畫面（避免 await 後 window.open 被彈窗攔截、也不留空白），拿到 PDF 再導向。
   const previewOne = async (r: StudentReport) => {
     setMsg('')
     const win = window.open('', '_blank')
+    if (win) { win.document.write(PREVIEW_LOADING_HTML); win.document.close() }
     setRowBusy((p) => ({ ...p, [r.studentId]: 'preview' }))
     try {
       const blob = await createReportPdfBlob(r, header)
