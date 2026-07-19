@@ -15,8 +15,20 @@ export type PRQuestion = {
   maxScore?: number
   answer?: string
   referenceAnswer?: string
+  /** 多小題（合題）：正確答案在 parts[].answer、頂層 answer 為空 */
+  parts?: Array<{ subId?: string; answer?: string }>
   /** 2026-07-19 試題分析（backfill 到 answer_key）：大主題 topic + 知識點 knowledgePoints */
   analysis?: { topic?: string; knowledgePoints?: string[]; ability?: string; cnaArea?: string; note?: string }
+}
+
+// 標準答案取值：頂層 answer 為空時（多小題型）由 parts 組出（subId a/b/c → ①②③）。
+const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩']
+export function resolveStdAnswer(q: { answer?: string; referenceAnswer?: string; parts?: Array<{ answer?: string }> }): string {
+  const direct = String(q.answer ?? q.referenceAnswer ?? '').trim()
+  if (direct) return direct
+  const parts = Array.isArray(q.parts) ? q.parts : []
+  return parts.map((p, i) => `${CIRCLED[i] ?? (i + 1) + '.'} ${String(p.answer ?? '').trim()}`)
+    .filter((s) => s.replace(/[①-⑩\d.\s]/g, '').length > 0).join('　')
 }
 export type PRDetail = {
   questionId?: string
@@ -56,6 +68,21 @@ export type WrongItem = {
   referenceAnswer: string
   reason: string
 }
+// 第四段「逐題錯題分析」：每一題錯題一張卡（不限量、依題號排序）。
+//   骨架（題號/題型/知識點/作答/標準答案）純程式算；why/suggest（AI 診斷）與 cropDataUrl（server 截圖）
+//   由 generate 流程另外填（applyDiagnosisAndCrops）。
+export type QErrorRow = {
+  questionId: string
+  label: string          // 家長看得懂的題號（formatQuestionLabel）
+  typeLabel: string
+  kp: string             // 知識點（・分隔）、無試題分析時為空
+  studentAnswer: string  // AI 讀到學生寫的
+  referenceAnswer: string // 標準答案
+  reason: string         // 批改理由（診斷未生成時的退回說明）
+  why: string            // AI 專家診斷「為什麼會這樣寫錯」（後填）
+  suggest: string        // 在家建議（後填）
+  cropDataUrl: string    // 學生作答截圖 data URI（後填）
+}
 export type WeakKp = { kp: string; tip: string }
 export type WeakTopic = { topic: string; band: 'red' | 'amber'; ratePct: number; total: number; wrong: number; weakKps: WeakKp[] }
 // 精熟程度總覽（第三段）：每個知識點的三級 + 精熟百分比（長條圖用）
@@ -80,6 +107,8 @@ export type StudentReport = {
   typeRates: TypeRate[]
   wrongs: WrongItem[]
   moreWrongCount: number
+  // 2026-07-19 第四段「逐題錯題分析」：全部錯題、依題號排序、不限量（電子交付）
+  errorRows: QErrorRow[]
   // 2026-07-19 加強地圖（依大主題分組、建議掛在知識點）；hasAnalysis=false 時退回 wrongs 清單
   hasAnalysis: boolean
   topicMastery: TopicMastery[] // 第三段：全部主題+知識點的精熟程度總覽
@@ -160,7 +189,7 @@ export function assembleParentReports(
     if (!id) continue
     qMaxById.set(id, num(q.maxScore))
     qTypeById.set(id, String(q.questionCategory ?? q.questionType ?? '').trim())
-    qAnswerById.set(id, String(q.answer ?? q.referenceAnswer ?? '').trim())
+    qAnswerById.set(id, resolveStdAnswer(q))
     const topic = String(q.analysis?.topic ?? '').trim()
     const kps = (q.analysis?.knowledgePoints ?? []).map((k) => String(k).trim()).filter((k) => k && k !== '無法對應')
     if (topic && topic !== '無法對應') { qTopicById.set(id, topic); anyAnalysis = true }
@@ -254,6 +283,20 @@ export function assembleParentReports(
       referenceAnswer: String(x.d.referenceAnswer ?? '').trim() || (qAnswerById.get(x.qid) ?? ''),
       reason: String(x.d.reason ?? '').trim(),
     }))
+    // 第四段逐題錯題分析：全部錯題、依題號排序（不限量）；why/suggest/crop 後填
+    const errorRows: QErrorRow[] = wrongAll
+      .slice()
+      .sort((a, b) => a.qid.localeCompare(b.qid, undefined, { numeric: true }))
+      .map((x) => ({
+        questionId: x.qid,
+        label: formatQuestionLabel(x.qid),
+        typeLabel: typeLabelOf(qTypeById.get(x.qid) || x.d.questionType),
+        kp: (qKpsById.get(x.qid) ?? []).join('・'),
+        studentAnswer: String(x.d.studentAnswer ?? '').trim(),
+        referenceAnswer: String(x.d.referenceAnswer ?? '').trim() || (qAnswerById.get(x.qid) ?? ''),
+        reason: String(x.d.reason ?? '').trim(),
+        why: '', suggest: '', cropDataUrl: '',
+      }))
 
     // 依大主題彙整 + 逐知識點精熟度
     const topicAgg = new Map<string, { got: number; max: number; total: number; wrong: number; wrongKp: Map<string, number>; order: number }>()
@@ -320,6 +363,7 @@ export function assembleParentReports(
       typeRates,
       wrongs,
       moreWrongCount: Math.max(0, wrongAll.length - wrongs.length),
+      errorRows,
       hasAnalysis: anyAnalysis,
       topicMastery,
       weakTopics,
@@ -389,6 +433,177 @@ export async function generateParentComment(r: StudentReport, subject: string): 
       .trim()
     return text
   } catch { return '' }
+}
+
+// ── AI 逐題錯因診斷（2.5-flash、餵題本圖由 server 注入、一生一 call 批全部錯題） ──
+export type DiagnosisWrong = { questionId: string; studentAnswer: string; referenceAnswer: string }
+export type DiagnosisItem = { why: string; suggest: string }
+
+function buildDiagnosisPrompt(subject: string, wrongs: DiagnosisWrong[]): string {
+  const lines = wrongs
+    .map((w) => `${w.questionId}：學生寫「${w.studentAnswer || '（空白）'}」正解「${w.referenceAnswer || '—'}」`)
+    .join('\n')
+  return `你是資深台灣${subject}老師與學習診斷專家。附上完整題本（多頁圖）。以下是某位學生本次評量所有寫錯的題。
+請逐題像專家一樣分析「他為什麼會這樣寫錯」——推論他的思路或迷思、務必結合題幹內容說明，用白話寫給家長看、每題 2～3 句、語氣不責備。不要只做表層貼標（例如別只寫「計算錯誤」，要推論他卡在哪個觀念或哪一步）。再給家長一句「在家可以怎麼幫」的具體建議。
+錯題（題號：學生寫「」正解「」）：
+${lines}
+只輸出 JSON、不要 markdown：{"items":[{"questionId":"題號","why":"為什麼會這樣寫錯","suggest":"在家建議"}]}`
+}
+
+/** 產生一位學生全部錯題的 AI 錯因診斷；回 Map<questionId,{why,suggest}>；失敗回空 Map（報告仍可出、卡片留白）。 */
+export async function generateParentDiagnosis(
+  assignmentId: string,
+  subject: string,
+  wrongs: DiagnosisWrong[],
+): Promise<Map<string, DiagnosisItem>> {
+  const out = new Map<string, DiagnosisItem>()
+  if (!assignmentId || wrongs.length === 0) return out
+  try {
+    const inkSessionId = await ensureInkSessionId()
+    const res = await fetch(GEMINI_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        model: COMMENT_MODEL,
+        contents: [{ role: 'user', parts: [{ text: buildDiagnosisPrompt(subject, wrongs) }] }],
+        routeKey: 'report.parent_diagnosis',
+        assignmentId, // server 據此撈題本圖注入 contents（client 不必自抓、避開 bucket RLS）
+        ...(inkSessionId ? { inkSessionId } : {}),
+      }),
+    })
+    if (!res.ok) return out
+    const data = await res.json().catch(() => null)
+    const text = ((data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> })?.candidates ?? [])
+      .flatMap((c) => c?.content?.parts ?? [])
+      .map((p) => (typeof p?.text === 'string' ? p.text : ''))
+      .join('')
+    const m = text.match(/\{[\s\S]*\}/)
+    if (!m) return out
+    const parsed = JSON.parse(m[0]) as { items?: Array<{ questionId?: string; why?: string; suggest?: string }> }
+    for (const it of parsed.items ?? []) {
+      const qid = String(it.questionId ?? '').trim()
+      if (!qid) continue
+      out.set(qid, { why: String(it.why ?? '').trim(), suggest: String(it.suggest ?? '').trim() })
+    }
+    return out
+  } catch { return out }
+}
+
+// ── 錯題截圖（server 端切、方案 A）：回 Map<題號, dataURI>；失敗回空 Map（卡片不顯示圖） ──
+const CROPS_ENDPOINT = '/api/report/crops'
+export async function fetchQuestionCrops(
+  assignmentId: string,
+  studentId: string,
+  questionIds: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const qids = [...new Set(questionIds.map((q) => String(q ?? '').trim()).filter(Boolean))]
+  if (!assignmentId || !studentId || qids.length === 0) return out
+  try {
+    const res = await fetch(CROPS_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ assignmentId, studentId, questionIds: qids }),
+    })
+    if (!res.ok) return out
+    const data = (await res.json().catch(() => null)) as { crops?: Record<string, string> } | null
+    for (const [qid, uri] of Object.entries(data?.crops ?? {})) {
+      if (typeof uri === 'string' && uri) out.set(qid, uri)
+    }
+    return out
+  } catch { return out }
+}
+
+// ── 家長報告快取（parent_reports：只存 AI 產物＝診斷 + 評語；截圖免費不進表） ──
+const PARENT_CACHE_ENDPOINT = '/api/report/parent-cache'
+export type CachedReport = { diagnosis: Record<string, DiagnosisItem>; comment: string; stale: boolean }
+
+/** 載入某作業全部已快取的診斷/評語（含 stale 指紋比對）；回 Map<studentId, CachedReport>。 */
+export async function loadParentReportCache(assignmentId: string): Promise<Map<string, CachedReport>> {
+  const out = new Map<string, CachedReport>()
+  if (!assignmentId) return out
+  // 逾時保護：此函式也用在批改/存答案卷的前置閘，端點慢不可拖住關鍵流程（逾時＝當作沒報告、放行）。
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 6000)
+  try {
+    const res = await fetch(`${PARENT_CACHE_ENDPOINT}?assignmentId=${encodeURIComponent(assignmentId)}`, {
+      credentials: 'include',
+      signal: ctrl.signal,
+    })
+    if (!res.ok) return out
+    const data = (await res.json().catch(() => null)) as {
+      items?: Array<{ studentId: string; diagnosis: Record<string, DiagnosisItem>; comment: string; stale: boolean }>
+    } | null
+    for (const it of data?.items ?? []) {
+      out.set(String(it.studentId), {
+        diagnosis: it.diagnosis || {},
+        comment: it.comment || '',
+        stale: Boolean(it.stale),
+      })
+    }
+    return out
+  } catch { return out } finally { clearTimeout(timer) }
+}
+
+/** 批次寫回快取（server 端當下蓋指紋）；回是否成功。 */
+export async function saveParentReportCache(
+  assignmentId: string,
+  items: Array<{ studentId: string; diagnosis: Record<string, DiagnosisItem>; comment: string }>,
+): Promise<boolean> {
+  if (!assignmentId || items.length === 0) return false
+  try {
+    const res = await fetch(PARENT_CACHE_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ assignmentId, items }),
+    })
+    return res.ok
+  } catch { return false }
+}
+
+/** 從報告取出要送診斷的錯題清單（給 generateParentDiagnosis 用）。 */
+export function diagnosisWrongsOf(r: StudentReport): DiagnosisWrong[] {
+  return r.errorRows.map((e) => ({
+    questionId: e.questionId,
+    studentAnswer: e.studentAnswer,
+    referenceAnswer: e.referenceAnswer,
+  }))
+}
+
+/** 把 AI 診斷（why/suggest）與截圖（cropDataUrl）併回報告的 errorRows，回新報告（不改原物件）。 */
+export function applyDiagnosisAndCrops(
+  r: StudentReport,
+  diag: Map<string, DiagnosisItem>,
+  crops: Map<string, string>,
+): StudentReport {
+  return {
+    ...r,
+    errorRows: r.errorRows.map((e) => {
+      const d = diag.get(e.questionId)
+      const c = crops.get(e.questionId)
+      return {
+        ...e,
+        why: d?.why || e.why,
+        suggest: d?.suggest || e.suggest,
+        cropDataUrl: c || e.cropDataUrl,
+      }
+    }),
+  }
+}
+
+/** 把快取的 CachedReport（診斷 Record + 評語）併回報告；截圖不在此、另由 ensureCrops 補。 */
+export function applyCachedReport(r: StudentReport, cached: CachedReport): StudentReport {
+  const diagMap = new Map<string, DiagnosisItem>(Object.entries(cached.diagnosis || {}))
+  const merged = applyDiagnosisAndCrops(r, diagMap, new Map())
+  return { ...merged, comment: cached.comment || merged.comment }
+}
+
+/** report.errorRows 是否已全部帶到 AI 診斷（判斷「已生成 / 待生成」）。 */
+export function hasDiagnosis(r: StudentReport): boolean {
+  return r.errorRows.length > 0 && r.errorRows.every((e) => Boolean(e.why))
 }
 
 // ── 版面 CSS ──
@@ -506,6 +721,24 @@ export const REPORT_CSS = `
 .pr-foot { width:100%; border-collapse:collapse; margin-top:18px; border-top:1px solid #D9DEE4; }
 .pr-foot td { padding-top:12px; font-size:10.5px; color:#7B8794; vertical-align:top; }
 .pr-foot .r { text-align:right; white-space:nowrap; }
+/* 第四段 逐題錯題分析卡片（PDF 走 headless Chrome、可用 flex） */
+.pr-qsub { font-size:11px; color:#8A94A0; margin:-2px 0 12px; }
+.pr-qc { border:1px solid #E4E8EC; border-radius:7px; padding:12px 14px; margin-bottom:12px; break-inside:avoid; page-break-inside:avoid; }
+.pr-qh { margin-bottom:9px; }
+.pr-qno { font-size:13.5px; font-weight:700; color:#1E4D8C; }
+.pr-qkp { font-size:10.5px; color:#7B8794; background:#F2F4F6; border-radius:3px; padding:1px 8px; margin-left:8px; }
+.pr-qbody { display:flex; gap:14px; margin-bottom:9px; }
+.pr-qcrop { width:210px; flex:none; }
+.pr-qcrop img { width:100%; border:1px solid #E4E8EC; border-radius:4px; }
+.pr-qinfo { flex:1; }
+.pr-qr { font-size:12.5px; margin-bottom:5px; }
+.pr-qr .l { display:inline-block; width:74px; color:#7B8794; }
+.pr-qr .you { color:#C2402A; font-weight:700; }
+.pr-qr .ans { color:#1E4D8C; font-weight:700; }
+.pr-qwhy { font-size:12.5px; color:#3E4A56; line-height:1.75; margin-top:4px; }
+.pr-qwhy b { color:#8A5A08; }
+.pr-qtip { font-size:12.5px; color:#1E4D8C; line-height:1.75; background:#EEF3FA; border-radius:4px; padding:6px 11px; margin-top:6px; }
+.pr-qpend { font-size:11.5px; color:#A6AEB8; margin-top:4px; }
 `
 
 function esc(s: string): string {
@@ -539,14 +772,6 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
   }).join('') : `<tr><td colspan="2" style="text-align:center;color:#7B8794;padding:14px">本次沒有明顯失分的題目，表現很好！</td></tr>`
   const moreRow = r.moreWrongCount > 0
     ? `<div class="pr-more">另有 ${r.moreWrongCount} 題失分，完整內容請見孩子的考卷。</div>` : ''
-  // 加強地圖：弱單元卡片（大主題分組＋知識點建議）＋強項一行；全對時給正向句
-  const topicCards = r.weakTopics.map((t) => `<div class="pr-topic ${t.band}">
-      <div><span class="pr-topic-name">${esc(t.topic)}</span><span class="pr-topic-badge ${t.band}">${t.band === 'red' ? '待加強' : '不太穩'}</span><span class="pr-topic-stat">本單元 ${t.total} 題・錯 ${t.wrong} 題</span></div>
-      ${t.weakKps.length ? `<div class="pr-topic-lead">這次主要卡在：</div>` + t.weakKps.map((k) => `<div class="pr-kp"><span class="pr-kp-name">・${esc(k.kp)}</span>${k.tip ? `<span class="pr-kp-tip">💡 ${esc(k.tip)}</span>` : ''}</div>`).join('') : ''}
-    </div>`).join('')
-  const weakMapHtml = r.weakTopics.length
-    ? topicCards
-    : `<div class="pr-allgood">本次各單元表現都不錯，沒有明顯要加強的地方，繼續保持！</div>`
   // 第三段：精熟程度總覽（全部主題+知識點、三色點）
   const masteryLegend = `<div class="pr-mlegend">每一格是一個知識點，顏色代表掌握狀態：<span class="pr-mlgd-dot" style="background:#2E7D5B"></span>精熟　<span class="pr-mlgd-dot" style="background:#C77D0A"></span>基礎　<span class="pr-mlgd-dot" style="background:#C2402A"></span>待加強</div>`
   const masteryHtml = r.topicMastery.map((t) => {
@@ -555,6 +780,24 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     const cells = t.kps.map((k) => `<span class="pr-cell ${k.level}">${esc(k.kp)}</span>`).join('')
     return `<div class="pr-mtopic">${esc(t.topic)}<span class="pr-mtopic-badge ${badge}">${badgeText}</span></div><div class="pr-cgrid">${cells}</div>`
   }).join('')
+  // 第四段：逐題錯題分析（全部錯題、依題號排序；crop/why/suggest 由 generate 流程填）
+  const errorCards = r.errorRows.map((e) => {
+    const crop = e.cropDataUrl ? `<div class="pr-qcrop"><img src="${esc(e.cropDataUrl)}"></div>` : ''
+    const info = `<div class="pr-qinfo">
+        <div class="pr-qr"><span class="l">AI 讀到</span><span class="you">${esc(e.studentAnswer || '（空白）')}</span></div>
+        <div class="pr-qr"><span class="l">標準答案</span><span class="ans">${esc(e.referenceAnswer || '—')}</span></div>
+      </div>`
+    const why = e.why
+      ? `<div class="pr-qwhy"><b>🧠 為什麼會這樣：</b>${esc(e.why)}</div>`
+      : `<div class="pr-qpend">✎ ${esc(e.reason || '請對照標準答案重新檢視這一題。')}</div>`
+    const tip = e.suggest ? `<div class="pr-qtip"><b>💡 在家可以：</b>${esc(e.suggest)}</div>` : ''
+    return `<div class="pr-qc">
+      <div class="pr-qh"><span class="pr-qno">${esc(e.label)}</span>${e.kp ? `<span class="pr-qkp">${esc(e.kp)}</span>` : ''}</div>
+      <div class="pr-qbody">${crop}${info}</div>${why}${tip}</div>`
+  }).join('')
+  const errorSection = r.errorRows.length
+    ? `<div class="pr-qsub">按題號排序，每題附孩子的作答、為什麼會錯、在家怎麼幫（共 ${r.errorRows.length} 題）</div>${errorCards}`
+    : `<div class="pr-allgood">本次沒有明顯失分的題目，表現很好！</div>`
   const commentHtml = r.comment ? esc(r.comment) : `<span class="ph">（老師評語）</span>`
   const noteHtml = `<div class="pr-note">${commentHtml}<div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>`
   const footHtml = `<table class="pr-foot"><tbody><tr><td>本報告由 AI 批改系統彙整、評語經任課老師審閱．答對率以本次評量實際作答計算</td><td class="r">${esc(h.schoolName)}・${esc(h.subject)}科</td></tr></tbody></table>`
@@ -605,8 +848,8 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     ${masteryHtml}
 
     <div class="pr-page2">
-      <div class="pr-sec">四、需要加強的地方</div>
-      ${weakMapHtml}
+      <div class="pr-sec">四、逐題錯題分析</div>
+      ${errorSection}
 
       <div class="pr-sec">五、老師的話</div>
       ${noteHtml}

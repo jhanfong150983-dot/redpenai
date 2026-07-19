@@ -40,6 +40,8 @@ import { checkFolderNameUnique } from '@/lib/utils'
 import { useTutorial } from '@/hooks/useTutorial'
 import { TutorialOverlay } from '@/components/TutorialOverlay'
 import AnswerKeyWizardModal from '@/components/AnswerKeyWizardModal'
+import DangerConfirmModal from '@/components/DangerConfirmModal'
+import { loadParentReportCache } from '@/lib/parentReport'
 
 interface AssignmentSetupProps {
   onBack?: () => void
@@ -231,6 +233,11 @@ export default function AssignmentSetup({
   const [editingDomain, setEditingDomain] = useState('')
   const [editingScoringMode, setEditingScoringMode] = useState<'scored' | 'unscored'>('scored')
   const [isSavingAnswerKey, setIsSavingAnswerKey] = useState(false)
+  // 2026-07-20 家長報告失效警告：改答案卷存檔前若已有家長報告，先提醒（重生手動、不自動扣點）。
+  //   兩條存檔路徑共用（saveAnswerKey 專用編輯器 / doEditAssignment 作業設定 modal）：pending-action 模式。
+  const [akRegradeWarn, setAkRegradeWarn] = useState<{ count: number } | null>(null)
+  const akWarnAckRef = useRef(false)
+  const pendingAkActionRef = useRef<null | (() => void)>(null)
   const [isReanalyzing, setIsReanalyzing] = useState(false)
   const [, setEditAnswerKeyFile] = useState<File[]>([])
   const [editAnswerSheetImages, setEditAnswerSheetImages] = useState<Blob[]>([])
@@ -1175,6 +1182,24 @@ export default function AssignmentSetup({
           }
         } : {})
       }
+      // 2026-07-20 家長報告失效前置閘（作業設定 modal 這條）：只在「答案卷題目/答案真的變了」才提醒，
+      //   避免只改標題也跳警告。scoring 設定變不觸發（不會回頭改到已生成的報告）。fail-open。
+      if (!akWarnAckRef.current) {
+        const storedAk = assignments.find((a) => a.id === editingAssignmentId)?.answerKey as { questions?: unknown } | undefined
+        const questionsChanged =
+          JSON.stringify(storedAk?.questions ?? null) !== JSON.stringify((updatedAk as { questions?: unknown })?.questions ?? null)
+        if (questionsChanged) {
+          try {
+            const existing = await loadParentReportCache(editingAssignmentId)
+            if (existing.size > 0) {
+              pendingAkActionRef.current = () => { akWarnAckRef.current = true; void doEditAssignment() }
+              setAkRegradeWarn({ count: existing.size })
+              return // finally 會把 isSubmitting 復原
+            }
+          } catch { /* 查不到就照常儲存 */ }
+        }
+      }
+      akWarnAckRef.current = false
       await db.assignments.update(editingAssignmentId, {
         title: assignmentTitle.trim(),
         docType: createAnswerDocType,
@@ -2571,6 +2596,20 @@ export default function AssignmentSetup({
       setEditAnswerKeyError(`題號不可重複：${formatDuplicateQuestionIds(duplicateIds)}。請先調整後再儲存。`)
       return
     }
+
+    // 2026-07-20 家長報告失效前置閘：改答案卷會改動標準答案/題號→家長報告失效。已有報告時先提醒。
+    //   fail-open：查詢失敗照常儲存、絕不因此擋住存檔。
+    if (!akWarnAckRef.current) {
+      try {
+        const existing = await loadParentReportCache(editingAnswerAssignment.id)
+        if (existing.size > 0) {
+          pendingAkActionRef.current = () => { akWarnAckRef.current = true; void saveAnswerKey() }
+          setAkRegradeWarn({ count: existing.size })
+          return
+        }
+      } catch { /* 查不到就照常儲存 */ }
+    }
+    akWarnAckRef.current = false
 
     try {
       setIsSavingAnswerKey(true)
@@ -4052,6 +4091,24 @@ export default function AssignmentSetup({
 
       {/* 引导式教学覆盖层 */}
       <TutorialOverlay tutorial={tutorial} />
+
+      {/* 2026-07-20: 家長報告失效警告（改答案卷存檔前、這份作業已有家長報告時） */}
+      <DangerConfirmModal
+        open={!!akRegradeWarn}
+        severity="high"
+        title={`這份作業已有 ${akRegradeWarn?.count ?? 0} 份家長報告`}
+        clears={['家長報告（診斷與評語）將失效、需回學情報告頁重新生成']}
+        keeps={['學生作答照片', '目前的批改結果']}
+        acknowledgeText="我了解修改答案卷會使已生成的家長報告失效，之後需自行重新生成（重生為手動、不會自動扣點）"
+        confirmLabel="仍要儲存"
+        cancelLabel="取消"
+        onCancel={() => { setAkRegradeWarn(null); pendingAkActionRef.current = null }}
+        onConfirm={() => {
+          const run = pendingAkActionRef.current
+          setAkRegradeWarn(null); pendingAkActionRef.current = null
+          run?.()
+        }}
+      />
     </div>
   )
 }

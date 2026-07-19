@@ -1037,6 +1037,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                     return a ? getAssignmentTitle(a) : ''
                   })()}
                   onOpenPreferences={() => { window.location.href = '/preferences' }}
+                  requestInk={requestInk}
                 />
               ) : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
