@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { FileDown, Eye, RefreshCw, Loader2, Sparkles, Settings, CheckSquare, X, AlertTriangle } from 'lucide-react'
 import {
   assembleParentReports, generateParentComment, generateParentDiagnosis, fetchQuestionCrops,
-  diagnosisWrongsOf, applyDiagnosisAndCrops, loadParentReportCache, saveParentReportCache, hasDiagnosis,
+  diagnosisWrongsOf, applyDiagnosisAndCrops, loadParentReportCache, saveParentReportCache,
   createReportPdfBlob, downloadSingleReport, downloadReportsAsZip,
   loadReportHeaderSettings, loadCachedComments, saveCachedComment,
   type PRQuestion, type PRSubmission, type PRStudent, type ReportHeader, type StudentReport, type DiagnosisItem,
@@ -42,6 +42,8 @@ export function ParentReportTab({
 }: Props) {
   const [reports, setReports] = useState<StudentReport[]>([])
   const [staleSet, setStaleSet] = useState<Set<string>>(new Set())
+  // 「已生成」＝有成功產生並快取過（不是「每題都有診斷」——AI 偶爾漏一題不該害整位變未生成、重複扣費）。
+  const [generatedSet, setGeneratedSet] = useState<Set<string>>(new Set())
   const [genState, setGenState] = useState<{ done: number; total: number } | null>(null)
   const [multiSelect, setMultiSelect] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -60,6 +62,7 @@ export function ParentReportTab({
     setReports(list)
     setSelected(new Set())
     setStaleSet(new Set())
+    setGeneratedSet(new Set())
     setMsg('')
     // 非同步載入 parent_reports 快取（診斷＋評語）＋ stale 指紋
     let cancelled = false
@@ -74,6 +77,7 @@ export function ParentReportTab({
         return { ...merged, comment: localCmts[r.studentId] || c.comment || merged.comment }
       }))
       setStaleSet(new Set([...cache.entries()].filter(([, c]) => c.stale).map(([sid]) => sid)))
+      setGeneratedSet(new Set([...cache.keys()])) // 有快取＝生成過
     })
     return () => { cancelled = true }
   }, [questions, submissions, students, kpTips, assignmentId])
@@ -93,7 +97,7 @@ export function ParentReportTab({
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(reports.map((r) => r.studentId)))
 
   const busy = genState !== null || batchPdf !== null
-  const needsGen = (r: StudentReport) => !hasDiagnosis(r) || staleSet.has(r.studentId)
+  const needsGen = (r: StudentReport) => !generatedSet.has(r.studentId) || staleSet.has(r.studentId)
   const pending = reports.filter(needsGen)
 
   // 生成（診斷＋截圖＋評語）→ 更新 state ＋ 快取；forceComment=true 時連已編輯的評語也重寫（單列重新生成用）
@@ -120,6 +124,7 @@ export function ParentReportTab({
         cacheItems.push({ studentId: r.studentId, diagnosis: Object.fromEntries(diag), comment })
         setReports((prev) => prev.map((x) => (x.studentId === r.studentId ? updated : x)))
         setStaleSet((prev) => { const n = new Set(prev); n.delete(r.studentId); return n })
+        setGeneratedSet((prev) => new Set(prev).add(r.studentId))
       } catch { failed += 1 }
       done += 1; setGenState({ done, total: targets.length })
     })
@@ -183,7 +188,7 @@ export function ParentReportTab({
     return <section className="card" style={{ color: '#64748b', fontSize: 13 }}>此作業已批改的卷數不足，暫無法產生家長報告。</section>
   }
 
-  const genDoneCount = reports.filter((r) => hasDiagnosis(r) && !staleSet.has(r.studentId)).length
+  const genDoneCount = reports.filter((r) => generatedSet.has(r.studentId) && !staleSet.has(r.studentId)).length
 
   return (
     <div className="space-y-3">
@@ -267,7 +272,7 @@ export function ParentReportTab({
             {reports.map((r) => {
               const rb = rowBusy[r.studentId]
               const stale = staleSet.has(r.studentId)
-              const done = hasDiagnosis(r) && !stale
+              const done = generatedSet.has(r.studentId) && !stale
               return (
                 <tr key={r.studentId} className="border-b border-slate-50 last:border-0 align-top">
                   {multiSelect && (
