@@ -321,23 +321,22 @@ export function assembleParentReports(
     }
     const bandOf = (rate: number): 'red' | 'amber' | 'green' => rate >= 0.8 ? 'green' : rate >= 0.6 ? 'amber' : 'red'
     const levelOf = (rate: number): KpLevel => rate >= 0.8 ? 'expert' : rate >= 0.5 ? 'basic' : 'weak'
-    // 第三段：每主題底下所有知識點的精熟度（弱的排前面）
+    // 第三段：每主題底下所有知識點（依考卷題目出現順序，全班一致；不依各生精熟率排，避免每人順序不同）
     const kpsByTopic = new Map<string, KpMastery[]>()
     for (const [kp, k] of kpAgg) {
       const rate = k.max > 0 ? k.got / k.max : 1
       if (!kpsByTopic.has(k.topic)) kpsByTopic.set(k.topic, [])
       kpsByTopic.get(k.topic)!.push({ kp, level: levelOf(rate), ratePct: Math.round(rate * 100) })
     }
-    const lvlRank = { weak: 0, basic: 1, expert: 2 }
     const allTopics = [...topicAgg.entries()].map(([topic, e]) => {
       const rate = e.max > 0 ? e.got / e.max : 1
       const band = bandOf(rate)
-      const kps = (kpsByTopic.get(topic) ?? []).sort((a, b) => lvlRank[a.level] - lvlRank[b.level])
+      const kps = kpsByTopic.get(topic) ?? [] // 保持題目出現順序（kpAgg 插入序＝題序、跨生一致）
       const weakKps: WeakKp[] = [...e.wrongKp.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([kp]) => ({ kp, tip: kpTips[kp] ?? '' }))
       return { topic, band, ratePct: Math.round(rate * 100), total: e.total, wrong: e.wrong, weakKps, kps, order: e.order }
     })
     const topicMastery: TopicMastery[] = allTopics
-      .slice().sort((a, b) => a.ratePct - b.ratePct)
+      .slice().sort((a, b) => a.order - b.order) // 固定主題順序（題目出現序）、全班一致，不依各生精熟率
       .map((t) => ({ topic: t.topic, band: t.band, ratePct: t.ratePct, kps: t.kps }))
     const weakTopics: WeakTopic[] = allTopics.filter((t) => t.band !== 'green')
       .map((t) => ({ topic: t.topic, band: t.band as 'red' | 'amber', ratePct: t.ratePct, total: t.total, wrong: t.wrong, weakKps: t.weakKps }))
@@ -727,10 +726,10 @@ export const REPORT_CSS = `
 .pr-mtopic { font-size:12.5px; font-weight:700; color:#1F2933; margin:12px 0 7px; }
 .pr-mtopic-badge { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 8px; border-radius:3px; margin-left:8px; }
 .pr-cgrid { display:flex; flex-wrap:wrap; gap:6px; }
-.pr-cell { font-size:11.5px; padding:5px 10px; border-radius:4px; color:#fff; }
-.pr-cell.expert { background:#2E7D5B; }
-.pr-cell.basic { background:#C77D0A; }
-.pr-cell.weak { background:#C2402A; }
+.pr-cell { font-size:12.5px; font-weight:600; padding:6px 11px; border-radius:4px; color:#fff; letter-spacing:.01em; }
+.pr-cell.expert { background:#256B4C; }
+.pr-cell.basic { background:#9A5B00; }
+.pr-cell.weak { background:#B0301C; }
 .badge-green { background:#E6F4EC; color:#2E6B4F; }
 .badge-amber { background:#F4E4C1; color:#8A5A08; }
 .badge-red { background:#F6D5CE; color:#A5331F; }
@@ -793,7 +792,7 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
   const moreRow = r.moreWrongCount > 0
     ? `<div class="pr-more">另有 ${r.moreWrongCount} 題失分，完整內容請見孩子的考卷。</div>` : ''
   // 第三段：精熟程度總覽（全部主題+知識點、三色點）
-  const masteryLegend = `<div class="pr-mlegend">每一格是一個知識點，顏色代表掌握狀態：<span class="pr-mlgd-dot" style="background:#2E7D5B"></span>精熟　<span class="pr-mlgd-dot" style="background:#C77D0A"></span>基礎　<span class="pr-mlgd-dot" style="background:#C2402A"></span>待加強</div>`
+  const masteryLegend = `<div class="pr-mlegend">每一格是一個知識點，顏色代表掌握狀態：<span class="pr-mlgd-dot" style="background:#256B4C"></span>精熟　<span class="pr-mlgd-dot" style="background:#9A5B00"></span>基礎　<span class="pr-mlgd-dot" style="background:#B0301C"></span>待加強</div>`
   const masteryHtml = r.topicMastery.map((t) => {
     const badge = t.band === 'green' ? 'badge-green' : t.band === 'amber' ? 'badge-amber' : 'badge-red'
     const badgeText = t.band === 'green' ? '精熟' : t.band === 'amber' ? '基礎' : '待加強'
