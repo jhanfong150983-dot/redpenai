@@ -131,7 +131,8 @@ function buildImagePrompt(item: ItemStat, domain: string, gradeHint: string, cro
 附上：① 完整題本（多頁印刷題目）② 本題【${item.questionId}】共 ${cropCount} 位答錯學生的實際作答圖（手寫／作圖）。正解：「${item.keyAnswer}」。
 請先在題本中找到本題、讀懂它要學生畫／算什麼；再逐一看這些學生的作答圖，歸納「錯誤樣態」——找出重複出現的畫錯／算錯型態（同一張圖可同時計入多個特徵）。
 ⚠ 只依題本實印題目與作答圖判斷、切勿臆測；看不清的圖不強行歸類。
-每個特徵回報：feature（特徵名稱、老師秒懂）、count（有此特徵的學生數）、examples（最多 2 個，描述圖上看到的錯法，如「三視圖只畫正視圖、漏側視圖」）、note（一句教學提示）、cause（從「${causeTaxonomy}」選最貼近的一個；都不貼近才用「其他」並填 causeDetail；證據不足填「無法判斷」）、causeDetail（選填）。
+⚠ 這些作答圖是「匿名」的，你無法得知是哪位學生——**所有描述與 examples 一律不得指名或編造「學生1/學生2」「座號N」這類身分**（會誤導老師），只描述錯誤型態本身。
+每個特徵回報：feature（特徵名稱、老師秒懂）、count（有此特徵的作答數）、examples（最多 2 個，只描述圖上看到的錯法本身、不提是誰，如「三視圖只畫正視圖、漏側視圖」）、note（一句教學提示）、cause（從「${causeTaxonomy}」選最貼近的一個；都不貼近才用「其他」並填 causeDetail；證據不足填「無法判斷」）、causeDetail（選填）。
 ⚠ 歸因鐵則：只根據作答與題目要求；「不專心、態度差」這類跨題行為不得使用。
 只列 count≥2 的特徵、按 count 由多到少排序；亂畫／空白不計入特徵、單獨列在 nonsense。最後給 teachingFocus（2 句檢討課重點）。共 ${wrongTotal} 位答錯（附圖 ${cropCount} 位）。
 只輸出 JSON：{"features":[{"feature":"...","count":0,"examples":["..."],"note":"...","cause":"...","causeDetail":"..."}],"nonsense":["..."],"teachingFocus":"..."}`
