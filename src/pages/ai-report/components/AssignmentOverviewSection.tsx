@@ -4,7 +4,7 @@
 import { useMemo, useState } from 'react'
 import { computeItemAnalysis } from '../item-analysis'
 import type { ItemAnalysisQuestion, ItemAnalysisSubmissionLike, ItemStat } from '../item-analysis'
-import { Badge, DistributionBar, BAND_STYLE, P_STYLE } from './ItemAnalysisSection'
+import { DistributionBar } from './ItemAnalysisSection'
 import QuestionErrorFeaturesModal from './QuestionErrorFeaturesModal'
 
 type Props = {
@@ -114,7 +114,6 @@ export default function AssignmentOverviewSection({ questions, submissions, assi
                 <th style={{ padding: '6px 8px' }}>題號</th>
                 <th style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>失分率</th>
                 <th style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>對／錯／未答</th>
-                <th style={{ padding: '6px 8px' }}>難易／鑑別</th>
                 <th style={{ padding: '6px 8px' }}>答案分布（✓＝正解）</th>
               </tr>
             </thead>
@@ -131,10 +130,6 @@ export default function AssignmentOverviewSection({ questions, submissions, assi
                   </td>
                   <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
                     {it.correctCount}／{it.wrongCount}／{it.blankCount + it.unrecognizableCount}
-                  </td>
-                  <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
-                    <Badge text={it.pBand} palette={P_STYLE[it.pBand]} />{' '}
-                    <Badge text={it.dBand} palette={BAND_STYLE[it.dBand]} />
                   </td>
                   <td style={{ padding: '6px 8px' }}>
                     <DistributionBar item={it} onAiFeatures={aiEnabled ? () => setAiItem(it) : undefined} />
