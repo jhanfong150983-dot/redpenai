@@ -547,6 +547,22 @@ export async function loadParentReportCache(assignmentId: string): Promise<Map<s
   } catch { return out } finally { clearTimeout(timer) }
 }
 
+/** 輕量：只查這份作業有幾筆家長報告（給重批改/改答案卷前置閘用；不撈診斷、快）。逾時/失敗回 0（fail-open）。 */
+export async function parentReportCount(assignmentId: string): Promise<number> {
+  if (!assignmentId) return 0
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), 4000)
+  try {
+    const res = await fetch(`${PARENT_CACHE_ENDPOINT}?assignmentId=${encodeURIComponent(assignmentId)}&countOnly=1`, {
+      credentials: 'include',
+      signal: ctrl.signal,
+    })
+    if (!res.ok) return 0
+    const data = (await res.json().catch(() => null)) as { count?: number } | null
+    return Number(data?.count) || 0
+  } catch { return 0 } finally { clearTimeout(timer) }
+}
+
 /** 批次寫回快取（server 端當下蓋指紋）；回是否成功。 */
 export async function saveParentReportCache(
   assignmentId: string,

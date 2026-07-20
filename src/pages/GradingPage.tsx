@@ -42,7 +42,7 @@ import { downloadImageFromSupabase } from '@/lib/supabase-download'
 import { getSubmissionImageUrl, fixCorruptedBase64 } from '@/lib/utils'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
-import { loadParentReportCache } from '@/lib/parentReport'
+import { parentReportCount } from '@/lib/parentReport'
 import { blobToBase64 } from '@/lib/imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-storage'
 
@@ -5747,10 +5747,10 @@ export default function GradingPage({
     //   第一次批改時還沒有報告故不觸發）。fail-open：查詢失敗照常批改、絕不因此擋住批改。
     if (!regradeAckRef.current && assignmentId) {
       try {
-        const existing = await loadParentReportCache(assignmentId)
-        if (existing.size > 0) {
+        const count = await parentReportCount(assignmentId)
+        if (count > 0) {
           pendingRegradeRef.current = () => { regradeAckRef.current = true; void runOneClickForBuckets(needA, needReview, needB) }
-          setRegradeWarn({ count: existing.size })
+          setRegradeWarn({ count })
           return
         }
       } catch { /* 查不到就照常批改 */ }

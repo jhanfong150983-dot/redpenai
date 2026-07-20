@@ -41,7 +41,7 @@ import { useTutorial } from '@/hooks/useTutorial'
 import { TutorialOverlay } from '@/components/TutorialOverlay'
 import AnswerKeyWizardModal from '@/components/AnswerKeyWizardModal'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
-import { loadParentReportCache } from '@/lib/parentReport'
+import { parentReportCount } from '@/lib/parentReport'
 
 interface AssignmentSetupProps {
   onBack?: () => void
@@ -1190,10 +1190,10 @@ export default function AssignmentSetup({
           JSON.stringify(storedAk?.questions ?? null) !== JSON.stringify((updatedAk as { questions?: unknown })?.questions ?? null)
         if (questionsChanged) {
           try {
-            const existing = await loadParentReportCache(editingAssignmentId)
-            if (existing.size > 0) {
+            const count = await parentReportCount(editingAssignmentId)
+            if (count > 0) {
               pendingAkActionRef.current = () => { akWarnAckRef.current = true; void doEditAssignment() }
-              setAkRegradeWarn({ count: existing.size })
+              setAkRegradeWarn({ count })
               return // finally 會把 isSubmitting 復原
             }
           } catch { /* 查不到就照常儲存 */ }
@@ -2601,10 +2601,10 @@ export default function AssignmentSetup({
     //   fail-open：查詢失敗照常儲存、絕不因此擋住存檔。
     if (!akWarnAckRef.current) {
       try {
-        const existing = await loadParentReportCache(editingAnswerAssignment.id)
-        if (existing.size > 0) {
+        const count = await parentReportCount(editingAnswerAssignment.id)
+        if (count > 0) {
           pendingAkActionRef.current = () => { akWarnAckRef.current = true; void saveAnswerKey() }
-          setAkRegradeWarn({ count: existing.size })
+          setAkRegradeWarn({ count })
           return
         }
       } catch { /* 查不到就照常儲存 */ }
