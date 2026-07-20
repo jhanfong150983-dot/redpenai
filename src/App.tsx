@@ -10,7 +10,7 @@ import {
   // FilePlus2,
   BookOpen,
   FileText,
-  History,
+  // History, // 2026-07-20 歷程分析隱藏後未用
   SlidersHorizontal,
   ChevronDown,
   AlertTriangle,
@@ -2023,11 +2023,12 @@ function App() {
     if (!canAccessTracking) return
     setCurrentPage('ai-report')
   }
-  const openCorrectionHistory = () => {
-    if (!confirmLeaveGrading()) return
-    if (!canAccessTracking) return
-    setCurrentPage('correction-history')
-  }
+  // 2026-07-20 歷程分析先隱藏（user 用不到）：導覽入口與此開啟函式一併停用。要恢復把此函式與側欄項目取消註解。
+  // const openCorrectionHistory = () => {
+  //   if (!confirmLeaveGrading()) return
+  //   if (!canAccessTracking) return
+  //   setCurrentPage('correction-history')
+  // }
   const openPreferences = () => {
     if (!confirmLeaveGrading()) return
     setIsUserMenuOpen(false)
@@ -2101,15 +2102,16 @@ function App() {
           disabled: !canAccessTracking,
           badge: canAccessTracking ? undefined : 'Pro'
         },
-        {
-          key: 'correction-history',
-          label: '歷程分析',
-          description: '查看學生訂正歷程與卡關熱點',
-          icon: History,
-          onClick: openCorrectionHistory,
-          disabled: !canAccessTracking,
-          badge: canAccessTracking ? undefined : 'Pro'
-        },
+        // 2026-07-20 user：歷程分析先隱藏（目前用不到）。要恢復把此區塊取消註解即可。
+        // {
+        //   key: 'correction-history',
+        //   label: '歷程分析',
+        //   description: '查看學生訂正歷程與卡關熱點',
+        //   icon: History,
+        //   onClick: openCorrectionHistory,
+        //   disabled: !canAccessTracking,
+        //   badge: canAccessTracking ? undefined : 'Pro'
+        // },
         {
           key: 'report',
           label: '學情報告',
