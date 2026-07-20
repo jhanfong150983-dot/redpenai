@@ -241,6 +241,8 @@ export default function AssignmentSetup({
   const [isReanalyzing, setIsReanalyzing] = useState(false)
   const [, setEditAnswerKeyFile] = useState<File[]>([])
   const [editAnswerSheetImages, setEditAnswerSheetImages] = useState<Blob[]>([])
+  // 2026-07-20 防競態：記住「目前要看哪一份的答案卷底圖」，晚回來的舊下載直接丟棄、不准蓋掉現在這份。
+  const answerSheetReqRef = useRef('')
   const [isExtractingAnswerKeyEdit, setIsExtractingAnswerKeyEdit] =
     useState(false)
   const [editAnswerKeyError, setEditAnswerKeyError] = useState<string | null>(
@@ -1558,6 +1560,10 @@ export default function AssignmentSetup({
 
   const downloadAnswerSheetImages = async (assignmentId: string) => {
     const MAX_PAGES = 10
+    // 標記這是最新一次請求、並先清掉上一份的底圖（避免「B 還沒載完就顯示 A 的殘留底圖」）。
+    answerSheetReqRef.current = assignmentId
+    setEditAnswerSheetImages([])
+    const isStale = () => answerSheetReqRef.current !== assignmentId
     try {
       const fetchPage = (i: number) =>
         fetch(`/api/storage/download?assignmentId=${encodeURIComponent(assignmentId)}&pageIndex=${i}`, {
@@ -1566,11 +1572,12 @@ export default function AssignmentSetup({
 
       // 先試 page-0；不存在就直接返回（避免白打 9 個 404）
       const first = await fetchPage(0)
-      if (!first) return
+      if (!first || isStale()) return
 
       const rest = await Promise.all(
         Array.from({ length: MAX_PAGES - 1 }, (_, i) => fetchPage(i + 1))
       )
+      if (isStale()) return // 使用者已切到別份答案卷，這次的結果作廢、不可蓋掉現在那份
 
       // 取連續命中（遇到第一個 null 就停）
       const blobs: Blob[] = [first]
