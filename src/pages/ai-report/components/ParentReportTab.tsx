@@ -44,6 +44,8 @@ export function ParentReportTab({
   const [staleSet, setStaleSet] = useState<Set<string>>(new Set())
   // 「已生成」＝有成功產生並快取過（不是「每題都有診斷」——AI 偶爾漏一題不該害整位變未生成、重複扣費）。
   const [generatedSet, setGeneratedSet] = useState<Set<string>>(new Set())
+  // 進頁面時快取（診斷/評語/失效）非同步載入中：狀態欄先顯示「載入中」而非誤導的「待生成」。
+  const [cacheLoading, setCacheLoading] = useState(true)
   const [genState, setGenState] = useState<{ done: number; total: number } | null>(null)
   const [multiSelect, setMultiSelect] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -64,21 +66,24 @@ export function ParentReportTab({
     setStaleSet(new Set())
     setGeneratedSet(new Set())
     setMsg('')
+    setCacheLoading(true)
     // 非同步載入 parent_reports 快取（診斷＋評語）＋ stale 指紋
     let cancelled = false
-    loadParentReportCache(assignmentId).then((cache) => {
-      if (cancelled || cache.size === 0) return
-      const localCmts = loadCachedComments(assignmentId)
-      setReports((prev) => prev.map((r) => {
-        const c = cache.get(r.studentId)
-        if (!c) return r
-        const diagMap = new Map<string, DiagnosisItem>(Object.entries(c.diagnosis || {}))
-        const merged = applyDiagnosisAndCrops(r, diagMap, new Map())
-        return { ...merged, comment: localCmts[r.studentId] || c.comment || merged.comment }
-      }))
-      setStaleSet(new Set([...cache.entries()].filter(([, c]) => c.stale).map(([sid]) => sid)))
-      setGeneratedSet(new Set([...cache.keys()])) // 有快取＝生成過
-    })
+    loadParentReportCache(assignmentId)
+      .then((cache) => {
+        if (cancelled || cache.size === 0) return
+        const localCmts = loadCachedComments(assignmentId)
+        setReports((prev) => prev.map((r) => {
+          const c = cache.get(r.studentId)
+          if (!c) return r
+          const diagMap = new Map<string, DiagnosisItem>(Object.entries(c.diagnosis || {}))
+          const merged = applyDiagnosisAndCrops(r, diagMap, new Map())
+          return { ...merged, comment: localCmts[r.studentId] || c.comment || merged.comment }
+        }))
+        setStaleSet(new Set([...cache.entries()].filter(([, c]) => c.stale).map(([sid]) => sid)))
+        setGeneratedSet(new Set([...cache.keys()])) // 有快取＝生成過
+      })
+      .finally(() => { if (!cancelled) setCacheLoading(false) })
     return () => { cancelled = true }
   }, [questions, submissions, students, kpTips, assignmentId])
 
@@ -211,7 +216,11 @@ export function ParentReportTab({
       {/* 工具列 */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
         <span className="text-sm text-slate-500">
-          {multiSelect ? `已勾選 ${selected.size} / ${reports.length} 位` : `共 ${reports.length} 位・已生成 ${genDoneCount} 位`}
+          {multiSelect
+            ? `已勾選 ${selected.size} / ${reports.length} 位`
+            : cacheLoading
+              ? <span className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />載入已生成的報告…</span>
+              : `共 ${reports.length} 位・已生成 ${genDoneCount} 位`}
         </span>
         <div className="flex-1" />
         {multiSelect ? (
@@ -239,12 +248,12 @@ export function ParentReportTab({
         ) : (
           <>
             <button
-              onClick={genAll} disabled={busy || pending.length === 0}
+              onClick={genAll} disabled={busy || cacheLoading || pending.length === 0}
               className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
               title="AI 逐題錯因診斷＋老師的話＋截圖；會消耗墨水（點數）"
             >
-              <Sparkles className="h-4 w-4" />
-              {pending.length ? `生成全班報告（${pending.length}）` : '全班已生成'}
+              {cacheLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {cacheLoading ? '載入中…' : pending.length ? `生成全班報告（${pending.length}）` : '全班已生成'}
             </button>
             <button onClick={enterMulti} className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
               <CheckSquare className="h-4 w-4" />多選
@@ -289,11 +298,13 @@ export function ParentReportTab({
                     <span className="text-xs text-slate-400">/{r.examMax}</span>
                   </td>
                   <td className="px-2 py-2.5 text-center">
-                    {stale
-                      ? <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[11px] font-medium text-rose-600">已失效</span>
-                      : done
-                        ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-600">已生成</span>
-                        : <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-400">待生成</span>}
+                    {cacheLoading
+                      ? <Loader2 className="mx-auto h-3.5 w-3.5 animate-spin text-slate-300" />
+                      : stale
+                        ? <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[11px] font-medium text-rose-600">已失效</span>
+                        : done
+                          ? <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-medium text-emerald-600">已生成</span>
+                          : <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-400">待生成</span>}
                   </td>
                   <td className="px-2 py-2">
                     <textarea
@@ -306,17 +317,17 @@ export function ParentReportTab({
                   </td>
                   <td className="px-2 py-2.5">
                     <div className="flex items-center justify-center gap-1">
-                      <button onClick={() => genOne(r)} disabled={busy || !!rb}
+                      <button onClick={() => genOne(r)} disabled={busy || cacheLoading || !!rb}
                         title={done ? '重新生成這位的診斷與評語' : '生成這位的診斷與評語'}
                         className="flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-700 disabled:opacity-40">
                         {done ? <RefreshCw className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
                         {done ? '重新生成' : '生成'}
                       </button>
-                      <button onClick={() => previewOne(r)} disabled={busy || !!rb} title="預覽"
+                      <button onClick={() => previewOne(r)} disabled={busy || cacheLoading || !!rb} title="預覽"
                         className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40">
                         {rb === 'preview' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
                       </button>
-                      <button onClick={() => downloadOne(r)} disabled={busy || !!rb} title="下載 PDF"
+                      <button onClick={() => downloadOne(r)} disabled={busy || cacheLoading || !!rb} title="下載 PDF"
                         className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40">
                         {rb === 'download' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
                       </button>
