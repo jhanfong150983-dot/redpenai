@@ -524,9 +524,10 @@ export type CachedReport = { diagnosis: Record<string, DiagnosisItem>; comment: 
 export async function loadParentReportCache(assignmentId: string): Promise<Map<string, CachedReport>> {
   const out = new Map<string, CachedReport>()
   if (!assignmentId) return out
-  // 逾時保護：此函式也用在批改/存答案卷的前置閘，端點慢不可拖住關鍵流程（逾時＝當作沒報告、放行）。
+  // 逾時保護：這是報告 tab 載入用（撈全班診斷 + answer_key、較重）。前置閘已改用輕量 parentReportCount，
+  //   故這裡放寬到 20s、避免冷啟動/大回應被 6s 砍掉→報告全變「待生成」（診斷其實在 DB）。
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 6000)
+  const timer = setTimeout(() => ctrl.abort(), 20000)
   try {
     const res = await fetch(`${PARENT_CACHE_ENDPOINT}?assignmentId=${encodeURIComponent(assignmentId)}`, {
       credentials: 'include',
