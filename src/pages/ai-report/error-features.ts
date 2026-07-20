@@ -3,6 +3,7 @@
 // 快取失效：以 n/對/錯 簽名比對，資料變了顯示「可重新分析」但仍給看舊結果。
 import { db } from '@/lib/db'
 import { getInkSessionId, startInkSession } from '@/lib/ink-session'
+import { isImageAnswerItem } from './item-analysis'
 import type { ItemStat } from './item-analysis'
 
 const GEMINI_PROXY_URL = import.meta.env.VITE_GEMINI_PROXY_URL || '/api/proxy'
@@ -114,6 +115,34 @@ function causeTaxonomyFor(domain: string): string {
   return '「概念未學會／規則未掌握／題意理解錯誤／記憶不熟／抄寫粗心／其他／無法判斷」'
 }
 
+// 圖上作答題：抓「答錯學生」在本題的實際作答圖（server 端切、上限 24 位）。
+async function fetchWrongCrops(assignmentId: string, questionId: string): Promise<string[]> {
+  try {
+    const res = await fetch('/api/report/question-crops', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ assignmentId, questionId }),
+    })
+    if (!res.ok) return []
+    const data = (await res.json().catch(() => null)) as { crops?: Array<{ dataUrl?: string }> } | null
+    return (data?.crops ?? []).map((c) => c?.dataUrl ?? '').filter(Boolean)
+  } catch { return [] }
+}
+
+// 圖上作答題的 prompt：看「答錯學生作答圖」+ 題本歸納錯誤樣態（輸出結構同文字版）。
+function buildImagePrompt(item: ItemStat, domain: string, gradeHint: string, cropCount: number): string {
+  const blankTotal = item.blankCount + item.unrecognizableCount
+  const wrongTotal = Math.max(0, item.n - item.correctCount - blankTotal)
+  const causeTaxonomy = causeTaxonomyFor(domain || '')
+  return `你是${gradeHint}${domain || ''}老師的教學助理。這是一題「圖上作答」的計算／作圖題。
+附上：① 完整題本（多頁印刷題目）② 本題【${item.questionId}】共 ${cropCount} 位答錯學生的實際作答圖（手寫／作圖）。正解：「${item.keyAnswer}」。
+請先在題本中找到本題、讀懂它要學生畫／算什麼；再逐一看這些學生的作答圖，歸納「錯誤樣態」——找出重複出現的畫錯／算錯型態（同一張圖可同時計入多個特徵）。
+⚠ 只依題本實印題目與作答圖判斷、切勿臆測；看不清的圖不強行歸類。
+每個特徵回報：feature（特徵名稱、老師秒懂）、count（有此特徵的學生數）、examples（最多 2 個，描述圖上看到的錯法，如「三視圖只畫正視圖、漏側視圖」）、note（一句教學提示）、cause（從「${causeTaxonomy}」選最貼近的一個；都不貼近才用「其他」並填 causeDetail；證據不足填「無法判斷」）、causeDetail（選填）。
+⚠ 歸因鐵則：只根據作答與題目要求；「不專心、態度差」這類跨題行為不得使用。
+只列 count≥2 的特徵、按 count 由多到少排序；亂畫／空白不計入特徵、單獨列在 nonsense。最後給 teachingFocus（2 句檢討課重點）。共 ${wrongTotal} 位答錯（附圖 ${cropCount} 位）。
+只輸出 JSON：{"features":[{"feature":"...","count":0,"examples":["..."],"note":"...","cause":"...","causeDetail":"..."}],"nonsense":["..."],"teachingFocus":"..."}`
+}
+
 export async function generateErrorFeatures(
   assignmentId: string,
   item: ItemStat,
@@ -122,10 +151,19 @@ export async function generateErrorFeatures(
   gradeHint = '國小'
 ): Promise<ErrorFeaturesPayload> {
   const inkSessionId = await ensureInkSessionId()
-  // 2026-07-20 改餵「題本」而非答案卷裁圖：answer_only 卷的答案卷沒印題目，
-  //   原本裁的「題幹帶」其實只有答案框 → AI 腦補題意（看到 2(x+x) 猜成周長）。
-  //   改成 server 端依 assignmentId 注入題本圖（全部頁、AI 自己找本題），client 不再送誤導的答案卷裁圖。
-  const parts = [{ text: buildPrompt(item, domain, gradeHint) }]
+  // 2026-07-20 題本圖由 server 端依 assignmentId 注入（proxy）；文字題送文字樣態、
+  //   圖上作答題（answer_only 計算/作圖）改送「答錯學生的實際作答圖」讓 AI 看圖歸納。
+  const imageMode = isImageAnswerItem(item)
+  const cropParts: Array<{ inlineData: { data: string; mimeType: string } }> = []
+  if (imageMode) {
+    const urls = await fetchWrongCrops(assignmentId, item.questionId)
+    for (const u of urls) { const b64 = u.split(',')[1]; if (b64) cropParts.push({ inlineData: { data: b64, mimeType: 'image/jpeg' } }) }
+    if (cropParts.length === 0) throw new Error('無法取得學生作答圖，暫時無法歸納（稍後再試）')
+  }
+  const parts: Array<{ text?: string; inlineData?: { data: string; mimeType: string } }> = [
+    { text: imageMode ? buildImagePrompt(item, domain, gradeHint, cropParts.length) : buildPrompt(item, domain, gradeHint) },
+    ...cropParts,
+  ]
   const response = await fetch(GEMINI_PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

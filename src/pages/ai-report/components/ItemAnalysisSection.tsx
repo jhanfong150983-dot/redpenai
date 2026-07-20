@@ -2,7 +2,7 @@
 // 摘要磚（樣本/平均難易/平均鑑別/信度α）＋逐題表（P/D/高低分組/對錯空/答案分布橫條/品質標記）。
 // 視覺規範：正解＝語意綠＋文字標籤、其他樣態中性灰、未答淺灰；徽章一律帶文字、不靠顏色單獨傳達。
 import { useMemo, useState } from 'react'
-import { computeItemAnalysis } from '../item-analysis'
+import { computeItemAnalysis, isImageAnswerItem } from '../item-analysis'
 import type { ItemAnalysisQuestion, ItemAnalysisSubmissionLike, ItemStat } from '../item-analysis'
 import QuestionErrorFeaturesModal from './QuestionErrorFeaturesModal'
 
@@ -39,9 +39,6 @@ export function Badge({ text, palette }: { text: string; palette: { bg: string; 
   )
 }
 
-// 圖上作答佔位字（計算作圖/繪圖題：答案畫在卷上、無文字答案）——用來判定「無樣態可統計、改看對/錯」。
-const IMAGE_ANSWER_LABELS = new Set(['圖上作答', '見圖', '作圖', '如圖', '畫圖', '圖示作答', '紙上作答', '手寫作答'])
-
 // 答案分布橫條：單一量值比例條——正解綠、其他灰、未答/無法辨識淺灰；文字標籤永遠並列。
 // 2026-07-16 修（user 抓到湊不滿人數）：開放文字題（樣態幾乎人人不同）逐字樣態沒有統計意義、
 //   前 6 個以外被截掉還漏掉未答段 → 改「答對/答錯/未答」聚合視角；樣態條保證含未答段＋「其他」尾巴。
@@ -52,10 +49,9 @@ export function DistributionBar({ item, onAiFeatures }: { item: ItemStat; onAiFe
   // 開放文字題判定：非選擇類且樣態太碎（>6 種、或最多的樣態也只有 1-2 人）
   const isOpenText = !item.isChoiceLike
     && (nonBlankVariants.length > 6 || (nonBlankVariants[0]?.count ?? 0) <= 2)
-  // 圖上作答題（計算作圖/繪圖）：答案畫在卷上、讀取吐「圖上作答」佔位、無文字樣態可統計
-  //   → 改對/錯/未答視角、不提供 AI 樣態歸納（看不到手繪、無意義）。
-  const isImageAnswer = nonBlankVariants.length > 0
-    && nonBlankVariants.every((o) => IMAGE_ANSWER_LABELS.has(String(o.label).trim()))
+  // 圖上作答題（計算作圖/繪圖）：答案畫在卷上、無文字樣態可統計 → 改對/錯/未答視角；
+  //   AI 歸納錯誤樣態改送「答錯學生的作答圖」給 AI 看圖歸納（error-features 內處理）。
+  const isImageAnswer = isImageAnswerItem(item)
 
   if (isOpenText || isImageAnswer) {
     const wrongCount = item.n - item.correctCount - blankTotal
@@ -81,16 +77,16 @@ export function DistributionBar({ item, onAiFeatures }: { item: ItemStat; onAiFe
           ))}
         </div>
         {isImageAnswer && (
-          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>圖上作答，僅統計對／錯（無文字答案樣態）</div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>圖上作答，無文字樣態——可用下方 AI 看作答圖歸納</div>
         )}
-        {/* 2026-07-16 user 二次拍板：取消系統性樣態列舉（訊息量太大）→ 改 AI 歸納 modal（on-demand、結果持久化） */}
-        {!isImageAnswer && onAiFeatures && (item.n - item.correctCount - blankTotal) >= 3 && (
+        {/* 2026-07-16 user 二次拍板：取消系統性樣態列舉→改 AI 歸納 modal；2026-07-20 圖上作答改送作答圖 */}
+        {onAiFeatures && (item.n - item.correctCount - blankTotal) >= 3 && (
           <button
             type="button"
             onClick={onAiFeatures}
             style={{ marginTop: 2, fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
           >
-            🔎 AI 歸納錯誤樣態
+            🔎 AI 歸納錯誤樣態{isImageAnswer ? '（看作答圖）' : ''}
           </button>
         )}
       </div>

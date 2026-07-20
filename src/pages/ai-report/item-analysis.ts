@@ -64,6 +64,14 @@ export type ItemStat = {
   partialCredit: boolean
 }
 
+// 圖上作答佔位字（計算作圖/繪圖題：答案畫在卷上、無文字答案，讀取吐佔位）。
+export const IMAGE_ANSWER_LABELS = new Set(['圖上作答', '見圖', '作圖', '如圖', '畫圖', '圖示作答', '紙上作答', '手寫作答'])
+/** 此題是否為「圖上作答」型（答案全是圖上作答佔位、無文字樣態可統計）。 */
+export function isImageAnswerItem(item: ItemStat): boolean {
+  const nb = item.distribution.filter((o) => !o.isBlank)
+  return nb.length > 0 && nb.every((o) => IMAGE_ANSWER_LABELS.has(String(o.label).trim()))
+}
+
 export type ItemAnalysisResult = {
   n: number
   groupSize: number
