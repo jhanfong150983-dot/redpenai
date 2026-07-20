@@ -547,13 +547,16 @@ export async function loadParentReportCache(assignmentId: string): Promise<Map<s
   } catch { return out } finally { clearTimeout(timer) }
 }
 
-/** 輕量：只查這份作業有幾筆家長報告（給重批改/改答案卷前置閘用；不撈診斷、快）。逾時/失敗回 0（fail-open）。 */
-export async function parentReportCount(assignmentId: string): Promise<number> {
+/** 輕量：查有幾筆家長報告（給重批改/改答案卷前置閘用；不撈診斷、快）。
+ *  傳 studentIds 只算那幾位（重批改只影響被重批的學生）；不傳＝整份作業（改答案卷用）。逾時/失敗回 0（fail-open）。 */
+export async function parentReportCount(assignmentId: string, studentIds?: string[]): Promise<number> {
   if (!assignmentId) return 0
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 4000)
   try {
-    const res = await fetch(`${PARENT_CACHE_ENDPOINT}?assignmentId=${encodeURIComponent(assignmentId)}&countOnly=1`, {
+    let url = `${PARENT_CACHE_ENDPOINT}?assignmentId=${encodeURIComponent(assignmentId)}&countOnly=1`
+    if (studentIds && studentIds.length) url += `&studentIds=${encodeURIComponent(studentIds.join(','))}`
+    const res = await fetch(url, {
       credentials: 'include',
       signal: ctrl.signal,
     })

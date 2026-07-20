@@ -5747,7 +5747,8 @@ export default function GradingPage({
     //   第一次批改時還沒有報告故不觸發）。fail-open：查詢失敗照常批改、絕不因此擋住批改。
     if (!regradeAckRef.current && assignmentId) {
       try {
-        const count = await parentReportCount(assignmentId)
+        // 只算「這次要重批的學生」裡有幾位已有家長報告——重批改只讓被重批的那幾位失效、不影響其他人。
+        const count = await parentReportCount(assignmentId, scope.map((s) => s.studentId))
         if (count > 0) {
           pendingRegradeRef.current = () => { regradeAckRef.current = true; void runOneClickForBuckets(needA, needReview, needB) }
           setRegradeWarn({ count })
@@ -7450,10 +7451,10 @@ export default function GradingPage({
       <DangerConfirmModal
         open={!!regradeWarn}
         severity="high"
-        title={`這份作業已有 ${regradeWarn?.count ?? 0} 份家長報告`}
-        clears={['家長報告（診斷與評語）將失效、需回學情報告頁重新生成']}
-        keeps={['學生作答照片', '目前的批改結果（重批改後才更新）']}
-        acknowledgeText="我了解重新批改會使已生成的家長報告失效，之後需自行重新生成（重生為手動、不會自動扣點）"
+        title={`重新批改的學生有 ${regradeWarn?.count ?? 0} 位已生成家長報告`}
+        clears={[`這 ${regradeWarn?.count ?? 0} 位的家長報告將失效、需回學情報告頁重新生成`]}
+        keeps={['其他學生的家長報告', '學生作答照片', '目前的批改結果（重批改後才更新）']}
+        acknowledgeText="我了解重新批改會使這幾位已生成的家長報告失效，之後需自行重新生成（重生為手動、不會自動扣點）"
         confirmLabel="仍要重新批改"
         cancelLabel="取消"
         onCancel={() => { setRegradeWarn(null); pendingRegradeRef.current = null }}
