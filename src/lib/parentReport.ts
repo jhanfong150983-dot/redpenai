@@ -966,27 +966,40 @@ export async function downloadSingleReport(report: StudentReport, header: Report
   const blob = await createReportPdfBlob(report, header)
   triggerDownload(blob, reportFileName(report))
 }
-/** 批次：每位一份 PDF、打包 zip 下載（並發 3、逐份回報進度）。 */
+/** 批次：每位一份 PDF、打包 zip 下載（並發 3、逐份回報進度；失敗自動重試一次、回報是哪幾位）。 */
 export type GenerateOptions = { onProgress?: (done: number, total: number) => void }
+export type ReportFailure = { studentId: string; seat: string; name: string; error: string }
 export async function downloadReportsAsZip(
   reports: StudentReport[], header: ReportHeader, options: GenerateOptions = {}
-): Promise<{ generated: number; failed: number }> {
-  if (!reports.length) return { generated: 0, failed: 0 }
+): Promise<{ generated: number; failed: number; failures: ReportFailure[] }> {
+  if (!reports.length) return { generated: 0, failed: 0, failures: [] }
   const { default: JSZip } = await import('jszip')
   const zip = new JSZip()
-  let done = 0, failed = 0
+  let done = 0
   const limit = 3
   let idx = 0
+  const failedFirst: StudentReport[] = []
+  // 第一輪：並發 3
   await Promise.all(Array.from({ length: Math.min(limit, reports.length) }, async () => {
     while (idx < reports.length) {
       const r = reports[idx++]
-      try { zip.file(reportFileName(r), await createReportPdfBlob(r, header)) } catch { failed++ }
+      try { zip.file(reportFileName(r), await createReportPdfBlob(r, header)) }
+      catch (e) { console.warn(`[parentReport] PDF 產生失敗 座號${r.seat} ${r.name}:`, e); failedFirst.push(r) }
       done++; options.onProgress?.(done, reports.length)
     }
   }))
+  // 第二輪：失敗的循序重試一次（多數失敗是並發下 headless Chrome 逾時／冷啟動，單獨重試常會過）
+  const failures: ReportFailure[] = []
+  for (const r of failedFirst) {
+    try { zip.file(reportFileName(r), await createReportPdfBlob(r, header)) }
+    catch (e) {
+      console.warn(`[parentReport] PDF 重試仍失敗 座號${r.seat} ${r.name}:`, e)
+      failures.push({ studentId: r.studentId, seat: r.seat, name: r.name, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
   const zipBlob = await zip.generateAsync({ type: 'blob' })
   const today = new Date()
   const dateKey = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`
   triggerDownload(zipBlob, `家長報告_${safeFileName(header.className)}_${safeFileName(header.assignmentTitle)}_${dateKey}.zip`)
-  return { generated: reports.length - failed, failed }
+  return { generated: reports.length - failures.length, failed: failures.length, failures }
 }

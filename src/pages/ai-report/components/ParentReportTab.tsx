@@ -184,8 +184,12 @@ export function ParentReportTab({
     try {
       const withCrops: StudentReport[] = []
       for (const r of picked) withCrops.push(await ensureCrops(r))
-      const { failed } = await downloadReportsAsZip(withCrops, header, { onProgress: (done, total) => setBatchPdf({ done, total }) })
-      const notes = [failed > 0 ? `${failed} 份產生失敗（可個別重試）` : '', skipped > 0 ? `${skipped} 位尚未生成、已略過` : ''].filter(Boolean)
+      const { failed, failures } = await downloadReportsAsZip(withCrops, header, { onProgress: (done, total) => setBatchPdf({ done, total }) })
+      const who = failures.map((f) => `${f.seat}號 ${f.name}`).join('、')
+      const notes = [
+        failed > 0 ? `${failed} 份產生失敗（${who}），可用各列下載鈕個別重試` : '',
+        skipped > 0 ? `${skipped} 位尚未生成、已略過` : '',
+      ].filter(Boolean)
       if (notes.length) setMsg(`已下載，但${notes.join('；')}`)
     } catch (e) { setMsg(e instanceof Error ? e.message : '批次下載失敗，請再試一次') }
     setBatchPdf(null)
