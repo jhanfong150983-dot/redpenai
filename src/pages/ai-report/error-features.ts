@@ -2,7 +2,7 @@
 // 設計：錯誤「特徵」統計（一個作答可計入多個特徵）而非硬分群；亂答獨立列；附檢討課重點兩句。
 // 快取失效：以 n/對/錯 簽名比對，資料變了顯示「可重新分析」但仍給看舊結果。
 import { db } from '@/lib/db'
-import { getInkSessionId, startInkSession } from '@/lib/ink-session'
+import { ensureInkSessionFresh } from '@/lib/ink-session'
 import { isImageAnswerItem } from './item-analysis'
 import type { ItemStat } from './item-analysis'
 
@@ -57,17 +57,11 @@ export async function readErrorFeaturesCache(assignmentId: string, questionId: s
   } catch { return null }
 }
 
-let inkSessionPromise: Promise<string | null> | null = null
-async function ensureInkSessionId() {
-  const existing = getInkSessionId()
-  if (existing) return existing
-  if (!inkSessionPromise) {
-    inkSessionPromise = startInkSession()
-      .then((result) => result.sessionId)
-      .catch((error) => { console.warn('建立墨水會話失敗', error); return null })
-      .finally(() => { inkSessionPromise = null })
-  }
-  return inkSessionPromise
+// 2026-07-20 改用 ensureInkSessionFresh：原本直接沿用 getInkSessionId()、不檢查過期，
+//   會話過期後仍送舊 id → proxy 回「批改會話已過期」。fresh 版會在過期/剩<60s 時自動續期。
+async function ensureInkSessionId(): Promise<string | null> {
+  try { const { sessionId } = await ensureInkSessionFresh(); return sessionId }
+  catch (error) { console.warn('建立墨水會話失敗', error); return null }
 }
 
 function buildPrompt(item: ItemStat, domain: string, gradeHint: string) {

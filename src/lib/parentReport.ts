@@ -1,7 +1,7 @@
 // 家長學習報告（2026-07-18、B2B MVP、user 拍板）：老師選一份作業 → 批量產生全班家長報告 PDF、打包 zip。
 //   一份作業＝一份報告（不跨科合併）。資料全來自既有批改結果＋試題分析，唯一 AI 呼叫＝老師評語（純文字、便宜）。
 //   PDF 產出沿用 correctionNoticePdf.ts 骨架（html2canvas→jsPDF、系統中文字型、每生一頁）。
-import { getInkSessionId, startInkSession } from '@/lib/ink-session'
+import { ensureInkSessionFresh } from '@/lib/ink-session'
 
 const GEMINI_PROXY_URL = import.meta.env?.VITE_GEMINI_PROXY_URL || '/api/proxy'
 const COMMENT_MODEL = 'gemini-2.5-flash' // 純文字評語、便宜足夠
@@ -377,12 +377,9 @@ export function assembleParentReports(
 
 // ── AI 老師評語（鼓勵型、純文字、餵真實成績＋錯題） ──
 async function ensureInkSessionId(): Promise<string | null> {
-  try {
-    const existing = getInkSessionId()
-    if (existing) return existing
-    const result = await startInkSession()
-    return result?.sessionId ?? null
-  } catch { return null }
+  // 用 fresh 版：會話過期/剩<60s 自動續期，避免長時間停留後送舊 id 被判「會話已過期」。
+  try { const { sessionId } = await ensureInkSessionFresh(); return sessionId }
+  catch { return null }
 }
 function buildCommentPrompt(r: StudentReport, subject: string): string {
   // 有試題分析 → 用「單元＋知識點」給評語更精準；否則退回題型/錯題
