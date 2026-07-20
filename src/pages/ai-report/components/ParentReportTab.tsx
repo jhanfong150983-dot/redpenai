@@ -174,14 +174,19 @@ export function ParentReportTab({
     setRowBusy((p) => ({ ...p, [r.studentId]: undefined }))
   }
   const downloadSelected = async () => {
-    const picked = reports.filter((r) => selected.has(r.studentId))
-    if (!picked.length) { setMsg('請先勾選要下載的學生'); return }
+    const pickedAll = reports.filter((r) => selected.has(r.studentId))
+    if (!pickedAll.length) { setMsg('請先勾選要下載的學生'); return }
+    // 只下載已生成的（未生成的先擋掉，避免下載半成品）
+    const picked = pickedAll.filter((r) => generatedSet.has(r.studentId))
+    const skipped = pickedAll.length - picked.length
+    if (!picked.length) { setMsg('勾選的學生都尚未生成報告，請先按「生成」'); return }
     setMsg(''); setBatchPdf({ done: 0, total: picked.length })
     try {
       const withCrops: StudentReport[] = []
       for (const r of picked) withCrops.push(await ensureCrops(r))
       const { failed } = await downloadReportsAsZip(withCrops, header, { onProgress: (done, total) => setBatchPdf({ done, total }) })
-      if (failed > 0) setMsg(`已下載，但有 ${failed} 份產生失敗（可個別重試）`)
+      const notes = [failed > 0 ? `${failed} 份產生失敗（可個別重試）` : '', skipped > 0 ? `${skipped} 位尚未生成、已略過` : ''].filter(Boolean)
+      if (notes.length) setMsg(`已下載，但${notes.join('；')}`)
     } catch (e) { setMsg(e instanceof Error ? e.message : '批次下載失敗，請再試一次') }
     setBatchPdf(null)
   }
@@ -281,7 +286,8 @@ export function ParentReportTab({
             {reports.map((r) => {
               const rb = rowBusy[r.studentId]
               const stale = staleSet.has(r.studentId)
-              const done = generatedSet.has(r.studentId) && !stale
+              const generated = generatedSet.has(r.studentId) // 生成過（含已失效）才可預覽/下載
+              const done = generated && !stale
               return (
                 <tr key={r.studentId} className="border-b border-slate-50 last:border-0 align-top">
                   {multiSelect && (
@@ -323,12 +329,14 @@ export function ParentReportTab({
                         {done ? <RefreshCw className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
                         {done ? '重新生成' : '生成'}
                       </button>
-                      <button onClick={() => previewOne(r)} disabled={busy || cacheLoading || !!rb} title="預覽"
-                        className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40">
+                      <button onClick={() => previewOne(r)} disabled={busy || cacheLoading || !!rb || !generated}
+                        title={generated ? '預覽' : '請先生成報告'}
+                        className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40 disabled:cursor-not-allowed">
                         {rb === 'preview' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
                       </button>
-                      <button onClick={() => downloadOne(r)} disabled={busy || cacheLoading || !!rb} title="下載 PDF"
-                        className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40">
+                      <button onClick={() => downloadOne(r)} disabled={busy || cacheLoading || !!rb || !generated}
+                        title={generated ? '下載 PDF' : '請先生成報告'}
+                        className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40 disabled:cursor-not-allowed">
                         {rb === 'download' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
                       </button>
                     </div>
