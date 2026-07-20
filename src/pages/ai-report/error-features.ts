@@ -69,7 +69,7 @@ async function ensureInkSessionId() {
   return inkSessionPromise
 }
 
-function buildPrompt(item: ItemStat, domain: string, gradeHint: string, hasStemImage: boolean) {
+function buildPrompt(item: ItemStat, domain: string, gradeHint: string) {
   const wrongVariants = item.distribution
     .filter((o) => !o.isBlank && o.correctVotes < o.count)
     .map((o) => {
@@ -78,8 +78,9 @@ function buildPrompt(item: ItemStat, domain: string, gradeHint: string, hasStemI
     })
   const blankTotal = item.blankCount + item.unrecognizableCount
   const causeTaxonomy = causeTaxonomyFor(domain || '')
-  return `你是${gradeHint}${domain || ''}老師的教學助理。這一題的正解：「${item.keyAnswer}」。
-${hasStemImage ? '附圖是答案卷上本題的區域（含印刷題幹與正解標示）——先讀懂這題在考什麼，歸因時對照題目要求。' : ''}
+  return `你是${gradeHint}${domain || ''}老師的教學助理。附上的是完整題本（多頁印刷題目）。
+本題題號【${item.questionId}】、正解：「${item.keyAnswer}」——請先在題本中找到本題、讀懂它實際在考什麼，再依學生作答歸因。
+⚠ 只依題本上實際印的題目判斷；切勿臆測題目情境（例如看到算式像某公式就自行假設題目主題）。若題本中找不到本題，就僅依作答與正解做保守歸因、不要腦補題目背景。
 以下是全班 ${wrongVariants.length} 種「被判錯」的學生作答（×N 表示 N 份相同）：
 ${wrongVariants.map((w, i) => `${i + 1}. ${w}`).join('\n')}
 ${blankTotal > 0 ? `另有 ${blankTotal} 人未作答。` : ''}
@@ -113,44 +114,18 @@ function causeTaxonomyFor(domain: string): string {
   return '「概念未學會／規則未掌握／題意理解錯誤／記憶不熟／抄寫粗心／其他／無法判斷」'
 }
 
-// 從答案卷模板裁「題幹帶」：整頁寬、作答框上下各擴 6% 頁高（題幹通常緊鄰作答區）。
-// 全程 fail-safe：任何失敗回 null、分析照跑（只是沒圖）。
-async function fetchStemCrop(stem: StemSource): Promise<{ data: string; mimeType: string } | null> {
-  try {
-    const res = await fetch(`/api/storage/download?templateId=${encodeURIComponent(stem.templateId)}&pageIndex=${stem.pageIndex}`, { credentials: 'include' })
-    if (!res.ok) return null
-    const blob = await res.blob()
-    const bitmap = await createImageBitmap(blob)
-    const y0 = Math.max(0, (stem.bbox.y - 0.06) * bitmap.height)
-    const y1 = Math.min(bitmap.height, (stem.bbox.y + stem.bbox.h + 0.06) * bitmap.height)
-    const h = Math.max(24, y1 - y0)
-    const canvas = document.createElement('canvas')
-    canvas.width = bitmap.width
-    canvas.height = Math.round(h)
-    const ctx = canvas.getContext('2d')
-    if (!ctx) { bitmap.close(); return null }
-    ctx.drawImage(bitmap, 0, y0, bitmap.width, h, 0, 0, bitmap.width, h)
-    bitmap.close()
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
-    const base64 = dataUrl.split(',')[1]
-    return base64 ? { data: base64, mimeType: 'image/jpeg' } : null
-  } catch { return null }
-}
-
 export async function generateErrorFeatures(
   assignmentId: string,
   item: ItemStat,
   domain: string,
-  stemSource: StemSource | null = null,
+  _stemSource: StemSource | null = null, // 保留位置（呼叫端仍傳）；改餵題本後不再用答案卷裁圖
   gradeHint = '國小'
 ): Promise<ErrorFeaturesPayload> {
   const inkSessionId = await ensureInkSessionId()
-  // 2026-07-16 user 拍板：連同題幹一起看（答案卷模板該題區域裁圖）→ 歸因更深；裁不到就純文字照跑
-  const stemImage = stemSource ? await fetchStemCrop(stemSource) : null
-  const parts: Array<{ text?: string; inlineData?: { data: string; mimeType: string } }> = [
-    { text: buildPrompt(item, domain, gradeHint, !!stemImage) }
-  ]
-  if (stemImage) parts.push({ inlineData: stemImage })
+  // 2026-07-20 改餵「題本」而非答案卷裁圖：answer_only 卷的答案卷沒印題目，
+  //   原本裁的「題幹帶」其實只有答案框 → AI 腦補題意（看到 2(x+x) 猜成周長）。
+  //   改成 server 端依 assignmentId 注入題本圖（全部頁、AI 自己找本題），client 不再送誤導的答案卷裁圖。
+  const parts = [{ text: buildPrompt(item, domain, gradeHint) }]
   const response = await fetch(GEMINI_PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -159,6 +134,7 @@ export async function generateErrorFeatures(
       model: MODEL,
       contents: [{ role: 'user', parts }],
       routeKey: 'report.question_error_features',
+      assignmentId,
       ...(inkSessionId ? { inkSessionId } : {})
     })
   })
