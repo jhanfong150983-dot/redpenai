@@ -719,7 +719,10 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   useEffect(() => {
     let isActive = true
 
-    if (!domainPlans.length) {
+    // 2026-07-20 領域診斷性快報退役：停用「每次開學情報告就自動跑 LLM 領域診斷」（純浪費點數，多數老師不看）。
+    //   保留下方結構、之後要恢復把 DOMAIN_DIAGNOSIS_DISABLED 設 false 即可。
+    const DOMAIN_DIAGNOSIS_DISABLED: boolean = true
+    if (DOMAIN_DIAGNOSIS_DISABLED || !domainPlans.length) {
       if (isActive) {
         setDomainDiagnoses({})
         setDomainDiagnosisLoading({})
@@ -905,9 +908,11 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               { id: 'overview', label: '作業總覽' },
               { id: 'items', label: '試題分析' },
               { id: 'parent', label: '家長報告' },
-              { id: 'class', label: '作業診斷性快報' },
-              { id: 'domain', label: '領域診斷性快報' },
-              { id: 'student', label: '班級診斷性快報' },
+              // 2026-07-20 三個「診斷性快報」退役（user：沒特別作用、且會浪費 AI 點數）。
+              //   面板碼保留但無入口＝不可達；領域診斷的自動 LLM 另在下方 useEffect 停用。要恢復把下面三行取消註解即可。
+              // { id: 'class', label: '作業診斷性快報' },
+              // { id: 'domain', label: '領域診斷性快報' },
+              // { id: 'student', label: '班級診斷性快報' },
             ] as const).map((tab) => (
               <button
                 key={tab.id}
