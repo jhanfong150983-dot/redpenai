@@ -292,7 +292,7 @@ export function assembleParentReports(
       studentAnswer: String(x.d.studentAnswer ?? '').trim(),
       referenceAnswer: String(x.d.referenceAnswer ?? '').trim() || (qAnswerById.get(x.qid) ?? ''),
       reason: String(x.d.reason ?? '').trim(),
-      imageJudged: isImageJudgedAnswer(x.d.reason, x.d.finalAnswerSource),
+      imageJudged: isImageJudgedAnswer(x.d.reason, x.d.finalAnswerSource) && String(x.d.studentAnswer ?? '').trim() !== '未作答' && String(x.d.studentAnswer ?? '').trim() !== '',
     }))
     // 第四段逐題錯題分析：全部錯題、依題號排序（不限量）；why/suggest/crop 後填
     const errorRows: QErrorRow[] = wrongAll
@@ -306,7 +306,7 @@ export function assembleParentReports(
         studentAnswer: String(x.d.studentAnswer ?? '').trim(),
         referenceAnswer: String(x.d.referenceAnswer ?? '').trim() || (qAnswerById.get(x.qid) ?? ''),
         reason: String(x.d.reason ?? '').trim(),
-        imageJudged: isImageJudgedAnswer(x.d.reason, x.d.finalAnswerSource),
+        imageJudged: isImageJudgedAnswer(x.d.reason, x.d.finalAnswerSource) && String(x.d.studentAnswer ?? '').trim() !== '未作答' && String(x.d.studentAnswer ?? '').trim() !== '',
         why: '', suggest: '', cropDataUrl: '',
       }))
 

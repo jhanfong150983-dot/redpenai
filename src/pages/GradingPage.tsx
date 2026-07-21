@@ -8720,10 +8720,11 @@ export default function GradingPage({
                         // 2026-05-28: map_fill 已 pivot 到 Phase A 3-AI、studentAnswer 是老師確認後的逗號分隔地名、
                         // 不再需要鎖編輯欄（老師可微調個別字、之後 deterministic match 再算分）
                         const isVisualEval = false
-                        // 2026-07-21: 國字/注音「字形終審（視覺覆核）」判錯格 — 讀到值被投射成＝標準答案（不可信）、
-                        //   真正對錯由圖像辨識決定 → 答案欄改唯讀顯示「圖像辨識」，避免老師/家長看到「讀到==標準卻扣分」誤會批錯。
-                        //   偵測：判錯 && 非人工輸入 && reason 含視覺覆核/字形錯誤（不動計分、分數仍可用既有控制調整）。
-                        const isImageJudged = (d.isCorrect === false || safeScore < safeMax) && isImageJudgedAnswer(d.reason, d.finalAnswerSource)
+                        // 2026-07-21 v2（user 拍板顯示統一）: 國字注音 VJ 化後，判官經手的格「對或錯」一律顯示
+                        //   「圖像辨識」唯讀（不露轉錄值、避免顯示太多招質疑）；「未作答」除外（顯示未作答、保留可編輯
+                        //   讓老師能補真值）。哪裡錯看理由欄；誤殺走申訴、低信心老師直接改分。
+                        const isImageJudged = isImageJudgedAnswer(d.reason, d.finalAnswerSource)
+                          && String(d.studentAnswer ?? '').trim() !== '未作答' && String(d.studentAnswer ?? '').trim() !== ''
                         // 2026-05-30: VJ 視覺判斷題 — 學生答案改逐柱「有畫/沒畫」、不給文字框
                         const vjItems: Array<{ idx: number; label: string; verdict: string; reason: string }> =
                           Array.isArray(d.vjItemResults) ? d.vjItemResults : []
