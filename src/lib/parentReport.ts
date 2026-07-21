@@ -39,6 +39,7 @@ export type PRDetail = {
   reason?: string
   questionType?: string
   referenceAnswer?: string
+  finalAnswerSource?: string  // 'manual' = 老師人工輸入（顯示不改「圖像辨識」）；字形終審不帶此值
 }
 export type PRSubmission = {
   studentId?: string
@@ -61,12 +62,20 @@ export type ReportHeader = {
 }
 
 export type TypeRate = { label: string; studentRate: number; classRate: number }
+// 國字/注音「字形終審（視覺覆核）」判錯的格：讀到值被投射成＝標準答案（不可信）、真正對錯由圖像辨識決定。
+//   → 顯示時把「AI 讀到」欄改成「圖像辨識」，避免家長看到「讀到==標準卻扣分」而誤會批錯。
+//   偵測：判錯 && 非人工輸入(manual) && 批改理由含視覺覆核/字形錯誤訊號（實證這批 33 格全中、0 誤中 manual）。
+export function isImageJudgedAnswer(reason?: string, finalAnswerSource?: string): boolean {
+  if (finalAnswerSource === 'manual') return false
+  return /視覺覆核|字形錯誤|字形視覺/.test(String(reason || ''))
+}
 export type WrongItem = {
   questionId: string
   typeLabel: string
   studentAnswer: string
   referenceAnswer: string
   reason: string
+  imageJudged?: boolean   // true → 顯示「圖像辨識」取代讀到值
 }
 // 第四段「逐題錯題分析」：每一題錯題一張卡（不限量、依題號排序）。
 //   骨架（題號/題型/知識點/作答/標準答案）純程式算；why/suggest（AI 診斷）與 cropDataUrl（server 截圖）
@@ -79,6 +88,7 @@ export type QErrorRow = {
   studentAnswer: string  // AI 讀到學生寫的
   referenceAnswer: string // 標準答案
   reason: string         // 批改理由（診斷未生成時的退回說明）
+  imageJudged?: boolean  // true → 字形終審判錯、顯示「圖像辨識」取代讀到值
   why: string            // AI 專家診斷「為什麼會這樣寫錯」（後填）
   suggest: string        // 在家建議（後填）
   cropDataUrl: string    // 學生作答截圖 data URI（後填）
@@ -282,6 +292,7 @@ export function assembleParentReports(
       studentAnswer: String(x.d.studentAnswer ?? '').trim(),
       referenceAnswer: String(x.d.referenceAnswer ?? '').trim() || (qAnswerById.get(x.qid) ?? ''),
       reason: String(x.d.reason ?? '').trim(),
+      imageJudged: isImageJudgedAnswer(x.d.reason, x.d.finalAnswerSource),
     }))
     // 第四段逐題錯題分析：全部錯題、依題號排序（不限量）；why/suggest/crop 後填
     const errorRows: QErrorRow[] = wrongAll
@@ -295,6 +306,7 @@ export function assembleParentReports(
         studentAnswer: String(x.d.studentAnswer ?? '').trim(),
         referenceAnswer: String(x.d.referenceAnswer ?? '').trim() || (qAnswerById.get(x.qid) ?? ''),
         reason: String(x.d.reason ?? '').trim(),
+        imageJudged: isImageJudgedAnswer(x.d.reason, x.d.finalAnswerSource),
         why: '', suggest: '', cropDataUrl: '',
       }))
 
@@ -755,6 +767,7 @@ export const REPORT_CSS = `
 .pr-qr { font-size:12.5px; margin-bottom:5px; }
 .pr-qr .l { display:inline-block; width:74px; color:#7B8794; }
 .pr-qr .you { color:#C2402A; font-weight:700; }
+.pr-qr .you.imgjudge { color:#6B7684; font-weight:600; }
 .pr-qr .ans { color:#1E4D8C; font-weight:700; }
 .pr-qwhy { font-size:12.5px; color:#3E4A56; line-height:1.75; margin-top:4px; }
 .pr-qwhy b { color:#8A5A08; }
@@ -785,8 +798,9 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
       <td class="pct">${t.studentRate}%</td></tr>`
   }).join('')
   const wrongsHtml = r.wrongs.length ? r.wrongs.map((w) => {
-    const ansLine = (w.studentAnswer || w.referenceAnswer)
-      ? `<div class="pr-ans">孩子的答案：<span class="y">${esc(w.studentAnswer || '（未作答）')}</span>${w.referenceAnswer ? `　正確答案：<span class="r">${esc(w.referenceAnswer)}</span>` : ''}</div>`
+    const shownStu = w.imageJudged ? '圖像辨識' : (w.studentAnswer || '（未作答）')
+    const ansLine = (w.studentAnswer || w.referenceAnswer || w.imageJudged)
+      ? `<div class="pr-ans">孩子的答案：<span class="y"${w.imageJudged ? ' style="color:#6B7684"' : ''}>${esc(shownStu)}</span>${w.referenceAnswer ? `　正確答案：<span class="r">${esc(w.referenceAnswer)}</span>` : ''}</div>`
       : ''
     return `<tr><td class="qcell"><span class="qno">${esc(formatQuestionLabel(w.questionId))}</span><span class="qt">${esc(w.typeLabel)}</span></td>
       <td>${ansLine}<span class="pr-fix">✎ ${esc(w.reason || '請對照正確答案重新檢視這一題。')}</span></td></tr>`
@@ -804,8 +818,11 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
   // 第四段：逐題錯題分析（全部錯題、依題號排序；crop/why/suggest 由 generate 流程填）
   const errorCards = r.errorRows.map((e) => {
     const crop = e.cropDataUrl ? `<div class="pr-qcrop"><img src="${esc(e.cropDataUrl)}"></div>` : ''
+    const shownStudent = e.imageJudged
+      ? `<span class="you imgjudge">圖像辨識</span>`
+      : `<span class="you">${esc(e.studentAnswer || '（空白）')}</span>`
     const info = `<div class="pr-qinfo">
-        <div class="pr-qr"><span class="l">AI 讀到</span><span class="you">${esc(e.studentAnswer || '（空白）')}</span></div>
+        <div class="pr-qr"><span class="l">AI 讀到</span>${shownStudent}</div>
         <div class="pr-qr"><span class="l">標準答案</span><span class="ans">${esc(e.referenceAnswer || '—')}</span></div>
       </div>`
     const why = e.why

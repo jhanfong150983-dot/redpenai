@@ -42,7 +42,7 @@ import { downloadImageFromSupabase } from '@/lib/supabase-download'
 import { getSubmissionImageUrl, fixCorruptedBase64 } from '@/lib/utils'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
-import { parentReportCount } from '@/lib/parentReport'
+import { parentReportCount, isImageJudgedAnswer } from '@/lib/parentReport'
 import { blobToBase64 } from '@/lib/imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-storage'
 
@@ -8720,6 +8720,10 @@ export default function GradingPage({
                         // 2026-05-28: map_fill 已 pivot 到 Phase A 3-AI、studentAnswer 是老師確認後的逗號分隔地名、
                         // 不再需要鎖編輯欄（老師可微調個別字、之後 deterministic match 再算分）
                         const isVisualEval = false
+                        // 2026-07-21: 國字/注音「字形終審（視覺覆核）」判錯格 — 讀到值被投射成＝標準答案（不可信）、
+                        //   真正對錯由圖像辨識決定 → 答案欄改唯讀顯示「圖像辨識」，避免老師/家長看到「讀到==標準卻扣分」誤會批錯。
+                        //   偵測：判錯 && 非人工輸入 && reason 含視覺覆核/字形錯誤（不動計分、分數仍可用既有控制調整）。
+                        const isImageJudged = (d.isCorrect === false || safeScore < safeMax) && isImageJudgedAnswer(d.reason, d.finalAnswerSource)
                         // 2026-05-30: VJ 視覺判斷題 — 學生答案改逐柱「有畫/沒畫」、不給文字框
                         const vjItems: Array<{ idx: number; label: string; verdict: string; reason: string }> =
                           Array.isArray(d.vjItemResults) ? d.vjItemResults : []
@@ -8859,21 +8863,21 @@ export default function GradingPage({
                               <span className="shrink-0 mt-0.5">學生答案：</span>
                               <textarea
                                 className={`flex-1 px-2 py-1 rounded border bg-white text-gray-900 text-xs focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:cursor-not-allowed resize-none whitespace-pre-wrap break-words ${
-                                  isVisualEval
+                                  (isVisualEval || isImageJudged)
                                     ? 'border-gray-200 italic text-gray-500'
                                     : isUnrecognizable ? 'border-rose-300' : 'border-gray-200 hover:border-gray-300'
                                 }`}
-                                value={isVisualEval ? '採視覺評分' : String(d.studentAnswer ?? '')}
-                                placeholder={isVisualEval ? undefined : '（點此編輯）'}
-                                disabled={isVisualEval || isBusy || isSavingScore}
+                                value={isVisualEval ? '採視覺評分' : isImageJudged ? '圖像辨識' : String(d.studentAnswer ?? '')}
+                                placeholder={(isVisualEval || isImageJudged) ? undefined : '（點此編輯）'}
+                                disabled={isVisualEval || isImageJudged || isBusy || isSavingScore}
                                 onChange={(e) => {
-                                  if (isVisualEval) return
+                                  if (isVisualEval || isImageJudged) return
                                   handleDetailStudentAnswerChange(i, e.target.value)
                                   // 即時撐高、不等下次 re-render
                                   e.target.style.height = 'auto'
                                   e.target.style.height = e.target.scrollHeight + 'px'
                                 }}
-                                onFocus={(e) => { if (!isVisualEval) e.target.select() }}
+                                onFocus={(e) => { if (!isVisualEval && !isImageJudged) e.target.select() }}
                                 // mount/re-render 時依內容撐高、避免 1 行 textarea 蓋掉多行內容
                                 ref={(el) => {
                                   if (el) {
@@ -8884,7 +8888,9 @@ export default function GradingPage({
                                 rows={1}
                                 title={isVisualEval
                                   ? '填圖題由 AI 直接看 crop 圖視覺評分、學生筆跡跟標準答案的比對請看下方「理由」欄'
-                                  : '編輯後 1 秒自動儲存。已批改卷子改答案會自動退回待批改、按【批改作業】重評。'}
+                                  : isImageJudged
+                                    ? '這格由圖像辨識（字形/筆畫視覺覆核）判定：讀出的字剛好＝標準答案但實際筆畫有誤，故不顯示轉錄文字。錯在哪請看下方「理由」欄、對照左側作答圖。'
+                                    : '編輯後 1 秒自動儲存。已批改卷子改答案會自動退回待批改、按【批改作業】重評。'}
                               />
                             </div>
                             )}
