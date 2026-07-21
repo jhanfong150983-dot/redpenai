@@ -34,8 +34,8 @@ type Props = {
   subject: string
   assignmentTitle: string
   onOpenPreferences?: () => void
-  /** 花墨水前先跳同意框（AiReport 提供）；沒提供則直接執行。 */
-  requestInk?: (fn: () => void) => void
+  /** 花墨水前先跳同意框（AiReport 提供、可帶自訂內容）；沒提供則直接執行。 */
+  requestInk?: (fn: () => void, message?: React.ReactNode) => void
   /** 2026-07-22：知識點歸類寫入完成後通知 AiReport 重新載入 questions（Dexie 已更新）。 */
   onKpSaved?: () => void
 }
@@ -177,10 +177,22 @@ export function ParentReportTab({
 
   const requestGen = (targets: StudentReport[], forceComment: boolean) => {
     if (!targets.length) { setMsg('目前沒有需要生成的學生'); return }
-    // 閘②：低信心未確認提醒（可跳過）
-    if (lowConfCount > 0 && !window.confirm(
-      `注意：本作業還有 ${lowConfCount} 格「低信心」判定尚未人工確認。\n報告發出後若再改分數，該生報告會失效需重新生成。\n\n仍要現在生成嗎？`,
-    )) return
+    // 統一走 InkConfirmModal（2026-07-22 user 拍板：不混用瀏覽器 confirm）——
+    //   升級說明＋低信心警告（閘②）都放進同一個 modal 內容。
+    const inkMessage = (
+      <div className="space-y-2">
+        <div>
+          {hasKp
+            ? <>即將為 <b>{targets.length}</b> 位學生產生 AI 逐題診斷與老師的話。</>
+            : <>首次升級：會先建立本卷「<b>知識點歸類</b>」（一次性、之後不再收費），接著為 <b>{targets.length}</b> 位學生產生 AI 逐題診斷與老師的話。</>}
+        </div>
+        {lowConfCount > 0 && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
+            ⚠ 本作業還有 <b>{lowConfCount}</b> 格「低信心」判定尚未人工確認。報告發出後若再改分數，該生報告會失效需重新生成。建議先到批改頁確認。
+          </div>
+        )}
+      </div>
+    )
     const run = () => {
       void (async () => {
         // 閘①：無知識點歸類 → 先就地跑（一次性、寫入 answer_key 後全班/未來重生共用）
@@ -203,7 +215,7 @@ export function ParentReportTab({
         await doGenerate(targets, forceComment)
       })()
     }
-    if (requestInk) requestInk(run); else run()
+    if (requestInk) requestInk(run, inkMessage); else run()
   }
   const genAll = () => requestGen(pending, false)
   const genSelectedOnly = () => requestGen(reports.filter((r) => selected.has(r.studentId) && needsGen(r)), false)

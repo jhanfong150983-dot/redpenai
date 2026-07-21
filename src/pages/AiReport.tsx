@@ -268,8 +268,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   const [domainDiagnosisRegenCounter, setDomainDiagnosisRegenCounter] = useState(0)
   const [activeTab, setActiveTab] = useState<'overview' | 'class' | 'items' | 'parent' | 'domain' | 'student'>('overview')
   // 2026-06-01: 生成/重生報告會花墨水 → 先跳同意框，同意才跑（存待執行動作）
-  const [inkAction, setInkAction] = useState<(() => void) | null>(null)
-  const requestInk = useCallback((fn: () => void) => setInkAction(() => fn), [])
+  // 2026-07-22：requestInk 支援自訂 modal 內容（統一走 InkConfirmModal、不再混用 window.confirm）
+  const [inkAction, setInkAction] = useState<{ fn: () => void; message?: React.ReactNode } | null>(null)
+  const requestInk = useCallback((fn: () => void, message?: React.ReactNode) => setInkAction({ fn, message }), [])
   const [assignmentSummary, setAssignmentSummary] = useState<{
     status: string
     class_summary: string | null
@@ -1122,9 +1123,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
         open={!!inkAction}
         warning="產生 AI 報告會消耗墨水（點數）"
         onCancel={() => setInkAction(null)}
-        onConfirm={() => { const fn = inkAction; setInkAction(null); fn?.() }}
+        onConfirm={() => { const fn = inkAction?.fn; setInkAction(null); fn?.() }}
       >
-        即將用 AI 產生這份學情報告。
+        {inkAction?.message ?? '即將用 AI 產生這份學情報告。'}
       </InkConfirmModal>
     </div>
   )
