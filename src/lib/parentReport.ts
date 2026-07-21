@@ -905,6 +905,93 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
   </div>`
 }
 
+// ── 知識點歸類（2026-07-22、進階報告升級流程；每卷一次性、懶跑）─────────────────
+//   tagging：餵整本題本圖（proxy 注入）＋答案清單 → 每題 {topic, knowledgePoints}；
+//   kpTips：純文字、每知識點一句在家建議；save：POST kp-save 外科手術合併進 answer_key。
+export type KpTagItem = { questionId: string; topic: string; knowledgePoints: string[]; ability?: string; note?: string }
+export type KpUpgradeResult = { items: KpTagItem[]; kpTips: Record<string, string> }
+
+async function callKpRoute(promptText: string, assignmentId: string, withBooklet: boolean): Promise<string> {
+  const inkSessionId = await ensureInkSessionId()
+  const res = await fetch(GEMINI_PROXY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      model: COMMENT_MODEL,
+      contents: [{ role: 'user', parts: [{ text: promptText }] }],
+      routeKey: 'report.kp_tagging',
+      assignmentId,
+      ...(withBooklet ? { withBooklet: true } : {}),
+      ...(inkSessionId ? { inkSessionId } : {}),
+    }),
+  })
+  if (!res.ok) throw new Error(`AI 呼叫失敗（${res.status}）`)
+  const data = await res.json().catch(() => null)
+  return ((data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> })?.candidates ?? [])
+    .flatMap((c) => c?.content?.parts ?? [])
+    .map((p) => (typeof p?.text === 'string' ? p.text : ''))
+    .join('')
+}
+
+export async function runKpUpgrade(assignmentId: string, subject: string, questions: PRQuestion[]): Promise<KpUpgradeResult> {
+  const qs = questions.filter((q) => String(q.id ?? '').trim())
+  if (!qs.length) throw new Error('此作業沒有題目')
+  const ansList = qs.map((q) => `${q.id}：${resolveStdAnswer(q) || '(無)'}`).join('\n')
+  const subj = subject || '學科'
+  // ① tagging（餵題本圖）
+  const tagPrompt = `你是一位資深的台灣國中${subj}老師，同時是段考命題與試題分析專家。
+附上一份${subj}科段考「題本」（含所有題目）。另附答案清單（題號＋標準答案）供你對應題目。
+請像分析自己出的卷一樣，針對答案清單中每一個題號指出：
+1. topic：大主題／單元（課本「章／單元」等級）。全卷只會有少數幾個大主題；考同一單元的題目 topic 必須完全一致（同字）。
+2. knowledgePoints：這題主要考的細部知識點（課本小標／概念等級），1~2 個。
+3. ability：能力層次（擇一：定義理解／基本應用／情境應用／多步驟推理）。
+4. note：一句話說明這題在考什麼。
+只依題本實際內容判斷；某題號在題本找不到或看不清 → topic 填「無法對應」、knowledgePoints 填 ["無法對應"]。
+答案清單：
+${ansList}
+只輸出 JSON：{"items":[{"questionId":"...","topic":"...","knowledgePoints":[...],"ability":"...","note":"..."}]}`
+  const tagText = await callKpRoute(tagPrompt, assignmentId, true)
+  const tagMatch = tagText.match(/\{[\s\S]*\}/)
+  if (!tagMatch) throw new Error('歸類結果解析失敗')
+  const parsed = JSON.parse(tagMatch[0]) as { items?: Array<{ questionId?: string; topic?: string; knowledgePoints?: string[]; ability?: string; note?: string }> }
+  const items: KpTagItem[] = (parsed.items ?? [])
+    .filter((it) => it?.questionId && it?.topic && it.topic !== '無法對應')
+    .map((it) => ({
+      questionId: String(it.questionId), topic: String(it.topic),
+      knowledgePoints: (it.knowledgePoints ?? []).map((k) => String(k)).filter((k) => k && k !== '無法對應'),
+      ...(it.ability ? { ability: String(it.ability) } : {}), ...(it.note ? { note: String(it.note) } : {}),
+    }))
+  if (!items.length) throw new Error('歸類沒有產出任何題目')
+  // ② kpTips（純文字、每知識點一句在家建議）
+  const allKps = [...new Set(items.flatMap((it) => it.knowledgePoints))]
+  let kpTips: Record<string, string> = {}
+  if (allKps.length) {
+    const tipPrompt = `你是一位資深、溫暖的台灣國中${subj}老師。以下是一份段考測到的知識點清單。
+請為每個知識點寫「一句」給家長、在家可以怎麼幫孩子的**具體**建議：要具體到能做的動作或提醒。不可空泛（「多練習」「多複習」不行）。用家長聽得懂、鼓勵的口吻，每則 30~50 字。
+知識點清單：
+${allKps.map((k) => `- ${k}`).join('\n')}
+只輸出 JSON：{"tips":{"知識點":"一句建議", ...}}`
+    try {
+      const tipText = await callKpRoute(tipPrompt, assignmentId, false)
+      const m = tipText.match(/\{[\s\S]*\}/)
+      if (m) kpTips = (JSON.parse(m[0]) as { tips?: Record<string, string> }).tips ?? {}
+    } catch { /* kpTips 失敗不擋主流程（加強地圖仍可用、只是缺建議句） */ }
+  }
+  // ③ 寫入 server（外科手術合併、owner 驗證）
+  const saveRes = await fetch('/api/report/kp-save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ assignmentId, items, kpTips }),
+  })
+  if (!saveRes.ok) {
+    const err = await saveRes.json().catch(() => null)
+    throw new Error(`歸類寫入失敗：${(err as { error?: string })?.error ?? saveRes.status}`)
+  }
+  return { items, kpTips }
+}
+
 // ── 本地儲存：報告抬頭設定（老師個人、偏好設定頁維護）＋ 老師編輯過的評語（依作業快取） ──
 const HEADER_STORE_KEY = 'parentReport.header.v1'
 export type ReportHeaderSettings = { schoolName: string; crestDataUrl?: string; teacherName?: string }

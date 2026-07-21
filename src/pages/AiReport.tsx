@@ -411,6 +411,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   const [itemAnalysisQuestions, setItemAnalysisQuestions] = useState<ItemAnalysisQuestion[]>([])
   const [itemAnalysisTemplateId, setItemAnalysisTemplateId] = useState('')
   const [itemAnalysisKpTips, setItemAnalysisKpTips] = useState<Record<string, string>>({})  // 2026-07-19 知識點在家建議（answer_key.kpTips）
+  const [kpReloadTick, setKpReloadTick] = useState(0)  // 2026-07-22 知識點歸類寫入後重載 questions（Dexie 已更新）
   useEffect(() => {
     if (!selectedAssignmentId) { setItemAnalysisQuestions([]); setItemAnalysisTemplateId(''); setItemAnalysisKpTips({}); return }
     db.assignments.get(selectedAssignmentId)
@@ -421,7 +422,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
         setItemAnalysisKpTips(ak?.kpTips && typeof ak.kpTips === 'object' ? ak.kpTips : {})
       })
       .catch(() => { setItemAnalysisQuestions([]); setItemAnalysisTemplateId(''); setItemAnalysisKpTips({}) })
-  }, [selectedAssignmentId])
+  }, [selectedAssignmentId, kpReloadTick])
 
   const itemAnalysisSubmissions = useMemo(
     () => localSubmissions.filter(
@@ -1043,6 +1044,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   })()}
                   onOpenPreferences={() => { window.location.href = '/preferences' }}
                   requestInk={requestInk}
+                  onKpSaved={() => setKpReloadTick((t) => t + 1)}
                 />
               ) : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>

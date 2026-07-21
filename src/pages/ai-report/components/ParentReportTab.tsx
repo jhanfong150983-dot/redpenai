@@ -3,15 +3,16 @@
 //   AI 產物（逐題錯因診斷＋老師的話）＝花錢，「生成全班報告」一鍵才跑（走 InkConfirm）＋全螢幕 loading。
 //   結果快取到 parent_reports（診斷＋評語）；截圖免費、preview/download 時現切。
 //   重批改/改答案卷 → server 指紋比對回傳 stale → 紅橫幅提示重新生成（重生一律手動）。
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { FileDown, Eye, RefreshCw, Loader2, Sparkles, Settings, CheckSquare, X, AlertTriangle } from 'lucide-react'
 import {
   assembleParentReports, generateParentComment, generateParentDiagnosis, fetchQuestionCrops,
   diagnosisWrongsOf, applyDiagnosisAndCrops, loadParentReportCache, saveParentReportCache,
   createReportPdfBlob, downloadSingleReport, downloadReportsAsZip,
-  loadReportHeaderSettings, loadCachedComments, saveCachedComment,
-  type PRQuestion, type PRSubmission, type PRStudent, type ReportHeader, type StudentReport, type DiagnosisItem,
+  loadReportHeaderSettings, loadCachedComments, saveCachedComment, runKpUpgrade,
+  type PRQuestion, type PRSubmission, type PRStudent, type ReportHeader, type StudentReport, type DiagnosisItem, type KpUpgradeResult,
 } from '@/lib/parentReport'
+import { db } from '@/lib/db'
 
 function formatDateZh(d: Date): string {
   return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`
@@ -35,10 +36,12 @@ type Props = {
   onOpenPreferences?: () => void
   /** 花墨水前先跳同意框（AiReport 提供）；沒提供則直接執行。 */
   requestInk?: (fn: () => void) => void
+  /** 2026-07-22：知識點歸類寫入完成後通知 AiReport 重新載入 questions（Dexie 已更新）。 */
+  onKpSaved?: () => void
 }
 
 export function ParentReportTab({
-  questions, submissions, students, kpTips, assignmentId, className, subject, assignmentTitle, onOpenPreferences, requestInk,
+  questions, submissions, students, kpTips, assignmentId, className, subject, assignmentTitle, onOpenPreferences, requestInk, onKpSaved,
 }: Props) {
   const [reports, setReports] = useState<StudentReport[]>([])
   const [staleSet, setStaleSet] = useState<Set<string>>(new Set())
@@ -101,9 +104,43 @@ export function ParentReportTab({
   const allSelected = reports.length > 0 && selected.size === reports.length
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(reports.map((r) => r.studentId)))
 
-  const busy = genState !== null || batchPdf !== null
+  // ── 2026-07-22 報告分級（user 拍板）：初階＝純程式數據（零墨水、永遠可預覽/下載、評語手寫）；
+  //    進階＝知識點歸類(加強地圖) + AI 逐題診斷 + AI 評語。歸類懶跑：升級時才做、一次性、費用算報告。
+  const [kpRunning, setKpRunning] = useState(false)
+  const pendingAfterKpRef = useRef(false)
+  const hasKp = useMemo(
+    () => questions.some((q) => Boolean((q as { analysis?: { topic?: string } }).analysis?.topic)),
+    [questions],
+  )
+  // 閘②：低信心（<70）未確認格數——生成前提醒（發出後老師改分會讓報告失效、要重生）
+  const lowConfCount = useMemo(() => {
+    let n = 0
+    for (const s of submissions) {
+      const det = (s.gradingResult as { details?: Array<{ systemConfidence?: number }> } | undefined)?.details ?? []
+      for (const d of det) if (typeof d?.systemConfidence === 'number' && d.systemConfidence < 70) n++
+    }
+    return n
+  }, [submissions])
+
+  const busy = genState !== null || batchPdf !== null || kpRunning
   const needsGen = (r: StudentReport) => !generatedSet.has(r.studentId) || staleSet.has(r.studentId)
   const pending = reports.filter(needsGen)
+
+  // 歸類結果同步回本地 Dexie（server 已寫入；不更新 Dexie 的話下次 sync 前 questions 還是舊的）
+  const mergeKpIntoDexie = async (r: KpUpgradeResult) => {
+    try {
+      const a = await db.assignments.get(assignmentId)
+      const ak = a?.answerKey as { questions?: Array<{ id?: string; analysis?: unknown }>; kpTips?: Record<string, string> } | undefined
+      if (!a || !ak?.questions) return
+      const byId = new Map(r.items.map((it) => [String(it.questionId), it]))
+      for (const q of ak.questions) {
+        const it = byId.get(String(q.id ?? ''))
+        if (it) q.analysis = { topic: it.topic, knowledgePoints: it.knowledgePoints, ...(it.ability ? { ability: it.ability } : {}), ...(it.note ? { note: it.note } : {}) }
+      }
+      ak.kpTips = { ...(ak.kpTips ?? {}), ...r.kpTips }
+      await db.assignments.put(a)
+    } catch { /* Dexie 更新失敗 → 下次 sync 會拉回 server 版 */ }
+  }
 
   // 生成（診斷＋截圖＋評語）→ 更新 state ＋ 快取；forceComment=true 時連已編輯的評語也重寫（單列重新生成用）
   const doGenerate = async (targets: StudentReport[], forceComment: boolean) => {
@@ -140,12 +177,45 @@ export function ParentReportTab({
 
   const requestGen = (targets: StudentReport[], forceComment: boolean) => {
     if (!targets.length) { setMsg('目前沒有需要生成的學生'); return }
-    const run = () => { void doGenerate(targets, forceComment) }
+    // 閘②：低信心未確認提醒（可跳過）
+    if (lowConfCount > 0 && !window.confirm(
+      `注意：本作業還有 ${lowConfCount} 格「低信心」判定尚未人工確認。\n報告發出後若再改分數，該生報告會失效需重新生成。\n\n仍要現在生成嗎？`,
+    )) return
+    const run = () => {
+      void (async () => {
+        // 閘①：無知識點歸類 → 先就地跑（一次性、寫入 answer_key 後全班/未來重生共用）
+        if (!hasKp) {
+          setKpRunning(true); setMsg('')
+          try {
+            const r = await runKpUpgrade(assignmentId, subject, questions)
+            await mergeKpIntoDexie(r)
+            pendingAfterKpRef.current = true // questions 重載、reports 重組後自動接續生成
+            setKpRunning(false)
+            onKpSaved?.()
+            if (!onKpSaved) setMsg('知識點歸類完成，請重新整理頁面後再按一次生成')
+            return
+          } catch (e) {
+            setKpRunning(false)
+            setMsg(`知識點歸類失敗：${e instanceof Error ? e.message : String(e)}`)
+            return
+          }
+        }
+        await doGenerate(targets, forceComment)
+      })()
+    }
     if (requestInk) requestInk(run); else run()
   }
   const genAll = () => requestGen(pending, false)
   const genSelectedOnly = () => requestGen(reports.filter((r) => selected.has(r.studentId) && needsGen(r)), false)
   const genOne = (r: StudentReport) => requestGen([r], true)
+
+  // 歸類完成 → AiReport 重載 questions → reports 依新 questions 重組（帶加強地圖）→ 自動接續生成
+  useEffect(() => {
+    if (!pendingAfterKpRef.current || !hasKp || !reports.length) return
+    pendingAfterKpRef.current = false
+    void doGenerate(reports.filter(needsGen), false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasKp, reports])
 
   // 截圖免費、preview/download 時現切（快取只存診斷/評語）；已有 crop 就跳過。
   const ensureCrops = async (r: StudentReport): Promise<StudentReport> => {
@@ -215,6 +285,22 @@ export function ParentReportTab({
         </div>
       )}
 
+      {/* 報告等級（2026-07-22）：初階＝零墨水基本數據；進階＝知識點加強地圖＋AI 診斷/評語 */}
+      <div className={`flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm ${hasKp ? 'border-sky-200 bg-sky-50 text-sky-800' : 'border-slate-200 bg-slate-50 text-slate-600'}`}>
+        <span className={`rounded px-2 py-0.5 text-xs font-bold ${hasKp ? 'bg-sky-600 text-white' : 'bg-slate-400 text-white'}`}>
+          {hasKp ? '進階版' : '初階版'}
+        </span>
+        {hasKp
+          ? <span>本作業已建立知識點歸類——報告含「加強地圖」與逐題 AI 診斷。</span>
+          : <span>目前為基本數據報告（成績／落點／題型答對率／錯題表，隨時可預覽下載、評語可手寫）。按「升級為進階版」建立知識點歸類＋AI 逐題診斷與評語。</span>}
+      </div>
+
+      {kpRunning && (
+        <div className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-700">
+          <Loader2 className="h-4 w-4 animate-spin" />正在建立知識點歸類（每卷一次性、之後重生報告不再收費）…
+        </div>
+      )}
+
       {staleSet.size > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
@@ -262,7 +348,7 @@ export function ParentReportTab({
               title="AI 逐題錯因診斷＋老師的話＋截圖；會消耗墨水（點數）"
             >
               {cacheLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-              {cacheLoading ? '載入中…' : pending.length ? `生成全班報告（${pending.length}）` : '全班已生成'}
+              {cacheLoading ? '載入中…' : !hasKp ? `升級為進階版（${pending.length} 位）` : pending.length ? `生成全班報告（${pending.length}）` : '全班已生成'}
             </button>
             <button onClick={enterMulti} className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50">
               <CheckSquare className="h-4 w-4" />多選
