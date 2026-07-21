@@ -737,7 +737,12 @@ export const REPORT_CSS = `
 .pr-foot { width:100%; border-collapse:collapse; margin-top:18px; border-top:1px solid #D9DEE4; }
 .pr-foot td { padding-top:12px; font-size:10.5px; color:#7B8794; vertical-align:top; }
 .pr-foot .r { text-align:right; white-space:nowrap; }
+.pr-foot2 { margin-top:18px; border-top:1px solid #D9DEE4; padding-top:12px; }
+.pr-foot2 .dis { font-size:10.5px; color:#7B8794; line-height:1.7; }
+.pr-foot2 .org { font-size:10.5px; color:#7B8794; text-align:right; margin-top:5px; white-space:nowrap; }
 /* 第四段 逐題錯題分析卡片（PDF 走 headless Chrome、可用 flex） */
+.pr-aicheck { font-size:11.5px; color:#7A4E00; background:#FFF7E8; border:1px solid #F0D8A0; border-radius:6px; padding:9px 12px; margin:-2px 0 11px; line-height:1.75; break-inside:avoid; page-break-inside:avoid; }
+.pr-aicheck b { color:#B0301C; font-weight:700; }
 .pr-qsub { font-size:11px; color:#8A94A0; margin:-2px 0 12px; }
 .pr-qc { border:1px solid #E4E8EC; border-radius:7px; padding:12px 14px; margin-bottom:12px; break-inside:avoid; page-break-inside:avoid; }
 .pr-qh { margin-bottom:9px; }
@@ -811,12 +816,13 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
       <div class="pr-qh"><span class="pr-qno">${esc(e.label)}</span>${e.kp ? `<span class="pr-qkp">${esc(e.kp)}</span>` : ''}</div>
       <div class="pr-qbody">${crop}${info}</div>${why}${tip}</div>`
   }).join('')
+  const aiCheckNote = `<div class="pr-aicheck">📌 <b>請先對照影像確認：</b>下方每一題都附上系統從考卷<b>擷取的作答影像</b>與 AI 判讀結果（「AI 讀到」）。系統偶爾會<b>截錯框</b>或<b>把字認錯</b>，請和孩子一起仔細核對「AI 讀到」是否就是他實際寫的答案；<b>若發現是系統擷取或判讀錯誤而被扣分，請主動向老師提出</b>，老師會再確認並調整分數。</div>`
   const errorSection = r.errorRows.length
-    ? `<div class="pr-qsub">按題號排序，每題附孩子的作答、為什麼會錯、在家怎麼幫（共 ${r.errorRows.length} 題）</div>${errorCards}`
+    ? `${aiCheckNote}${errorCards}`
     : `<div class="pr-allgood">本次沒有明顯失分的題目，表現很好！</div>`
   const commentHtml = r.comment ? esc(r.comment) : `<span class="ph">（老師評語）</span>`
   const noteHtml = `<div class="pr-note">${commentHtml}<div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>`
-  const footHtml = `<table class="pr-foot"><tbody><tr><td>本報告由 AI 批改系統彙整、評語經任課老師審閱．答對率以本次評量實際作答計算</td><td class="r">${esc(h.schoolName)}・${esc(h.subject)}科</td></tr></tbody></table>`
+  const footHtml = `<div class="pr-foot2"><div class="dis">本報告由 AI 批改系統自動彙整生成，內容（含作答判讀、分數與分析）可能有誤，僅供學習參考、非最終成績；如有疑問請以老師確認為準．答對率以本次評量實際作答計算</div><div class="org">${esc(h.schoolName)}・${esc(h.subject)}科</div></div>`
 
   return `<div class="pr-root">
     <table class="pr-mast"><tbody><tr>
