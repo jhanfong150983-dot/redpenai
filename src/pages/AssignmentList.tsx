@@ -22,6 +22,7 @@ import { NumericInput } from '@/components/NumericInput'
 import { type GradingSettingsValues } from '@/components/GradingSettingsPanel'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
+import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
 import { db, generateId, getBucket, QUESTION_CATEGORY_LABELS } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
@@ -95,6 +96,9 @@ export default function AssignmentList({
   onClassroomChange,
   onFolderChange
 }: AssignmentListProps) {
+  // 2026-07-22 modal 統一：window.confirm/alert → 共用 ConfirmModal
+  const confirmModal = useConfirm()
+  const alertModal = useAlertModal()
   const [assignments, setAssignments] = useState<AssignmentWithMeta[]>([])
   const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [assignmentFolders, setAssignmentFolders] = useState<AssignmentFolder[]>([])
@@ -221,7 +225,12 @@ export default function AssignmentList({
       if (settingsSelectedNewAK?.answerKey) {
         const gradedCount = settingsAssignment.gradedCount ?? 0
         if (gradedCount > 0) {
-          const ok = window.confirm(`此作業已有 ${gradedCount} 份批改結果，更換答案卷將清除所有批改。確定？`)
+          const ok = await confirmModal({
+            tone: 'danger',
+            title: '更換答案卷將清除批改',
+            message: `此作業已有 ${gradedCount} 份批改結果，更換答案卷將清除所有批改。確定？`,
+            confirmLabel: '清除並更換',
+          })
           if (!ok) { setIsSavingSettings(false); return }
           // 清除本地 Dexie 批改結果
           // 2026-06-21 Bug F：換答案卷 = 答案卷有問題 → 連 reads(phaseAState)+finalAnswers 一起清、全部重來。
@@ -621,7 +630,7 @@ export default function AssignmentList({
         const prevStrictness = (settingsAssignment.answerKey as { strictness?: string } | undefined)?.strictness || 'standard'
         const nextStrictness = data.settings.strictness || 'standard'
         if (!akTemplate?.answerKey && nextStrictness !== prevStrictness && (settingsAssignment.gradedCount ?? 0) > 0) {
-          window.alert('批改嚴格度已變更：已批改的卷子需重新批改後才會套用新的嚴格度。')
+          void alertModal('批改嚴格度已變更：已批改的卷子需重新批改後才會套用新的嚴格度。')
         }
       }
       const dbData = await db.assignments.where('classroomId').anyOf(classrooms.map((c) => c.id)).toArray()
@@ -1207,12 +1216,19 @@ export default function AssignmentList({
   const handleDeleteFolder = async (folder: string) => {
     const inFolder = assignments.filter((a) => a.folder === folder)
     if (inFolder.length > 0) {
-      const ok = window.confirm(
-        `資料夾「${folder}」內有 ${inFolder.length} 份作業，刪除後這些作業會回到「未分類」。確定？`
-      )
+      const ok = await confirmModal({
+        tone: 'warning',
+        title: `刪除資料夾「${folder}」？`,
+        message: `資料夾內有 ${inFolder.length} 份作業，刪除後這些作業會回到「未分類」。`,
+        confirmLabel: '刪除資料夾',
+      })
       if (!ok) return
     } else {
-      const ok = window.confirm(`刪除資料夾「${folder}」？`)
+      const ok = await confirmModal({
+        title: `刪除資料夾「${folder}」？`,
+        message: '此資料夾目前沒有作業。',
+        confirmLabel: '刪除資料夾',
+      })
       if (!ok) return
     }
     try {
@@ -1497,14 +1513,19 @@ export default function AssignmentList({
                 </Button>
                 <Button
                   variant="primary"
-                  onClick={() => {
+                  onClick={async () => {
                     if (batchSelectedIds.size === 0) return
                     const ids = Array.from(batchSelectedIds)
                     const total = ids.reduce((sum, id) => {
                       const a = assignments.find((x) => x.id === id)
                       return sum + (a?.uploadedCount ?? 0)
                     }, 0)
-                    if (!window.confirm(`即將批次批改 ${ids.length} 個班級，共 ${total} 份作業。確定開始？`)) return
+                    // 批次批改是花墨水動作 → tone: 'ink'（琥珀「消耗墨水」橫幅、與 InkConfirmModal 同款）
+                    if (!(await confirmModal({
+                      tone: 'ink',
+                      message: `即將批次批改 ${ids.length} 個班級，共 ${total} 份作業。確定開始？`,
+                      confirmLabel: '開始批改',
+                    }))) return
                     onStartBatchGrading?.(ids)
                   }}
                   disabled={batchSelectedIds.size === 0}
@@ -2136,7 +2157,12 @@ export default function AssignmentList({
             if (uploadedCount > 0) parts.push(`${uploadedCount} 份已上傳的作業`)
             if (gradedCount > 0) parts.push(`${gradedCount} 份批改結果`)
             const detail = parts.length > 0 ? `\n\n此作業包含 ${parts.join('、')}，刪除後無法復原。` : ''
-            if (!window.confirm(`確定要刪除「${settingsAssignment.title}」？${detail}`)) return
+            if (!(await confirmModal({
+              tone: 'danger',
+              title: `刪除「${settingsAssignment.title}」？`,
+              message: detail ? detail.trim() : '刪除後無法復原。',
+              confirmLabel: '刪除作業',
+            }))) return
             try {
               const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
               if (subs.length > 0) {

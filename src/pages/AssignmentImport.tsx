@@ -38,6 +38,7 @@ import {
 import { blobToBase64, compressToTargetBytes, rotateImageBlob } from '@/lib/imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-storage'
 import ImportConfigDialog, { type PdfFileInfo, interleavePdfPages } from '@/components/ImportConfigDialog'
+import { useAlertModal } from '@/components/ConfirmModal'
 import { mergePageBlobs } from '@/lib/image-merge'
 
 // 目標檔案大小上限：3 MB（對齊學生端 useSync 的 4 MB base64 上限，留 0.5 MB buffer 給 Vercel 4.5 MB 邊界）
@@ -202,6 +203,8 @@ export default function AssignmentImport({
   onUploadComplete,
   embedded = false
 }: AssignmentImportProps) {
+  // 2026-07-22 modal 統一：alert → 共用 ConfirmModal
+  const alertModal = useAlertModal()
   const [assignment, setAssignment] = useState<Assignment | null>(null)
   const [students, setStudents] = useState<Student[]>([])
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
@@ -877,11 +880,11 @@ export default function AssignmentImport({
       }
 
       if (successCount > 0) {
-        alert(`已成功建立 ${successCount} 份作業`)
+        void alertModal(`已成功建立 ${successCount} 份作業`)
         requestSync(true)
         onUploadComplete?.()
       } else {
-        alert('沒有建立任何作業')
+        void alertModal('沒有建立任何作業')
       }
     } catch (e) {
       console.error(e)

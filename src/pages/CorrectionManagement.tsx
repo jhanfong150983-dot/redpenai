@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Button from '@/components/ui/Button'
+import { useConfirm } from '@/components/ConfirmModal'
 import {
   ArrowLeft,
   Loader2,
@@ -132,6 +133,8 @@ export default function CorrectionManagement({
   assignmentId,
   onBack
 }: CorrectionManagementProps) {
+  // 2026-07-22 modal 統一：window.confirm → 共用 ConfirmModal
+  const confirmModal = useConfirm()
   const [dashboard, setDashboard] = useState<CorrectionDashboardResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -410,7 +413,11 @@ export default function CorrectionManagement({
 
   const handleManualPassStudent = async (student: DashboardStudent) => {
     if (manualPassingStudentId) return
-    if (!window.confirm(`確定手動通過 ${student.name} 的訂正？\n此操作視為老師當面確認，不會重新 AI 批改。\n（按下後可再撤銷恢復為待訂正）`)) return
+    if (!(await confirmModal({
+      title: `手動通過 ${student.name} 的訂正？`,
+      message: '此操作視為老師當面確認，不會重新 AI 批改。\n（按下後可再撤銷恢復為待訂正）',
+      confirmLabel: '手動通過',
+    }))) return
     setManualPassingStudentId(student.studentId)
     setError(null)
     setMessage(null)
@@ -434,7 +441,11 @@ export default function CorrectionManagement({
 
   const handleRevertManualPassStudent = async (student: DashboardStudent) => {
     if (revertingManualPassStudentId) return
-    if (!window.confirm(`撤銷 ${student.name} 的手動通過？\n該學生會回到「待訂正」、原本未完成題目重新展開。`)) return
+    if (!(await confirmModal({
+      title: `撤銷 ${student.name} 的手動通過？`,
+      message: '該學生會回到「待訂正」、原本未完成題目重新展開。',
+      confirmLabel: '撤銷',
+    }))) return
     setRevertingManualPassStudentId(student.studentId)
     setError(null)
     setMessage(null)

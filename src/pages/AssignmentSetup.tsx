@@ -41,6 +41,7 @@ import { useTutorial } from '@/hooks/useTutorial'
 import { TutorialOverlay } from '@/components/TutorialOverlay'
 import AnswerKeyWizardModal from '@/components/AnswerKeyWizardModal'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
+import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
 import { parentReportCount } from '@/lib/parentReport'
 
 interface AssignmentSetupProps {
@@ -75,6 +76,9 @@ export default function AssignmentSetup({
   embedded = false
 }: AssignmentSetupProps) {
   const navigate = useNavigate()
+  // 2026-07-22 modal 統一：window.confirm/alert → 共用 ConfirmModal
+  const confirmModal = useConfirm()
+  const alertModal = useAlertModal()
   // 引导式教学
   const tutorial = useTutorial('assignment')
 
@@ -276,7 +280,7 @@ export default function AssignmentSetup({
       typeof summary.balanceAfter === 'number'
         ? `，剩餘 ${summary.balanceAfter} 點`
         : ''
-    window.alert(`本次${label}扣除 ${summary.chargedPoints} 點${remaining}`)
+    void alertModal(`本次${label}扣除 ${summary.chargedPoints} 點${remaining}`, { title: '費用結算' })
   }
 
   const closeInkSessionOnce = async () => {
@@ -1102,7 +1106,13 @@ export default function AssignmentSetup({
 
 
   const handleRequireInkTopUp = async () => {
-    const shouldTopUp = window.confirm(createBlockedMessage)
+    const shouldTopUp = await confirmModal({
+      tone: 'warning',
+      title: '墨水不足',
+      message: createBlockedMessage,
+      confirmLabel: '前往補充',
+      cancelLabel: '稍後再說',
+    })
     if (!shouldTopUp || isClosingSession) return
     setIsClosingSession(true)
     try {
@@ -1871,11 +1881,14 @@ export default function AssignmentSetup({
     const markedQuestions = currentAnswerKey.questions.filter(q => q.needsReanalysis)
     if (markedQuestions.length === 0) return
 
-    const confirmed = window.confirm(
-      `確定要重新分析 ${markedQuestions.length} 題嗎？\n` +
-      `題號：${markedQuestions.map(q => q.id).join(', ')}\n\n` +
-      `重新分析後將覆蓋現有答案內容。`
-    )
+    const confirmed = await confirmModal({
+      tone: 'ink',
+      title: `重新分析 ${markedQuestions.length} 題？`,
+      message:
+        `題號：${markedQuestions.map(q => q.id).join(', ')}\n\n` +
+        `重新分析後將覆蓋現有答案內容。`,
+      confirmLabel: '重新分析',
+    })
 
     if (!confirmed) return
 
@@ -1944,7 +1957,12 @@ export default function AssignmentSetup({
   }
 
   const handleDelete = async (id: string) => {
-    const ok = window.confirm('確定要刪除這份作業嗎？相關學生繳交也會一併移除。')
+    const ok = await confirmModal({
+      tone: 'danger',
+      title: '刪除這份作業？',
+      message: '相關學生繳交也會一併移除，刪除後無法復原。',
+      confirmLabel: '刪除作業',
+    })
     if (!ok) return
     try {
       const submissions = await db.submissions
@@ -2205,11 +2223,14 @@ export default function AssignmentSetup({
     if (!selectedClassroomId) return
 
     const count = assignments.filter((a) => a.folder === folderName).length
-    const message = count > 0
-      ? `資料夾「${folderName}」內有 ${count} 個作業，刪除後這些作業會變成「全部」。確定要刪除此資料夾嗎？`
-      : `確定要刪除資料夾「${folderName}」嗎？`
-
-    const ok = window.confirm(message)
+    const ok = await confirmModal({
+      tone: count > 0 ? 'warning' : 'neutral',
+      title: `刪除資料夾「${folderName}」？`,
+      message: count > 0
+        ? `資料夾內有 ${count} 個作業，刪除後這些作業會變成「全部」。`
+        : '此資料夾目前沒有作業。',
+      confirmLabel: '刪除資料夾',
+    })
     if (!ok) return
 
     setIsSubmitting(true)

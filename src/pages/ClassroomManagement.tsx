@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from 'react'
 import Button from '@/components/ui/Button'
+import { useConfirm } from '@/components/ConfirmModal'
 import {
   Users,
   Plus,
@@ -61,6 +62,8 @@ const isSameStringArray = (a: string[], b: string[]) =>
 export default function ClassroomManagement({ onBack, embedded = false }: ClassroomManagementProps) {
   // 引导式教学
   const tutorial = useTutorial('classroom')
+  // 2026-07-22 modal 統一：window.confirm → 共用 ConfirmModal
+  const confirmModal = useConfirm()
 
   const [items, setItems] = useState<ClassroomWithStats[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -679,11 +682,14 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     if (syncedFolderSet.has(folderName)) return
 
     const count = items.filter((item) => item.classroom.folder === folderName).length
-    const message = count > 0
-      ? `資料夾「${folderName}」內有 ${count} 個班級，刪除後這些班級會變成「全部」。確定要刪除此資料夾嗎？`
-      : `確定要刪除資料夾「${folderName}」嗎？`
-
-    const ok = window.confirm(message)
+    const ok = await confirmModal({
+      tone: count > 0 ? 'warning' : 'neutral',
+      title: `刪除資料夾「${folderName}」？`,
+      message: count > 0
+        ? `資料夾內有 ${count} 個班級，刪除後這些班級會變成「全部」。`
+        : '此資料夾目前沒有班級。',
+      confirmLabel: '刪除資料夾',
+    })
     if (!ok) return
 
     setIsSaving(true)
@@ -730,9 +736,12 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
   const handleDeleteClassroom = async (target: ClassroomWithStats) => {
     if (isSaving) return
 
-    const ok = window.confirm(
-      '刪除此班級將一併刪除班級下的學生、作業與繳交紀錄，確定要刪除嗎？'
-    )
+    const ok = await confirmModal({
+      tone: 'danger',
+      title: `刪除班級「${target.classroom.name}」？`,
+      message: '刪除此班級將一併刪除班級下的學生、作業與繳交紀錄，刪除後無法復原。',
+      confirmLabel: '刪除班級',
+    })
     if (!ok) return
 
     setIsSaving(true)

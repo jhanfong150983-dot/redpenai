@@ -14,6 +14,7 @@ import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { checkFolderNameUnique, domainRank, sortByDomainThenName } from '@/lib/utils'
 import AnswerKeyUnifiedModal from '@/components/AnswerKeyUnifiedModal'
 import InkConfirmModal from '@/components/InkConfirmModal'
+import { useConfirm } from '@/components/ConfirmModal'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,8 @@ function DomainBadge({ domain }: { domain: string }) {
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function AnswerBank(_props: AnswerBankProps) {
+  // 2026-07-22 modal 統一：window.confirm → 共用 ConfirmModal
+  const confirmModal = useConfirm()
   const [templates, setTemplates] = useState<AnswerKeyTemplate[]>([])
   const [usedTemplateIds, setUsedTemplateIds] = useState<Set<string>>(new Set())
   const [isLoading, setIsLoading] = useState(true)
@@ -317,10 +320,14 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const handleDeleteFolder = async (folderName: string) => {
     if (isBusy) return
     const count = answerKeyItems.filter((a) => a.folder === folderName).length
-    const msg = count > 0
-      ? `資料夾「${folderName}」內有 ${count} 個答案卷，刪除後會移到「未分類」。確定？`
-      : `確定要刪除資料夾「${folderName}」嗎？`
-    if (!window.confirm(msg)) return
+    if (!(await confirmModal({
+      tone: count > 0 ? 'warning' : 'neutral',
+      title: `刪除資料夾「${folderName}」？`,
+      message: count > 0
+        ? `資料夾內有 ${count} 個答案卷，刪除後會移到「未分類」。`
+        : '此資料夾目前沒有答案卷。',
+      confirmLabel: '刪除資料夾',
+    }))) return
     setIsBusy(true)
     try {
       const toUpdate = templates.filter((t) => t.folder === folderName)
@@ -618,9 +625,12 @@ export default function AnswerBank(_props: AnswerBankProps) {
         const cn = allClassrooms.find((c) => c.id === a.classroomId)?.name || '未知班級'
         return `・${cn}「${a.title}」`
       })
-      if (!window.confirm(
-        `確定要刪除「${t.name}」？\n\n以下班級作業將無法繼續批改，直到重新選擇答案卷：\n${lines.join('\n')}\n\n已批改的成績不會被刪除。`
-      )) return
+      if (!(await confirmModal({
+        tone: 'danger',
+        title: `刪除「${t.name}」？`,
+        message: `以下班級作業將無法繼續批改，直到重新選擇答案卷：\n${lines.join('\n')}\n\n已批改的成績不會被刪除。`,
+        confirmLabel: '刪除答案卷',
+      }))) return
     }
     try {
       await queueDelete('answer_key_templates', id)

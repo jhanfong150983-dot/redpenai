@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, type MouseEvent as R
 import { useNavigate } from 'react-router-dom'
 import Button from '@/components/ui/Button'
 import InkConfirmModal from '@/components/InkConfirmModal'
+import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import {
   ArrowLeft,
@@ -2551,6 +2552,9 @@ export default function GradingPage({
   embedded = false
 }: GradingPageProps) {
   const navigate = useNavigate()
+  // 2026-07-22 modal 統一：window.confirm/alert → 共用 ConfirmModal（alertModal 不 await = 非阻塞提示）
+  const confirmModal = useConfirm()
+  const alertModal = useAlertModal()
   // 2026-06-19: 跨班「頁內新增班級」。base＝進頁時的作業集合(單班=[assignmentId] 或 prop 傳入的批次)，
   //   addedAssignmentIds＝老師在批改頁按「＋新增班級」加進來的同答案卷其他班；合併 >1 即進 batch(跨班分組)模式。
   const [addedAssignmentIds, setAddedAssignmentIds] = useState<string[]>([])
@@ -2740,7 +2744,7 @@ export default function GradingPage({
         catch (err) { console.warn('[resume-review] rebuild failed', sub.id, err) }
       }
       if (entries.length === 0) {
-        alert('找不到可續審的卷（資料可能已更新）。可用「智慧批改」重新處理待複核的卷。')
+        void alertModal('找不到可續審的卷（資料可能已更新）。可用「智慧批改」重新處理待複核的卷。')
         setResumeReview(null)
         return
       }
@@ -3323,7 +3327,7 @@ export default function GradingPage({
             typeof summary.balanceAfter === 'number'
               ? `，剩餘 ${summary.balanceAfter} 點`
               : ''
-          window.alert(`本次批改扣除 ${summary.chargedPoints} 點${remaining}`)
+          await alertModal(`本次批改扣除 ${summary.chargedPoints} 點${remaining}`, { title: '批改費用結算' })
         }
       }
     } catch (error) {
@@ -3332,7 +3336,7 @@ export default function GradingPage({
       setIsClosingSession(false)
       onBack()
     }
-  }, [isClosingSession, onBack])
+  }, [isClosingSession, onBack, alertModal])
 
   const resolveImageBase64 = async (blob?: Blob, base64?: string) => {
     if (base64) return base64
@@ -3459,11 +3463,14 @@ export default function GradingPage({
   const handleRevokeCorrection = useCallback(
     async (studentIds: string[]) => {
       if (studentIds.length === 0) return
-      const ok = window.confirm(
-        `確定退回 ${studentIds.length} 位學生的訂正？\n\n` +
+      const ok = await confirmModal({
+        tone: 'warning',
+        title: `退回 ${studentIds.length} 位學生的訂正？`,
+        message:
           '學生已輸入的訂正內容會保留，但派發狀態歸零，老師可重新批改原作業。\n' +
-          '若學生正在訂正頁面、需重新整理才會看到狀態變更。'
-      )
+          '若學生正在訂正頁面、需重新整理才會看到狀態變更。',
+        confirmLabel: '退回訂正',
+      })
       if (!ok) return
       setIsRevokingCorrection(true)
       setRevokeError(null)
@@ -3522,7 +3529,7 @@ export default function GradingPage({
         setIsRevokingCorrection(false)
       }
     },
-    [assignmentId, fetchCorrectionStatusByStudentId]
+    [assignmentId, fetchCorrectionStatusByStudentId, confirmModal]
   )
 
   const ensureNoCorrectionConflict = useCallback(
@@ -4046,7 +4053,11 @@ export default function GradingPage({
 
   const handleManualGradeStudent = async (student: Student) => {
     if (manualGradingStudentId) return
-    if (!window.confirm(`確定將 ${student.seatNumber} 號 ${student.name} 標記為已批改？\n此操作不會執行 AI 批改，僅更新狀態。\n（按下後可再撤銷回「尚未繳交」）`)) return
+    if (!(await confirmModal({
+      title: `將 ${student.seatNumber} 號 ${student.name} 標記為已批改？`,
+      message: '此操作不會執行 AI 批改，僅更新狀態。\n（按下後可再撤銷回「尚未繳交」）',
+      confirmLabel: '標記為已批改',
+    }))) return
     setManualGradingStudentId(student.id)
     try {
       const response = await fetch('/api/data/manual-grade', {
@@ -4069,7 +4080,11 @@ export default function GradingPage({
 
   const handleRevertManualGradeStudent = async (student: Student) => {
     if (revertingManualGradeStudentId) return
-    if (!window.confirm(`撤銷 ${student.seatNumber} 號 ${student.name} 的手動標記？\n將刪除 stub 紀錄、學生回到「尚未繳交」。`)) return
+    if (!(await confirmModal({
+      title: `撤銷 ${student.seatNumber} 號 ${student.name} 的手動標記？`,
+      message: '將刪除 stub 紀錄、學生回到「尚未繳交」。',
+      confirmLabel: '撤銷標記',
+    }))) return
     setRevertingManualGradeStudentId(student.id)
     try {
       const response = await fetch('/api/data/manual-grade-revert', {
@@ -4089,9 +4104,12 @@ export default function GradingPage({
   }
 
   const handleDeleteSubmission = async (submission: Submission, student: Student) => {
-    const confirmMessage = `確定要刪除 ${student.seatNumber} 號 ${student.name} 的作業嗎？\n\n此操作無法復原。`
-
-    if (!window.confirm(confirmMessage)) {
+    if (!(await confirmModal({
+      tone: 'danger',
+      title: `刪除 ${student.seatNumber} 號 ${student.name} 的作業？`,
+      message: '此操作無法復原。',
+      confirmLabel: '刪除',
+    }))) {
       return
     }
 
@@ -4128,7 +4146,7 @@ export default function GradingPage({
       console.log(`✅ 已刪除 ${student.name} 的作業`)
     } catch (error) {
       console.error('刪除作業失敗:', error)
-      alert('刪除作業失敗，請稍後再試')
+      void alertModal('刪除作業失敗，請稍後再試')
     }
   }
 
@@ -4240,7 +4258,7 @@ export default function GradingPage({
     if (recaptureButtonState.variant === 'disabled') return
     const { inScope, stageMap } = stageAggregates
     if (inScope.length === 0) {
-      alert('沒有可截取的作業')
+      void alertModal('沒有可截取的作業')
       return
     }
     // 2026-05-28: Q1 — 先擋 correction_passed（終點、不可重跑）
@@ -4279,17 +4297,17 @@ export default function GradingPage({
   //   opts.suppressNotice：一鍵流程中不顯示 Phase A 自己的收尾 notice（讓統一 Phase B 的結果視窗當最終 modal）。
   const executeRecaptureOnly = useCallback(async (candidates: Submission[], opts?: { chainPhaseB?: boolean; suppressNotice?: boolean; fullPipeline?: boolean; reviewAfterB?: boolean; onSubPhaseADone?: (sub: Submission) => void }): Promise<boolean> => {
     if (candidates.length === 0) return false
-    if (!assignment?.answerKey) { alert('找不到答案卷'); return false }
-    if (inkSessionError) { alert(inkSessionError); return false }
-    if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return false }
-    if (!isGeminiAvailable) { alert('Gemini 服務未設定'); return false }
+    if (!assignment?.answerKey) { void alertModal('找不到答案卷'); return false }
+    if (inkSessionError) { void alertModal(inkSessionError); return false }
+    if (!inkSessionReady) { void alertModal('批改會話尚未準備完成、請稍候'); return false }
+    if (!isGeminiAvailable) { void alertModal('Gemini 服務未設定'); return false }
     // 2026-05-28: Q1 — 在跑 AI 前清訂正狀態（assignment_student_state + correction_question_items）
     const { clearIds } = partitionCandidatesByCorrection(candidates)
     if (clearIds.size > 0) {
       try {
         await clearCorrectionForRerunOnServer(Array.from(clearIds))
       } catch (err) {
-        alert(err instanceof Error ? err.message : '清訂正狀態失敗')
+        void alertModal(err instanceof Error ? err.message : '清訂正狀態失敗')
         return false
       }
     }
@@ -5188,9 +5206,9 @@ export default function GradingPage({
 
   const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean; noticeOffset?: { success: number; total: number }; fullPipeline?: boolean; skipReviewGate?: boolean; withReviewCandidates?: boolean }) => {
     if (candidates.length === 0) return
-    if (inkSessionError) { alert(inkSessionError); return }
-    if (!inkSessionReady) { alert('批改會話尚未準備完成、請稍候'); return }
-    if (!isGeminiAvailable) { alert('Gemini 服務未設定'); return }
+    if (inkSessionError) { void alertModal(inkSessionError); return }
+    if (!inkSessionReady) { void alertModal('批改會話尚未準備完成、請稍候'); return }
+    if (!isGeminiAvailable) { void alertModal('Gemini 服務未設定'); return }
     // 2026-05-30: Phase B 重批不再整批清訂正/申訴；改逐題比對調和（reconcile-phase-b-regrade）。
     // 對「目前在訂正/申訴/已完成訂正」狀態的學生：算完 Phase B 後送 reconcile、只動對錯翻轉的題、
     // 保留未變動題的訂正/申訴成果、申訴中判對自動平反。其餘學生走原本 save-grading。
@@ -5331,7 +5349,7 @@ export default function GradingPage({
     if (gradeButtonState.variant === 'disabled') return
     const { inScope, stageMap } = stageAggregates
     if (inScope.length === 0) {
-      alert('沒有可批改的作業')
+      void alertModal('沒有可批改的作業')
       return
     }
     if (gradeButtonState.block === 'needs_extract') {
@@ -5740,7 +5758,7 @@ export default function GradingPage({
   const runOneClickForBuckets = async (needA: Submission[], needReview: Submission[], needB: Submission[]) => {
     const scope = [...needA, ...needReview, ...needB]
     if (scope.length === 0) {
-      alert('沒有可批改的作業')
+      void alertModal('沒有可批改的作業')
       return
     }
     // 2026-07-20 家長報告失效前置閘：這份作業已有家長報告時，重批改前先提醒（只在已有報告時擋＝只影響重批改；
@@ -5797,7 +5815,7 @@ export default function GradingPage({
     setOneClickConfirmOpen(false)
     const { needA, needReview, needB } = unfinishedBuckets
     if (needA.length + needReview.length + needB.length === 0) {
-      alert('沒有未完成的作業')
+      void alertModal('沒有未完成的作業')
       return
     }
     await runOneClickForBuckets(needA, needReview, needB)
@@ -5807,7 +5825,7 @@ export default function GradingPage({
   //   已批改/批改失敗/待批改的也重頭跑 Phase A（個別批改＝把這幾份徹底重做一次），待複核的進審查、其餘跑 A。
   const handleIndividualFullGrade = async () => {
     const inScope = stageAggregates.inScope
-    if (inScope.length === 0) { alert('請先勾選要批改的作業'); return }
+    if (inScope.length === 0) { void alertModal('請先勾選要批改的作業'); return }
     const needA: Submission[] = []; const needReview: Submission[] = []; const needB: Submission[] = []
     for (const s of inScope) {
       const stage = deriveCardStage(s, correctionStatusByStudent[s.studentId])
@@ -5846,15 +5864,15 @@ export default function GradingPage({
   // @ts-expect-error TS6133: 暫時 unused、PR4 polish 時清掉
   const _handleGradeAll = async () => {
     if (inkSessionError) {
-      alert(inkSessionError)
+      void alertModal(inkSessionError)
       return
     }
     if (!inkSessionReady) {
-      alert('批改會話尚未準備完成，請稍候')
+      void alertModal('批改會話尚未準備完成，請稍候')
       return
     }
     if (!isGeminiAvailable) {
-      alert('Gemini 服務未設定')
+      void alertModal('Gemini 服務未設定')
       return
     }
 
@@ -5866,7 +5884,7 @@ export default function GradingPage({
     const candidates = hasManualSelection ? selectedSubs : allSubs
 
     if (candidates.length === 0) {
-      alert(hasManualSelection ? '勾選的作業沒有可批改影像' : '沒有可批改的作業')
+      void alertModal(hasManualSelection ? '勾選的作業沒有可批改影像' : '沒有可批改的作業')
       return
     }
 
@@ -6008,8 +6026,14 @@ export default function GradingPage({
 
         // 如果有準備失敗，詢問是否繼續
         if (prepareErrors.length > 0) {
-          const errorMsg = `以下 ${prepareErrors.length} 份作業準備失敗，將無法批改：\n${prepareErrors.join('\n')}\n\n是否繼續批改其他作業？`
-          if (!window.confirm(errorMsg)) {
+          const ok = await confirmModal({
+            tone: 'warning',
+            title: `${prepareErrors.length} 份作業準備失敗`,
+            message: `以下作業準備失敗，將無法批改：\n${prepareErrors.join('\n')}\n\n是否繼續批改其他作業？`,
+            confirmLabel: '繼續批改',
+            cancelLabel: '停止',
+          })
+          if (!ok) {
             setIsGrading(false)
             return
           }
@@ -6018,7 +6042,7 @@ export default function GradingPage({
 
       const toGrade = candidates.filter((s) => s.imageBlob)
       if (toGrade.length === 0) {
-        alert('沒有可批改的影像')
+        void alertModal('沒有可批改的影像')
         setIsGrading(false)
         return
       }
@@ -6047,7 +6071,7 @@ export default function GradingPage({
         }
       }
       if (!assignment?.answerKey) {
-        alert('缺少答案卷，無法批改')
+        void alertModal('缺少答案卷，無法批改')
         setIsGrading(false)
         return
       }

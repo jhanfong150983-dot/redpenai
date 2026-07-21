@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
+import { useAlertModal } from '@/components/ConfirmModal'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory } from '@/lib/db'
 import { QUESTION_CATEGORY_TO_BUCKET, QUESTION_CATEGORY_LABELS as CATEGORY_LABELS } from '@/lib/db'
 
@@ -108,6 +109,8 @@ export default function AnswerKeyWizardModal({
   onSave,
   onCancel,
 }: AnswerKeyWizardModalProps) {
+  // 2026-07-22 modal 統一：alert → 共用 ConfirmModal
+  const alertModal = useAlertModal()
   // ── step / overlay state ──
   const [step, setStep] = useState<WizardStep>(initialStep)
   const [overlay, setOverlay] = useState<WizardOverlay>(null)
@@ -252,7 +255,7 @@ export default function AnswerKeyWizardModal({
     })
     if (mismatchQuestions.length > 0) {
       const ids = mismatchQuestions.map((q) => q.id).join('、')
-      alert(`以下題目的評分維度加總與題目配分不一致，請調整後再儲存：\n${ids}`)
+      void alertModal(`以下題目的評分維度加總與題目配分不一致，請調整後再儲存：\n${ids}`)
       return
     }
     setOverlay(null)

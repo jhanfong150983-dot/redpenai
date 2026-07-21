@@ -46,6 +46,7 @@ import {
   sortFilesByNumber,
 } from '@/lib/pdfToImage'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
+import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
 import PdfImportPreviewDialog, {
   type PdfImportPreviewFile,
   type PdfImportPreviewResult,
@@ -251,6 +252,9 @@ export default function UnifiedImportPage({
   embedded = false,
   onCaptureModeChange,
 }: UnifiedImportPageProps) {
+  // 2026-07-22 modal 統一：window.confirm/alert → 共用 ConfirmModal
+  const confirmModal = useConfirm()
+  const alertModal = useAlertModal()
   // ── Core data ───────────────────────────────────────────────────────────
   const [assignment, setAssignment] = useState<Assignment | null>(null)
   const [students, setStudents] = useState<Student[]>([])
@@ -388,7 +392,7 @@ export default function UnifiedImportPage({
       await loadData()
     } catch (error) {
       console.error('同步失敗:', error)
-      alert(error instanceof Error ? error.message : '同步失敗')
+      void alertModal(error instanceof Error ? error.message : '同步失敗')
     } finally {
       setIsRefreshing(false)
     }
@@ -456,7 +460,7 @@ export default function UnifiedImportPage({
               })
               .catch((err) => {
                 console.error('儲存作業失敗:', err)
-                alert(err instanceof Error ? err.message : '儲存作業失敗')
+                void alertModal(err instanceof Error ? err.message : '儲存作業失敗')
               })
               .finally(() => setSavingStudentId(null))
           }
@@ -765,7 +769,7 @@ export default function UnifiedImportPage({
         }
 
         if (successCount > 0) {
-          alert(`已成功匯入 ${successCount} 份作業`)
+          void alertModal(`已成功匯入 ${successCount} 份作業`)
           requestSync(true)
           await loadData()
         }
@@ -866,9 +870,12 @@ export default function UnifiedImportPage({
       const submissionId = info?.submission?.id
       if (!submissionId) return
 
-      const confirmed = window.confirm(
-        `確定要退回 ${student.seatNumber} 號 ${student.name} 的學生上傳作業嗎？\n\n退回後將解除鎖定，學生需重新上傳。`,
-      )
+      const confirmed = await confirmModal({
+        tone: 'warning',
+        title: `退回 ${student.seatNumber} 號 ${student.name} 的學生上傳作業？`,
+        message: '退回後將解除鎖定，學生需重新上傳。',
+        confirmLabel: '退回作業',
+      })
       if (!confirmed) return
 
       setIsRejecting(true)
@@ -889,10 +896,10 @@ export default function UnifiedImportPage({
 
         closePreview()
         await loadData()
-        alert('已退回該學生作業，學生可重新上傳。')
+        void alertModal('已退回該學生作業，學生可重新上傳。')
       } catch (error) {
         console.error('退回學生作業失敗:', error)
-        alert(error instanceof Error ? error.message : '退回失敗，請稍後再試')
+        void alertModal(error instanceof Error ? error.message : '退回失敗，請稍後再試')
       } finally {
         setIsRejecting(false)
       }
@@ -910,9 +917,12 @@ export default function UnifiedImportPage({
       const submissionId = info?.submission?.id
       if (!submissionId) return
 
-      const confirmed = window.confirm(
-        `確定要刪除 ${student.seatNumber} 號 ${student.name} 的作業嗎？\n\n刪除後無法復原。`,
-      )
+      const confirmed = await confirmModal({
+        tone: 'danger',
+        title: `刪除 ${student.seatNumber} 號 ${student.name} 的作業？`,
+        message: '刪除後無法復原。',
+        confirmLabel: '刪除',
+      })
       if (!confirmed) return
 
       setIsDeleting(true)
@@ -929,7 +939,7 @@ export default function UnifiedImportPage({
         await loadData()
       } catch (error) {
         console.error('刪除作業失敗:', error)
-        alert(error instanceof Error ? error.message : '刪除失敗')
+        void alertModal(error instanceof Error ? error.message : '刪除失敗')
       } finally {
         setIsDeleting(false)
       }

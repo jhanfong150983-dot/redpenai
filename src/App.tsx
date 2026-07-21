@@ -46,6 +46,7 @@ import SyncIndicator from '@/components/SyncIndicator'
 import Button from '@/components/ui/Button'
 import GlobalSyncBar from '@/components/GlobalSyncBar'
 import ErrorBoundary from '@/components/ErrorBoundary'
+import { useConfirm } from '@/components/ConfirmModal'
 import { checkWebPSupport } from '@/lib/webpSupport'
 import { INK_BALANCE_EVENT, type InkBalanceDetail } from '@/lib/ink-events'
 import { buildApiUrl } from '@/lib/api-base'
@@ -1245,20 +1246,26 @@ function App() {
   const canAccessTracking =
     auth.status === 'authenticated' &&
     (isProTier || isAdmin)
-  const ensureInkNonNegative = useCallback(() => {
+  // 2026-07-22 modal 統一：window.confirm → useConfirm（async），呼叫端一律 await
+  const confirmModal = useConfirm()
+  const ensureInkNonNegative = useCallback(async () => {
     if (auth.status !== 'authenticated') return false
     const balance = typeof auth.user.inkBalance === 'number' ? auth.user.inkBalance : 0
     if (balance < 0) {
-      const shouldTopUp = window.confirm(
-        '目前墨水為負值，請先補充墨水後再使用 AI 批改。是否前往補充墨水？'
-      )
+      const shouldTopUp = await confirmModal({
+        tone: 'warning',
+        title: '墨水不足',
+        message: '目前墨水為負值，請先補充墨水後再使用 AI 批改。是否前往補充墨水？',
+        confirmLabel: '前往補充',
+        cancelLabel: '稍後再說',
+      })
       if (shouldTopUp) {
         setCurrentPage('ink-topup')
       }
       return false
     }
     return true
-  }, [auth, setCurrentPage])
+  }, [auth, setCurrentPage, confirmModal])
 
   const loadHomeOverview = useCallback(async () => {
     if (homeOverviewInFlightRef.current) return // 已有 load 在跑、不重複發 request
@@ -1607,7 +1614,7 @@ function App() {
     if (!urlPageHandled) return
     if (auth.status !== 'authenticated') return
 
-    const handlePopstate = () => {
+    const handlePopstate = async () => {
       const parsed = parseCurrentPageFromLocation()
       let target: Page = parsed.page ?? 'home'
       let targetAssignmentId = parsed.assignmentId
@@ -1634,9 +1641,13 @@ function App() {
       // 守門：Phase A 一致性審查未提交，離開要確認
       if ((currentPage === 'grading' || currentPage === 'batch-grading')
         && gradingPagePhase === 'awaiting_review') {
-        const confirmed = window.confirm(
-          '一致性審查尚未提交批改。\n\nPhase A 已完成並產生費用，離開後本次費用仍會結算。\n\n確定要離開批改頁面嗎？'
-        )
+        const confirmed = await confirmModal({
+          tone: 'warning',
+          title: '一致性審查尚未提交批改',
+          message: 'Phase A 已完成並產生費用，離開後本次費用仍會結算。\n\n確定要離開批改頁面嗎？',
+          confirmLabel: '離開',
+          cancelLabel: '留在批改頁',
+        })
         if (!confirmed) {
           // 使用者取消離開，把 URL 推回 currentPage
           const currentId = currentPage === 'grading' ? selectedAssignmentId || undefined : undefined
@@ -1653,7 +1664,7 @@ function App() {
 
     window.addEventListener('popstate', handlePopstate)
     return () => window.removeEventListener('popstate', handlePopstate)
-  }, [urlPageHandled, auth.status, currentPage, selectedAssignmentId, canAccessTracking, isAdmin, hasSchoolAdmin, gradingPagePhase])
+  }, [urlPageHandled, auth.status, currentPage, selectedAssignmentId, canAccessTracking, isAdmin, hasSchoolAdmin, gradingPagePhase, confirmModal])
 
   // Stage 6：beforeunload 守門 — Phase A awaiting_review 時，按 F5 / 關分頁 / 改網址都會跳瀏覽器原生離開警告
   useEffect(() => {
@@ -1997,52 +2008,56 @@ function App() {
     }
   }
 
-  const confirmLeaveGrading = () => {
+  const confirmLeaveGrading = async () => {
     if ((currentPage !== 'grading' && currentPage !== 'batch-grading') || gradingPagePhase !== 'awaiting_review') return true
-    return window.confirm(
-      '一致性審查尚未提交批改。\n\nPhase A 已完成並產生費用，離開後本次費用仍會結算。\n\n確定要離開批改頁面嗎？'
-    )
+    return confirmModal({
+      tone: 'warning',
+      title: '一致性審查尚未提交批改',
+      message: 'Phase A 已完成並產生費用，離開後本次費用仍會結算。\n\n確定要離開批改頁面嗎？',
+      confirmLabel: '離開',
+      cancelLabel: '留在批改頁',
+    })
   }
 
-  const openOverview = () => {
-    if (!confirmLeaveGrading()) return
+  const openOverview = async () => {
+    if (!(await confirmLeaveGrading())) return
     setCurrentPage('home')
   }
-  const openGrading = () => {
-    if (!confirmLeaveGrading()) return
-    if (!ensureInkNonNegative()) return
+  const openGrading = async () => {
+    if (!(await confirmLeaveGrading())) return
+    if (!(await ensureInkNonNegative())) return
     setCurrentPage('grading-list')
   }
-  const openGradebook = () => {
-    if (!confirmLeaveGrading()) return
+  const openGradebook = async () => {
+    if (!(await confirmLeaveGrading())) return
     if (!canAccessTracking) return
     setCurrentPage('gradebook')
   }
-  const openAiReport = () => {
-    if (!confirmLeaveGrading()) return
+  const openAiReport = async () => {
+    if (!(await confirmLeaveGrading())) return
     if (!canAccessTracking) return
     setCurrentPage('ai-report')
   }
   // 2026-07-20 歷程分析先隱藏（user 用不到）：導覽入口與此開啟函式一併停用。要恢復把此函式與側欄項目取消註解。
   // const openCorrectionHistory = () => {
-  //   if (!confirmLeaveGrading()) return
+  //   if (!(await confirmLeaveGrading())) return
   //   if (!canAccessTracking) return
   //   setCurrentPage('correction-history')
   // }
-  const openPreferences = () => {
-    if (!confirmLeaveGrading()) return
+  const openPreferences = async () => {
+    if (!(await confirmLeaveGrading())) return
     setIsUserMenuOpen(false)
     setCurrentPage('teacher-preferences')
   }
-  const openClassroomManagement = () => {
-    if (!confirmLeaveGrading()) return
+  const openClassroomManagement = async () => {
+    if (!(await confirmLeaveGrading())) return
     setCurrentPage('classroom-management')
   }
-  const openAssignmentForAction = (
+  const openAssignmentForAction = async (
     item: HomeOverviewItem,
     destination: OverviewActionDestination
   ) => {
-    if (!ensureInkNonNegative()) return
+    if (!(await ensureInkNonNegative())) return
     if (destination === 'grading') {
       setSelectedAssignmentId(item.id)
       setCurrentPage('grading')
@@ -2072,7 +2087,7 @@ function App() {
           label: '建立答案',
           description: '管理答案卷，可跨班級使用',
           icon: BookOpen,
-          onClick: () => { if (!confirmLeaveGrading()) return; setCurrentPage('answer-bank') }
+          onClick: async () => { if (!(await confirmLeaveGrading())) return; setCurrentPage('answer-bank') }
         },
         // {
         //   key: 'assignment-setup',
@@ -2480,8 +2495,8 @@ function App() {
                     setSelectedAssignmentId(assignmentId)
                     setCurrentPage('unified-import')
                   }}
-                  onSelectAssignment={(assignmentId) => {
-                    if (!ensureInkNonNegative()) return
+                  onSelectAssignment={async (assignmentId) => {
+                    if (!(await ensureInkNonNegative())) return
                     setSelectedAssignmentId(assignmentId)
                     setCurrentPage('grading')
                   }}
@@ -2490,8 +2505,8 @@ function App() {
                     setSelectedAssignmentId(assignmentId)
                     setCurrentPage('correction')
                   }}
-                  onStartBatchGrading={(ids) => {
-                    if (!ensureInkNonNegative()) return
+                  onStartBatchGrading={async (ids) => {
+                    if (!(await ensureInkNonNegative())) return
                     setBatchAssignmentIds(ids)
                     setCurrentPage('batch-grading')
                   }}
@@ -2502,8 +2517,8 @@ function App() {
                   embedded
                   assignmentId={batchAssignmentIds[0]}
                   batchAssignmentIds={batchAssignmentIds}
-                  onBack={() => {
-                    if (!confirmLeaveGrading()) return
+                  onBack={async () => {
+                    if (!(await confirmLeaveGrading())) return
                     setBatchAssignmentIds([])
                     setCurrentPage('grading-list')
                   }}
@@ -2514,16 +2529,16 @@ function App() {
                 <GradingPage
                   embedded
                   assignmentId={selectedAssignmentId}
-                  onBack={() => {
-                    if (!confirmLeaveGrading()) return
+                  onBack={async () => {
+                    if (!(await confirmLeaveGrading())) return
                     setCurrentPage('grading-list')
                   }}
                   onRequireInkTopUp={() => setCurrentPage('ink-topup')}
                   onGradingPhaseChange={setGradingPagePhase}
                   onNavigateToCorrection={
                     canAccessTracking
-                      ? () => {
-                          if (!confirmLeaveGrading()) return
+                      ? async () => {
+                          if (!(await confirmLeaveGrading())) return
                           setCurrentPage('correction')
                         }
                       : undefined
@@ -2544,8 +2559,8 @@ function App() {
                     setSelectedAssignmentId(assignmentId)
                     setCurrentPage('unified-import')
                   }}
-                  onSelectAssignment={(assignmentId) => {
-                    if (!ensureInkNonNegative()) return
+                  onSelectAssignment={async (assignmentId) => {
+                    if (!(await ensureInkNonNegative())) return
                     setSelectedAssignmentId(assignmentId)
                     setCurrentPage('grading')
                   }}
@@ -2554,8 +2569,8 @@ function App() {
                     setSelectedAssignmentId(assignmentId)
                     setCurrentPage('correction')
                   }}
-                  onStartBatchGrading={(ids) => {
-                    if (!ensureInkNonNegative()) return
+                  onStartBatchGrading={async (ids) => {
+                    if (!(await ensureInkNonNegative())) return
                     setBatchAssignmentIds(ids)
                     setCurrentPage('batch-grading')
                   }}
@@ -2770,8 +2785,8 @@ function App() {
                             <button
                               key={item.id}
                               type="button"
-                              onClick={() => {
-                                if (!ensureInkNonNegative()) return
+                              onClick={async () => {
+                                if (!(await ensureInkNonNegative())) return
                                 setSelectedAssignmentId(item.assignmentId)
                                 setCurrentPage('correction')
                               }}

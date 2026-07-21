@@ -15,6 +15,7 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
+import { useAlertModal } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
 import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
@@ -160,6 +161,8 @@ export default function AnswerKeyUnifiedModal({
   hasGradedSubmissions = false,
   domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他'],
 }: AnswerKeyUnifiedModalProps) {
+  // 2026-07-22 modal 統一：alert → 共用 ConfirmModal
+  const alertModal = useAlertModal()
 
   // ── step state machine ────────────────────────────────────────────────────
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
@@ -881,7 +884,7 @@ export default function AnswerKeyUnifiedModal({
     })
     if (mismatchQuestions.length > 0) {
       const ids = mismatchQuestions.map((q) => q.id).join('、')
-      alert(`以下題目的評分維度加總與題目配分不一致，請調整後再儲存：\n${ids}`)
+      void alertModal(`以下題目的評分維度加總與題目配分不一致，請調整後再儲存：\n${ids}`)
       return
     }
     setConfirmOverlay(null)
