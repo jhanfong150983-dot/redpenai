@@ -26,7 +26,6 @@ const AssignmentSetup = lazy(() => import('@/pages/AssignmentSetup'))
 const AnswerBank = lazy(() => import('@/pages/AnswerBank'))
 const AssignmentList = lazy(() => import('@/pages/AssignmentList'))
 const GradingPage = lazy(() => import('@/pages/GradingPage'))
-const AssignmentImport = lazy(() => import('@/pages/AssignmentImport'))
 const AssignmentImportSelect = lazy(() => import('@/pages/AssignmentImportSelect'))
 const UnifiedImportPage = lazy(() => import('@/pages/UnifiedImportPage'))
 const CorrectionSelect = lazy(() => import('@/pages/CorrectionSelect'))
@@ -76,7 +75,6 @@ type Page =
   | 'grading'
   | 'batch-grading'
   | 'gradebook'
-  | 'assignment-import'
   | 'unified-import'
   | 'correction-select'
   | 'correction'
@@ -320,7 +318,6 @@ const URL_SYNCABLE_PAGES: readonly Page[] = [
   'grading',
   'batch-grading',
   'gradebook',
-  'assignment-import',
   'unified-import',
   'correction-select',
   'correction',
@@ -335,6 +332,8 @@ const URL_SYNCABLE_PAGES: readonly Page[] = [
 
 // 舊書籤相容：別名 → 規範化 Page
 const PAGE_PARAM_ALIASES: Record<string, Page> = {
+  // 2026-07-22 舊版批次匯入頁(AssignmentImport)移除：舊書籤導回選卷頁
+  'assignment-import': 'assignment-import-select',
   'classroom': 'classroom-management',
   'admin-orders': 'admin-panel',
   'admin-users': 'admin-panel',
@@ -1998,7 +1997,7 @@ function App() {
       case 'overview': return currentPage === 'home'
       case 'answer-bank': return currentPage === 'answer-bank'
       case 'assignment-setup': return currentPage === 'assignment-setup'
-      case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'assignment-import', 'unified-import', 'correction-select', 'correction'].includes(currentPage)
+      case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'unified-import', 'correction-select', 'correction'].includes(currentPage)
       case 'gradebook': return currentPage === 'gradebook'
       case 'correction-history': return currentPage === 'correction-history'
       case 'report': return false
@@ -2458,16 +2457,6 @@ function App() {
                     setSelectedAssignmentId(assignmentId)
                     setCurrentPage('unified-import')
                   }}
-                />
-              ) : currentPage === 'assignment-import' && selectedAssignmentId ? (
-                <AssignmentImport
-                  embedded
-                  assignmentId={selectedAssignmentId}
-                  onBack={() => {
-                    setSelectedAssignmentId('')
-                    setCurrentPage('grading')
-                  }}
-                  onUploadComplete={() => setCurrentPage('grading')}
                 />
               ) : currentPage === 'unified-import' && selectedAssignmentId ? (
                 <UnifiedImportPage
