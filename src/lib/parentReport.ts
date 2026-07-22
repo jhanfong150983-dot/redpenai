@@ -672,7 +672,7 @@ export const REPORT_CSS = `
 .pr-stu .v { font-weight:700; }
 
 .pr-sec { font-size:13px; letter-spacing:.12em; color:#1E4D8C; font-weight:700; margin:16px 0 9px;
-  border-bottom:1px solid #D9DEE4; padding-bottom:6px; }
+  border-bottom:1px solid #D9DEE4; padding-bottom:6px; break-after:avoid; page-break-after:avoid; }
 
 .pr-hero { width:100%; border-collapse:collapse; border:1px solid #D9DEE4; }
 .pr-hero td { vertical-align:middle; padding:16px 20px; }
@@ -725,7 +725,7 @@ export const REPORT_CSS = `
 .pr-fix { color:#52606D; display:block; }
 .pr-more { font-size:11px; color:#7B8794; padding:6px 8px; }
 /* 加強地圖（依大主題分組、建議掛知識點） */
-.pr-topic { border:1px solid #E8ECF0; border-left-width:4px; border-radius:5px; padding:11px 14px; margin-bottom:9px; }
+.pr-topic { border:1px solid #E8ECF0; border-left-width:4px; border-radius:5px; padding:11px 14px; margin-bottom:9px; break-inside:avoid; page-break-inside:avoid; }
 .pr-topic.red { border-left-color:#C2402A; background:#FCF3F1; }
 .pr-topic.amber { border-left-color:#C77D0A; background:#FCF7EC; }
 .pr-topic-name { font-size:14px; font-weight:700; color:#1F2933; }
@@ -743,6 +743,7 @@ export const REPORT_CSS = `
 /* 第三段 精熟程度總覽：知識點熱力圖（每知識點一格、顏色=狀態） */
 .pr-mlegend { font-size:11px; color:#7B8794; margin-bottom:12px; }
 .pr-mlgd-dot { display:inline-block; width:11px; height:10px; border-radius:2px; margin:0 4px 0 14px; vertical-align:middle; }
+.pr-mgroup { break-inside:avoid; page-break-inside:avoid; }
 .pr-mtopic { font-size:12.5px; font-weight:700; color:#1F2933; margin:12px 0 7px; }
 .pr-mtopic-badge { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 8px; border-radius:3px; margin-left:8px; }
 .pr-cgrid { display:flex; flex-wrap:wrap; gap:6px; }
@@ -753,7 +754,8 @@ export const REPORT_CSS = `
 .badge-green { background:#E6F4EC; color:#2E6B4F; }
 .badge-amber { background:#F4E4C1; color:#8A5A08; }
 .badge-red { background:#F6D5CE; color:#A5331F; }
-.pr-page2 { break-before: page; page-break-before: always; }
+/* 2026-07-22 user 要求四接著三：拔掉強制換頁、自然流動（卡片各自 break-inside:avoid 保不切） */
+.pr-page2 { margin-top:4px; }
 .pr-note { border:1px solid #D9DEE4; border-left:3px solid #C2402A; padding:12px 16px; font-size:13px; line-height:1.85; color:#52606D; }
 .pr-note .sig { text-align:right; color:#7B8794; font-size:12px; margin-top:6px; }
 .pr-note .ph { color:#A6AEB8; }
@@ -824,7 +826,8 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     const badge = t.band === 'green' ? 'badge-green' : t.band === 'amber' ? 'badge-amber' : 'badge-red'
     const badgeText = t.band === 'green' ? '精熟' : t.band === 'amber' ? '基礎' : '待加強'
     const cells = t.kps.map((k) => `<span class="pr-cell ${k.level}">${esc(k.kp)}</span>`).join('')
-    return `<div class="pr-mtopic">${esc(t.topic)}<span class="pr-mtopic-badge ${badge}">${badgeText}</span></div><div class="pr-cgrid">${cells}</div>`
+    // pr-mgroup 包裹＝主題標題與其知識點格永遠同頁（分頁不可切開、user 回饋）
+    return `<div class="pr-mgroup"><div class="pr-mtopic">${esc(t.topic)}<span class="pr-mtopic-badge ${badge}">${badgeText}</span></div><div class="pr-cgrid">${cells}</div></div>`
   }).join('')
   // 第四段：逐題錯題分析（全部錯題、依題號排序；crop/why/suggest 由 generate 流程填）
   const errorCards = r.errorRows.map((e) => {
