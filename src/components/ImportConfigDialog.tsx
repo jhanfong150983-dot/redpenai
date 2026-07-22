@@ -22,13 +22,15 @@ export interface StudentInfo {
 }
 
 // ── 交錯合併：將多份 PDF 的頁面依學生交叉合併（支援每份 PDF 不同頁數）──────
+//   reversedFlags[i]=true → 該份 PDF 學生順序相反（最後一號在前、常見於收卷疊反）：
+//   以「學生區塊」為單位反轉、每位學生自己的頁序不動（單面掃描=整份反轉、雙面掃描=正反面順序保持）。
 
 export function interleavePdfPages(
   pdfPages: Blob[][],
-  pagesPerStudentPerPdf: number | number[]
+  pagesPerStudentPerPdf: number | number[],
+  reversedFlags?: boolean[]
 ): Blob[] {
   if (pdfPages.length === 0) return []
-  if (pdfPages.length === 1) return pdfPages[0]
 
   const perPdfArray = Array.isArray(pagesPerStudentPerPdf)
     ? pagesPerStudentPerPdf
@@ -40,8 +42,11 @@ export function interleavePdfPages(
     for (let j = 0; j < pages.length; j += chunkSize) {
       chunks.push(pages.slice(j, j + chunkSize))
     }
+    if (reversedFlags?.[i]) chunks.reverse()
     return chunks
   })
+
+  if (pdfPages.length === 1) return chunked[0].flat()
 
   const maxChunks = Math.max(...chunked.map((c) => c.length))
   const result: Blob[] = []
@@ -63,6 +68,9 @@ export interface ImportConfigDialogProps {
   onPagesPerStudentPerPdfChange: (n: number) => void
   perPdfPagesArray: number[]
   onPerPdfPagesArrayChange: (arr: number[]) => void
+  /** 每份 PDF 是否「順序相反（最後一號在前）」：以學生為單位反轉、每生頁序不動 */
+  reversedFlags: boolean[]
+  onReversedFlagsChange: (arr: boolean[]) => void
   pagesPerStudent: number
   onPagesPerStudentChange: (n: number) => void
   students: StudentInfo[]
@@ -85,6 +93,8 @@ export default function ImportConfigDialog({
   onPagesPerStudentPerPdfChange,
   perPdfPagesArray,
   onPerPdfPagesArrayChange,
+  reversedFlags,
+  onReversedFlagsChange,
   pagesPerStudent,
   onPagesPerStudentChange,
   students,
@@ -183,7 +193,7 @@ export default function ImportConfigDialog({
           {/* 1. 預覽檔案 */}
           <section>
             <h3 className="text-sm font-semibold text-gray-700 mb-2">預覽檔案</h3>
-            <p className="text-xs text-gray-500 mb-3">已完成整份校稿，下方顯示校稿後剩餘頁數。</p>
+            <p className="text-xs text-gray-500 mb-3">已完成整份校稿，下方顯示校稿後剩餘頁數。若某份掃描時是從最後一號開始（順序相反），勾選該份的「順序相反」，系統會自動反轉回 1 號開始。</p>
             <div className="flex gap-3 overflow-x-auto pb-1">
               {files.map((info, i) => {
                 const eff = getEffectiveCount(info)
@@ -204,6 +214,19 @@ export default function ImportConfigDialog({
                     {removed > 0 && (
                       <p className="text-[11px] text-amber-600">已刪除 {removed} 頁</p>
                     )}
+                    <label className={`mt-1 inline-flex items-center gap-1 cursor-pointer rounded px-1.5 py-0.5 text-[11px] ${reversedFlags[i] ? 'bg-amber-50 text-amber-700 font-medium' : 'text-gray-500 hover:text-gray-700'}`}>
+                      <input
+                        type="checkbox"
+                        checked={reversedFlags[i] ?? false}
+                        onChange={() => {
+                          const next = [...reversedFlags]
+                          next[i] = !next[i]
+                          onReversedFlagsChange(next)
+                        }}
+                        className="w-3.5 h-3.5 accent-amber-600"
+                      />
+                      順序相反
+                    </label>
                   </div>
                 )
               })}

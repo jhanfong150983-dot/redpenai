@@ -230,6 +230,8 @@ export default function AssignmentImport({
   const [configEndPage, setConfigEndPage] = useState(999)
   const [, setConfigMaxPage] = useState(999)
   const [configPerPdfPageRanges, setConfigPerPdfPageRanges] = useState<Array<{ startPage: number; endPage: number }>>([])
+  // 2026-07-22：每份 PDF「順序相反（最後一號在前）」——以學生為單位反轉、每生頁序不動
+  const [configReversedFlags, setConfigReversedFlags] = useState<boolean[]>([])
   const [configConfirmed, setConfigConfirmed] = useState(false)
   const [configAbsentSeatNumbers, setConfigAbsentSeatNumbers] = useState<Set<number>>(new Set())
 
@@ -462,6 +464,7 @@ export default function AssignmentImport({
       setConfigPagesPerStudentPerPdf(1)
       setConfigConfirmed(false)
       setConfigPerPdfPageRanges(infos.map((info) => ({ startPage: 1, endPage: info.pageCount })))
+      setConfigReversedFlags(infos.map(() => false))
       setPdfFilesInfo(infos)
       setShowImportConfig(true)
     } catch (e) {
@@ -512,11 +515,20 @@ export default function AssignmentImport({
       let effectivePagesPerStudent: number
 
       if (fileArray.length > 1 && configMergeMode === 'interleave') {
-        allBlobs = interleavePdfPages(allPdfPages, configPagesPerStudentPerPdf)
+        allBlobs = interleavePdfPages(allPdfPages, configPagesPerStudentPerPdf, configReversedFlags)
         effectivePagesPerStudent = configPagesPerStudentPerPdf * fileArray.length
         console.log(`交錯合併完成，每位學生 ${effectivePagesPerStudent} 頁，共 ${allBlobs.length} 頁`)
       } else {
-        allBlobs = allPdfPages.flat()
+        // 串接（含單檔）：勾了「順序相反」的檔案以學生區塊為單位反轉（每生頁序不動）
+        const perStudent = Math.max(1, configPagesPerStudent)
+        allBlobs = allPdfPages
+          .map((pages, i) => {
+            if (!configReversedFlags[i]) return pages
+            const chunks: Blob[][] = []
+            for (let j = 0; j < pages.length; j += perStudent) chunks.push(pages.slice(j, j + perStudent))
+            return chunks.reverse().flat()
+          })
+          .flat()
         effectivePagesPerStudent = configPagesPerStudent
         console.log(`串接完成，每位學生 ${effectivePagesPerStudent} 頁，共 ${allBlobs.length} 頁`)
       }
@@ -1245,6 +1257,8 @@ export default function AssignmentImport({
           onPagesPerStudentPerPdfChange={setConfigPagesPerStudentPerPdf}
           perPdfPagesArray={configPerPdfPagesArray}
           onPerPdfPagesArrayChange={setConfigPerPdfPagesArray}
+          reversedFlags={configReversedFlags}
+          onReversedFlagsChange={setConfigReversedFlags}
           pagesPerStudent={configPagesPerStudent}
           onPagesPerStudentChange={setConfigPagesPerStudent}
           students={[]}
