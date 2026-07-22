@@ -446,15 +446,23 @@ export async function generateParentComment(r: StudentReport, subject: string): 
 }
 
 // ── AI 逐題錯因診斷（2.5-flash、餵題本圖由 server 注入、一生一 call 批全部錯題） ──
-export type DiagnosisWrong = { questionId: string; studentAnswer: string; referenceAnswer: string }
+export type DiagnosisWrong = { questionId: string; studentAnswer: string; referenceAnswer: string; imageJudged?: boolean; reason?: string }
 export type DiagnosisItem = { why: string; suggest: string }
 
 function buildDiagnosisPrompt(subject: string, wrongs: DiagnosisWrong[]): string {
+  // 2026-07-22 user 抓 bug：國字注音 VJ 格的「圖像辨識」是系統佔位字、不是學生寫的字——
+  //   AI 曾產出「他寫下的『圖像辨識』是不相關詞語」這種診斷。這類格改送批改理由（判官描述哪裡寫錯）。
   const lines = wrongs
-    .map((w) => `${w.questionId}：學生寫「${w.studentAnswer || '（空白）'}」正解「${w.referenceAnswer || '—'}」`)
+    .map((w) => {
+      if (w.imageJudged || w.studentAnswer === '圖像辨識') {
+        return `${w.questionId}：學生有手寫作答（由 AI 圖像判定對錯、無文字轉錄）。批改判定理由：「${w.reason || '字形／注音寫法與標準不符'}」正解「${w.referenceAnswer || '—'}」`
+      }
+      return `${w.questionId}：學生寫「${w.studentAnswer || '（空白）'}」正解「${w.referenceAnswer || '—'}」`
+    })
     .join('\n')
   return `你是資深台灣${subject}老師與學習診斷專家。附上完整題本（多頁圖）。以下是某位學生本次評量所有寫錯的題。
 請逐題像專家一樣分析「他為什麼會這樣寫錯」——推論他的思路或迷思、務必結合題幹內容說明，用白話寫給家長看、每題 2～3 句、語氣不責備。不要只做表層貼標（例如別只寫「計算錯誤」，要推論他卡在哪個觀念或哪一步）。再給家長一句「在家可以怎麼幫」的具體建議。
+注意：標示「由 AI 圖像判定」的題目，學生是有寫字的，只是系統不轉錄手寫內容——請依「批改判定理由」分析他哪裡寫錯，絕不可把佔位文字當成學生寫的答案。
 錯題（題號：學生寫「」正解「」）：
 ${lines}
 只輸出 JSON、不要 markdown：{"items":[{"questionId":"題號","why":"為什麼會這樣寫錯","suggest":"在家建議"}]}`
@@ -609,6 +617,9 @@ export function diagnosisWrongsOf(r: StudentReport): DiagnosisWrong[] {
     questionId: e.questionId,
     studentAnswer: e.studentAnswer,
     referenceAnswer: e.referenceAnswer,
+    // 圖像判定格：把批改理由帶給診斷 AI（佔位字「圖像辨識」不是學生寫的字）。
+    // 條件放寬：不只靠 imageJudged 旗標（regex 對 reason 措辭敏感）、答案值本身是佔位字也算。
+    ...(e.imageJudged || e.studentAnswer === '圖像辨識' ? { imageJudged: true, reason: e.reason } : {}),
   }))
 }
 
