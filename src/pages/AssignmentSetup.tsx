@@ -1175,6 +1175,28 @@ export default function AssignmentSetup({
     }
   }
 
+  // 2026-07-22 防呆（user 拍板）：改「配分」不會重算已批改卷的分數——每題得分+配分是批改當下的快照
+  //   （details[].score/maxScore、submission.score），改答案卷配分後舊卷完全不動。
+  //   存檔後若配分真的變了且已有批改結果，跳提醒「需重新批改才會套用」。失敗不擋存檔。
+  const scoreMapOf = (ak?: { questions?: Array<{ id?: unknown; maxScore?: unknown }> } | null) =>
+    JSON.stringify((ak?.questions ?? []).map((q) => [String(q?.id ?? ''), Number(q?.maxScore ?? 0)]))
+  const notifyIfScoresChangedAfterGrading = async (
+    assignmentId: string,
+    beforeAk: { questions?: Array<{ id?: unknown; maxScore?: unknown }> } | null | undefined,
+    afterAk: { questions?: Array<{ id?: unknown; maxScore?: unknown }> } | null | undefined,
+  ) => {
+    try {
+      if (scoreMapOf(beforeAk) === scoreMapOf(afterAk)) return
+      const subs = await db.submissions.where('assignmentId').equals(assignmentId).toArray()
+      const graded = subs.filter((s) => s.gradingResult || typeof s.score === 'number').length
+      if (!graded) return
+      void alertModal(
+        `已批改的 ${graded} 份仍按「舊配分」計分，分數不會自動調整。需重新批改（會沿用原讀取結果、只重算分數）才會套用新配分。`,
+        { title: '配分已變更', tone: 'warning' },
+      )
+    } catch { /* 提醒失敗不擋存檔 */ }
+  }
+
   const doEditAssignment = async () => {
     if (!editingAssignmentId || !answerKey) return
     setIsSubmitting(true)
@@ -1212,6 +1234,7 @@ export default function AssignmentSetup({
         }
       }
       akWarnAckRef.current = false
+      const beforeAk = assignments.find((a) => a.id === editingAssignmentId)?.answerKey as { questions?: Array<{ id?: unknown; maxScore?: unknown }> } | undefined
       await db.assignments.update(editingAssignmentId, {
         title: assignmentTitle.trim(),
         docType: createAnswerDocType,
@@ -1219,6 +1242,7 @@ export default function AssignmentSetup({
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
         updatedAt: now
       })
+      void notifyIfScoresChangedAfterGrading(editingAssignmentId, beforeAk, updatedAk as { questions?: Array<{ id?: unknown; maxScore?: unknown }> })
       setAssignments((prev) =>
         prev.map((a) =>
           a.id === editingAssignmentId
@@ -2645,6 +2669,7 @@ export default function AssignmentSetup({
       console.log(`📝 [答案解析] 答案內容:`, editingAnswerKey)
       
       const now = Date.now()
+      const beforeAk = editingAnswerAssignment.answerKey as { questions?: Array<{ id?: unknown; maxScore?: unknown }> } | undefined
       await db.assignments.update(editingAnswerAssignment.id, {
         answerKey: editingAnswerKey,
         domain: editingDomain,
@@ -2652,6 +2677,7 @@ export default function AssignmentSetup({
         scoringMode: editingScoringMode === 'unscored' ? 'unscored' : undefined,
         updatedAt: now  // 更新時間戳記，觸發 sync
       })
+      void notifyIfScoresChangedAfterGrading(editingAnswerAssignment.id, beforeAk, editingAnswerKey as { questions?: Array<{ id?: unknown; maxScore?: unknown }> })
       
       console.log(`✅ [答案解析] 成功儲存答案到 IndexedDB，updatedAt: ${now}`)
       
@@ -3310,9 +3336,14 @@ export default function AssignmentSetup({
                           <button
                             key={mode}
                             type="button"
-                            onClick={() => {
+                            onClick={async () => {
                               if (createScoreMode && createScoreMode !== mode && answerKey) {
-                                if (!confirm('更換配分方式會覆蓋目前所有題目的配分，確定嗎？')) return
+                                if (!(await confirmModal({
+                                  tone: 'warning',
+                                  title: '更換配分方式',
+                                  message: '更換配分方式會覆蓋目前所有題目的配分，確定嗎？',
+                                  confirmLabel: '更換',
+                                }))) return
                               }
                               setCreateScoreMode(mode)
                             }}
