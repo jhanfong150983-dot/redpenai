@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   CopyCheck,
@@ -38,7 +38,8 @@ import {
 import { blobToBase64, compressToTargetBytes, rotateImageBlob } from '@/lib/imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-storage'
 import ImportConfigDialog, { type PdfFileInfo, interleavePdfPages } from '@/components/ImportConfigDialog'
-import { useAlertModal } from '@/components/ConfirmModal'
+import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
+import DangerConfirmModal from '@/components/DangerConfirmModal'
 import { mergePageBlobs } from '@/lib/image-merge'
 
 // 目標檔案大小上限：3 MB（對齊學生端 useSync 的 4 MB base64 上限，留 0.5 MB buffer 給 Vercel 4.5 MB 邊界）
@@ -203,8 +204,12 @@ export default function AssignmentImport({
   onUploadComplete,
   embedded = false
 }: AssignmentImportProps) {
-  // 2026-07-22 modal 統一：alert → 共用 ConfirmModal
+  // 2026-07-22 modal 統一：alert/confirm → 共用 ConfirmModal
   const alertModal = useAlertModal()
+  const confirmModal = useConfirm()
+  // 2026-07-22 覆蓋前置閘：重新匯入原本會「靜默」刪除既有卷＋批改結果 → 改為 DangerConfirmModal 確認
+  const [overwriteWarn, setOverwriteWarn] = useState<{ count: number; gradedCount: number } | null>(null)
+  const overwriteAckRef = useRef(false)
   const [assignment, setAssignment] = useState<Assignment | null>(null)
   const [students, setStudents] = useState<Student[]>([])
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
@@ -737,13 +742,31 @@ export default function AssignmentImport({
 
     if (unmappedCopies > targetStudentCount) {
       const extraCount = unmappedCopies - targetStudentCount
-      const confirmed = confirm(
-        `供 ${totalPages} 頁，每位學生 ${pagesPerStudent} 頁，未分配 ${unmappedCopies} 份，學生數 ${targetStudentCount} 人。\n\n代表多 ${extraCount} 份，作業份數與學生人數不符。\n\n是否仍要繼續匯入？`
-      )
+      const confirmed = await confirmModal({
+        tone: 'warning',
+        title: '作業份數與學生人數不符',
+        message: `供 ${totalPages} 頁，每位學生 ${pagesPerStudent} 頁，未分配 ${unmappedCopies} 份，學生數 ${targetStudentCount} 人。\n\n代表多 ${extraCount} 份。是否仍要繼續匯入？`,
+        confirmLabel: '繼續匯入',
+      })
       if (!confirmed) {
         return
       }
     }
+
+    // 覆蓋前置閘：這次配對的學生中已有卷（可能含批改結果）→ 先確認再動手（原本是無聲刪除）
+    if (!overwriteAckRef.current) {
+      try {
+        const mappedIds = new Set(mappings.map((m) => m.studentId).filter(Boolean))
+        const existing = await db.submissions.where('assignmentId').equals(assignment.id).toArray()
+        const affected = existing.filter((s) => mappedIds.has(s.studentId))
+        if (affected.length > 0) {
+          const gradedCount = affected.filter((s) => s.gradingResult || typeof s.score === 'number').length
+          setOverwriteWarn({ count: new Set(affected.map((s) => s.studentId)).size, gradedCount })
+          return
+        }
+      } catch { /* 查詢失敗 fail-open、照常匯入 */ }
+    }
+    overwriteAckRef.current = false
 
     setError(null)
     setIsSaving(true)
@@ -1270,6 +1293,32 @@ export default function AssignmentImport({
           onCancel={handleImportCancel}
         />
       )}
+
+      {/* 2026-07-22 重新匯入覆蓋確認：原本無聲刪除既有卷+批改結果、破壞力大 → 比照重批改的危險確認慣例 */}
+      <DangerConfirmModal
+        open={!!overwriteWarn}
+        severity="high"
+        title={`此次匯入將覆蓋 ${overwriteWarn?.count ?? 0} 位學生的既有作業`}
+        clears={[
+          `${overwriteWarn?.count ?? 0} 位學生原本的作業影像`,
+          ...((overwriteWarn?.gradedCount ?? 0) > 0
+            ? [
+                `${overwriteWarn?.gradedCount} 份批改結果（分數與批改明細、需重新批改）`,
+                '若已產生家長報告，這幾位的報告將失效（需重新生成）',
+              ]
+            : []),
+        ]}
+        keeps={['答案卷與題目設定', '未被此次匯入覆蓋的其他學生']}
+        acknowledgeText="我了解被覆蓋學生的舊卷與批改結果將被刪除且無法復原"
+        confirmLabel="覆蓋並匯入"
+        cancelLabel="取消"
+        onCancel={() => { setOverwriteWarn(null); overwriteAckRef.current = false }}
+        onConfirm={() => {
+          setOverwriteWarn(null)
+          overwriteAckRef.current = true
+          void handleSaveMappings()
+        }}
+      />
     </div>
   )
 }
