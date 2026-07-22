@@ -146,7 +146,9 @@ export function ParentReportTab({
   const doGenerate = async (targets: StudentReport[], forceComment: boolean) => {
     if (!targets.length) return
     setMsg(''); setGenState({ done: 0, total: targets.length })
-    const cacheItems: Array<{ studentId: string; diagnosis: Record<string, DiagnosisItem>; comment: string }> = []
+    // 2026-07-22：改「每生成一位就立刻存一位」＋結尾補救重試——之前整批最後才存、存失敗又靜默，
+    //   曾害 31 位 × 兩輪的 AI 診斷全部白跑（重新整理即消失）。失敗名單留著重試並明確警告。
+    const unsaved: Array<{ studentId: string; diagnosis: Record<string, DiagnosisItem>; comment: string }> = []
     let done = 0, failed = 0
     await runWithConcurrency(targets, 3, async (r) => {
       try {
@@ -163,16 +165,20 @@ export function ParentReportTab({
           if (t) saveCachedComment(assignmentId, r.studentId, t)
         }
         updated = { ...updated, comment }
-        cacheItems.push({ studentId: r.studentId, diagnosis: Object.fromEntries(diag), comment })
+        const item = { studentId: r.studentId, diagnosis: Object.fromEntries(diag), comment }
+        if (!(await saveParentReportCache(assignmentId, [item]))) unsaved.push(item)
         setReports((prev) => prev.map((x) => (x.studentId === r.studentId ? updated : x)))
         setStaleSet((prev) => { const n = new Set(prev); n.delete(r.studentId); return n })
         setGeneratedSet((prev) => new Set(prev).add(r.studentId))
       } catch { failed += 1 }
       done += 1; setGenState({ done, total: targets.length })
     })
-    if (cacheItems.length) await saveParentReportCache(assignmentId, cacheItems)
+    if (unsaved.length && (await saveParentReportCache(assignmentId, unsaved))) unsaved.length = 0
     setGenState(null)
-    if (failed) setMsg(`有 ${failed} 位生成失敗，可用各列「重新生成」單獨重試`)
+    const warns: string[] = []
+    if (failed) warns.push(`有 ${failed} 位生成失敗，可用各列「重新生成」單獨重試`)
+    if (unsaved.length) warns.push(`⚠ 有 ${unsaved.length} 位的診斷已生成但「雲端儲存失敗」——重新整理頁面會遺失、需重新生成。請先不要重新整理，並把此訊息回報開發者（瀏覽器 Console 有詳細錯誤）。`)
+    if (warns.length) setMsg(warns.join('\n'))
   }
 
   const requestGen = (targets: StudentReport[], forceComment: boolean) => {

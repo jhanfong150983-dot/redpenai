@@ -588,8 +588,17 @@ export async function saveParentReportCache(
       credentials: 'include',
       body: JSON.stringify({ assignmentId, items }),
     })
+    // 2026-07-22：儲存失敗曾被靜默吞掉（graded_fp bigint schema 地雷）害整批 AI 診斷白跑，
+    //   留下狀態碼與錯誤內文，未來一眼可診斷。
+    if (!res.ok) {
+      const t = await res.text().catch(() => '')
+      console.warn('[parentReport] 快取儲存失敗', res.status, t.slice(0, 300))
+    }
     return res.ok
-  } catch { return false }
+  } catch (e) {
+    console.warn('[parentReport] 快取儲存失敗(網路/例外)', e)
+    return false
+  }
 }
 
 /** 從報告取出要送診斷的錯題清單（給 generateParentDiagnosis 用）。 */
