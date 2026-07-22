@@ -38,10 +38,12 @@ type Props = {
   requestInk?: (fn: () => void, message?: React.ReactNode) => void
   /** 2026-07-22：知識點歸類寫入完成後通知 AiReport 重新載入 questions（Dexie 已更新）。 */
   onKpSaved?: () => void
+  /** 班級年級（7~9）：無固定清單的科目用它動態抓 concept_map 課綱條文。 */
+  grade?: number
 }
 
 export function ParentReportTab({
-  questions, submissions, students, kpTips, assignmentId, className, subject, assignmentTitle, onOpenPreferences, requestInk, onKpSaved,
+  questions, submissions, students, kpTips, assignmentId, className, subject, assignmentTitle, onOpenPreferences, requestInk, onKpSaved, grade,
 }: Props) {
   const [reports, setReports] = useState<StudentReport[]>([])
   const [staleSet, setStaleSet] = useState<Set<string>>(new Set())
@@ -205,7 +207,7 @@ export function ParentReportTab({
         if (!hasKp) {
           setKpRunning(true); setMsg('')
           try {
-            const r = await runKpUpgrade(assignmentId, subject, questions)
+            const r = await runKpUpgrade(assignmentId, subject, questions, grade)
             await mergeKpIntoDexie(r)
             pendingAfterKpRef.current = true // questions 重載、reports 重組後自動接續生成
             setKpRunning(false)

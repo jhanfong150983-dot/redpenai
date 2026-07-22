@@ -1046,6 +1046,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   onOpenPreferences={() => { window.location.href = '/preferences' }}
                   requestInk={requestInk}
                   onKpSaved={() => setKpReloadTick((t) => t + 1)}
+                  grade={(syncData?.classrooms.find((c) => c.id === selectedClassroomId) as { grade?: number } | undefined)?.grade}
                 />
               ) : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>

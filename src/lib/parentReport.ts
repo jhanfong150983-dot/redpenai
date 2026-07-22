@@ -987,11 +987,29 @@ const KP_RULES_MATH = `- 要求「解出」方程式／不等式的計算題與�
 - 幾何題以主要考點歸類：三視圖／立體視圖 → S-7-2；正多邊形等基本對稱圖形的「辨識與對稱軸數量」→ S-7-5；利用對稱軸／對稱點「性質做推理」（如對摺結果、對稱點座標）→ S-7-4；一般圖形特徵 → S-7-1。
 - 同一大題內性質相同的題目 code 必須一致。`
 
-const KP_SPEC_BY_SUBJECT: Record<string, { spec: string; rules: string }> = {
-  國語: { spec: KP_CODE_SPEC_GUOYU, rules: KP_RULES_GUOYU },
-  國文: { spec: KP_CODE_SPEC_GUOYU, rules: KP_RULES_GUOYU },
-  國語文: { spec: KP_CODE_SPEC_GUOYU, rules: KP_RULES_GUOYU },
-  數學: { spec: KP_CODE_SPEC_MATH7, rules: KP_RULES_MATH },
+// 沒有科目專屬判準時的通用規則（動態清單科目用）
+const KP_RULES_GENERIC = `- 每題選「最能代表解題核心考點」的一條；題目素材／情境（如新聞、生活場景）不影響歸類。
+- 同一大題內性質相同的題目 code 必須一致。`
+
+// 已沙盒驗證的固定清單（國語=第四學習階段全國中共用；數學清單限國一）
+function curatedSubjectSpec(subj: string, grade?: number): { spec: string; rules: string } | undefined {
+  if (subj === '國語' || subj === '國文' || subj === '國語文') return { spec: KP_CODE_SPEC_GUOYU, rules: KP_RULES_GUOYU }
+  if (subj === '數學' && (grade === undefined || grade === 7)) return { spec: KP_CODE_SPEC_MATH7, rules: KP_RULES_MATH }
+  return undefined
+}
+
+// 2026-07-22：concept_map 表有全科 7~9 年級課綱條文（3,376 筆）——沒有固定清單的科目/年級
+// 從 /api/data/concept-map 動態組清單（code｜label 當短名）；抓不到才 fallback 自由命名版。
+async function fetchDynamicSpec(grade: number, domain: string): Promise<string | null> {
+  try {
+    const params = new URLSearchParams({ grade: String(grade), domain })
+    const res = await fetch(`/api/data/concept-map?${params.toString()}`, { credentials: 'include' })
+    if (!res.ok) return null
+    const json = (await res.json().catch(() => null)) as { items?: Array<{ code?: string; label?: string; description?: string }> } | null
+    const items = (json?.items ?? []).filter((i) => i?.code && i?.label)
+    if (!items.length) return null
+    return items.map((i) => `${i.code}｜${i.label}${i.description ? `｜${i.description}` : ''}`).join('\n')
+  } catch { return null }
 }
 export type KpUpgradeResult = { items: KpTagItem[]; kpTips: Record<string, string> }
 
@@ -1018,12 +1036,16 @@ async function callKpRoute(promptText: string, assignmentId: string, withBooklet
     .join('')
 }
 
-export async function runKpUpgrade(assignmentId: string, subject: string, questions: PRQuestion[]): Promise<KpUpgradeResult> {
+export async function runKpUpgrade(assignmentId: string, subject: string, questions: PRQuestion[], grade?: number): Promise<KpUpgradeResult> {
   const qs = questions.filter((q) => String(q.id ?? '').trim())
   if (!qs.length) throw new Error('此作業沒有題目')
   const ansList = qs.map((q) => `${q.id}：${resolveStdAnswer(q) || '(無)'}`).join('\n')
   const subj = subject || '學科'
-  const subjectSpec = KP_SPEC_BY_SUBJECT[subj.trim()]
+  let subjectSpec = curatedSubjectSpec(subj.trim(), grade)
+  if (!subjectSpec && grade) {
+    const dyn = await fetchDynamicSpec(grade, subj.trim())
+    if (dyn) subjectSpec = { spec: dyn, rules: KP_RULES_GENERIC }
+  }
   const codeSpec = subjectSpec?.spec
   // ① tagging（餵題本圖）：有指標清單 → 三層版；否則 fallback 自由命名版
   const tagPrompt = codeSpec ? `你是一位資深的台灣國中${subj}老師，同時是段考命題與課綱對齊專家。
