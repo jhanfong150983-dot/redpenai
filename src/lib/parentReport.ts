@@ -18,7 +18,7 @@ export type PRQuestion = {
   /** 多小題（合題）：正確答案在 parts[].answer、頂層 answer 為空 */
   parts?: Array<{ subId?: string; answer?: string }>
   /** 2026-07-19 試題分析（backfill 到 answer_key）：大主題 topic + 知識點 knowledgePoints */
-  analysis?: { topic?: string; knowledgePoints?: string[]; ability?: string; cnaArea?: string; note?: string }
+  analysis?: { topic?: string; knowledgePoints?: string[]; code?: string; ability?: string; cnaArea?: string; note?: string }
 }
 
 // 標準答案取值：頂層 answer 為空時（多小題型）由 parts 組出（subId a/b/c → ①②③）。
@@ -201,8 +201,10 @@ export function assembleParentReports(
     qTypeById.set(id, String(q.questionCategory ?? q.questionType ?? '').trim())
     qAnswerById.set(id, resolveStdAnswer(q))
     const topic = String(q.analysis?.topic ?? '').trim()
+    const code = String(q.analysis?.code ?? '').trim()
     const kps = (q.analysis?.knowledgePoints ?? []).map((k) => String(k).trim()).filter((k) => k && k !== '無法對應')
-    if (topic && topic !== '無法對應') { qTopicById.set(id, topic); anyAnalysis = true }
+    // 2026-07-22 user 拍板：主題顯示完整「代碼＋短名」（如 Ab-IV-1 字形字音字義）；無 code 的舊資料維持純短名
+    if (topic && topic !== '無法對應') { qTopicById.set(id, code ? `${code} ${topic}` : topic); anyAnalysis = true }
     if (kps.length) qKpsById.set(id, kps)
   }
   const examMax = questions.reduce((a, q) => a + num(q.maxScore), 0)
@@ -922,18 +924,23 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
 //   知識點名稱輪間會變（實測跨輪 0 重合）→ 只服務單卷加強地圖、跨卷聚合一律用 code/topic 層。
 export type KpTagItem = { questionId: string; code?: string; topic: string; knowledgePoints: string[]; ability?: string; note?: string }
 
-// 108 課綱國語文（第四學習階段）指標候選＋每指標白話主題候選。
-// ⚠近似版：與官方條文字句未逐字核對（正式全科上線前要對照官方清單；數學/英語清單待建）。
-const KP_CODE_SPEC_GUOYU = `Ab-IV-1｜常用字的字形、字音和字義（含國字書寫與注音辨識）｜可用主題：國字書寫／注音拼讀／字音字形辨析
-Ab-IV-3｜基本造字原則與漢字結構（含六書、字體演變、書法字體）｜可用主題：漢字結構與書法
-Ab-IV-4｜常用語詞的認念（詞義理解、課文注釋）｜可用主題：詞語理解
-Ab-IV-5｜常用語詞的使用（含成語運用）｜可用主題：成語運用／語詞運用
-Ab-IV-6｜文言文的虛詞、語法結構與古今異義｜可用主題：文言字詞
-Ac-IV-2｜詞類（詞性）與句子成分｜可用主題：詞性與語法
-Ad-IV-3｜韻文（近體詩、古體詩等）的格律與文意｜可用主題：古典詩文
-Ad-IV-2｜現代文學（新詩、散文、小說）的理解與分析｜可用主題：現代詩文
-Ad-IV-1｜篇章的主旨、結構、寓意與分析（跨文本、課外文本）｜可用主題：閱讀理解
-Bc-IV-3｜數據、圖表、圖片等非連續文本判讀｜可用主題：圖表與資訊判讀`
+// 108 課綱國語文（第四學習階段）學習內容條文——2026-07-22 已對照 concept_map 表官方版逐字核對。
+// 格式：代碼｜主題短名（報告顯示「代碼＋短名」、user 拍板）｜官方條文（＋括號內為使用註記）
+const KP_CODE_SPEC_GUOYU = `Ab-IV-1｜字形字音字義｜4,000個常用字的字形、字音和字義（含國字書寫與注音辨識）
+Ab-IV-3｜造字原則｜基本的造字原則：象形、指事、會意、形聲
+Ab-IV-4｜語詞認念｜6,500個常用語詞的認念（詞義理解、課文注釋）
+Ab-IV-5｜語詞使用｜5,000個常用語詞的使用（含成語運用）
+Ab-IV-6｜文言詞彙與語法｜常用文言文的詞彙及語法結構
+Ab-IV-7｜文言虛字與古今義變｜常用文言文的字詞、虛字、古今義變（含虛字／詞性辨析）
+Ab-IV-8｜書法與碑帖欣賞｜各體書法與名家碑帖的認識與欣賞（含字體演變順序與判別）
+Ac-IV-1｜標點符號｜標點符號在文本中的不同效果
+Ac-IV-2｜句型｜敘事、有無、判斷、表態等句型
+Ac-IV-3｜文句邏輯｜文句表達的邏輯與意義
+Ad-IV-1｜篇章分析｜篇章的主旨、結構、寓意與分析（白話課外文本、跨文本比較）
+Ad-IV-2｜現代文學｜新詩、現代散文、現代小說、劇本
+Ad-IV-3｜韻文｜古體詩、樂府詩、近體詩、詞、曲等
+Ad-IV-4｜非韻文｜古文、古典小說、語錄體、寓言等
+Bc-IV-3｜圖表資訊判讀｜數據、圖表、圖片、工具列等輔助說明`
 
 const KP_CODE_SPECS: Record<string, string> = {
   國語: KP_CODE_SPEC_GUOYU, 國文: KP_CODE_SPEC_GUOYU, 國語文: KP_CODE_SPEC_GUOYU,
@@ -975,17 +982,19 @@ export async function runKpUpgrade(assignmentId: string, subject: string, questi
 
 請分三層為每一題歸類：
 
-【第一層：課綱指標 code】只能從下列清單選（每行格式：代碼｜說明｜該代碼可用主題）：
+【第一層：課綱指標 code】只能從下列清單選（每行格式：代碼｜主題短名｜官方條文）：
 ${codeSpec}
 
 邊界判準（必守、優先於你的自由判斷）：
-- 課文或詩文的「詞語解釋／注釋」題，不論詞語是白話或文言，一律選 Ab-IV-4；Ab-IV-6 只用於專考文言虛詞、語法結構、古今異義的題目。
-- 考「同一字在不同句子的字義是否相同」（一字多義）→ Ab-IV-1、主題用「字音字形辨析」。
-- 題目需要判讀圖表、數據或圖片資訊（即使同時有文字閱讀）→ 一律 Bc-IV-3；但「書法字體、漢字形體辨識」題即使附字體圖片仍歸 Ab-IV-3。
-- 跨文本「比較」題（兩詩比較、兩文比較、含課外文本）→ Ad-IV-1；但以「課內近體詩」為主要素材的題目（含格律、文意綜合分析）→ Ad-IV-3。
-- 同一大題內性質相同的題目（例如整組注釋題、整組成語題）code 與 topic 必須一致。
+- 課文或詩文的「詞語解釋／注釋」題，不論詞語是白話或文言，一律選 Ab-IV-4。
+- 考「同一字在不同句子的字義是否相同」（一字多義）→ Ab-IV-1。
+- 專考虛字、字詞詞性辨析的題目 → Ab-IV-7。
+- 「書法字體、字體演變」題（即使附字體圖片）→ Ab-IV-8，不歸 Bc-IV-3；其他需判讀圖表、數據或圖片資訊的題目（即使同時有文字閱讀）→ Bc-IV-3。
+- 文言小說、古文、寓言等課外文言素材的閱讀題 → Ad-IV-4；白話課外文本與跨文本「比較」題 → Ad-IV-1；但以「課內近體詩」為主要素材的題目（含格律、文意綜合分析）→ Ad-IV-3。
+- 詩句／文句「重組」題依素材文體歸 Ad-IV-2 或 Ad-IV-3，不歸 Ac-IV-3。
+- 同一大題內性質相同的題目（例如整組注釋題、整組成語題）code 必須一致。
 
-【第二層：主題 topic】只能用該題所選代碼那一行列出的「可用主題」其中一個（給家長看的白話分類）。
+【第二層：主題 topic】一律照抄該題所選代碼那一行的「主題短名」（完全同字、不可自創）。
 
 【第三層：知識點 kps】每題 1~2 個，規則（非常重要）：
 - 先在輸出最前面承諾全卷知識點清單 kpList：總數不可超過 18 個
@@ -1027,22 +1036,31 @@ ${ansList}
       ...(it.ability ? { ability: String(it.ability) } : {}), ...(it.note ? { note: String(it.note) } : {}),
     }))
   if (!items.length) throw new Error('歸類沒有產出任何題目')
-  // Ab-IV-1 主題確定性覆寫（不信 AI 挑：沙盒實測 AI 偶爾把整組手寫題塌成「字音字形辨析」）——
-  //   答案含注音符號→注音拼讀；手寫國字→國字書寫；選擇題→字音字形辨析。code 兜底優於 prompt。
+  // 確定性覆寫（code 兜底優於 prompt、沙盒實測 AI 自選主題會塌）：
+  //   ①主題一律＝所選代碼的短名（AI 只負責選 code）；②Ab-IV-1 的細分下放到知識點層：
+  //   選擇題→字形字音辨析／注音答案→注音辨識／國字→國字書寫。
   if (codeSpec) {
+    const shortByCode = new Map<string, string>(
+      codeSpec.split('\n').map((line) => {
+        const parts = line.split('｜')
+        return [String(parts[0] ?? '').trim(), String(parts[1] ?? '').trim()]
+      }),
+    )
     const ZHUYIN_RE = /[ㄅ-ㄯˊˇˋ˙]/
     const qById = new Map(qs.map((q) => [String(q.id ?? ''), q]))
     for (const it of items) {
+      const short = it.code ? shortByCode.get(it.code) : undefined
+      if (short) it.topic = short
       if (it.code !== 'Ab-IV-1') continue
       const q = qById.get(it.questionId)
       if (!q) continue
       const cat = String((q as { questionCategory?: string; questionType?: string }).questionCategory
         ?? (q as { questionType?: string }).questionType ?? '')
-      if (/choice/.test(cat)) it.topic = '字音字形辨析'
+      if (/choice/.test(cat)) it.knowledgePoints = ['字形字音辨析']
       else {
         const ans = resolveStdAnswer(q)
-        if (ZHUYIN_RE.test(ans)) it.topic = '注音拼讀'
-        else if (ans) it.topic = '國字書寫'
+        if (ZHUYIN_RE.test(ans)) it.knowledgePoints = ['注音辨識']
+        else if (ans) it.knowledgePoints = ['國字書寫']
       }
     }
   }
