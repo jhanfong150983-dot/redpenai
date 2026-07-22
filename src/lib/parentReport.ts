@@ -945,8 +945,53 @@ Ad-IV-3｜韻文｜古體詩、樂府詩、近體詩、詞、曲等
 Ad-IV-4｜非韻文｜古文、古典小說、語錄體、寓言等
 Bc-IV-3｜圖表資訊判讀｜數據、圖表、圖片、工具列等輔助說明`
 
-const KP_CODE_SPECS: Record<string, string> = {
-  國語: KP_CODE_SPEC_GUOYU, 國文: KP_CODE_SPEC_GUOYU, 國語文: KP_CODE_SPEC_GUOYU,
+const KP_RULES_GUOYU = `- 課文或詩文的「詞語解釋／注釋」題，不論詞語是白話或文言，一律選 Ab-IV-4。
+- 考「同一字在不同句子的字義是否相同」（一字多義）→ Ab-IV-1。
+- 專考虛字、字詞詞性辨析的題目 → Ab-IV-7。
+- 「書法字體、字體演變」題（即使附字體圖片）→ Ab-IV-8，不歸 Bc-IV-3；其他需判讀圖表、數據或圖片資訊的題目（即使同時有文字閱讀）→ Bc-IV-3。
+- 文言小說、古文、寓言等課外文言素材的閱讀題 → Ad-IV-4；白話課外文本與跨文本「比較」題 → Ad-IV-1；但以「課內近體詩」為主要素材的題目（含格律、文意綜合分析）→ Ad-IV-3。
+- 詩句／文句「重組」題依素材文體歸 Ad-IV-2 或 Ad-IV-3，不歸 Ac-IV-3。
+- 同一大題內性質相同的題目（例如整組注釋題、整組成語題）code 必須一致。`
+
+// 108 課綱數學（國一／七年級）學習內容條文——concept_map 表官方版（2026-07-22）。⚠限國一：國二/三條文 DB 尚未收錄。
+const KP_CODE_SPEC_MATH7 = `N-7-1｜100以內的質數｜質數判別、質數表
+N-7-2｜質因數分解的標準分解式｜質因數分解、最大公因數、最小公倍數
+N-7-3｜負數與整數的四則混合運算｜含絕對值
+N-7-4｜數的運算規律｜交換律、結合律、分配律
+N-7-5｜數線（含負數）｜數線上的點與距離
+N-7-6｜指數的意義｜指數記號
+N-7-7｜指數律｜同底數乘除、次方
+N-7-8｜科學記號｜大數與小數的科學記號表示
+N-7-9｜比與比例式｜比值、正反比
+A-7-1｜代數符號｜以符號代表數、式子的化簡
+A-7-2｜一元一次方程式的意義｜列式、驗算解
+A-7-3｜一元一次方程式的解法與應用｜解方程式、應用問題
+A-7-4｜二元一次聯立方程式的意義｜列式、驗算解
+A-7-5｜二元一次聯立方程式的解法與應用｜代入／加減消去、應用問題
+A-7-6｜二元一次聯立方程式的幾何意義｜直線圖形
+A-7-7｜一元一次不等式的意義｜列不等式、判斷解
+A-7-8｜一元一次不等式的解與應用｜解不等式、應用問題
+G-7-1｜平面直角坐標系｜坐標、象限
+D-7-1｜統計圖表｜長條圖、折線圖、圓形圖等判讀與繪製
+D-7-2｜統計數據｜平均數、中位數、眾數
+S-7-1｜簡單圖形與幾何特徵｜點線面、角、平面與立體圖形特徵
+S-7-2｜三視圖｜立體圖形的視圖
+S-7-3｜垂直｜垂直的意義與性質
+S-7-4｜線對稱的性質｜對稱軸、對稱點
+S-7-5｜線對稱的基本圖形｜等腰三角形、正多邊形等`
+
+const KP_RULES_MATH = `- 要求「解出」方程式／不等式的計算題與應用問題 → 解法與應用條（A-7-3、A-7-5、A-7-8）；只考「列式、意義、判斷某數是否為解」的概念題 → 意義條（A-7-2、A-7-4、A-7-7）。
+- 依情境規則推導數值範圍的題目（例如由四捨五入規則回推原始區間）→ A-7-8。
+- 幾何圖形（三角形內角、周長面積等）僅為情境、解題核心是列出並求解不等式／方程式 → 歸 A-7-x 代數條，不歸 S。
+- 統計題：判讀或繪製圖表 → D-7-1；計算平均數、中位數、眾數等數據量 → D-7-2；同時有圖表與計算時，以最後要回答的量為準。
+- 幾何題以主要考點歸類：三視圖／立體視圖 → S-7-2；正多邊形等基本對稱圖形的「辨識與對稱軸數量」→ S-7-5；利用對稱軸／對稱點「性質做推理」（如對摺結果、對稱點座標）→ S-7-4；一般圖形特徵 → S-7-1。
+- 同一大題內性質相同的題目 code 必須一致。`
+
+const KP_SPEC_BY_SUBJECT: Record<string, { spec: string; rules: string }> = {
+  國語: { spec: KP_CODE_SPEC_GUOYU, rules: KP_RULES_GUOYU },
+  國文: { spec: KP_CODE_SPEC_GUOYU, rules: KP_RULES_GUOYU },
+  國語文: { spec: KP_CODE_SPEC_GUOYU, rules: KP_RULES_GUOYU },
+  數學: { spec: KP_CODE_SPEC_MATH7, rules: KP_RULES_MATH },
 }
 export type KpUpgradeResult = { items: KpTagItem[]; kpTips: Record<string, string> }
 
@@ -978,7 +1023,8 @@ export async function runKpUpgrade(assignmentId: string, subject: string, questi
   if (!qs.length) throw new Error('此作業沒有題目')
   const ansList = qs.map((q) => `${q.id}：${resolveStdAnswer(q) || '(無)'}`).join('\n')
   const subj = subject || '學科'
-  const codeSpec = KP_CODE_SPECS[subj.trim()]
+  const subjectSpec = KP_SPEC_BY_SUBJECT[subj.trim()]
+  const codeSpec = subjectSpec?.spec
   // ① tagging（餵題本圖）：有指標清單 → 三層版；否則 fallback 自由命名版
   const tagPrompt = codeSpec ? `你是一位資深的台灣國中${subj}老師，同時是段考命題與課綱對齊專家。
 附上一份${subj}科段考「題本」（含所有題目），與答案清單（題號＋標準答案）供對應。
@@ -989,13 +1035,7 @@ export async function runKpUpgrade(assignmentId: string, subject: string, questi
 ${codeSpec}
 
 邊界判準（必守、優先於你的自由判斷）：
-- 課文或詩文的「詞語解釋／注釋」題，不論詞語是白話或文言，一律選 Ab-IV-4。
-- 考「同一字在不同句子的字義是否相同」（一字多義）→ Ab-IV-1。
-- 專考虛字、字詞詞性辨析的題目 → Ab-IV-7。
-- 「書法字體、字體演變」題（即使附字體圖片）→ Ab-IV-8，不歸 Bc-IV-3；其他需判讀圖表、數據或圖片資訊的題目（即使同時有文字閱讀）→ Bc-IV-3。
-- 文言小說、古文、寓言等課外文言素材的閱讀題 → Ad-IV-4；白話課外文本與跨文本「比較」題 → Ad-IV-1；但以「課內近體詩」為主要素材的題目（含格律、文意綜合分析）→ Ad-IV-3。
-- 詩句／文句「重組」題依素材文體歸 Ad-IV-2 或 Ad-IV-3，不歸 Ac-IV-3。
-- 同一大題內性質相同的題目（例如整組注釋題、整組成語題）code 必須一致。
+${subjectSpec!.rules}
 
 【第二層：主題 topic】一律照抄該題所選代碼那一行的「主題短名」（完全同字、不可自創）。
 
