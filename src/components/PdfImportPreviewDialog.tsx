@@ -208,6 +208,9 @@ export default function PdfImportPreviewDialog({
   )
   const [absentSeatNumbers, setAbsentSeatNumbers] = useState<Set<number>>(new Set())
   const [showAbsentPicker, setShowAbsentPicker] = useState(false)
+  // 2026-07-22：每份 PDF「順序相反（最後一號在前）」——收卷疊反/掃描從最後一號開始時勾選；
+  //   以「學生區塊」為單位反轉、每生自己的頁序不動（單面掃描=整份反轉、雙面掃描=正反面順序保持）
+  const [reversedFlags, setReversedFlags] = useState<boolean[]>(() => pdfFiles.map(() => false))
   const [confirmed, setConfirmed] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -232,7 +235,7 @@ export default function PdfImportPreviewDialog({
   // togglePageDelete 已自行 clear，這裡管 pagesPerStudent / mergeMode / perPdfPagesArray
   useEffect(() => {
     setStudentInternalOrder(new Map())
-  }, [pagesPerStudent, mergeMode, perPdfPagesArray])
+  }, [pagesPerStudent, mergeMode, perPdfPagesArray, reversedFlags])
 
   const dndSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -251,10 +254,19 @@ export default function PdfImportPreviewDialog({
         .filter((ref) => !deleted[fi][ref.pageIdx]),
     )
 
+    // 1.5 勾「順序相反」的檔案：以學生區塊為單位反轉（每生頁序不動）
+    const orientedByFile: PageRef[][] = refsByFile.map((refs, i) => {
+      if (!reversedFlags[i]) return refs
+      const cs = isInterleave ? Math.max(1, perPdfPagesArray[i] ?? 1) : Math.max(1, pagesPerStudent)
+      const cks: PageRef[][] = []
+      for (let j = 0; j < refs.length; j += cs) cks.push(refs.slice(j, j + cs))
+      return cks.reverse().flat()
+    })
+
     // 2. 合併
     const flatRefs: PageRef[] = isInterleave
-      ? interleave(refsByFile, perPdfPagesArray)
-      : refsByFile.flat()
+      ? interleave(orientedByFile, perPdfPagesArray)
+      : orientedByFile.flat()
 
     const pps = isInterleave
       ? perPdfPagesArray.reduce((s, n) => s + (n || 1), 0)
@@ -287,6 +299,7 @@ export default function PdfImportPreviewDialog({
     pagesPerStudent,
     students,
     absentSeatNumbers,
+    reversedFlags,
   ])
 
   const expectedStudentCount = splitResult.chunks.length
@@ -535,6 +548,35 @@ export default function PdfImportPreviewDialog({
                 />
               </label>
             )}
+
+            {/* 順序相反：勾了該份會以學生為單位反轉回 1 號開始，下方預覽即時重排 */}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-700 font-medium">順序相反（最後一號在前）：</span>
+              {pdfFiles.map((f, i) => (
+                <label
+                  key={i}
+                  className={`inline-flex items-center gap-1 cursor-pointer rounded border px-1.5 py-0.5 text-xs transition-colors ${
+                    reversedFlags[i]
+                      ? 'border-amber-300 bg-amber-50 font-medium text-amber-700'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={reversedFlags[i] ?? false}
+                    onChange={() =>
+                      setReversedFlags((prev) => {
+                        const next = [...prev]
+                        next[i] = !next[i]
+                        return next
+                      })
+                    }
+                    className="w-3.5 h-3.5 accent-amber-600"
+                  />
+                  <span className="max-w-[140px] truncate" title={f.fileName}>{f.fileName}</span>
+                </label>
+              ))}
+            </div>
 
             {isMultiPdf && (
               <div className="flex items-center gap-3">

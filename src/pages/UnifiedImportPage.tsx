@@ -47,6 +47,7 @@ import {
 } from '@/lib/pdfToImage'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
 import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
+import DangerConfirmModal from '@/components/DangerConfirmModal'
 import PdfImportPreviewDialog, {
   type PdfImportPreviewFile,
   type PdfImportPreviewResult,
@@ -745,8 +746,26 @@ export default function UnifiedImportPage({
   }, [importPreviewFiles])
 
   // 確認分割並匯入：對每位學生 saveStudentSubmission
+  // 2026-07-22 覆蓋前置閘：批次匯入原本「靜默」刪除既有卷＋批改結果 → 先跳危險確認
+  const [overwriteWarn, setOverwriteWarn] = useState<{ count: number; gradedCount: number } | null>(null)
+  const pendingImportResultRef = useRef<PdfImportPreviewResult | null>(null)
+
   const handleImportPreviewConfirm = useCallback(
-    async (result: PdfImportPreviewResult) => {
+    async (result: PdfImportPreviewResult, overwriteAcked = false) => {
+      // 覆蓋檢查：這次要匯入的學生中已有卷（可能含批改結果）→ DangerConfirmModal 確認後續行
+      if (!overwriteAcked) {
+        try {
+          const importIds = new Set(result.perStudent.filter((p) => p.pageBlobs.length > 0).map((p) => p.student.id))
+          const existing = await db.submissions.where('assignmentId').equals(assignmentId).toArray()
+          const affected = existing.filter((s) => importIds.has(s.studentId))
+          if (affected.length > 0) {
+            const gradedCount = affected.filter((s) => s.gradingResult || typeof s.score === 'number').length
+            pendingImportResultRef.current = result
+            setOverwriteWarn({ count: new Set(affected.map((s) => s.studentId)).size, gradedCount })
+            return
+          }
+        } catch { /* 查詢失敗 fail-open、照常匯入 */ }
+      }
       setShowImportPreview(false)
       setIsBatchProcessing(true)
       setError(null)
@@ -1498,6 +1517,33 @@ export default function UnifiedImportPage({
           </div>
         </div>
       )}
+
+      {/* 2026-07-22 批次匯入覆蓋確認（原本無聲刪除既有卷+批改結果） */}
+      <DangerConfirmModal
+        open={!!overwriteWarn}
+        severity="high"
+        title={`此次匯入將覆蓋 ${overwriteWarn?.count ?? 0} 位學生的既有作業`}
+        clears={[
+          `${overwriteWarn?.count ?? 0} 位學生原本的作業影像`,
+          ...((overwriteWarn?.gradedCount ?? 0) > 0
+            ? [
+                `${overwriteWarn?.gradedCount} 份批改結果（分數與批改明細、需重新批改）`,
+                '若已產生家長報告，這幾位的報告將失效（需重新生成）',
+              ]
+            : []),
+        ]}
+        keeps={['答案卷與題目設定', '未被此次匯入覆蓋的其他學生']}
+        acknowledgeText="我了解被覆蓋學生的舊卷與批改結果將被刪除且無法復原"
+        confirmLabel="覆蓋並匯入"
+        cancelLabel="取消"
+        onCancel={() => { setOverwriteWarn(null); pendingImportResultRef.current = null }}
+        onConfirm={() => {
+          const pending = pendingImportResultRef.current
+          setOverwriteWarn(null)
+          pendingImportResultRef.current = null
+          if (pending) void handleImportPreviewConfirm(pending, true)
+        }}
+      />
 
       {/* PdfImportPreviewDialog — 單一畫面：設定 + 批次旋轉 + 學生分組預覽 */}
       {showImportPreview && importPreviewFiles.length > 0 && (
