@@ -917,7 +917,27 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
 // ── 知識點歸類（2026-07-22、進階報告升級流程；每卷一次性、懶跑）─────────────────
 //   tagging：餵整本題本圖（proxy 注入）＋答案清單 → 每題 {topic, knowledgePoints}；
 //   kpTips：純文字、每知識點一句在家建議；save：POST kp-save 外科手術合併進 answer_key。
-export type KpTagItem = { questionId: string; topic: string; knowledgePoints: string[]; ability?: string; note?: string }
+//   2026-07-22 三層版（沙盒 5 輪實證）：課綱指標(固定候選)→白話主題(per-指標候選)→知識點(收斂規則)。
+//   有指標清單的科目走三層；其他科目 fallback 自由命名版。code 跨卷穩定、供未來趨勢聚合；
+//   知識點名稱輪間會變（實測跨輪 0 重合）→ 只服務單卷加強地圖、跨卷聚合一律用 code/topic 層。
+export type KpTagItem = { questionId: string; code?: string; topic: string; knowledgePoints: string[]; ability?: string; note?: string }
+
+// 108 課綱國語文（第四學習階段）指標候選＋每指標白話主題候選。
+// ⚠近似版：與官方條文字句未逐字核對（正式全科上線前要對照官方清單；數學/英語清單待建）。
+const KP_CODE_SPEC_GUOYU = `Ab-IV-1｜常用字的字形、字音和字義（含國字書寫與注音辨識）｜可用主題：國字書寫／注音拼讀／字音字形辨析
+Ab-IV-3｜基本造字原則與漢字結構（含六書、字體演變、書法字體）｜可用主題：漢字結構與書法
+Ab-IV-4｜常用語詞的認念（詞義理解、課文注釋）｜可用主題：詞語理解
+Ab-IV-5｜常用語詞的使用（含成語運用）｜可用主題：成語運用／語詞運用
+Ab-IV-6｜文言文的虛詞、語法結構與古今異義｜可用主題：文言字詞
+Ac-IV-2｜詞類（詞性）與句子成分｜可用主題：詞性與語法
+Ad-IV-3｜韻文（近體詩、古體詩等）的格律與文意｜可用主題：古典詩文
+Ad-IV-2｜現代文學（新詩、散文、小說）的理解與分析｜可用主題：現代詩文
+Ad-IV-1｜篇章的主旨、結構、寓意與分析（跨文本、課外文本）｜可用主題：閱讀理解
+Bc-IV-3｜數據、圖表、圖片等非連續文本判讀｜可用主題：圖表與資訊判讀`
+
+const KP_CODE_SPECS: Record<string, string> = {
+  國語: KP_CODE_SPEC_GUOYU, 國文: KP_CODE_SPEC_GUOYU, 國語文: KP_CODE_SPEC_GUOYU,
+}
 export type KpUpgradeResult = { items: KpTagItem[]; kpTips: Record<string, string> }
 
 async function callKpRoute(promptText: string, assignmentId: string, withBooklet: boolean): Promise<string> {
@@ -948,8 +968,42 @@ export async function runKpUpgrade(assignmentId: string, subject: string, questi
   if (!qs.length) throw new Error('此作業沒有題目')
   const ansList = qs.map((q) => `${q.id}：${resolveStdAnswer(q) || '(無)'}`).join('\n')
   const subj = subject || '學科'
-  // ① tagging（餵題本圖）
-  const tagPrompt = `你是一位資深的台灣國中${subj}老師，同時是段考命題與試題分析專家。
+  const codeSpec = KP_CODE_SPECS[subj.trim()]
+  // ① tagging（餵題本圖）：有指標清單 → 三層版；否則 fallback 自由命名版
+  const tagPrompt = codeSpec ? `你是一位資深的台灣國中${subj}老師，同時是段考命題與課綱對齊專家。
+附上一份${subj}科段考「題本」（含所有題目），與答案清單（題號＋標準答案）供對應。
+
+請分三層為每一題歸類：
+
+【第一層：課綱指標 code】只能從下列清單選（每行格式：代碼｜說明｜該代碼可用主題）：
+${codeSpec}
+
+邊界判準（必守、優先於你的自由判斷）：
+- 課文或詩文的「詞語解釋／注釋」題，不論詞語是白話或文言，一律選 Ab-IV-4；Ab-IV-6 只用於專考文言虛詞、語法結構、古今異義的題目。
+- 考「同一字在不同句子的字義是否相同」（一字多義）→ Ab-IV-1、主題用「字音字形辨析」。
+- 題目需要判讀圖表、數據或圖片資訊（即使同時有文字閱讀）→ 一律 Bc-IV-3；但「書法字體、漢字形體辨識」題即使附字體圖片仍歸 Ab-IV-3。
+- 跨文本「比較」題（兩詩比較、兩文比較、含課外文本）→ Ad-IV-1；但以「課內近體詩」為主要素材的題目（含格律、文意綜合分析）→ Ad-IV-3。
+- 同一大題內性質相同的題目（例如整組注釋題、整組成語題）code 與 topic 必須一致。
+
+【第二層：主題 topic】只能用該題所選代碼那一行列出的「可用主題」其中一個（給家長看的白話分類）。
+
+【第三層：知識點 kps】每題 1~2 個，規則（非常重要）：
+- 先在輸出最前面承諾全卷知識點清單 kpList：總數不可超過 18 個
+- 每個知識點必須至少被 2 題共用（真正獨特的考點可例外、全卷例外最多 3 個）
+- 知識點＝可跨題遷移的能力或概念（例：「多音字辨析」「近體詩格律」「借代與代稱」）
+- 禁止用題目素材當名稱（例：「棒球規則」「問卷設計」這類都不行）
+- 每題的 kps 只能從 kpList 中挑選
+
+另外每題給：
+- ability：定義理解／基本應用／情境應用／多步驟推理（擇一）
+- note：一句話說明這題在考什麼
+
+只依題本實際內容判斷；找不到或看不清的題號 → code 填 "NA"、topic 填「無法對應」。
+答案清單：
+${ansList}
+
+只輸出 JSON：
+{"kpList":["..."],"items":[{"questionId":"...","code":"...","topic":"...","kps":["..."],"ability":"...","note":"..."}]}` : `你是一位資深的台灣國中${subj}老師，同時是段考命題與試題分析專家。
 附上一份${subj}科段考「題本」（含所有題目）。另附答案清單（題號＋標準答案）供你對應題目。
 請像分析自己出的卷一樣，針對答案清單中每一個題號指出：
 1. topic：大主題／單元（課本「章／單元」等級）。全卷只會有少數幾個大主題；考同一單元的題目 topic 必須完全一致（同字）。
@@ -963,15 +1017,35 @@ ${ansList}
   const tagText = await callKpRoute(tagPrompt, assignmentId, true)
   const tagMatch = tagText.match(/\{[\s\S]*\}/)
   if (!tagMatch) throw new Error('歸類結果解析失敗')
-  const parsed = JSON.parse(tagMatch[0]) as { items?: Array<{ questionId?: string; topic?: string; knowledgePoints?: string[]; ability?: string; note?: string }> }
+  const parsed = JSON.parse(tagMatch[0]) as { items?: Array<{ questionId?: string; code?: string; topic?: string; kps?: string[]; knowledgePoints?: string[]; ability?: string; note?: string }> }
   const items: KpTagItem[] = (parsed.items ?? [])
-    .filter((it) => it?.questionId && it?.topic && it.topic !== '無法對應')
+    .filter((it) => it?.questionId && it?.topic && it.topic !== '無法對應' && it.code !== 'NA')
     .map((it) => ({
       questionId: String(it.questionId), topic: String(it.topic),
-      knowledgePoints: (it.knowledgePoints ?? []).map((k) => String(k)).filter((k) => k && k !== '無法對應'),
+      ...(it.code ? { code: String(it.code) } : {}),
+      knowledgePoints: (it.kps ?? it.knowledgePoints ?? []).map((k) => String(k)).filter((k) => k && k !== '無法對應'),
       ...(it.ability ? { ability: String(it.ability) } : {}), ...(it.note ? { note: String(it.note) } : {}),
     }))
   if (!items.length) throw new Error('歸類沒有產出任何題目')
+  // Ab-IV-1 主題確定性覆寫（不信 AI 挑：沙盒實測 AI 偶爾把整組手寫題塌成「字音字形辨析」）——
+  //   答案含注音符號→注音拼讀；手寫國字→國字書寫；選擇題→字音字形辨析。code 兜底優於 prompt。
+  if (codeSpec) {
+    const ZHUYIN_RE = /[ㄅ-ㄯˊˇˋ˙]/
+    const qById = new Map(qs.map((q) => [String(q.id ?? ''), q]))
+    for (const it of items) {
+      if (it.code !== 'Ab-IV-1') continue
+      const q = qById.get(it.questionId)
+      if (!q) continue
+      const cat = String((q as { questionCategory?: string; questionType?: string }).questionCategory
+        ?? (q as { questionType?: string }).questionType ?? '')
+      if (/choice/.test(cat)) it.topic = '字音字形辨析'
+      else {
+        const ans = resolveStdAnswer(q)
+        if (ZHUYIN_RE.test(ans)) it.topic = '注音拼讀'
+        else if (ans) it.topic = '國字書寫'
+      }
+    }
+  }
   // ② kpTips（純文字、每知識點一句在家建議）
   const allKps = [...new Set(items.flatMap((it) => it.knowledgePoints))]
   let kpTips: Record<string, string> = {}
