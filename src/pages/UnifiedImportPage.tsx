@@ -648,16 +648,67 @@ export default function UnifiedImportPage({
     [pagesPerStudent],
   )
 
+  // PDF→頁圖→開預覽 dialog(批次與單生補考共用;2026-07-31 抽出、置於兩個 caller 之前)
+  const convertPdfsAndPreview = useCallback(async (fileArray: File[]) => {
+    setError(null)
+    setIsBatchProcessing(true)
+    setBatchProgress('正在轉換 PDF...')
+    try {
+      const previewFiles: PdfImportPreviewFile[] = []
+      for (let fi = 0; fi < fileArray.length; fi++) {
+        const file = fileArray[fi]
+        const fileSizeMB = (file.size / 1024 / 1024).toFixed(1)
+        setBatchProgress(
+          `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name}（${fileSizeMB}MB）`,
+        )
+        const blobs = await convertPdfToImages(file, {
+          onProgress: (current, total) => {
+            setBatchProgress(
+              `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name} — 第 ${current}/${total} 頁`,
+            )
+          },
+        })
+        if (blobs.length === 0) {
+          throw new Error(`${file.name}：無法讀取 PDF 頁面`)
+        }
+        previewFiles.push({
+          fileName: file.name,
+          blobs,
+          urls: blobs.map((b) => URL.createObjectURL(b)),
+        })
+      }
+      setImportPreviewFiles(previewFiles)
+      setShowImportPreview(true)
+    } catch (e) {
+      console.error(e)
+      setError(e instanceof Error ? e.message : '處理檔案失敗')
+    } finally {
+      setIsBatchProcessing(false)
+      setBatchProgress('')
+    }
+  }, [])
+
   const handlePdfInputChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0]
       const student = actionStudentRef.current
+      // pdfOnly(行政補考):可多選 PDF、走批次同一個預覽 dialog(單卷模式)——旋轉/串接/顛倒都有
+      if (pdfOnly) {
+        const files = sortFilesByNumber(
+          Array.from(event.target.files ?? []).filter((f) => getFileType(f) === 'pdf'),
+        )
+        event.target.value = ''
+        if (!student || files.length === 0) return
+        setSingleImportStudent(student)
+        void convertPdfsAndPreview(files)
+        return
+      }
+      const file = event.target.files?.[0]
       if (file && student) {
         void handleFileUpload(student, file)
       }
       event.target.value = ''
     },
-    [handleFileUpload],
+    [handleFileUpload, pdfOnly, convertPdfsAndPreview],
   )
 
   // ── Action sheet handlers ───────────────────────────────────────────────
@@ -695,50 +746,9 @@ export default function UnifiedImportPage({
       event.target.value = ''
 
       if (fileArray.length === 0) return
-
-      setError(null)
-      setIsBatchProcessing(true)
-      setBatchProgress('正在轉換 PDF...')
-
-      try {
-        const previewFiles: PdfImportPreviewFile[] = []
-
-        for (let fi = 0; fi < fileArray.length; fi++) {
-          const file = fileArray[fi]
-          const fileSizeMB = (file.size / 1024 / 1024).toFixed(1)
-          setBatchProgress(
-            `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name}（${fileSizeMB}MB）`,
-          )
-
-          const blobs = await convertPdfToImages(file, {
-            onProgress: (current, total) => {
-              setBatchProgress(
-                `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name} — 第 ${current}/${total} 頁`,
-              )
-            },
-          })
-
-          if (blobs.length === 0) {
-            throw new Error(`${file.name}：無法讀取 PDF 頁面`)
-          }
-
-          previewFiles.push({
-            fileName: file.name,
-            blobs,
-            urls: blobs.map((b) => URL.createObjectURL(b)),
-          })
-        }
-
-        setImportPreviewFiles(previewFiles)
-        setShowImportPreview(true)
-      } catch (e) {
-        console.error(e)
-        setError(e instanceof Error ? e.message : '處理檔案失敗')
-      } finally {
-        setIsBatchProcessing(false)
-        setBatchProgress('')
-      }
+      await convertPdfsAndPreview(fileArray)
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   )
 
@@ -746,12 +756,15 @@ export default function UnifiedImportPage({
     importPreviewFiles.forEach((f) => f.urls.forEach((u) => URL.revokeObjectURL(u)))
     setImportPreviewFiles([])
     setShowImportPreview(false)
+    setSingleImportStudent(null)
   }, [importPreviewFiles])
 
   // 確認分割並匯入：對每位學生 saveStudentSubmission
   // 2026-07-22 覆蓋前置閘：批次匯入原本「靜默」刪除既有卷＋批改結果 → 先跳危險確認
   const [overwriteWarn, setOverwriteWarn] = useState<{ count: number; gradedCount: number } | null>(null)
   const pendingImportResultRef = useRef<PdfImportPreviewResult | null>(null)
+  // 補考單生匯入:有值=預覽 dialog 進入單卷模式(students 只給這一位)
+  const [singleImportStudent, setSingleImportStudent] = useState<Student | null>(null)
 
   const handleImportPreviewConfirm = useCallback(
     async (result: PdfImportPreviewResult, overwriteAcked = false) => {
@@ -803,6 +816,7 @@ export default function UnifiedImportPage({
         setImportPreviewFiles([])
         setIsBatchProcessing(false)
         setBatchProgress('')
+        setSingleImportStudent(null)
       }
     },
     [assignmentId, avoidBlobStorage, loadData, importPreviewFiles],
@@ -1034,6 +1048,7 @@ export default function UnifiedImportPage({
         ref={pdfInputRef}
         type="file"
         accept=".pdf"
+        multiple={pdfOnly}
         className="hidden"
         onChange={handlePdfInputChange}
       />
@@ -1555,11 +1570,12 @@ export default function UnifiedImportPage({
       {showImportPreview && importPreviewFiles.length > 0 && (
         <PdfImportPreviewDialog
           pdfFiles={importPreviewFiles}
-          students={students.map((s) => ({
+          students={(singleImportStudent ? [singleImportStudent] : students).map((s) => ({
             id: s.id,
             seatNumber: s.seatNumber,
             name: s.name,
           }))}
+          singleStudentMode={!!singleImportStudent}
           initialPagesPerStudent={pagesPerStudent}
           onConfirm={handleImportPreviewConfirm}
           onCancel={handleImportPreviewCancel}

@@ -49,6 +49,9 @@ export interface PdfImportPreviewDialogProps {
   onCancel: () => void
   /** 旋轉執行用：傳一張 blob 跟角度，回傳旋轉好的 blob */
   rotateBlob: (blob: Blob, degrees: number) => Promise<Blob>
+  // 2026-07-31 補考單卷模式:students 只有 1 人、全部頁面歸他——隱藏每生頁數/合併方式/未交,
+  // 「順序相反」語意改為整份頁序顛倒;多檔串接/旋轉/刪頁/放大照常
+  singleStudentMode?: boolean
 }
 
 // ── 卡片 ───────────────────────────────────────────────────────────────────
@@ -188,6 +191,7 @@ export default function PdfImportPreviewDialog({
   onConfirm,
   onCancel,
   rotateBlob,
+  singleStudentMode = false,
 }: PdfImportPreviewDialogProps) {
   const isMultiPdf = pdfFiles.length > 1
 
@@ -202,6 +206,14 @@ export default function PdfImportPreviewDialog({
   const [pagesPerStudent, setPagesPerStudent] = useState(
     Math.max(1, initialPagesPerStudent),
   )
+  // 單卷模式:每生頁數自動=全部有效頁(一份=整包),刪頁後跟著更新
+  const aliveTotalPages = useMemo(
+    () => pdfFiles.reduce((sum, f, fi) => sum + f.blobs.filter((_, pi) => !deleted[fi][pi]).length, 0),
+    [pdfFiles, deleted],
+  )
+  useEffect(() => {
+    if (singleStudentMode) setPagesPerStudent(Math.max(1, aliveTotalPages))
+  }, [singleStudentMode, aliveTotalPages])
   const [mergeMode, setMergeMode] = useState<'concat' | 'interleave'>('concat')
   const [perPdfPagesArray, setPerPdfPagesArray] = useState<number[]>(() =>
     pdfFiles.map(() => 1),
@@ -257,6 +269,8 @@ export default function PdfImportPreviewDialog({
     // 1.5 勾「順序相反」的檔案：以學生區塊為單位反轉（每生頁序不動）
     const orientedByFile: PageRef[][] = refsByFile.map((refs, i) => {
       if (!reversedFlags[i]) return refs
+      // 單卷模式:整份頁序顛倒(補考掃描顛倒情境)
+      if (singleStudentMode) return [...refs].reverse()
       const cs = isInterleave ? Math.max(1, perPdfPagesArray[i] ?? 1) : Math.max(1, pagesPerStudent)
       const cks: PageRef[][] = []
       for (let j = 0; j < refs.length; j += cs) cks.push(refs.slice(j, j + cs))
@@ -513,9 +527,13 @@ export default function PdfImportPreviewDialog({
 
         {/* 設定 + 批次操作 */}
         <div className="border-b border-slate-200 bg-slate-50/60 px-5 py-3 space-y-3 shrink-0">
-          {/* 第 1 列：每生頁數 + 合併方式 */}
+          {/* 第 1 列：每生頁數 + 合併方式(單卷模式隱藏——全部頁面歸同一位學生) */}
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-            {isMultiPdf && mergeMode === 'interleave' ? (
+            {singleStudentMode ? (
+              <span className="text-xs font-medium text-slate-700">
+                補考單卷:全部 {aliveTotalPages} 頁將匯入給 {students[0]?.seatNumber} 號 {students[0]?.name}
+              </span>
+            ) : isMultiPdf && mergeMode === 'interleave' ? (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-slate-700 font-medium">每份 PDF 每生頁數：</span>
                 {pdfFiles.map((f, i) => (
@@ -549,9 +567,11 @@ export default function PdfImportPreviewDialog({
               </label>
             )}
 
-            {/* 順序相反：勾了該份會以學生為單位反轉回 1 號開始，下方預覽即時重排 */}
+            {/* 順序相反：勾了該份會以學生為單位反轉回 1 號開始，下方預覽即時重排;單卷模式=整份頁序顛倒 */}
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-slate-700 font-medium">順序相反（最後一號在前）：</span>
+              <span className="text-xs text-slate-700 font-medium">
+                {singleStudentMode ? '順序相反（頁序顛倒）：' : '順序相反（最後一號在前）：'}
+              </span>
               {pdfFiles.map((f, i) => (
                 <label
                   key={i}
@@ -578,7 +598,7 @@ export default function PdfImportPreviewDialog({
               ))}
             </div>
 
-            {isMultiPdf && (
+            {isMultiPdf && !singleStudentMode && (
               <div className="flex items-center gap-3">
                 <span className="text-xs text-slate-700 font-medium">合併方式：</span>
                 <label className="flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
@@ -603,7 +623,8 @@ export default function PdfImportPreviewDialog({
             )}
           </div>
 
-          {/* 第 2 列：未交、警示 */}
+          {/* 第 2 列：未交、警示(單卷模式隱藏) */}
+          {!singleStudentMode && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
             <span className="text-slate-600">
               班上 {students.length} 人 · PDF 可分配{' '}
@@ -638,8 +659,9 @@ export default function PdfImportPreviewDialog({
               </span>
             )}
           </div>
+          )}
 
-          {showAbsentPicker && missingCount > 0 && (
+          {!singleStudentMode && showAbsentPicker && missingCount > 0 && (
             <div className="border border-slate-200 rounded-lg p-2 bg-white max-h-32 overflow-y-auto">
               <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1">
                 {splitResult.sortedStudents.map((s) => {
