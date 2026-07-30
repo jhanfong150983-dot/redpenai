@@ -8175,7 +8175,7 @@ export default function GradingPage({
               // 跳過渲染成本(捲到才畫);containIntrinsicSize 預留高度避免捲軸跳動
               <div
                 key={groupClassroom.id}
-                style={{ contentVisibility: 'auto', containIntrinsicSize: '1000px' }}
+                style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 1000px' }}
               >
                 <h3 className="mb-3 text-sm font-semibold text-slate-500 border-b border-slate-200 pb-2">
                   {groupClassroom.name} ({groupStudents.filter((s) => {

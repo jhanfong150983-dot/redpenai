@@ -464,8 +464,12 @@ export default function SchoolAdminPanel({
   }, [])
 
   useEffect(() => {
-    if (tab === 'exams' && school) void loadExams(school.school_id)
-  }, [tab, school, loadExams])
+    if (tab === 'exams' && school) {
+      void loadExams(school.school_id)
+      // 進考卷 tab 順便刷新學校點數(批改後回列表要看到最新餘額)
+      void loadWallet(school.school_id)
+    }
+  }, [tab, school, loadExams, loadWallet])
 
   // 切換主選單時退出匯入/批改頁(避免回到考卷批改時還停在舊畫面)
   useEffect(() => {
@@ -1002,7 +1006,11 @@ export default function SchoolAdminPanel({
                     embedded
                     assignmentId={gradeExam.classes[0]?.assignmentId ?? ''}
                     batchAssignmentIds={gradeExam.classes.map((c) => c.assignmentId)}
-                    onBack={() => setGradeExam(null)}
+                    onBack={() => {
+                      setGradeExam(null)
+                      // 批改結束回列表:刷新學校點數餘額
+                      if (school) void loadWallet(school.school_id)
+                    }}
                   />
                 </Suspense>
               )}
