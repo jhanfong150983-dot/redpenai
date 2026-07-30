@@ -27,13 +27,16 @@ interface ClassRow {
   class_label: string
   grade: number | null
   student_count: number
+  // 全校名冊(school_classes)來的班級才有;有它=點班級走 SSoT 名冊(全班在籍)
+  campus_class_id?: string | null
 }
 interface StudentRow {
   person_id: string
   name: string
   student_number: string | null
   seat_number: number | null
-  subject_count: number
+  // SSoT 名冊路徑為 null(個別學生的跨科檔案照常看得到)
+  subject_count: number | null
 }
 interface RecordRow {
   subject: string | null
@@ -206,7 +209,7 @@ export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack
   }, [school, preferredSchoolId, rosterSyncing, alertModal, loadSchool])
 
   const openClass = useCallback(
-    async (label: string) => {
+    async (label: string, classId?: string | null) => {
       if (!school) return
       setLoading(true)
       setError(null)
@@ -214,7 +217,10 @@ export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack
       setPerson(null)
       setRecords([])
       try {
-        const { students: stu } = await fetchOverview({ schoolId: school.school_id, classLabel: label })
+        const params: Record<string, string> = classId
+          ? { schoolId: school.school_id, classId }
+          : { schoolId: school.school_id, classLabel: label }
+        const { students: stu } = await fetchOverview(params)
         setStudents(Array.isArray(stu) ? stu : [])
       } catch (err) {
         setError(err instanceof Error ? err.message : '讀取失敗')
@@ -411,12 +417,19 @@ export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack
             <div className="mb-5 flex flex-wrap items-center gap-6 rounded-xl border border-slate-200 bg-slate-50/60 px-5 py-3">
               <div className="flex items-center gap-2 text-slate-700">
                 <Users className="h-4 w-4 text-sky-600" />
-                <span className="text-lg font-semibold tabular-nums">{school.student_count}</span>
+                <span className="text-lg font-semibold tabular-nums">
+                  {/* 有全校名冊(班級卡帶 campus_class_id)時,摘要以名冊加總為準,跟下方班級卡一致 */}
+                  {classes.some((c) => c.campus_class_id)
+                    ? classes.reduce((sum, c) => sum + (c.student_count || 0), 0)
+                    : school.student_count}
+                </span>
                 <span className="text-sm text-slate-500">名學生</span>
               </div>
               <div className="flex items-center gap-2 text-slate-700">
                 <Layers className="h-4 w-4 text-sky-600" />
-                <span className="text-lg font-semibold tabular-nums">{school.class_count}</span>
+                <span className="text-lg font-semibold tabular-nums">
+                  {classes.some((c) => c.campus_class_id) ? classes.length : school.class_count}
+                </span>
                 <span className="text-sm text-slate-500">個班級</span>
               </div>
             </div>
@@ -530,7 +543,9 @@ export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack
                           <span className="font-medium text-slate-900">{s.name}</span>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="text-xs text-slate-500">{s.subject_count} 科</span>
+                          {typeof s.subject_count === 'number' && (
+                            <span className="text-xs text-slate-500">{s.subject_count} 科</span>
+                          )}
                           <ChevronRight className="h-4 w-4 text-slate-300" />
                         </div>
                       </button>
@@ -582,8 +597,8 @@ export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
                           {group.classes.map((c) => (
                             <button
-                              key={c.class_label}
-                              onClick={() => void openClass(c.class_label)}
+                              key={c.campus_class_id ?? c.class_label}
+                              onClick={() => void openClass(c.class_label, c.campus_class_id)}
                               className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-sky-300 hover:shadow-sm"
                             >
                               <div className="font-semibold text-slate-900">{c.class_label}</div>
