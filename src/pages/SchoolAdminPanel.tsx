@@ -57,12 +57,39 @@ interface PersonInfo {
   email: string | null
 }
 
-type SchoolTab = 'overview' | 'weakness'
+type SchoolTab = 'overview' | 'teachers' | 'weakness'
 
 const navItems: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashboard; enabled: boolean }> = [
   { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
+  { key: 'teachers', label: '教師總覽', icon: Users, enabled: true },
   { key: 'weakness', label: '弱點分析', icon: TrendingUp, enabled: false }
 ]
+
+// 教師總覽(2026-07-30):該校 active 老師+班級/作業數+個人點數;配發=學校池→老師
+interface TeacherOverviewRow {
+  profileId: string
+  name: string
+  email: string
+  inkBalance: number
+  classroomCount: number
+  assignmentCount: number
+  joinedAt: string
+}
+interface WalletLedgerRow {
+  delta: number
+  balanceAfter: number | null
+  reason: string
+  actorName: string
+  note: string
+  createdAt: string
+}
+
+const LEDGER_REASON_LABEL: Record<string, string> = {
+  admin_topup: '儲值',
+  admin_adjustment: '調整',
+  grading_job: '統一批改',
+  school_grant: '配發老師'
+}
 
 async function fetchOverview(params: Record<string, string>): Promise<any> {
   const qs = new URLSearchParams(params).toString()
@@ -124,6 +151,12 @@ export default function SchoolAdminPanel({
   const [topupValue, setTopupValue] = useState('')
   const [topupNote, setTopupNote] = useState('')
   const [topupBusy, setTopupBusy] = useState(false)
+  const [teachers, setTeachers] = useState<TeacherOverviewRow[]>([])
+  const [walletLedger, setWalletLedger] = useState<WalletLedgerRow[]>([])
+  const [teachersLoading, setTeachersLoading] = useState(false)
+  const [grantTarget, setGrantTarget] = useState<TeacherOverviewRow | null>(null)
+  const [grantValue, setGrantValue] = useState('')
+  const [grantBusy, setGrantBusy] = useState(false)
   const [tab, setTab] = useState<SchoolTab>('overview')
   const [rosterSyncing, setRosterSyncing] = useState(false)
   const [school, setSchool] = useState<SchoolRow | null>(null)
@@ -239,6 +272,57 @@ export default function SchoolAdminPanel({
       setRosterSyncing(false)
     }
   }, [school, preferredSchoolId, rosterSyncing, alertModal, loadSchool])
+
+  // 教師總覽:老師清單+學校點數紀錄(進 tab 或換校時載入)
+  const loadTeachers = useCallback(async (sid: string) => {
+    setTeachersLoading(true)
+    try {
+      const [tRes, wRes] = await Promise.all([
+        fetch(`/api/data/school-teacher-overview?schoolId=${encodeURIComponent(sid)}`, { credentials: 'include' }),
+        fetch(`/api/data/school-wallet?schoolId=${encodeURIComponent(sid)}&ledger=1`, { credentials: 'include' })
+      ])
+      const tData = await tRes.json()
+      if (tRes.ok) setTeachers(Array.isArray(tData.teachers) ? tData.teachers : [])
+      const wData = await wRes.json()
+      if (wRes.ok) {
+        if (typeof wData.balance === 'number') setWalletBalance(wData.balance)
+        setWalletLedger(Array.isArray(wData.ledger) ? wData.ledger : [])
+      }
+    } catch {
+      // 進不了就顯示空表,錯誤已在主要流程呈現
+    } finally {
+      setTeachersLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (tab === 'teachers' && school) void loadTeachers(school.school_id)
+  }, [tab, school, loadTeachers])
+
+  // 配發:學校池 → 老師個人帳戶(行政與系統 admin 都可操作)
+  const submitGrant = useCallback(async () => {
+    const sid = school?.school_id
+    const amount = parseInt(grantValue, 10)
+    if (!sid || !grantTarget || !Number.isFinite(amount) || amount <= 0) return
+    setGrantBusy(true)
+    try {
+      const res = await fetch('/api/data/school-grant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ schoolId: sid, teacherProfileId: grantTarget.profileId, amount })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || '配發失敗')
+      setGrantTarget(null)
+      await alertModal(`已配發 ${amount} 點給 ${data.teacherName || grantTarget.name},學校點數剩 ${data.balance} 點。`)
+      await loadTeachers(sid)
+    } catch (err) {
+      await alertModal(err instanceof Error ? err.message : '配發失敗', { title: '配發失敗' })
+    } finally {
+      setGrantBusy(false)
+    }
+  }, [school, grantTarget, grantValue, alertModal, loadTeachers])
 
   // 學校儲值(僅系統 admin 可見/可呼叫;server 端 requireAdmin 再驗一次)
   const submitTopup = useCallback(async () => {
@@ -374,13 +458,13 @@ export default function SchoolAdminPanel({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {walletBalance != null && (
+            {(walletBalance != null || isAdmin) && (
               <div
                 className="flex h-10 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 text-sm text-amber-800"
                 title="學校共用點數:統一批改與報告產生由學校點數扣除,全校行政看到同一個餘額"
               >
                 <Droplet className="h-4 w-4" />
-                <span className="font-semibold tabular-nums">{walletBalance}</span>
+                <span className="font-semibold tabular-nums">{walletBalance ?? '—'}</span>
                 <span className="text-xs">學校點數</span>
                 {isAdmin && (
                   <button
@@ -468,7 +552,7 @@ export default function SchoolAdminPanel({
           {/* 標題列 + 重新整理 */}
           <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
             <h2 className="text-xl font-semibold text-slate-900">
-              {tab === 'overview' ? '學生總覽' : '弱點分析'}
+              {tab === 'overview' ? '學生總覽' : tab === 'teachers' ? '教師總覽' : '弱點分析'}
             </h2>
             <div className="flex items-center gap-2">
               {(school || preferredSchoolId) && (
@@ -526,6 +610,104 @@ export default function SchoolAdminPanel({
           {tab === 'weakness' ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center text-slate-400">
               弱點分析即將推出
+            </div>
+          ) : tab === 'teachers' ? (
+            <div className="space-y-6">
+              {/* 教師清單 */}
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-xs text-slate-500">
+                      <th className="px-4 py-2.5 font-medium">老師</th>
+                      <th className="px-3 py-2.5 font-medium text-right">班級數</th>
+                      <th className="px-3 py-2.5 font-medium text-right">作業數</th>
+                      <th className="px-3 py-2.5 font-medium text-right">個人點數</th>
+                      <th className="px-3 py-2.5" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teachers.map((t) => (
+                      <tr key={t.profileId} className="border-b border-slate-50 hover:bg-slate-50/50">
+                        <td className="px-4 py-2.5">
+                          <div className="font-medium text-slate-900">{t.name || '—'}</div>
+                          <div className="text-xs text-slate-500">{t.email}</div>
+                        </td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.classroomCount}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.assignmentCount}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.inkBalance}</td>
+                        <td className="px-3 py-2.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGrantValue('')
+                              setGrantTarget(t)
+                            }}
+                            className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+                          >
+                            配發點數
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!teachersLoading && teachers.length === 0 && (
+                  <div className="px-4 py-10 text-center text-sm text-slate-400">
+                    尚無老師——老師完成一次 1Campus 登入或班級同步後會自動出現在這裡。
+                  </div>
+                )}
+                {teachersLoading && (
+                  <div className="px-4 py-10 text-center text-sm text-slate-400">載入中…</div>
+                )}
+              </div>
+
+              {/* 學校點數紀錄 */}
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-slate-700">學校點數紀錄</h3>
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-xs text-slate-500">
+                        <th className="px-4 py-2.5 font-medium">時間</th>
+                        <th className="px-3 py-2.5 font-medium text-right">變動</th>
+                        <th className="px-3 py-2.5 font-medium text-right">餘額</th>
+                        <th className="px-3 py-2.5 font-medium">項目</th>
+                        <th className="px-3 py-2.5 font-medium">操作者</th>
+                        <th className="px-3 py-2.5 font-medium">備註</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {walletLedger.map((l, i) => (
+                        <tr key={`${l.createdAt}:${i}`} className="border-b border-slate-50">
+                          <td className="px-4 py-2 text-slate-600">
+                            {new Date(l.createdAt).toLocaleString('zh-TW', {
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </td>
+                          <td
+                            className={`px-3 py-2 text-right font-semibold tabular-nums ${
+                              l.delta > 0 ? 'text-emerald-600' : 'text-rose-600'
+                            }`}
+                          >
+                            {l.delta > 0 ? '+' : ''}
+                            {l.delta}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate-700">{l.balanceAfter ?? '—'}</td>
+                          <td className="px-3 py-2 text-slate-700">{LEDGER_REASON_LABEL[l.reason] || l.reason}</td>
+                          <td className="px-3 py-2 text-slate-600">{l.actorName || '—'}</td>
+                          <td className="px-3 py-2 text-slate-500">{l.note || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {walletLedger.length === 0 && (
+                    <div className="px-4 py-8 text-center text-sm text-slate-400">尚無點數紀錄。</div>
+                  )}
+                </div>
+              </div>
             </div>
           ) : (
             <>
@@ -697,6 +879,54 @@ export default function SchoolAdminPanel({
         </section>
       </div>
       </div>
+
+      {/* 配發點數 modal:學校池 → 老師個人帳戶 */}
+      {grantTarget && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div className="flex items-center justify-center gap-2 border-b border-amber-200 bg-amber-50 px-6 py-4 text-amber-800">
+              <Droplet className="h-4 w-4" />
+              <span className="text-base font-bold">配發點數給 {grantTarget.name || grantTarget.email}</span>
+            </div>
+            <div className="space-y-3 px-6 py-5">
+              <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
+                從學校點數(目前 {walletBalance ?? '—'} 點)轉入老師個人帳戶,供其日常批改使用。此操作會寫入雙方點數紀錄。
+              </p>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-600">配發點數(正整數)</label>
+                <input
+                  type="number"
+                  value={grantValue}
+                  onChange={(e) => setGrantValue(e.target.value)}
+                  min={1}
+                  step={1}
+                  autoFocus
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  placeholder="例如 100"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-6 pb-5">
+              <button
+                type="button"
+                onClick={() => setGrantTarget(null)}
+                disabled={grantBusy}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitGrant()}
+                disabled={grantBusy || !grantValue.trim() || !(parseInt(grantValue, 10) > 0)}
+                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                {grantBusy ? '處理中…' : '確認配發'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 學校儲值 modal(admin only;樣式對齊 ConfirmModal) */}
       {topupOpen && (
