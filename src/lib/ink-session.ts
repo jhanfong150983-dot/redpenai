@@ -81,10 +81,12 @@ export async function refreshInkBalance(): Promise<number | null> {
 }
 
 export async function startInkSession() {
-  // 學校計費模式(行政端):不建個人會話——扣款走學校錢包(proxy x-school-billing)
+  // 學校計費模式(行政端):不建個人會話——扣款走學校錢包(proxy x-school-billing)。
+  // 回哨兵值讓入場閘(if (!data?.sessionId) throw)通過;本機不儲存、請求 body 不會帶它
+  //(ensureInkSessionFresh 在學校模式回空字串、proxy 只認 header)。
   if (getSchoolBillingContext()) {
     setInkSessionId(null)
-    return { sessionId: '', expiresAt: undefined }
+    return { sessionId: 'school-billing', expiresAt: undefined }
   }
   const response = await fetch('/api/ink/sessions?action=start', {
     method: 'POST',
