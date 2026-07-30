@@ -11,6 +11,7 @@ import { requestSync } from '@/lib/sync-events'
 import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages } from '@/lib/gemini'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
+import { getSchoolBillingContext } from '@/lib/school-billing'
 import { checkFolderNameUnique, domainRank, sortByDomainThenName } from '@/lib/utils'
 import AnswerKeyUnifiedModal from '@/components/AnswerKeyUnifiedModal'
 import InkConfirmModal from '@/components/InkConfirmModal'
@@ -122,7 +123,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ shareCode: code })
+        body: JSON.stringify({ shareCode: code, schoolId: getSchoolBillingContext() ?? undefined })
       })
       const data = await res.json()
       if (!res.ok) { setImportError(data?.error || '匯入失敗'); return }
@@ -143,6 +144,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         // pageBreaks fallback 拿不到 orientations、直/橫拍混合作業切點對半切錯）
         pageOrientations: t.pageOrientations ?? undefined,
         answerSheetMode: t.answerSheetMode ?? undefined,
+        schoolId: t.schoolId ?? undefined,
         updatedAt: cloudUpdatedAt,
       })
       requestSync(); await loadData()
@@ -177,11 +179,15 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   const loadData = useCallback(async () => {
     try {
-      const [allTemplates, allFolders, allAssignments] = await Promise.all([
+      const [allTemplatesRaw, allFolders, allAssignments] = await Promise.all([
         db.answerKeyTemplates.toArray(),
         db.folders.where('type').equals('assignment').toArray(),
         db.assignments.toArray(),
       ])
+      // 2026-07-31 學校/個人分流:行政端(school billing context 有值)只看學校答案卷、
+      // 教師端只看個人答案卷——同一個人兩種身分也不互見
+      const sbCtx = getSchoolBillingContext()
+      const allTemplates = allTemplatesRaw.filter((t) => (sbCtx ? t.schoolId === sbCtx : !t.schoolId))
       setTemplates(allTemplates)
       const folderNames = allFolders.map((f) => f.name)
       setEmptyFolders(folderNames)
@@ -581,6 +587,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         totalScore: answerKey.totalScore ?? 0,
         shareCode: 'AK-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
         pageOrientations,
+        schoolId: getSchoolBillingContext() ?? undefined,
         version: 1,
         updatedAt: Date.now(),
       }

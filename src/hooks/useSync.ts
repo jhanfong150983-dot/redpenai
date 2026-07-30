@@ -826,6 +826,7 @@ export function useSync(options: UseSyncOptions = {}) {
         domain: t.domain ?? null,
         docType: t.docType ?? null,
         folder: t.folder ?? null,
+        schoolId: t.schoolId ?? undefined,
         answerKey: t.answerKey ? {
           ...t.answerKey,
           questions: t.answerKey.questions?.map(q => {
@@ -1501,6 +1502,7 @@ export function useSync(options: UseSyncOptions = {}) {
           domain: t.domain ?? undefined,
           docType: t.docType ?? t.doc_type ?? undefined,
           folder: t.folder ?? undefined,
+          schoolId: t.schoolId ?? t.school_id ?? undefined,
           answerKey: t.answerKey ?? t.answer_key,
           questionCount: t.questionCount ?? t.question_count ?? t.answerKey?.questions?.length ?? 0,
           totalScore: t.totalScore ?? t.total_score ?? t.answerKey?.totalScore ?? 0,

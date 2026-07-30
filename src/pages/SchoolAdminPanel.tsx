@@ -64,8 +64,8 @@ type SchoolTab = 'overview' | 'answerkeys' | 'exams' | 'teachers' | 'weakness'
 
 const navItems: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashboard; enabled: boolean }> = [
   { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
-  // 答案卷=嵌入老師端整頁(行政名下模板;建立/擷取/分享碼匯入全套功能,考卷一切不假手教師介面)
-  { key: 'answerkeys', label: '答案卷', icon: BookOpen, enabled: true },
+  // 建立答案=嵌入老師端答案卷整頁(只顯示學校答案卷;建立/擷取/分享碼匯入全套功能)
+  { key: 'answerkeys', label: '建立答案', icon: BookOpen, enabled: true },
   { key: 'exams', label: '考卷批改', icon: BookOpen, enabled: true },
   { key: 'teachers', label: '教師總覽', icon: Users, enabled: true },
   { key: 'weakness', label: '弱點分析', icon: TrendingUp, enabled: false }
@@ -802,7 +802,7 @@ export default function SchoolAdminPanel({
               {tab === 'overview'
                 ? '學生總覽'
                 : tab === 'answerkeys'
-                  ? '答案卷'
+                  ? '建立答案'
                   : tab === 'exams'
                     ? '考卷批改'
                     : tab === 'teachers'

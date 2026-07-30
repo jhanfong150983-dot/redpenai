@@ -413,6 +413,9 @@ export interface AnswerKeyTemplate {
   docType?: 'worksheet' | 'exam'
   answerSheetMode?: 'with_questions' | 'answer_only'
   folder?: string
+  // 2026-07-31 學校歸屬:行政端建立/匯入的答案卷標記所屬學校——行政端只顯示有標記的、
+  // 教師端只顯示沒標記的(兩邊不混)
+  schoolId?: string
   answerKey: AnswerKey
   questionCount?: number
   totalScore?: number
