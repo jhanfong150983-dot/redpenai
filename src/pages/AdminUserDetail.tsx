@@ -1,9 +1,24 @@
-import { useState, useEffect } from 'react'
-import { ArrowLeft, Users, FileText, Droplet } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { ArrowLeft, Users, FileText, Droplet, School, X } from 'lucide-react'
+import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
 
 interface AdminUserDetailProps {
   userId: string
   onBack: () => void
+}
+
+// 學校行政(school_admins)整合:2026-07-30 user 拍板從獨立 tab 併入使用者管理,
+// 詳情頁直接以 profileId 開通/移除、免填 email。學校清單只來自 1Campus 同步。
+interface SchoolRow {
+  id: string
+  name: string
+  provider_dsns: string | null
+}
+
+interface SchoolAdminRow {
+  schoolId: string
+  profileId: string
+  createdAt: string
 }
 
 interface ProfileData {
@@ -53,10 +68,33 @@ interface UserDetailData {
 type TabType = 'classrooms' | 'assignments' | 'ink'
 
 export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps) {
+  const confirm = useConfirm()
+  const alertModal = useAlertModal()
   const [detail, setDetail] = useState<UserDetailData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabType>('classrooms')
+  const [schools, setSchools] = useState<SchoolRow[]>([])
+  const [schoolAdmins, setSchoolAdmins] = useState<SchoolAdminRow[]>([])
+  const [pickSchoolId, setPickSchoolId] = useState('')
+  const [saBusy, setSaBusy] = useState(false)
+
+  const loadSchoolAdmins = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/school-admins?action=school-admins', { credentials: 'include' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || '讀取失敗')
+      setSchools(Array.isArray(data.schools) ? data.schools : [])
+      setSchoolAdmins(Array.isArray(data.admins) ? data.admins : [])
+    } catch (e) {
+      // 學校行政區塊載入失敗不擋詳情頁,操作時再報錯
+      console.warn('load school-admins failed:', e)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadSchoolAdmins()
+  }, [loadSchoolAdmins])
 
   useEffect(() => {
     const loadDetail = async () => {
@@ -161,6 +199,70 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
     { id: 'ink' as TabType, label: '墨水紀錄', icon: Droplet, count: detail.inkLedger.length }
   ]
 
+  const schoolById = new Map(schools.map((s) => [s.id, s]))
+  const mySchools = schoolAdmins.filter((a) => a.profileId === userId)
+  const mySchoolIds = new Set(mySchools.map((a) => a.schoolId))
+  const availableSchools = schools.filter((s) => !mySchoolIds.has(s.id))
+  const displayName = detail.profile.name || detail.profile.email || userId
+
+  async function grantSchool() {
+    if (!pickSchoolId) return
+    const schoolName = schoolById.get(pickSchoolId)?.name || pickSchoolId
+    if (
+      !(await confirm({
+        title: '開通學校行政',
+        message: `確定將 ${displayName} 開通為「${schoolName}」的學校行政?\n對方將可進入學校檢視,看到該校已歸戶的班級與學生。`,
+        tone: 'warning',
+        confirmLabel: '開通'
+      }))
+    )
+      return
+    setSaBusy(true)
+    try {
+      const res = await fetch('/api/admin/school-admins?action=school-admins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ profileId: userId, schoolId: pickSchoolId })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || '開通失敗')
+      setPickSchoolId('')
+      await loadSchoolAdmins()
+    } catch (e) {
+      await alertModal(e instanceof Error ? e.message : '開通失敗', { title: '開通失敗' })
+    } finally {
+      setSaBusy(false)
+    }
+  }
+
+  async function revokeSchool(schoolId: string) {
+    const schoolName = schoolById.get(schoolId)?.name || schoolId
+    if (
+      !(await confirm({
+        title: '移除學校行政',
+        message: `確定移除 ${displayName} 對「${schoolName}」的行政權限?\n移除後對方將無法進入該校的學校檢視(不影響其原本的老師身分與資料)。`,
+        tone: 'danger',
+        confirmLabel: '移除'
+      }))
+    )
+      return
+    setSaBusy(true)
+    try {
+      const res = await fetch(
+        `/api/admin/school-admins?action=school-admins&profileId=${encodeURIComponent(userId)}&schoolId=${encodeURIComponent(schoolId)}`,
+        { method: 'DELETE', credentials: 'include' }
+      )
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || '移除失敗')
+      await loadSchoolAdmins()
+    } catch (e) {
+      await alertModal(e instanceof Error ? e.message : '移除失敗', { title: '移除失敗' })
+    } finally {
+      setSaBusy(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-white p-4">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -198,6 +300,11 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
                     Pro
                   </span>
                 )}
+                {mySchools.length > 0 && (
+                  <span className="px-3 py-1 bg-indigo-100 text-indigo-700 text-sm font-medium rounded-full">
+                    學校行政
+                  </span>
+                )}
                 <span className="px-3 py-1 bg-gray-100 text-gray-700 text-sm font-medium rounded-full">
                   {detail.profile.role || 'user'}
                 </span>
@@ -220,6 +327,58 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
                   <p className="text-lg font-semibold text-gray-900">
                     {formatDate(detail.profile.updated_at)}
                   </p>
+                </div>
+              </div>
+
+              {/* 學校行政管理:chips=已開通學校(×移除)+下拉開通;學校清單來自 1Campus 同步 */}
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="flex items-center gap-1.5 text-sm text-gray-600">
+                    <School className="w-4 h-4 text-indigo-500" />
+                    學校行政:
+                  </span>
+                  {mySchools.length === 0 && <span className="text-sm text-gray-400">無</span>}
+                  {mySchools.map((row) => (
+                    <span
+                      key={row.schoolId}
+                      className="flex items-center gap-1 rounded-full bg-indigo-50 border border-indigo-200 pl-3 pr-1.5 py-1 text-sm text-indigo-700"
+                    >
+                      {schoolById.get(row.schoolId)?.name || row.schoolId}
+                      <button
+                        type="button"
+                        onClick={() => revokeSchool(row.schoolId)}
+                        disabled={saBusy}
+                        className="p-0.5 rounded-full text-indigo-400 hover:bg-indigo-100 hover:text-red-500"
+                        aria-label="移除此校行政權限"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </span>
+                  ))}
+                  {availableSchools.length > 0 && (
+                    <>
+                      <select
+                        value={pickSchoolId}
+                        onChange={(e) => setPickSchoolId(e.target.value)}
+                        className="rounded-lg border border-slate-300 px-2 py-1 text-sm bg-white"
+                      >
+                        <option value="">選擇學校…</option>
+                        {availableSchools.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name || s.id}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={grantSchool}
+                        disabled={saBusy || !pickSchoolId}
+                        className="rounded-lg bg-indigo-600 px-3 py-1 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        設為行政
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
