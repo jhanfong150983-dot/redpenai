@@ -100,9 +100,11 @@ function effectiveGrade(c: ClassRow): number | null {
   return c.grade != null ? c.grade : gradeFromLabel(c.class_label)
 }
 
-export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
+export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack: () => void; preferredSchoolId?: string }) {
   const [tab, setTab] = useState<SchoolTab>('overview')
   const [school, setSchool] = useState<SchoolRow | null>(null)
+  // 2026-07-30:系統 admin 看得到所有學校——保留清單供切換;預設選「自己行政歸屬」的學校
+  const [schoolList, setSchoolList] = useState<SchoolRow[]>([])
   const [classes, setClasses] = useState<ClassRow[]>([])
   const [selectedClass, setSelectedClass] = useState<string | null>(null)
   const [students, setStudents] = useState<StudentRow[]>([])
@@ -117,7 +119,12 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
     setError(null)
     try {
       const { schools } = await fetchOverview({})
-      const first: SchoolRow | undefined = Array.isArray(schools) ? schools[0] : undefined
+      const list: SchoolRow[] = Array.isArray(schools) ? schools : []
+      setSchoolList(list)
+      // 2026-07-30 user 回報:admin 帳號預設選到清單第一所(展示學校)看見莫名班級——
+      //   改為優先選自己 school_admins 歸屬的學校,找不到才退回第一所
+      const first: SchoolRow | undefined =
+        (preferredSchoolId ? list.find((s) => s.school_id === preferredSchoolId) : undefined) ?? list[0]
       if (!first) {
         setError('尚無已歸戶的學校')
         setLoading(false)
@@ -131,11 +138,33 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [preferredSchoolId])
 
   useEffect(() => {
     void loadSchool()
   }, [loadSchool])
+
+  // 切換學校(多校時的下拉;單校不顯示)
+  const switchSchool = useCallback(async (sid: string) => {
+    const target = schoolList.find((s) => s.school_id === sid)
+    if (!target || target.school_id === school?.school_id) return
+    setLoading(true)
+    setError(null)
+    setSchool(target)
+    setSelectedClass(null)
+    setStudents([])
+    setPerson(null)
+    setRecords([])
+    setGradeFilter('all')
+    try {
+      const { classes: cls } = await fetchOverview({ schoolId: target.school_id })
+      setClasses(Array.isArray(cls) ? cls : [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '讀取失敗')
+    } finally {
+      setLoading(false)
+    }
+  }, [schoolList, school])
 
   const openClass = useCallback(
     async (label: string) => {
@@ -240,14 +269,28 @@ export default function SchoolAdminPanel({ onBack }: { onBack: () => void }) {
               <p className="text-xs text-slate-500">學校檢視{school ? ` · ${school.name}` : ''}</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onBack}
-            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:border-slate-300"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            返回教師端
-          </button>
+          <div className="flex items-center gap-2">
+            {schoolList.length > 1 && (
+              <select
+                value={school?.school_id ?? ''}
+                onChange={(e) => void switchSchool(e.target.value)}
+                className="h-10 rounded-lg border border-slate-200 bg-white px-2 text-sm text-slate-700 shadow-sm"
+                aria-label="切換學校"
+              >
+                {schoolList.map((s) => (
+                  <option key={s.school_id} value={s.school_id}>{s.name}</option>
+                ))}
+              </select>
+            )}
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm hover:border-slate-300"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              返回教師端
+            </button>
+          </div>
         </div>
       </header>
 

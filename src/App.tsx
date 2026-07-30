@@ -1919,7 +1919,10 @@ function App() {
     }
     return (
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>}>
-        <SchoolAdminPanel onBack={() => setCurrentPage('home')} />
+        <SchoolAdminPanel
+          onBack={() => setCurrentPage('home')}
+          preferredSchoolId={auth.status === 'authenticated' ? auth.user.schoolAdmin?.schoolId : undefined}
+        />
       </Suspense>
     )
   }
