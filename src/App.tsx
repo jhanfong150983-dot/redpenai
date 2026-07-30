@@ -1922,7 +1922,6 @@ function App() {
         <SchoolAdminPanel
           onBack={() => setCurrentPage('home')}
           preferredSchoolId={auth.status === 'authenticated' ? auth.user.schoolAdmin?.schoolId : undefined}
-          isAdmin={auth.status === 'authenticated' && auth.user.role === 'admin'}
         />
       </Suspense>
     )

@@ -133,24 +133,18 @@ function effectiveGrade(c: ClassRow): number | null {
   return c.grade != null ? c.grade : gradeFromLabel(c.class_label)
 }
 
-// 2026-07-30 Step 4(user 拍板改判):學校層級共用錢包(schools.ink_balance)——
-// 同校所有行政看到同一個餘額、統一批改扣學校池;儲值=系統 admin 在此頁操作(簽約制)。
-// 未來:學校可把錢包墨水配發給該校老師(school_grant 轉帳,後續步驟)。
+// 2026-07-30 Step 4(user 拍板):學校層級共用錢包(schools.ink_balance)——
+// 同校所有行政看到同一個餘額、統一批改扣學校池。學校端只讀:儲值一律由系統 admin
+// 在管理者面板「學校錢包」操作(簽約/付款後入點);行政可做的是「配發」給該校老師。
 export default function SchoolAdminPanel({
   onBack,
-  preferredSchoolId,
-  isAdmin
+  preferredSchoolId
 }: {
   onBack: () => void
   preferredSchoolId?: string
-  isAdmin?: boolean
 }) {
   const alertModal = useAlertModal()
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
-  const [topupOpen, setTopupOpen] = useState(false)
-  const [topupValue, setTopupValue] = useState('')
-  const [topupNote, setTopupNote] = useState('')
-  const [topupBusy, setTopupBusy] = useState(false)
   const [teachers, setTeachers] = useState<TeacherOverviewRow[]>([])
   const [walletLedger, setWalletLedger] = useState<WalletLedgerRow[]>([])
   const [teachersLoading, setTeachersLoading] = useState(false)
@@ -324,33 +318,6 @@ export default function SchoolAdminPanel({
     }
   }, [school, grantTarget, grantValue, alertModal, loadTeachers])
 
-  // 學校儲值(僅系統 admin 可見/可呼叫;server 端 requireAdmin 再驗一次)
-  const submitTopup = useCallback(async () => {
-    const sid = school?.school_id ?? preferredSchoolId
-    const delta = parseInt(topupValue, 10)
-    if (!sid || !Number.isFinite(delta) || delta === 0) return
-    setTopupBusy(true)
-    try {
-      const res = await fetch('/api/admin/school-wallet?action=school-wallet', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ schoolId: sid, delta, note: topupNote.trim() || undefined })
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || '儲值失敗')
-      setTopupOpen(false)
-      setWalletBalance(typeof data.balance === 'number' ? data.balance : null)
-      await alertModal(
-        `已為「${data.schoolName || school?.name || ''}」${delta > 0 ? '儲值' : '調整'} ${delta} 點,目前餘額 ${data.balance} 點。`
-      )
-    } catch (err) {
-      await alertModal(err instanceof Error ? err.message : '儲值失敗', { title: '儲值失敗' })
-    } finally {
-      setTopupBusy(false)
-    }
-  }, [school, preferredSchoolId, topupValue, topupNote, alertModal])
-
   const openClass = useCallback(
     async (label: string, classId?: string | null) => {
       if (!school) return
@@ -458,27 +425,14 @@ export default function SchoolAdminPanel({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {(walletBalance != null || isAdmin) && (
+            {walletBalance != null && (
               <div
                 className="flex h-10 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 text-sm text-amber-800"
-                title="學校共用點數:統一批改與報告產生由學校點數扣除,全校行政看到同一個餘額"
+                title="學校共用點數:統一批改與報告產生由學校點數扣除,全校行政看到同一個餘額。儲值由 RedPen AI 於簽約/付款後入點。"
               >
                 <Droplet className="h-4 w-4" />
-                <span className="font-semibold tabular-nums">{walletBalance ?? '—'}</span>
+                <span className="font-semibold tabular-nums">{walletBalance}</span>
                 <span className="text-xs">學校點數</span>
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTopupValue('')
-                      setTopupNote('')
-                      setTopupOpen(true)
-                    }}
-                    className="ml-1 rounded bg-amber-600 px-1.5 py-0.5 text-[11px] font-semibold text-white hover:bg-amber-700"
-                  >
-                    儲值
-                  </button>
-                )}
               </div>
             )}
             {schoolList.length > 1 && (
@@ -928,60 +882,6 @@ export default function SchoolAdminPanel({
         </div>
       )}
 
-      {/* 學校儲值 modal(admin only;樣式對齊 ConfirmModal) */}
-      {topupOpen && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-            <div className="flex items-center justify-center gap-2 border-b border-amber-200 bg-amber-50 px-6 py-4 text-amber-800">
-              <Droplet className="h-4 w-4" />
-              <span className="text-base font-bold">學校點數儲值 · {school?.name || ''}</span>
-            </div>
-            <div className="space-y-3 px-6 py-5">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">點數(正數=儲值、負數=調減)</label>
-                <input
-                  type="number"
-                  value={topupValue}
-                  onChange={(e) => setTopupValue(e.target.value)}
-                  step={1}
-                  autoFocus
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="例如 1000"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">備註(選填,寫入點數紀錄)</label>
-                <input
-                  type="text"
-                  value={topupNote}
-                  onChange={(e) => setTopupNote(e.target.value)}
-                  maxLength={200}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="例如:2026 學年度預付點數包"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 px-6 pb-5">
-              <button
-                type="button"
-                onClick={() => setTopupOpen(false)}
-                disabled={topupBusy}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitTopup()}
-                disabled={topupBusy || !topupValue.trim() || parseInt(topupValue, 10) === 0 || Number.isNaN(parseInt(topupValue, 10))}
-                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
-              >
-                {topupBusy ? '處理中…' : '確認儲值'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

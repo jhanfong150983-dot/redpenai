@@ -1,18 +1,19 @@
 import { useState } from 'react'
-import { ArrowLeft, Users, Receipt, BarChart3, Megaphone, Activity } from 'lucide-react'
+import { ArrowLeft, Users, Receipt, BarChart3, Megaphone, Activity, Droplet } from 'lucide-react'
 import AdminUsers from './AdminUsers'
 import AdminOrders from './AdminOrders'
 import AdminAnalytics from './AdminAnalytics'
 import AdminAnnouncements from './AdminAnnouncements'
 import AdminQuality from './AdminQuality'
+import AdminSchoolWallet from './AdminSchoolWallet'
 
 type AdminPanelProps = {
   onBack: () => void
   onNavigateToDetail?: (userId: string) => void
-  initialTab?: 'users' | 'orders' | 'analytics' | 'announcements' | 'quality'
+  initialTab?: 'users' | 'orders' | 'analytics' | 'announcements' | 'quality' | 'school-wallet'
 }
 
-type TabType = 'users' | 'orders' | 'analytics' | 'announcements' | 'quality'
+type TabType = 'users' | 'orders' | 'analytics' | 'announcements' | 'quality' | 'school-wallet'
 
 export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'users' }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<TabType>(initialTab)
@@ -23,6 +24,7 @@ export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'u
     { id: 'analytics' as TabType, label: '使用情形', icon: BarChart3, color: 'text-purple-600' },
     { id: 'announcements' as TabType, label: '公告管理', icon: Megaphone, color: 'text-blue-600' },
     { id: 'quality' as TabType, label: '批改品質', icon: Activity, color: 'text-emerald-600' },
+    { id: 'school-wallet' as TabType, label: '學校錢包', icon: Droplet, color: 'text-amber-600' },
   ]
 
   const renderContent = () => {
@@ -37,6 +39,8 @@ export default function AdminPanel({ onBack, onNavigateToDetail, initialTab = 'u
         return <AdminAnnouncements />
       case 'quality':
         return <AdminQuality />
+      case 'school-wallet':
+        return <AdminSchoolWallet />
       default:
         return null
     }
