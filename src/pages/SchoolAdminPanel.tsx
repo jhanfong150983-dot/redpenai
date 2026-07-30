@@ -17,6 +17,9 @@ import {
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
 import AnswerBank from '@/pages/AnswerBank'
+import UnifiedImportPage from '@/pages/UnifiedImportPage'
+import SyncIndicator from '@/components/SyncIndicator'
+import { requestSync, waitForSync } from '@/lib/sync-events'
 import { setSchoolBillingContext } from '@/lib/school-billing'
 
 // 學校管理層（教務主任）檢視頁。
@@ -243,6 +246,10 @@ export default function SchoolAdminPanel({
   const [pickedClassIds, setPickedClassIds] = useState<Set<string>>(new Set())
   const [creatingExam, setCreatingExam] = useState(false)
   const [expandedExamId, setExpandedExamId] = useState<string | null>(null)
+  // Step 7:匯入考卷(班級 tabs+教師端 PDF 匯入整套重用;開啟前先 sync pull 確保 Dexie 有考卷資料)
+  const [importExam, setImportExam] = useState<SchoolExamRow | null>(null)
+  const [importClassIdx, setImportClassIdx] = useState(0)
+  const [importSyncing, setImportSyncing] = useState(false)
   const [tab, setTab] = useState<SchoolTab>('overview')
   const [rosterSyncing, setRosterSyncing] = useState(false)
   // 首次使用自動準備:空校(從未同步)且有歸屬校 → 自動跑一次全校名冊同步,行政零操作
@@ -703,6 +710,17 @@ export default function SchoolAdminPanel({
     setRecords([])
   }
 
+  // 匯入考卷:開啟前先 sync(把行政名下的考卷 assignment/班級/學生 pull 進本機資料庫)
+  const openImportExam = useCallback((ex: SchoolExamRow) => {
+    setImportExam(ex)
+    setImportClassIdx(0)
+    setImportSyncing(true)
+    requestSync(true)
+    waitForSync(45000)
+      .catch(() => {})
+      .finally(() => setImportSyncing(false))
+  }, [])
+
   // 建卷 modal 第四步的班級選擇內容(年級分組 chips;狀態在本元件)
   const examClassPicker = (
     <>
@@ -808,6 +826,8 @@ export default function SchoolAdminPanel({
                 ))}
               </select>
             )}
+            {/* sync 引擎宿主:行政端在主 shell 之外,匯入的卷靠這顆上雲(Step 7 必要) */}
+            <SyncIndicator autoSync />
             <button
               type="button"
               onClick={onBack}
@@ -995,9 +1015,8 @@ export default function SchoolAdminPanel({
                         <div className="flex items-center justify-end gap-2 whitespace-nowrap pb-1">
                           <button
                             type="button"
-                            disabled
-                            title="下一步推出(逐班 PDF 匯入)"
-                            className="inline-flex h-24 w-24 cursor-not-allowed flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-100 text-xs font-medium text-slate-400"
+                            onClick={() => openImportExam(ex)}
+                            className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
                           >
                             <Upload className="h-4 w-4" />
                             <span className="text-center leading-tight">匯入考卷</span>
@@ -1458,6 +1477,60 @@ export default function SchoolAdminPanel({
           content: examClassPicker
         }}
       />
+
+      {/* Step 7:匯入考卷 modal——班級 tabs,每 tab=教師端匯入頁整套(PDF-only) */}
+      {importExam && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm">
+          <div className="flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+              <div className="flex items-center gap-2 text-slate-900">
+                <Upload className="h-4 w-4 text-sky-600" />
+                <span className="text-base font-bold">匯入考卷 · {importExam.title}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setImportExam(null)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:border-slate-400"
+              >
+                完成並關閉
+              </button>
+            </div>
+            {/* 班級 tabs */}
+            <div className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50/60 px-3 pt-2">
+              {importExam.classes.map((c, i) => (
+                <button
+                  key={c.campusClassId}
+                  type="button"
+                  onClick={() => setImportClassIdx(i)}
+                  className={`shrink-0 rounded-t-lg border border-b-0 px-4 py-2 text-sm font-medium transition ${
+                    i === importClassIdx
+                      ? 'border-slate-200 bg-white text-sky-700'
+                      : 'border-transparent text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {c.className}
+                </button>
+              ))}
+            </div>
+            <div className="min-h-0 flex-1">
+              {importSyncing ? (
+                <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                  正在準備考卷資料…
+                </div>
+              ) : (
+                importExam.classes[importClassIdx] && (
+                  <UnifiedImportPage
+                    key={importExam.classes[importClassIdx].assignmentId}
+                    assignmentId={importExam.classes[importClassIdx].assignmentId}
+                    embedded
+                    pdfOnly
+                  />
+                )
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 代批作業選擇 modal */}
       {assignTarget && (

@@ -69,6 +69,8 @@ interface UnifiedImportPageProps {
   onUploadComplete?: () => void
   embedded?: boolean
   onCaptureModeChange?: (isCaptureMode: boolean) => void
+  // 2026-07-31 行政端考卷匯入:只保留「PDF 批次匯入」入口(拍照/相機/單生上傳全部隱藏)
+  pdfOnly?: boolean
 }
 
 type ViewType = 'grid' | 'capture'
@@ -252,6 +254,7 @@ export default function UnifiedImportPage({
   onUploadComplete,
   embedded = false,
   onCaptureModeChange,
+  pdfOnly = false,
 }: UnifiedImportPageProps) {
   // 2026-07-22 modal 統一：window.confirm/alert → 共用 ConfirmModal
   const confirmModal = useConfirm()
@@ -975,8 +978,8 @@ export default function UnifiedImportPage({
       if (hasSubmission) {
         // Has submission → open preview
         void openPreview(student)
-      } else {
-        // No submission → toggle action sheet
+      } else if (!pdfOnly) {
+        // No submission → toggle action sheet(pdfOnly=行政考卷模式只走 PDF 批次匯入,無單生上傳)
         setActionSheetStudent(
           actionSheetStudent?.id === student.id ? null : student,
         )
@@ -1177,8 +1180,8 @@ export default function UnifiedImportPage({
                   </div>
                 </button>
 
-                {/* Action sheet popover — show BELOW the card */}
-                {actionSheetStudent?.id === student.id && (
+                {/* Action sheet popover — show BELOW the card(pdfOnly 隱藏) */}
+                {!pdfOnly && actionSheetStudent?.id === student.id && (
                   <>
                     {/* Backdrop */}
                     <div
