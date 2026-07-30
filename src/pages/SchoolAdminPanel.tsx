@@ -65,15 +65,17 @@ const navItems: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashbo
   { key: 'weakness', label: '弱點分析', icon: TrendingUp, enabled: false }
 ]
 
-// 教師總覽(2026-07-30):該校 active 老師+班級/作業數+個人點數;配發=學校池→老師
+// 教師總覽(2026-07-30):全校教師名冊(getTeacher 全校抓)為主體;
+// 帳號統一顯示 1Campus 帳號(tmail 只是新竹市的 google 帳號),綁定與否掛標籤。
 interface TeacherOverviewRow {
-  profileId: string
   name: string
-  email: string
-  inkBalance: number
-  classroomCount: number
-  assignmentCount: number
-  joinedAt: string
+  account: string
+  bound: boolean
+  profileId: string | null
+  loginEmail: string
+  inkBalance: number | null
+  classroomCount: number | null
+  assignmentCount: number | null
 }
 interface WalletLedgerRow {
   delta: number
@@ -252,7 +254,7 @@ export default function SchoolAdminPanel({
       if (!res.ok) throw new Error(data?.error || '同步失敗')
       const unresolved = (data.missingChecked ?? 0) - (data.departedMarked ?? 0)
       await alertModal(
-        `班級:${data.classes} 個\n在籍學生:${data.studentsSeen} 人(新增歸戶 ${data.newPersons} 人、復學 ${data.reactivated} 人)\n轉出/離校標記:${data.departedMarked} 人${
+        `班級:${data.classes} 個\n在籍學生:${data.studentsSeen} 人(新增歸戶 ${data.newPersons} 人、復學 ${data.reactivated} 人)\n教師名冊:${data.teacherCount ?? 0} 位\n轉出/離校標記:${data.departedMarked} 人${
           unresolved > 0 ? `(另 ${unresolved} 人不在名冊但查無離校紀錄,維持原狀)` : ''
         }\n家長綁定:${
           data.parentFieldPresent ? `${data.parentBound} / ${data.studentsSeen} 人` : '此授權未回傳家長綁定資料'
@@ -297,7 +299,7 @@ export default function SchoolAdminPanel({
   const submitGrant = useCallback(async () => {
     const sid = school?.school_id
     const amount = parseInt(grantValue, 10)
-    if (!sid || !grantTarget || !Number.isFinite(amount) || amount <= 0) return
+    if (!sid || !grantTarget?.profileId || !Number.isFinite(amount) || amount <= 0) return
     setGrantBusy(true)
     try {
       const res = await fetch('/api/data/school-grant', {
@@ -532,8 +534,8 @@ export default function SchoolAdminPanel({
             </div>
           </div>
 
-          {/* 學校摘要 */}
-          {school && (
+          {/* 學校摘要(學生/班級數;教師總覽 tab 有自己的教師摘要) */}
+          {school && tab !== 'teachers' && (
             <div className="mb-5 flex flex-wrap items-center gap-6 rounded-xl border border-slate-200 bg-slate-50/60 px-5 py-3">
               <div className="flex items-center gap-2 text-slate-700">
                 <Users className="h-4 w-4 text-sky-600" />
@@ -567,12 +569,27 @@ export default function SchoolAdminPanel({
             </div>
           ) : tab === 'teachers' ? (
             <div className="space-y-6">
-              {/* 教師清單 */}
+              {/* 教師摘要 */}
+              <div className="flex flex-wrap items-center gap-6 rounded-xl border border-slate-200 bg-slate-50/60 px-5 py-3">
+                <div className="flex items-center gap-2 text-slate-700">
+                  <Users className="h-4 w-4 text-sky-600" />
+                  <span className="text-lg font-semibold tabular-nums">{teachers.length}</span>
+                  <span className="text-sm text-slate-500">位教師</span>
+                </div>
+                <div className="flex items-center gap-2 text-slate-700">
+                  <span className="text-lg font-semibold tabular-nums text-emerald-600">
+                    {teachers.filter((t) => t.bound).length}
+                  </span>
+                  <span className="text-sm text-slate-500">位已綁定登入</span>
+                </div>
+              </div>
+
+              {/* 教師清單:全校名冊為主體,帳號=1Campus 帳號、綁定與否掛標籤 */}
               <div className="overflow-x-auto rounded-xl border border-slate-200">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-xs text-slate-500">
-                      <th className="px-4 py-2.5 font-medium">老師</th>
+                      <th className="px-4 py-2.5 font-medium">老師(1Campus 帳號)</th>
                       <th className="px-3 py-2.5 font-medium text-right">班級數</th>
                       <th className="px-3 py-2.5 font-medium text-right">作業數</th>
                       <th className="px-3 py-2.5 font-medium text-right">個人點數</th>
@@ -580,15 +597,29 @@ export default function SchoolAdminPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {teachers.map((t) => (
-                      <tr key={t.profileId} className="border-b border-slate-50 hover:bg-slate-50/50">
+                    {teachers.map((t, i) => (
+                      <tr key={t.profileId ?? t.account ?? i} className="border-b border-slate-50 hover:bg-slate-50/50">
                         <td className="px-4 py-2.5">
-                          <div className="font-medium text-slate-900">{t.name || '—'}</div>
-                          <div className="text-xs text-slate-500">{t.email}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-900">{t.name || '—'}</span>
+                            {t.bound ? (
+                              <span
+                                className="rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
+                                title={t.loginEmail ? `登入帳號:${t.loginEmail}` : undefined}
+                              >
+                                已綁定
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-slate-100 border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                                未綁定
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-500">{t.account || '—'}</div>
                         </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.classroomCount}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.assignmentCount}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.inkBalance}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.classroomCount ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.assignmentCount ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.inkBalance ?? '—'}</td>
                         <td className="px-3 py-2.5 text-right">
                           <button
                             type="button"
@@ -596,7 +627,9 @@ export default function SchoolAdminPanel({
                               setGrantValue('')
                               setGrantTarget(t)
                             }}
-                            className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+                            disabled={!t.bound}
+                            title={t.bound ? undefined : '老師尚未登入綁定,無法配發點數'}
+                            className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             配發點數
                           </button>
@@ -607,7 +640,7 @@ export default function SchoolAdminPanel({
                 </table>
                 {!teachersLoading && teachers.length === 0 && (
                   <div className="px-4 py-10 text-center text-sm text-slate-400">
-                    尚無老師——老師完成一次 1Campus 登入或班級同步後會自動出現在這裡。
+                    尚無教師名冊——請先按右上「全校名冊同步」;老師登入綁定後即可配發點數。
                   </div>
                 )}
                 {teachersLoading && (
@@ -840,7 +873,7 @@ export default function SchoolAdminPanel({
           <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
             <div className="flex items-center justify-center gap-2 border-b border-amber-200 bg-amber-50 px-6 py-4 text-amber-800">
               <Droplet className="h-4 w-4" />
-              <span className="text-base font-bold">配發點數給 {grantTarget.name || grantTarget.email}</span>
+              <span className="text-base font-bold">配發點數給 {grantTarget.name || grantTarget.account}</span>
             </div>
             <div className="space-y-3 px-6 py-5">
               <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
