@@ -1,4 +1,4 @@
-import { useState, useEffect, memo } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import { ImageIcon } from 'lucide-react'
 
 export interface SubmissionThumbnailData {
@@ -22,6 +22,28 @@ function SubmissionThumbnailInner({ submission }: {
   submission?: SubmissionThumbnailData | null
 }) {
   const [fetchedUrl, setFetchedUrl] = useState<string | null>(null)
+  // 2026-07-31 大規模防護(行政端考卷可達 60 班/1800 卡):雲端縮圖「進入視野才抓」,
+  // 否則掛載即齊發上千個 storage 請求。rootMargin 600px=捲近前預載;無 IO 環境退回立即抓
+  const [inView, setInView] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      setInView(true)
+      return
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setInView(true)
+          io.disconnect()
+        }
+      },
+      { rootMargin: '600px' }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
 
   // 只用縮圖，不 fallback 到原圖（原圖幾 MB，渲染會 lag）
   const thumbBlob = submission?.thumbnailBlob && submission.thumbnailBlob.size > 0
@@ -42,7 +64,7 @@ function SubmissionThumbnailInner({ submission }: {
   // Fallback: fetch thumbnail from Storage API when no local data available
   const subId = submission?.id
   const storagePath = submission?.thumbUrl || submission?.thumbnailUrl || submission?.imageUrl || null
-  const needsFetch = !base64Url && !thumbBlob && !!subId && !!storagePath
+  const needsFetch = inView && !base64Url && !thumbBlob && !!subId && !!storagePath
 
   useEffect(() => {
     if (!needsFetch || !subId) return
@@ -89,7 +111,7 @@ function SubmissionThumbnailInner({ submission }: {
 
   return (
     <>
-      <div className="absolute inset-0 flex items-center justify-center">
+      <div ref={rootRef} className="absolute inset-0 flex items-center justify-center">
         {isSynced ? (
           <div className="flex flex-col items-center justify-center text-gray-500">
             <ImageIcon className="w-10 h-10 text-blue-500" />

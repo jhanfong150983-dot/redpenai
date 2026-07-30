@@ -8171,7 +8171,12 @@ export default function GradingPage({
           // 批次模式：按班級分組顯示
           <div className="space-y-6">
             {studentsByClassroom.map(({ classroom: groupClassroom, students: groupStudents }) => (
-              <div key={groupClassroom.id}>
+              // content-visibility:auto — 行政端考卷可達 60+ 班/1800+ 卡,畫面外的班級區塊
+              // 跳過渲染成本(捲到才畫);containIntrinsicSize 預留高度避免捲軸跳動
+              <div
+                key={groupClassroom.id}
+                style={{ contentVisibility: 'auto', containIntrinsicSize: '1000px' }}
+              >
                 <h3 className="mb-3 text-sm font-semibold text-slate-500 border-b border-slate-200 pb-2">
                   {groupClassroom.name} ({groupStudents.filter((s) => {
                     const sub = submissions.get(s.id)
