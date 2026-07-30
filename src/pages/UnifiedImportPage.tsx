@@ -978,14 +978,17 @@ export default function UnifiedImportPage({
       if (hasSubmission) {
         // Has submission → open preview
         void openPreview(student)
-      } else if (!pdfOnly) {
-        // No submission → toggle action sheet(pdfOnly=行政考卷模式只走 PDF 批次匯入,無單生上傳)
+      } else if (pdfOnly) {
+        // pdfOnly(行政考卷模式):無拍照/照片,點空白卡直接開單生 PDF 選檔(補考情境)
+        triggerPdfUpload(student)
+      } else {
+        // No submission → toggle action sheet
         setActionSheetStudent(
           actionSheetStudent?.id === student.id ? null : student,
         )
       }
     },
-    [submissionMap, openPreview, actionSheetStudent],
+    [submissionMap, openPreview, actionSheetStudent, pdfOnly, triggerPdfUpload],
   )
 
   // ── Render: Loading ─────────────────────────────────────────────────────
