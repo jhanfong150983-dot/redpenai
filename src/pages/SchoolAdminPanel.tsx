@@ -980,43 +980,32 @@ export default function SchoolAdminPanel({
           ) : tab === 'answerkeys' ? (
             <AnswerBank embedded />
           ) : tab === 'exams' && gradeExam ? (
-            /* Step 8:AI 批改=頁面切換,嵌入教師端 GradingPage 跨班批次模式(視覺與教師端一致) */
-            <div className="flex h-[calc(100vh-230px)] min-h-[520px] flex-col">
-              <div className="mb-3 flex items-center gap-2 text-sm text-slate-500">
-                <button
-                  type="button"
-                  onClick={() => setGradeExam(null)}
-                  className="inline-flex items-center gap-1 font-medium text-sky-600 hover:underline"
+            /* Step 8:AI 批改=嵌入教師端 GradingPage 跨班批次模式,自然流動排版(內容區捲動看全部班級)。
+               返回鍵用批改頁自己的(onBack→考卷列表),不另加麵包屑避免雙層頁首 */
+            <div>
+              <p className="mb-2 text-xs text-slate-400">
+                批改期間請保持此頁開啟;AI 費用由學校點數扣除。
+              </p>
+              {gradeSyncing ? (
+                <div className="flex min-h-[320px] items-center justify-center text-sm text-slate-400">
+                  正在準備考卷資料…
+                </div>
+              ) : (
+                <Suspense
+                  fallback={
+                    <div className="flex min-h-[320px] items-center justify-center text-sm text-slate-400">
+                      載入批改頁…
+                    </div>
+                  }
                 >
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  返回考卷列表
-                </button>
-                <ChevronRight className="h-3.5 w-3.5" />
-                <span className="font-medium text-slate-900">AI 批改 · {gradeExam.title}</span>
-                <span className="text-xs text-slate-400">(批改期間請保持此頁開啟;費用由學校點數扣除)</span>
-              </div>
-              <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200">
-                {gradeSyncing ? (
-                  <div className="flex h-full items-center justify-center text-sm text-slate-400">
-                    正在準備考卷資料…
-                  </div>
-                ) : (
-                  <Suspense
-                    fallback={
-                      <div className="flex h-full items-center justify-center text-sm text-slate-400">
-                        載入批改頁…
-                      </div>
-                    }
-                  >
-                    <LazyGradingPage
-                      embedded
-                      assignmentId={gradeExam.classes[0]?.assignmentId ?? ''}
-                      batchAssignmentIds={gradeExam.classes.map((c) => c.assignmentId)}
-                      onBack={() => setGradeExam(null)}
-                    />
-                  </Suspense>
-                )}
-              </div>
+                  <LazyGradingPage
+                    embedded
+                    assignmentId={gradeExam.classes[0]?.assignmentId ?? ''}
+                    batchAssignmentIds={gradeExam.classes.map((c) => c.assignmentId)}
+                    onBack={() => setGradeExam(null)}
+                  />
+                </Suspense>
+              )}
             </div>
           ) : tab === 'exams' && importExam ? (
             /* Step 7:匯入考卷=頁面切換(比照教師端整頁匯入,非彈窗——user 拍板視覺統一) */
