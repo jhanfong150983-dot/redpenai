@@ -695,7 +695,8 @@ export default function PdfImportPreviewDialog({
             </div>
           )}
 
-          {/* 第 3 列：批次旋轉 */}
+          {/* 第 3 列：批次旋轉(單卷模式隱藏——頁數少,逐頁卡片上旋轉即可) */}
+          {!singleStudentMode && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-slate-700 font-medium">批次旋轉：</span>
             <button
@@ -720,6 +721,7 @@ export default function PdfImportPreviewDialog({
               </button>
             ))}
           </div>
+          )}
         </div>
 
         {/* 預覽區（學生分組） */}
