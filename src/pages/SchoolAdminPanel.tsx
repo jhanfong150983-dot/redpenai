@@ -9,7 +9,10 @@ import {
   LayoutDashboard,
   TrendingUp,
   School,
-  Droplet
+  Droplet,
+  Upload,
+  Sparkles,
+  FileText
 } from 'lucide-react'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
@@ -237,7 +240,6 @@ export default function SchoolAdminPanel({
   const [examsLoading, setExamsLoading] = useState(false)
   const [examTemplates, setExamTemplates] = useState<ExamTemplateOption[]>([])
   const [createExamOpen, setCreateExamOpen] = useState(false)
-  const [pendingExamForm, setPendingExamForm] = useState<AssignmentFormData | null>(null)
   const [pickedClassIds, setPickedClassIds] = useState<Set<string>>(new Set())
   const [creatingExam, setCreatingExam] = useState(false)
   const [expandedExamId, setExpandedExamId] = useState<string | null>(null)
@@ -452,37 +454,38 @@ export default function SchoolAdminPanel({
     if (tab === 'exams' && school) void loadExams(school.school_id)
   }, [tab, school, loadExams])
 
-  const submitCreateExam = useCallback(async () => {
-    if (!school || !pendingExamForm || pickedClassIds.size === 0) return
-    setCreatingExam(true)
-    try {
-      const res = await fetch('/api/data/school-exams', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          mode: 'create',
-          schoolId: school.school_id,
-          title: pendingExamForm.title.trim(),
-          templateId: pendingExamForm.selectedAnswerKeyId,
-          campusClassIds: [...pickedClassIds],
-          settings: pendingExamForm.settings
+  // 建立考卷:modal 第四步送出(成功=卡片直接出現,不另彈成功視窗——user 拍板)
+  const submitCreateExam = useCallback(
+    async (data: AssignmentFormData) => {
+      if (!school || pickedClassIds.size === 0) return
+      setCreatingExam(true)
+      try {
+        const res = await fetch('/api/data/school-exams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            mode: 'create',
+            schoolId: school.school_id,
+            title: data.title.trim(),
+            templateId: data.selectedAnswerKeyId,
+            campusClassIds: [...pickedClassIds],
+            settings: data.settings
+          })
         })
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || '建立考卷失敗')
-      setPendingExamForm(null)
-      setPickedClassIds(new Set())
-      await alertModal(`考卷「${pendingExamForm.title.trim()}」已建立,共 ${data.classCount} 個班級。\n下一步:在考卷卡片上逐班匯入 PDF。`, {
-        title: '考卷已建立'
-      })
-      await loadExams(school.school_id)
-    } catch (err) {
-      await alertModal(err instanceof Error ? err.message : '建立考卷失敗', { title: '建立考卷失敗' })
-    } finally {
-      setCreatingExam(false)
-    }
-  }, [school, pendingExamForm, pickedClassIds, alertModal, loadExams])
+        const resData = await res.json()
+        if (!res.ok) throw new Error(resData?.error || '建立考卷失敗')
+        setCreateExamOpen(false)
+        setPickedClassIds(new Set())
+        await loadExams(school.school_id)
+      } catch (err) {
+        await alertModal(err instanceof Error ? err.message : '建立考卷失敗', { title: '建立考卷失敗' })
+      } finally {
+        setCreatingExam(false)
+      }
+    },
+    [school, pickedClassIds, alertModal, loadExams]
+  )
 
   // 代批:tick 驅動迴圈——每輪最多 ~3 分鐘(server 逐卷批),回 hasMore 就續打;
   // 關掉頁面 job 會停在 running、lease 過期後可按「繼續」接手(cron 兜底後續補)
@@ -700,6 +703,71 @@ export default function SchoolAdminPanel({
     setRecords([])
   }
 
+  // 建卷 modal 第四步的班級選擇內容(年級分組 chips;狀態在本元件)
+  const examClassPicker = (
+    <>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-600">勾選這份考卷要施測的班級(可跨年級)。</p>
+        <span className="text-sm font-medium text-slate-500">已選 {pickedClassIds.size} 個班級</span>
+      </div>
+      {gradeGroups
+        .map((g) => ({ ...g, classes: g.classes.filter((c) => c.campus_class_id) }))
+        .filter((g) => g.classes.length > 0)
+        .map((g) => {
+          const ids = g.classes.map((c) => String(c.campus_class_id))
+          const allPicked = ids.every((id) => pickedClassIds.has(id))
+          return (
+            <div key={g.label}>
+              <div className="mb-1.5 flex items-center gap-3">
+                <span className="text-sm font-semibold text-slate-600">{g.label}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPickedClassIds((prev) => {
+                      const next = new Set(prev)
+                      if (allPicked) ids.forEach((id) => next.delete(id))
+                      else ids.forEach((id) => next.add(id))
+                      return next
+                    })
+                  }}
+                  className="text-xs font-medium text-sky-600 hover:underline"
+                >
+                  {allPicked ? '取消全選' : '全選'}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {g.classes.map((c) => {
+                  const id = String(c.campus_class_id)
+                  const on = pickedClassIds.has(id)
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => {
+                        setPickedClassIds((prev) => {
+                          const next = new Set(prev)
+                          if (on) next.delete(id)
+                          else next.add(id)
+                          return next
+                        })
+                      }}
+                      className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+                        on
+                          ? 'border-sky-400 bg-sky-50 font-semibold text-sky-700'
+                          : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      {c.class_label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+    </>
+  )
+
   return (
     <div className="min-h-screen bg-[#f7f7f5]">
       <div className="mx-auto flex min-h-screen w-full max-w-[1280px] flex-col">
@@ -874,7 +942,10 @@ export default function SchoolAdminPanel({
                 <p className="text-sm text-slate-500">建立學校統一考卷 → 逐班匯入 PDF → 一鍵 AI 批改(扣學校點數)。</p>
                 <button
                   type="button"
-                  onClick={() => setCreateExamOpen(true)}
+                  onClick={() => {
+                    setPickedClassIds(new Set())
+                    setCreateExamOpen(true)
+                  }}
                   className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
                 >
                   ＋ 建立考卷
@@ -895,53 +966,64 @@ export default function SchoolAdminPanel({
                   )}
                 </div>
               )}
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {/* 考卷卡片:比照教師端作業卡(大卡+右側三顆方形動作鈕) */}
+              <div className="space-y-3">
                 {exams.map((ex) => (
-                  <div key={ex.id} className="rounded-xl border border-slate-200 bg-white p-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate font-semibold text-slate-900">{ex.title}</div>
-                        <div className="mt-0.5 text-xs text-slate-500">
-                          {ex.classes.length} 個班級 ·{' '}
+                  <div key={ex.id} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-4 hover:border-slate-300">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex items-center gap-2">
+                          <h3 className="text-base font-semibold text-gray-900">{ex.title}</h3>
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                            {EXAM_STATUS_LABEL[ex.status] || ex.status}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          {ex.classes.length} 個班級 · 建立於{' '}
                           {new Date(ex.createdAt).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' })}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedExamId(expandedExamId === ex.id ? null : ex.id)}
+                          className="mt-1 text-xs font-medium text-sky-600 hover:underline"
+                        >
+                          {expandedExamId === ex.id ? '收合班級' : '檢視班級'}
+                        </button>
+                      </div>
+
+                      <div className="max-w-[58vw] self-center overflow-x-auto">
+                        <div className="flex items-center justify-end gap-2 whitespace-nowrap pb-1">
+                          <button
+                            type="button"
+                            disabled
+                            title="下一步推出(逐班 PDF 匯入)"
+                            className="inline-flex h-24 w-24 cursor-not-allowed flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-100 text-xs font-medium text-slate-400"
+                          >
+                            <Upload className="h-4 w-4" />
+                            <span className="text-center leading-tight">匯入考卷</span>
+                          </button>
+                          <span className="px-1 text-slate-300">›</span>
+                          <button
+                            type="button"
+                            disabled
+                            title="下一步推出(一鍵批改全部班級)"
+                            className="inline-flex h-24 w-24 cursor-not-allowed flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-100 text-xs font-medium text-slate-400"
+                          >
+                            <Sparkles className="h-4 w-4" />
+                            <span className="text-center leading-tight">AI批改</span>
+                          </button>
+                          <span className="px-1 text-slate-300">›</span>
+                          <button
+                            type="button"
+                            disabled
+                            title="之後推出(學生報告→家長報告)"
+                            className="inline-flex h-24 w-24 cursor-not-allowed flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-100 text-xs font-medium text-slate-400"
+                          >
+                            <FileText className="h-4 w-4" />
+                            <span className="text-center leading-tight">報告生成</span>
+                          </button>
                         </div>
                       </div>
-                      <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                        {EXAM_STATUS_LABEL[ex.status] || ex.status}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled
-                        title="下一步推出(逐班 PDF 匯入)"
-                        className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        匯入考卷
-                      </button>
-                      <button
-                        type="button"
-                        disabled
-                        title="下一步推出(一鍵批改全部班級)"
-                        className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        AI 批改
-                      </button>
-                      <button
-                        type="button"
-                        disabled
-                        title="之後推出(學生報告→家長報告)"
-                        className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        報告生成
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setExpandedExamId(expandedExamId === ex.id ? null : ex.id)}
-                        className="ml-auto rounded-md px-2 py-1.5 text-xs font-medium text-sky-600 hover:bg-sky-50"
-                      >
-                        {expandedExamId === ex.id ? '收合班級' : '檢視班級'}
-                      </button>
                     </div>
                     {expandedExamId === ex.id && (
                       <div className="mt-3 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
@@ -1355,11 +1437,8 @@ export default function SchoolAdminPanel({
         mode="create"
         open={createExamOpen}
         onClose={() => setCreateExamOpen(false)}
-        onSubmit={async (data) => {
-          setCreateExamOpen(false)
-          setPickedClassIds(new Set())
-          setPendingExamForm(data)
-        }}
+        onSubmit={submitCreateExam}
+        isSubmitting={creatingExam}
         folders={[]}
         answerKeys={examTemplates.map((t) => ({
           id: t.id,
@@ -1372,100 +1451,13 @@ export default function SchoolAdminPanel({
         hideStudentOptions
         titleLabel="考卷名稱"
         titlePlaceholder="例如：114學年度下學期五年級國語期中考"
+        classStep={{
+          label: '選擇施測班級',
+          ready: pickedClassIds.size > 0,
+          submitLabel: `建立考卷(${pickedClassIds.size} 班)`,
+          content: examClassPicker
+        }}
       />
-
-      {/* 勾選施測班級 modal(建卷第二段) */}
-      {pendingExamForm && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 px-4">
-          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-            <div className="flex items-center justify-center gap-2 border-b border-sky-200 bg-sky-50 px-6 py-4 text-sky-800">
-              <School className="h-4 w-4" />
-              <span className="text-base font-bold">選擇施測班級 · {pendingExamForm.title}</span>
-            </div>
-            <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
-              {gradeGroups
-                .map((g) => ({ ...g, classes: g.classes.filter((c) => c.campus_class_id) }))
-                .filter((g) => g.classes.length > 0)
-                .map((g) => {
-                  const ids = g.classes.map((c) => String(c.campus_class_id))
-                  const allPicked = ids.every((id) => pickedClassIds.has(id))
-                  return (
-                    <div key={g.label}>
-                      <div className="mb-1.5 flex items-center gap-3">
-                        <span className="text-sm font-semibold text-slate-600">{g.label}</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPickedClassIds((prev) => {
-                              const next = new Set(prev)
-                              if (allPicked) ids.forEach((id) => next.delete(id))
-                              else ids.forEach((id) => next.add(id))
-                              return next
-                            })
-                          }}
-                          className="text-xs font-medium text-sky-600 hover:underline"
-                        >
-                          {allPicked ? '取消全選' : '全選'}
-                        </button>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {g.classes.map((c) => {
-                          const id = String(c.campus_class_id)
-                          const on = pickedClassIds.has(id)
-                          return (
-                            <button
-                              key={id}
-                              type="button"
-                              onClick={() => {
-                                setPickedClassIds((prev) => {
-                                  const next = new Set(prev)
-                                  if (on) next.delete(id)
-                                  else next.add(id)
-                                  return next
-                                })
-                              }}
-                              className={`rounded-lg border px-3 py-1.5 text-sm transition ${
-                                on
-                                  ? 'border-sky-400 bg-sky-50 font-semibold text-sky-700'
-                                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
-                              }`}
-                            >
-                              {c.class_label}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )
-                })}
-            </div>
-            <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4">
-              <span className="text-sm text-slate-500">已選 {pickedClassIds.size} 個班級</span>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPendingExamForm(null)
-                    setCreateExamOpen(true)
-                  }}
-                  disabled={creatingExam}
-                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400"
-                >
-                  上一步
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void submitCreateExam()}
-                  disabled={creatingExam || pickedClassIds.size === 0}
-                  className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
-                >
-                  {creatingExam ? '建立中…' : `建立考卷(${pickedClassIds.size} 班)`}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 代批作業選擇 modal */}
       {assignTarget && (

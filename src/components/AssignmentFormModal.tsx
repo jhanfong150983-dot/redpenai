@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import {
   Loader, BookOpen, Settings, Trash2, Search, Folder, Check,
-  CheckCircle2, Circle, FileText, ChevronRight
+  CheckCircle2, Circle, FileText, ChevronRight, Users
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
@@ -87,6 +87,14 @@ interface AssignmentFormModalProps {
   // 行政端文案:標題 label 改「考卷名稱」等;不傳=教師端原文案
   titleLabel?: string
   titlePlaceholder?: string
+  // 2026-07-31 行政端考卷:第四步「選擇班級」——內容與勾選狀態由呼叫端管理,
+  // modal 只負責步驟導航與提交閘門(ready=false 不可送出)。不傳=教師端三步不變。
+  classStep?: {
+    label?: string
+    content: React.ReactNode
+    ready: boolean
+    submitLabel?: string
+  }
 }
 
 // 表單初始值：必填欄位預設 null，老師必須自行選擇（避免不知不覺套到沒檢查過的預設值）
@@ -106,7 +114,7 @@ const DEFAULT_FORM_SETTINGS: FormSettings = {
 
 // ── Step config ───────────────────────────────────────────────────────────
 
-type AssignmentStep = 'basic' | 'answer_key' | 'rules'
+type AssignmentStep = 'basic' | 'answer_key' | 'rules' | 'classes'
 
 const STEP_CONFIG: { key: AssignmentStep; label: string; icon: typeof BookOpen }[] = [
   { key: 'basic', label: '基本資料', icon: BookOpen },
@@ -179,6 +187,7 @@ export default function AssignmentFormModal({
   hideStudentOptions = false,
   titleLabel,
   titlePlaceholder,
+  classStep,
 }: AssignmentFormModalProps) {
   // ── Step state ──
   const [activeStep, setActiveStep] = useState<AssignmentStep>('basic')
@@ -306,8 +315,13 @@ export default function AssignmentFormModal({
       case 'basic': return title.trim() !== ''
       case 'answer_key': return mode === 'edit' || selectedAnswerKeyId !== ''
       case 'rules': return requiredRulesSet
+      case 'classes': return !!classStep?.ready
     }
   }
+
+  const steps = classStep
+    ? [...STEP_CONFIG, { key: 'classes' as AssignmentStep, label: classStep.label ?? '選擇班級', icon: Users }]
+    : STEP_CONFIG
 
   const canSubmit =
     title.trim() !== '' &&
@@ -343,10 +357,21 @@ export default function AssignmentFormModal({
         icon: <ChevronRight className="w-4 h-4" />,
       }
     }
-    // rules
+    if (activeStep === 'rules') {
+      if (classStep) {
+        return { label: '下一步', disabled: !canSubmit, icon: <ChevronRight className="w-4 h-4" /> }
+      }
+      return {
+        label: isSubmitting ? '處理中…' : isCreate ? '建立作業' : '儲存設定',
+        disabled: !canSubmit || isSubmitting,
+        loading: isSubmitting,
+        icon: <Check className="w-4 h-4" />,
+      }
+    }
+    // classes(行政端考卷第四步)
     return {
-      label: isSubmitting ? '處理中…' : isCreate ? '建立作業' : '儲存設定',
-      disabled: !canSubmit || isSubmitting,
+      label: isSubmitting ? '處理中…' : classStep?.submitLabel ?? '建立考卷',
+      disabled: !canSubmit || !classStep?.ready || isSubmitting,
       loading: isSubmitting,
       icon: <Check className="w-4 h-4" />,
     }
@@ -355,10 +380,12 @@ export default function AssignmentFormModal({
   const handlePrimaryAction = () => {
     if (activeStep === 'basic') { setActiveStep('answer_key'); return }
     if (activeStep === 'answer_key') { setActiveStep('rules'); return }
+    if (activeStep === 'rules' && classStep) { setActiveStep('classes'); return }
     void handleSubmit()
   }
 
   const handleBack = () => {
+    if (activeStep === 'classes') { setActiveStep('rules'); return }
     if (activeStep === 'rules') { setActiveStep('answer_key'); return }
     if (activeStep === 'answer_key') { setActiveStep('basic'); return }
   }
@@ -384,7 +411,7 @@ export default function AssignmentFormModal({
             </div>
             {/* 流程清單為純文字，導航全交由 footer 主按鈕（樣式保留） */}
             <nav className="flex-1 py-2">
-              {STEP_CONFIG.map((stepCfg) => {
+              {steps.map((stepCfg) => {
                 const isActive = activeStep === stepCfg.key
                 const completed = isStepComplete(stepCfg.key)
 
@@ -550,6 +577,11 @@ export default function AssignmentFormModal({
                     <p className="text-xs text-amber-600">請填寫{titleLabel ?? '作業標題'}以繼續</p>
                   )}
                 </div>
+              )}
+
+              {/* ══ Step 4(行政端考卷): 選擇班級 ══ */}
+              {activeStep === 'classes' && classStep && (
+                <div className="p-6 space-y-4">{classStep.content}</div>
               )}
 
               {/* ══ Step 2: 選擇答案卷 ══ */}
