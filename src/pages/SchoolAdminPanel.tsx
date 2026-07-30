@@ -7,8 +7,10 @@ import {
   BookOpen,
   Layers,
   LayoutDashboard,
-  TrendingUp
+  TrendingUp,
+  School
 } from 'lucide-react'
+import { useAlertModal } from '@/components/ConfirmModal'
 
 // 學校管理層（教務主任）檢視頁。
 // 版面對齊教師端/學生端：頂部 logo bar + 左側功能選單(aside) + 右側內容(section)。
@@ -101,7 +103,9 @@ function effectiveGrade(c: ClassRow): number | null {
 }
 
 export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack: () => void; preferredSchoolId?: string }) {
+  const alertModal = useAlertModal()
   const [tab, setTab] = useState<SchoolTab>('overview')
+  const [rosterSyncing, setRosterSyncing] = useState(false)
   const [school, setSchool] = useState<SchoolRow | null>(null)
   // 2026-07-30:系統 admin 看得到所有學校——保留清單供切換;預設選「自己行政歸屬」的學校
   const [schoolList, setSchoolList] = useState<SchoolRow[]>([])
@@ -126,7 +130,10 @@ export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack
       const first: SchoolRow | undefined =
         (preferredSchoolId ? list.find((s) => s.school_id === preferredSchoolId) : undefined) ?? list[0]
       if (!first) {
-        setError('尚無已歸戶的學校')
+        // 空校引導(2026-07-30):生硬的「尚無已歸戶的學校」改為告訴行政下一步該做什麼
+        setError(
+          '尚未取得貴校的 1Campus 資料。請先按右上方「全校名冊同步」拉取全校班級與學生;若仍無資料,請確認貴校已完成 1Campus 平台授權,或聯繫 RedPen AI 協助開通。'
+        )
         setLoading(false)
         return
       }
@@ -165,6 +172,38 @@ export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack
       setLoading(false)
     }
   }, [schoolList, school])
+
+  // 2026-07-30 Step 3.5:全校名冊同步(getClassStudent 全校→歸戶 SSoT+班級參考表+轉出標記)。
+  // 空校時 school 尚為 null → 退回行政自己的歸屬校 preferredSchoolId,讓第一次拉取也能按。
+  const runRosterSync = useCallback(async () => {
+    const targetSchoolId = school?.school_id ?? preferredSchoolId
+    if (!targetSchoolId || rosterSyncing) return
+    setRosterSyncing(true)
+    try {
+      const res = await fetch('/api/data/school-roster-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ schoolId: targetSchoolId })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || '同步失敗')
+      const unresolved = (data.missingChecked ?? 0) - (data.departedMarked ?? 0)
+      await alertModal(
+        `班級:${data.classes} 個\n在籍學生:${data.studentsSeen} 人(新增歸戶 ${data.newPersons} 人、復學 ${data.reactivated} 人)\n轉出/離校標記:${data.departedMarked} 人${
+          unresolved > 0 ? `(另 ${unresolved} 人不在名冊但查無離校紀錄,維持原狀)` : ''
+        }\n家長綁定:${
+          data.parentFieldPresent ? `${data.parentBound} / ${data.studentsSeen} 人` : '此授權未回傳家長綁定資料'
+        }`,
+        { title: `全校名冊同步完成${data.schoolName ? ` · ${data.schoolName}` : ''}` }
+      )
+      await loadSchool()
+    } catch (err) {
+      await alertModal(err instanceof Error ? err.message : '同步失敗', { title: '全校名冊同步失敗' })
+    } finally {
+      setRosterSyncing(false)
+    }
+  }, [school, preferredSchoolId, rosterSyncing, alertModal, loadSchool])
 
   const openClass = useCallback(
     async (label: string) => {
@@ -343,15 +382,28 @@ export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack
             <h2 className="text-xl font-semibold text-slate-900">
               {tab === 'overview' ? '學生總覽' : '弱點分析'}
             </h2>
-            <button
-              type="button"
-              onClick={() => void loadSchool()}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
-              重新整理
-            </button>
+            <div className="flex items-center gap-2">
+              {(school || preferredSchoolId) && (
+                <button
+                  type="button"
+                  onClick={() => void runRosterSync()}
+                  disabled={rosterSyncing || loading}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <School className={`h-3 w-3 ${rosterSyncing ? 'animate-pulse' : ''}`} />
+                  {rosterSyncing ? '同步中…' : '全校名冊同步'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void loadSchool()}
+                disabled={loading}
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
+                重新整理
+              </button>
+            </div>
           </div>
 
           {/* 學校摘要 */}
