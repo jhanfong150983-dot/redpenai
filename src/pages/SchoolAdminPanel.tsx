@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   RefreshCw,
@@ -194,6 +194,9 @@ export default function SchoolAdminPanel({
   const [drivingJobId, setDrivingJobId] = useState<string | null>(null)
   const [tab, setTab] = useState<SchoolTab>('overview')
   const [rosterSyncing, setRosterSyncing] = useState(false)
+  // 首次使用自動準備:空校(從未同步)且有歸屬校 → 自動跑一次全校名冊同步,行政零操作
+  const [autoSyncPending, setAutoSyncPending] = useState(false)
+  const autoSyncTriedRef = useRef(false)
   const [school, setSchool] = useState<SchoolRow | null>(null)
   // 2026-07-30:系統 admin 看得到所有學校——保留清單供切換;預設選「自己行政歸屬」的學校
   const [schoolList, setSchoolList] = useState<SchoolRow[]>([])
@@ -231,9 +234,16 @@ export default function SchoolAdminPanel({
       const first: SchoolRow | undefined =
         (preferredSchoolId ? list.find((s) => s.school_id === preferredSchoolId) : undefined) ?? list[0]
       if (!first) {
-        // 空校引導(2026-07-30):生硬的「尚無已歸戶的學校」改為告訴行政下一步該做什麼
+        // 首次使用(2026-07-30 user 拍板):有歸屬校但還沒有資料 → 自動開始準備,不用按任何按鈕
+        if (preferredSchoolId && !autoSyncTriedRef.current) {
+          autoSyncTriedRef.current = true
+          setAutoSyncPending(true)
+          setLoading(false)
+          return
+        }
+        // 自動準備也拿不到資料時的退路文案
         setError(
-          '尚未取得貴校的 1Campus 資料。請先按右上方「全校名冊同步」拉取全校班級與學生;若仍無資料,請確認貴校已完成 1Campus 平台授權,或聯繫 RedPen AI 協助開通。'
+          '尚未取得貴校的 1Campus 資料。請按右上方「全校名冊同步」再試一次;若仍無資料,請確認貴校已完成 1Campus 平台授權,或聯繫 RedPen AI 協助開通。'
         )
         setLoading(false)
         return
@@ -355,6 +365,14 @@ export default function SchoolAdminPanel({
       void refreshJobs(school.school_id)
     }
   }, [tab, school, loadTeachers, refreshJobs])
+
+  // 首次使用自動準備(loadSchool 偵測空校時觸發;拆成 effect 避免 callback 循環依賴)
+  useEffect(() => {
+    if (autoSyncPending && !rosterSyncing) {
+      setAutoSyncPending(false)
+      void runRosterSync()
+    }
+  }, [autoSyncPending, rosterSyncing, runRosterSync])
 
   // 代批:tick 驅動迴圈——每輪最多 ~3 分鐘(server 逐卷批),回 hasMore 就續打;
   // 關掉頁面 job 會停在 running、lease 過期後可按「繼續」接手(cron 兜底後續補)
