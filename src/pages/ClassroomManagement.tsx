@@ -17,6 +17,7 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { db, generateId } from '@/lib/db'
+import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
 import { requestSync, SYNC_COMPLETE_EVENT_NAME } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { checkFolderNameUnique } from '@/lib/utils'
@@ -135,7 +136,7 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     setError(null)
     try {
       const [classrooms, students, assignments, folders] = await Promise.all([
-        db.classrooms.toArray(),
+        db.classrooms.toArray().then(withoutSchoolExamClassrooms),
         db.students.toArray(),
         db.assignments.toArray(),
         db.folders.toArray()

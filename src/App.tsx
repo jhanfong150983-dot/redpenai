@@ -64,6 +64,7 @@ import {
   type Student,
   type Submission
 } from '@/lib/db'
+import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
 
 type Page =
   | 'home'
@@ -1276,7 +1277,7 @@ function App() {
     try {
       const [assignments, classrooms, students, submissions] = await Promise.all([
         db.assignments.toArray(),
-        db.classrooms.toArray(),
+        db.classrooms.toArray().then(withoutSchoolExamClassrooms),
         db.students.toArray(),
         db.submissions.toArray()
       ])

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, History, Loader2 } from 'lucide-react'
 import { db } from '@/lib/db'
+import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
 import type { Classroom, Student } from '@/lib/db'
 
 type CorrectionHistoryProps = {
@@ -114,7 +115,7 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
     let canceled = false
     void (async () => {
       const [classroomRows, studentRows] = await Promise.all([
-        db.classrooms.toArray(),
+        db.classrooms.toArray().then(withoutSchoolExamClassrooms),
         db.students.toArray()
       ])
       if (canceled) return

@@ -6,6 +6,7 @@ import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
+import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
 import type {
   Assignment,
   Classroom,
@@ -211,7 +212,7 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   useEffect(() => {
     const loadClassrooms = async () => {
       setIsLoading(true)
-      const list = await db.classrooms.toArray()
+      const list = withoutSchoolExamClassrooms(await db.classrooms.toArray())
       setClassrooms(list)
       if (list.length > 0) {
         // 保持 isLoading=true，讓第二個 useEffect（load grades）接手
