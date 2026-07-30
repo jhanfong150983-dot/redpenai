@@ -12,6 +12,7 @@ import {
   Droplet
 } from 'lucide-react'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
+import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
 
 // 學校管理層（教務主任）檢視頁。
 // 版面對齊教師端/學生端：頂部 logo bar + 左側功能選單(aside) + 右側內容(section)。
@@ -57,13 +58,48 @@ interface PersonInfo {
   email: string | null
 }
 
-type SchoolTab = 'overview' | 'teachers' | 'weakness'
+type SchoolTab = 'overview' | 'exams' | 'teachers' | 'weakness'
 
 const navItems: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashboard; enabled: boolean }> = [
   { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
+  { key: 'exams', label: '考卷批改', icon: BookOpen, enabled: true },
   { key: 'teachers', label: '教師總覽', icon: Users, enabled: true },
   { key: 'weakness', label: '弱點分析', icon: TrendingUp, enabled: false }
 ]
+
+// Step 6(獨立模型):考卷母實體——行政端建考卷→逐班 fan-out,所有操作只在此頁
+interface ExamClassRow {
+  campusClassId: string
+  classroomId: string
+  assignmentId: string
+  className: string
+}
+interface SchoolExamRow {
+  id: string
+  title: string
+  status: string
+  createdAt: string
+  classes: ExamClassRow[]
+}
+interface ExamTemplateOption {
+  id: string
+  name: string
+  domain?: string
+  folder?: string
+  docType?: string
+  answerSheetMode?: string
+  questionCount: number
+  totalScore: number
+  pageOrientations?: ('portrait' | 'landscape')[]
+}
+
+const EXAM_STATUS_LABEL: Record<string, string> = {
+  draft: '待匯入',
+  importing: '匯入中',
+  grading: '批改中',
+  review: '檢討中',
+  reports: '報告階段'
+}
 
 // 教師總覽(2026-07-30):全校教師名冊(getTeacher 全校抓)為主體;
 // 帳號統一顯示 1Campus 帳號(tmail 只是新竹市的 google 帳號),綁定與否掛標籤。
@@ -192,6 +228,14 @@ export default function SchoolAdminPanel({
   const [assignLoading, setAssignLoading] = useState(false)
   const [jobs, setJobs] = useState<GradingJobRow[]>([])
   const [drivingJobId, setDrivingJobId] = useState<string | null>(null)
+  const [exams, setExams] = useState<SchoolExamRow[]>([])
+  const [examsLoading, setExamsLoading] = useState(false)
+  const [examTemplates, setExamTemplates] = useState<ExamTemplateOption[]>([])
+  const [createExamOpen, setCreateExamOpen] = useState(false)
+  const [pendingExamForm, setPendingExamForm] = useState<AssignmentFormData | null>(null)
+  const [pickedClassIds, setPickedClassIds] = useState<Set<string>>(new Set())
+  const [creatingExam, setCreatingExam] = useState(false)
+  const [expandedExamId, setExpandedExamId] = useState<string | null>(null)
   const [tab, setTab] = useState<SchoolTab>('overview')
   const [rosterSyncing, setRosterSyncing] = useState(false)
   // 首次使用自動準備:空校(從未同步)且有歸屬校 → 自動跑一次全校名冊同步,行政零操作
@@ -373,6 +417,61 @@ export default function SchoolAdminPanel({
       void runRosterSync()
     }
   }, [autoSyncPending, rosterSyncing, runRosterSync])
+
+  // 考卷批改 tab:載入考卷列表+答案卷選單
+  const loadExams = useCallback(async (sid: string) => {
+    setExamsLoading(true)
+    try {
+      const [eRes, tRes] = await Promise.all([
+        fetch(`/api/data/school-exams?schoolId=${encodeURIComponent(sid)}`, { credentials: 'include' }),
+        fetch(`/api/data/school-exams?schoolId=${encodeURIComponent(sid)}&templates=1`, { credentials: 'include' })
+      ])
+      const eData = await eRes.json()
+      if (eRes.ok) setExams(Array.isArray(eData.exams) ? eData.exams : [])
+      const tData = await tRes.json()
+      if (tRes.ok) setExamTemplates(Array.isArray(tData.templates) ? tData.templates : [])
+    } catch {
+      // 靜默,操作時再報錯
+    } finally {
+      setExamsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (tab === 'exams' && school) void loadExams(school.school_id)
+  }, [tab, school, loadExams])
+
+  const submitCreateExam = useCallback(async () => {
+    if (!school || !pendingExamForm || pickedClassIds.size === 0) return
+    setCreatingExam(true)
+    try {
+      const res = await fetch('/api/data/school-exams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          mode: 'create',
+          schoolId: school.school_id,
+          title: pendingExamForm.title.trim(),
+          templateId: pendingExamForm.selectedAnswerKeyId,
+          campusClassIds: [...pickedClassIds],
+          settings: pendingExamForm.settings
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || '建立考卷失敗')
+      setPendingExamForm(null)
+      setPickedClassIds(new Set())
+      await alertModal(`考卷「${pendingExamForm.title.trim()}」已建立,共 ${data.classCount} 個班級。\n下一步:在考卷卡片上逐班匯入 PDF。`, {
+        title: '考卷已建立'
+      })
+      await loadExams(school.school_id)
+    } catch (err) {
+      await alertModal(err instanceof Error ? err.message : '建立考卷失敗', { title: '建立考卷失敗' })
+    } finally {
+      setCreatingExam(false)
+    }
+  }, [school, pendingExamForm, pickedClassIds, alertModal, loadExams])
 
   // 代批:tick 驅動迴圈——每輪最多 ~3 分鐘(server 逐卷批),回 hasMore 就續打;
   // 關掉頁面 job 會停在 running、lease 過期後可按「繼續」接手(cron 兜底後續補)
@@ -689,7 +788,7 @@ export default function SchoolAdminPanel({
           {/* 標題列 + 重新整理 */}
           <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
             <h2 className="text-xl font-semibold text-slate-900">
-              {tab === 'overview' ? '學生總覽' : tab === 'teachers' ? '教師總覽' : '弱點分析'}
+              {tab === 'overview' ? '學生總覽' : tab === 'exams' ? '考卷批改' : tab === 'teachers' ? '教師總覽' : '弱點分析'}
             </h2>
             <div className="flex items-center gap-2">
               {(school || preferredSchoolId) && (
@@ -715,8 +814,8 @@ export default function SchoolAdminPanel({
             </div>
           </div>
 
-          {/* 學校摘要(學生/班級數;教師總覽 tab 有自己的教師摘要) */}
-          {school && tab !== 'teachers' && (
+          {/* 學校摘要(學生/班級數;只在學生總覽顯示) */}
+          {school && tab === 'overview' && (
             <div className="mb-5 flex flex-wrap items-center gap-6 rounded-xl border border-slate-200 bg-slate-50/60 px-5 py-3">
               <div className="flex items-center gap-2 text-slate-700">
                 <Users className="h-4 w-4 text-sky-600" />
@@ -747,6 +846,97 @@ export default function SchoolAdminPanel({
           {tab === 'weakness' ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center text-slate-400">
               弱點分析即將推出
+            </div>
+          ) : tab === 'exams' ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-slate-500">建立學校統一考卷 → 逐班匯入 PDF → 一鍵 AI 批改(扣學校點數)。</p>
+                <button
+                  type="button"
+                  onClick={() => setCreateExamOpen(true)}
+                  className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
+                >
+                  ＋ 建立考卷
+                </button>
+              </div>
+              {examsLoading && exams.length === 0 && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-6 py-10 text-center text-sm text-slate-400">
+                  載入中…
+                </div>
+              )}
+              {!examsLoading && exams.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-14 text-center text-sm text-slate-400">
+                  尚無考卷。按「建立考卷」開始:命名 → 選答案卷 → 設定批改規則 → 勾選施測班級。
+                  {examTemplates.length === 0 && (
+                    <div className="mt-2 text-xs text-slate-400">
+                      提示:您名下還沒有答案卷——請先到教師介面的「答案卷」建立,或請出題老師給您分享碼匯入。
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {exams.map((ex) => (
+                  <div key={ex.id} className="rounded-xl border border-slate-200 bg-white p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-slate-900">{ex.title}</div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          {ex.classes.length} 個班級 ·{' '}
+                          {new Date(ex.createdAt).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' })}
+                        </div>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                        {EXAM_STATUS_LABEL[ex.status] || ex.status}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled
+                        title="下一步推出(逐班 PDF 匯入)"
+                        className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        匯入考卷
+                      </button>
+                      <button
+                        type="button"
+                        disabled
+                        title="下一步推出(一鍵批改全部班級)"
+                        className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        AI 批改
+                      </button>
+                      <button
+                        type="button"
+                        disabled
+                        title="之後推出(學生報告→家長報告)"
+                        className="rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        報告生成
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedExamId(expandedExamId === ex.id ? null : ex.id)}
+                        className="ml-auto rounded-md px-2 py-1.5 text-xs font-medium text-sky-600 hover:bg-sky-50"
+                      >
+                        {expandedExamId === ex.id ? '收合班級' : '檢視班級'}
+                      </button>
+                    </div>
+                    {expandedExamId === ex.id && (
+                      <div className="mt-3 flex flex-wrap gap-1.5 border-t border-slate-100 pt-3">
+                        {ex.classes.map((c) => (
+                          <span
+                            key={c.campusClassId}
+                            className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs text-slate-600"
+                          >
+                            {c.className}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           ) : tab === 'teachers' ? (
             <div className="space-y-6">
@@ -1138,6 +1328,123 @@ export default function SchoolAdminPanel({
         </section>
       </div>
       </div>
+
+      {/* 建立考卷:重用老師端 AssignmentFormModal(隱藏學生選項、文案改考卷) */}
+      <AssignmentFormModal
+        mode="create"
+        open={createExamOpen}
+        onClose={() => setCreateExamOpen(false)}
+        onSubmit={async (data) => {
+          setCreateExamOpen(false)
+          setPickedClassIds(new Set())
+          setPendingExamForm(data)
+        }}
+        folders={[]}
+        answerKeys={examTemplates.map((t) => ({
+          id: t.id,
+          name: t.name,
+          domain: t.domain,
+          folder: t.folder,
+          answerKey: { questions: new Array(t.questionCount).fill({}), totalScore: t.totalScore },
+          pageOrientations: t.pageOrientations
+        }))}
+        hideStudentOptions
+        titleLabel="考卷名稱"
+        titlePlaceholder="例如：114學年度下學期五年級國語期中考"
+      />
+
+      {/* 勾選施測班級 modal(建卷第二段) */}
+      {pendingExamForm && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 px-4">
+          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div className="flex items-center justify-center gap-2 border-b border-sky-200 bg-sky-50 px-6 py-4 text-sky-800">
+              <School className="h-4 w-4" />
+              <span className="text-base font-bold">選擇施測班級 · {pendingExamForm.title}</span>
+            </div>
+            <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+              {gradeGroups
+                .map((g) => ({ ...g, classes: g.classes.filter((c) => c.campus_class_id) }))
+                .filter((g) => g.classes.length > 0)
+                .map((g) => {
+                  const ids = g.classes.map((c) => String(c.campus_class_id))
+                  const allPicked = ids.every((id) => pickedClassIds.has(id))
+                  return (
+                    <div key={g.label}>
+                      <div className="mb-1.5 flex items-center gap-3">
+                        <span className="text-sm font-semibold text-slate-600">{g.label}</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPickedClassIds((prev) => {
+                              const next = new Set(prev)
+                              if (allPicked) ids.forEach((id) => next.delete(id))
+                              else ids.forEach((id) => next.add(id))
+                              return next
+                            })
+                          }}
+                          className="text-xs font-medium text-sky-600 hover:underline"
+                        >
+                          {allPicked ? '取消全選' : '全選'}
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {g.classes.map((c) => {
+                          const id = String(c.campus_class_id)
+                          const on = pickedClassIds.has(id)
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => {
+                                setPickedClassIds((prev) => {
+                                  const next = new Set(prev)
+                                  if (on) next.delete(id)
+                                  else next.add(id)
+                                  return next
+                                })
+                              }}
+                              className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+                                on
+                                  ? 'border-sky-400 bg-sky-50 font-semibold text-sky-700'
+                                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                              }`}
+                            >
+                              {c.class_label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+            <div className="flex items-center justify-between border-t border-slate-100 px-6 py-4">
+              <span className="text-sm text-slate-500">已選 {pickedClassIds.size} 個班級</span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingExamForm(null)
+                    setCreateExamOpen(true)
+                  }}
+                  disabled={creatingExam}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400"
+                >
+                  上一步
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submitCreateExam()}
+                  disabled={creatingExam || pickedClassIds.size === 0}
+                  className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50"
+                >
+                  {creatingExam ? '建立中…' : `建立考卷(${pickedClassIds.size} 班)`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 代批作業選擇 modal */}
       {assignTarget && (

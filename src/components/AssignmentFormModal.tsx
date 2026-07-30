@@ -81,6 +81,12 @@ interface AssignmentFormModalProps {
   isSubmitting?: boolean
   editAssignmentTitle?: string
   gradedCount?: number
+  // 2026-07-30 行政端考卷建立重用此 modal:考卷無「學生繳交/自助批改」概念,整塊隱藏
+  //(隱藏時 submit 帶預設值 false;教師端不受影響)
+  hideStudentOptions?: boolean
+  // 行政端文案:標題 label 改「考卷名稱」等;不傳=教師端原文案
+  titleLabel?: string
+  titlePlaceholder?: string
 }
 
 // 表單初始值：必填欄位預設 null，老師必須自行選擇（避免不知不覺套到沒檢查過的預設值）
@@ -170,6 +176,9 @@ export default function AssignmentFormModal({
   isSubmitting = false,
   editAssignmentTitle,
   gradedCount = 0,
+  hideStudentOptions = false,
+  titleLabel,
+  titlePlaceholder,
 }: AssignmentFormModalProps) {
   // ── Step state ──
   const [activeStep, setActiveStep] = useState<AssignmentStep>('basic')
@@ -434,19 +443,20 @@ export default function AssignmentFormModal({
                   {/* 作業標題 */}
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">
-                      作業標題 <span className="text-red-500">*</span>
+                      {titleLabel ?? '作業標題'} <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
-                      placeholder="例如：114學年社會期中考"
+                      placeholder={titlePlaceholder ?? '例如：114學年社會期中考'}
                       autoFocus={mode === 'create' && shouldAutoFocusOnDesktop()}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100"
                     />
                   </div>
 
-                  {/* 學生繳交作業 — segmented control */}
+                  {/* 學生繳交作業 — segmented control(行政端考卷模式整塊隱藏) */}
+                  {!hideStudentOptions && (
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">學生繳交作業</label>
                     <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
@@ -534,9 +544,10 @@ export default function AssignmentFormModal({
                       </div>
                     )}
                   </div>
+                  )}
 
                   {!title.trim() && (
-                    <p className="text-xs text-amber-600">請填寫作業標題以繼續</p>
+                    <p className="text-xs text-amber-600">請填寫{titleLabel ?? '作業標題'}以繼續</p>
                   )}
                 </div>
               )}
