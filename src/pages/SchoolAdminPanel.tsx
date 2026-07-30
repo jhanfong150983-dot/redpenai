@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
+import AnswerBank from '@/pages/AnswerBank'
 
 // 學校管理層（教務主任）檢視頁。
 // 版面對齊教師端/學生端：頂部 logo bar + 左側功能選單(aside) + 右側內容(section)。
@@ -58,10 +59,12 @@ interface PersonInfo {
   email: string | null
 }
 
-type SchoolTab = 'overview' | 'exams' | 'teachers' | 'weakness'
+type SchoolTab = 'overview' | 'answerkeys' | 'exams' | 'teachers' | 'weakness'
 
 const navItems: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashboard; enabled: boolean }> = [
   { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
+  // 答案卷=嵌入老師端整頁(行政名下模板;建立/擷取/分享碼匯入全套功能,考卷一切不假手教師介面)
+  { key: 'answerkeys', label: '答案卷', icon: BookOpen, enabled: true },
   { key: 'exams', label: '考卷批改', icon: BookOpen, enabled: true },
   { key: 'teachers', label: '教師總覽', icon: Users, enabled: true },
   { key: 'weakness', label: '弱點分析', icon: TrendingUp, enabled: false }
@@ -788,7 +791,15 @@ export default function SchoolAdminPanel({
           {/* 標題列 + 重新整理 */}
           <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
             <h2 className="text-xl font-semibold text-slate-900">
-              {tab === 'overview' ? '學生總覽' : tab === 'exams' ? '考卷批改' : tab === 'teachers' ? '教師總覽' : '弱點分析'}
+              {tab === 'overview'
+                ? '學生總覽'
+                : tab === 'answerkeys'
+                  ? '答案卷'
+                  : tab === 'exams'
+                    ? '考卷批改'
+                    : tab === 'teachers'
+                      ? '教師總覽'
+                      : '弱點分析'}
             </h2>
             <div className="flex items-center gap-2">
               {(school || preferredSchoolId) && (
@@ -847,6 +858,8 @@ export default function SchoolAdminPanel({
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center text-slate-400">
               弱點分析即將推出
             </div>
+          ) : tab === 'answerkeys' ? (
+            <AnswerBank embedded />
           ) : tab === 'exams' ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -869,7 +882,7 @@ export default function SchoolAdminPanel({
                   尚無考卷。按「建立考卷」開始:命名 → 選答案卷 → 設定批改規則 → 勾選施測班級。
                   {examTemplates.length === 0 && (
                     <div className="mt-2 text-xs text-slate-400">
-                      提示:您名下還沒有答案卷——請先到教師介面的「答案卷」建立,或請出題老師給您分享碼匯入。
+                      提示:您還沒有答案卷——請先到左側「答案卷」建立,或請出題老師給您分享碼匯入。
                     </div>
                   )}
                 </div>
