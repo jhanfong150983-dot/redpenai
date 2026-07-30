@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowLeft,
   RefreshCw,
@@ -18,6 +18,8 @@ import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
 import AnswerBank from '@/pages/AnswerBank'
 import UnifiedImportPage from '@/pages/UnifiedImportPage'
+// GradingPage 是最大的頁面 chunk——lazy 載入,只在行政按「AI 批改」時才抓
+const LazyGradingPage = lazy(() => import('@/pages/GradingPage'))
 import SyncIndicator from '@/components/SyncIndicator'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { setSchoolBillingContext } from '@/lib/school-billing'
@@ -250,6 +252,10 @@ export default function SchoolAdminPanel({
   const [importExam, setImportExam] = useState<SchoolExamRow | null>(null)
   const [importClassIdx, setImportClassIdx] = useState(0)
   const [importSyncing, setImportSyncing] = useState(false)
+  // Step 8:AI 批改=嵌入教師端 GradingPage 跨班批次模式(batchAssignmentIds=全部班級,
+  // 一顆智慧批改按鈕批全部;黃燈/改分原生可用;計費走學校錢包 header)
+  const [gradeExam, setGradeExam] = useState<SchoolExamRow | null>(null)
+  const [gradeSyncing, setGradeSyncing] = useState(false)
   const [tab, setTab] = useState<SchoolTab>('overview')
   const [rosterSyncing, setRosterSyncing] = useState(false)
   // 首次使用自動準備:空校(從未同步)且有歸屬校 → 自動跑一次全校名冊同步,行政零操作
@@ -461,10 +467,22 @@ export default function SchoolAdminPanel({
     if (tab === 'exams' && school) void loadExams(school.school_id)
   }, [tab, school, loadExams])
 
-  // 切換主選單時退出匯入頁(避免回到考卷批改時還停在舊的匯入畫面)
+  // 切換主選單時退出匯入/批改頁(避免回到考卷批改時還停在舊畫面)
   useEffect(() => {
-    if (tab !== 'exams') setImportExam(null)
+    if (tab !== 'exams') {
+      setImportExam(null)
+      setGradeExam(null)
+    }
   }, [tab])
+
+  const openGradeExam = useCallback((ex: SchoolExamRow) => {
+    setGradeExam(ex)
+    setGradeSyncing(true)
+    requestSync(true)
+    waitForSync(45000)
+      .catch(() => {})
+      .finally(() => setGradeSyncing(false))
+  }, [])
 
   // 建立考卷:modal 第四步送出(成功=卡片直接出現,不另彈成功視窗——user 拍板)
   const submitCreateExam = useCallback(
@@ -961,6 +979,45 @@ export default function SchoolAdminPanel({
             </div>
           ) : tab === 'answerkeys' ? (
             <AnswerBank embedded />
+          ) : tab === 'exams' && gradeExam ? (
+            /* Step 8:AI 批改=頁面切換,嵌入教師端 GradingPage 跨班批次模式(視覺與教師端一致) */
+            <div className="flex h-[calc(100vh-230px)] min-h-[520px] flex-col">
+              <div className="mb-3 flex items-center gap-2 text-sm text-slate-500">
+                <button
+                  type="button"
+                  onClick={() => setGradeExam(null)}
+                  className="inline-flex items-center gap-1 font-medium text-sky-600 hover:underline"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  返回考卷列表
+                </button>
+                <ChevronRight className="h-3.5 w-3.5" />
+                <span className="font-medium text-slate-900">AI 批改 · {gradeExam.title}</span>
+                <span className="text-xs text-slate-400">(批改期間請保持此頁開啟;費用由學校點數扣除)</span>
+              </div>
+              <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200">
+                {gradeSyncing ? (
+                  <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                    正在準備考卷資料…
+                  </div>
+                ) : (
+                  <Suspense
+                    fallback={
+                      <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                        載入批改頁…
+                      </div>
+                    }
+                  >
+                    <LazyGradingPage
+                      embedded
+                      assignmentId={gradeExam.classes[0]?.assignmentId ?? ''}
+                      batchAssignmentIds={gradeExam.classes.map((c) => c.assignmentId)}
+                      onBack={() => setGradeExam(null)}
+                    />
+                  </Suspense>
+                )}
+              </div>
+            </div>
           ) : tab === 'exams' && importExam ? (
             /* Step 7:匯入考卷=頁面切換(比照教師端整頁匯入,非彈窗——user 拍板視覺統一) */
             <div className="flex h-[calc(100vh-230px)] min-h-[480px] flex-col">
@@ -1078,9 +1135,8 @@ export default function SchoolAdminPanel({
                           <span className="px-1 text-slate-300">›</span>
                           <button
                             type="button"
-                            disabled
-                            title="下一步推出(一鍵批改全部班級)"
-                            className="inline-flex h-24 w-24 cursor-not-allowed flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-100 text-xs font-medium text-slate-400"
+                            onClick={() => openGradeExam(ex)}
+                            className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
                           >
                             <Sparkles className="h-4 w-4" />
                             <span className="text-center leading-tight">AI批改</span>
