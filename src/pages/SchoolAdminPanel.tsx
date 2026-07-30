@@ -14,6 +14,7 @@ import {
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
 import AnswerBank from '@/pages/AnswerBank'
+import { setSchoolBillingContext } from '@/lib/school-billing'
 
 // 學校管理層（教務主任）檢視頁。
 // 版面對齊教師端/學生端：頂部 logo bar + 左側功能選單(aside) + 右側內容(section)。
@@ -129,7 +130,8 @@ const LEDGER_REASON_LABEL: Record<string, string> = {
   admin_topup: '儲值',
   admin_adjustment: '調整',
   grading_job: '統一批改',
-  school_grant: '配發老師'
+  school_grant: '配發老師',
+  school_ai: 'AI 功能'
 }
 
 // Step 4b:學校統一批改 job(server-side 代批、扣學校點數)
@@ -309,6 +311,12 @@ export default function SchoolAdminPanel({
   useEffect(() => {
     void loadSchool()
   }, [loadSchool])
+
+  // 學校計費 context:在學校檢視期間,所有 AI 呼叫(含嵌入的答案卷擷取)改扣學校錢包
+  useEffect(() => {
+    setSchoolBillingContext(school?.school_id ?? preferredSchoolId ?? null)
+    return () => setSchoolBillingContext(null)
+  }, [school, preferredSchoolId])
 
   // 切換學校(多校時的下拉;單校不顯示)
   const switchSchool = useCallback(async (sid: string) => {

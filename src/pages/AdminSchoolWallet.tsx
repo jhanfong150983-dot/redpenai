@@ -25,7 +25,8 @@ const REASON_LABEL: Record<string, string> = {
   admin_topup: '儲值',
   admin_adjustment: '調整',
   grading_job: '統一批改',
-  school_grant: '配發老師'
+  school_grant: '配發老師',
+  school_ai: 'AI 功能'
 }
 
 export default function AdminSchoolWallet() {

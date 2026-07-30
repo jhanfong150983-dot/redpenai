@@ -1,4 +1,5 @@
 import { dispatchInkBalance } from './ink-events'
+import { getSchoolBillingContext } from './school-billing'
 
 const INK_SESSION_STORAGE_KEY = 'rp-ink-session-id'
 const INK_SESSION_EXPIRES_KEY = 'rp-ink-session-expires-at'
@@ -80,6 +81,11 @@ export async function refreshInkBalance(): Promise<number | null> {
 }
 
 export async function startInkSession() {
+  // 學校計費模式(行政端):不建個人會話——扣款走學校錢包(proxy x-school-billing)
+  if (getSchoolBillingContext()) {
+    setInkSessionId(null)
+    return { sessionId: '', expiresAt: undefined }
+  }
   const response = await fetch('/api/ink/sessions?action=start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -178,6 +184,10 @@ export async function closeInkSession(sessionId?: string | null) {
  * - 若 session 有效，直接返回
  */
 export async function ensureInkSessionFresh(): Promise<{ sessionId: string; expiresAt: number | null }> {
+  // 學校計費模式(行政端):免會話(空字串→body 不帶有效 session、server 走學校扣款)
+  if (getSchoolBillingContext()) {
+    return { sessionId: '', expiresAt: null }
+  }
   const id = getInkSessionId()
   const exp = getInkSessionExpiresAt()
   const now = Date.now()

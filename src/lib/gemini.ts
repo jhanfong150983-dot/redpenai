@@ -13,6 +13,17 @@ import { getInkSessionId, startInkSession, setInkSessionId, ensureInkSessionFres
 
 const geminiProxyUrl = import.meta.env.VITE_GEMINI_PROXY_URL || '/api/proxy'
 
+// 2026-07-31 學校計費(user 拍板):行政端(學校檢視)期間所有 proxy 呼叫掛 x-school-billing header,
+// server 驗證行政身分後改扣學校錢包;教師端無 context、行為完全不變。唯一收口點。
+import { getSchoolBillingContext } from '@/lib/school-billing'
+function proxyFetch(init: RequestInit): Promise<Response> {
+  const sb = getSchoolBillingContext()
+  if (sb) {
+    init = { ...init, headers: { ...((init.headers as Record<string, string>) || {}), 'x-school-billing': sb } }
+  }
+  return fetch(geminiProxyUrl, init)
+}
+
 // 你這套設計是「一定走 proxy」：有沒有可用最後由 fetch 成功與否決定
 export const isGeminiAvailable = true
 
@@ -450,7 +461,7 @@ async function executeGeminiRequest(
     }
   }
 
-  const response = await fetch(geminiProxyUrl, {
+  const response = await proxyFetch({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -5861,7 +5872,7 @@ export async function gradePhaseA(
   const TRANSIENT_HTTP_STATUSES = new Set([408, 502, 503, 504])
   const RETRYABLE_FAILURE_CODES = new Set(['MODEL_TIMEOUT', 'MODEL_503_OVERLOAD'])
   const postPhaseOnce = async (body: string): Promise<{ resp: Response; data: any; text: string | undefined }> => {
-    let resp = await fetch(geminiProxyUrl, {
+    let resp = await proxyFetch({
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body
     })
     if (resp.status === 409) {
@@ -5871,7 +5882,7 @@ export async function gradePhaseA(
       // 重建 body 帶新 sid（簡單做法：呼叫端要傳新 sid 進來，這裡 fallback 用 newSid 套到舊 body）
       const reparsed = JSON.parse(body)
       reparsed.inkSessionId = newSid
-      resp = await fetch(geminiProxyUrl, {
+      resp = await proxyFetch({
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(reparsed)
       })
     }
@@ -6083,7 +6094,7 @@ export async function gradePhaseB(
     ...(gradeBand ? { gradeBand } : {})
   })
 
-  let response = await fetch(geminiProxyUrl, {
+  let response = await proxyFetch({
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
@@ -6094,7 +6105,7 @@ export async function gradePhaseB(
     console.warn('[gradePhaseB] Ink session not found (409), creating new session and retrying...')
     setInkSessionId(null)
     const { sessionId: newSessionId } = await startInkSession()
-    response = await fetch(geminiProxyUrl, {
+    response = await proxyFetch({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -6164,7 +6175,7 @@ export async function gradePhaseBFromCache(
   //   call 2 — grading.phase_b_explain   → 生成引導、回最終 GradingResult
 
   const postPhaseB = async (body: string): Promise<{ resp: Response; data: any; text: string | undefined }> => {
-    let resp = await fetch(geminiProxyUrl, {
+    let resp = await proxyFetch({
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body
     })
     if (resp.status === 409) {
@@ -6173,7 +6184,7 @@ export async function gradePhaseBFromCache(
       const { sessionId: newSid } = await startInkSession()
       const reparsed = JSON.parse(body)
       reparsed.inkSessionId = newSid
-      resp = await fetch(geminiProxyUrl, {
+      resp = await proxyFetch({
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(reparsed)
       })
     }
@@ -6301,14 +6312,14 @@ export async function generateSingleQuestionGuidance(params: {
     studentConfusion,
     ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {})
   })
-  let resp = await fetch(geminiProxyUrl, {
+  let resp = await proxyFetch({
     method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body
   })
   if (resp.status === 409) {
     setInkSessionId(null)
     const { sessionId: newSid } = await startInkSession()
     const reparsed = JSON.parse(body); reparsed.inkSessionId = newSid
-    resp = await fetch(geminiProxyUrl, {
+    resp = await proxyFetch({
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(reparsed)
     })
   }
@@ -6349,12 +6360,12 @@ export async function gradeOneQuestion(params: {
     ...(answerSheetMode && answerSheetMode !== 'with_questions' ? { answerSheetMode } : {}),
     ...(gradeBand ? { gradeBand } : {})
   })
-  let resp = await fetch(geminiProxyUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body })
+  let resp = await proxyFetch({ method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body })
   if (resp.status === 409) {
     setInkSessionId(null)
     const { sessionId: newSid } = await startInkSession()
     const rp = JSON.parse(body); rp.inkSessionId = newSid
-    resp = await fetch(geminiProxyUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(rp) })
+    resp = await proxyFetch({ method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(rp) })
   }
   const data = await resp.json().catch(() => null) as Record<string, unknown> | null
   if (typeof (data as any)?.ink?.balanceAfter === 'number') dispatchInkBalance((data as any).ink.balanceAfter)
