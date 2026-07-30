@@ -194,7 +194,6 @@ export default function SchoolAdminPanel({
   const [drivingJobId, setDrivingJobId] = useState<string | null>(null)
   const [tab, setTab] = useState<SchoolTab>('overview')
   const [rosterSyncing, setRosterSyncing] = useState(false)
-  const [mirroring, setMirroring] = useState(false)
   const [school, setSchool] = useState<SchoolRow | null>(null)
   // 2026-07-30:系統 admin 看得到所有學校——保留清單供切換;預設選「自己行政歸屬」的學校
   const [schoolList, setSchoolList] = useState<SchoolRow[]>([])
@@ -298,6 +297,10 @@ export default function SchoolAdminPanel({
           unresolved > 0 ? `(另 ${unresolved} 人不在名冊但查無離校紀錄,維持原狀)` : ''
         }\n家長綁定:${
           data.parentFieldPresent ? `${data.parentBound} / ${data.studentsSeen} 人` : '此授權未回傳家長綁定資料'
+        }${
+          data.mirror
+            ? `\n考卷班級:${data.mirror.classes} 個已就緒(供建立考卷/匯入/批改使用)`
+            : ''
         }`,
         { title: `全校名冊同步完成${data.schoolName ? ` · ${data.schoolName}` : ''}` }
       )
@@ -378,31 +381,6 @@ export default function SchoolAdminPanel({
     },
     [school, refreshJobs, loadWallet]
   )
-
-  // Step 5(獨立模型):班級鏡像——在行政自己名下建立全校班級+學生(學校考卷的地基)。冪等可重按。
-  const runMirrorClasses = useCallback(async () => {
-    const targetSchoolId = school?.school_id ?? preferredSchoolId
-    if (!targetSchoolId || mirroring) return
-    setMirroring(true)
-    try {
-      const res = await fetch('/api/data/school-mirror-classes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ schoolId: targetSchoolId })
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || '建立失敗')
-      await alertModal(
-        `班級:${data.classes} 個(新增 ${data.created}、更新 ${data.updated})\n在籍學生:${data.students} 人\n\n這些班級建立在您的帳號之下(資料夾「學校考卷」),接下來的考卷建立、匯入與批改都在這些班級上進行。`,
-        { title: '考卷班級已就緒' }
-      )
-    } catch (err) {
-      await alertModal(err instanceof Error ? err.message : '建立失敗', { title: '建立考卷班級失敗' })
-    } finally {
-      setMirroring(false)
-    }
-  }, [school, preferredSchoolId, mirroring, alertModal])
 
   const openAssignments = useCallback(
     async (t: TeacherOverviewRow) => {
@@ -705,18 +683,6 @@ export default function SchoolAdminPanel({
                 >
                   <School className={`h-3 w-3 ${rosterSyncing ? 'animate-pulse' : ''}`} />
                   {rosterSyncing ? '同步中…' : '全校名冊同步'}
-                </button>
-              )}
-              {(school || preferredSchoolId) && (
-                <button
-                  type="button"
-                  onClick={() => void runMirrorClasses()}
-                  disabled={mirroring || rosterSyncing || loading}
-                  title="在您的帳號下建立全校班級與學生名冊(學校考卷用),可重複執行更新"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Layers className={`h-3 w-3 ${mirroring ? 'animate-pulse' : ''}`} />
-                  {mirroring ? '建立中…' : '建立考卷班級'}
                 </button>
               )}
               <button
