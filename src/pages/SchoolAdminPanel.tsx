@@ -148,6 +148,7 @@ export default function SchoolAdminPanel({
   const alertModal = useAlertModal()
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [teachers, setTeachers] = useState<TeacherOverviewRow[]>([])
+  const [teacherSource, setTeacherSource] = useState<'roster' | 'fallback' | null>(null)
   const [walletLedger, setWalletLedger] = useState<WalletLedgerRow[]>([])
   const [teachersLoading, setTeachersLoading] = useState(false)
   const [grantTarget, setGrantTarget] = useState<TeacherOverviewRow | null>(null)
@@ -278,7 +279,10 @@ export default function SchoolAdminPanel({
         fetch(`/api/data/school-wallet?schoolId=${encodeURIComponent(sid)}&ledger=1`, { credentials: 'include' })
       ])
       const tData = await tRes.json()
-      if (tRes.ok) setTeachers(Array.isArray(tData.teachers) ? tData.teachers : [])
+      if (tRes.ok) {
+        setTeachers(Array.isArray(tData.teachers) ? tData.teachers : [])
+        setTeacherSource(tData.source === 'roster' ? 'roster' : 'fallback')
+      }
       const wData = await wRes.json()
       if (wRes.ok) {
         if (typeof wData.balance === 'number') setWalletBalance(wData.balance)
@@ -583,6 +587,12 @@ export default function SchoolAdminPanel({
                   <span className="text-sm text-slate-500">位已綁定登入</span>
                 </div>
               </div>
+
+              {teacherSource === 'fallback' && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  尚未取得全校教師名冊,目前僅顯示登入過的老師(帳號欄為其登入帳號)。請按右上「全校名冊同步」抓取全校教師。
+                </div>
+              )}
 
               {/* 教師清單:全校名冊為主體,帳號=1Campus 帳號、綁定與否掛標籤 */}
               <div className="overflow-x-auto rounded-xl border border-slate-200">
