@@ -1922,6 +1922,7 @@ function App() {
         <SchoolAdminPanel
           onBack={() => setCurrentPage('home')}
           preferredSchoolId={auth.status === 'authenticated' ? auth.user.schoolAdmin?.schoolId : undefined}
+          inkBalance={auth.status === 'authenticated' ? auth.user.inkBalance ?? 0 : undefined}
         />
       </Suspense>
     )

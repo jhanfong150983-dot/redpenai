@@ -8,7 +8,8 @@ import {
   Layers,
   LayoutDashboard,
   TrendingUp,
-  School
+  School,
+  Droplet
 } from 'lucide-react'
 import { useAlertModal } from '@/components/ConfirmModal'
 
@@ -105,7 +106,17 @@ function effectiveGrade(c: ClassRow): number | null {
   return c.grade != null ? c.grade : gradeFromLabel(c.class_label)
 }
 
-export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack: () => void; preferredSchoolId?: string }) {
+// 2026-07-30 Step 4(子計畫2)第一步:學校錢包=行政個人 profile 的墨水餘額(預付點數包定案)。
+// 先讓行政在學校端看得到「學校點數」;之後的統一批改 job 從這個帳戶扣。
+export default function SchoolAdminPanel({
+  onBack,
+  preferredSchoolId,
+  inkBalance
+}: {
+  onBack: () => void
+  preferredSchoolId?: string
+  inkBalance?: number
+}) {
   const alertModal = useAlertModal()
   const [tab, setTab] = useState<SchoolTab>('overview')
   const [rosterSyncing, setRosterSyncing] = useState(false)
@@ -315,6 +326,16 @@ export default function SchoolAdminPanel({ onBack, preferredSchoolId }: { onBack
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {typeof inkBalance === 'number' && (
+              <div
+                className="flex h-10 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 text-sm text-amber-800"
+                title="學校點數:統一批改與報告產生由此帳戶扣點(預付點數包)"
+              >
+                <Droplet className="h-4 w-4" />
+                <span className="font-semibold tabular-nums">{inkBalance}</span>
+                <span className="text-xs">學校點數</span>
+              </div>
+            )}
             {schoolList.length > 1 && (
               <select
                 value={school?.school_id ?? ''}
