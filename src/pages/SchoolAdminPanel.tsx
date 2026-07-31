@@ -22,6 +22,7 @@ import UnifiedImportPage from '@/pages/UnifiedImportPage'
 const LazyGradingPage = lazy(() => import('@/pages/GradingPage'))
 import SyncIndicator from '@/components/SyncIndicator'
 import { requestSync, waitForSync } from '@/lib/sync-events'
+import { db } from '@/lib/db'
 import { setSchoolBillingContext, SCHOOL_WALLET_EVENT } from '@/lib/school-billing'
 
 // 學校管理層（教務主任）檢視頁。
@@ -492,11 +493,8 @@ export default function SchoolAdminPanel({
   const openGradeExam = useCallback((ex: SchoolExamRow) => {
     setGradeExam(ex)
     setGradeSyncing(true)
-    requestSync(true)
-    waitForSync(45000)
-      .catch(() => {})
-      .finally(() => setGradeSyncing(false))
-  }, [])
+    void ensureExamLocal(ex, setGradeSyncing)
+  }, [ensureExamLocal])
 
   // 建立考卷:modal 第四步送出(成功=卡片直接出現,不另彈成功視窗——user 拍板)
   const submitCreateExam = useCallback(
@@ -747,16 +745,29 @@ export default function SchoolAdminPanel({
     setRecords([])
   }
 
-  // 匯入考卷:開啟前先 sync(把行政名下的考卷 assignment/班級/學生 pull 進本機資料庫)
+  // 匯入考卷:開啟前確保本機資料庫已有考卷資料——已在本機就直接進(背景照樣同步)、
+  // 沒有才顯示「正在準備考卷資料…」等首次 pull(行政端在主 shell 外、同步不常駐的補償)
+  const ensureExamLocal = useCallback(async (ex: SchoolExamRow, setSyncing: (b: boolean) => void) => {
+    requestSync(true)
+    try {
+      const ids = ex.classes.map((c) => c.assignmentId)
+      const found = await db.assignments.where('id').anyOf(ids).count()
+      if (found >= ids.length) {
+        setSyncing(false)
+        return
+      }
+    } catch { /* 查不到就照常等同步 */ }
+    waitForSync(45000)
+      .catch(() => {})
+      .finally(() => setSyncing(false))
+  }, [])
+
   const openImportExam = useCallback((ex: SchoolExamRow) => {
     setImportExam(ex)
     setImportClassIdx(0)
     setImportSyncing(true)
-    requestSync(true)
-    waitForSync(45000)
-      .catch(() => {})
-      .finally(() => setImportSyncing(false))
-  }, [])
+    void ensureExamLocal(ex, setImportSyncing)
+  }, [ensureExamLocal])
 
   // 建卷 modal 第四步的班級選擇內容(年級分組 chips;狀態在本元件)
   const examClassPicker = (
