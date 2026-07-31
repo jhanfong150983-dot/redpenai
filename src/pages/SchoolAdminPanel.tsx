@@ -490,6 +490,23 @@ export default function SchoolAdminPanel({
     }
   }, [tab])
 
+  // 開啟前確保本機資料庫已有考卷資料——已在本機就直接進(背景照樣同步)、
+  // 沒有才顯示「正在準備考卷資料…」等首次 pull(行政端在主 shell 外、同步不常駐的補償)
+  const ensureExamLocal = useCallback(async (ex: SchoolExamRow, setSyncing: (b: boolean) => void) => {
+    requestSync(true)
+    try {
+      const ids = ex.classes.map((c) => c.assignmentId)
+      const found = await db.assignments.where('id').anyOf(ids).count()
+      if (found >= ids.length) {
+        setSyncing(false)
+        return
+      }
+    } catch { /* 查不到就照常等同步 */ }
+    waitForSync(45000)
+      .catch(() => {})
+      .finally(() => setSyncing(false))
+  }, [])
+
   const openGradeExam = useCallback((ex: SchoolExamRow) => {
     setGradeExam(ex)
     setGradeSyncing(true)
@@ -744,23 +761,6 @@ export default function SchoolAdminPanel({
     setPerson(null)
     setRecords([])
   }
-
-  // 匯入考卷:開啟前確保本機資料庫已有考卷資料——已在本機就直接進(背景照樣同步)、
-  // 沒有才顯示「正在準備考卷資料…」等首次 pull(行政端在主 shell 外、同步不常駐的補償)
-  const ensureExamLocal = useCallback(async (ex: SchoolExamRow, setSyncing: (b: boolean) => void) => {
-    requestSync(true)
-    try {
-      const ids = ex.classes.map((c) => c.assignmentId)
-      const found = await db.assignments.where('id').anyOf(ids).count()
-      if (found >= ids.length) {
-        setSyncing(false)
-        return
-      }
-    } catch { /* 查不到就照常等同步 */ }
-    waitForSync(45000)
-      .catch(() => {})
-      .finally(() => setSyncing(false))
-  }, [])
 
   const openImportExam = useCallback((ex: SchoolExamRow) => {
     setImportExam(ex)
