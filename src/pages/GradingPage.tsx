@@ -874,7 +874,9 @@ function _pct(arr: number[], p: number): number {
 //   之後同一作業的所有批改直接套範本、完全跳過 classify(省一半 API)。
 //   ⚠ 只給 PDF/teacher_scan 用；照片路徑完全不碰。全程 fail-safe(任何錯就退回正常 classify)。
 //   失效保護:存 qids+totalPages,答案卷題目集或頁數變了就作廢重新抽樣。
-type PdfClassifyTemplate = { ctx: unknown; qids: string[]; totalPages: number; savedAt: number }
+//   2026-08-01 加 sampleCount/samplePapers([[classify-sample-k-experiment]]):模板要記「幾份樣本算出來的」,
+//   低樣本模板(含 legacy 無欄位=視為 1)在本批可湊出更多樣本時作廢重建——堵 K=1 壞框永久固化(77 分事故根因)。
+type PdfClassifyTemplate = { ctx: unknown; qids: string[]; totalPages: number; savedAt: number; sampleCount?: number; samplePapers?: number }
 async function fetchPdfTemplate(assignmentId?: string): Promise<PdfClassifyTemplate | null> {
   if (!assignmentId) return null
   try {
@@ -932,6 +934,31 @@ function computeScanUnifiedBox(entries: BatchPhaseAEntry[], minN = 5): Map<strin
     })
   }
   return out.size > 0 ? out : null
+}
+
+// 2026-08-01 classify 取樣數實驗定案(local-only/exp-classify-sample-0731、44 次實測+bootstrap 模擬):
+//   跨卷 K=8 即收斂平台(vs 舊 15-18,classify 成本 -55%);少份跨卷優先補到 5;單份同卷重跑 3 次取 median。
+//   題級保險絲:某題樣本 <60% 落在中位中心 0.02 內(=無多數共識、bimodal 跳位)→ 全卷 +1 次取樣、cap +2。
+//   ⚠ 卷級「歪了就整卷丟棄重跑」實測比固定 K 更差(歪是題級、median 每題已自動作廢離群票)——不做。
+function findUnstableQids(entries: BatchPhaseAEntry[], thC = 0.02, support = 0.6): string[] {
+  const byQid = new Map<string, Array<{ cx: number; cy: number }>>()
+  for (const e of entries) {
+    for (const qr of e.phaseAResult.questionResults) {
+      const bb = qr.answerBbox as Bbox | undefined
+      if (!bb || typeof bb.x !== 'number' || typeof bb.w !== 'number') continue
+      if (!byQid.has(qr.questionId)) byQid.set(qr.questionId, [])
+      byQid.get(qr.questionId)!.push({ cx: bb.x + bb.w / 2, cy: bb.y + bb.h / 2 })
+    }
+  }
+  const out: string[] = []
+  for (const [qid, list] of byQid) {
+    if (list.length < 3) continue // <3 票無從判共識
+    const mcx = _median(list.map((c) => c.cx))
+    const mcy = _median(list.map((c) => c.cy))
+    const okN = list.filter((c) => Math.hypot(c.cx - mcx, c.cy - mcy) <= thC).length
+    if (okN / list.length < support) out.push(qid)
+  }
+  return out
 }
 
 // 2026-06-20: 失敗原因安全轉字串。pipelineFailure.userMessage 或 throw 的 err 可能是物件，
@@ -4450,8 +4477,9 @@ export default function GradingPage({
     //     (不用不足的樣本去算框；STAGE 2 仍會對已 classify 的 PDF 套統一框做漂移修正)。
     const pdfCandidates = candidates.filter((s) => s.source === 'teacher_scan')
     const photoCandidates = candidates.filter((s) => s.source !== 'teacher_scan')
-    const PDF_SAMPLE_MIN = 15
-    const usePdfSampling = pdfCandidates.length > PDF_SAMPLE_MIN + 3
+    // 2026-08-01 K 實驗定案(見 findUnstableQids 註):多份抽 8(舊 15、-55% classify)、少份補到 5、單份同卷 3 次。
+    const PDF_SAMPLE_TARGET = 8
+    const usePdfSampling = pdfCandidates.length >= PDF_SAMPLE_TARGET + 2
     let pdfBoxApplied = false
     // 目前答案卷的題目 id 集合(範本失效判斷用:題目集或頁數變了就作廢)。
     const currentQids = ((ANSWER_KEY?.questions as Array<{ id?: string }> | undefined) ?? []).map((q) => String(q?.id ?? '')).filter(Boolean)
@@ -4460,7 +4488,15 @@ export default function GradingPage({
     let pdfTemplateApplied = false
     if (pdfCandidates.length > 0 && !stopRequestedRef.current) {
       const saved = await fetchPdfTemplate(assignment?.id)
-      if (saved && isPdfTemplateValid(saved, currentQids, pageCount)) {
+      // 2026-08-01 K 升級門檻:legacy 無 sampleCount=視為 1;本批可湊出更好的樣本數時模板作廢重建。
+      const savedCount = Math.max(1, Number(saved?.sampleCount) || 1)
+      const achievableK = pdfCandidates.length >= PDF_SAMPLE_TARGET + 2 ? PDF_SAMPLE_TARGET
+        : pdfCandidates.length >= 2 ? Math.min(Math.max(pdfCandidates.length, 3), 5) : 3
+      const templateStructValid = !!(saved && isPdfTemplateValid(saved, currentQids, pageCount))
+      if (templateStructValid && savedCount < PDF_SAMPLE_TARGET && savedCount < achievableK) {
+        console.log(`[PdfTemplate] 存檔模板樣本數 ${savedCount} < 本批可達 ${achievableK} → 作廢重建(K 升級)`)
+      }
+      if (saved && templateStructValid && (savedCount >= PDF_SAMPLE_TARGET || savedCount >= achievableK)) {
         for (const sub of pdfCandidates) {
           if (!sub.imageBlob) continue
           const cloned = JSON.parse(JSON.stringify(saved.ctx)) as ClassifyCtx
@@ -4477,17 +4513,32 @@ export default function GradingPage({
     if (!pdfTemplateApplied) {
     if (usePdfSampling) {
       setGradingMessage('抽樣讀框中…')
-      const SAMPLE_CHUNK = PDF_SAMPLE_MIN + 3
+      const SAMPLE_CHUNK = PDF_SAMPLE_TARGET + 2
       let idx = 0
       // 此時 okSubs 只會累積 PDF（照片在本段之後才 classify）→ okSubs.length 即 PDF 成功數
-      while (idx < pdfCandidates.length && okSubs.length < PDF_SAMPLE_MIN && !stopRequestedRef.current) {
+      while (idx < pdfCandidates.length && okSubs.length < PDF_SAMPLE_TARGET && !stopRequestedRef.current) {
         const chunk = pdfCandidates.slice(idx, idx + SAMPLE_CHUNK)
         idx += chunk.length
         await runWithConcurrency(chunk, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
       }
-      const sampleEntries = okSubs.map((s) => classifyCtxToEntry(s, classifyCtxBySub.get(s.id)))
-      const unified = okSubs.length >= PDF_SAMPLE_MIN ? computeScanUnifiedBox(sampleEntries, PDF_SAMPLE_MIN) : null
-      if (unified && okSubs.length >= PDF_SAMPLE_MIN) {
+      let sampleEntries = okSubs.map((s) => classifyCtxToEntry(s, classifyCtxBySub.get(s.id)))
+      // 題級保險絲:有題無多數共識(bimodal 跳位)→ 追加 classify 一份未跑過的卷、cap +2
+      let fuseLeft = 2
+      while (fuseLeft > 0 && okSubs.length >= PDF_SAMPLE_TARGET && !stopRequestedRef.current) {
+        const unstable = findUnstableQids(sampleEntries)
+        if (unstable.length === 0) break
+        const next = pdfCandidates.find((s) => s.imageBlob && !classifyCtxBySub.has(s.id) && !failedCandidates.some((f) => f.id === s.id))
+        if (!next) break
+        fuseLeft--
+        console.log(`[PdfSampling] 題級無共識(${unstable.join(',')}) → 追加樣本 +1`)
+        await classifyOne(next)
+        sampleEntries = okSubs.map((s) => classifyCtxToEntry(s, classifyCtxBySub.get(s.id)))
+      }
+      // per-qid minN=樣本數 75%(8 份→6):容忍個別樣本漏框、又不讓少數票決定統一框
+      const unified = okSubs.length >= PDF_SAMPLE_TARGET
+        ? computeScanUnifiedBox(sampleEntries, Math.max(5, Math.floor(okSubs.length * 0.75)))
+        : null
+      if (unified && okSubs.length >= PDF_SAMPLE_TARGET) {
         pdfBoxApplied = true
         // 樣本卷:覆蓋成統一框
         for (const sub of okSubs) {
@@ -4533,14 +4584,17 @@ export default function GradingPage({
           const sal = saveCtx?.classifyResult?.alignedQuestions
           if (Array.isArray(sal)) for (const q of sal) { const u = unified.get(q.questionId); if (u) q.answerBbox = { ...u } }
           saveCtx.ocrAssistMeta = { enabled: false, perPage: [] }
-          if (currentQids.length > 0) void savePdfTemplate(assignment?.id, { ctx: saveCtx, qids: currentQids, totalPages: pageCount, savedAt: Date.now() })
+          if (currentQids.length > 0) void savePdfTemplate(assignment?.id, {
+            ctx: saveCtx, qids: currentQids, totalPages: pageCount, savedAt: Date.now(),
+            sampleCount: sampleEntries.length, samplePapers: new Set(sampleEntries.map((e) => e.submissionId)).size,
+          })
         } catch { /* fail-safe:存不進去不影響本次批改 */ }
       } else {
-        // ★湊不滿 15 份成功 → 回歸:PDF 也全部各自 classify(不用不足樣本算框；STAGE 2 再套統一框)
+        // ★湊不滿目標份數成功 → 回歸:PDF 也全部各自 classify(不用不足樣本算框；STAGE 2 少份路徑再套統一框)
         const processed = new Set([...okSubs.map((s) => s.id), ...failedCandidates.map((s) => s.id)])
         const rest = pdfCandidates.filter((s) => !processed.has(s.id))
         if (rest.length > 0) await runWithConcurrency(rest, gradeConcurrency, 2000, classifyOne, () => {}, stopRequestedRef)
-        console.log(`[PdfSampling] PDF 成功樣本不足 ${PDF_SAMPLE_MIN} 份 → 回歸全 classify`)
+        console.log(`[PdfSampling] PDF 成功樣本不足 ${PDF_SAMPLE_TARGET} 份 → 回歸全 classify`)
       }
     } else {
       // PDF 子集 ≤18(或無 PDF):全部各自 classify(原行為)
@@ -4582,15 +4636,65 @@ export default function GradingPage({
           ? {}
           : { dyThreshold: 0.015, dxThreshold: 0.08, minOutlierCount: 1, detectMissing: true, peerTotal: Math.max(0, peerPool.length - 1), missingConsensus: 0.7 }
 
-      // ── PDF 子集：median x/y + P90 w/h 統一框(決定性、修漂移)。池只含 teacher_scan、避免照片框污染 ──
-      const pdfPoolMap = new Map<string, BatchPhaseAEntry>()
-      for (const p of statePeersPdf) pdfPoolMap.set(p.submissionId, p)
-      for (const s of pdfOkSubs) pdfPoolMap.set(s.id, classifyCtxToEntry(s, classifyCtxBySub.get(s.id)))
-      const pdfPool = [...pdfPoolMap.values()]
-      if (pdfOkSubs.length > 0 && pdfPool.length >= 5 && !stopRequestedRef.current) {
-        // 2026-06-21 PDF 統一框([[project_pdf_bbox_wh_p90]])：median x/y + P90 w/h、全 PDF 卷同框、決定性。
+      // ── PDF 少份路徑(2026-08-01 K 實驗重寫、[[classify-sample-k-experiment]]):fresh 樣本為主、
+      //    庫存框 dedupe 成一票、不足補跑到目標(少份 5/單份 3)、題級保險絲 +1(cap +2)。
+      //    ⚠ 舊行為:statePeers 逐卷各算一票 → 前一批寫進 grading_result 的統一框「複本」(整批全同)
+      //    壟斷 median、壞框自我固化、單份重批永遠翻不了身(77 分事故第二層)。相同簽名現在只算一票。
+      if (pdfOkSubs.length > 0 && !stopRequestedRef.current) {
         setGradingMessage('框位統一中…')
-        const unified = computeScanUnifiedBox(pdfPool, 5)
+        const freshEntries = pdfOkSubs.map((s) => classifyCtxToEntry(s, classifyCtxBySub.get(s.id)))
+        const sigOf = (e: BatchPhaseAEntry) => JSON.stringify(e.phaseAResult.questionResults.map((q) => {
+          const b = q.answerBbox as Bbox | undefined
+          return [q.questionId, b ? [b.x.toFixed(4), b.y.toFixed(4), b.w.toFixed(4), b.h.toFixed(4)] : null]
+        }))
+        const samples: BatchPhaseAEntry[] = [...freshEntries]
+        const freshIds = new Set(pdfOkSubs.map((s) => s.id))
+        const seenSig = new Set<string>()
+        for (const p of statePeersPdf) {
+          if (freshIds.has(p.submissionId)) continue // 本批 fresh 已覆蓋同卷
+          const sig = sigOf(p)
+          if (seenSig.has(sig)) continue // 統一框複本只算一票
+          seenSig.add(sig)
+          samples.push(p)
+        }
+        // 同卷追加取樣(不 bump 進度、不 clearForRerun;失敗容忍、不擋主流程)
+        const rerunPool = pdfOkSubs.filter((s) => s.imageBlob)
+        let ri = 0
+        const extraSample = async (): Promise<boolean> => {
+          if (rerunPool.length === 0 || stopRequestedRef.current) return false
+          const sub = rerunPool[ri % rerunPool.length]; ri++
+          try {
+            const r = await gradePhaseA(
+              sub.imageBlob!, ANSWER_KEY, sub.pageBreaks, assignment?.domain, sub.assignmentId ?? assignment?.id,
+              undefined, assignment?.answerSheetMode, sub.id, sub.source, undefined, { stopAfterClassify: true }
+            )
+            const ctx = (r as unknown as { _phaseAClassifyContext?: unknown })._phaseAClassifyContext
+            if (r.pipelineFailure || !ctx) return false
+            samples.push(classifyCtxToEntry(sub, ctx))
+            return true
+          } catch { return false }
+        }
+        // 目標樣本數:2 卷以上補到 5(跨卷優先、重跑只補位);單卷同卷 3 次(K 實驗:median-of-3 壓掉跳位)
+        const TARGET_FEW = pdfOkSubs.length >= 2 ? 5 : 3
+        let attempts = Math.max(0, TARGET_FEW - samples.length) + 2
+        while (samples.length < TARGET_FEW && attempts > 0) {
+          attempts--
+          setGradingMessage(`框位取樣中…(${samples.length}/${TARGET_FEW})`)
+          await extraSample()
+        }
+        // 題級保險絲:無多數共識 → +1、cap +2
+        let fuseLeft = 2
+        while (fuseLeft > 0 && samples.length >= 3) {
+          const unstable = findUnstableQids(samples)
+          if (unstable.length === 0) break
+          fuseLeft--
+          console.log(`[ScanUnifiedBox] 題級無共識(${unstable.join(',')}) → 追加樣本 +1`)
+          if (!(await extraSample())) break
+        }
+        // 2026-06-21 PDF 統一框([[project_pdf_bbox_wh_p90]])：median x/y + P90 w/h、全 PDF 卷同框、決定性。
+        const unified = samples.length >= 3
+          ? computeScanUnifiedBox(samples, Math.max(3, Math.floor(samples.length * 0.6)))
+          : null
         if (unified) {
           let nBox = 0
           for (const sub of pdfOkSubs) {
@@ -4602,7 +4706,23 @@ export default function GradingPage({
               if (u && q.answerBbox && typeof q.answerBbox.x === 'number') { q.answerBbox = { ...u }; nBox++ }
             }
           }
-          console.log(`[ScanUnifiedBox] PDF median-xy+P90-wh 覆蓋 ${pdfOkSubs.length} 份 / ${nBox} 框、不送 retry`)
+          console.log(`[ScanUnifiedBox] PDF 少份路徑:樣本 ${samples.length} 份(fresh ${freshEntries.length}) → 覆蓋 ${pdfOkSubs.length} 份 / ${nBox} 框`)
+          // 模板持久化:distinct 卷數 ≥5 才夠格(同卷重跑有 per-paper bias、不可當權威模板)
+          const distinctPapers = new Set(samples.map((e) => e.submissionId)).size
+          if (distinctPapers >= 5 && currentQids.length > 0) {
+            try {
+              const alignedLenOf = (id: string) => ((classifyCtxBySub.get(id) as ClassifyCtx | undefined)?.classifyResult?.alignedQuestions?.length ?? 0)
+              const tplSub = pdfOkSubs.reduce((best, s) => alignedLenOf(s.id) > alignedLenOf(best.id) ? s : best, pdfOkSubs[0])
+              const saveCtx = JSON.parse(JSON.stringify(classifyCtxBySub.get(tplSub.id))) as ClassifyCtx
+              const sal = saveCtx?.classifyResult?.alignedQuestions
+              if (Array.isArray(sal)) for (const q of sal) { const u = unified.get(q.questionId); if (u) q.answerBbox = { ...u } }
+              saveCtx.ocrAssistMeta = { enabled: false, perPage: [] }
+              void savePdfTemplate(assignment?.id, {
+                ctx: saveCtx, qids: currentQids, totalPages: pageCount, savedAt: Date.now(),
+                sampleCount: samples.length, samplePapers: distinctPapers,
+              })
+            } catch { /* fail-safe */ }
+          }
         }
       }
       // ── answer_only 照片子集：原 peer-outlier 漂移檢查(版面一致才有意義；PDF 已由上方統一框處理) ──
