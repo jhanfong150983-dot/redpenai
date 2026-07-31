@@ -22,7 +22,7 @@ import UnifiedImportPage from '@/pages/UnifiedImportPage'
 const LazyGradingPage = lazy(() => import('@/pages/GradingPage'))
 import SyncIndicator from '@/components/SyncIndicator'
 import { requestSync, waitForSync } from '@/lib/sync-events'
-import { setSchoolBillingContext } from '@/lib/school-billing'
+import { setSchoolBillingContext, SCHOOL_WALLET_EVENT } from '@/lib/school-billing'
 
 // 學校管理層（教務主任）檢視頁。
 // 版面對齊教師端/學生端：頂部 logo bar + 左側功能選單(aside) + 右側內容(section)。
@@ -332,6 +332,16 @@ export default function SchoolAdminPanel({
     setSchoolBillingContext(school?.school_id ?? preferredSchoolId ?? null)
     return () => setSchoolBillingContext(null)
   }, [school, preferredSchoolId])
+
+  // 即時餘額:每筆學校計費回應廣播 balanceAfter → header 點數批改當下逐卷跳動
+  useEffect(() => {
+    const onBalance = (e: Event) => {
+      const balance = (e as CustomEvent<{ balance: number }>).detail?.balance
+      if (typeof balance === 'number' && Number.isFinite(balance)) setWalletBalance(balance)
+    }
+    window.addEventListener(SCHOOL_WALLET_EVENT, onBalance)
+    return () => window.removeEventListener(SCHOOL_WALLET_EVENT, onBalance)
+  }, [])
 
   // 切換學校(多校時的下拉;單校不顯示)
   const switchSchool = useCallback(async (sid: string) => {

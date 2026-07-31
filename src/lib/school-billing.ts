@@ -13,3 +13,12 @@ export function setSchoolBillingContext(schoolId: string | null): void {
 export function getSchoolBillingContext(): string | null {
   return schoolBillingId
 }
+
+// 即時學校餘額廣播:proxy 每次學校計費回應帶 ink.balanceAfter → gemini.ts 廣播、
+// SchoolAdminPanel 監聽更新 header 點數(批改當下逐卷跳動,不用重新整理)
+export const SCHOOL_WALLET_EVENT = 'school-wallet-balance'
+
+export function dispatchSchoolWalletBalance(balance: number): void {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(SCHOOL_WALLET_EVENT, { detail: { balance } }))
+}

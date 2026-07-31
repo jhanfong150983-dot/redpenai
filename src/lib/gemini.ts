@@ -15,13 +15,27 @@ const geminiProxyUrl = import.meta.env.VITE_GEMINI_PROXY_URL || '/api/proxy'
 
 // 2026-07-31 學校計費(user 拍板):行政端(學校檢視)期間所有 proxy 呼叫掛 x-school-billing header,
 // server 驗證行政身分後改扣學校錢包;教師端無 context、行為完全不變。唯一收口點。
-import { getSchoolBillingContext } from '@/lib/school-billing'
-function proxyFetch(init: RequestInit): Promise<Response> {
+import { getSchoolBillingContext, dispatchSchoolWalletBalance } from '@/lib/school-billing'
+async function proxyFetch(init: RequestInit): Promise<Response> {
   const sb = getSchoolBillingContext()
   if (sb) {
     init = { ...init, headers: { ...((init.headers as Record<string, string>) || {}), 'x-school-billing': sb } }
   }
-  return fetch(geminiProxyUrl, init)
+  const res = await fetch(geminiProxyUrl, init)
+  // 學校計費回應帶 ink.balanceAfter → 即時廣播給學校檢視 header(clone 不影響原回應)
+  if (sb && res.ok) {
+    void res
+      .clone()
+      .json()
+      .then((d) => {
+        const ink = d?.ink
+        if (ink?.schoolBilling && typeof ink.balanceAfter === 'number') {
+          dispatchSchoolWalletBalance(ink.balanceAfter)
+        }
+      })
+      .catch(() => {})
+  }
+  return res
 }
 
 // 你這套設計是「一定走 proxy」：有沒有可用最後由 fetch 成功與否決定
