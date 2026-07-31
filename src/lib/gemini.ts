@@ -4466,7 +4466,9 @@ const AK_VALID_CATEGORIES = new Set([
   // Bucket A
   'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
   'single_check', 'multi_check', 'true_false', 'fill_blank', 'multi_fill',
-  'table_cell',
+  // 2026-07-31 補登 table_check:extract prompt 強制要求它、白名單卻漏了 →
+  // 每張含勾選表的英語卷都被判 invalid_category 白 retry 一次 PRO(answers 在 rows[]、不進 ANSWER_REQUIRED)
+  'table_cell', 'table_check',
   'matching', 'ordering', 'mark_in_text',
   // Bucket B
   'fill_variants', 'map_fill',
