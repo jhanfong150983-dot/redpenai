@@ -1121,7 +1121,7 @@ export default function SchoolAdminPanel({
                   <div className="rounded-xl border border-slate-200 bg-white p-5">
                     <h3 className="text-sm font-semibold text-slate-800">學生檢討單(紙本)</h3>
                     <p className="mt-1 text-xs text-slate-500">
-                      每位學生一頁起:扣分與低信心題的作答裁圖+AI 讀值+得分理由+正解,低信心題以黃框標示、末尾附核對簽名欄。一個班合併成一個 PDF,直接列印發下。
+                      每位學生逐題列出:作答裁圖+AI 擷取內容+得分(扣分題附正解、低信心題標示核對),自動排版成兩頁、末頁附總分與核對簽名欄。一個班合併成一個 PDF,直接列印發下。
                     </p>
                     <div className="mt-3 divide-y divide-slate-100">
                       {reportExam.classes.map((c) => {

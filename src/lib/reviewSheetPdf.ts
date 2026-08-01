@@ -1,14 +1,26 @@
-// 學生檢討單 PDF(2026-08-01 Step 9、user 拍板設計):
-//   每生一頁起:頁首(考卷/班級/座號姓名/總分)+「需檢討題目」卡片(扣分題+低信心題:
-//   作答裁圖+AI 讀值+得分+理由+正解;低信心=黃框醒目標示)+簽名欄。答對題不列(user 拍板省略)。
-//   全對學生=一行「本卷全數答對」+簽名欄。
-// 管線:client 組 HTML(裁圖=canvas 裁 bbox、零 AI 成本)→ 逐生 POST /api/report/parent-pdf
-//   (真 Chrome 渲染、重用家長報告端點)→ pdf-lib 合併成「一班一個 PDF」直接列印(user 拍板,
-//   不用 zip——30 個檔對列印不友善)。單生 HTML 一份一 POST 也避開端點 4MB 上限。
+// 學生檢討單 PDF(2026-08-01 Step 9、模板經 user 逐版定稿):
+//   全題密排、目標 2 頁。每列=頁數|題號|作答裁圖(等高)|AI 擷取/正解|得分。
+//   扣分題紅底+紅邊條(所有列都預留邊條寬度→不位移)、低信心黃底+「⚠核對」;
+//   末頁=總分(右、簽名之前)+核對簽名欄;每頁底部置中頁碼。無圖例(黑白列印無意義)。
+// ⭐crop-first(user 拍板):裁圖像素「保留原始解析度、絕不重採樣縮小」——列印 300dpi 吃完整像素、
+//   顯示尺寸只由 CSS 控制;全題等高(解析度夠、不需為錯題放大)。
+// 自適應:列高用裁圖實際尺寸精算 → 迭代找 zoom(縮的是顯示尺寸、不動像素)裝進 2 頁;
+//   縮到下限仍裝不下 → 誠實開第 3 頁(不 overflow 藏內容)。
+// 管線:client 組 HTML(canvas 裁 bbox、零 AI 成本)→ 逐生 POST /api/report/parent-pdf
+//   (重用家長報告 headless Chrome 端點、零 server 改動;逐生 POST 也避開 4MB 上限)
+//   → pdf-lib 合併成「一班一個 PDF」直接列印(user 拍板,不用 zip)。
 import { db, type Submission, type Student, type Assignment } from '@/lib/db'
 
 const PDF_ENDPOINT = '/api/report/parent-pdf'
 const FONT_LINK = '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet">'
+
+// 版型常數(與 local-only/exp-review-sheet-preview 定稿一致)
+const UNIFORM_CROP_H = 32   // 全題統一裁圖顯示高
+const CROP_COL_W = 310      // 裁圖固定欄寬 → 「AI 擷取/正解」全卷齊頭
+const BUDGET_FIRST = 950    // 頁1 內容區高度
+const BUDGET_NEXT = 855     // 後續頁(末頁含總分+簽名)
+const ZOOM_FLOOR = 0.85
+const ZOOM_CEIL = 1.30
 
 type Bbox = { x: number; y: number; w: number; h: number }
 type GradingDetail = {
@@ -25,22 +37,27 @@ type GradingDetail = {
   needsReview?: boolean
 }
 
-export type ReviewCard = {
+export type ReviewRow = {
   qid: string
+  pageNo: string
+  qNum: string
   score: number
   maxScore: number
   studentAnswer: string
-  reason: string
   correctAnswer: string
+  wrong: boolean
   lowConfidence: boolean
   cropDataUri: string | null
+  dispW: number
+  dispH: number
+  rowH: number
 }
 export type StudentSheet = {
   studentId: string
   seat: number
   name: string
   score: number | null
-  cards: ReviewCard[]
+  rows: ReviewRow[]
 }
 export type ReviewProgress = (phase: 'build' | 'pdf', done: number, total: number) => void
 
@@ -69,37 +86,34 @@ async function getSubmissionBitmap(sub: Submission): Promise<ImageBitmap | null>
   }
 }
 
-// 裁 bbox 區域 → JPEG data URI。小框放大 2 倍(列印清晰);寬上限 560px。
-function cropToDataUri(bmp: ImageBitmap, bbox: Bbox, padX = 0.012, padY = 0.005): string | null {
+// 裁 bbox → JPEG data URI + 原始像素尺寸。⚠ canvas 尺寸=原始像素(不縮),顯示大小交給 CSS。
+function cropAtNativeRes(bmp: ImageBitmap, bbox: Bbox, padX = 0.012, padY = 0.004):
+  { uri: string; w: number; h: number } | null {
   try {
-    const x0 = Math.max(0, (bbox.x - padX)) * bmp.width
-    const y0 = Math.max(0, (bbox.y - padY)) * bmp.height
+    const x0 = Math.max(0, bbox.x - padX) * bmp.width
+    const y0 = Math.max(0, bbox.y - padY) * bmp.height
     const x1 = Math.min(1, bbox.x + bbox.w + padX) * bmp.width
     const y1 = Math.min(1, bbox.y + bbox.h + padY) * bmp.height
-    const sw = Math.max(1, Math.round(x1 - x0))
-    const sh = Math.max(1, Math.round(y1 - y0))
-    let scale = 1
-    if (sw < 240) scale = 2
-    if (sw > 560) scale = 560 / sw
+    const sw = Math.round(x1 - x0)
+    const sh = Math.round(y1 - y0)
+    if (sw < 2 || sh < 2) return null
     const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(sw * scale))
-    canvas.height = Math.max(1, Math.round(sh * scale))
+    canvas.width = sw
+    canvas.height = sh
     const ctx = canvas.getContext('2d')
     if (!ctx) return null
-    ctx.imageSmoothingEnabled = true
-    ctx.imageSmoothingQuality = 'high'
-    ctx.drawImage(bmp, Math.round(x0), Math.round(y0), sw, sh, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/jpeg', 0.85)
+    ctx.drawImage(bmp, Math.round(x0), Math.round(y0), sw, sh, 0, 0, sw, sh)
+    return { uri: canvas.toDataURL('image/jpeg', 0.88), w: sw, h: sh }
   } catch {
     return null
   }
 }
 
-// ── 資料組裝:一個班(assignment)→ 每位已批改學生的檢討卡片 ──
+// ── 資料組裝:一個班(assignment)→ 每位已批改學生的全題列 ──
 export async function buildClassReviewSheets(
   assignmentId: string,
   onProgress?: ReviewProgress
-): Promise<{ assignment: Assignment; className: string; sheets: StudentSheet[]; skipped: number }> {
+): Promise<{ assignment: Assignment; className: string; sheets: StudentSheet[] }> {
   const assignment = await db.assignments.get(assignmentId)
   if (!assignment) throw new Error('找不到考卷資料,請先同步')
   const classroom = await db.classrooms.get(assignment.classroomId)
@@ -107,9 +121,8 @@ export async function buildClassReviewSheets(
   const stuById = new Map(students.map((s) => [s.id, s]))
   const subs = (await db.submissions.where('assignmentId').equals(assignmentId).toArray())
     .filter((s) => s.status === 'graded' && s.gradingResult)
-  // 正解對照:answerKey questions id → answer
-  const akQuestions = (assignment.answerKey?.questions ?? []) as Array<{ id?: string; answer?: unknown }>
-  const correctById = new Map(akQuestions.map((q) => [String(q.id ?? ''), String(q.answer ?? '')]))
+  // 題序與正解以答案卷為準(考卷原始順序)
+  const akQuestions = (assignment.answerKey?.questions ?? []) as Array<{ id?: string; answer?: unknown; maxScore?: number }>
 
   const ordered = subs
     .map((sub) => ({ sub, stu: stuById.get(sub.studentId) }))
@@ -120,100 +133,177 @@ export async function buildClassReviewSheets(
   let done = 0
   for (const { sub, stu } of ordered) {
     const details = ((sub.gradingResult as { details?: GradingDetail[] } | undefined)?.details ?? [])
-    const picked = details.filter((d) => {
-      const max = Number(d.maxScore ?? 0)
-      const sc = Number(d.score ?? 0)
-      return sc < max || isLowConfidence(d)
-    })
-    let bmp: ImageBitmap | null = null
-    if (picked.some((d) => d.answerBbox)) bmp = await getSubmissionBitmap(sub)
-    const cards: ReviewCard[] = picked.map((d) => ({
-      qid: d.questionId,
-      score: Number(d.score ?? 0),
-      maxScore: Number(d.maxScore ?? 0),
-      studentAnswer: String(d.studentAnswer ?? ''),
-      reason: String(d.scoringReason ?? d.reason ?? ''),
-      correctAnswer: correctById.get(d.questionId) ?? '',
-      lowConfidence: isLowConfidence(d),
-      cropDataUri: bmp && d.answerBbox ? cropToDataUri(bmp, d.answerBbox) : null,
-    }))
+    const detailById = new Map(details.map((d) => [d.questionId, d]))
+    // bbox 來源:grading_result.details 優先,缺就退 phase_a_state 的 classify 結果
+    //（PhaseAStateCached.classifyResult 在 schema 是 unknown、此處窄化取 bbox)
+    const phaseAligned = (sub.phaseAState?.classifyResult as
+      { alignedQuestions?: Array<{ questionId?: string; answerBbox?: Bbox }> } | undefined)
+      ?.alignedQuestions ?? []
+    const bboxFallback = new Map<string, Bbox>()
+    for (const q of phaseAligned) {
+      if (q?.questionId && q.answerBbox) bboxFallback.set(String(q.questionId), q.answerBbox)
+    }
+    const bmp = await getSubmissionBitmap(sub)
+
+    const rows: ReviewRow[] = []
+    for (const q of akQuestions) {
+      const qid = String(q?.id ?? '')
+      const d = detailById.get(qid)
+      if (!qid || !d) continue
+      const maxScore = Number(d.maxScore ?? q.maxScore ?? 0)
+      const score = Number(d.score ?? 0)
+      const bbox = d.answerBbox || bboxFallback.get(qid)
+      const c = bmp && bbox ? cropAtNativeRes(bmp, bbox) : null
+      // 等比縮進 CROP_COL_W × UNIFORM_CROP_H 盒內(全題等高、不分對錯放大)
+      let dispW = 0, dispH = 0
+      if (c) {
+        const s = Math.min(UNIFORM_CROP_H / c.h, CROP_COL_W / c.w)
+        dispW = Math.max(1, Math.round(c.w * s))
+        dispH = Math.max(1, Math.round(c.h * s))
+      }
+      // 題號拆「頁數|題號」:1-A-1 → 頁數 1、題號 A-1
+      const m = qid.match(/^(\d+)-(.+)$/)
+      rows.push({
+        qid,
+        pageNo: m ? m[1] : '',
+        qNum: m ? m[2] : qid,
+        score, maxScore,
+        studentAnswer: String(d.studentAnswer ?? ''),
+        correctAnswer: String(q?.answer ?? ''),
+        wrong: score < maxScore,
+        lowConfidence: isLowConfidence(d),
+        cropDataUri: c?.uri ?? null,
+        dispW, dispH,
+        rowH: Math.max(24, dispH + 6),
+      })
+    }
     bmp?.close()
     sheets.push({
       studentId: stu.id,
       seat: stu.seatNumber,
       name: stu.name,
       score: typeof sub.score === 'number' ? sub.score : null,
-      cards,
+      rows,
     })
     done++
     onProgress?.('build', done, ordered.length)
   }
-  return {
-    assignment,
-    className: classroom?.name ?? '',
-    sheets,
-    skipped: subs.length - sheets.length,
-  }
+  return { assignment, className: classroom?.name ?? '', sheets }
 }
 
 // ── HTML 版型 ──
 const SHEET_CSS = `
-.rs-root { width: 794px; box-sizing: border-box; padding: 34px 44px 30px; font-family: 'Noto Sans TC', sans-serif; color: #0f172a; }
-.rs-head { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2.5px solid #0f172a; padding-bottom: 10px; }
-.rs-title { font-size: 19px; font-weight: 800; }
-.rs-sub { font-size: 12px; color: #475569; margin-top: 3px; }
-.rs-who { text-align: right; }
-.rs-name { font-size: 15px; font-weight: 700; }
-.rs-score { font-size: 24px; font-weight: 800; margin-top: 2px; }
-.rs-score small { font-size: 12px; font-weight: 500; color: #64748b; }
-.rs-section { font-size: 13px; font-weight: 700; margin: 14px 0 8px; }
-.rs-card { border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 9px 13px; margin-bottom: 8px; break-inside: avoid; page-break-inside: avoid; }
-.rs-card.low { border-color: #f59e0b; background: #fffbeb; }
-.rs-lowtag { display: inline-block; font-size: 10.5px; font-weight: 700; color: #b45309; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 999px; padding: 1px 8px; margin-left: 8px; vertical-align: 1px; }
-.rs-qline { font-size: 13px; font-weight: 700; }
-.rs-qline .pts { color: #dc2626; font-weight: 800; margin-left: 8px; }
-.rs-crop { margin: 7px 0 5px; }
-.rs-crop img { max-width: 100%; max-height: 110px; border: 1px solid #e2e8f0; border-radius: 6px; display: block; }
-.rs-meta { font-size: 12px; color: #334155; line-height: 1.55; }
-.rs-meta b { color: #0f172a; }
-.rs-reason { font-size: 11.5px; color: #64748b; margin-top: 3px; line-height: 1.5; }
-.rs-allpass { border: 1.5px solid #86efac; background: #f0fdf4; color: #15803d; border-radius: 10px; padding: 14px; font-size: 14px; font-weight: 700; text-align: center; margin-top: 14px; }
-.rs-sign { margin-top: 22px; border-top: 1.5px dashed #94a3b8; padding-top: 14px; font-size: 12.5px; color: #334155; display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
-.rs-signline { white-space: nowrap; }
-.rs-signline .blank { display: inline-block; width: 110px; border-bottom: 1px solid #64748b; margin: 0 4px; }
+.page { position:relative; width:794px; height:1123px; box-sizing:border-box; background:#fff; padding:36px 42px 40px; overflow:hidden; font-family:'Noto Sans TC', sans-serif; color:#0f172a; }
+.head { display:flex; justify-content:space-between; align-items:baseline; border-bottom:2px solid #0f172a; padding-bottom:6px; margin-bottom:6px }
+.head .t { font-size:15px; font-weight:800 } .head .s { font-size:10.5px; color:#64748b; margin-left:10px }
+.head .who { font-size:12.5px; font-weight:700 }
+.cols { min-height:20px; align-items:center; padding-top:0; padding-bottom:4px; border-bottom:1px solid #cbd5e1 }
+.cols > div { font-size:9.5px; font-weight:600; color:#64748b; letter-spacing:.3px; line-height:1.2 }
+/* 所有列都預留左邊條寬度 → 扣分題只換顏色、不位移 */
+.row { display:flex; align-items:center; gap:8px; border-bottom:1px solid #f1f5f9; padding:2px 0 2px 5px; min-height:26px; border-left:3px solid transparent }
+.row.wrong { background:#fef2f2; border-left-color:#ef4444 }
+.row.low { background:#fffbeb; border-left-color:#f59e0b }
+.c-page { flex:0 0 26px; font-size:10.5px; font-weight:700; text-align:center; color:#64748b }
+.c-qid { flex:0 0 42px; font-size:10.5px; font-weight:700 }
+.c-crop { flex:0 0 ${CROP_COL_W}px } .c-crop img { display:block; border:1px solid #e2e8f0; border-radius:3px }
+.nocrop { font-size:9px; color:#cbd5e1 }
+.c-ans { flex:1 1 auto; font-size:10px; color:#334155; line-height:1.35; min-width:0 }
+.c-ans b { font-size:10.5px } .corr { margin-left:2px } .corr b { color:#dc2626 }
+.lowtag { font-size:8.5px; color:#b45309; background:#fef3c7; border:1px solid #fcd34d; border-radius:99px; padding:0 5px; margin-left:5px }
+.c-score { flex:0 0 56px; text-align:right; font-size:10.5px; white-space:nowrap }
+.o { color:#16a34a; font-weight:800; margin-right:3px } .x { color:#dc2626; font-weight:800; margin-right:3px }
+.pts { font-weight:700 }
+.allpass { border:1.5px solid #86efac; background:#f0fdf4; color:#15803d; border-radius:10px; padding:14px; font-size:13px; font-weight:700; text-align:center; margin-top:14px }
+.foot { margin-top:10px; border-top:1.5px dashed #94a3b8; padding-top:9px }
+.total { display:flex; justify-content:flex-end; align-items:baseline; gap:8px }
+.tlabel { font-size:12px; font-weight:700; color:#475569 }
+.tval { font-size:30px; font-weight:800; color:#0f172a; border-bottom:3px double #0f172a; padding:0 10px; line-height:1.1 }
+.sign { font-size:11px; color:#334155; display:flex; justify-content:space-between; align-items:flex-end; margin-top:12px }
+.blank { display:inline-block; width:100px; border-bottom:1px solid #64748b; margin:0 4px }
+.pgfoot { position:absolute; left:0; right:0; bottom:14px; text-align:center; font-size:9.5px; color:#94a3b8 }
 `
 
-function renderSheetHtml(sheet: StudentSheet, header: { title: string; className: string; dateText: string }): string {
-  const cards = sheet.cards.map((c) => `
-    <div class="rs-card${c.lowConfidence ? ' low' : ''}">
-      <div class="rs-qline">${esc(c.qid)}<span class="pts">${c.score}/${c.maxScore} 分</span>${c.lowConfidence ? '<span class="rs-lowtag">⚠ 低信心題,請特別核對</span>' : ''}</div>
-      ${c.cropDataUri ? `<div class="rs-crop"><img src="${c.cropDataUri}" alt=""></div>` : ''}
-      <div class="rs-meta">AI 讀到:<b>${esc(c.studentAnswer || '(未讀到)')}</b>　　正解:<b>${esc(c.correctAnswer || '—')}</b></div>
-      ${c.reason ? `<div class="rs-reason">${esc(c.reason)}</div>` : ''}
-    </div>`).join('\n')
-  return `
-  <div class="rs-root">
-    <div class="rs-head">
-      <div>
-        <div class="rs-title">${esc(header.title)}|學生檢討單</div>
-        <div class="rs-sub">${esc(header.className)}・批改日期 ${esc(header.dateText)}</div>
-      </div>
-      <div class="rs-who">
-        <div class="rs-name">${sheet.seat} 號 ${esc(sheet.name)}</div>
-        <div class="rs-score">${sheet.score ?? '—'}<small> 分</small></div>
-      </div>
-    </div>
-    ${sheet.cards.length > 0
-      ? `<div class="rs-section">▍需要檢討的題目(共 ${sheet.cards.length} 題)</div>\n${cards}`
-      : '<div class="rs-allpass">本卷全數答對,無需檢討 🎉</div>'}
-    <div class="rs-sign">
-      <div>本人已核對本卷批改結果,如有疑義已向老師口頭反映。</div>
-      <div class="rs-signline">簽名:<span class="blank"></span>日期:<span class="blank" style="width:80px"></span></div>
-    </div>
+type SheetHeader = { title: string; className: string; dateText: string }
+
+function rowHtml(r: ReviewRow): string {
+  const cls = r.wrong ? 'row wrong' : r.lowConfidence ? 'row low' : 'row'
+  const mark = r.wrong ? '<span class="x">✗</span>' : '<span class="o">✓</span>'
+  const tag = r.lowConfidence ? '<span class="lowtag">⚠核對</span>' : ''
+  const img = r.cropDataUri
+    ? `<img src="${r.cropDataUri}" style="width:${r.dispW}px;height:${r.dispH}px">`
+    : '<span class="nocrop">(無裁圖)</span>'
+  return `<div class="${cls}">
+    <div class="c-page">${esc(r.pageNo)}</div>
+    <div class="c-qid">${esc(r.qNum)}</div>
+    <div class="c-crop">${img}</div>
+    <div class="c-ans">擷取:<b>${esc(r.studentAnswer || '—')}</b>${r.wrong ? `<span class="corr">　正解:<b>${esc(r.correctAnswer || '—')}</b></span>` : ''}${tag}</div>
+    <div class="c-score">${mark}<span class="pts">${r.score}/${r.maxScore}</span></div>
   </div>`
 }
 
-function buildPrintDocument(sheet: StudentSheet, header: { title: string; className: string; dateText: string }): string {
+// 迭代找 zoom + 分頁(貪婪分頁有殘差、純除法算不準 → 從理想值往下試到裝進 2 頁)
+function layout(rows: ReviewRow[]): { zoom: number; pages: ReviewRow[][] } {
+  const totalH = rows.reduce((s, r) => s + r.rowH, 0) || 1
+  const paginate = (z: number) => {
+    const pg: ReviewRow[][] = [[]]
+    let h = 0
+    for (const r of rows) {
+      const budget = (pg.length === 1 ? BUDGET_FIRST : BUDGET_NEXT) / z
+      if (h + r.rowH > budget && pg[pg.length - 1].length > 0) { pg.push([]); h = 0 }
+      pg[pg.length - 1].push(r)
+      h += r.rowH
+    }
+    return pg
+  }
+  let zoom = Math.min(ZOOM_CEIL, Math.max(ZOOM_FLOOR, (BUDGET_FIRST + BUDGET_NEXT) / totalH))
+  let pages = paginate(zoom)
+  while (pages.length > 2 && zoom > ZOOM_FLOOR) {
+    zoom = Math.max(ZOOM_FLOOR, zoom - 0.005)
+    pages = paginate(zoom)
+  }
+  return { zoom, pages }
+}
+
+const COLS_HTML = `<div class="row cols">
+  <div class="c-page">頁數</div>
+  <div class="c-qid">題號</div>
+  <div class="c-crop">你的作答(裁圖)</div>
+  <div class="c-ans">AI 擷取/正解</div>
+  <div class="c-score">得分</div>
+</div>`
+
+function renderSheetHtml(sheet: StudentSheet, header: SheetHeader): string {
+  const { zoom, pages } = layout(sheet.rows)
+  const headHtml = `<div class="head">
+    <div><span class="t">${esc(header.title)}|學生檢討單</span><span class="s">${esc(header.className)}・${esc(header.dateText)}</span></div>
+    <div class="who">${sheet.seat} 號 ${esc(sheet.name)}</div>
+  </div>`
+  const footHtml = `<div class="foot">
+    <div class="total"><span class="tlabel">總分</span><span class="tval">${sheet.score ?? '—'}</span></div>
+    <div class="sign">
+      <div>本人已逐題核對本卷批改結果,如有疑義已向老師口頭反映。</div>
+      <div>簽名:<span class="blank"></span>日期:<span class="blank" style="width:70px"></span></div>
+    </div>
+  </div>`
+  if (sheet.rows.length === 0) {
+    return `<div class="page">${headHtml}
+      <div class="allpass">本卷尚無可顯示的題目資料</div>
+      ${footHtml}
+      <div class="pgfoot">第 1 / 1 頁</div>
+    </div>`
+  }
+  return pages.map((pageRows, i) => `<div class="page">
+  ${headHtml}
+  <div style="zoom:${zoom.toFixed(3)}">
+  ${COLS_HTML}
+  ${pageRows.map(rowHtml).join('\n')}
+  </div>
+  ${i === pages.length - 1 ? footHtml : ''}
+  <div class="pgfoot">第 ${i + 1} / ${pages.length} 頁</div>
+</div>`).join('\n')
+}
+
+function buildPrintDocument(sheet: StudentSheet, header: SheetHeader): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title>學生檢討單</title>${FONT_LINK}
 <style>
 @page { size: A4; margin: 0; }
@@ -222,7 +312,7 @@ ${SHEET_CSS}
 </style></head><body>${renderSheetHtml(sheet, header)}</body></html>`
 }
 
-async function fetchSheetPdf(sheet: StudentSheet, header: { title: string; className: string; dateText: string }): Promise<ArrayBuffer> {
+async function fetchSheetPdf(sheet: StudentSheet, header: SheetHeader): Promise<ArrayBuffer> {
   const res = await fetch(PDF_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -247,7 +337,7 @@ function triggerDownload(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
-// ── 主流程:組資料 → 逐生渲染(併發 3+失敗重試一次) → pdf-lib 依座號合併 → 下載 ──
+// ── 主流程:組資料 → 逐生渲染(併發 3+失敗循序重試一次) → pdf-lib 依座號合併 → 下載 ──
 export async function downloadClassReviewSheetPdf(
   assignmentId: string,
   opts: { onProgress?: ReviewProgress } = {}
@@ -255,7 +345,7 @@ export async function downloadClassReviewSheetPdf(
   const { assignment, className, sheets } = await buildClassReviewSheets(assignmentId, opts.onProgress)
   if (sheets.length === 0) throw new Error('此班尚無已批改的卷,請先完成 AI 批改')
   const dateText = new Date().toLocaleDateString('zh-TW')
-  const header = { title: assignment.title, className, dateText }
+  const header: SheetHeader = { title: assignment.title, className, dateText }
 
   const results = new Array<ArrayBuffer | null>(sheets.length).fill(null)
   let done = 0
