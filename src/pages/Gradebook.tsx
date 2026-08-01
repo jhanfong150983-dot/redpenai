@@ -102,13 +102,19 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
   const [loadKey, setLoadKey] = useState(0)
   const hasPushedScoresRef = useRef(false)
+  // 已完成載入的班級 id：用來判斷這次是「換班級(要顯示 loading)」還是「背景刷新(靜默)」
+  const loadedClassroomRef = useRef<string | null>(null)
+  const lastFetchAtRef = useRef(0)
 
   // 只在「分頁切回前景」時 refetch（不在 sync 完成時 refetch、避免老師操作時被 API call 打斷）
   // 原本：每次 sync 完成都 +loadKey → /api/data/get-gradebook-scores 被頻繁呼叫、覆蓋老師本地狀態
   // 現在：老師在頁面內操作不被打斷；只當切到別頁回來時、才同步一次伺服器最新分數
+  // 2026-08-01：加 15 秒門檻——頻繁切視窗不必每次都打 API（刷新本身已改靜默、不閃畫面）
   useEffect(() => {
     const handler = () => {
-      if (document.visibilityState === 'visible') setLoadKey((k) => k + 1)
+      if (document.visibilityState !== 'visible') return
+      if (Date.now() - lastFetchAtRef.current < 15000) return
+      setLoadKey((k) => k + 1)
     }
     document.addEventListener('visibilitychange', handler)
     return () => document.removeEventListener('visibilitychange', handler)
@@ -251,7 +257,11 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
         if (classroomsLoadedRef.current) setIsLoading(false)
         return
       }
-      setIsLoading(true)
+      // 2026-08-01（user 回報「離開視窗回來就整頁重載、體感差」）：
+      //   只有「首次載入 / 換班級」才顯示 loading 畫面；切回前景的背景刷新靜默進行、
+      //   保留現有表格內容（同 App 首頁 overview 的 first-load-only skeleton 作法）。
+      const isBackgroundRefresh = loadedClassroomRef.current === selectedClassroomId
+      if (!isBackgroundRefresh) setIsLoading(true)
       setError(null)
       try {
         const [asgs, stus, folders, columnRows, scoreRows] = await Promise.all([
@@ -365,6 +375,8 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
         setAssignmentFolders(folders)
         setSubmissions(subs)
         setCustomColumns(seeded.columns)
+        loadedClassroomRef.current = selectedClassroomId
+        lastFetchAtRef.current = Date.now()
       } catch (e) {
         console.error(e)
         setError(e instanceof Error ? e.message : '載入成績資料失敗')
