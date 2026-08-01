@@ -380,6 +380,16 @@ export default function SubmissionDetailModal({
       ? Math.max(0, Math.min(scoreValue, rowMax))
       : Math.max(0, scoreValue)
 
+    // 2026-08-01（user 實測回報）：滿分 2 的題打 6 → clamp 回 2 = 與 AI 原判相同,
+    //   卻仍被標記「老師編輯」+ 出現回復鈕,但實際什麼都沒變。
+    //   → 分數無實質改變就不留痕:只把輸入框顯示同步成 clamp 後的值,不標記、不寫 db。
+    //   （已編輯過的題同理:改回目前值不需要重寫快照,原有標記與回復鈕維持不變。）
+    const prevScore = Number(dbRow?.score ?? 0)
+    if (safeScore === prevScore) {
+      setEditableDetails((prev) => prev.map((d: any, i: number) => (i === index ? { ...d, score: safeScore } : d)))
+      return
+    }
+
     // 2026-07-13 老師接管：改分數同樣換理由＋快照 AI 原判（回復鈕用）
     const updatedDetails = editableDetails.map((d: any, i: number) =>
       i === index ? { ...d, score: safeScore, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: aiOriginalSnap } : d
