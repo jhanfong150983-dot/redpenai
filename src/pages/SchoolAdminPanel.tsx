@@ -24,6 +24,7 @@ import SyncIndicator from '@/components/SyncIndicator'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
 import { setSchoolBillingContext, SCHOOL_WALLET_EVENT } from '@/lib/school-billing'
+import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
 
 // 學校管理層（教務主任）檢視頁。
 // 版面對齊教師端/學生端：頂部 logo bar + 左側功能選單(aside) + 右側內容(section)。
@@ -257,6 +258,13 @@ export default function SchoolAdminPanel({
   // 一顆智慧批改按鈕批全部;黃燈/改分原生可用;計費走學校錢包 header)
   const [gradeExam, setGradeExam] = useState<SchoolExamRow | null>(null)
   const [gradeSyncing, setGradeSyncing] = useState(false)
+  // Step 9:報告生成(第一層=學生檢討單 PDF;家長報告之後)
+  const [reportExam, setReportExam] = useState<SchoolExamRow | null>(null)
+  const [reportSyncing, setReportSyncing] = useState(false)
+  const [reportCounts, setReportCounts] = useState<Record<string, { graded: number; total: number }>>({})
+  const [reportBusy, setReportBusy] = useState<string | null>(null)
+  const [reportProg, setReportProg] = useState<{ phase: string; done: number; total: number } | null>(null)
+  const [reportMsg, setReportMsg] = useState<Record<string, string>>({})
   const [tab, setTab] = useState<SchoolTab>('overview')
   const [rosterSyncing, setRosterSyncing] = useState(false)
   // 首次使用自動準備:空校(從未同步)且有歸屬校 → 自動跑一次全校名冊同步,行政零操作
@@ -487,6 +495,7 @@ export default function SchoolAdminPanel({
     if (tab !== 'exams') {
       setImportExam(null)
       setGradeExam(null)
+      setReportExam(null)
     }
   }, [tab])
 
@@ -778,6 +787,49 @@ export default function SchoolAdminPanel({
     void ensureExamLocal(ex, setImportSyncing)
   }, [ensureExamLocal])
 
+  // Step 9:報告生成入口(同 import/grade:先確保本機有資料)
+  const openReportExam = useCallback((ex: SchoolExamRow) => {
+    setReportExam(ex)
+    setReportMsg({})
+    setReportCounts({})
+    setReportSyncing(true)
+    void ensureExamLocal(ex, setReportSyncing)
+  }, [ensureExamLocal])
+
+  // 檢討單頁:同步完載每班已批改數(產生按鈕的 enable 依據)
+  useEffect(() => {
+    if (!reportExam || reportSyncing) return
+    let cancelled = false
+    ;(async () => {
+      const out: Record<string, { graded: number; total: number }> = {}
+      for (const c of reportExam.classes) {
+        const subs = await db.submissions.where('assignmentId').equals(c.assignmentId).toArray()
+        out[c.assignmentId] = { graded: subs.filter((s) => s.status === 'graded' && s.gradingResult).length, total: subs.length }
+      }
+      if (!cancelled) setReportCounts(out)
+    })()
+    return () => { cancelled = true }
+  }, [reportExam, reportSyncing])
+
+  const generateReviewSheet = useCallback(async (assignmentId: string) => {
+    setReportBusy(assignmentId)
+    setReportProg(null)
+    try {
+      const r = await downloadClassReviewSheetPdf(assignmentId, {
+        onProgress: (phase, done, total) => setReportProg({ phase, done, total }),
+      })
+      setReportMsg((m) => ({
+        ...m,
+        [assignmentId]: r.failed > 0 ? `完成 ${r.students} 份(${r.failed} 份失敗,可再按一次重產)` : `已下載(${r.students} 份)`,
+      }))
+    } catch (e) {
+      setReportMsg((m) => ({ ...m, [assignmentId]: e instanceof Error ? e.message : '產生失敗,請重試' }))
+    } finally {
+      setReportBusy(null)
+      setReportProg(null)
+    }
+  }, [])
+
   // 建卷 modal 第四步的班級選擇內容(年級分組 chips;狀態在本元件)
   const examClassPicker = (
     <>
@@ -1045,6 +1097,70 @@ export default function SchoolAdminPanel({
                 </Suspense>
               )}
             </div>
+          ) : tab === 'exams' && reportExam ? (
+            /* Step 9:報告生成——第一層=學生檢討單 PDF(紙本檢討主形態、user 拍板);家長報告之後 */
+            <div>
+              <div className="mb-3 flex items-center gap-2 text-sm text-slate-500">
+                <button
+                  type="button"
+                  onClick={() => setReportExam(null)}
+                  className="inline-flex items-center gap-1 font-medium text-sky-600 hover:underline"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  返回考卷列表
+                </button>
+                <span className="text-slate-300">|</span>
+                <span className="font-medium text-slate-700">{reportExam.title}・報告生成</span>
+              </div>
+              {reportSyncing ? (
+                <div className="flex min-h-[240px] items-center justify-center text-sm text-slate-400">
+                  正在準備考卷資料…
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-slate-200 bg-white p-5">
+                    <h3 className="text-sm font-semibold text-slate-800">學生檢討單(紙本)</h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      每位學生一頁起:扣分與低信心題的作答裁圖+AI 讀值+得分理由+正解,低信心題以黃框標示、末尾附核對簽名欄。一個班合併成一個 PDF,直接列印發下。
+                    </p>
+                    <div className="mt-3 divide-y divide-slate-100">
+                      {reportExam.classes.map((c) => {
+                        const cnt = reportCounts[c.assignmentId]
+                        const busy = reportBusy === c.assignmentId
+                        const msg = reportMsg[c.assignmentId]
+                        return (
+                          <div key={c.assignmentId} className="flex items-center justify-between gap-3 py-2.5">
+                            <div className="min-w-0">
+                              <span className="text-sm font-medium text-slate-800">{c.className}</span>
+                              <span className="ml-2 text-xs text-slate-400">
+                                {cnt ? `已批改 ${cnt.graded}/${cnt.total} 份` : '載入中…'}
+                              </span>
+                              {msg && <span className="ml-2 text-xs text-emerald-600">{msg}</span>}
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy || reportBusy !== null || !cnt || cnt.graded === 0}
+                              onClick={() => void generateReviewSheet(c.assignmentId)}
+                              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                            >
+                              <FileText className="h-3.5 w-3.5" />
+                              {busy
+                                ? reportProg
+                                  ? `${reportProg.phase === 'build' ? '裁圖中' : 'PDF 渲染'} ${reportProg.done}/${reportProg.total}`
+                                  : '準備中…'
+                                : '產生檢討單 PDF'}
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-center text-xs text-slate-400">
+                    家長報告(之後推出)
+                  </div>
+                </div>
+              )}
+            </div>
           ) : tab === 'exams' && importExam ? (
             /* Step 7:匯入考卷=頁面切換(比照教師端整頁匯入,非彈窗——user 拍板視覺統一) */
             <div className="flex h-[calc(100vh-230px)] min-h-[480px] flex-col">
@@ -1171,9 +1287,8 @@ export default function SchoolAdminPanel({
                           <span className="px-1 text-slate-300">›</span>
                           <button
                             type="button"
-                            disabled
-                            title="之後推出(學生報告→家長報告)"
-                            className="inline-flex h-24 w-24 cursor-not-allowed flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-slate-100 text-xs font-medium text-slate-400"
+                            onClick={() => openReportExam(ex)}
+                            className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
                           >
                             <FileText className="h-4 w-4" />
                             <span className="text-center leading-tight">報告生成</span>
