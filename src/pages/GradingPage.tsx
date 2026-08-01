@@ -7180,10 +7180,19 @@ export default function GradingPage({
     setIsSavingScore(true)
     try {
       const now = Date.now()
+      // 2026-08-01 修 aiScore 被覆蓋 + scoreSource 標錯（user 回報鏈）：
+      //   aiScore 契約是「AI 原判快照、唯讀」(db.ts:640)，舊碼寫 aiScore=newTotal 把 AI 原判抹掉
+      //   → ①成績簿看不出人工介入(判 scoreSource==='manual') ②「AI 判幾分 vs 最終幾分」永久遺失
+      //     (行政端統一批改後教師端要做最後確認、學情分析算 AI 批對率都靠它)
+      //     ③成績簿還原鈕會還原到「老師改過的分」而非 AI 原判。
+      //   改為：首次人工介入才捕捉改前總分當快照、已是 manual 則沿用(同 Gradebook 既有正確作法)。
+      const aiSnapshot = submission.scoreSource === 'manual'
+        ? submission.aiScore
+        : (submission.aiScore ?? submission.score)
       await db.submissions.update(id, {
         score: newTotal,
-        aiScore: newTotal,
-        scoreSource: 'ai',
+        aiScore: aiSnapshot,
+        scoreSource: 'manual',
         gradingResult: newGradingResult,
         gradedAt: now,
         updatedAt: now
@@ -7192,7 +7201,7 @@ export default function GradingPage({
         // 2026-05-28: 加 fromManualScoreEdit=true、讓 server applySubmissionStateTransitions
         // 知道這是手動改分數、不要 skip 已在訂正流程的學生
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ submissions: [{ id, score: newTotal, aiScore: newTotal, scoreSource: 'ai', gradingResult: newGradingResult, gradedAt: now }], fromManualScoreEdit: true })
+        body: JSON.stringify({ submissions: [{ id, score: newTotal, aiScore: aiSnapshot, scoreSource: 'manual', gradingResult: newGradingResult, gradedAt: now }], fromManualScoreEdit: true })
       }).catch(() => {})
       requestSync()
 
@@ -7241,7 +7250,11 @@ export default function GradingPage({
     setIsSavingScore(true)
     try {
       const now = Date.now()
-      await db.submissions.update(id, { gradingResult: newGradingResult, finalAnswers: newFinalAnswers, score: newTotal, aiScore: newTotal, updatedAt: now })
+      // 2026-08-01 同 handleDetailScoreChange：aiScore 是 AI 原判快照、還原時不可覆蓋成當下總分。
+      //   scoreSource：本卷若已無任何題帶 _aiOriginal（全部還原完）→ 回 'ai'；仍有他題被改 → 維持 'manual'。
+      const stillEdited = updatedDetails.some((d) => (d as { _aiOriginal?: unknown })?._aiOriginal)
+      const nextSource: 'ai' | 'manual' = stillEdited ? 'manual' : 'ai'
+      await db.submissions.update(id, { gradingResult: newGradingResult, finalAnswers: newFinalAnswers, score: newTotal, aiScore: submission.aiScore, scoreSource: nextSource, updatedAt: now })
       setEditableDetails((prev) => prev.map((d: any, i: number) => (i === index ? { ...d, ...snap, _aiOriginal: undefined } : d)))
       void fetch('/api/data/save-final-answers', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
@@ -7249,7 +7262,7 @@ export default function GradingPage({
       }).catch(() => {})
       void fetch('/api/data/save-grading', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ submissions: [{ id, score: newTotal, aiScore: newTotal, scoreSource: 'ai', gradingResult: newGradingResult, gradedAt: submission.gradedAt ?? now }], fromManualScoreEdit: true })
+        body: JSON.stringify({ submissions: [{ id, score: newTotal, aiScore: submission.aiScore, scoreSource: nextSource, gradingResult: newGradingResult, gradedAt: submission.gradedAt ?? now }], fromManualScoreEdit: true })
       }).catch(() => {})
       const updated = await db.submissions.get(id)
       if (updated) {
