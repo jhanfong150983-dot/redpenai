@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { AlertTriangle, Download, Info, Plus, RotateCcw, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, Download, Info, Plus, X } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
-import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
+import SubmissionDetailModal from '@/components/SubmissionDetailModal'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
@@ -97,11 +96,9 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
 
   const [customColumns, setCustomColumns] = useState<CustomColumn[]>([])
 
-  const [editingCell, setEditingCell] = useState<{ assignmentId: string; studentId: string } | null>(null)
-  const [restorePortal, setRestorePortal] = useState<{
-    x: number; y: number; submissionId: string; aiScore: number | null
-  } | null>(null)
-  const hideRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 2026-08-01 改分入口收斂(user 拍板):成績簿改唯讀,點分數開批改頁同一個 modal
+  //   → 全系統只有一個地方能改分(逐題)、一個地方顯示。原本的總分手動覆寫/還原整組移除。
+  const [detailCtx, setDetailCtx] = useState<{ submission: Submission; student: Student; assignment?: Assignment } | null>(null)
 
   const [loadKey, setLoadKey] = useState(0)
   const hasPushedScoresRef = useRef(false)
@@ -669,87 +666,11 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
     requestSync()
   }
 
-  const handleScoreManualEdit = (submissionId: string, newScore: number | null) => {
-    const existing = submissions.find((s) => s.id === submissionId)
-    if (!existing) return
-    // Treat undefined and null as equivalent — skip if value didn't actually change
-    const existingScore = existing.score ?? null
-    if (existingScore === newScore) return
-
-    const now = Date.now()
-    // Only capture originalAiScore on the FIRST manual edit (scoreSource not yet 'manual').
-    // If already 'manual', aiScore already holds the true original — don't overwrite it.
-    const originalAiScore: number | null | undefined =
-      existing.scoreSource === 'manual'
-        ? existing.aiScore  // already set from first edit
-        : (existing.aiScore ?? existing.score ?? null)  // capture pre-edit value
-    setSubmissions((prev) =>
-      prev.map((s) =>
-        s.id === submissionId
-          ? { ...s, score: newScore ?? undefined, aiScore: originalAiScore ?? undefined, scoreSource: 'manual', updatedAt: now }
-          : s
-      )
-    )
-    const dbUpdate: Partial<Pick<Submission, 'score' | 'aiScore' | 'scoreSource' | 'updatedAt'>> = {
-      score: newScore ?? undefined,
-      scoreSource: 'manual',
-      updatedAt: now,
-      aiScore: originalAiScore ?? undefined
-    }
-    void db.submissions.update(submissionId, dbUpdate)
-    // 直接寫入 Supabase
-    fetch('/api/data/save-grading', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        submissions: [{ id: submissionId, score: newScore, aiScore: originalAiScore, scoreSource: 'manual', gradedAt: now }]
-      })
-    }).catch(() => {/* non-fatal */})
-    requestSync()
-  }
-
-  const handleScoreRestore = (submissionId: string, aiScore: number | null) => {
-    const now = Date.now()
-    setSubmissions((prev) =>
-      prev.map((s) =>
-        s.id === submissionId
-          ? { ...s, score: aiScore ?? undefined, aiScore: undefined, scoreSource: undefined, updatedAt: now }
-          : s
-      )
-    )
-    void db.submissions.update(submissionId, {
-      score: aiScore ?? undefined,
-      aiScore: undefined,
-      scoreSource: undefined,
-      updatedAt: now
-    })
-    setRestorePortal(null)
-    // Push 還原狀態到 server。沒這支 API call 的話、server 還是 manual 分數、
-    // 下次 sync pull 會把本地剛還原的覆蓋回去（user 反映「還原無效」即此 bug）。
-    fetch('/api/data/save-grading', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        submissions: [{ id: submissionId, score: aiScore, scoreSource: 'ai', gradedAt: now }]
-      })
-    }).catch(() => {})
-    requestSync()
-  }
-
-  const handleScoreCellMouseEnter = (
-    e: React.MouseEvent<HTMLTableCellElement>,
-    submissionId: string,
-    aiScore: number | null
-  ) => {
-    if (hideRestoreTimerRef.current) clearTimeout(hideRestoreTimerRef.current)
-    const rect = e.currentTarget.getBoundingClientRect()
-    setRestorePortal({ x: rect.right, y: rect.top, submissionId, aiScore })
-  }
-
-  const handleScoreCellMouseLeave = () => {
-    hideRestoreTimerRef.current = setTimeout(() => setRestorePortal(null), 300)
+  // 點分數格 → 開批改頁同一個 modal(唯讀成績簿的唯一改分路徑)
+  const openScoreDetail = (submissionId: string, assignmentId: string, student: Student) => {
+    const sub = submissions.find((x) => x.id === submissionId)
+    if (!sub) return
+    setDetailCtx({ submission: sub, student, assignment: assignments.find((a) => a.id === assignmentId) })
   }
 
   const handleExportCsv = () => {
@@ -1061,58 +982,25 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
                       {/* Assignment scores */}
                       {r.scoreCells.map((cell, idx) => {
                         const assignment = filteredAssignments[idx]
+                        // 2026-08-01 唯讀:藍字=分數曾經人工介入(scoreSource='manual');點格子開批改 modal 逐題改
                         const isManual = cell.scoreSource === 'manual'
-                        // Show restore for any manual edit — aiScore may be null (original had no score)
-                        const hasRestoreTarget = isManual && cell.submissionId != null
-                        // aiScore holds the true original (could be null = originally no score)
-                        const restoreAiScore = cell.aiScore ?? null
-                        const isEditing =
-                          editingCell?.assignmentId === assignment.id &&
-                          editingCell?.studentId === r.student.id
+                        const canOpen = !!cell.submissionId
                         return (
                           <td
                             key={assignment.id}
                             className="px-3 py-2 text-center tabular-nums"
-                            onMouseEnter={hasRestoreTarget
-                              ? (e) => handleScoreCellMouseEnter(e, cell.submissionId!, restoreAiScore!)
-                              : undefined}
-                            onMouseLeave={hasRestoreTarget ? handleScoreCellMouseLeave : undefined}
                             onClick={() => {
-                              if (cell.submissionId) {
-                                setEditingCell({ assignmentId: assignment.id, studentId: r.student.id })
-                              }
+                              if (cell.submissionId) openScoreDetail(cell.submissionId, assignment.id, r.student)
                             }}
                           >
-                            {isEditing ? (
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                defaultValue={cell.score ?? ''}
-                                autoFocus={shouldAutoFocusOnDesktop()}
-                                onFocus={(e) => e.target.select()}
-                                onBlur={(e) => {
-                                  const raw = e.target.value.trim()
-                                  const parsed = raw === '' ? null : Number(raw)
-                                  const newScore = raw === '' ? null : (Number.isFinite(parsed) ? parsed : cell.score)
-                                  if (cell.submissionId) {
-                                    handleScoreManualEdit(cell.submissionId, newScore ?? null)
-                                  }
-                                  setEditingCell(null)
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') e.currentTarget.blur()
-                                  if (e.key === 'Escape') {
-                                    setEditingCell(null)
-                                  }
-                                }}
-                                className="w-16 rounded border border-blue-300 bg-white px-2 py-0.5 text-xs text-center text-blue-700 outline-none focus:ring-1 focus:ring-blue-400"
-                              />
-                            ) : (
-                              <span className={isManual ? 'text-blue-600 font-medium cursor-pointer' : cell.submissionId ? 'text-gray-900 cursor-pointer' : 'text-gray-400'}>
-                                {cell.score == null ? '—' : cell.score}
-                              </span>
-                            )}
+                            <span
+                              className={isManual
+                                ? 'text-blue-600 font-medium cursor-pointer hover:underline'
+                                : canOpen ? 'text-gray-900 cursor-pointer hover:underline' : 'text-gray-400'}
+                              title={canOpen ? '點擊檢視／修改逐題批改' : undefined}
+                            >
+                              {cell.score == null ? '—' : cell.score}
+                            </span>
                           </td>
                         )
                       })}
@@ -1152,27 +1040,20 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
         </div>
       </div>
 
-      {/* ── Portal: restore-to-AI icon (floats above document body) ── */}
-      {restorePortal !== null && createPortal(
-        <button
-          type="button"
-          onMouseEnter={() => {
-            if (hideRestoreTimerRef.current) clearTimeout(hideRestoreTimerRef.current)
+      {/* 2026-08-01 改分入口收斂:成績簿唯讀,點分數開批改頁同一個 modal 逐題改 */}
+      {detailCtx && (
+        <SubmissionDetailModal
+          key={detailCtx.submission.id}
+          submission={detailCtx.submission}
+          student={detailCtx.student}
+          assignment={detailCtx.assignment}
+          classroomName={classrooms.find((c) => c.id === selectedClassroomId)?.name}
+          onClose={() => setDetailCtx(null)}
+          onUpdated={(updated) => {
+            setDetailCtx((prev) => (prev ? { ...prev, submission: updated } : prev))
+            setSubmissions((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
           }}
-          onMouseLeave={handleScoreCellMouseLeave}
-          onClick={() => handleScoreRestore(restorePortal.submissionId, restorePortal.aiScore)}
-          className="fixed z-[9999] flex items-center gap-1 rounded-full border border-blue-300 bg-white px-2 py-0.5 text-[11px] font-medium text-blue-600 shadow-md hover:bg-blue-50 transition-colors"
-          style={{
-            left: restorePortal.x,
-            top: restorePortal.y,
-            transform: 'translate(-100%, -100%)'
-          }}
-          title={restorePortal.aiScore != null ? `還原原始成績: ${restorePortal.aiScore}` : '清除成績（還原無成績狀態）'}
-        >
-          <RotateCcw className="w-3 h-3" />
-          {restorePortal.aiScore != null ? `還原 ${restorePortal.aiScore}` : '清除'}
-        </button>,
-        document.body
+        />
       )}
     </div>
   )
