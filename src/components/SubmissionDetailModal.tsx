@@ -297,8 +297,34 @@ export default function SubmissionDetailModal({
       : (Array.isArray(editableDetails[index]?.vjItemResults) ? editableDetails[index].vjItemResults : [])
     const nextItems = applyItems(items)
     const summary = summaryOf(nextItems)
-    const updatedDetails = grDetails.map((d, i) => (i === index ? { ...d, vjItemResults: nextItems, studentAnswer: summary } : d))
-    const newGradingResult = { ...(submission.gradingResult || {}), details: updatedDetails } as Submission['gradingResult']
+    // 2026-08-01（user 實測回報「改成沒畫→整卷變未批改、也沒有回復鈕」）:
+    //   ⭐分流——全部柱都改成「沒畫」= 老師明確判定未作答,該題直接 0 分即可、不需要 AI 重評
+    //   → 只重算本卷總分、其餘題與已批改狀態全保留,並留 _aiOriginal 快照讓回復鈕可用。
+    //   仍有柱是「有畫」時,該題需要 AI 判斷畫得對不對 → 維持舊行為退回待批改。
+    const allBlank = nextItems.length > 0 && nextItems.every((it: { verdict: string }) => it.verdict === 'blank')
+    const updatedDetails = grDetails.map((d, i) => {
+      if (i !== index) return d
+      if (allBlank) {
+        return {
+          ...d,
+          vjItemResults: nextItems,
+          studentAnswer: summary,
+          score: 0,
+          isCorrect: false,
+          reason: '已經由老師編輯（改判未作答）',
+          comment: '已經由老師編輯（改判未作答）',
+          // 快照額外帶 vjItemResults：回復鈕還原時逐柱狀態要跟著回去（否則分數回了、柱還停在「沒畫」）
+          _aiOriginal: d._aiOriginal ?? { ...snapshotAiOriginal(d), vjItemResults: d.vjItemResults },
+        }
+      }
+      return { ...d, vjItemResults: nextItems, studentAnswer: summary }
+    })
+    const newTotalAllBlank = updatedDetails.reduce((s: number, d: any) => s + (Number.isFinite(Number(d.score)) ? Number(d.score) : 0), 0)
+    const newGradingResult = {
+      ...(submission.gradingResult || {}),
+      details: updatedDetails,
+      ...(allBlank ? { totalScore: parseFloat(newTotalAllBlank.toFixed(1)) } : {}),
+    } as Submission['gradingResult']
 
     // vjBlankConfirmed：整題逐柱（isBlank = verdict==='blank'）
     const vjBlankConfirmed = nextItems.map((it: { idx: number; verdict: string }) => ({ idx: it.idx, isBlank: it.verdict === 'blank' }))
@@ -315,11 +341,22 @@ export default function SubmissionDetailModal({
 
     const now = Date.now()
     const isCurrentlyGraded = submission.status === 'graded'
+    // allBlank（改判未作答）：保留已批改狀態、只更新分數;其餘情況（改回有畫）才退回待批改重評
+    const needsRegrade = isCurrentlyGraded && !allBlank
+    const gradedKeepFields = (isCurrentlyGraded && allBlank)
+      ? {
+          score: parseFloat(newTotalAllBlank.toFixed(1)),
+          aiScore: submission.scoreSource === 'manual' ? submission.aiScore : (submission.aiScore ?? submission.score),
+          scoreSource: 'manual' as const,
+          gradedAt: now,
+        }
+      : {}
     const updatedSubFields: Partial<Submission> = {
       gradingResult: newGradingResult,
       finalAnswers: newFinalAnswers,
       updatedAt: now,
-      ...(isCurrentlyGraded ? {
+      ...gradedKeepFields,
+      ...(needsRegrade ? {
         status: 'synced' as const, score: undefined, aiScore: undefined, scoreSource: undefined, gradedAt: undefined
       } : {})
     }
@@ -329,11 +366,26 @@ export default function SubmissionDetailModal({
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ submissions: [{ id: subId, finalAnswers: newFinalAnswers }] })
     }).catch((err) => console.warn('save-final-answers (vj) failed:', err))
-    if (isCurrentlyGraded) {
+    if (needsRegrade) {
       void fetch('/api/data/save-grading', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ submissions: [{ id: subId, status: 'synced', score: null, aiScore: null, scoreSource: null, gradedAt: null, gradingResult: newGradingResult }] })
       }).catch((err) => console.warn('save-grading (vj revert) failed:', err))
+    } else if (isCurrentlyGraded && allBlank) {
+      void fetch('/api/data/save-grading', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({
+          submissions: [{
+            id: subId,
+            score: gradedKeepFields.score,
+            aiScore: gradedKeepFields.aiScore,
+            scoreSource: 'manual',
+            gradingResult: newGradingResult,
+            gradedAt: now,
+          }],
+          fromManualScoreEdit: true,
+        })
+      }).catch((err) => console.warn('save-grading (vj blank) failed:', err))
     }
   }
 
@@ -341,15 +393,30 @@ export default function SubmissionDetailModal({
   const handleDetailScoreChange = async (index: number, scoreValue: number) => {
     if (isBusy || isSavingScore) return
 
-    // 2026-07-13 老師接管：改分數同樣換理由＋快照 AI 原判（回復鈕用）
-    const updatedDetails = editableDetails.map((d: any, i: number) =>
-      i === index ? { ...d, score: scoreValue, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: snapshotAiOriginal(d) } : d
-    )
-    setEditableDetails(updatedDetails)
-
     const id = propSub.id
     const submission = await db.submissions.get(id)
     if (!submission) return
+    const dbDetails = (submission.gradingResult as { details?: any[] } | undefined)?.details
+    const dbRow: any = Array.isArray(dbDetails) ? dbDetails[index] : undefined
+
+    // 2026-08-01 修「回復鈕還原到前一次打的值、而非 AI 原判」（user 實測回報）：
+    //   分數 input 是 controlled、onChange 已即時把 editableDetails[i].score 改成使用者輸入值，
+    //   舊碼在 onBlur 用 snapshotAiOriginal(editableDetails[i]) 取快照 → 第一次改分就把「老師剛打的值」
+    //   當成 AI 原判存進去。改為從 db 的 details 取（未被 UI 污染）；已有快照則沿用。
+    const aiOriginalSnap = dbRow?._aiOriginal ?? (dbRow ? snapshotAiOriginal(dbRow) : undefined)
+
+    // 2026-08-01 分數上下限（user 實測回報可打超過該題滿分）：0 ≤ 分數 ≤ maxScore。
+    //   maxScore 為 0/未定義（不計分題）時只擋負數。
+    const rowMax = Number(dbRow?.maxScore ?? editableDetails[index]?.maxScore ?? 0)
+    const safeScore = Number.isFinite(rowMax) && rowMax > 0
+      ? Math.max(0, Math.min(scoreValue, rowMax))
+      : Math.max(0, scoreValue)
+
+    // 2026-07-13 老師接管：改分數同樣換理由＋快照 AI 原判（回復鈕用）
+    const updatedDetails = editableDetails.map((d: any, i: number) =>
+      i === index ? { ...d, score: safeScore, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: aiOriginalSnap } : d
+    )
+    setEditableDetails(updatedDetails)
 
     const cleanedDetails = updatedDetails.map((d: any) => {
       const score = Number.isFinite(Number(d.score)) ? Number(d.score) : 0
