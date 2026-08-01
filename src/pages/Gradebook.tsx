@@ -6,6 +6,7 @@ import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
 import { withoutSchoolExamClassrooms, onlySchoolExamClassrooms } from '@/lib/school-exam'
+import { sortClassroomsByName } from '@/lib/classroom-order'
 import type {
   Assignment,
   Classroom,
@@ -222,7 +223,8 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
     const loadClassrooms = async () => {
       setIsLoading(true)
       const all = await db.classrooms.toArray()
-      const list = scope === 'school' ? onlySchoolExamClassrooms(all) : withoutSchoolExamClassrooms(all)
+      // 依年級→班序排序(DB 回傳是寫入順序;行政端 74 班不排會完全亂掉)
+      const list = sortClassroomsByName(scope === 'school' ? onlySchoolExamClassrooms(all) : withoutSchoolExamClassrooms(all))
       setClassrooms(list)
       if (list.length > 0) {
         // 保持 isLoading=true，讓第二個 useEffect（load grades）接手

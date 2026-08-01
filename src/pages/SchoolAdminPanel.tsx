@@ -26,6 +26,7 @@ import SyncIndicator from '@/components/SyncIndicator'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
 import { setSchoolBillingContext, SCHOOL_WALLET_EVENT } from '@/lib/school-billing'
+import { gradeFromLabel, classNumFromLabel } from '@/lib/classroom-order'
 import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
 
 // 學校管理層（教務主任）檢視頁。
@@ -208,16 +209,7 @@ function scoreColor(score: number | null): string {
   return 'text-rose-600'
 }
 
-const CN_NUM: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 }
-// 班名格式為「X年N班」：grade 從 DB 缺時，用班名前綴推年級；班序用 N 自然排序。
-function gradeFromLabel(label: string): number | null {
-  const m = label.match(/^([一二三四五六七八九])年/)
-  return m ? CN_NUM[m[1]] ?? null : null
-}
-function classNumFromLabel(label: string): number {
-  const m = label.match(/年(\d+)/)
-  return m ? parseInt(m[1], 10) : 9999
-}
+// 2026-08-01: 班級年級/班序解析已抽到 @/lib/classroom-order（成績簿等頁面共用、避免重複實作）
 function effectiveGrade(c: ClassRow): number | null {
   return c.grade != null ? c.grade : gradeFromLabel(c.class_label)
 }
