@@ -31,6 +31,7 @@ import {
   type Rubric
 } from '@/lib/db'
 import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
+import { sortClassroomsByName } from '@/lib/classroom-order'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages, reanalyzeQuestions, tagConceptsForAnswerKey } from '@/lib/gemini'
@@ -307,7 +308,7 @@ export default function AssignmentSetup({
       setIsLoading(true)
       setError(null)
       try {
-        const data = withoutSchoolExamClassrooms(await db.classrooms.toArray())
+        const data = sortClassroomsByName(withoutSchoolExamClassrooms(await db.classrooms.toArray()))
         setClassrooms(data)
       } catch (err) {
         console.error('載入班級列表失敗', err)

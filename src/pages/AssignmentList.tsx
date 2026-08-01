@@ -30,6 +30,7 @@ import { checkFolderNameUnique, sortByDomainThenName } from '@/lib/utils'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { isPhaseAStale } from '@/pages/GradingPage'
 import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamClassroomIds } from '@/lib/school-exam'
+import { sortClassroomsByName } from '@/lib/classroom-order'
 import type {
   AnswerKey,
   AnswerKeyTemplate,
@@ -843,7 +844,7 @@ export default function AssignmentList({
         ])
         // 2026-08-01 學校考卷（行政端）不進教師介面——班級與作業都要濾（作業漏濾會以「未知班級」顯示）
         const schoolClassIds = schoolExamClassroomIds(allClassroomData)
-        const classroomData = withoutSchoolExamClassrooms(allClassroomData)
+        const classroomData = sortClassroomsByName(withoutSchoolExamClassrooms(allClassroomData))
         const assignmentsData = withoutSchoolExamAssignments(allAssignmentsData, schoolClassIds)
 
         const classroomMap = new Map(classroomData.map((c) => [c.id, c]))

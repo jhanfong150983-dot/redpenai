@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, BookOpen, Loader, Folder, Upload, Users } from 'lucide-react'
 import { db } from '@/lib/db'
 import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamClassroomIds } from '@/lib/school-exam'
+import { sortClassroomsByName } from '@/lib/classroom-order'
 import type { Assignment, Classroom, Folder as AssignmentFolder } from '@/lib/db'
 
 interface AssignmentImportSelectProps {
@@ -78,7 +79,7 @@ export default function AssignmentImportSelect({
         ])
         // 2026-08-01 學校考卷（行政端）不進教師介面——班級與作業都要濾
         const schoolClassIds = schoolExamClassroomIds(allClassroomData)
-        const classroomData = withoutSchoolExamClassrooms(allClassroomData)
+        const classroomData = sortClassroomsByName(withoutSchoolExamClassrooms(allClassroomData))
         const assignmentData = withoutSchoolExamAssignments(allAssignmentData, schoolClassIds)
 
         const classroomMap = new Map(classroomData.map((c) => [c.id, c]))
