@@ -2585,10 +2585,16 @@ export default function GradingPage({
   // 2026-06-19: 跨班「頁內新增班級」。base＝進頁時的作業集合(單班=[assignmentId] 或 prop 傳入的批次)，
   //   addedAssignmentIds＝老師在批改頁按「＋新增班級」加進來的同答案卷其他班；合併 >1 即進 batch(跨班分組)模式。
   const [addedAssignmentIds, setAddedAssignmentIds] = useState<string[]>([])
+  // 2026-08-01: 以「值」為依據算 identity——parent 若每次 render 現做 batchAssignmentIds 陣列
+  //   (行政端嵌入曾如此、錢包餘額事件一來就重建),identity 連鎖會讓 syncAndReload effect
+  //   重跑 → setIsLoading(true) 整頁閃 2 秒。join 成字串後內容不變就絕不重算。
+  const batchIdsKey = (batchAssignmentIds ?? []).join('\n')
+  const addedIdsKey = addedAssignmentIds.join('\n')
   const includedAssignmentIds = useMemo(() => {
-    const base = batchAssignmentIds && batchAssignmentIds.length > 0 ? batchAssignmentIds : [assignmentId]
-    return [...new Set([...base, ...addedAssignmentIds])]
-  }, [batchAssignmentIds, assignmentId, addedAssignmentIds])
+    const base = batchIdsKey ? batchIdsKey.split('\n') : [assignmentId]
+    const added = addedIdsKey ? addedIdsKey.split('\n') : []
+    return [...new Set([...base, ...added])]
+  }, [batchIdsKey, assignmentId, addedIdsKey])
   const isBatchMode = includedAssignmentIds.length > 1
   // 同答案卷、尚未納入的其他班級（批改頁「＋新增班級」下拉用）
   const [siblingClasses, setSiblingClasses] = useState<{ assignmentId: string; classroomId: string; className: string; uploadedCount: number; hasAnswerKey: boolean }[]>([])

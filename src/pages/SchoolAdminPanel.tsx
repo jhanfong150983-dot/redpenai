@@ -513,6 +513,15 @@ export default function SchoolAdminPanel({
     void ensureExamLocal(ex, setGradeSyncing)
   }, [ensureExamLocal])
 
+  // 2026-08-01 修「批改中偶爾整頁閃 2 秒」:傳給 GradingPage 的 batchAssignmentIds 之前是
+  // render 內 .map() 現做陣列 → 錢包餘額事件(批改扣點就觸發)re-render 本面板 → prop identity
+  // 變 → GradingPage 的 loadData/syncAndReload effect 連鎖重跑 → setIsLoading(true) 整頁重載。
+  // memo 綁 gradeExam:批改期間 identity 恆定。
+  const gradeBatchIds = useMemo(
+    () => (gradeExam ? gradeExam.classes.map((c) => c.assignmentId) : []),
+    [gradeExam]
+  )
+
   // 建立考卷:modal 第四步送出(成功=卡片直接出現,不另彈成功視窗——user 拍板)
   const submitCreateExam = useCallback(
     async (data: AssignmentFormData) => {
@@ -1025,8 +1034,8 @@ export default function SchoolAdminPanel({
                 >
                   <LazyGradingPage
                     embedded
-                    assignmentId={gradeExam.classes[0]?.assignmentId ?? ''}
-                    batchAssignmentIds={gradeExam.classes.map((c) => c.assignmentId)}
+                    assignmentId={gradeBatchIds[0] ?? ''}
+                    batchAssignmentIds={gradeBatchIds}
                     onBack={() => {
                       setGradeExam(null)
                       // 批改結束回列表:刷新學校點數餘額
