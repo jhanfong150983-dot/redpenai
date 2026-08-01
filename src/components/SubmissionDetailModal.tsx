@@ -297,34 +297,20 @@ export default function SubmissionDetailModal({
       : (Array.isArray(editableDetails[index]?.vjItemResults) ? editableDetails[index].vjItemResults : [])
     const nextItems = applyItems(items)
     const summary = summaryOf(nextItems)
-    // 2026-08-01（user 實測回報「改成沒畫→整卷變未批改、也沒有回復鈕」）:
-    //   ⭐分流——全部柱都改成「沒畫」= 老師明確判定未作答,該題直接 0 分即可、不需要 AI 重評
-    //   → 只重算本卷總分、其餘題與已批改狀態全保留,並留 _aiOriginal 快照讓回復鈕可用。
-    //   仍有柱是「有畫」時,該題需要 AI 判斷畫得對不對 → 維持舊行為退回待批改。
-    const allBlank = nextItems.length > 0 && nextItems.every((it: { verdict: string }) => it.verdict === 'blank')
-    const updatedDetails = grDetails.map((d, i) => {
-      if (i !== index) return d
-      if (allBlank) {
-        return {
-          ...d,
-          vjItemResults: nextItems,
-          studentAnswer: summary,
-          score: 0,
-          isCorrect: false,
-          reason: '已經由老師編輯（改判未作答）',
-          comment: '已經由老師編輯（改判未作答）',
-          // 快照額外帶 vjItemResults：回復鈕還原時逐柱狀態要跟著回去（否則分數回了、柱還停在「沒畫」）
-          _aiOriginal: d._aiOriginal ?? { ...snapshotAiOriginal(d), vjItemResults: d.vjItemResults },
-        }
-      }
-      return { ...d, vjItemResults: nextItems, studentAnswer: summary }
-    })
-    const newTotalAllBlank = updatedDetails.reduce((s: number, d: any) => s + (Number.isFinite(Number(d.score)) ? Number(d.score) : 0), 0)
-    const newGradingResult = {
-      ...(submission.gradingResult || {}),
-      details: updatedDetails,
-      ...(allBlank ? { totalScore: parseFloat(newTotalAllBlank.toFixed(1)) } : {}),
-    } as Submission['gradingResult']
+    // 2026-08-01（user 拍板統一政策）：老師編輯＝老師接手、一律不重跑 AI，分數由老師自己填。
+    //   VJ 逐柱切換因此對齊 handleDetailStudentAnswerChange 的既有政策（2026-07-13 老師接管）：
+    //   只標記「已經由老師編輯」＋留 _aiOriginal 快照（回復鈕用），
+    //   ⛔不退回待批改、不清分數、不自動改分——全題型行為一致。
+    const updatedDetails = grDetails.map((d: any, i) => (i === index ? {
+      ...d,
+      vjItemResults: nextItems,
+      studentAnswer: summary,
+      reason: '已經由老師編輯',
+      comment: '已經由老師編輯',
+      // 快照額外帶 vjItemResults：回復時逐柱狀態要跟著回去（否則分數回了、柱還停在改後狀態）
+      _aiOriginal: d._aiOriginal ?? { ...snapshotAiOriginal(d), vjItemResults: d.vjItemResults },
+    } : d))
+    const newGradingResult = { ...(submission.gradingResult || {}), details: updatedDetails } as Submission['gradingResult']
 
     // vjBlankConfirmed：整題逐柱（isBlank = verdict==='blank'）
     const vjBlankConfirmed = nextItems.map((it: { idx: number; verdict: string }) => ({ idx: it.idx, isBlank: it.verdict === 'blank' }))
@@ -340,25 +326,11 @@ export default function SubmissionDetailModal({
     const newFinalAnswers = Array.from(existingByQid.values()) as FinalAnswer[]
 
     const now = Date.now()
-    const isCurrentlyGraded = submission.status === 'graded'
-    // allBlank（改判未作答）：保留已批改狀態、只更新分數;其餘情況（改回有畫）才退回待批改重評
-    const needsRegrade = isCurrentlyGraded && !allBlank
-    const gradedKeepFields = (isCurrentlyGraded && allBlank)
-      ? {
-          score: parseFloat(newTotalAllBlank.toFixed(1)),
-          aiScore: submission.scoreSource === 'manual' ? submission.aiScore : (submission.aiScore ?? submission.score),
-          scoreSource: 'manual' as const,
-          gradedAt: now,
-        }
-      : {}
+    // 老師接管：分數/狀態/gradedAt 全保留（與改答案同政策）
     const updatedSubFields: Partial<Submission> = {
       gradingResult: newGradingResult,
       finalAnswers: newFinalAnswers,
       updatedAt: now,
-      ...gradedKeepFields,
-      ...(needsRegrade ? {
-        status: 'synced' as const, score: undefined, aiScore: undefined, scoreSource: undefined, gradedAt: undefined
-      } : {})
     }
     await db.submissions.update(subId, updatedSubFields)
     onUpdated({ ...propSub, ...updatedSubFields } as Submission)
@@ -366,26 +338,22 @@ export default function SubmissionDetailModal({
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ submissions: [{ id: subId, finalAnswers: newFinalAnswers }] })
     }).catch((err) => console.warn('save-final-answers (vj) failed:', err))
-    if (needsRegrade) {
-      void fetch('/api/data/save-grading', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ submissions: [{ id: subId, status: 'synced', score: null, aiScore: null, scoreSource: null, gradedAt: null, gradingResult: newGradingResult }] })
-      }).catch((err) => console.warn('save-grading (vj revert) failed:', err))
-    } else if (isCurrentlyGraded && allBlank) {
+    // gradingResult（含編輯標記＋快照）寫回雲端、分數欄位原樣帶回（同改答案路徑）
+    if (submission.status === 'graded') {
       void fetch('/api/data/save-grading', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({
           submissions: [{
             id: subId,
-            score: gradedKeepFields.score,
-            aiScore: gradedKeepFields.aiScore,
-            scoreSource: 'manual',
+            score: submission.score ?? null,
+            aiScore: submission.aiScore ?? null,
+            scoreSource: submission.scoreSource ?? null,
+            gradedAt: submission.gradedAt ?? null,
             gradingResult: newGradingResult,
-            gradedAt: now,
           }],
           fromManualScoreEdit: true,
         })
-      }).catch((err) => console.warn('save-grading (vj blank) failed:', err))
+      }).catch((err) => console.warn('save-grading (vj) failed:', err))
     }
   }
 
