@@ -888,16 +888,14 @@ function App() {
       }
 
       // 2026-08-01（user 無痕視窗實測「首次同步失敗：in_flight」，畫面同時顯示「已同步」）：
-      //   首次同步畫面同時有兩個觸發源——SyncIndicator autoSync 與本 effect 的 requestSync。
-      //   誰先跑，另一個就撞上 in-flight／冷卻期被 skip。那是「被跳過」不是「失敗」，
-      //   真正在跑的那一輪稍後仍會 fire 結果 → 這裡不可當失敗，否則使用者卡在錯誤畫面。
-      if (detail?.skipped && detail.error === 'in_flight') {
-        // 另一輪同步正在進行 → 什麼都不做，等它 fire 真正的成功／失敗（有 120s failsafe 兜底）
-        return
-      }
-      if (detail?.skipped && detail.error === 'cooldown') {
-        // 上一輪同步剛（<10s）完成 → 本地資料已是最新，直接放行進站
-        settleSuccess()
+      //   首次同步畫面同時有兩個觸發源——SyncIndicator autoSync（performSync skipIfRecent=true）
+      //   與本 effect 的 requestSync（skipIfRecent=false）。autoSync 撞到 in-flight／10 秒冷卻期
+      //   會 fire { skipped:true, error:'in_flight'|'cooldown' }，那是「這次沒跑」不是「同步失敗」。
+      //   本 effect 自己的那輪要嘛正在跑、要嘛排隊中，最終一定會 fire 真正的成功／失敗。
+      //   ⚠ 這兩種都只能「忽略、繼續等」，絕不可當成功放行——lastFinishedAt 寫在 useSync 的
+      //   finally 裡（失敗也記時間），cooldown 並不保證上一輪成功；若放行等於讓資料不完整的老師
+      //   進站、還寫死 INITIAL_SYNCED_KEY 讓下次不再等（正是「首次同步要等到底」要防的事）。
+      if (detail?.skipped && (detail.error === 'in_flight' || detail.error === 'cooldown')) {
         return
       }
 
