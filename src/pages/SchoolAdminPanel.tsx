@@ -12,11 +12,13 @@ import {
   Droplet,
   Upload,
   Sparkles,
-  FileText
+  FileText,
+  BarChart3
 } from 'lucide-react'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
 import AnswerBank from '@/pages/AnswerBank'
+import Gradebook from '@/pages/Gradebook'
 import UnifiedImportPage from '@/pages/UnifiedImportPage'
 // GradingPage 是最大的頁面 chunk——lazy 載入,只在行政按「AI 批改」時才抓
 const LazyGradingPage = lazy(() => import('@/pages/GradingPage'))
@@ -70,13 +72,15 @@ interface PersonInfo {
   email: string | null
 }
 
-type SchoolTab = 'overview' | 'answerkeys' | 'exams' | 'teachers' | 'weakness'
+type SchoolTab = 'overview' | 'answerkeys' | 'exams' | 'grades' | 'teachers' | 'weakness'
 
 const navItems: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashboard; enabled: boolean }> = [
   { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
   // 建立答案=嵌入老師端答案卷整頁(只顯示學校答案卷;建立/擷取/分享碼匯入全套功能)
   { key: 'answerkeys', label: '建立答案', icon: BookOpen, enabled: true },
   { key: 'exams', label: '考卷批改', icon: BookOpen, enabled: true },
+  // 2026-08-01 行政端成績統計(user 提議對齊教師端):共用 Gradebook、scope='school' 只看學校考卷班
+  { key: 'grades', label: '成績統計', icon: BarChart3, enabled: true },
   { key: 'teachers', label: '教師總覽', icon: Users, enabled: true },
   { key: 'weakness', label: '弱點分析', icon: TrendingUp, enabled: false }
 ]
@@ -1002,9 +1006,11 @@ export default function SchoolAdminPanel({
                   ? '建立答案'
                   : tab === 'exams'
                     ? '考卷批改'
-                    : tab === 'teachers'
-                      ? '教師總覽'
-                      : '弱點分析'}
+                    : tab === 'grades'
+                      ? '成績統計'
+                      : tab === 'teachers'
+                        ? '教師總覽'
+                        : '弱點分析'}
             </h2>
             <div className="flex items-center gap-2">
               {(school || preferredSchoolId) && (
@@ -1097,6 +1103,8 @@ export default function SchoolAdminPanel({
                 </Suspense>
               )}
             </div>
+          ) : tab === 'grades' ? (
+            <Gradebook embedded scope="school" />
           ) : tab === 'exams' && reportExam ? (
             /* Step 9:報告生成——第一層=學生檢討單 PDF(紙本檢討主形態、user 拍板);家長報告之後 */
             <div>

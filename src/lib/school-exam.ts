@@ -14,6 +14,11 @@ export function withoutSchoolExamClassrooms<T extends { folder?: string | null }
   return rows.filter((c) => !isSchoolExamClassroom(c))
 }
 
+/** 反向：只留學校考卷班級（行政端頁面用，例如行政端成績統計） */
+export function onlySchoolExamClassrooms<T extends { folder?: string | null }>(rows: T[]): T[] {
+  return rows.filter((c) => isSchoolExamClassroom(c))
+}
+
 // 2026-08-01（user 回報教師端首頁「作業總覽」跑出一堆行政端的「行政英語TEST」、且顯示「未知班級」）：
 //   原本只過濾 classrooms、忘了 assignments——跨班彙總的頁面（首頁總覽、作業列表）直接讀
 //   db.assignments.toArray() 就把學校考卷一起撈進來；班級已被濾掉所以查無名稱＝「未知班級」。

@@ -5,7 +5,7 @@ import SubmissionDetailModal from '@/components/SubmissionDetailModal'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
-import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
+import { withoutSchoolExamClassrooms, onlySchoolExamClassrooms } from '@/lib/school-exam'
 import type {
   Assignment,
   Classroom,
@@ -18,6 +18,12 @@ import type {
 interface GradebookProps {
   onBack?: () => void
   embedded?: boolean
+  /**
+   * 2026-08-01 行政端成績統計（user 提議「對齊教師端」）：
+   *   'teacher'(預設)=教師介面,濾掉學校考卷班級;'school'=行政端,只看學校考卷班級。
+   *   兩邊共用同一個元件與同一個改分 modal——操作權仍分離(各自只看得到自己該管的班)。
+   */
+  scope?: 'teacher' | 'school'
 }
 
 interface SimpleStats {
@@ -83,7 +89,7 @@ function normalizeWeightsToHundred(rawWeights: number[]): number[] {
   return baseUnits.map((v) => v / 10)
 }
 
-export default function Gradebook({ embedded = false }: GradebookProps) {
+export default function Gradebook({ embedded = false, scope = 'teacher' }: GradebookProps) {
   const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [selectedClassroomId, setSelectedClassroomId] = useState('')
   const [assignments, setAssignments] = useState<Assignment[]>([])
@@ -215,7 +221,8 @@ export default function Gradebook({ embedded = false }: GradebookProps) {
   useEffect(() => {
     const loadClassrooms = async () => {
       setIsLoading(true)
-      const list = withoutSchoolExamClassrooms(await db.classrooms.toArray())
+      const all = await db.classrooms.toArray()
+      const list = scope === 'school' ? onlySchoolExamClassrooms(all) : withoutSchoolExamClassrooms(all)
       setClassrooms(list)
       if (list.length > 0) {
         // 保持 isLoading=true，讓第二個 useEffect（load grades）接手
