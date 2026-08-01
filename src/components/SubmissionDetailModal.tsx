@@ -121,6 +121,9 @@ export default function SubmissionDetailModal({
                   : undefined,
               // 2026-07-13 老師接管編輯：AI 原判快照（有=顯示回復鈕、紅底熄滅）
               _aiOriginal: d._aiOriginal ?? undefined,
+              // Step 10 改分紀錄(誰/何時):白名單要帶,否則 modal 重載後遺失
+              _editedAt: d._editedAt ?? undefined,
+              _editedBy: d._editedBy ?? undefined,
             }
           })
         )
@@ -175,7 +178,7 @@ export default function SubmissionDetailModal({
   const handleDetailStudentAnswerChange = (index: number, newAnswer: string) => {
     // 即時更新 editableDetails（UI 立刻反映、含接管標記）
     setEditableDetails((prev) => prev.map((d, i) => (
-      i === index ? { ...d, studentAnswer: newAnswer, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: snapshotAiOriginal(d) } : d
+      i === index ? { ...d, studentAnswer: newAnswer, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: snapshotAiOriginal(d), _editedAt: Date.now(), _editedBy: undefined } : d
     )))
 
     // Debounce 1s 後 persist
@@ -190,7 +193,7 @@ export default function SubmissionDetailModal({
       const updatedDetails = Array.isArray(latestDetails)
         ? latestDetails.map((d: any, i) => (
             i === index
-              ? { ...d, studentAnswer: newAnswer, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: snapshotAiOriginal(d) }
+              ? { ...d, studentAnswer: newAnswer, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: snapshotAiOriginal(d), _editedAt: Date.now(), _editedBy: undefined }
               : d
           ))
         : null
@@ -309,6 +312,8 @@ export default function SubmissionDetailModal({
       comment: '已經由老師編輯',
       // 快照額外帶 vjItemResults：回復時逐柱狀態要跟著回去（否則分數回了、柱還停在改後狀態）
       _aiOriginal: d._aiOriginal ?? { ...snapshotAiOriginal(d), vjItemResults: d.vjItemResults },
+      _editedAt: Date.now(),
+      _editedBy: undefined,
     } : d))
     const newGradingResult = { ...(submission.gradingResult || {}), details: updatedDetails } as Submission['gradingResult']
 
@@ -392,7 +397,7 @@ export default function SubmissionDetailModal({
 
     // 2026-07-13 老師接管：改分數同樣換理由＋快照 AI 原判（回復鈕用）
     const updatedDetails = editableDetails.map((d: any, i: number) =>
-      i === index ? { ...d, score: safeScore, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: aiOriginalSnap } : d
+      i === index ? { ...d, score: safeScore, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: aiOriginalSnap, _editedAt: Date.now(), _editedBy: undefined } : d
     )
     setEditableDetails(updatedDetails)
 
@@ -759,6 +764,24 @@ export default function SubmissionDetailModal({
                                     低信心
                                   </span>
                                 )}
+                                {/* 2026-08-01 Step 10 改分紀錄：AI 原判 → 現值 ＋ 何時改（只留最後一次、無原因欄，user 拍板） */}
+                                {isTeacherEdited && (() => {
+                                  const oScore = Number(d._aiOriginal?.score)
+                                  const nScore = Number(d.score)
+                                  const changed = Number.isFinite(oScore) && Number.isFinite(nScore) && oScore !== nScore
+                                  const at = Number(d._editedAt)
+                                  const atText = Number.isFinite(at) && at > 0
+                                    ? new Date(at).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                                    : ''
+                                  return (
+                                    <span
+                                      className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200"
+                                      title={`AI 原判 ${oScore} 分${atText ? ` · 修改於 ${atText}` : ''}`}
+                                    >
+                                      已修改{changed ? ` ${oScore}→${nScore} 分` : ''}{atText ? ` · ${atText}` : ''}
+                                    </span>
+                                  )
+                                })()}
                                 {isTeacherEdited && (
                                   <button
                                     type="button"
