@@ -887,6 +887,20 @@ function App() {
         return
       }
 
+      // 2026-08-01（user 無痕視窗實測「首次同步失敗：in_flight」，畫面同時顯示「已同步」）：
+      //   首次同步畫面同時有兩個觸發源——SyncIndicator autoSync 與本 effect 的 requestSync。
+      //   誰先跑，另一個就撞上 in-flight／冷卻期被 skip。那是「被跳過」不是「失敗」，
+      //   真正在跑的那一輪稍後仍會 fire 結果 → 這裡不可當失敗，否則使用者卡在錯誤畫面。
+      if (detail?.skipped && detail.error === 'in_flight') {
+        // 另一輪同步正在進行 → 什麼都不做，等它 fire 真正的成功／失敗（有 120s failsafe 兜底）
+        return
+      }
+      if (detail?.skipped && detail.error === 'cooldown') {
+        // 上一輪同步剛（<10s）完成 → 本地資料已是最新，直接放行進站
+        settleSuccess()
+        return
+      }
+
       if (detail?.error) {
         setInitialSyncError(`首次同步失敗：${detail.error}`)
         return
