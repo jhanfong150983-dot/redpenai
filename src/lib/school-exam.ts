@@ -13,3 +13,26 @@ export function isSchoolExamClassroom(c: { folder?: string | null } | null | und
 export function withoutSchoolExamClassrooms<T extends { folder?: string | null }>(rows: T[]): T[] {
   return rows.filter((c) => !isSchoolExamClassroom(c))
 }
+
+// 2026-08-01（user 回報教師端首頁「作業總覽」跑出一堆行政端的「行政英語TEST」、且顯示「未知班級」）：
+//   原本只過濾 classrooms、忘了 assignments——跨班彙總的頁面（首頁總覽、作業列表）直接讀
+//   db.assignments.toArray() 就把學校考卷一起撈進來；班級已被濾掉所以查無名稱＝「未知班級」。
+//   以班級為單位進入的頁面不受影響（班級沒出現、作業自然進不去）。
+/** 學校考卷班級的 id 集合（給 assignment / submission 過濾用） */
+export function schoolExamClassroomIds(
+  classrooms: Array<{ id: string; folder?: string | null }>
+): Set<string> {
+  return new Set(classrooms.filter(isSchoolExamClassroom).map((c) => c.id))
+}
+
+/** 過濾掉學校考卷的作業：①所屬班級是學校考卷班 ②作業本身標了學校考卷資料夾（兩條件皆擋、防單邊漏標） */
+export function withoutSchoolExamAssignments<T extends { classroomId?: string; folder?: string | null }>(
+  rows: T[],
+  schoolClassroomIds: Set<string>
+): T[] {
+  return rows.filter(
+    (a) =>
+      !(a.classroomId && schoolClassroomIds.has(a.classroomId)) &&
+      (a.folder ?? '') !== SCHOOL_EXAM_FOLDER
+  )
+}

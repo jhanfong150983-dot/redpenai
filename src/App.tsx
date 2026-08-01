@@ -64,7 +64,7 @@ import {
   type Student,
   type Submission
 } from '@/lib/db'
-import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
+import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamClassroomIds } from '@/lib/school-exam'
 
 type Page =
   | 'home'
@@ -1287,12 +1287,16 @@ function App() {
       setHomeOverviewLoading(true)
     }
     try {
-      const [assignments, classrooms, students, submissions] = await Promise.all([
+      const [allAssignments, allClassrooms, students, submissions] = await Promise.all([
         db.assignments.toArray(),
-        db.classrooms.toArray().then(withoutSchoolExamClassrooms),
+        db.classrooms.toArray(),
         db.students.toArray(),
         db.submissions.toArray()
       ])
+      // 學校考卷（行政端）不進教師介面:班級與作業都要濾,否則作業會以「未知班級」漏出來
+      const schoolClassIds = schoolExamClassroomIds(allClassrooms)
+      const classrooms = withoutSchoolExamClassrooms(allClassrooms)
+      const assignments = withoutSchoolExamAssignments(allAssignments, schoolClassIds)
 
       const classroomMap = new Map<string, Classroom>(
         classrooms.map((classroom) => [classroom.id, classroom])

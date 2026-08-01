@@ -29,6 +29,7 @@ import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { checkFolderNameUnique, sortByDomainThenName } from '@/lib/utils'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { isPhaseAStale } from '@/pages/GradingPage'
+import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamClassroomIds } from '@/lib/school-exam'
 import type {
   AnswerKey,
   AnswerKeyTemplate,
@@ -834,12 +835,16 @@ export default function AssignmentList({
     const loadAssignments = async () => {
       setIsLoading(true)
       try {
-        const [assignmentsData, classroomData, folderData, submissionsData] = await Promise.all([
+        const [allAssignmentsData, allClassroomData, folderData, submissionsData] = await Promise.all([
           db.assignments.toArray(),
           db.classrooms.toArray(),
           db.folders.where('type').equals('assignment').toArray(),
           db.submissions.toArray()
         ])
+        // 2026-08-01 學校考卷（行政端）不進教師介面——班級與作業都要濾（作業漏濾會以「未知班級」顯示）
+        const schoolClassIds = schoolExamClassroomIds(allClassroomData)
+        const classroomData = withoutSchoolExamClassrooms(allClassroomData)
+        const assignmentsData = withoutSchoolExamAssignments(allAssignmentsData, schoolClassIds)
 
         const classroomMap = new Map(classroomData.map((c) => [c.id, c]))
         const submissionStatsByAssignment = new Map<

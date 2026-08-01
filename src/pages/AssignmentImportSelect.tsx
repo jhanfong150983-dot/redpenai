@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, BookOpen, Loader, Folder, Upload, Users } from 'lucide-react'
 import { db } from '@/lib/db'
+import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamClassroomIds } from '@/lib/school-exam'
 import type { Assignment, Classroom, Folder as AssignmentFolder } from '@/lib/db'
 
 interface AssignmentImportSelectProps {
@@ -70,11 +71,15 @@ export default function AssignmentImportSelect({
     const load = async () => {
       setIsLoading(true)
       try {
-        const [assignmentData, classroomData, folderData] = await Promise.all([
+        const [allAssignmentData, allClassroomData, folderData] = await Promise.all([
           db.assignments.toArray(),
           db.classrooms.toArray(),
           db.folders.where('type').equals('assignment').toArray()
         ])
+        // 2026-08-01 學校考卷（行政端）不進教師介面——班級與作業都要濾
+        const schoolClassIds = schoolExamClassroomIds(allClassroomData)
+        const classroomData = withoutSchoolExamClassrooms(allClassroomData)
+        const assignmentData = withoutSchoolExamAssignments(allAssignmentData, schoolClassIds)
 
         const classroomMap = new Map(classroomData.map((c) => [c.id, c]))
         const withClassroom: AssignmentWithClassroom[] = assignmentData.map((a) => ({
