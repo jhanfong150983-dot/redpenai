@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Lock, School, RefreshCw } from 'lucide-react'
+import SubmissionDetailModal from '@/components/SubmissionDetailModal'
+import type { Assignment, Student, Submission } from '@/lib/db'
 
 /**
  * 2026-08-03 Step 11 階段 3:教師端唯讀學校考卷成績。
@@ -57,6 +59,66 @@ export default function SchoolExamReadOnly() {
   } | null>(null)
   const [gradesLoading, setGradesLoading] = useState(false)
   const [gradesError, setGradesError] = useState<string | null>(null)
+  // 逐題唯讀檢視:點分數才去撈那一份的完整批改資料(大 JSONB 只在這裡動)
+  const [detail, setDetail] = useState<{
+    submission: Submission
+    student: Student
+    assignment: Assignment
+    className: string
+  } | null>(null)
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null)
+
+  const openDetail = useCallback(
+    async (submissionId: string) => {
+      if (!examId || !classId || detailLoadingId) return
+      setDetailLoadingId(submissionId)
+      try {
+        const res = await fetch(
+          `/api/data/teacher-school-exams?mode=detail&examId=${encodeURIComponent(examId)}` +
+            `&campusClassId=${encodeURIComponent(classId)}&submissionId=${encodeURIComponent(submissionId)}`,
+          { credentials: 'include' }
+        )
+        const data = await res.json()
+        if (!res.ok) throw new Error(data?.error || '讀取失敗')
+        const sub = data.submission || {}
+        const asg = data.assignment || {}
+        const stu = data.student || {}
+        // server 是 snake_case、modal 吃 Dexie 的 camelCase 形狀,在這裡轉一次
+        setDetail({
+          className: data.className || '',
+          submission: {
+            id: sub.id,
+            assignmentId: sub.assignment_id,
+            studentId: sub.student_id,
+            status: sub.status,
+            score: sub.score ?? undefined,
+            aiScore: sub.ai_score ?? undefined,
+            scoreSource: sub.score_source ?? undefined,
+            gradedAt: sub.graded_at ? new Date(sub.graded_at).getTime() : undefined,
+            gradingResult: sub.grading_result ?? undefined,
+            phaseAState: sub.phase_a_state ?? undefined,
+            finalAnswers: sub.final_answers ?? undefined,
+            pageBreaks: sub.page_breaks ?? undefined,
+            imageUrl: sub.image_url ?? undefined,
+            thumbUrl: sub.thumb_url ?? undefined
+          } as unknown as Submission,
+          assignment: {
+            id: asg.id,
+            title: asg.title,
+            scoringMode: asg.scoring_mode,
+            domain: asg.domain,
+            answerKey: asg.answer_key
+          } as unknown as Assignment,
+          student: { id: stu.id, name: stu.name, seatNumber: stu.seat_number } as unknown as Student
+        })
+      } catch (err) {
+        setGradesError(err instanceof Error ? err.message : '讀取失敗')
+      } finally {
+        setDetailLoadingId(null)
+      }
+    },
+    [examId, classId, detailLoadingId]
+  )
 
   const loadExams = useCallback(async () => {
     setLoading(true)
@@ -293,7 +355,19 @@ export default function SchoolExamReadOnly() {
                     <td className="px-3 py-2 tabular-nums text-slate-400">{st.seat_number ?? '—'}</td>
                     <td className="px-3 py-2 font-medium text-slate-900">{st.name}</td>
                     <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900">
-                      {graded ? sub!.score : '—'}
+                      {graded ? (
+                        <button
+                          type="button"
+                          onClick={() => void openDetail(sub!.id)}
+                          disabled={detailLoadingId === sub!.id}
+                          className="rounded px-1.5 py-0.5 text-slate-900 underline decoration-slate-300 underline-offset-2 transition-colors hover:bg-sky-50 hover:text-sky-700 disabled:opacity-50"
+                          title="檢視逐題批改結果(唯讀)"
+                        >
+                          {detailLoadingId === sub!.id ? '載入中…' : sub!.score}
+                        </button>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-500">
                       {sub?.mistakeCount != null && sub.mistakeCount !== '' ? Number(sub.mistakeCount) : '—'}
@@ -314,6 +388,18 @@ export default function SchoolExamReadOnly() {
           </table>
         )}
       </div>
+
+      {detail && (
+        <SubmissionDetailModal
+          submission={detail.submission}
+          student={detail.student}
+          assignment={detail.assignment}
+          classroomName={detail.className}
+          readOnly
+          onClose={() => setDetail(null)}
+          onUpdated={() => { /* 唯讀:不會觸發 */ }}
+        />
+      )}
     </div>
   )
 }

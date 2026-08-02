@@ -21,6 +21,12 @@ export type SubmissionDetailModalProps = {
   classroomName?: string
   /** 批改進行中:鎖住改分/改答案(沿用 GradingPage 既有語意) */
   isBusy?: boolean
+  /**
+   * 2026-08-03 Step 11 階段 3b:純檢視模式(教師端看學校考卷)。
+   *   所有編輯入口一律鎖住/隱藏,onUpdated 永遠不會被呼叫。
+   *   ⚠ 這只是介面層;真正的權限在後端(school-exam-visibility.js),前端鎖不是安全邊界。
+   */
+  readOnly?: boolean
   /** Phase A 比 gradedAt 新=舊版批改紀錄。由 caller 用 isPhaseAStale 判好傳入(避免循環 import) */
   isStale?: boolean
   onClose: () => void
@@ -34,12 +40,15 @@ export default function SubmissionDetailModal({
   assignment,
   classroomName,
   isBusy = false,
+  readOnly = false,
   isStale = false,
   onClose,
   onUpdated,
 }: SubmissionDetailModalProps) {
   const [editableDetails, setEditableDetails] = useState<any[]>([])
   const [isSavingScore, setIsSavingScore] = useState(false)
+  // 任何一種鎖定狀態都走同一個旗標,避免漏掉某個編輯入口
+  const locked = isBusy || isSavingScore || readOnly
   const [previewLensActive, setPreviewLensActive] = useState(false)
   const [previewLensState, setPreviewLensState] = useState({
     x: 0, y: 0, lensLeft: 0, lensTop: 0, width: 0, height: 0, clientX: 0, clientY: 0
@@ -268,7 +277,7 @@ export default function SubmissionDetailModal({
   // 2026-05-30: VJ 視覺判斷題 — 老師逐柱切「有畫/沒畫」（取代文字編輯）。
   // 寫回 finalAnswers[qid].vjBlankConfirmed（整題逐柱）+ studentAnswer 摘要、卷退回待批改、重批時 Phase B 照此判分。
   const handleDetailVjBlankToggle = async (index: number, itemIdx: number, newIsBlank: boolean) => {
-    if (isBusy || isSavingScore) return
+    if (locked) return
     const subId = propSub.id
     const applyItems = (items: Array<{ idx: number; label: string; verdict: string; reason: string }>) =>
       items.map((it) => it.idx === itemIdx
@@ -364,7 +373,7 @@ export default function SubmissionDetailModal({
 
   // 單題得分即時更新（自動重算總分並儲存）
   const handleDetailScoreChange = async (index: number, scoreValue: number) => {
-    if (isBusy || isSavingScore) return
+    if (locked) return
 
     const id = propSub.id
     const submission = await db.submissions.get(id)
@@ -494,7 +503,7 @@ export default function SubmissionDetailModal({
   // 2026-07-13 回復鈕（user 拍板）：老師誤植時一鍵還原該題到 AI 原判（_aiOriginal 快照、非上一步）、
   //   快照清除、總分/錯題清單重算、finalAnswers 該題退回 ai_read1。
   const handleDetailRestore = async (index: number) => {
-    if (isBusy || isSavingScore) return
+    if (locked) return
     const id = propSub.id
     const submission = await db.submissions.get(id)
     if (!submission) return
@@ -782,11 +791,11 @@ export default function SubmissionDetailModal({
                                     </span>
                                   )
                                 })()}
-                                {isTeacherEdited && (
+                                {isTeacherEdited && !readOnly && (
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); void handleDetailRestore(i) }}
-                                    disabled={isBusy || isSavingScore}
+                                    disabled={locked}
                                     className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200"
                                     title="還原成 AI 原本的批改內容（答案、分數、理由）"
                                   >
@@ -819,7 +828,7 @@ export default function SubmissionDetailModal({
                                     pattern="[0-9]*\.?[0-9]*"
                                     className="w-14 px-1 py-0.5 rounded border border-white/60 bg-white/70 text-gray-800 text-[10px] text-center disabled:opacity-60 disabled:cursor-not-allowed"
                                     value={d.score ?? ''}
-                                    disabled={isBusy || isSavingScore}
+                                    disabled={locked}
                                     onFocus={(e) => {
                                       // 點擊時自動選取全部文字，方便清除
                                       e.target.select()
@@ -871,7 +880,7 @@ export default function SubmissionDetailModal({
                                         <div className="flex shrink-0 rounded-md overflow-hidden border border-gray-300">
                                           <button
                                             type="button"
-                                            disabled={isBusy || isSavingScore}
+                                            disabled={locked}
                                             onClick={() => { if (isBlank) void handleDetailVjBlankToggle(i, it.idx, false) }}
                                             className={`px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50 ${!isBlank ? 'bg-emerald-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
                                           >
@@ -879,7 +888,7 @@ export default function SubmissionDetailModal({
                                           </button>
                                           <button
                                             type="button"
-                                            disabled={isBusy || isSavingScore}
+                                            disabled={locked}
                                             onClick={() => { if (!isBlank) void handleDetailVjBlankToggle(i, it.idx, true) }}
                                             className={`px-2 py-0.5 text-[11px] font-medium border-l border-gray-300 transition-colors disabled:opacity-50 ${isBlank ? 'bg-rose-500 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
                                           >
@@ -890,7 +899,9 @@ export default function SubmissionDetailModal({
                                     )
                                   })}
                                 </div>
-                                <p className="text-[10px] text-gray-400">改了會退回待批改、按【批改作業】重新判分。</p>
+                                {!readOnly && (
+                                  <p className="text-[10px] text-gray-400">改了會退回待批改、按【批改作業】重新判分。</p>
+                                )}
                               </div>
                             ) : (
                             <div className="flex items-start gap-2 text-gray-700">
@@ -902,8 +913,8 @@ export default function SubmissionDetailModal({
                                     : isUnrecognizable ? 'border-rose-300' : 'border-gray-200 hover:border-gray-300'
                                 }`}
                                 value={isVisualEval ? '採視覺評分' : isImageJudged ? '圖像辨識' : String(d.studentAnswer ?? '')}
-                                placeholder={(isVisualEval || isImageJudged) ? undefined : '（點此編輯）'}
-                                disabled={isVisualEval || isImageJudged || isBusy || isSavingScore}
+                                placeholder={(isVisualEval || isImageJudged || readOnly) ? undefined : '（點此編輯）'}
+                                disabled={isVisualEval || isImageJudged || locked}
                                 onChange={(e) => {
                                   if (isVisualEval || isImageJudged) return
                                   handleDetailStudentAnswerChange(i, e.target.value)
