@@ -608,6 +608,41 @@ export default function SchoolAdminPanel({
       const d = await res.json()
       if (!res.ok) throw new Error(d?.error || '更新失敗')
 
+      // (a2) 2026-08-03 修「換答案卷後批改頁還看得到舊分數」:
+      //   server 已把 grading_result/score/phase_a_state/final_answers 清成 null,但 sync 合併是
+      //   local-first(useSync.ts 的 `local?.gradingResult ?? serverGradingResult`)——server 送 null
+      //   會被本機舊值接住,清除等於對已經有資料的裝置完全無效。
+      //   教師端 AssignmentList.commitSettingsSave 早就先清本機再打 API,行政端漏了這步。
+      if (doChangeAk) {
+        try {
+          const nowTs = Date.now()
+          const aids = editExam.classes.map((c) => c.assignmentId).filter(Boolean)
+          for (const aid of aids) {
+            const subs = await db.submissions.where('assignmentId').equals(aid).toArray()
+            for (const sub of subs) {
+              if (
+                sub.gradingResult || sub.score != null || sub.phaseAState ||
+                (Array.isArray(sub.finalAnswers) && sub.finalAnswers.length > 0)
+              ) {
+                await db.submissions.update(sub.id, {
+                  gradingResult: null as unknown as undefined,
+                  score: null as unknown as undefined,
+                  aiScore: null as unknown as undefined,
+                  scoreSource: null as unknown as undefined,
+                  gradedAt: null as unknown as undefined,
+                  phaseAState: null as unknown as undefined,
+                  finalAnswers: null as unknown as undefined,
+                  status: 'synced',
+                  updatedAt: nowTs
+                })
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[school-exams] 本機批改快取清除失敗(server 已清):', err)
+        }
+      }
+
       // (b) 班級增減(與現有班級比對出差集才送)
       const cur = new Set(editExam.classes.map((c) => String(c.campusClassId)))
       const addIds = [...editClassIds].filter((id) => !cur.has(id))
