@@ -31,6 +31,7 @@ import { db } from '@/lib/db'
 import { setSchoolBillingContext, SCHOOL_WALLET_EVENT } from '@/lib/school-billing'
 import { gradeFromLabel, classNumFromLabel } from '@/lib/classroom-order'
 import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
+import { ensureAssignmentDetails } from '@/lib/submission-details'
 
 // 學校管理層（教務主任）檢視頁。
 // 版面對齊教師端/學生端：頂部 logo bar + 左側功能選單(aside) + 右側內容(section)。
@@ -633,6 +634,8 @@ export default function SchoolAdminPanel({
                   scoreSource: null as unknown as undefined,
                   gradedAt: null as unknown as undefined,
                   phaseAState: null as unknown as undefined,
+                  // 2026-08-03:輕量旗標也要一起清,否則 sync 回來前計數還是把它當已批改
+                  hasGradingResult: undefined, phaseASavedAt: undefined, detailsFetchedAt: undefined,
                   finalAnswers: null as unknown as undefined,
                   status: 'synced',
                   updatedAt: nowTs
@@ -1137,6 +1140,8 @@ export default function SchoolAdminPanel({
     setReportBusy(assignmentId)
     setReportProg(null)
     try {
+      // 2026-08-03 sync 瘦身:檢討單要逐題 crop/讀值,大 JSONB 已不隨 sync 下來,先補齊
+      await ensureAssignmentDetails([assignmentId])
       const r = await downloadClassReviewSheetPdf(assignmentId, {
         onProgress: (phase, done, total) => setReportProg({ phase, done, total }),
       })

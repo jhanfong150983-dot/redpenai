@@ -22,6 +22,7 @@ import {
   Plus
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
+import { ensureAssignmentDetails } from '@/lib/submission-details'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import {
   gradePhaseA,
@@ -177,7 +178,9 @@ export type CardStage =
 export function isPhaseAStale(sub: Submission | undefined, correctionStatus?: string): boolean {
   if (!sub) return false
   if (correctionStatus === 'correction_passed') return false
-  const savedAtRaw = sub.phaseAState?.savedAt
+  // 2026-08-03 sync 瘦身:phaseAState 已不進 sync,列表類畫面只拿得到 phaseASavedAt
+  //   (server generated column)。批改頁補齊過就有完整 phaseAState,兩者取其一。
+  const savedAtRaw = sub.phaseAState?.savedAt ?? sub.phaseASavedAt
   const pasAt = typeof savedAtRaw === 'string' ? new Date(savedAtRaw).getTime()
     : typeof savedAtRaw === 'number' ? savedAtRaw : 0
   const gradedAt = typeof sub.gradedAt === 'number' ? sub.gradedAt : 0
@@ -3636,6 +3639,15 @@ export default function GradingPage({
         const scMap = new Map<string, string>()
         for (const s of allStudents) scMap.set(s.id, s.classroomId)
         setSubmissionClassroomMap(scMap)
+      }
+
+      // 2026-08-03 sync 瘦身:批改頁是逐題資料的主要消費者,大 JSONB 已不隨 sync 下來,
+      //   進頁時先補齊(已補齊且未過期的不會重抓)。失敗不擋流程——退化成沒有逐題快取,
+      //   使用者仍可重跑批改,只是看不到上次的逐題結果。
+      try {
+        await ensureAssignmentDetails(isBatchMode ? allAssignmentIds : [assignmentId])
+      } catch (err) {
+        console.warn('[GradingPage] 補齊批改詳情失敗:', err)
       }
 
       // 載入所有 submissions

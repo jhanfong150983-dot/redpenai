@@ -651,6 +651,15 @@ export interface Submission {
   phaseAState?: PhaseAStateCached
   finalAnswers?: FinalAnswerCached[]
 
+  // 2026-08-03 sync 瘦身:上面三個大 JSONB 已改成 on-demand(見 lib/submission-details.ts),
+  //   sync 只帶下面這幾個輕量替代值,卡片狀態/計數不必為此下載 40KB。
+  /** server generated column:grading_result is not null(取代「有沒有批改結果」的存在檢查) */
+  hasGradingResult?: boolean
+  /** server generated column:phase_a_state->>'savedAt'(isPhaseAStale 只需要這個) */
+  phaseASavedAt?: string
+  /** 本機補齊大 JSONB 的時間戳;小於 updatedAt 代表快取過期要重抓 */
+  detailsFetchedAt?: number
+
   // 訂正管理：教師手動紀錄訂正次數
   correctionCount?: number
   source?: string

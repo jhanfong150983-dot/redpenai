@@ -240,13 +240,14 @@ export default function AssignmentList({
           //   否則智慧批改會用舊 reads 重算分(跳過重讀)。
           const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
           for (const sub of subs) {
-            if (sub.gradingResult || sub.score || sub.phaseAState || (Array.isArray(sub.finalAnswers) && sub.finalAnswers.length > 0)) {
+            if (sub.gradingResult || sub.score != null || sub.phaseAState || sub.hasGradingResult || sub.phaseASavedAt || (Array.isArray(sub.finalAnswers) && sub.finalAnswers.length > 0)) {
               await db.submissions.update(sub.id, {
                 gradingResult: null as unknown as undefined,
                 score: null as unknown as undefined,
                 aiScore: null as unknown as undefined,
                 gradedAt: null as unknown as undefined,
                 phaseAState: null as unknown as undefined,
+                hasGradingResult: undefined, phaseASavedAt: undefined, detailsFetchedAt: undefined,
                 finalAnswers: null as unknown as undefined,
                 status: 'synced', updatedAt: now,
               })
@@ -315,7 +316,7 @@ export default function AssignmentList({
         const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
         entry.uploaded++
         // 2026-05-28: Phase A 比 Phase B 新（重跑後待批改）的、不計入 graded
-        if ((sub.status === 'graded' || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
+        if ((sub.status === 'graded' || sub.hasGradingResult || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
         subCountMap.set(sub.assignmentId, entry)
       }
       const classMap = new Map(classrooms.map((c) => [c.id, c]))
@@ -560,11 +561,12 @@ export default function AssignmentList({
           // 清除本地 Dexie 批改結果（含 reads/finalAnswers，理由同上 Bug F：換答案卷=全部重來）
           const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
           for (const sub of subs) {
-            if (sub.gradingResult || sub.score || sub.phaseAState || (Array.isArray(sub.finalAnswers) && sub.finalAnswers.length > 0)) {
+            if (sub.gradingResult || sub.score != null || sub.phaseAState || sub.hasGradingResult || sub.phaseASavedAt || (Array.isArray(sub.finalAnswers) && sub.finalAnswers.length > 0)) {
               await db.submissions.update(sub.id, {
                 gradingResult: null as unknown as undefined, score: null as unknown as undefined,
                 aiScore: null as unknown as undefined, gradedAt: null as unknown as undefined,
                 phaseAState: null as unknown as undefined, finalAnswers: null as unknown as undefined,
+                hasGradingResult: undefined, phaseASavedAt: undefined, detailsFetchedAt: undefined,
                 status: 'synced', updatedAt: now,
               })
             }
@@ -643,7 +645,7 @@ export default function AssignmentList({
         const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
         entry.uploaded++
         // 2026-05-28: Phase A 比 Phase B 新（重跑後待批改）的、不計入 graded
-        if ((sub.status === 'graded' || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
+        if ((sub.status === 'graded' || sub.hasGradingResult || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
         subCountMap.set(sub.assignmentId, entry)
       }
       const classMap = new Map(classrooms.map((c) => [c.id, c]))
@@ -709,7 +711,7 @@ export default function AssignmentList({
         const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
         entry.uploaded++
         // 2026-05-28: Phase A 比 Phase B 新（重跑後待批改）的、不計入 graded
-        if ((sub.status === 'graded' || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
+        if ((sub.status === 'graded' || sub.hasGradingResult || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
         subCountMap.set(sub.assignmentId, entry)
       }
       const classMap = new Map(classrooms.map((c) => [c.id, c]))
@@ -2130,7 +2132,7 @@ export default function AssignmentList({
               const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
               entry.uploaded++
               // 2026-05-28: Phase A 比 Phase B 新（重跑後待批改）的、不計入 graded
-        if ((sub.status === 'graded' || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
+        if ((sub.status === 'graded' || sub.hasGradingResult || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
               subCountMap.set(sub.assignmentId, entry)
             }
             const classMap = new Map(classrooms.map((c) => [c.id, c]))
@@ -2187,7 +2189,7 @@ export default function AssignmentList({
                 const entry = subCountMap.get(sub.assignmentId) ?? { uploaded: 0, graded: 0 }
                 entry.uploaded++
                 // 2026-05-28: Phase A 比 Phase B 新（重跑後待批改）的、不計入 graded
-        if ((sub.status === 'graded' || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
+        if ((sub.status === 'graded' || sub.hasGradingResult || sub.gradingResult) && !isPhaseAStale(sub)) entry.graded++
                 subCountMap.set(sub.assignmentId, entry)
               }
               const classMap = new Map(classrooms.map((c) => [c.id, c]))

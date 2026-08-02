@@ -996,7 +996,10 @@ export function useSync(options: UseSyncOptions = {}) {
           feedback: sub.feedback,
           // 2026-05-17: Phase A / Phase B 分離設計
           phaseAState: sub.phaseAState,
-          finalAnswers: sub.finalAnswers
+          finalAnswers: sub.finalAnswers,
+          // 2026-08-03 sync 瘦身:這三個大 JSONB 已不由 sync 帶下來,
+          //   本機是 on-demand 補齊的快取,合併時必須原樣保留(含補齊時間戳,否則會每次都重抓)
+          detailsFetchedAt: sub.detailsFetchedAt
         }
       ])
     )
@@ -1166,6 +1169,14 @@ export function useSync(options: UseSyncOptions = {}) {
           gradingResult,
           gradedAt,
           mistakesCount: (sub as Submission & { mistakesCount?: number }).mistakesCount,
+          // 2026-08-03 sync 瘦身:輕量替代值以 server 為準(generated column、不會被本機編輯);
+          //   detailsFetchedAt 是本機快取狀態,保留本機的
+          hasGradingResult:
+            (sub as Submission & { hasGradingResult?: boolean }).hasGradingResult ??
+            (local?.gradingResult ? true : undefined),
+          phaseASavedAt:
+            (sub as Submission & { phaseASavedAt?: string }).phaseASavedAt ?? undefined,
+          detailsFetchedAt: local?.detailsFetchedAt,
           // 結構性欄位（server 為主）
           correctionCount: sub.correctionCount,
           source:

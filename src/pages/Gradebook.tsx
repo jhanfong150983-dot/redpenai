@@ -6,6 +6,7 @@ import SchoolExamReadOnly from '@/components/SchoolExamReadOnly'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
+import { ensureSubmissionDetails } from '@/lib/submission-details'
 import { withoutSchoolExamClassrooms, onlySchoolExamClassrooms } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
 import type {
@@ -692,10 +693,23 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
   }
 
   // 點分數格 → 開批改頁同一個 modal(唯讀成績簿的唯一改分路徑)
-  const openScoreDetail = (submissionId: string, assignmentId: string, student: Student) => {
+  const openScoreDetail = async (submissionId: string, assignmentId: string, student: Student) => {
     const sub = submissions.find((x) => x.id === submissionId)
     if (!sub) return
-    setDetailCtx({ submission: sub, student, assignment: assignments.find((a) => a.id === assignmentId) })
+    // 2026-08-03 sync 瘦身:成績簿列表只帶輕量欄位,點開單卷才補齊逐題資料。
+    //   補完從 Dexie 重讀該筆(bulkPut 後 state 裡的物件還是舊的)。
+    let full = sub
+    try {
+      await ensureSubmissionDetails([submissionId])
+      const fresh = await db.submissions.get(submissionId)
+      if (fresh) {
+        full = fresh
+        setSubmissions((prev) => prev.map((x) => (x.id === submissionId ? fresh : x)))
+      }
+    } catch (err) {
+      console.warn('[Gradebook] 補齊批改詳情失敗:', err)
+    }
+    setDetailCtx({ submission: full, student, assignment: assignments.find((a) => a.id === assignmentId) })
   }
 
   const handleExportCsv = () => {
@@ -1047,7 +1061,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                             key={assignment.id}
                             className="px-3 py-2 text-center tabular-nums"
                             onClick={() => {
-                              if (cell.submissionId) openScoreDetail(cell.submissionId, assignment.id, r.student)
+                              if (cell.submissionId) void openScoreDetail(cell.submissionId, assignment.id, r.student)
                             }}
                           >
                             <span

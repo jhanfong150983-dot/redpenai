@@ -775,7 +775,7 @@ export default function UnifiedImportPage({
           const existing = await db.submissions.where('assignmentId').equals(assignmentId).toArray()
           const affected = existing.filter((s) => importIds.has(s.studentId))
           if (affected.length > 0) {
-            const gradedCount = affected.filter((s) => s.gradingResult || typeof s.score === 'number').length
+            const gradedCount = affected.filter((s) => s.hasGradingResult || s.gradingResult || typeof s.score === 'number').length
             pendingImportResultRef.current = result
             setOverwriteWarn({ count: new Set(affected.map((s) => s.studentId)).size, gradedCount })
             return

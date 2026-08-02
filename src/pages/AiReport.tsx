@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { db } from '@/lib/db'
+import { ensureAssignmentDetails } from '@/lib/submission-details'
 import type { Submission } from '@/lib/db'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
 import ItemAnalysisSection from './ai-report/components/ItemAnalysisSection'
@@ -465,10 +466,10 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
       return
     }
     const ids = Array.from(classAssignmentIds)
-    db.submissions
-      .where('assignmentId')
-      .anyOf(ids)
-      .toArray()
+    // 2026-08-03 sync 瘦身:逐題 details 已不隨 sync 下來,學情報告/試題分析要先補齊
+    void ensureAssignmentDetails(ids)
+      .catch((err) => console.warn('[AiReport] 補齊批改詳情失敗:', err))
+      .then(() => db.submissions.where('assignmentId').anyOf(ids).toArray())
       .then(setLocalSubmissions)
       .catch(() => setLocalSubmissions([]))
   }, [classAssignmentIds])

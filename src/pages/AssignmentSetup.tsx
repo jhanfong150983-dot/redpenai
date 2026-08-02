@@ -1190,7 +1190,7 @@ export default function AssignmentSetup({
     try {
       if (scoreMapOf(beforeAk) === scoreMapOf(afterAk)) return
       const subs = await db.submissions.where('assignmentId').equals(assignmentId).toArray()
-      const graded = subs.filter((s) => s.gradingResult || typeof s.score === 'number').length
+      const graded = subs.filter((s) => s.hasGradingResult || s.gradingResult || typeof s.score === 'number').length
       if (!graded) return
       void alertModal(
         `已批改的 ${graded} 份仍按「舊配分」計分，分數不會自動調整。需重新批改（會沿用原讀取結果、只重算分數）才會套用新配分。`,
