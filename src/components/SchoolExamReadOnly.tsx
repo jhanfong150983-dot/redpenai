@@ -34,9 +34,12 @@ interface SubmissionRow {
   id: string
   student_id: string
   status: string
-  total_score: number | null
+  score: number | null
+  ai_score: number | null
+  score_source: string | null
   graded_at: string | null
-  mistake_count: number | null
+  /** grading_result.mistakes 投影出來的,PostgREST ->> 回字串 */
+  mistakeCount: string | number | null
 }
 
 export default function SchoolExamReadOnly() {
@@ -48,11 +51,12 @@ export default function SchoolExamReadOnly() {
   const [classId, setClassId] = useState('')
   const [grades, setGrades] = useState<{
     className: string
-    assignment: { title: string; total_score: number | null } | null
+    assignment: { title: string; totalScore: string | number | null; total_questions: number | null } | null
     students: StudentRow[]
     submissions: SubmissionRow[]
   } | null>(null)
   const [gradesLoading, setGradesLoading] = useState(false)
+  const [gradesError, setGradesError] = useState<string | null>(null)
 
   const loadExams = useCallback(async () => {
     setLoading(true)
@@ -97,6 +101,7 @@ export default function SchoolExamReadOnly() {
     }
     let cancelled = false
     setGradesLoading(true)
+    setGradesError(null)
     void (async () => {
       try {
         const res = await fetch(
@@ -115,7 +120,9 @@ export default function SchoolExamReadOnly() {
       } catch (err) {
         if (!cancelled) {
           setGrades(null)
-          setError(err instanceof Error ? err.message : '讀取失敗')
+          // 2026-08-03:這裡原本只 setError,而 error 只在「一份考卷都沒有」時才渲染,
+          //   於是 API 失敗會被畫成「這個班級沒有學生資料」——把真因藏起來。改成分開的狀態。
+          setGradesError(err instanceof Error ? err.message : '讀取失敗')
         }
       } finally {
         if (!cancelled) setGradesLoading(false)
@@ -134,7 +141,7 @@ export default function SchoolExamReadOnly() {
 
   const stats = useMemo(() => {
     const scores = (grades?.students ?? [])
-      .map((st) => subByStudent.get(st.id)?.total_score)
+      .map((st) => subByStudent.get(st.id)?.score)
       .filter((v): v is number => typeof v === 'number')
     if (scores.length === 0) return null
     const sum = scores.reduce((a, b) => a + b, 0)
@@ -253,6 +260,17 @@ export default function SchoolExamReadOnly() {
       <div className="overflow-x-auto px-4 pb-4">
         {gradesLoading ? (
           <div className="py-12 text-center text-sm text-slate-400">載入成績…</div>
+        ) : gradesError ? (
+          <div className="py-10 text-center">
+            <p className="text-sm text-red-600">讀取成績失敗:{gradesError}</p>
+            <button
+              type="button"
+              onClick={() => setClassId((v) => v)}
+              className="mt-3 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              重試
+            </button>
+          </div>
         ) : !grades || grades.students.length === 0 ? (
           <div className="py-12 text-center text-sm text-slate-400">這個班級沒有學生資料</div>
         ) : (
@@ -269,16 +287,16 @@ export default function SchoolExamReadOnly() {
             <tbody>
               {grades.students.map((st) => {
                 const sub = subByStudent.get(st.id)
-                const graded = typeof sub?.total_score === 'number'
+                const graded = typeof sub?.score === 'number'
                 return (
                   <tr key={st.id} className="border-b border-slate-50">
                     <td className="px-3 py-2 tabular-nums text-slate-400">{st.seat_number ?? '—'}</td>
                     <td className="px-3 py-2 font-medium text-slate-900">{st.name}</td>
                     <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900">
-                      {graded ? sub!.total_score : '—'}
+                      {graded ? sub!.score : '—'}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-500">
-                      {typeof sub?.mistake_count === 'number' ? sub.mistake_count : '—'}
+                      {sub?.mistakeCount != null && sub.mistakeCount !== '' ? Number(sub.mistakeCount) : '—'}
                     </td>
                     <td className="px-3 py-2">
                       {graded ? (
