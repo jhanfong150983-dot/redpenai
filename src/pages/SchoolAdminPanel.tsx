@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
+import DangerConfirmModal from '@/components/DangerConfirmModal'
 import AnswerBank from '@/pages/AnswerBank'
 import Gradebook from '@/pages/Gradebook'
 import UnifiedImportPage from '@/pages/UnifiedImportPage'
@@ -99,6 +100,8 @@ interface SchoolExamRow {
   status: string
   /** 2026-08-02 Step 11:科目=教師端唯讀判定依據;空字串=不開放檢視 */
   subject?: string
+  /** 目前綁定的答案卷模板(編輯時顯示「目前答案卷」摘要用) */
+  answerKeyTemplateId?: string
   createdAt: string
   classes: ExamClassRow[]
 }
@@ -252,9 +255,13 @@ export default function SchoolAdminPanel({
   // 2026-08-02(user 指出建完就改不了):考卷編輯——只動名稱/科目這類 metadata,
   //   不碰答案卷、批改設定、班級(那些牽涉重批語意,另案處理)。
   const [editExam, setEditExam] = useState<SchoolExamRow | null>(null)
-  const [editTitle, setEditTitle] = useState('')
   const [editSubject, setEditSubject] = useState('')
   const [editSaving, setEditSaving] = useState(false)
+  // 編輯時的班級勾選(預設=考卷現有班級)、已批改份數(換答案卷警告用)
+  const [editClassIds, setEditClassIds] = useState<Set<string>>(new Set())
+  const [editGradedCount, setEditGradedCount] = useState(0)
+  // 換答案卷的核彈級確認(比照教師端 DangerConfirmModal severity=high)
+  const [changeAkConfirm, setChangeAkConfirm] = useState<{ data: AssignmentFormData } | null>(null)
   const [creatingExam, setCreatingExam] = useState(false)
   const [expandedExamId, setExpandedExamId] = useState<string | null>(null)
   // Step 7:匯入考卷(班級 tabs+教師端 PDF 匯入整套重用;開啟前先 sync pull 確保 Dexie 有考卷資料)
@@ -550,12 +557,12 @@ export default function SchoolAdminPanel({
   )
 
   // 建立考卷:modal 第四步送出(成功=卡片直接出現,不另彈成功視窗——user 拍板)
-  const saveExamEdit = useCallback(async () => {
-    if (!editExam || !school || editSaving) return
-    const nextTitle = editTitle.trim()
-    if (!nextTitle) { await alertModal('請輸入考卷名稱', { title: '無法儲存' }); return }
+  // 真正送出(doChangeAk=true 代表已通過換答案卷的危險確認)
+  const commitExamEdit = useCallback(async (data: AssignmentFormData, doChangeAk: boolean) => {
+    if (!editExam || !school) return
     setEditSaving(true)
     try {
+      // (a) 名稱/科目/答案卷/批改設定
       const res = await fetch('/api/data/school-exams', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -564,20 +571,73 @@ export default function SchoolAdminPanel({
           mode: 'update',
           schoolId: school.school_id,
           examId: editExam.id,
-          title: nextTitle,
-          subject: editSubject
+          title: data.title.trim(),
+          subject: editSubject,
+          templateId: doChangeAk ? data.selectedAnswerKeyId : undefined,
+          settings: data.settings
         })
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d?.error || '更新失敗')
+
+      // (b) 班級增減(與現有班級比對出差集才送)
+      const cur = new Set(editExam.classes.map((c) => String(c.campusClassId)))
+      const addIds = [...editClassIds].filter((id) => !cur.has(id))
+      const removeIds = [...cur].filter((id) => !editClassIds.has(id))
+      if (addIds.length > 0 || removeIds.length > 0) {
+        const doClasses = async (force: boolean) => {
+          const r = await fetch('/api/data/school-exams', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              mode: 'classes',
+              schoolId: school.school_id,
+              examId: editExam.id,
+              addCampusClassIds: addIds,
+              removeCampusClassIds: removeIds,
+              force
+            })
+          })
+          return { r, j: await r.json() }
+        }
+        let { r, j } = await doClasses(false)
+        if (r.status === 409 && j?.error === 'graded_exists') {
+          const ok = await confirmModal({
+            tone: 'danger',
+            title: '移除的班級已有批改成績',
+            message: `${(j.classNames || []).join('、')} 共 ${j.gradedCount} 份卷已完成批改,移除後成績一併消失且無法復原。確定仍要移除?`,
+            confirmLabel: '仍要移除'
+          })
+          if (!ok) { setEditExam(null); await loadExams(school.school_id); return }
+          ;({ r, j } = await doClasses(true))
+        }
+        if (!r.ok) throw new Error(j?.error || '調整班級失敗')
+      }
+
       setEditExam(null)
       await loadExams(school.school_id)
+      if (d?.clearedStudents > 0) {
+        await alertModal(`答案卷已更換,${d.clearedStudents} 位學生的批改結果已清除,請重新批改。`, { title: '已更換答案卷' })
+      } else if (!doChangeAk && data.settings?.strictness && editGradedCount > 0) {
+        // 比照教師端:只改設定不清批改,但要提示需重批才套用
+        await alertModal('批改設定已變更:已批改的卷子需重新批改後才會套用新設定。')
+      }
     } catch (err) {
       await alertModal(err instanceof Error ? err.message : '更新失敗', { title: '更新考卷失敗' })
     } finally {
       setEditSaving(false)
     }
-  }, [editExam, editTitle, editSubject, editSaving, school, alertModal, loadExams])
+  }, [editExam, editSubject, editClassIds, editGradedCount, school, confirmModal, alertModal, loadExams])
+
+  const submitExamEdit = useCallback(async (data: AssignmentFormData) => {
+    // 有選新答案卷 → 先跳核彈級確認(比照教師端:換卷=全部重來)
+    if (data.selectedAnswerKeyId) {
+      setChangeAkConfirm({ data })
+      return
+    }
+    await commitExamEdit(data, false)
+  }, [commitExamEdit])
 
   const deleteExam = useCallback(async (ex: SchoolExamRow, force = false) => {
     if (!school) return
@@ -935,6 +995,95 @@ export default function SchoolAdminPanel({
   }, [])
 
   // 建卷 modal 第四步的班級選擇內容(年級分組 chips;狀態在本元件)
+  // 編輯考卷的初始值:設定從既有 answerKey 讀回(教師端 openSettingsModal 同款作法)
+  const editExamSettings = useMemo(() => ({}), [])
+  const editAnswerKeyInfo = useMemo(() => {
+    if (!editExam) return null
+    const t = examTemplates.find((x) => x.id === editExam.answerKeyTemplateId)
+    return t
+      ? { name: t.name, domain: t.domain || '', questionCount: t.questionCount ?? 0, totalScore: t.totalScore ?? 0 }
+      : null
+  }, [editExam, examTemplates])
+
+  // 編輯時的第四步:科目 + 班級增減(勾/取消勾即代表加班/移除班)
+  const examEditClassPicker = (
+    <>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-slate-700">科目</span>
+          <select
+            value={editSubject}
+            onChange={(e) => setEditSubject(e.target.value)}
+            className="min-w-[220px] rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-sky-400"
+          >
+            <option value="">不指定(教師端不開放檢視)</option>
+            {subjects.map((sj) => (
+              <option key={sj.subject} value={sj.subject}>
+                {sj.subject}（{sj.classCount} 班・{sj.teacherCount} 位老師）
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">
+          {editSubject
+            ? (() => {
+                const covered = new Set(subjects.find((sj) => sj.subject === editSubject)?.campusClassIds ?? [])
+                const miss = [...editClassIds].filter((id) => !covered.has(id))
+                const names = miss.map((id) => classes.find((c) => String(c.campus_class_id) === id)?.class_label || id).slice(0, 5)
+                return miss.length === 0
+                  ? `已選 ${editClassIds.size} 班,全部都有「${editSubject}」任課老師。`
+                  : `已選 ${editClassIds.size} 班,其中 ${miss.length} 班查無此科老師(${names.join('、')}${miss.length > names.length ? ' 等' : ''})。`
+              })()
+            : '不指定科目時,老師在教師端看不到這份考卷的成績。'}
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-600">勾選=施測班級;取消勾選會移除該班作業。</p>
+        <span className="text-sm font-medium text-slate-500">已選 {editClassIds.size} 個班級</span>
+      </div>
+      {gradeGroups
+        .map((g) => ({ ...g, classes: g.classes.filter((c) => c.campus_class_id) }))
+        .filter((g) => g.classes.length > 0)
+        .map((g) => (
+          <div key={g.label}>
+            <div className="mb-1.5 text-sm font-semibold text-slate-600">{g.label}</div>
+            <div className="flex flex-wrap gap-1.5">
+              {g.classes.map((c) => {
+                const id = String(c.campus_class_id)
+                const on = editClassIds.has(id)
+                const existed = !!editExam?.classes.some((x) => String(x.campusClassId) === id)
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => {
+                      setEditClassIds((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(id)) next.delete(id)
+                        else next.add(id)
+                        return next
+                      })
+                    }}
+                    title={existed && !on ? '取消勾選=移除此班作業(含已匯入的卷)' : undefined}
+                    className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                      on
+                        ? 'border-sky-300 bg-sky-50 text-sky-700'
+                        : existed
+                          ? 'border-rose-200 bg-rose-50 text-rose-600 line-through'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {c.class_label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+    </>
+  )
+
   const examClassPicker = (
     <>
       {/* 2026-08-02 Step 11:科目——決定哪些任課老師能在教師端唯讀這份考卷的成績 */}
@@ -1407,8 +1556,18 @@ export default function SchoolAdminPanel({
                             type="button"
                             onClick={() => {
                               setEditExam(ex)
-                              setEditTitle(ex.title)
                               setEditSubject(ex.subject || '')
+                              setEditClassIds(new Set(ex.classes.map((c) => String(c.campusClassId))))
+                              void (async () => {
+                                // 已批改份數:換答案卷的危險確認要顯示
+                                const ids = ex.classes.map((c) => c.assignmentId).filter(Boolean)
+                                let n = 0
+                                for (const aid of ids) {
+                                  n += await db.submissions.where('assignmentId').equals(aid)
+                                    .filter((x) => x.status === 'graded').count()
+                                }
+                                setEditGradedCount(n)
+                              })()
                             }}
                             className="text-[11px] font-medium text-sky-600 hover:underline"
                           >
@@ -1866,80 +2025,62 @@ export default function SchoolAdminPanel({
       </div>
       </div>
 
-      {/* 2026-08-02 編輯考卷:只改名稱/科目這類 metadata(不碰答案卷、設定、班級) */}
-      {editExam && (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-4" onClick={() => !editSaving && setEditExam(null)}>
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-base font-semibold text-slate-900">編輯考卷</h3>
-            <p className="mt-1 text-xs text-slate-500">
-              這裡只改名稱與科目。要換答案卷或批改設定,請重新建立考卷。
-            </p>
+      {/* 2026-08-02(user:比照教師端)編輯考卷——直接重用教師端同一個表單元件,
+          連「更換答案卷(選填)」「批改規則」「刪除」都是同一套 UI 與語意;
+          第四步 classStep 換成「科目 + 班級增減」。 */}
+      <AssignmentFormModal
+        mode="edit"
+        open={!!editExam}
+        onClose={() => setEditExam(null)}
+        onSubmit={submitExamEdit}
+        onDelete={editExam ? () => void deleteExam(editExam) : undefined}
+        isSubmitting={editSaving}
+        initialTitle={editExam?.title || ''}
+        initialSettings={editExamSettings}
+        initialAnswerKeyInfo={editAnswerKeyInfo}
+        editAssignmentTitle={editExam?.title || ''}
+        gradedCount={editGradedCount}
+        folders={[]}
+        answerKeys={examTemplates.map((t) => ({
+          id: t.id,
+          name: t.name,
+          domain: t.domain || '',
+          folder: t.folder || '',
+          questionCount: t.questionCount ?? 0,
+          totalScore: t.totalScore ?? 0
+        }))}
+        hideStudentOptions
+        titleLabel="考卷名稱"
+        titlePlaceholder="例如:114學年上學期期末考"
+        classStep={{
+          label: '科目與班級',
+          content: examEditClassPicker,
+          ready: editClassIds.size > 0,
+          submitLabel: '儲存變更'
+        }}
+      />
 
-            <label className="mt-4 block text-sm font-medium text-slate-700">考卷名稱</label>
-            <input
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-              disabled={editSaving}
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-sky-400"
-            />
-
-            <label className="mt-3 block text-sm font-medium text-slate-700">科目</label>
-            <select
-              value={editSubject}
-              onChange={(e) => setEditSubject(e.target.value)}
-              disabled={editSaving}
-              className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-sky-400"
-            >
-              <option value="">不指定(教師端不開放檢視)</option>
-              {subjects.map((sj) => (
-                <option key={sj.subject} value={sj.subject}>
-                  {sj.subject}（{sj.classCount} 班・{sj.teacherCount} 位老師）
-                </option>
-              ))}
-            </select>
-            <p className="mt-1.5 text-xs text-slate-500">
-              {editSubject
-                ? (() => {
-                    const covered = new Set(subjects.find((sj) => sj.subject === editSubject)?.campusClassIds ?? [])
-                    const miss = editExam.classes.filter((c) => !covered.has(String(c.campusClassId)))
-                    return miss.length === 0
-                      ? `本考卷 ${editExam.classes.length} 個班全部都有「${editSubject}」任課老師。`
-                      : `本考卷 ${editExam.classes.length} 班中,${miss.length} 班查無此科老師(${miss.slice(0, 4).map((c) => c.className).join('、')}${miss.length > 4 ? ' 等' : ''}),該班老師看不到成績。`
-                  })()
-                : '不指定科目時,老師在教師端看不到這份考卷的成績。'}
-            </p>
-
-            <div className="mt-5 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => void deleteExam(editExam)}
-                disabled={editSaving}
-                className="rounded-md border border-rose-200 px-3 py-1.5 text-sm font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-              >
-                刪除考卷
-              </button>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEditExam(null)}
-                  disabled={editSaving}
-                  className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void saveExamEdit()}
-                  disabled={editSaving}
-                  className="rounded-md bg-sky-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-sky-700 disabled:bg-slate-300"
-                >
-                  {editSaving ? '儲存中…' : '儲存'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 更換答案卷:核彈級確認(與教師端同一套文案/勾選要求) */}
+      <DangerConfirmModal
+        open={!!changeAkConfirm}
+        severity="high"
+        title="更換答案卷"
+        clears={['分數', '批改結果', '訂正紀錄', '申訴紀錄']}
+        keeps={['學生作答照片']}
+        affectedNoun="份批改"
+        affected={changeAkConfirm ? [{ id: 'count', label: `此考卷已有 ${editGradedCount} 份批改結果`, meta: '全部失效' }] : []}
+        acknowledgeText="我了解更換答案卷會一併清除所有訂正/申訴紀錄（含「已完成訂正」），且無法復原。"
+        confirmLabel="仍要更換"
+        cancelLabel="取消"
+        busy={editSaving}
+        onCancel={() => setChangeAkConfirm(null)}
+        onConfirm={async () => {
+          const pending = changeAkConfirm
+          if (!pending) return
+          setChangeAkConfirm(null)
+          await commitExamEdit(pending.data, true)
+        }}
+      />
 
       {/* 建立考卷:重用老師端 AssignmentFormModal(隱藏學生選項、文案改考卷) */}
       <AssignmentFormModal
