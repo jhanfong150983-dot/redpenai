@@ -236,6 +236,13 @@ export default function SchoolAdminPanel({
   const [teacherSource, setTeacherSource] = useState<'roster' | 'fallback' | null>(null)
   const [walletLedger, setWalletLedger] = useState<WalletLedgerRow[]>([])
   const [teachersLoading, setTeachersLoading] = useState(false)
+  // 2026-08-02(user:讓非 1Campus / 自建班級也能用)行政手動指派任課。
+  //   任課關係存在 school_class_courses,1Campus 只是其中一種填表來源;手動列 source='admin'。
+  const [assignTeacher, setAssignTeacher] = useState<TeacherOverviewRow | null>(null)
+  const [assignSubject, setAssignSubject] = useState('')
+  const [assignClassIds, setAssignClassIds] = useState<Set<string>>(new Set())
+  const [assignExisting, setAssignExisting] = useState<Array<{ campus_class_id: string; class_name: string | null; subject: string | null; source: string }>>([])
+  const [assignSaving, setAssignSaving] = useState(false)
   const [grantTarget, setGrantTarget] = useState<TeacherOverviewRow | null>(null)
   const [grantValue, setGrantValue] = useState('')
   const [grantBusy, setGrantBusy] = useState(false)
@@ -693,6 +700,94 @@ export default function SchoolAdminPanel({
     setEditExam(null)
     await loadExams(school.school_id)
   }, [school, alertModal, loadExams])
+
+  const openAssign = useCallback(async (t: TeacherOverviewRow) => {
+    if (!school) return
+    setAssignTeacher(t)
+    // 科目清單原本只在考卷分頁載入;教師總覽開指派時若還沒有就補抓
+    if (subjects.length === 0) {
+      try {
+        const r0 = await fetch(`/api/data/school-subjects?schoolId=${encodeURIComponent(school.school_id)}`, { credentials: 'include' })
+        if (r0.ok) {
+          const d0 = await r0.json()
+          if (Array.isArray(d0?.subjects)) setSubjects(d0.subjects)
+        }
+      } catch { /* 非致命 */ }
+    }
+    setAssignSubject('')
+    setAssignClassIds(new Set())
+    setAssignExisting([])
+    try {
+      const r = await fetch(
+        `/api/data/school-teacher-courses?schoolId=${encodeURIComponent(school.school_id)}&teacherAcc=${encodeURIComponent(t.account)}`,
+        { credentials: 'include' }
+      )
+      if (r.ok) {
+        const d = await r.json()
+        setAssignExisting(Array.isArray(d?.courses) ? d.courses : [])
+      }
+    } catch { /* 非致命:只是看不到既有任課 */ }
+  }, [school, subjects.length])
+
+  const saveAssign = useCallback(async () => {
+    if (!school || !assignTeacher || assignSaving) return
+    if (!assignSubject) { await alertModal('請先選科目', { title: '無法指派' }); return }
+    if (assignClassIds.size === 0) { await alertModal('請至少勾選一個班級', { title: '無法指派' }); return }
+    setAssignSaving(true)
+    try {
+      const res = await fetch('/api/data/school-teacher-courses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          mode: 'assign',
+          schoolId: school.school_id,
+          teacherAcc: assignTeacher.account,
+          teacherName: assignTeacher.name,
+          subject: assignSubject,
+          campusClassIds: [...assignClassIds]
+        })
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d?.error || '指派失敗')
+      await alertModal(`已指派 ${assignTeacher.name || assignTeacher.account} 任教 ${assignClassIds.size} 個班級的「${assignSubject}」。`, { title: '指派完成' })
+      setAssignTeacher(null)
+    } catch (err) {
+      await alertModal(err instanceof Error ? err.message : '指派失敗', { title: '指派失敗' })
+    } finally {
+      setAssignSaving(false)
+    }
+  }, [school, assignTeacher, assignSubject, assignClassIds, assignSaving, alertModal])
+
+  const removeAssign = useCallback(async (cid: string, subject: string) => {
+    if (!school || !assignTeacher) return
+    const ok = await confirmModal({
+      tone: 'danger',
+      title: '取消這筆任課指派?',
+      message: '取消後,這位老師將看不到該班此科目的考卷成績。',
+      confirmLabel: '取消指派'
+    })
+    if (!ok) return
+    try {
+      const res = await fetch('/api/data/school-teacher-courses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          mode: 'unassign',
+          schoolId: school.school_id,
+          teacherAcc: assignTeacher.account,
+          subject,
+          campusClassIds: [cid]
+        })
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d?.error || '取消失敗')
+      setAssignExisting((prev) => prev.filter((x) => !(String(x.campus_class_id) === cid && x.subject === subject && x.source === 'admin')))
+    } catch (err) {
+      await alertModal(err instanceof Error ? err.message : '取消失敗', { title: '取消指派失敗' })
+    }
+  }, [school, assignTeacher, confirmModal, alertModal])
 
   const submitCreateExam = useCallback(
     async (data: AssignmentFormData) => {
@@ -1715,6 +1810,14 @@ export default function SchoolAdminPanel({
                           >
                             配發點數
                           </button>
+                          <button
+                            type="button"
+                            onClick={() => void openAssign(t)}
+                            className="ml-2 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                            title="指派這位老師任教哪些班級的哪一科(決定他在教師端能唯讀哪些考卷成績)"
+                          >
+                            任課指派
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -2024,6 +2127,128 @@ export default function SchoolAdminPanel({
         </section>
       </div>
       </div>
+
+      {/* 2026-08-02 任課指派:讓非 1Campus / 自建班級的學校也能決定「誰看得到哪份考卷」 */}
+      {assignTeacher && (
+        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/40 p-4" onClick={() => !assignSaving && setAssignTeacher(null)}>
+          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl bg-white p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-base font-semibold text-slate-900">
+              任課指派 · {assignTeacher.name || assignTeacher.account}
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              指派後,這位老師就能在教師端「成績統計」唯讀檢視這些班級該科目的考卷成績(不能改分)。
+            </p>
+
+            <div className="mt-4 flex-1 overflow-y-auto">
+              {/* 既有任課 */}
+              <div className="mb-4">
+                <div className="mb-1.5 text-sm font-medium text-slate-700">目前任課</div>
+                {assignExisting.length === 0 ? (
+                  <p className="text-xs text-slate-400">尚無任課資料。</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {assignExisting.map((c, i) => (
+                      <span
+                        key={`${c.campus_class_id}-${c.subject}-${i}`}
+                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${
+                          c.source === 'admin'
+                            ? 'border-sky-200 bg-sky-50 text-sky-700'
+                            : 'border-slate-200 bg-slate-50 text-slate-600'
+                        }`}
+                        title={c.source === 'admin' ? '行政手動指派' : '1Campus 課程資料(同步而來、不可從這裡移除)'}
+                      >
+                        {c.class_name || c.campus_class_id} · {c.subject || '—'}
+                        {c.source === 'admin' && (
+                          <button
+                            type="button"
+                            onClick={() => void removeAssign(String(c.campus_class_id), String(c.subject || ''))}
+                            className="ml-0.5 text-sky-500 hover:text-rose-600"
+                            title="取消這筆指派"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 新增指派 */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-slate-700">新增指派 · 科目</span>
+                  <select
+                    value={assignSubject}
+                    onChange={(e) => setAssignSubject(e.target.value)}
+                    className="min-w-[200px] rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-sky-400"
+                  >
+                    <option value="">請選擇科目</option>
+                    {subjects.map((sj) => (
+                      <option key={sj.subject} value={sj.subject}>{sj.subject}</option>
+                    ))}
+                  </select>
+                </div>
+                <p className="mb-2 text-xs text-slate-500">
+                  勾選這位老師任教的班級({assignClassIds.size} 個已選)
+                </p>
+                {gradeGroups
+                  .map((g) => ({ ...g, classes: g.classes.filter((c) => c.campus_class_id) }))
+                  .filter((g) => g.classes.length > 0)
+                  .map((g) => (
+                    <div key={g.label} className="mb-2">
+                      <div className="mb-1 text-xs font-semibold text-slate-500">{g.label}</div>
+                      <div className="flex flex-wrap gap-1">
+                        {g.classes.map((c) => {
+                          const id = String(c.campus_class_id)
+                          const on = assignClassIds.has(id)
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => {
+                                setAssignClassIds((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(id)) next.delete(id)
+                                  else next.add(id)
+                                  return next
+                                })
+                              }}
+                              className={`rounded-full border px-2 py-0.5 text-xs transition-colors ${
+                                on ? 'border-sky-300 bg-sky-100 text-sky-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {c.class_label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
+              <button
+                type="button"
+                onClick={() => setAssignTeacher(null)}
+                disabled={assignSaving}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+              >
+                關閉
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveAssign()}
+                disabled={assignSaving || !assignSubject || assignClassIds.size === 0}
+                className="rounded-md bg-sky-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-sky-700 disabled:bg-slate-300"
+              >
+                {assignSaving ? '指派中…' : '確認指派'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 2026-08-02(user:比照教師端)編輯考卷——直接重用教師端同一個表單元件,
           連「更換答案卷(選填)」「批改規則」「刪除」都是同一套 UI 與語意;
