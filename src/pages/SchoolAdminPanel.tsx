@@ -47,6 +47,19 @@ interface ClassRow {
   student_count: number
   // 全校名冊(school_classes)來的班級才有;有它=點班級走 SSoT 名冊(全班在籍)
   campus_class_id?: string | null
+  homeroom_teacher_name?: string | null
+  homeroom_teacher_acc?: string | null
+}
+// 2026-08-03 任課關係(school_class_courses):一列=某班某科由某位老師任教。
+//   source='1campus' 由全校名冊同步寫入、'admin' 是行政手動指派。
+interface CourseRow {
+  campus_class_id: string
+  class_name: string | null
+  subject: string | null
+  course_name?: string | null
+  teacher_acc: string | null
+  teacher_name: string | null
+  source: string
 }
 interface StudentRow {
   person_id: string
@@ -236,6 +249,8 @@ export default function SchoolAdminPanel({
   const [teacherSource, setTeacherSource] = useState<'roster' | 'fallback' | null>(null)
   const [walletLedger, setWalletLedger] = useState<WalletLedgerRow[]>([])
   const [teachersLoading, setTeachersLoading] = useState(false)
+  // 全校任課(班級總覽顯示「導師/任課 N 科」、教師清單顯示「任教 N 班 M 科」都吃這份)
+  const [courses, setCourses] = useState<CourseRow[]>([])
   // 2026-08-02(user:讓非 1Campus / 自建班級也能用)行政手動指派任課。
   //   任課關係存在 school_class_courses,1Campus 只是其中一種填表來源;手動列 source='admin'。
   const [assignTeacher, setAssignTeacher] = useState<TeacherOverviewRow | null>(null)
@@ -316,6 +331,17 @@ export default function SchoolAdminPanel({
     }
   }, [])
 
+  const loadCourses = useCallback(async (sid: string) => {
+    try {
+      const res = await fetch(`/api/data/school-teacher-courses?schoolId=${encodeURIComponent(sid)}`, {
+        credentials: 'include'
+      })
+      if (!res.ok) return
+      const data = await res.json()
+      setCourses(Array.isArray(data?.courses) ? data.courses : [])
+    } catch { /* 非致命:只是看不到任課摘要 */ }
+  }, [])
+
   const loadSchool = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -344,6 +370,7 @@ export default function SchoolAdminPanel({
       }
       setSchool(first)
       void loadWallet(first.school_id)
+      void loadCourses(first.school_id)
       const { classes: cls } = await fetchOverview({ schoolId: first.school_id })
       setClasses(Array.isArray(cls) ? cls : [])
     } catch (err) {
@@ -351,7 +378,7 @@ export default function SchoolAdminPanel({
     } finally {
       setLoading(false)
     }
-  }, [preferredSchoolId, loadWallet])
+  }, [preferredSchoolId, loadWallet, loadCourses])
 
   useEffect(() => {
     void loadSchool()
@@ -750,6 +777,7 @@ export default function SchoolAdminPanel({
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d?.error || '指派失敗')
+      void loadCourses(school.school_id)
       await alertModal(`已指派 ${assignTeacher.name || assignTeacher.account} 任教 ${assignClassIds.size} 個班級的「${assignSubject}」。`, { title: '指派完成' })
       setAssignTeacher(null)
     } catch (err) {
@@ -757,7 +785,7 @@ export default function SchoolAdminPanel({
     } finally {
       setAssignSaving(false)
     }
-  }, [school, assignTeacher, assignSubject, assignClassIds, assignSaving, alertModal])
+  }, [school, assignTeacher, assignSubject, assignClassIds, assignSaving, alertModal, loadCourses])
 
   const removeAssign = useCallback(async (cid: string, subject: string) => {
     if (!school || !assignTeacher) return
@@ -784,10 +812,11 @@ export default function SchoolAdminPanel({
       const d = await res.json()
       if (!res.ok) throw new Error(d?.error || '取消失敗')
       setAssignExisting((prev) => prev.filter((x) => !(String(x.campus_class_id) === cid && x.subject === subject && x.source === 'admin')))
+      void loadCourses(school.school_id)
     } catch (err) {
       await alertModal(err instanceof Error ? err.message : '取消失敗', { title: '取消指派失敗' })
     }
-  }, [school, assignTeacher, confirmModal, alertModal])
+  }, [school, assignTeacher, confirmModal, alertModal, loadCourses])
 
   const submitCreateExam = useCallback(
     async (data: AssignmentFormData) => {
@@ -1023,6 +1052,35 @@ export default function SchoolAdminPanel({
     })
     return entries
   }, [classes])
+
+  // 任課索引:班級 → 該班所有科目、老師 → 任教幾班幾科。
+  //   同一班同一科可能有多筆(協同教學),以 subject 為單位去重才算得出「幾科」。
+  const coursesByClass = useMemo(() => {
+    const map = new Map<string, CourseRow[]>()
+    for (const c of courses) {
+      const cid = String(c.campus_class_id || '')
+      if (!cid) continue
+      if (!map.has(cid)) map.set(cid, [])
+      map.get(cid)!.push(c)
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => String(a.subject || '').localeCompare(String(b.subject || ''), 'zh-Hant'))
+    }
+    return map
+  }, [courses])
+
+  const teachingByTeacher = useMemo(() => {
+    const map = new Map<string, { classes: Set<string>; subjects: Set<string> }>()
+    for (const c of courses) {
+      const acc = String(c.teacher_acc || '')
+      if (!acc) continue
+      if (!map.has(acc)) map.set(acc, { classes: new Set(), subjects: new Set() })
+      const e = map.get(acc)!
+      if (c.campus_class_id) e.classes.add(String(c.campus_class_id))
+      if (c.subject) e.subjects.add(String(c.subject))
+    }
+    return map
+  }, [courses])
 
   const presentGrades = useMemo(
     () => gradeGroups.filter((g) => g.grade != null).map((g) => g.grade as number),
@@ -1758,6 +1816,7 @@ export default function SchoolAdminPanel({
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-xs text-slate-500">
                       <th className="px-4 py-2.5 font-medium">老師(1Campus 帳號)</th>
+                      <th className="px-3 py-2.5 font-medium">任教</th>
                       <th className="px-3 py-2.5 font-medium text-right">班級數</th>
                       <th className="px-3 py-2.5 font-medium text-right">作業數</th>
                       <th className="px-3 py-2.5 font-medium text-right">個人點數</th>
@@ -1784,6 +1843,22 @@ export default function SchoolAdminPanel({
                             )}
                           </div>
                           <div className="text-xs text-slate-500">{t.account || '—'}</div>
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-600">
+                          {(() => {
+                            const e = t.account ? teachingByTeacher.get(String(t.account)) : undefined
+                            if (!e || e.classes.size === 0) return <span className="text-xs text-slate-300">—</span>
+                            const subjects = [...e.subjects]
+                            return (
+                              <div className="whitespace-nowrap text-xs">
+                                <span className="tabular-nums">{e.classes.size} 班</span>
+                                <span className="text-slate-300"> · </span>
+                                <span title={subjects.join('、')}>
+                                  {subjects.length <= 2 ? subjects.join('、') : `${subjects.length} 科`}
+                                </span>
+                              </div>
+                            )
+                          })()}
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.classroomCount ?? '—'}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.assignmentCount ?? '—'}</td>
@@ -2035,7 +2110,48 @@ export default function SchoolAdminPanel({
                   ))}
                 </div>
               ) : selectedClass ? (
-                /* 班級學生清單 */
+                <div className="space-y-4">
+                {/* 任課老師:決定這些老師在教師端能唯讀看到本班哪一科的學校考卷成績 */}
+                {(() => {
+                  const cid = String(
+                    classes.find((c) => c.class_label === selectedClass)?.campus_class_id || ''
+                  )
+                  if (!cid) return null
+                  const list = coursesByClass.get(cid) ?? []
+                  const homeroom = classes.find((c) => c.class_label === selectedClass)?.homeroom_teacher_name
+                  return (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="text-sm font-semibold text-slate-700">任課老師</span>
+                        {homeroom && <span className="text-xs text-slate-500">導師 {homeroom}</span>}
+                      </div>
+                      {list.length === 0 ? (
+                        <p className="text-xs text-slate-400">
+                          尚無任課資料。可按右上「全校名冊同步」抓 1Campus 課程,或到「教師」分頁用「任課指派」手動指定。
+                        </p>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {list.map((c, i) => (
+                            <span
+                              key={`${c.subject}-${c.teacher_acc}-${i}`}
+                              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs ${
+                                c.source === 'admin'
+                                  ? 'border-sky-200 bg-sky-50 text-sky-700'
+                                  : 'border-slate-200 bg-slate-50 text-slate-600'
+                              }`}
+                              title={c.source === 'admin' ? '行政手動指派' : '1Campus 課程資料'}
+                            >
+                              <span className="font-medium">{c.subject || '—'}</span>
+                              <span className="text-slate-400">·</span>
+                              <span>{c.teacher_name || c.teacher_acc || '未指定'}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+                {/* 班級學生清單 */}
                 <div className="overflow-hidden rounded-xl border border-slate-200">
                   <div className="border-b border-slate-100 bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700">
                     {selectedClass} · {students.length} 名學生
@@ -2063,6 +2179,7 @@ export default function SchoolAdminPanel({
                       </button>
                     ))}
                   </div>
+                </div>
                 </div>
               ) : (
                 /* 班級清單（年級篩選 + 依年級分組、班序自然排序） */
@@ -2107,16 +2224,37 @@ export default function SchoolAdminPanel({
                       <div key={group.label}>
                         <div className="mb-2 text-sm font-semibold text-slate-500">{group.label}</div>
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                          {group.classes.map((c) => (
-                            <button
-                              key={c.campus_class_id ?? c.class_label}
-                              onClick={() => void openClass(c.class_label, c.campus_class_id)}
-                              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-sky-300 hover:shadow-sm"
-                            >
-                              <div className="font-semibold text-slate-900">{c.class_label}</div>
-                              <div className="mt-1 text-xs text-slate-500">{c.student_count} 名學生</div>
-                            </button>
-                          ))}
+                          {group.classes.map((c) => {
+                            const cid = c.campus_class_id ? String(c.campus_class_id) : ''
+                            const classCourses = cid ? coursesByClass.get(cid) ?? [] : []
+                            const subjectCount = new Set(
+                              classCourses.map((x) => x.subject).filter(Boolean) as string[]
+                            ).size
+                            return (
+                              <button
+                                key={c.campus_class_id ?? c.class_label}
+                                onClick={() => void openClass(c.class_label, c.campus_class_id)}
+                                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-sky-300 hover:shadow-sm"
+                              >
+                                <div className="font-semibold text-slate-900">{c.class_label}</div>
+                                <div className="mt-1 text-xs text-slate-500">
+                                  {c.student_count} 名學生
+                                  {c.homeroom_teacher_name && (
+                                    <span className="text-slate-400"> · 導師 {c.homeroom_teacher_name}</span>
+                                  )}
+                                </div>
+                                {cid && (
+                                  <div className="mt-1 text-xs">
+                                    {subjectCount > 0 ? (
+                                      <span className="text-slate-400">任課 {subjectCount} 科</span>
+                                    ) : (
+                                      <span className="text-amber-600">尚無任課資料</span>
+                                    )}
+                                  </div>
+                                )}
+                              </button>
+                            )
+                          })}
                         </div>
                       </div>
                     ))}
