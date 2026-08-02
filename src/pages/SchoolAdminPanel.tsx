@@ -392,6 +392,8 @@ export default function SchoolAdminPanel({
           unresolved > 0 ? `(另 ${unresolved} 人不在名冊但查無離校紀錄,維持原狀)` : ''
         }\n家長綁定:${
           data.parentFieldPresent ? `${data.parentBound} / ${data.studentsSeen} 人` : '此授權未回傳家長綁定資料'
+        }\n任課對應:${data.courseCount ?? 0} 筆(班級×課程×老師)、導師 ${data.homeroomCount ?? 0} 班${
+          (data.courseCount ?? 0) === 0 ? '(未取得課程資料,教師端唯讀將無法判定任課)' : ''
         }${
           data.mirror
             ? `\n考卷班級:${data.mirror.classes} 個已就緒(供建立考卷/匯入/批改使用)`
