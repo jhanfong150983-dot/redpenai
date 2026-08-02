@@ -32,6 +32,7 @@ import { setSchoolBillingContext, SCHOOL_WALLET_EVENT } from '@/lib/school-billi
 import { gradeFromLabel, classNumFromLabel } from '@/lib/classroom-order'
 import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
+import SchoolParentReportPanel from '@/components/SchoolParentReportPanel'
 
 // 學校管理層（教務主任）檢視頁。
 // 版面對齊教師端/學生端：頂部 logo bar + 左側功能選單(aside) + 右側內容(section)。
@@ -1609,9 +1610,15 @@ export default function SchoolAdminPanel({
                       })}
                     </div>
                   </div>
-                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-center text-xs text-slate-400">
-                    家長報告(之後推出)
-                  </div>
+                  {/* Step 12(2026-08-03 user 拍板:逐班沿用教師端分頁、這輪只做產出) */}
+                  <SchoolParentReportPanel
+                    classes={reportExam.classes.map((c) => ({
+                      assignmentId: c.assignmentId,
+                      className: c.className,
+                      campusClassId: c.campusClassId
+                    }))}
+                    examTitle={reportExam.title}
+                  />
                 </div>
               )}
             </div>
