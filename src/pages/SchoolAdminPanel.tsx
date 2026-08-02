@@ -13,7 +13,9 @@ import {
   Upload,
   Sparkles,
   FileText,
-  BarChart3
+  BarChart3,
+  Search,
+  X
 } from 'lucide-react'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
@@ -251,6 +253,9 @@ export default function SchoolAdminPanel({
   const [teachersLoading, setTeachersLoading] = useState(false)
   // 全校任課(班級總覽顯示「導師/任課 N 科」、教師清單顯示「任教 N 班 M 科」都吃這份)
   const [courses, setCourses] = useState<CourseRow[]>([])
+  // 教師搜尋:全校上百位老師,靠捲動找人不切實際。比對範圍含任教班級/科目,
+  //   讓「五年3班的英語老師是誰」這種問法也搜得到。
+  const [teacherQuery, setTeacherQuery] = useState('')
   // 2026-08-02(user:讓非 1Campus / 自建班級也能用)行政手動指派任課。
   //   任課關係存在 school_class_courses,1Campus 只是其中一種填表來源;手動列 source='admin'。
   const [assignTeacher, setAssignTeacher] = useState<TeacherOverviewRow | null>(null)
@@ -1082,6 +1087,33 @@ export default function SchoolAdminPanel({
     return map
   }, [courses])
 
+  // 每位老師一段可搜尋文字:姓名/帳號/登入信箱 + 任教班級與科目 + 帶哪一班的導師。
+  //   關鍵字用空白拆開後全部都要命中(「五年3 英語」找得到五年3班的英語老師)。
+  const teacherSearchIndex = useMemo(() => {
+    const map = new Map<string, string>()
+    const push = (acc: string, text: string) => {
+      if (!acc || !text) return
+      map.set(acc, `${map.get(acc) ?? ''} ${text}`)
+    }
+    for (const c of courses) {
+      push(String(c.teacher_acc || ''), `${c.class_name || ''} ${c.subject || ''} ${c.course_name || ''}`)
+    }
+    for (const c of classes) {
+      if (c.homeroom_teacher_acc) push(String(c.homeroom_teacher_acc), `${c.class_label} 導師`)
+    }
+    return map
+  }, [courses, classes])
+
+  const filteredTeachers = useMemo(() => {
+    const terms = teacherQuery.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if (terms.length === 0) return teachers
+    return teachers.filter((t) => {
+      const acc = String(t.account || '')
+      const blob = `${t.name || ''} ${acc} ${t.loginEmail || ''} ${teacherSearchIndex.get(acc) ?? ''}`.toLowerCase()
+      return terms.every((term) => blob.includes(term))
+    })
+  }, [teachers, teacherQuery, teacherSearchIndex])
+
   const presentGrades = useMemo(
     () => gradeGroups.filter((g) => g.grade != null).map((g) => g.grade as number),
     [gradeGroups]
@@ -1802,7 +1834,33 @@ export default function SchoolAdminPanel({
                   </span>
                   <span className="text-sm text-slate-500">位已綁定登入</span>
                 </div>
+                <div className="relative ml-auto min-w-[260px] flex-1 sm:max-w-sm">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="search"
+                    value={teacherQuery}
+                    onChange={(e) => setTeacherQuery(e.target.value)}
+                    placeholder="搜尋姓名、帳號、任教班級或科目…"
+                    className="w-full rounded-lg border border-slate-300 bg-white py-1.5 pl-9 pr-8 text-sm outline-none placeholder:text-slate-400 focus:border-sky-400"
+                  />
+                  {teacherQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setTeacherQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                      title="清除搜尋"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {teacherQuery.trim() && (
+                <div className="-mb-2 text-xs text-slate-500">
+                  符合「{teacherQuery.trim()}」的老師 {filteredTeachers.length} 位(共 {teachers.length} 位)
+                </div>
+              )}
 
               {teacherSource === 'fallback' && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -1824,7 +1882,14 @@ export default function SchoolAdminPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {teachers.map((t, i) => (
+                    {filteredTeachers.length === 0 && teachers.length > 0 && (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-10 text-center text-sm text-slate-400">
+                          找不到符合「{teacherQuery.trim()}」的老師。可改用姓名、1Campus 帳號、班級(如「五年3」)或科目關鍵字。
+                        </td>
+                      </tr>
+                    )}
+                    {filteredTeachers.map((t, i) => (
                       <tr key={t.profileId ?? t.account ?? i} className="border-b border-slate-50 hover:bg-slate-50/50">
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-2">
