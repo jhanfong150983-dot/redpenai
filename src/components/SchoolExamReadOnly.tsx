@@ -40,8 +40,8 @@ interface SubmissionRow {
   ai_score: number | null
   score_source: string | null
   graded_at: string | null
-  /** grading_result.mistakes 投影出來的,PostgREST ->> 回字串 */
-  mistakeCount: string | number | null
+  /** server 用 parseMistakesFromGradingResult 算好的錯題數(未批改=null) */
+  mistakeCount: number | null
 }
 
 export default function SchoolExamReadOnly() {
@@ -370,7 +370,7 @@ export default function SchoolExamReadOnly() {
                       )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-slate-500">
-                      {sub?.mistakeCount != null && sub.mistakeCount !== '' ? Number(sub.mistakeCount) : '—'}
+                      {typeof sub?.mistakeCount === 'number' ? sub.mistakeCount : '—'}
                     </td>
                     <td className="px-3 py-2">
                       {graded ? (
