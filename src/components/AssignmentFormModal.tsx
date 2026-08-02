@@ -74,6 +74,8 @@ interface AssignmentFormModalProps {
   initialAllowStudentAiGrading?: boolean
   initialStudentAiGradingLimit?: number
   initialAnswerKeyInfo?: { name?: string; domain: string; questionCount: number; totalScore: number } | null
+  /** 2026-08-03:目前綁定的答案卷 id。清單上標「使用中」,不預選——預選會誤觸「換卷=清批改」。 */
+  currentAnswerKeyId?: string
   // Options
   folders: string[]
   answerKeys: AnswerKeyOption[]
@@ -179,6 +181,7 @@ export default function AssignmentFormModal({
   initialAllowStudentAiGrading,
   initialStudentAiGradingLimit,
   initialAnswerKeyInfo,
+  currentAnswerKeyId,
   folders,
   answerKeys,
   isSubmitting = false,
@@ -639,6 +642,7 @@ export default function AssignmentFormModal({
                           </div>
                           {items.map((ak) => {
                             const isSelected = selectedAnswerKeyId === ak.id
+                            const isCurrent = !!currentAnswerKeyId && ak.id === currentAnswerKeyId
                             return (
                               <button
                                 key={ak.id}
@@ -654,8 +658,13 @@ export default function AssignmentFormModal({
                                   {isSelected && <Check className="w-3 h-3 text-white" />}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <div className={`text-sm truncate ${isSelected ? 'text-green-800 font-medium' : 'text-gray-800'}`}>
-                                    {ak.name}
+                                  <div className={`flex items-center gap-1.5 text-sm ${isSelected ? 'text-green-800 font-medium' : 'text-gray-800'}`}>
+                                    <span className="truncate">{ak.name}</span>
+                                    {isCurrent && (
+                                      <span className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700">
+                                        使用中
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="text-[11px] text-gray-400">
                                     {ak.domain || '未設定領域'} · {ak.answerKey?.questions?.length ?? 0} 題

@@ -18,7 +18,7 @@ import {
   X
 } from 'lucide-react'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
-import AssignmentFormModal, { type AssignmentFormData } from '@/components/AssignmentFormModal'
+import AssignmentFormModal, { type AssignmentFormData, type GradingSettings } from '@/components/AssignmentFormModal'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import AnswerBank from '@/pages/AnswerBank'
 import Gradebook from '@/pages/Gradebook'
@@ -119,6 +119,8 @@ interface SchoolExamRow {
   answerKeyTemplateId?: string
   createdAt: string
   classes: ExamClassRow[]
+  /** 2026-08-03:各班 assignment 現行的批改規則(編輯視窗預帶,避免送出時把既有規則洗掉) */
+  settings?: Partial<GradingSettings> | null
 }
 interface ExamTemplateOption {
   id: string
@@ -1152,7 +1154,7 @@ export default function SchoolAdminPanel({
 
   // 建卷 modal 第四步的班級選擇內容(年級分組 chips;狀態在本元件)
   // 編輯考卷的初始值:設定從既有 answerKey 讀回(教師端 openSettingsModal 同款作法)
-  const editExamSettings = useMemo(() => ({}), [])
+  const editExamSettings = useMemo(() => editExam?.settings ?? {}, [editExam])
   const editAnswerKeyInfo = useMemo(() => {
     if (!editExam) return null
     const t = examTemplates.find((x) => x.id === editExam.answerKeyTemplateId)
@@ -2430,6 +2432,7 @@ export default function SchoolAdminPanel({
         initialTitle={editExam?.title || ''}
         initialSettings={editExamSettings}
         initialAnswerKeyInfo={editAnswerKeyInfo}
+        currentAnswerKeyId={editExam?.answerKeyTemplateId || ''}
         editAssignmentTitle={editExam?.title || ''}
         gradedCount={editGradedCount}
         folders={[]}
