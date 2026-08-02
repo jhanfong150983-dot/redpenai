@@ -244,6 +244,9 @@ export default function SchoolAdminPanel({
   const [examTemplates, setExamTemplates] = useState<ExamTemplateOption[]>([])
   const [createExamOpen, setCreateExamOpen] = useState(false)
   const [pickedClassIds, setPickedClassIds] = useState<Set<string>>(new Set())
+  // 2026-08-02 Step 11 階段2:考卷科目(決定哪些老師能唯讀)。清單來自 1Campus 同步的任課資料。
+  const [subjects, setSubjects] = useState<Array<{ subject: string; classCount: number; teacherCount: number; campusClassIds: string[] }>>([])
+  const [pickedSubject, setPickedSubject] = useState('')
   const [creatingExam, setCreatingExam] = useState(false)
   const [expandedExamId, setExpandedExamId] = useState<string | null>(null)
   // Step 7:匯入考卷(班級 tabs+教師端 PDF 匯入整套重用;開啟前先 sync pull 確保 Dexie 有考卷資料)
@@ -485,6 +488,15 @@ export default function SchoolAdminPanel({
       void loadExams(school.school_id)
       // 進考卷 tab 順便刷新學校點數(批改後回列表要看到最新餘額)
       void loadWallet(school.school_id)
+      // 科目清單(建考卷選科目用;失敗不擋流程、只是選不到科目)
+      void (async () => {
+        try {
+          const r = await fetch(`/api/data/school-subjects?schoolId=${encodeURIComponent(school.school_id)}`, { credentials: 'include' })
+          if (!r.ok) return
+          const d = await r.json()
+          if (Array.isArray(d?.subjects)) setSubjects(d.subjects)
+        } catch { /* 非致命 */ }
+      })()
     }
   }, [tab, school, loadExams, loadWallet])
 
@@ -545,13 +557,15 @@ export default function SchoolAdminPanel({
             title: data.title.trim(),
             templateId: data.selectedAnswerKeyId,
             campusClassIds: [...pickedClassIds],
-            settings: data.settings
+            settings: data.settings,
+            subject: pickedSubject || undefined
           })
         })
         const resData = await res.json()
         if (!res.ok) throw new Error(resData?.error || '建立考卷失敗')
         setCreateExamOpen(false)
         setPickedClassIds(new Set())
+        setPickedSubject('')
         await loadExams(school.school_id)
       } catch (err) {
         await alertModal(err instanceof Error ? err.message : '建立考卷失敗', { title: '建立考卷失敗' })
@@ -831,6 +845,40 @@ export default function SchoolAdminPanel({
   // 建卷 modal 第四步的班級選擇內容(年級分組 chips;狀態在本元件)
   const examClassPicker = (
     <>
+      {/* 2026-08-02 Step 11:科目——決定哪些任課老師能在教師端唯讀這份考卷的成績 */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium text-slate-700">科目</span>
+          <select
+            value={pickedSubject}
+            onChange={(e) => setPickedSubject(e.target.value)}
+            className="min-w-[220px] rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-sky-400"
+          >
+            <option value="">不指定(教師端不開放檢視)</option>
+            {subjects.map((s) => (
+              <option key={s.subject} value={s.subject}>
+                {s.subject}（{s.classCount} 班・{s.teacherCount} 位老師）
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">
+          {pickedSubject
+            ? (() => {
+                const picked = [...pickedClassIds]
+                const covered = new Set(subjects.find((s) => s.subject === pickedSubject)?.campusClassIds ?? [])
+                const miss = picked.filter((id) => !covered.has(id))
+                const missNames = miss
+                  .map((id) => classes.find((c) => String(c.campus_class_id) === id)?.class_label || id)
+                  .slice(0, 6)
+                if (picked.length === 0) return '選好班級後,這裡會顯示有多少班找得到任課老師。'
+                return miss.length === 0
+                  ? `已選 ${picked.length} 班,全部都有「${pickedSubject}」任課老師,可在教師端唯讀檢視。`
+                  : `已選 ${picked.length} 班,其中 ${picked.length - miss.length} 班有任課老師;${missNames.join('、')}${miss.length > missNames.length ? ' 等' : ''} 查無此科老師(該班老師將看不到成績)。`
+              })()
+            : '不指定科目時,老師在教師端看不到這份考卷的成績;之後仍可重建考卷補上。'}
+        </p>
+      </div>
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-600">勾選這份考卷要施測的班級(可跨年級)。</p>
         <span className="text-sm font-medium text-slate-500">已選 {pickedClassIds.size} 個班級</span>
@@ -1220,6 +1268,7 @@ export default function SchoolAdminPanel({
                   type="button"
                   onClick={() => {
                     setPickedClassIds(new Set())
+                    setPickedSubject('')
                     setCreateExamOpen(true)
                   }}
                   className="rounded-md bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700"
