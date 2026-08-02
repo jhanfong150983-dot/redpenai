@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Download, Info, Plus, X } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import SubmissionDetailModal from '@/components/SubmissionDetailModal'
+import SchoolExamReadOnly from '@/components/SchoolExamReadOnly'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
@@ -91,6 +92,9 @@ function normalizeWeightsToHundred(rawWeights: number[]): number[] {
 }
 
 export default function Gradebook({ embedded = false, scope = 'teacher' }: GradebookProps) {
+  // 2026-08-03 Step 11 階段 3:教師端多一個「學校考卷」檢視(唯讀、server 現抓)。
+  //   行政端(scope='school')本來就在看學校考卷,不需要這個切換。
+  const [view, setView] = useState<'mine' | 'school'>('mine')
   const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [selectedClassroomId, setSelectedClassroomId] = useState('')
   const [assignments, setAssignments] = useState<Assignment[]>([])
@@ -740,26 +744,58 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
 
         {/* ── 標題列 ── */}
         <div className={`flex flex-wrap items-center justify-between gap-2 ${embedded ? 'border-b border-slate-200 pb-2' : ''}`}>
-          <h1 className="text-xl font-semibold text-gray-900">成績統計</h1>
-          <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-gray-500">
-            <Info className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-            總分 = Σ(分數 × 權重%) ÷ Σ(有成績欄位權重%)
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold text-gray-900">成績統計</h1>
+            {scope === 'teacher' && (
+              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm">
+                <button
+                  type="button"
+                  onClick={() => setView('mine')}
+                  className={`rounded-md px-3 py-1 font-medium transition-colors ${
+                    view === 'mine' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  我的作業
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setView('school')}
+                  className={`rounded-md px-3 py-1 font-medium transition-colors ${
+                    view === 'school' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}
+                  title="學校統一批改的考卷成績(唯讀)"
+                >
+                  學校考卷
+                </button>
+              </div>
+            )}
           </div>
+          {view === 'mine' && (
+            <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-gray-500">
+              <Info className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+              總分 = Σ(分數 × 權重%) ÷ Σ(有成績欄位權重%)
+            </div>
+          )}
         </div>
 
-        {error && (
+        {view === 'mine' && error && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
             {error}
           </div>
         )}
 
-        {hasWeightTargets && !isGlobalWeightValid && (
+        {view === 'mine' && hasWeightTargets && !isGlobalWeightValid && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
             權重總和目前為 {globalWeightTotal.toFixed(1)}%，需等於 100% 才會計算總分。
           </div>
         )}
 
-        {/* ── 表格卡片（佔滿剩餘空間）── */}
+        {view === 'school' ? (
+          <div className={`rounded-xl border border-slate-200 bg-white ${embedded ? 'flex flex-col flex-1 min-h-0 overflow-y-auto' : ''}`}>
+            <SchoolExamReadOnly />
+          </div>
+        ) : (
+        /* ── 表格卡片（佔滿剩餘空間）── */
         <div className={`rounded-xl border border-slate-200 bg-white ${embedded ? 'flex flex-col flex-1 min-h-0' : ''}`}>
           {/* 卡片 header：篩選器 + 操作按鈕全合一列 */}
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-slate-200">
@@ -1059,6 +1095,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
             底部四分位（Q1）以下的總分會以顏色與圖示標示，方便後段班補救。
           </div>
         </div>
+        )}
       </div>
 
       {/* 2026-08-01 改分入口收斂:成績簿唯讀,點分數開批改頁同一個 modal 逐題改 */}
