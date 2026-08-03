@@ -105,7 +105,6 @@ const navSections: Array<{
   {
     title: '常用功能',
     items: [
-      { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
       // 建立答案=嵌入老師端答案卷整頁(只顯示學校答案卷;建立/擷取/分享碼匯入全套功能)
       { key: 'answerkeys', label: '建立答案', icon: BookOpen, enabled: true },
       { key: 'exams', label: '考卷批改', icon: BookOpen, enabled: true }
@@ -122,12 +121,19 @@ const navSections: Array<{
   {
     title: '系統設定',
     items: [
+      // 2026-08-03(user):名冊是校務資料維護、不是每天在做的事,兩個總覽都歸這區
+      { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
       { key: 'teachers', label: '教師總覽', icon: Users, enabled: true },
       // 2026-08-03(user 要求):學校級設定的家,目前是家長報告抬頭;之後的學校設定都掛這裡
       { key: 'settings', label: '偏好設定', icon: Settings, enabled: true }
     ]
   }
 ]
+
+// 分頁標題吃同一份 navSections——原本用巢狀三元,加了「偏好設定」就漏掉、顯示成「弱點分析」。
+const TAB_LABEL: Record<string, string> = Object.fromEntries(
+  navSections.flatMap((s) => s.items.map((i) => [i.key, i.label]))
+)
 
 // Step 6(獨立模型):考卷母實體——行政端建考卷→逐班 fan-out,所有操作只在此頁
 interface ExamClassRow {
@@ -366,7 +372,7 @@ export default function SchoolAdminPanel({
         }
         // 自動準備也拿不到資料時的退路文案
         setError(
-          '尚未取得貴校的 1Campus 資料。請按右上方「全校名冊同步」再試一次;若仍無資料,請確認貴校已完成 1Campus 平台授權,或聯繫 RedPen AI 協助開通。'
+          '尚未取得貴校的 1Campus 資料。請到左側「偏好設定」按「全校名冊同步」再試一次;若仍無資料,請確認貴校已完成 1Campus 平台授權,或聯繫 RedPen AI 協助開通。'
         )
         setLoading(false)
         return
@@ -1399,30 +1405,11 @@ export default function SchoolAdminPanel({
           {/* 標題列 + 重新整理 */}
           <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
             <h2 className="text-xl font-semibold text-slate-900">
-              {tab === 'overview'
-                ? '學生總覽'
-                : tab === 'answerkeys'
-                  ? '建立答案'
-                  : tab === 'exams'
-                    ? '考卷批改'
-                    : tab === 'grades'
-                      ? '成績統計'
-                      : tab === 'teachers'
-                        ? '教師總覽'
-                        : '弱點分析'}
+              {TAB_LABEL[tab] ?? ''}
             </h2>
             <div className="flex items-center gap-2">
-              {(school || preferredSchoolId) && (
-                <button
-                  type="button"
-                  onClick={() => void runRosterSync()}
-                  disabled={rosterSyncing || loading}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <School className={`h-3 w-3 ${rosterSyncing ? 'animate-pulse' : ''}`} />
-                  {rosterSyncing ? '同步中…' : '全校名冊同步'}
-                </button>
-              )}
+              {/* 2026-08-03(user):全校名冊同步搬到「偏好設定」——偶爾才做的維護動作,
+                  常駐頁首等於每一頁都放一顆用不到的按鈕。 */}
               <button
                 type="button"
                 onClick={() => void loadSchool()}
@@ -1799,7 +1786,29 @@ export default function SchoolAdminPanel({
               </div>
             </div>
           ) : tab === 'settings' ? (
-            <SchoolReportSettings schoolId={school?.school_id ?? ''} />
+            <div className="max-w-3xl space-y-4">
+              {/* 2026-08-03(user):全校名冊同步搬到這裡——偶爾才做的維護動作,不該常駐頁首 */}
+              <div className="rounded-xl border border-slate-200 bg-white p-5">
+                <h3 className="text-sm font-semibold text-slate-800">全校名冊同步</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  從 1Campus 重新抓取全校班級、學生、教師、課程與導師資料。
+                  新學期、轉入轉出、或發現名冊對不上時執行;平常不需要。
+                </p>
+                <div className="mt-3 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void runRosterSync()}
+                    disabled={rosterSyncing || loading || !(school || preferredSchoolId)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <School className={`h-4 w-4 ${rosterSyncing ? 'animate-pulse' : ''}`} />
+                    {rosterSyncing ? '同步中…' : '開始同步'}
+                  </button>
+                  <span className="text-xs text-slate-400">全校資料量大,可能需要一到兩分鐘</span>
+                </div>
+              </div>
+              <SchoolReportSettings schoolId={school?.school_id ?? ''} />
+            </div>
           ) : tab === 'teachers' ? (
             <div className="space-y-6">
               {/* 教師摘要 */}
@@ -1845,7 +1854,7 @@ export default function SchoolAdminPanel({
 
               {teacherSource === 'fallback' && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  尚未取得全校教師名冊,目前僅顯示登入過的老師(帳號欄為其登入帳號)。請按右上「全校名冊同步」抓取全校教師。
+                  尚未取得全校教師名冊,目前僅顯示登入過的老師(帳號欄為其登入帳號)。請到左側「偏好設定」按「全校名冊同步」抓取全校教師。
                 </div>
               )}
 
@@ -1937,7 +1946,7 @@ export default function SchoolAdminPanel({
                 </table>
                 {!teachersLoading && teachers.length === 0 && (
                   <div className="px-4 py-10 text-center text-sm text-slate-400">
-                    尚無教師名冊——請先按右上「全校名冊同步」;老師登入綁定後即可配發點數。
+                    尚無教師名冊——請先到左側「偏好設定」按「全校名冊同步」;老師登入綁定後即可配發點數。
                   </div>
                 )}
                 {teachersLoading && (
@@ -2089,7 +2098,7 @@ export default function SchoolAdminPanel({
                       </div>
                       {list.length === 0 ? (
                         <p className="text-xs text-slate-400">
-                          尚無任課資料。可按右上「全校名冊同步」抓 1Campus 課程,或到「教師」分頁用「任課指派」手動指定。
+                          尚無任課資料。可到「偏好設定」按「全校名冊同步」抓 1Campus 課程,或到「教師總覽」用「任課指派」手動指定。
                         </p>
                       ) : (
                         <div className="flex flex-wrap gap-1.5">
