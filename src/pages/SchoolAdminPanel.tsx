@@ -300,6 +300,8 @@ export default function SchoolAdminPanel({
   const [gradeSyncing, setGradeSyncing] = useState(false)
   // 2026-08-03(user:放在下面會看不到)報告生成改 tab 切換,不是上下堆疊
   const [reportTab, setReportTab] = useState<'review' | 'parent'>('review')
+  // 家長報告目前打開的班級:放在這裡才畫得出一條到底的麵包屑(user:兩個返回很怪)
+  const [reportClass, setReportClass] = useState<{ assignmentId: string; className: string; campusClassId?: string; teacherName?: string } | null>(null)
   // Step 9:報告生成(第一層=學生檢討單 PDF;第二層=家長報告)
   const [reportExam, setReportExam] = useState<SchoolExamRow | null>(null)
   const [reportSyncing, setReportSyncing] = useState(false)
@@ -1125,6 +1127,7 @@ export default function SchoolAdminPanel({
   const openReportExam = useCallback((ex: SchoolExamRow) => {
     setReportExam(ex)
     setReportTab('review')  // 換一份考卷一律回到第一個 tab,不要停在上一份的位置
+    setReportClass(null)
     setReportMsg({})
     setReportCounts({})
     setReportSyncing(true)
@@ -1574,7 +1577,21 @@ export default function SchoolAdminPanel({
                   返回考卷列表
                 </button>
                 <span className="text-slate-300">|</span>
-                <span className="font-medium text-slate-700">{reportExam.title}・報告生成</span>
+                {reportClass ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setReportClass(null)}
+                      className="font-medium text-sky-600 hover:underline"
+                    >
+                      {reportExam.title}・報告生成
+                    </button>
+                    <span className="text-slate-300">›</span>
+                    <span className="font-medium text-slate-700">{reportClass.className}・家長報告</span>
+                  </>
+                ) : (
+                  <span className="font-medium text-slate-700">{reportExam.title}・報告生成</span>
+                )}
               </div>
               {reportSyncing ? (
                 <div className="flex min-h-[240px] items-center justify-center text-sm text-slate-400">
@@ -1582,7 +1599,7 @@ export default function SchoolAdminPanel({
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm">
+                  <div className={`inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm ${reportClass ? 'hidden' : ''}`}>
                     {([
                       { key: 'review' as const, label: '學生檢討單(紙本)' },
                       { key: 'parent' as const, label: '家長報告' }
@@ -1652,6 +1669,8 @@ export default function SchoolAdminPanel({
                     examTitle={reportExam.title}
                     schoolId={school?.school_id ?? ''}
                     onOpenSettings={() => { setReportExam(null); setTab('settings') }}
+                    openClass={reportClass}
+                    onOpenClassChange={setReportClass}
                   />
                   )}
                 </div>

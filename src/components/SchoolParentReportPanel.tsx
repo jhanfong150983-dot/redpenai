@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, FileText, Settings } from 'lucide-react'
+import { FileText, Settings } from 'lucide-react'
 import { db } from '@/lib/db'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import { ParentReportTab } from '@/pages/ai-report/components/ParentReportTab'
@@ -31,15 +31,22 @@ export default function SchoolParentReportPanel({
   classes,
   examTitle,
   schoolId,
-  onOpenSettings
+  onOpenSettings,
+  openClass,
+  onOpenClassChange
 }: {
   classes: ClassEntry[]
   examTitle: string
   schoolId: string
   /** 導到行政端「偏好設定」分頁(抬頭是學校級設定、不該藏在報告頁裡改) */
   onOpenSettings: () => void
+  /**
+   * 2026-08-03(user:兩個返回的 UI 好奇怪):目前打開的班級改由外層持有,
+   *   麵包屑才能一條到底(考卷列表 › 報告生成 › 班級),不會上下疊兩排返回鈕。
+   */
+  openClass: ClassEntry | null
+  onOpenClassChange: (c: ClassEntry | null) => void
 }) {
-  const [openClass, setOpenClass] = useState<ClassEntry | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [inkAction, setInkAction] = useState<{ fn: () => void; message?: React.ReactNode } | null>(null)
@@ -78,7 +85,7 @@ export default function SchoolParentReportPanel({
   const open = useCallback(async (c: ClassEntry) => {
     setLoading(true)
     setError(null)
-    setOpenClass(c)
+    onOpenClassChange(c)
     try {
       // 逐題診斷/錯題卡片要吃 gradingResult,先補齊(sync 已不帶大 JSONB)
       await ensureAssignmentDetails([c.assignmentId])
@@ -106,7 +113,7 @@ export default function SchoolParentReportPanel({
     } finally {
       setLoading(false)
     }
-  }, [examTitle])
+  }, [examTitle, onOpenClassChange])
 
   // 知識點歸類寫入 Dexie 後重載 questions(升級進階版時會用到)
   const reloadQuestions = useCallback(() => {
@@ -128,19 +135,6 @@ export default function SchoolParentReportPanel({
   if (openClass) {
     return (
       <div>
-        <div className="mb-3 flex items-center gap-2 text-sm text-slate-500">
-          <button
-            type="button"
-            onClick={() => { setOpenClass(null); setData(null); setError(null) }}
-            className="inline-flex items-center gap-1 font-medium text-sky-600 hover:underline"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            返回班級清單
-          </button>
-          <span className="text-slate-300">|</span>
-          <span className="font-medium text-slate-700">{openClass.className}・家長報告</span>
-        </div>
-
         {loading ? (
           <div className="flex min-h-[240px] items-center justify-center text-sm text-slate-400">
             正在準備批改資料…
