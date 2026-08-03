@@ -46,10 +46,12 @@ type Props = {
    *   該班該科的任課老師；教師端不傳＝維持原本的個人設定行為。
    */
   headerOverride?: { schoolName?: string; crestDataUrl?: string; teacherName?: string }
+  /** 老師沒在偏好設定填名字時的預設（教師端＝登入者本人姓名）。 */
+  fallbackTeacherName?: string
 }
 
 export function ParentReportTab({
-  questions, submissions, students, kpTips, assignmentId, className, subject, assignmentTitle, onOpenPreferences, requestInk, onKpSaved, grade, headerOverride,
+  questions, submissions, students, kpTips, assignmentId, className, subject, assignmentTitle, onOpenPreferences, requestInk, onKpSaved, grade, headerOverride, fallbackTeacherName,
 }: Props) {
   const [reports, setReports] = useState<StudentReport[]>([])
   const [staleSet, setStaleSet] = useState<Set<string>>(new Set())
@@ -98,14 +100,16 @@ export function ParentReportTab({
     return () => { cancelled = true }
   }, [questions, submissions, students, kpTips, assignmentId])
 
-  // headerOverride（行政端的學校級設定＋任課老師）優先；沒有才回退本機個人設定
+  // 抬頭優先序（2026-08-03 user 拍板）：
+  //   校名/校徽＝學校設定「取代」個人設定（校徽是學校識別、家長會同時收到各科老師的報告）
+  //   老師姓名＝行政端帶該班任課老師；教師端沒填就用登入者本人
   const header: ReportHeader = useMemo(() => ({
     schoolName: headerOverride?.schoolName || settings.schoolName || '',
     crestDataUrl: headerOverride?.crestDataUrl || settings.crestDataUrl,
     className, subject, assignmentTitle,
-    teacherName: headerOverride?.teacherName || settings.teacherName || undefined,
+    teacherName: headerOverride?.teacherName || settings.teacherName || fallbackTeacherName || undefined,
     dateStr: formatDateZh(new Date()),
-  }), [settings, headerOverride, className, subject, assignmentTitle])
+  }), [settings, headerOverride, fallbackTeacherName, className, subject, assignmentTitle])
 
   const setComment = (studentId: string, text: string) => {
     setReports((prev) => prev.map((r) => (r.studentId === studentId ? { ...r, comment: text } : r)))
@@ -305,6 +309,13 @@ export function ParentReportTab({
 
   return (
     <div className="space-y-3">
+      {/* 學校統一設定生效時明說，免得老師改了個人設定卻沒反應、以為壞掉 */}
+      {!!headerOverride?.schoolName && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          校名與校徽採用學校統一設定（{headerOverride.schoolName}），個人偏好設定不會套用到這裡。
+        </div>
+      )}
+
       {/* 抬頭由外部帶入時（行政端＝學校級雲端設定），不再叫使用者去改本機偏好設定 */}
       {!header.schoolName && (
         <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">

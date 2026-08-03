@@ -272,6 +272,26 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   // 2026-07-22：requestInk 支援自訂 modal 內容（統一走 InkConfirmModal、不再混用 window.confirm）
   const [inkAction, setInkAction] = useState<{ fn: () => void; message?: React.ReactNode } | null>(null)
   const requestInk = useCallback((fn: () => void, message?: React.ReactNode) => setInkAction({ fn, message }), [])
+  // 2026-08-03 家長報告抬頭:學校若設了校名/校徽就取代老師的個人設定(user 拍板);
+  //   順便帶回登入者姓名,當老師沒在偏好設定填「任課老師」時的預設值。
+  const [reportBrand, setReportBrand] = useState<{
+    schoolName: string; crestDataUrl: string; configured: boolean; viewerName: string
+  } | null>(null)
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch('/api/data/school-report-settings', { credentials: 'include' })
+        if (!r.ok) return
+        const d = await r.json()
+        setReportBrand({
+          schoolName: d?.schoolName || '',
+          crestDataUrl: d?.crestDataUrl || '',
+          configured: !!d?.configured,
+          viewerName: d?.viewerName || ''
+        })
+      } catch { /* 非致命:退回個人設定 */ }
+    })()
+  }, [])
   const [assignmentSummary, setAssignmentSummary] = useState<{
     status: string
     class_summary: string | null
@@ -1045,6 +1065,12 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                     return a ? getAssignmentTitle(a) : ''
                   })()}
                   onOpenPreferences={() => { window.location.href = '/preferences' }}
+                  headerOverride={
+                    reportBrand?.configured
+                      ? { schoolName: reportBrand.schoolName, crestDataUrl: reportBrand.crestDataUrl || undefined }
+                      : undefined
+                  }
+                  fallbackTeacherName={reportBrand?.viewerName}
                   requestInk={requestInk}
                   onKpSaved={() => setKpReloadTick((t) => t + 1)}
                   grade={(syncData?.classrooms.find((c) => c.id === selectedClassroomId) as { grade?: number } | undefined)?.grade}
