@@ -197,16 +197,8 @@ export default function SchoolAnalysisPanel({ exams }: { exams: ExamOption[] }) 
             分析中…第一次需要下載各班的批改結果
           </span>
         ) : (
-          <>
-            <button
-              type="button"
-              onClick={() => exam && void load(exam)}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-            >
-              重新分析
-            </button>
-            <span className="text-xs text-slate-400">統計都在本機算,不花點數</span>
-          </>
+          // 不放「重新分析」:離開分頁再回來就會重跑,頁首右上也已經有「重新整理」
+          <span className="text-xs text-slate-400">統計都在本機算,不花點數</span>
         )}
       </div>
 
