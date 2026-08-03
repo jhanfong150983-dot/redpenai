@@ -95,17 +95,38 @@ interface PersonInfo {
 
 type SchoolTab = 'overview' | 'answerkeys' | 'exams' | 'grades' | 'teachers' | 'settings' | 'weakness'
 
-const navItems: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashboard; enabled: boolean }> = [
-  { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
-  // 建立答案=嵌入老師端答案卷整頁(只顯示學校答案卷;建立/擷取/分享碼匯入全套功能)
-  { key: 'answerkeys', label: '建立答案', icon: BookOpen, enabled: true },
-  { key: 'exams', label: '考卷批改', icon: BookOpen, enabled: true },
-  // 2026-08-01 行政端成績統計(user 提議對齊教師端):共用 Gradebook、scope='school' 只看學校考卷班
-  { key: 'grades', label: '成績統計', icon: BarChart3, enabled: true },
-  { key: 'teachers', label: '教師總覽', icon: Users, enabled: true },
-  // 2026-08-03(user 要求):學校級設定的家,目前是家長報告抬頭;之後的學校設定都掛這裡
-  { key: 'settings', label: '偏好設定', icon: Settings, enabled: true },
-  { key: 'weakness', label: '弱點分析', icon: TrendingUp, enabled: false }
+// 2026-08-03(user 要求對齊教師端):側欄分區塊,功能好找。
+//   分組原則比照教師端——常用=每天在做的事、成果分析=看結果、系統設定=人與設定。
+//   教師總覽放系統設定(它是人員管理:名冊/任課指派/配點),對應教師端的「班級管理」。
+const navSections: Array<{
+  title: string
+  items: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashboard; enabled: boolean }>
+}> = [
+  {
+    title: '常用功能',
+    items: [
+      { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
+      // 建立答案=嵌入老師端答案卷整頁(只顯示學校答案卷;建立/擷取/分享碼匯入全套功能)
+      { key: 'answerkeys', label: '建立答案', icon: BookOpen, enabled: true },
+      { key: 'exams', label: '考卷批改', icon: BookOpen, enabled: true }
+    ]
+  },
+  {
+    title: '成果分析',
+    items: [
+      // 2026-08-01 行政端成績統計(user 提議對齊教師端):共用 Gradebook、scope='school' 只看學校考卷班
+      { key: 'grades', label: '成績統計', icon: BarChart3, enabled: true },
+      { key: 'weakness', label: '弱點分析', icon: TrendingUp, enabled: false }
+    ]
+  },
+  {
+    title: '系統設定',
+    items: [
+      { key: 'teachers', label: '教師總覽', icon: Users, enabled: true },
+      // 2026-08-03(user 要求):學校級設定的家,目前是家長報告抬頭;之後的學校設定都掛這裡
+      { key: 'settings', label: '偏好設定', icon: Settings, enabled: true }
+    ]
+  }
 ]
 
 // Step 6(獨立模型):考卷母實體——行政端建考卷→逐班 fan-out,所有操作只在此頁
@@ -1333,12 +1354,13 @@ export default function SchoolAdminPanel({
       <div className="grid min-h-0 flex-1 lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="border-b border-slate-200 bg-[#F7F8FA] lg:border-b-0 lg:border-r">
           <div className="h-full overflow-y-auto p-4 md:p-5">
-            <section>
+            {navSections.map((section, sectionIndex) => (
+            <section key={section.title} className={sectionIndex === 0 ? '' : 'mt-5 border-t border-slate-200 pt-5'}>
               <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                學校功能
+                {section.title}
               </h2>
               <nav className="space-y-0.5">
-                {navItems.map((item) => (
+                {section.items.map((item) => (
                   <button
                     key={item.key}
                     type="button"
@@ -1369,6 +1391,7 @@ export default function SchoolAdminPanel({
                 ))}
               </nav>
             </section>
+            ))}
           </div>
         </aside>
 
