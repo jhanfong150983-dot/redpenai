@@ -298,7 +298,9 @@ export default function SchoolAdminPanel({
   // 一顆智慧批改按鈕批全部;黃燈/改分原生可用;計費走學校錢包 header)
   const [gradeExam, setGradeExam] = useState<SchoolExamRow | null>(null)
   const [gradeSyncing, setGradeSyncing] = useState(false)
-  // Step 9:報告生成(第一層=學生檢討單 PDF;家長報告之後)
+  // 2026-08-03(user:放在下面會看不到)報告生成改 tab 切換,不是上下堆疊
+  const [reportTab, setReportTab] = useState<'review' | 'parent'>('review')
+  // Step 9:報告生成(第一層=學生檢討單 PDF;第二層=家長報告)
   const [reportExam, setReportExam] = useState<SchoolExamRow | null>(null)
   const [reportSyncing, setReportSyncing] = useState(false)
   const [reportCounts, setReportCounts] = useState<Record<string, { graded: number; total: number }>>({})
@@ -1122,6 +1124,7 @@ export default function SchoolAdminPanel({
   // Step 9:報告生成入口(同 import/grade:先確保本機有資料)
   const openReportExam = useCallback((ex: SchoolExamRow) => {
     setReportExam(ex)
+    setReportTab('review')  // 換一份考卷一律回到第一個 tab,不要停在上一份的位置
     setReportMsg({})
     setReportCounts({})
     setReportSyncing(true)
@@ -1579,6 +1582,27 @@ export default function SchoolAdminPanel({
                 </div>
               ) : (
                 <div className="space-y-4">
+                  <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-sm">
+                    {([
+                      { key: 'review' as const, label: '學生檢討單(紙本)' },
+                      { key: 'parent' as const, label: '家長報告' }
+                    ]).map((t) => (
+                      <button
+                        key={t.key}
+                        type="button"
+                        onClick={() => setReportTab(t.key)}
+                        className={`rounded-md px-3.5 py-1.5 font-medium transition-colors ${
+                          reportTab === t.key
+                            ? 'bg-white text-slate-900 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {reportTab === 'review' ? (
                   <div className="rounded-xl border border-slate-200 bg-white p-5">
                     <h3 className="text-sm font-semibold text-slate-800">學生檢討單(紙本)</h3>
                     <p className="mt-1 text-xs text-slate-500">
@@ -1616,7 +1640,8 @@ export default function SchoolAdminPanel({
                       })}
                     </div>
                   </div>
-                  {/* Step 12(2026-08-03 user 拍板:逐班沿用教師端分頁、這輪只做產出) */}
+                  ) : (
+                  /* Step 12(2026-08-03 user 拍板:逐班沿用教師端分頁、這輪只做產出) */
                   <SchoolParentReportPanel
                     classes={reportExam.classes.map((c) => ({
                       assignmentId: c.assignmentId,
@@ -1628,6 +1653,7 @@ export default function SchoolAdminPanel({
                     schoolId={school?.school_id ?? ''}
                     onOpenSettings={() => { setReportExam(null); setTab('settings') }}
                   />
+                  )}
                 </div>
               )}
             </div>
