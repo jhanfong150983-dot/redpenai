@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { FileText, Settings } from 'lucide-react'
+import { FileText, Settings, Sparkles, Loader2 } from 'lucide-react'
 import { db } from '@/lib/db'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import { ParentReportTab } from '@/pages/ai-report/components/ParentReportTab'
@@ -7,6 +7,10 @@ import InkConfirmModal from '@/components/InkConfirmModal'
 import type { ItemAnalysisQuestion } from '@/pages/ai-report/item-analysis'
 import type { PRStudent, PRSubmission } from '@/lib/parentReport'
 import { useSchoolReportSettings } from '@/components/SchoolReportSettings'
+import { assembleParentReports, loadParentReportCache } from '@/lib/parentReport'
+import { generateParentReports } from '@/lib/parentReportBatch'
+import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
+import type { ItemAnalysisQuestion as _Q } from '@/pages/ai-report/item-analysis'
 
 /**
  * 2026-08-03 Step 12:行政端家長報告(報告生成第二層)。
@@ -64,6 +68,69 @@ export default function SchoolParentReportPanel({
   // 2026-08-03(user 提:行政帳號可能共用)報告抬頭改學校級雲端設定,不再用 localStorage
   // 抬頭設定改由「偏好設定」分頁維護(學校級、雲端);這裡只讀來組報告抬頭。
   const { value: settings } = useSchoolReportSettings(schoolId)
+  // 2026-08-03 全校批次:逐班跑同一條生成路徑(lib/parentReportBatch),不另寫一套。
+  //   單班約 4 分鐘,11 班要 40 分鐘以上——所以做成「按了就不用顧」,逐班進度顯示在畫面上。
+  const [batch, setBatch] = useState<{ classIdx: number; classes: number; className: string; done: number; total: number } | null>(null)
+  const confirmModal = useConfirm()
+  const alertModal = useAlertModal()
+
+  const runBatchAll = useCallback(async () => {
+    const ready = classes.filter((c) => (counts[c.assignmentId]?.graded ?? 0) >= 3)
+    if (ready.length === 0) { await alertModal('沒有已批改滿 3 份的班級', { title: '無法批次生成' }); return }
+    const ok = await confirmModal({
+      title: `全校生成家長報告(${ready.length} 班)`,
+      message:
+        `會逐班產生 AI 逐題診斷與評語,已生成過且未失效的學生會自動略過、不重複扣點。
+` +
+        `單班約 3~5 分鐘,${ready.length} 班預計需要一段時間,期間請不要關閉這個頁面。`,
+      confirmLabel: '開始生成'
+    })
+    if (!ok) return
+
+    let totalFailed = 0
+    let totalUnsaved = 0
+    let totalGenerated = 0
+    try {
+      for (let i = 0; i < ready.length; i++) {
+        const c = ready[i]
+        setBatch({ classIdx: i + 1, classes: ready.length, className: c.className, done: 0, total: 0 })
+        // 逐題資料不隨 sync 下來,每班先補齊
+        await ensureAssignmentDetails([c.assignmentId])
+        const assignment = await db.assignments.get(c.assignmentId)
+        if (!assignment) continue
+        const ak = assignment.answerKey as { questions?: _Q[]; kpTips?: Record<string, string> } | undefined
+        const qs = Array.isArray(ak?.questions) ? ak!.questions! : []
+        if (qs.length === 0) continue
+        const subs = (await db.submissions.where('assignmentId').equals(c.assignmentId).toArray())
+          .filter((x) => x.gradingResult && x.source !== 'student_correction')
+        const studs = await db.students.where('classroomId').equals(assignment.classroomId).toArray()
+        let list = assembleParentReports(qs, subs, studs, { kpTips: ak?.kpTips ?? {} })
+        // 已生成且未失效的略過(與教師端 needsGen 同一套判定,避免重複計費)
+        const cache = await loadParentReportCache(c.assignmentId).catch(() => new Map())
+        list = list.filter((r) => { const hit = cache.get(r.studentId); return !hit || hit.stale })
+        if (list.length === 0) continue
+        setBatch((p) => (p ? { ...p, total: list.length } : p))
+        const res = await generateParentReports({
+          assignmentId: c.assignmentId,
+          subject: assignment.domain ?? '',
+          targets: list,
+          forceComment: false,
+          onProgress: (d, total) => setBatch((p) => (p ? { ...p, done: d, total } : p))
+        })
+        totalGenerated += res.done - res.failed
+        totalFailed += res.failed
+        totalUnsaved += res.unsaved.length
+      }
+      const parts = [`已生成 ${totalGenerated} 位`]
+      if (totalFailed) parts.push(`${totalFailed} 位失敗(可進該班單獨重試)`)
+      if (totalUnsaved) parts.push(`⚠ ${totalUnsaved} 位雲端儲存失敗,請進該班確認`)
+      await alertModal(parts.join('、'), { title: '全校生成完成' })
+    } catch (err) {
+      await alertModal(err instanceof Error ? err.message : '批次生成中斷', { title: '批次生成失敗' })
+    } finally {
+      setBatch(null)
+    }
+  }, [classes, counts, confirmModal, alertModal])
 
   useEffect(() => {
     let cancelled = false
@@ -206,6 +273,30 @@ export default function SchoolParentReportPanel({
             </button>
           </div>
         </div>
+      </div>
+
+      {/* 全校批次:單班要 3~5 分鐘,11 班靠人工逐班點會盯到崩潰;做成按了就不用顧 */}
+      <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+        <button
+          type="button"
+          onClick={() => void runBatchAll()}
+          disabled={!!batch}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          {batch ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+          全校生成家長報告
+        </button>
+        {batch ? (
+          <span className="text-sm text-slate-600">
+            第 {batch.classIdx}/{batch.classes} 班・{batch.className}
+            {batch.total > 0 && <span className="ml-1 tabular-nums text-slate-400">({batch.done}/{batch.total} 位)</span>}
+            <span className="ml-2 text-xs text-amber-600">生成期間請不要關閉這個頁面</span>
+          </span>
+        ) : (
+          <span className="text-xs text-slate-500">
+            逐班產生 AI 逐題診斷與評語。已生成且未失效的學生會自動略過、不重複扣點。
+          </span>
+        )}
       </div>
 
       <div className="mt-3 divide-y divide-slate-100">

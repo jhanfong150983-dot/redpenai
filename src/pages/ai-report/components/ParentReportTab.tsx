@@ -6,22 +6,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FileDown, Eye, RefreshCw, Loader2, Sparkles, Settings, CheckSquare, X, AlertTriangle } from 'lucide-react'
 import {
-  assembleParentReports, generateParentComment, generateParentDiagnosis, fetchQuestionCrops,
-  diagnosisWrongsOf, applyDiagnosisAndCrops, loadParentReportCache, saveParentReportCache,
+  assembleParentReports, fetchQuestionCrops,
+  applyDiagnosisAndCrops, loadParentReportCache,
   createReportPdfBlob, downloadSingleReport, downloadReportsAsZip,
   loadReportHeaderSettings, loadCachedComments, saveCachedComment, runKpUpgrade,
   type PRQuestion, type PRSubmission, type PRStudent, type ReportHeader, type StudentReport, type DiagnosisItem, type KpUpgradeResult,
 } from '@/lib/parentReport'
 import { db } from '@/lib/db'
+import { generateParentReports } from '@/lib/parentReportBatch'
 
 function formatDateZh(d: Date): string {
   return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`
-}
-async function runWithConcurrency<T>(items: T[], limit: number, fn: (item: T, idx: number) => Promise<void>) {
-  let i = 0
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (i < items.length) { const idx = i++; await fn(items[idx], idx) }
-  }))
 }
 
 type Props = {
@@ -158,37 +153,20 @@ export function ParentReportTab({
   }
 
   // 生成（診斷＋截圖＋評語）→ 更新 state ＋ 快取；forceComment=true 時連已編輯的評語也重寫（單列重新生成用）
+  // 2026-08-03：生成核心抽到 lib/parentReportBatch（行政端全校批次共用同一條路，
+  //   不能有兩套邏輯——老師按的和行政批次按的必須產出一樣的東西）。這裡只負責畫面狀態。
   const doGenerate = async (targets: StudentReport[], forceComment: boolean) => {
     if (!targets.length) return
     setMsg(''); setGenState({ done: 0, total: targets.length })
-    // 2026-07-22：改「每生成一位就立刻存一位」＋結尾補救重試——之前整批最後才存、存失敗又靜默，
-    //   曾害 31 位 × 兩輪的 AI 診斷全部白跑（重新整理即消失）。失敗名單留著重試並明確警告。
-    const unsaved: Array<{ studentId: string; diagnosis: Record<string, DiagnosisItem>; comment: string }> = []
-    let done = 0, failed = 0
-    await runWithConcurrency(targets, 3, async (r) => {
-      try {
-        const qids = r.errorRows.map((e) => e.questionId)
-        const [diag, crops] = await Promise.all([
-          r.errorRows.length ? generateParentDiagnosis(assignmentId, subject, diagnosisWrongsOf(r)) : Promise.resolve(new Map<string, DiagnosisItem>()),
-          r.errorRows.length ? fetchQuestionCrops(assignmentId, r.studentId, qids) : Promise.resolve(new Map<string, string>()),
-        ])
-        let updated = applyDiagnosisAndCrops(r, diag, crops)
-        let comment = forceComment ? '' : (r.comment || '')
-        if (!comment) {
-          const t = await generateParentComment(updated, subject)
-          comment = t || r.comment || ''
-          if (t) saveCachedComment(assignmentId, r.studentId, t)
-        }
-        updated = { ...updated, comment }
-        const item = { studentId: r.studentId, diagnosis: Object.fromEntries(diag), comment }
-        if (!(await saveParentReportCache(assignmentId, [item]))) unsaved.push(item)
-        setReports((prev) => prev.map((x) => (x.studentId === r.studentId ? updated : x)))
-        setStaleSet((prev) => { const n = new Set(prev); n.delete(r.studentId); return n })
-        setGeneratedSet((prev) => new Set(prev).add(r.studentId))
-      } catch { failed += 1 }
-      done += 1; setGenState({ done, total: targets.length })
+    const { failed, unsaved } = await generateParentReports({
+      assignmentId, subject, targets, forceComment,
+      onDone: (updated) => {
+        setReports((prev) => prev.map((x) => (x.studentId === updated.studentId ? updated : x)))
+        setStaleSet((prev) => { const n = new Set(prev); n.delete(updated.studentId); return n })
+        setGeneratedSet((prev) => new Set(prev).add(updated.studentId))
+      },
+      onProgress: (d, total) => setGenState({ done: d, total }),
     })
-    if (unsaved.length && (await saveParentReportCache(assignmentId, unsaved))) unsaved.length = 0
     setGenState(null)
     const warns: string[] = []
     if (failed) warns.push(`有 ${failed} 位生成失敗，可用各列「重新生成」單獨重試`)

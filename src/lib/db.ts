@@ -659,6 +659,12 @@ export interface Submission {
   phaseASavedAt?: string
   /** 本機補齊大 JSONB 的時間戳;小於 updatedAt 代表快取過期要重抓 */
   detailsFetchedAt?: number
+  /**
+   * 2026-08-03 清除墓碑:server 每次清批改會蓋一個時間戳。
+   *   sync 合併是 local-first,server 送 null 會被本機舊值接住 → 清除傳不過裝置。
+   *   比對「server 的清除時間 > 本機已知的」就把本機批改一起清掉。
+   */
+  gradingClearedAt?: number
 
   // 訂正管理：教師手動紀錄訂正次數
   correctionCount?: number

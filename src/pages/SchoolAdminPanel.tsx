@@ -179,30 +179,6 @@ const LEDGER_REASON_LABEL: Record<string, string> = {
   school_ai: 'AI 功能'
 }
 
-// Step 4b:學校統一批改 job(server-side 代批、扣學校點數)
-interface GradingJobRow {
-  id: string
-  assignment_id: string
-  assignment_title: string
-  status: string
-  total_count: number
-  done_count: number
-  failed_count: number
-  ink_points: number
-  last_error: string | null
-  created_at: string
-  updated_at: string
-}
-
-const JOB_STATUS_LABEL: Record<string, string> = {
-  queued: '排隊中',
-  running: '批改中',
-  paused_insufficient: '點數不足暫停',
-  completed: '已完成',
-  completed_with_errors: '完成(部分失敗)',
-  cancelled: '已取消'
-}
-
 async function fetchOverview(params: Record<string, string>): Promise<any> {
   const qs = new URLSearchParams(params).toString()
   const res = await fetch(`/api/data/school-admin-overview${qs ? `?${qs}` : ''}`, {
@@ -268,8 +244,6 @@ export default function SchoolAdminPanel({
   const [grantTarget, setGrantTarget] = useState<TeacherOverviewRow | null>(null)
   const [grantValue, setGrantValue] = useState('')
   const [grantBusy, setGrantBusy] = useState(false)
-  const [jobs, setJobs] = useState<GradingJobRow[]>([])
-  const [drivingJobId, setDrivingJobId] = useState<string | null>(null)
   const [exams, setExams] = useState<SchoolExamRow[]>([])
   const [examsLoading, setExamsLoading] = useState(false)
   const [examTemplates, setExamTemplates] = useState<ExamTemplateOption[]>([])
@@ -494,24 +468,12 @@ export default function SchoolAdminPanel({
     }
   }, [])
 
-  const refreshJobs = useCallback(async (sid: string) => {
-    try {
-      const res = await fetch(`/api/data/school-grading-job?schoolId=${encodeURIComponent(sid)}`, {
-        credentials: 'include'
-      })
-      const data = await res.json()
-      if (res.ok) setJobs(Array.isArray(data.jobs) ? data.jobs : [])
-    } catch {
-      // 靜默:工作清單載入失敗不擋教師總覽
-    }
-  }, [])
 
   useEffect(() => {
     if (tab === 'teachers' && school) {
       void loadTeachers(school.school_id)
-      void refreshJobs(school.school_id)
     }
-  }, [tab, school, loadTeachers, refreshJobs])
+  }, [tab, school, loadTeachers])
 
   // 首次使用自動準備(loadSchool 偵測空校時觸發;拆成 effect 避免 callback 循環依賴)
   useEffect(() => {
@@ -899,52 +861,7 @@ export default function SchoolAdminPanel({
 
   // 代批:tick 驅動迴圈——每輪最多 ~3 分鐘(server 逐卷批),回 hasMore 就續打;
   // 關掉頁面 job 會停在 running、lease 過期後可按「繼續」接手(cron 兜底後續補)
-  const driveJob = useCallback(
-    async (jobId: string) => {
-      if (!school) return
-      setDrivingJobId(jobId)
-      try {
-        for (let round = 0; round < 200; round++) {
-          const res = await fetch('/api/data/school-grading-job', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ mode: 'tick', jobId })
-          })
-          const data = await res.json().catch(() => ({}))
-          await refreshJobs(school.school_id)
-          void loadWallet(school.school_id)
-          if (!res.ok || !data?.hasMore) break
-        }
-      } finally {
-        setDrivingJobId(null)
-      }
-    },
-    [school, refreshJobs, loadWallet]
-  )
 
-  const cancelJob = useCallback(
-    async (job: GradingJobRow) => {
-      if (!school) return
-      if (
-        !(await confirmModal({
-          title: '取消代批工作',
-          message: `確定取消「${job.assignment_title || job.assignment_id}」的代批?\n已批完的 ${job.done_count} 卷保留,尚未批的不再處理。`,
-          tone: 'danger',
-          confirmLabel: '取消工作'
-        }))
-      )
-        return
-      await fetch('/api/data/school-grading-job', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ mode: 'cancel', jobId: job.id })
-      }).catch(() => {})
-      await refreshJobs(school.school_id)
-    },
-    [school, refreshJobs]
-  )
 
   // 配發:學校池 → 老師個人帳戶(行政與系統 admin 都可操作)
   const submitGrant = useCallback(async () => {
@@ -2005,83 +1922,6 @@ export default function SchoolAdminPanel({
                 )}
               </div>
 
-              {/* 2026-08-03(user:不可能有這個情境)「代為批改」入口已移除——學校考卷改走行政自己的帳號。
-                  這張表只在 DB 還有殘留 job 時才出現(jobs.length > 0),留著讓在途工作能收尾/取消;
-                  確認線上沒有殘留後可連同 refreshJobs/driveJob/cancelJob 一併刪。 */}
-              {jobs.length > 0 && (
-                <div>
-                  <h3 className="mb-2 text-sm font-semibold text-slate-700">批改工作</h3>
-                  <div className="overflow-x-auto rounded-xl border border-slate-200">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-xs text-slate-500">
-                          <th className="px-4 py-2.5 font-medium">作業</th>
-                          <th className="px-3 py-2.5 font-medium text-right">進度</th>
-                          <th className="px-3 py-2.5 font-medium text-right">已用點數</th>
-                          <th className="px-3 py-2.5 font-medium">狀態</th>
-                          <th className="px-3 py-2.5" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {jobs.map((j) => {
-                          const isTerminal = ['completed', 'completed_with_errors', 'cancelled'].includes(j.status)
-                          const isDriving = drivingJobId === j.id
-                          return (
-                            <tr key={j.id} className="border-b border-slate-50">
-                              <td className="px-4 py-2.5 text-slate-900">{j.assignment_title || j.assignment_id}</td>
-                              <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">
-                                {j.done_count} / {j.total_count}
-                                {j.failed_count > 0 && (
-                                  <span className="ml-1 text-xs text-rose-600">(失敗 {j.failed_count})</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{j.ink_points}</td>
-                              <td className="px-3 py-2.5">
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                                    j.status === 'running'
-                                      ? 'bg-sky-50 border border-sky-200 text-sky-700'
-                                      : j.status === 'paused_insufficient'
-                                        ? 'bg-rose-50 border border-rose-200 text-rose-700'
-                                        : j.status === 'completed'
-                                          ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'
-                                          : 'bg-slate-100 border border-slate-200 text-slate-600'
-                                  }`}
-                                >
-                                  {isDriving ? '批改中…' : JOB_STATUS_LABEL[j.status] || j.status}
-                                </span>
-                                {j.last_error && !isTerminal && (
-                                  <div className="mt-0.5 text-[11px] text-rose-600">{j.last_error}</div>
-                                )}
-                              </td>
-                              <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                                {!isTerminal && !isDriving && (
-                                  <button
-                                    type="button"
-                                    onClick={() => void driveJob(j.id)}
-                                    className="mr-2 rounded-md bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700"
-                                  >
-                                    {j.status === 'queued' ? '開始' : '繼續'}
-                                  </button>
-                                )}
-                                {!isTerminal && (
-                                  <button
-                                    type="button"
-                                    onClick={() => void cancelJob(j)}
-                                    className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:border-slate-400"
-                                  >
-                                    取消
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
 
               {/* 學校點數紀錄 */}
               <div>

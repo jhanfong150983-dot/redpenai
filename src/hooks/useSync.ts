@@ -999,7 +999,8 @@ export function useSync(options: UseSyncOptions = {}) {
           finalAnswers: sub.finalAnswers,
           // 2026-08-03 sync 瘦身:這三個大 JSONB 已不由 sync 帶下來,
           //   本機是 on-demand 補齊的快取,合併時必須原樣保留(含補齊時間戳,否則會每次都重抓)
-          detailsFetchedAt: sub.detailsFetchedAt
+          detailsFetchedAt: sub.detailsFetchedAt,
+          gradingClearedAt: sub.gradingClearedAt
         }
       ])
     )
@@ -1077,38 +1078,50 @@ export function useSync(options: UseSyncOptions = {}) {
         // 規則：local 有 gradingResult 但「沒 totalScore」(= Phase A only) AND server 有
         // 完整 gradingResult (= Phase B 完成) → 用 server。
         // 其他情況維持 local-first（保護 user edit、特別是 detail modal 改 score 未 sync）。
+        // 2026-08-03 清除墓碑:server 端每次清批改會蓋 grading_cleared_at。
+        //   local-first 合併會讓 server 送來的 null 被本機舊值接住(清除在 A 裝置做、B 裝置永遠不知道),
+        //   所以改成比對時間戳:server 的清除比本機已知的新 → 這是一次「還沒套用到本機」的清除。
+        const serverClearedAt = toNumber(
+          (sub as Submission & { gradingClearedAt?: unknown }).gradingClearedAt ??
+          (sub as { grading_cleared_at?: unknown }).grading_cleared_at
+        )
+        const localClearedAt = toNumber(local?.gradingClearedAt) ?? 0
+        const pendingClear = !!serverClearedAt && serverClearedAt > localClearedAt
+
         const localGr = local?.gradingResult as { totalScore?: unknown } | undefined
         const serverGr = serverGradingResult as { totalScore?: unknown } | undefined
         const localHasTotalScore = localGr && Number.isFinite(Number(localGr.totalScore))
         const serverHasTotalScore = serverGr && Number.isFinite(Number(serverGr.totalScore))
         const localIsStalePhaseA = !!localGr && !localHasTotalScore && !!serverHasTotalScore
-        let gradingResult = localIsStalePhaseA
-          ? serverGradingResult
-          : (local?.gradingResult ?? serverGradingResult)
+        let gradingResult = pendingClear
+          ? undefined
+          : localIsStalePhaseA
+            ? serverGradingResult
+            : (local?.gradingResult ?? serverGradingResult)
         // score 同理：server 確定有分數時、不被 local 舊 undefined/null 蓋
-        const score = (localIsStalePhaseA || local?.score == null) ? serverScore : local.score
-        const aiScore = (localIsStalePhaseA || local?.aiScore == null) ? serverAiScore : local.aiScore
-        const scoreSource = local?.scoreSource ?? serverScoreSource
+        const score = pendingClear ? undefined : (localIsStalePhaseA || local?.score == null) ? serverScore : local.score
+        const aiScore = pendingClear ? undefined : (localIsStalePhaseA || local?.aiScore == null) ? serverAiScore : local.aiScore
+        const scoreSource = pendingClear ? undefined : (local?.scoreSource ?? serverScoreSource)
         // 2026-05-28: gradedAt 改成 server 優先（不是 local 優先）
         // gradedAt 本質是 server-owned 欄位（Phase B 寫的）、client 端不獨立寫
         // 之前 local-first 規則會讓 server 端的 rollback 被 Dexie 舊值蓋住
         //（例：標記已複核按鈕誤寫 gradedAt 後、server SQL 救回、sync down 卻不生效）
-        const gradedAt = serverGradedAt ?? local?.gradedAt
+        const gradedAt = pendingClear ? undefined : (serverGradedAt ?? local?.gradedAt)
         // status：本地是 graded 就保持 graded（不被 server 的 synced 覆蓋）
-        const finalStatus = (local?.status === 'graded') ? 'graded' : serverStatus
+        const finalStatus = pendingClear ? serverStatus : (local?.status === 'graded') ? 'graded' : serverStatus
 
         // 2026-05-17: Phase A / Phase B 分離設計 — 同步 phase_a_state + final_answers from Supabase
         // phaseAState 是 server 端 Phase A 跑完寫的（user 不會直接 edit）→ server 優先
         const phaseAState =
           (sub as Submission & { phaseAState?: unknown }).phaseAState as Submission['phaseAState']
           ?? (sub as { phase_a_state?: unknown }).phase_a_state as Submission['phaseAState']
-          ?? local?.phaseAState
+          ?? (pendingClear ? undefined : local?.phaseAState)
         // finalAnswers 是 user 在 detail modal 編輯的 → local 優先（跟 gradingResult 同邏輯）
         // 原本 server 優先會在「edit→POST 在路上→sync 又跑」的 race 中、把 user 的 edit 覆蓋回舊值
         const serverFinalAnswers =
           (sub as Submission & { finalAnswers?: unknown }).finalAnswers as Submission['finalAnswers']
           ?? (sub as { final_answers?: unknown }).final_answers as Submission['finalAnswers']
-        const finalAnswers = local?.finalAnswers ?? serverFinalAnswers
+        const finalAnswers = pendingClear ? undefined : (local?.finalAnswers ?? serverFinalAnswers)
 
         // 2026-05-18: 若沒 gradingResult.details 但 phaseAState 有 → 從 phase_a_state 重建 details
         // 場景：學生卷剛做完 Phase A、還沒進 Phase B、server 只有 phase_a_state 沒 grading_result
@@ -1173,10 +1186,12 @@ export function useSync(options: UseSyncOptions = {}) {
           //   detailsFetchedAt 是本機快取狀態,保留本機的
           hasGradingResult:
             (sub as Submission & { hasGradingResult?: boolean }).hasGradingResult ??
-            (local?.gradingResult ? true : undefined),
+            (pendingClear ? undefined : local?.gradingResult ? true : undefined),
           phaseASavedAt:
             (sub as Submission & { phaseASavedAt?: string }).phaseASavedAt ?? undefined,
-          detailsFetchedAt: local?.detailsFetchedAt,
+          // 清除生效後才把墓碑時間記進本機,下次同步就不會重複清(冪等)
+          detailsFetchedAt: pendingClear ? undefined : local?.detailsFetchedAt,
+          gradingClearedAt: serverClearedAt ?? local?.gradingClearedAt,
           // 結構性欄位（server 為主）
           correctionCount: sub.correctionCount,
           source:
