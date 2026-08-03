@@ -15,7 +15,8 @@ import {
   FileText,
   BarChart3,
   Search,
-  Settings,
+  SlidersHorizontal,
+  UserCog,
   X
 } from 'lucide-react'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
@@ -111,7 +112,7 @@ const navSections: Array<{
     items: [
       // 建立答案=嵌入老師端答案卷整頁(只顯示學校答案卷;建立/擷取/分享碼匯入全套功能)
       { key: 'answerkeys', label: '建立答案', icon: BookOpen, enabled: true },
-      { key: 'exams', label: '考卷批改', icon: BookOpen, enabled: true }
+      { key: 'exams', label: '考卷批改', icon: Sparkles, enabled: true }
     ]
   },
   {
@@ -127,9 +128,9 @@ const navSections: Array<{
     items: [
       // 2026-08-03(user):名冊是校務資料維護、不是每天在做的事,兩個總覽都歸這區
       { key: 'overview', label: '學生總覽', icon: Users, enabled: true },
-      { key: 'teachers', label: '教師總覽', icon: Users, enabled: true },
+      { key: 'teachers', label: '教師總覽', icon: UserCog, enabled: true },
       // 2026-08-03(user 要求):學校級設定的家,目前是家長報告抬頭;之後的學校設定都掛這裡
-      { key: 'settings', label: '偏好設定', icon: Settings, enabled: true }
+      { key: 'settings', label: '偏好設定', icon: SlidersHorizontal, enabled: true }
     ]
   }
 ]
