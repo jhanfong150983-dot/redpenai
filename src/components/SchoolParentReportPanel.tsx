@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, FileText } from 'lucide-react'
+import { ArrowLeft, FileText, Settings, Upload, X } from 'lucide-react'
 import { db } from '@/lib/db'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import { ParentReportTab } from '@/pages/ai-report/components/ParentReportTab'
@@ -22,14 +22,24 @@ interface ClassEntry {
   assignmentId: string
   className: string
   campusClassId?: string
+  /** 該班該科的任課老師(server 從 school_class_courses 對出來的),報告抬頭自動帶入 */
+  teacherName?: string
+}
+
+interface ReportSettings {
+  schoolName: string
+  schoolNameOverridden: boolean
+  crestDataUrl: string
 }
 
 export default function SchoolParentReportPanel({
   classes,
-  examTitle
+  examTitle,
+  schoolId
 }: {
   classes: ClassEntry[]
   examTitle: string
+  schoolId: string
 }) {
   const [openClass, setOpenClass] = useState<ClassEntry | null>(null)
   const [loading, setLoading] = useState(false)
@@ -46,6 +56,49 @@ export default function SchoolParentReportPanel({
   } | null>(null)
   // 各班已批改份數(決定按鈕能不能按;家長報告門檻與教師端一致=至少 3 份)
   const [counts, setCounts] = useState<Record<string, { graded: number; total: number }>>({})
+  // 2026-08-03(user 提:行政帳號可能共用)報告抬頭改學校級雲端設定,不再用 localStorage
+  const [settings, setSettings] = useState<ReportSettings | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [settingsMsg, setSettingsMsg] = useState('')
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/data/school-report-settings?schoolId=${encodeURIComponent(schoolId)}`, {
+        credentials: 'include'
+      })
+      if (!r.ok) return
+      const d = await r.json()
+      setSettings({
+        schoolName: d?.schoolName || '',
+        schoolNameOverridden: !!d?.schoolNameOverridden,
+        crestDataUrl: d?.crestDataUrl || ''
+      })
+    } catch { /* 非致命:抬頭會空白,UI 有提示 */ }
+  }, [schoolId])
+
+  useEffect(() => { void loadSettings() }, [loadSettings])
+
+  const saveSettings = useCallback(async (patch: { schoolName?: string; crestDataUrl?: string }) => {
+    setSettingsSaving(true)
+    setSettingsMsg('')
+    try {
+      const r = await fetch('/api/data/school-report-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ schoolId, ...patch })
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d?.error || '儲存失敗')
+      await loadSettings()
+      setSettingsMsg('已儲存,全校行政共用')
+    } catch (err) {
+      setSettingsMsg(err instanceof Error ? err.message : '儲存失敗')
+    } finally {
+      setSettingsSaving(false)
+    }
+  }, [schoolId, loadSettings])
 
   useEffect(() => {
     let cancelled = false
@@ -146,7 +199,11 @@ export default function SchoolParentReportPanel({
             className={openClass.className}
             subject={data.subject}
             assignmentTitle={data.title}
-            onOpenPreferences={() => { window.location.href = '/preferences' }}
+            headerOverride={{
+              schoolName: settings?.schoolName,
+              crestDataUrl: settings?.crestDataUrl || undefined,
+              teacherName: openClass.teacherName || undefined
+            }}
             requestInk={(fn, message) => setInkAction({ fn, message })}
             onKpSaved={reloadQuestions}
             grade={data.grade}
@@ -173,11 +230,101 @@ export default function SchoolParentReportPanel({
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5">
-      <h3 className="text-sm font-semibold text-slate-800">家長報告</h3>
-      <p className="mt-1 text-xs text-slate-500">
-        一位學生一份:成績與班級落點、各題型答對率、知識點加強地圖、逐題錯題分析(裁圖+AI 讀到+正解+診斷)、老師的話。
-        選一個班進去生成,可逐位預覽與編輯評語,再單獨下載或整班打包。
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">家長報告</h3>
+          <p className="mt-1 max-w-2xl text-xs text-slate-500">
+            一位學生一份:成績與班級落點、各題型答對率、知識點加強地圖、逐題錯題分析(裁圖+AI 讀到+正解+診斷)、老師的話。
+            選一個班進去生成,可逐位預覽與編輯評語,再單獨下載或整班打包。
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => { setSettingsOpen((v) => !v); setSettingsMsg('') }}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          <Settings className="h-3.5 w-3.5" />
+          報告抬頭設定
+        </button>
+      </div>
+
+      {/* 抬頭設定:學校級、存雲端,全校行政共用(不是這台電腦的設定) */}
+      {settingsOpen && (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <p className="mb-3 text-xs text-slate-500">
+            這裡的設定存在雲端、全校行政共用,換一台電腦或換一位承辦人都不用重設。
+            <span className="text-slate-400">老師姓名不必填——報告會自動帶入該班該科的任課老師。</span>
+          </p>
+          <div className="flex flex-wrap items-end gap-4">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-600">報告上的學校名稱</span>
+              <input
+                type="text"
+                defaultValue={settings?.schoolName ?? ''}
+                onBlur={(e) => {
+                  const v = e.target.value.trim()
+                  if (v !== (settings?.schoolName ?? '')) void saveSettings({ schoolName: v })
+                }}
+                placeholder="例如:新竹市關埔國民小學"
+                className="w-72 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-sky-400"
+              />
+              {!settings?.schoolNameOverridden && (
+                <span className="mt-1 block text-[11px] text-slate-400">目前使用 1Campus 的正式校名</span>
+              )}
+            </label>
+
+            <div>
+              <span className="mb-1 block text-xs font-medium text-slate-600">校徽</span>
+              <div className="flex items-center gap-2">
+                {settings?.crestDataUrl ? (
+                  <img
+                    src={settings.crestDataUrl}
+                    alt="校徽"
+                    className="h-12 w-12 rounded border border-slate-200 bg-white object-contain p-1"
+                  />
+                ) : (
+                  <div className="flex h-12 w-12 items-center justify-center rounded border border-dashed border-slate-300 bg-white text-[10px] text-slate-400">
+                    無
+                  </div>
+                )}
+                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
+                  <Upload className="h-3.5 w-3.5" />
+                  {settings?.crestDataUrl ? '更換' : '上傳'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      e.target.value = ''
+                      if (!f) return
+                      const reader = new FileReader()
+                      reader.onload = () => { void saveSettings({ crestDataUrl: String(reader.result || '') }) }
+                      reader.onerror = () => setSettingsMsg('讀取圖片失敗')
+                      reader.readAsDataURL(f)
+                    }}
+                  />
+                </label>
+                {settings?.crestDataUrl && (
+                  <button
+                    type="button"
+                    onClick={() => void saveSettings({ crestDataUrl: '' })}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-500 hover:bg-slate-50"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    移除
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+          {(settingsSaving || settingsMsg) && (
+            <p className={`mt-2 text-xs ${settingsMsg.includes('失敗') ? 'text-red-600' : 'text-emerald-600'}`}>
+              {settingsSaving ? '儲存中…' : settingsMsg}
+            </p>
+          )}
+        </div>
+      )}
       <div className="mt-3 divide-y divide-slate-100">
         {classes.map((c) => {
           const cnt = counts[c.assignmentId]
@@ -189,6 +336,9 @@ export default function SchoolParentReportPanel({
                 <span className="ml-2 text-xs text-slate-400">
                   {cnt ? `已批改 ${cnt.graded}/${cnt.total} 份` : '載入中…'}
                 </span>
+                {c.teacherName && (
+                  <span className="ml-2 text-xs text-slate-400">任課 {c.teacherName}</span>
+                )}
                 {cnt && !ready && (
                   <span className="ml-2 text-xs text-amber-600">不足 3 份、暫無法產生</span>
                 )}

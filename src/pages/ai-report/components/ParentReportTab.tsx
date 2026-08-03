@@ -40,10 +40,16 @@ type Props = {
   onKpSaved?: () => void
   /** 班級年級（7~9）：無固定清單的科目用它動態抓 concept_map 課綱條文。 */
   grade?: number
+  /**
+   * 2026-08-03（user 提：行政帳號可能共用，per-device 設定不適用）：
+   *   由外部帶入的報告抬頭，優先於本機 localStorage。行政端傳學校級設定（雲端）＋
+   *   該班該科的任課老師；教師端不傳＝維持原本的個人設定行為。
+   */
+  headerOverride?: { schoolName?: string; crestDataUrl?: string; teacherName?: string }
 }
 
 export function ParentReportTab({
-  questions, submissions, students, kpTips, assignmentId, className, subject, assignmentTitle, onOpenPreferences, requestInk, onKpSaved, grade,
+  questions, submissions, students, kpTips, assignmentId, className, subject, assignmentTitle, onOpenPreferences, requestInk, onKpSaved, grade, headerOverride,
 }: Props) {
   const [reports, setReports] = useState<StudentReport[]>([])
   const [staleSet, setStaleSet] = useState<Set<string>>(new Set())
@@ -92,11 +98,14 @@ export function ParentReportTab({
     return () => { cancelled = true }
   }, [questions, submissions, students, kpTips, assignmentId])
 
+  // headerOverride（行政端的學校級設定＋任課老師）優先；沒有才回退本機個人設定
   const header: ReportHeader = useMemo(() => ({
-    schoolName: settings.schoolName || '', crestDataUrl: settings.crestDataUrl,
-    className, subject, assignmentTitle, teacherName: settings.teacherName || undefined,
+    schoolName: headerOverride?.schoolName || settings.schoolName || '',
+    crestDataUrl: headerOverride?.crestDataUrl || settings.crestDataUrl,
+    className, subject, assignmentTitle,
+    teacherName: headerOverride?.teacherName || settings.teacherName || undefined,
     dateStr: formatDateZh(new Date()),
-  }), [settings, className, subject, assignmentTitle])
+  }), [settings, headerOverride, className, subject, assignmentTitle])
 
   const setComment = (studentId: string, text: string) => {
     setReports((prev) => prev.map((r) => (r.studentId === studentId ? { ...r, comment: text } : r)))
@@ -296,12 +305,15 @@ export function ParentReportTab({
 
   return (
     <div className="space-y-3">
-      {!settings.schoolName && (
+      {/* 抬頭由外部帶入時（行政端＝學校級雲端設定），不再叫使用者去改本機偏好設定 */}
+      {!header.schoolName && (
         <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
           <span>尚未設定學校名稱，報告抬頭會空白。</span>
-          <button onClick={onOpenPreferences} className="flex items-center gap-1 font-medium text-amber-800 hover:underline">
-            <Settings className="h-3.5 w-3.5" />前往偏好設定
-          </button>
+          {!headerOverride && (
+            <button onClick={onOpenPreferences} className="flex items-center gap-1 font-medium text-amber-800 hover:underline">
+              <Settings className="h-3.5 w-3.5" />前往偏好設定
+            </button>
+          )}
         </div>
       )}
 

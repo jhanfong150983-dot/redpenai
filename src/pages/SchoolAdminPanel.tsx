@@ -110,6 +110,8 @@ interface ExamClassRow {
   classroomId: string
   assignmentId: string
   className: string
+  /** 2026-08-03:該班該科的任課老師(家長報告抬頭自動帶入) */
+  teacherName?: string
 }
 interface SchoolExamRow {
   id: string
@@ -1615,9 +1617,11 @@ export default function SchoolAdminPanel({
                     classes={reportExam.classes.map((c) => ({
                       assignmentId: c.assignmentId,
                       className: c.className,
-                      campusClassId: c.campusClassId
+                      campusClassId: c.campusClassId,
+                      teacherName: c.teacherName
                     }))}
                     examTitle={reportExam.title}
+                    schoolId={school?.school_id ?? ''}
                   />
                 </div>
               )}
