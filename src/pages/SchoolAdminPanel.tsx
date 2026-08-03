@@ -93,7 +93,7 @@ interface PersonInfo {
   email: string | null
 }
 
-type SchoolTab = 'overview' | 'answerkeys' | 'exams' | 'grades' | 'teachers' | 'settings' | 'weakness'
+type SchoolTab = 'home' | 'overview' | 'answerkeys' | 'exams' | 'grades' | 'teachers' | 'settings' | 'weakness'
 
 // 2026-08-03(user 要求對齊教師端):側欄分區塊,功能好找。
 //   分組原則比照教師端——常用=每天在做的事、成果分析=看結果、系統設定=人與設定。
@@ -102,6 +102,10 @@ const navSections: Array<{
   title: string
   items: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashboard; enabled: boolean }>
 }> = [
+  {
+    title: '總覽',
+    items: [{ key: 'home', label: '學校總覽', icon: LayoutDashboard, enabled: true }]
+  },
   {
     title: '常用功能',
     items: [
@@ -122,7 +126,7 @@ const navSections: Array<{
     title: '系統設定',
     items: [
       // 2026-08-03(user):名冊是校務資料維護、不是每天在做的事,兩個總覽都歸這區
-      { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
+      { key: 'overview', label: '學生總覽', icon: Users, enabled: true },
       { key: 'teachers', label: '教師總覽', icon: Users, enabled: true },
       // 2026-08-03(user 要求):學校級設定的家,目前是家長報告抬頭;之後的學校設定都掛這裡
       { key: 'settings', label: '偏好設定', icon: Settings, enabled: true }
@@ -310,7 +314,7 @@ export default function SchoolAdminPanel({
   const [reportBusy, setReportBusy] = useState<string | null>(null)
   const [reportProg, setReportProg] = useState<{ phase: string; done: number; total: number } | null>(null)
   const [reportMsg, setReportMsg] = useState<Record<string, string>>({})
-  const [tab, setTab] = useState<SchoolTab>('overview')
+  const [tab, setTab] = useState<SchoolTab>('home')
   const [rosterSyncing, setRosterSyncing] = useState(false)
   // 首次使用自動準備:空校(從未同步)且有歸屬校 → 自動跑一次全校名冊同步,行政零操作
   const [autoSyncPending, setAutoSyncPending] = useState(false)
@@ -528,6 +532,15 @@ export default function SchoolAdminPanel({
       setExamsLoading(false)
     }
   }, [])
+
+  // 學校總覽吃 exams(考卷數/未設科目)與 teachers(綁定率),進總覽時一併載入
+  useEffect(() => {
+    if (tab === 'home' && school) {
+      void loadExams(school.school_id)
+      void loadTeachers(school.school_id)
+      void loadWallet(school.school_id)
+    }
+  }, [tab, school, loadExams, loadTeachers, loadWallet])
 
   useEffect(() => {
     if (tab === 'exams' && school) {
@@ -1044,6 +1057,48 @@ export default function SchoolAdminPanel({
       return terms.every((term) => blob.includes(term))
     })
   }, [teachers, teacherQuery, teacherSearchIndex])
+
+  // 2026-08-03 學校總覽 KPI(user:分區塊後要有一個像教師端的總覽、但不要待辦)。
+  //   靜默問題直接做成 KPI 數字(異常轉橘、可點),不另開區塊——行政不會主動去各分頁翻。
+  const [homeProgress, setHomeProgress] = useState<{ uploaded: number; graded: number } | null>(null)
+  useEffect(() => {
+    if (tab !== 'home') return
+    const aids = exams.flatMap((e) => e.classes.map((c) => c.assignmentId)).filter(Boolean)
+    if (aids.length === 0) { setHomeProgress({ uploaded: 0, graded: 0 }) ; return }
+    let cancelled = false
+    void (async () => {
+      // 只讀本機 Dexie 的輕量欄位(sync 瘦身後 hasGradingResult 就夠判定),不打 server
+      const subs = await db.submissions.where('assignmentId').anyOf(aids).toArray()
+      if (cancelled) return
+      setHomeProgress({
+        uploaded: subs.length,
+        graded: subs.filter((x) => x.hasGradingResult || x.gradingResult || typeof x.score === 'number').length
+      })
+    })()
+    return () => { cancelled = true }
+  }, [tab, exams])
+
+  const homeStats = useMemo(() => {
+    const students = classes.reduce((sum, c) => sum + (c.student_count ?? 0), 0)
+    const bound = teachers.filter((t) => t.bound).length
+    const examsNoSubject = exams.filter((e) => !e.subject).length
+    // 有 campus_class_id 才算得出任課;沒有課程資料的班=老師看不到成績、報告抬頭也空白
+    const classesNoCourse = classes.filter(
+      (c) => c.campus_class_id && (coursesByClass.get(String(c.campus_class_id))?.length ?? 0) === 0
+    ).length
+    const unbound = teachers.length - bound
+    return {
+      students,
+      classCount: classes.length,
+      teacherCount: teachers.length,
+      bound,
+      unbound,
+      examCount: exams.length,
+      examsNoSubject,
+      classesNoCourse,
+      todo: examsNoSubject + classesNoCourse + unbound
+    }
+  }, [classes, teachers, exams, coursesByClass])
 
   const presentGrades = useMemo(
     () => gradeGroups.filter((g) => g.grade != null).map((g) => g.grade as number),
@@ -1783,6 +1838,113 @@ export default function SchoolAdminPanel({
                     )}
                   </div>
                 ))}
+              </div>
+            </div>
+          ) : tab === 'home' ? (
+            /* 2026-08-03 學校總覽(user:對齊教師端但不要待辦)。
+               KPI 分兩排:上排=規模與資源、下排=考卷與進度;
+               靜默問題做成第 8 格「待處理」,異常轉橘、逐項可點——行政不會主動去各分頁翻。 */
+            <div className="space-y-6">
+              <div>
+                <h3 className="mb-1 text-xs font-medium text-slate-500">規模與資源</h3>
+                <div className="grid gap-0 border-y border-slate-200 sm:grid-cols-2 xl:grid-cols-4">
+                  {[
+                    { label: '學生', value: homeStats.students.toLocaleString(), sub: '' },
+                    { label: '班級', value: String(homeStats.classCount), sub: '' },
+                    {
+                      label: '教師',
+                      value: String(homeStats.teacherCount),
+                      sub: homeStats.teacherCount > 0 ? `已綁定 ${homeStats.bound} 位` : ''
+                    },
+                    {
+                      label: '學校點數',
+                      value: walletBalance == null ? '—' : walletBalance.toLocaleString(),
+                      sub: ''
+                    }
+                  ].map((k, i) => (
+                    <div key={k.label} className={`px-3 py-4 ${i < 3 ? 'xl:border-r xl:border-slate-200' : ''}`}>
+                      <p className="text-[11px] text-slate-500">{k.label}</p>
+                      <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 tabular-nums md:text-4xl">
+                        {k.value}
+                      </p>
+                      {k.sub && <p className="mt-1 text-[11px] text-slate-400">{k.sub}</p>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="mb-1 text-xs font-medium text-slate-500">考卷與進度</h3>
+                <div className="grid gap-0 border-y border-slate-200 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="px-3 py-4 xl:border-r xl:border-slate-200">
+                    <p className="text-[11px] text-slate-500">考卷</p>
+                    <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 tabular-nums md:text-4xl">
+                      {homeStats.examCount}
+                    </p>
+                  </div>
+                  <div className="px-3 py-4 xl:border-r xl:border-slate-200">
+                    <p className="text-[11px] text-slate-500">待批改份數</p>
+                    <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 tabular-nums md:text-4xl">
+                      {homeProgress ? Math.max(0, homeProgress.uploaded - homeProgress.graded) : '—'}
+                    </p>
+                  </div>
+                  <div className="px-3 py-4 xl:border-r xl:border-slate-200">
+                    <p className="text-[11px] text-slate-500">批改完成率</p>
+                    <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 tabular-nums md:text-4xl">
+                      {homeProgress && homeProgress.uploaded > 0
+                        ? `${Math.round((homeProgress.graded / homeProgress.uploaded) * 100)}%`
+                        : '—'}
+                    </p>
+                    {homeProgress && homeProgress.uploaded > 0 && (
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        已批改 {homeProgress.graded}/{homeProgress.uploaded} 份
+                      </p>
+                    )}
+                  </div>
+                  <div className="px-3 py-4">
+                    <p className="text-[11px] text-slate-500">待處理</p>
+                    <p
+                      className={`mt-1 text-3xl font-bold tracking-tight tabular-nums md:text-4xl ${
+                        homeStats.todo > 0 ? 'text-amber-600' : 'text-emerald-600'
+                      }`}
+                    >
+                      {homeStats.todo}
+                    </p>
+                    {homeStats.todo === 0 ? (
+                      <p className="mt-1 text-[11px] text-emerald-600">資料齊全,沒有待處理項目</p>
+                    ) : (
+                      <div className="mt-1 space-y-0.5 text-[11px]">
+                        {homeStats.examsNoSubject > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setTab('exams')}
+                            className="block text-left text-amber-700 hover:underline"
+                          >
+                            {homeStats.examsNoSubject} 份考卷未設科目 · 教師端看不到成績
+                          </button>
+                        )}
+                        {homeStats.classesNoCourse > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setTab('teachers')}
+                            className="block text-left text-amber-700 hover:underline"
+                          >
+                            {homeStats.classesNoCourse} 班未指派任課 · 該班老師看不到成績
+                          </button>
+                        )}
+                        {homeStats.unbound > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setTab('teachers')}
+                            className="block text-left text-slate-500 hover:underline"
+                          >
+                            {homeStats.unbound} 位老師尚未登入綁定
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           ) : tab === 'settings' ? (
