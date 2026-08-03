@@ -661,7 +661,10 @@ export function hasDiagnosis(r: StudentReport): boolean {
 //   （2026-07-18 實測跑版根因＝transform:translateX 與 flex align 在 html2canvas 渲染不準）。
 //   置中：table-cell vertical-align:middle + text-align；橫向定位：left/right 絕對定位＋固定寬 margin，不用 transform。
 export const REPORT_CSS = `
-.pr-root { width:794px; box-sizing:border-box; padding:40px 48px 32px; background:#fff; color:#1F2933;
+/* 2026-08-03 修「報告貼到紙張邊邊」(user 實測):留白原本做在 .pr-root 的 padding 上,
+   那是「整個流動區塊」的內距、只在頭尾各出現一次——一位學生的報告超過一頁時,
+   第 2 頁以後就從紙緣開始。留白必須交給 @page margin,才會每一頁都有。 */
+.pr-root { width:auto; box-sizing:border-box; background:#fff; color:#1F2933;
   font-family:'Noto Sans TC','PingFang TC','Microsoft JhengHei','Heiti TC',sans-serif; }
 .pr-root * { box-sizing:border-box; }
 
@@ -1208,7 +1211,7 @@ function buildPrintDocument(reports: StudentReport[], header: ReportHeader): str
   const pages = reports.map((r) => renderReportHtml(r, header)).join('\n')
   return `<!doctype html><html><head><meta charset="utf-8"><title>家長學習報告</title>${FONT_LINK}
 <style>
-@page { size: A4; margin: 0; }
+@page { size: A4; margin: 11mm 13mm 9mm; }  /* 每一頁都要留白,不能只靠 .pr-root 的 padding */
 html, body { margin: 0; padding: 0; background: #fff; }
 ${REPORT_CSS}
 /* 分頁用 break-before（每份報告之「前」分頁、第一份除外）→ 結尾不會多出空白頁 */
