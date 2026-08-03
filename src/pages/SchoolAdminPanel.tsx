@@ -105,12 +105,9 @@ const navSections: Array<{
   items: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashboard; enabled: boolean }>
 }> = [
   {
-    title: '總覽',
-    items: [{ key: 'home', label: '學校總覽', icon: LayoutDashboard, enabled: true }]
-  },
-  {
     title: '常用功能',
     items: [
+      { key: 'home', label: '學校總覽', icon: LayoutDashboard, enabled: true },
       // 建立答案=嵌入老師端答案卷整頁(只顯示學校答案卷;建立/擷取/分享碼匯入全套功能)
       { key: 'answerkeys', label: '建立答案', icon: BookOpen, enabled: true },
       { key: 'exams', label: '考卷批改', icon: Sparkles, enabled: true }
