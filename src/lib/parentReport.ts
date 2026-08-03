@@ -784,11 +784,15 @@ export const REPORT_CSS = `
 .pr-qh { margin-bottom:9px; }
 .pr-qno { font-size:13.5px; font-weight:700; color:#1E4D8C; }
 .pr-qkp { font-size:10.5px; color:#7B8794; background:#F2F4F6; border-radius:3px; padding:1px 8px; margin-left:8px; }
-.pr-qbody { display:flex; gap:14px; margin-bottom:9px; }
-.pr-qcrop { width:210px; flex:none; }
-/* 2026-08-03:單一裁圖不可撐爆卡片(瘦高框放大後會吃掉整頁)。寬度固定、高度設上限、超過就等比縮到框內 */
-.pr-qcrop img { width:100%; max-height:150px; object-fit:contain; object-position:left top; border:1px solid #E4E8EC; border-radius:4px; }
-.pr-qinfo { flex:1; }
+/* 2026-08-03 修「選擇題超大張、填空題反而小」(user 實測 PDF 回報):
+   原本裁圖一律拉成 210px 寬,但各題型的答案框寬度差 10 倍——
+   單選題框只有頁寬 4%(放大 3 倍變巨無霸)、填空題框有 39%(縮成 1/3 看不清)。
+   改成用「高度」對齊:所有裁圖同一個高度上限,寬度隨長寬比自然延伸、再受寬度上限保護。
+   手寫字的大小由框高決定,對齊高度=每張的字看起來一樣大。 */
+.pr-qbody { display:flex; gap:14px; margin-bottom:9px; align-items:flex-start; }
+.pr-qcrop { flex:0 0 auto; }
+.pr-qcrop img { display:block; width:auto; height:auto; max-height:60px; max-width:320px; border:1px solid #E4E8EC; border-radius:4px; }
+.pr-qinfo { flex:1 1 0; min-width:0; }
 .pr-qr { font-size:12.5px; margin-bottom:5px; }
 .pr-qr .l { display:inline-block; width:74px; color:#7B8794; }
 .pr-qr .you { color:#C2402A; font-weight:700; }
