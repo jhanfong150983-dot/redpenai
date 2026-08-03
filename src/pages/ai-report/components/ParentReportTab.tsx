@@ -419,7 +419,10 @@ export function ParentReportTab({
             {reports.map((r) => {
               const rb = rowBusy[r.studentId]
               const stale = staleSet.has(r.studentId)
-              const generated = generatedSet.has(r.studentId) // 生成過（含已失效）才可預覽/下載
+              // 2026-08-03 修（user 回報「進去沒有初階報告可以看」）：
+              //   預覽/下載原本卡 generated，與「初階＝零墨水、永遠可預覽下載」的定案相牴觸。
+              //   沒生成過就是少了 AI 診斷與評語，骨架（成績/落點/題型/加強地圖/錯題裁圖+正解）都算得出來。
+              const generated = generatedSet.has(r.studentId) // 生成過（含已失效）＝有 AI 產物
               const done = generated && !stale
               return (
                 <tr key={r.studentId} className="border-b border-slate-50 last:border-0 align-top">
@@ -462,13 +465,13 @@ export function ParentReportTab({
                         {done ? <RefreshCw className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
                         {done ? '重新生成' : '生成'}
                       </button>
-                      <button onClick={() => previewOne(r)} disabled={busy || cacheLoading || !!rb || !generated}
-                        title={generated ? '預覽' : '請先生成報告'}
+                      <button onClick={() => previewOne(r)} disabled={busy || cacheLoading || !!rb}
+                        title={generated ? '預覽' : '預覽基本數據版（尚未生成 AI 診斷與評語）'}
                         className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40 disabled:cursor-not-allowed">
                         {rb === 'preview' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
                       </button>
-                      <button onClick={() => downloadOne(r)} disabled={busy || cacheLoading || !!rb || !generated}
-                        title={generated ? '下載 PDF' : '請先生成報告'}
+                      <button onClick={() => downloadOne(r)} disabled={busy || cacheLoading || !!rb}
+                        title={generated ? '下載 PDF' : '下載基本數據版（尚未生成 AI 診斷與評語）'}
                         className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-sky-600 disabled:opacity-40 disabled:cursor-not-allowed">
                         {rb === 'download' ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
                       </button>
