@@ -786,7 +786,8 @@ export const REPORT_CSS = `
 .pr-qkp { font-size:10.5px; color:#7B8794; background:#F2F4F6; border-radius:3px; padding:1px 8px; margin-left:8px; }
 .pr-qbody { display:flex; gap:14px; margin-bottom:9px; }
 .pr-qcrop { width:210px; flex:none; }
-.pr-qcrop img { width:100%; border:1px solid #E4E8EC; border-radius:4px; }
+/* 2026-08-03:單一裁圖不可撐爆卡片(瘦高框放大後會吃掉整頁)。寬度固定、高度設上限、超過就等比縮到框內 */
+.pr-qcrop img { width:100%; max-height:150px; object-fit:contain; object-position:left top; border:1px solid #E4E8EC; border-radius:4px; }
 .pr-qinfo { flex:1; }
 .pr-qr { font-size:12.5px; margin-bottom:5px; }
 .pr-qr .l { display:inline-block; width:74px; color:#7B8794; }
