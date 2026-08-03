@@ -15,6 +15,7 @@ import {
   FileText,
   BarChart3,
   Search,
+  Settings,
   X
 } from 'lucide-react'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
@@ -33,6 +34,7 @@ import { gradeFromLabel, classNumFromLabel } from '@/lib/classroom-order'
 import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import SchoolParentReportPanel from '@/components/SchoolParentReportPanel'
+import SchoolReportSettings from '@/components/SchoolReportSettings'
 
 // 學校管理層（教務主任）檢視頁。
 // 版面對齊教師端/學生端：頂部 logo bar + 左側功能選單(aside) + 右側內容(section)。
@@ -91,7 +93,7 @@ interface PersonInfo {
   email: string | null
 }
 
-type SchoolTab = 'overview' | 'answerkeys' | 'exams' | 'grades' | 'teachers' | 'weakness'
+type SchoolTab = 'overview' | 'answerkeys' | 'exams' | 'grades' | 'teachers' | 'settings' | 'weakness'
 
 const navItems: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashboard; enabled: boolean }> = [
   { key: 'overview', label: '學生總覽', icon: LayoutDashboard, enabled: true },
@@ -101,6 +103,8 @@ const navItems: Array<{ key: SchoolTab; label: string; icon: typeof LayoutDashbo
   // 2026-08-01 行政端成績統計(user 提議對齊教師端):共用 Gradebook、scope='school' 只看學校考卷班
   { key: 'grades', label: '成績統計', icon: BarChart3, enabled: true },
   { key: 'teachers', label: '教師總覽', icon: Users, enabled: true },
+  // 2026-08-03(user 要求):學校級設定的家,目前是家長報告抬頭;之後的學校設定都掛這裡
+  { key: 'settings', label: '偏好設定', icon: Settings, enabled: true },
   { key: 'weakness', label: '弱點分析', icon: TrendingUp, enabled: false }
 ]
 
@@ -1622,6 +1626,7 @@ export default function SchoolAdminPanel({
                     }))}
                     examTitle={reportExam.title}
                     schoolId={school?.school_id ?? ''}
+                    onOpenSettings={() => { setReportExam(null); setTab('settings') }}
                   />
                 </div>
               )}
@@ -1808,6 +1813,8 @@ export default function SchoolAdminPanel({
                 ))}
               </div>
             </div>
+          ) : tab === 'settings' ? (
+            <SchoolReportSettings schoolId={school?.school_id ?? ''} />
           ) : tab === 'teachers' ? (
             <div className="space-y-6">
               {/* 教師摘要 */}
