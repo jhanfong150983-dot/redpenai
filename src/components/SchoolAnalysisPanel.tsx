@@ -122,6 +122,14 @@ export default function SchoolAnalysisPanel({ exams }: { exams: ExamOption[] }) 
     }
   }, [])
 
+  // 2026-08-03(user:在本機跑為什麼還要按按鈕、教師端都不用):選好考卷就自動分析。
+  //   原本設按鈕是怕一次補齊 11 班 330 份;但那是一次性、之後走 Dexie 快取,
+  //   為了省一次下載讓使用者多按一下、還跟教師端不一致,不划算。
+  useEffect(() => {
+    if (exam) void load(exam)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exam?.id])
+
   const analysis = useMemo(
     () => (data && data.questions.length > 0 && data.allSubs.length > 0
       ? computeItemAnalysis(data.questions, data.allSubs)
@@ -175,33 +183,35 @@ export default function SchoolAnalysisPanel({ exams }: { exams: ExamOption[] }) 
       <div className="flex flex-wrap items-center gap-3">
         <select
           value={examId}
-          onChange={(e) => { setExamId(e.target.value); setData(null) }}
+          onChange={(e) => setExamId(e.target.value)}
+          disabled={loading}
           className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm outline-none focus:border-sky-400"
         >
           {exams.map((e) => (
             <option key={e.id} value={e.id}>{e.title}{e.subject ? ` · ${e.subject}` : ''}</option>
           ))}
         </select>
-        <button
-          type="button"
-          onClick={() => exam && void load(exam)}
-          disabled={!exam || loading}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:bg-slate-300"
-        >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {loading ? '分析中…' : data ? '重新分析' : '開始分析'}
-        </button>
-        <span className="text-xs text-slate-400">全部統計都在本機算,不花點數</span>
+        {loading ? (
+          <span className="inline-flex items-center gap-1.5 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            分析中…第一次需要下載各班的批改結果
+          </span>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => exam && void load(exam)}
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              重新分析
+            </button>
+            <span className="text-xs text-slate-400">統計都在本機算,不花點數</span>
+          </>
+        )}
       </div>
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      )}
-
-      {!data && !loading && !error && (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
-          選一份考卷後按「開始分析」。第一次分析需要下載各班的批改結果,可能要一點時間。
-        </div>
       )}
 
       {data && (
