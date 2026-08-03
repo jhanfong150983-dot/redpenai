@@ -36,6 +36,7 @@ import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import SchoolParentReportPanel from '@/components/SchoolParentReportPanel'
 import SchoolReportSettings from '@/components/SchoolReportSettings'
+import SchoolAnalysisPanel from '@/components/SchoolAnalysisPanel'
 
 // 學校管理層（教務主任）檢視頁。
 // 版面對齊教師端/學生端：頂部 logo bar + 左側功能選單(aside) + 右側內容(section)。
@@ -94,7 +95,7 @@ interface PersonInfo {
   email: string | null
 }
 
-type SchoolTab = 'home' | 'overview' | 'answerkeys' | 'exams' | 'grades' | 'teachers' | 'settings' | 'weakness'
+type SchoolTab = 'home' | 'overview' | 'answerkeys' | 'exams' | 'grades' | 'analysis' | 'teachers' | 'settings' | 'weakness'
 
 // 2026-08-03(user 要求對齊教師端):側欄分區塊,功能好找。
 //   分組原則比照教師端——常用=每天在做的事、成果分析=看結果、系統設定=人與設定。
@@ -120,6 +121,9 @@ const navSections: Array<{
     items: [
       // 2026-08-01 行政端成績統計(user 提議對齊教師端):共用 Gradebook、scope='school' 只看學校考卷班
       { key: 'grades', label: '成績統計', icon: BarChart3, enabled: true },
+      // 2026-08-03(user 提議、一起設計):行政的學情=橫向(班際/命題/全校知識點),
+      //   不是把教師端的縱深分析搬過來
+      { key: 'analysis', label: '學情分析', icon: FileText, enabled: true },
       { key: 'weakness', label: '弱點分析', icon: TrendingUp, enabled: false }
     ]
   },
@@ -536,6 +540,7 @@ export default function SchoolAdminPanel({
 
   // 學校總覽吃 exams(考卷數/未設科目)與 teachers(綁定率),進總覽時一併載入
   useEffect(() => {
+    if (tab === 'analysis' && school) void loadExams(school.school_id)
     if (tab === 'home' && school) {
       void loadExams(school.school_id)
       void loadTeachers(school.school_id)
@@ -1948,6 +1953,15 @@ export default function SchoolAdminPanel({
                 </div>
               </div>
             </div>
+          ) : tab === 'analysis' ? (
+            <SchoolAnalysisPanel
+              exams={exams.map((e) => ({
+                id: e.id,
+                title: e.title,
+                subject: e.subject ?? '',
+                classes: e.classes.map((c) => ({ assignmentId: c.assignmentId, className: c.className }))
+              }))}
+            />
           ) : tab === 'settings' ? (
             <div className="max-w-3xl space-y-4">
               {/* 2026-08-03(user):全校名冊同步搬到這裡——偶爾才做的維護動作,不該常駐頁首 */}
