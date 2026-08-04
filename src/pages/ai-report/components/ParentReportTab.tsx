@@ -14,6 +14,7 @@ import {
 } from '@/lib/parentReport'
 import { db } from '@/lib/db'
 import { generateParentReports } from '@/lib/parentReportBatch'
+import { FLAT_BILLING, PARENT_REPORT_POINTS_PER_STUDENT } from '@/lib/action-pricing'
 
 function formatDateZh(d: Date): string {
   return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`
@@ -185,6 +186,12 @@ export function ParentReportTab({
             ? <>即將為 <b>{targets.length}</b> 位學生產生 AI 逐題診斷與老師的話。</>
             : <>首次升級：會先建立本卷「<b>知識點歸類</b>」（一次性、之後不再收費），接著為 <b>{targets.length}</b> 位學生產生 AI 逐題診斷與老師的話。</>}
         </div>
+        {FLAT_BILLING && (
+          <div className="rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
+            費用:{targets.length} 位 × {PARENT_REPORT_POINTS_PER_STUDENT} 點 = <b>{targets.length * PARENT_REPORT_POINTS_PER_STUDENT} 點</b>
+            <span className="ml-1 text-xs text-sky-600">(固定價;生成失敗的學生不扣)</span>
+          </div>
+        )}
         {lowConfCount > 0 && (
           <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
             ⚠ 本作業還有 <b>{lowConfCount}</b> 格「低信心」判定尚未人工確認。報告發出後若再改分數，該生報告會失效需重新生成。建議先到批改頁確認。

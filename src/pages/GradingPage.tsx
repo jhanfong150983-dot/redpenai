@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
+import { FLAT_BILLING, gradingPriceText } from '@/lib/action-pricing'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import {
   gradePhaseA,
@@ -2663,6 +2664,8 @@ export default function GradingPage({
   // 守門 modal 被關掉之前、被擋下的批改流程從哪繼續。退回成功後呼叫此 ref 恢復流程。
   const pendingGradeResumeRef = useRef<(() => void) | null>(null)
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
+  // 2026-08-04 固定扣除:本輪已扣點數(save-grading 回應累加;fire-and-forget 落地時活更新結果視窗)
+  const [billedPoints, setBilledPoints] = useState(0)
   const [phaseAResultNotice, setPhaseAResultNotice] = useState<PhaseAResultNotice | null>(null)
   // 跑 Phase A 過程的計數先 stash、等審查全部完成才一起包 notice 顯示
   const phaseAStashRef = useRef<{
@@ -3055,6 +3058,9 @@ export default function GradingPage({
               gradedAt: gradedAtMs,
             }]
           })
+        }).then(async (r) => {
+          // 固定扣除:server 回 billing(僅 FLAT_BILLING 啟用時)→ 累加顯示在結果視窗
+          try { const j = await r.json(); if (j?.billing?.points > 0) setBilledPoints((p) => p + j.billing.points) } catch { /* 非致命 */ }
         }).catch(() => {/* non-fatal, sync will retry */})
         // Fire-and-forget: update forensic log with teacher decisions + Phase B results
         const gradedAt = new Date().toISOString()
@@ -3145,6 +3151,8 @@ export default function GradingPage({
           fetch('/api/data/save-grading', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
             body: JSON.stringify({ submissions: [{ id: entry.submissionId, score: totalScore, aiScore: totalScore, scoreSource: 'ai', gradingResult, gradedAt: retryGradedAt }] })
+          }).then(async (r) => {
+            try { const j = await r.json(); if (j?.billing?.points > 0) setBilledPoints((p) => p + j.billing.points) } catch { /* 非致命 */ }
           }).catch(() => {})
           setSubmissions((prev) => {
             const next = new Map(prev)
@@ -5350,6 +5358,7 @@ export default function GradingPage({
   // 2026-05-17: Phase B only 入口（批改作業按鈕）
   // 步驟：1. 檢查 in-scope 卡片狀態  2. 若需先截取或補答、block modal  3. 若會覆寫、warning modal  4. 否則直接跑
   const handleGradeOnly = async () => {
+    setBilledPoints(0)  // 固定扣除:新一輪歸零
     if (gradeButtonState.variant === 'disabled') return
     const { inScope, stageMap } = stageAggregates
     if (inScope.length === 0) {
@@ -5779,6 +5788,7 @@ export default function GradingPage({
       } catch { /* 查不到就照常批改 */ }
     }
     regradeAckRef.current = false
+    setBilledPoints(0)  // 固定扣除:新一輪歸零
     oneClickScopeRef.current = scope.map((s) => s.id)
     oneClickBgGradedIdsRef.current = new Set()
     // 2026-06-30 [審查後移重構步驟2]：旗開時走新編排（A → B 全批 → 末端審查 → finalize）。旗關＝下方現行流程。
@@ -7082,6 +7092,12 @@ export default function GradingPage({
         <div className="mb-2">
           即將處理 <strong>{unfinishedBuckets.total}</strong> 份還沒完成的作業。
         </div>
+        {FLAT_BILLING && (
+          <div className="mb-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
+            費用:{gradingPriceText(unfinishedBuckets.total, (assignment?.answerKey?.questions as unknown[] | undefined)?.length)}
+            <span className="ml-1 text-xs text-sky-600">(固定價;失敗的卷不扣)</span>
+          </div>
+        )}
         <ul className="mb-3 list-none space-y-1">
           {unfinishedBuckets.needA.length > 0 && <li>🔵 <strong>{unfinishedBuckets.needA.length}</strong> 份未擷取</li>}
           {unfinishedBuckets.needB.length > 0 && <li>🟢 <strong>{unfinishedBuckets.needB.length}</strong> 份待批改</li>}
@@ -7098,7 +7114,13 @@ export default function GradingPage({
         onCancel={() => setAdvInkConfirm(null)}
         onConfirm={() => { const a = advInkConfirm; setAdvInkConfirm(null); a?.run() }}
       >
-        即將{advInkConfirm?.kind === 'phase_a' ? '重新截取答案' : '重新批改'} <strong>{advInkConfirm?.count ?? 0}</strong> 份作業。
+        <div>即將{advInkConfirm?.kind === 'phase_a' ? '重新截取答案' : '重新批改'} <strong>{advInkConfirm?.count ?? 0}</strong> 份作業。</div>
+        {FLAT_BILLING && advInkConfirm?.kind !== 'phase_a' && (
+          <div className="mt-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
+            費用:{gradingPriceText(advInkConfirm?.count ?? 0, (assignment?.answerKey?.questions as unknown[] | undefined)?.length)}
+            <span className="ml-1 text-xs text-sky-600">(固定價;失敗的卷不扣)</span>
+          </div>
+        )}
       </InkConfirmModal>
 
       {/* 2026-05-30: 重新截取危險確認（severity medium：清讀值/分數、擋已完成訂正） */}
@@ -7337,6 +7359,12 @@ export default function GradingPage({
                 <span className="text-gray-600">成功批改</span>
                 <span className="font-semibold text-emerald-600">{gradeResultNotice.successCount} 份</span>
               </div>
+              {FLAT_BILLING && billedPoints > 0 && (
+                <div className="flex justify-between items-center py-2 border-b border-gray-100">
+                  <span className="text-gray-600">本輪扣點</span>
+                  <span className="font-semibold text-sky-700">{billedPoints} 點</span>
+                </div>
+              )}
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
                 <span className="text-gray-600">失敗/略過</span>
                 <span className="font-semibold text-rose-600">{gradeResultNotice.failCount} 份</span>
