@@ -24,6 +24,7 @@ import {
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import { FLAT_BILLING, gradingPriceText } from '@/lib/action-pricing'
+import { dispatchInkBalance } from '@/lib/ink-events'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import {
   gradePhaseA,
@@ -2666,6 +2667,15 @@ export default function GradingPage({
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
   // 2026-08-04 固定扣除:本輪已扣點數(save-grading 回應累加;fire-and-forget 落地時活更新結果視窗)
   const [billedPoints, setBilledPoints] = useState(0)
+  // 固定扣除回應統一入口:累加本輪扣點+把個人新餘額推給頂欄墨水 widget
+  // (舊制餘額由 proxy 逐 call 回應更新;新制扣款在 save-grading,不接這裡頂欄會停在舊值直到重整)
+  const applySaveGradingBilling = useCallback((j: unknown) => {
+    const b = (j as { billing?: { points?: number; scope?: string | null; balanceAfter?: number | null } } | null)?.billing
+    if (!b) return
+    const pts = b.points
+    if (typeof pts === 'number' && pts > 0) setBilledPoints((p) => p + pts)
+    if (b.scope === 'personal' && typeof b.balanceAfter === 'number') dispatchInkBalance(b.balanceAfter)
+  }, [])
   const [phaseAResultNotice, setPhaseAResultNotice] = useState<PhaseAResultNotice | null>(null)
   // 跑 Phase A 過程的計數先 stash、等審查全部完成才一起包 notice 顯示
   const phaseAStashRef = useRef<{
@@ -3059,8 +3069,8 @@ export default function GradingPage({
             }]
           })
         }).then(async (r) => {
-          // 固定扣除:server 回 billing(僅 FLAT_BILLING 啟用時)→ 累加顯示在結果視窗
-          try { const j = await r.json(); if (j?.billing?.points > 0) setBilledPoints((p) => p + j.billing.points) } catch { /* 非致命 */ }
+          // 固定扣除:server 回 billing(僅 FLAT_BILLING 啟用時)→ 累加+活更新頂欄餘額
+          try { applySaveGradingBilling(await r.json()) } catch { /* 非致命 */ }
         }).catch(() => {/* non-fatal, sync will retry */})
         // Fire-and-forget: update forensic log with teacher decisions + Phase B results
         const gradedAt = new Date().toISOString()
@@ -3152,7 +3162,7 @@ export default function GradingPage({
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
             body: JSON.stringify({ submissions: [{ id: entry.submissionId, score: totalScore, aiScore: totalScore, scoreSource: 'ai', gradingResult, gradedAt: retryGradedAt }] })
           }).then(async (r) => {
-            try { const j = await r.json(); if (j?.billing?.points > 0) setBilledPoints((p) => p + j.billing.points) } catch { /* 非致命 */ }
+            try { applySaveGradingBilling(await r.json()) } catch { /* 非致命 */ }
           }).catch(() => {})
           setSubmissions((prev) => {
             const next = new Map(prev)
@@ -5184,6 +5194,8 @@ export default function GradingPage({
                   gradingResult: finalResult, gradedAt: gradedAtMs
                 }]
               })
+            }).then(async (r) => {
+              try { applySaveGradingBilling(await r.json()) } catch { /* 非致命 */ }
             }).catch(() => {/* non-fatal */})
           }
           env.counters.successCount++
@@ -5605,6 +5617,8 @@ export default function GradingPage({
       fetch('/api/data/save-grading', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ submissions: [{ id: sub.id, score: total, aiScore: total, scoreSource: 'ai', gradingResult: newGr, gradedAt: gradedAtMs }] })
+      }).then(async (r) => {
+        try { applySaveGradingBilling(await r.json()) } catch { /* 非致命 */ }
       }).catch(() => {/* non-fatal */})
       setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, done: Math.min(p.accessor.total, p.accessor.done + 1) } }))
     }

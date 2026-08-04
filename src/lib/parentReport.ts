@@ -2,6 +2,7 @@
 //   一份作業＝一份報告（不跨科合併）。資料全來自既有批改結果＋試題分析，唯一 AI 呼叫＝老師評語（純文字、便宜）。
 //   PDF 產出沿用 correctionNoticePdf.ts 骨架（html2canvas→jsPDF、系統中文字型、每生一頁）。
 import { ensureInkSessionFresh } from '@/lib/ink-session'
+import { dispatchInkBalance } from '@/lib/ink-events'
 
 const GEMINI_PROXY_URL = import.meta.env?.VITE_GEMINI_PROXY_URL || '/api/proxy'
 const COMMENT_MODEL = 'gemini-2.5-flash' // 純文字評語、便宜足夠
@@ -603,8 +604,14 @@ export async function saveParentReportCache(
     if (!res.ok) {
       const t = await res.text().catch(() => '')
       console.warn('[parentReport] 快取儲存失敗', res.status, t.slice(0, 300))
+      return false
     }
-    return res.ok
+    // 固定扣除:家長報告收費點在此(2 點/生);個人扣款回新餘額 → 活更新頂欄墨水
+    try {
+      const j = (await res.json().catch(() => null)) as { billing?: { scope?: string | null; balanceAfter?: number | null } } | null
+      if (j?.billing?.scope === 'personal' && typeof j.billing.balanceAfter === 'number') dispatchInkBalance(j.billing.balanceAfter)
+    } catch { /* 非致命 */ }
+    return true
   } catch (e) {
     console.warn('[parentReport] 快取儲存失敗(網路/例外)', e)
     return false
