@@ -3,7 +3,8 @@
 // 開關:VITE_FLAT_BILLING='1'(編譯期;切換時 server 的 FLAT_BILLING 與此旗標要同時設,
 //   否則顯示與實扣不一致)。未開=confirm 維持舊文案、完成通知不顯示扣點。
 
-export const FLAT_BILLING = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_FLAT_BILLING === '1'
+// 預設開(user 拍板);回退=VITE_FLAT_BILLING='0'(server 同步 FLAT_BILLING='0')
+export const FLAT_BILLING = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_FLAT_BILLING !== '0'
 
 /** 題數級距(定價報表 2026-08 定案):≤20→5、21~40→10、41~60→15、61+→20;未知題數保守當 10 */
 export function gradingActionPoints(totalQuestions: number | undefined | null): number {
