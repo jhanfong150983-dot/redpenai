@@ -2668,6 +2668,12 @@ export default function GradingPage({
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
   // 2026-08-04 固定扣除:本輪已扣點數(save-grading 回應累加;fire-and-forget 落地時活更新結果視窗)
   const [billedPoints, setBilledPoints] = useState(0)
+  // 扣款後的新餘額(結果視窗「餘額 N 點」小字用;personal/school 都顯示最後一筆)
+  const [billedBalanceAfter, setBilledBalanceAfter] = useState<number | null>(null)
+  // 收費存檔的 in-flight promise(結果視窗顯示前等它們全落地=「等結算完一次出現」user 拍板)
+  const billingPendingRef = useRef<Promise<unknown>[]>([])
+  // false=結算逾時/失敗 → 扣點卡顯示灰色「以餘額為準」(罕見保險、不鎖人)
+  const [billingSettled, setBillingSettled] = useState(true)
   // 固定扣除回應統一入口:累加本輪扣點+把新餘額推給對應的餘額顯示
   // (舊制餘額由 proxy 逐 call 回應更新;新制扣款在 save-grading,不接這裡餘額會停在舊值直到重整)
   // personal → 教師端頂欄墨水 widget;school → 行政端 SchoolAdminPanel header(嵌入模式)
@@ -2677,10 +2683,31 @@ export default function GradingPage({
     const pts = b.points
     if (typeof pts === 'number' && pts > 0) setBilledPoints((p) => p + pts)
     if (typeof b.balanceAfter === 'number') {
+      setBilledBalanceAfter(b.balanceAfter)
       if (b.scope === 'personal') dispatchInkBalance(b.balanceAfter)
       else if (b.scope === 'school') dispatchSchoolWalletBalance(b.balanceAfter)
     }
   }, [])
+  // 結果視窗延遲顯示:notice 設定後先等扣點結算(通常 <1 秒、批改本身以分鐘計=體感無差);
+  // 超過 5 秒 fail-open 照樣顯示(灰色「以餘額為準」),之後若結算補到再原地轉正。
+  const [gradeNoticeVisible, setGradeNoticeVisible] = useState(false)
+  useEffect(() => {
+    if (!gradeResultNotice) { setGradeNoticeVisible(false); return }
+    let cancelled = false
+    ;(async () => {
+      let settled = true
+      const pending = [...billingPendingRef.current]
+      if (FLAT_BILLING && pending.length > 0) {
+        const all = Promise.allSettled(pending).then(() => true)
+        settled = await Promise.race([all, new Promise<boolean>((res) => window.setTimeout(() => res(false), 5000))])
+        if (!cancelled) { setBillingSettled(settled); setGradeNoticeVisible(true) }
+        if (!settled) { await all; if (!cancelled) setBillingSettled(true) }
+        return
+      }
+      if (!cancelled) { setBillingSettled(true); setGradeNoticeVisible(true) }
+    })()
+    return () => { cancelled = true }
+  }, [gradeResultNotice])
   const [phaseAResultNotice, setPhaseAResultNotice] = useState<PhaseAResultNotice | null>(null)
   // 跑 Phase A 過程的計數先 stash、等審查全部完成才一起包 notice 顯示
   const phaseAStashRef = useRef<{
@@ -3059,7 +3086,7 @@ export default function GradingPage({
           updatedAt: gradedAtMs,
         })
         // 直接寫入 Supabase（不依賴 sync push）
-        fetch('/api/data/save-grading', {
+        billingPendingRef.current.push(fetch('/api/data/save-grading', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -3076,7 +3103,7 @@ export default function GradingPage({
         }).then(async (r) => {
           // 固定扣除:server 回 billing(僅 FLAT_BILLING 啟用時)→ 累加+活更新頂欄餘額
           try { applySaveGradingBilling(await r.json()) } catch { /* 非致命 */ }
-        }).catch(() => {/* non-fatal, sync will retry */})
+        }).catch(() => {/* non-fatal, sync will retry */}))
         // Fire-and-forget: update forensic log with teacher decisions + Phase B results
         const gradedAt = new Date().toISOString()
         const forensicUpdates = entry.phaseAResult.questionResults.map((qr) => {
@@ -3163,12 +3190,12 @@ export default function GradingPage({
             status: 'graded', score: totalScore, aiScore: totalScore, scoreSource: 'ai',
             gradingResult, gradedAt: retryGradedAt, updatedAt: retryGradedAt,
           })
-          fetch('/api/data/save-grading', {
+          billingPendingRef.current.push(fetch('/api/data/save-grading', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
             body: JSON.stringify({ submissions: [{ id: entry.submissionId, score: totalScore, aiScore: totalScore, scoreSource: 'ai', gradingResult, gradedAt: retryGradedAt }] })
           }).then(async (r) => {
             try { applySaveGradingBilling(await r.json()) } catch { /* 非致命 */ }
-          }).catch(() => {})
+          }).catch(() => {}))
           setSubmissions((prev) => {
             const next = new Map(prev)
             const sub = Array.from(prev.values()).find((s) => s.id === entry.submissionId)
@@ -5189,7 +5216,7 @@ export default function GradingPage({
           }
           // reconcile 已在 server 端存回原卷；非 reconcile 學生才需 save-grading（避免覆蓋 reconcile 結果）
           if (!env.reconcileStudentIds.has(sub.studentId)) {
-            fetch('/api/data/save-grading', {
+            billingPendingRef.current.push(fetch('/api/data/save-grading', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'include',
@@ -5201,7 +5228,7 @@ export default function GradingPage({
               })
             }).then(async (r) => {
               try { applySaveGradingBilling(await r.json()) } catch { /* 非致命 */ }
-            }).catch(() => {/* non-fatal */})
+            }).catch(() => {/* non-fatal */}))
           }
           env.counters.successCount++
           return finalResult
@@ -5376,6 +5403,9 @@ export default function GradingPage({
   // 步驟：1. 檢查 in-scope 卡片狀態  2. 若需先截取或補答、block modal  3. 若會覆寫、warning modal  4. 否則直接跑
   const handleGradeOnly = async () => {
     setBilledPoints(0)  // 固定扣除:新一輪歸零
+    setBilledBalanceAfter(null)
+    setBillingSettled(true)
+    billingPendingRef.current = []
     if (gradeButtonState.variant === 'disabled') return
     const { inScope, stageMap } = stageAggregates
     if (inScope.length === 0) {
@@ -5619,12 +5649,12 @@ export default function GradingPage({
         if (cur) next.set(cur.studentId, { ...cur, status: 'graded', score: total, aiScore: total, scoreSource: 'ai', gradingResult: newGr, gradedAt: gradedAtMs, updatedAt: gradedAtMs })
         return next
       })
-      fetch('/api/data/save-grading', {
+      billingPendingRef.current.push(fetch('/api/data/save-grading', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ submissions: [{ id: sub.id, score: total, aiScore: total, scoreSource: 'ai', gradingResult: newGr, gradedAt: gradedAtMs }] })
       }).then(async (r) => {
         try { applySaveGradingBilling(await r.json()) } catch { /* 非致命 */ }
-      }).catch(() => {/* non-fatal */})
+      }).catch(() => {/* non-fatal */}))
       setPipelineStageProgress((p) => ({ ...p, accessor: { ...p.accessor, done: Math.min(p.accessor.total, p.accessor.done + 1) } }))
     }
     // 只有 VJ/填圖（需 image pipeline）才整份重批
@@ -5808,6 +5838,9 @@ export default function GradingPage({
     }
     regradeAckRef.current = false
     setBilledPoints(0)  // 固定扣除:新一輪歸零
+    setBilledBalanceAfter(null)
+    setBillingSettled(true)
+    billingPendingRef.current = []
     oneClickScopeRef.current = scope.map((s) => s.id)
     oneClickBgGradedIdsRef.current = new Set()
     // 2026-06-30 [審查後移重構步驟2]：旗開時走新編排（A → B 全批 → 末端審查 → finalize）。旗關＝下方現行流程。
@@ -7367,31 +7400,46 @@ export default function GradingPage({
         </div>
       )}
 
-      {gradeResultNotice && (
+      {gradeResultNotice && gradeNoticeVisible && (
         <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-xl w-full mx-4">
             <h3 className="text-lg font-bold text-gray-900 mb-4">
               {gradeResultNotice.stopped ? '已停止批改' : '批改完成'}
             </h3>
             <div className="space-y-3 mb-6">
-              <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                <span className="text-gray-600">成功批改</span>
-                <span className="font-semibold text-emerald-600">{gradeResultNotice.successCount} 份</span>
+              {/* 區塊一:批改結果(成功/失敗/總數一張卡、總數列當小結) */}
+              <div className="rounded-lg border border-slate-100 overflow-hidden">
+                <div className="flex justify-between items-center px-3.5 py-2.5">
+                  <span className="text-gray-600">成功批改</span>
+                  <span className="font-semibold text-emerald-600">{gradeResultNotice.successCount} 份</span>
+                </div>
+                <div className="flex justify-between items-center px-3.5 py-2.5 border-t border-slate-100">
+                  <span className="text-gray-600">失敗/略過</span>
+                  <span className="font-semibold text-rose-600">{gradeResultNotice.failCount} 份</span>
+                </div>
+                <div className="flex justify-between items-center px-3.5 py-2.5 border-t border-slate-100 bg-slate-50">
+                  <span className="font-semibold text-gray-700">總作業數</span>
+                  <span className="font-semibold text-gray-900">{gradeResultNotice.totalCount} 份</span>
+                </div>
               </div>
+              {/* 區塊二:本輪扣點(獨立卡;正常=藍卡含餘額、結算逾時=灰卡以餘額為準) */}
               {FLAT_BILLING && billedPoints > 0 && (
-                <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                  <span className="text-gray-600">本輪扣點</span>
-                  <span className="font-semibold text-sky-700">{billedPoints} 點</span>
+                <div className="flex justify-between items-center rounded-lg border border-sky-200 bg-sky-50 px-3.5 py-3">
+                  <span className="flex items-center gap-2 text-sky-900"><span aria-hidden>🖋</span>本輪扣點</span>
+                  <span className="text-right">
+                    <span className="block text-lg font-bold leading-tight text-sky-700">{billedPoints} 點</span>
+                    {typeof billedBalanceAfter === 'number' && (
+                      <span className="mt-0.5 block text-xs text-slate-500">餘額 {billedBalanceAfter.toLocaleString()} 點</span>
+                    )}
+                  </span>
                 </div>
               )}
-              <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                <span className="text-gray-600">失敗/略過</span>
-                <span className="font-semibold text-rose-600">{gradeResultNotice.failCount} 份</span>
-              </div>
-              <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                <span className="text-gray-600">總作業數</span>
-                <span className="font-semibold text-gray-900">{gradeResultNotice.totalCount} 份</span>
-              </div>
+              {FLAT_BILLING && billedPoints === 0 && !billingSettled && (
+                <div className="flex justify-between items-center rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
+                  <span className="flex items-center gap-2 text-slate-500"><span aria-hidden>🖋</span>本輪扣點</span>
+                  <span className="text-sm text-slate-400">結算中,實際扣點以餘額為準</span>
+                </div>
+              )}
               {gradeResultNotice.failReasons.length > 0 && (
                 <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
                   <p className="text-sm font-medium text-rose-700 mb-2">失敗原因</p>
