@@ -3,6 +3,7 @@
 //   PDF 產出沿用 correctionNoticePdf.ts 骨架（html2canvas→jsPDF、系統中文字型、每生一頁）。
 import { ensureInkSessionFresh } from '@/lib/ink-session'
 import { dispatchInkBalance } from '@/lib/ink-events'
+import { dispatchSchoolWalletBalance } from '@/lib/school-billing'
 
 const GEMINI_PROXY_URL = import.meta.env?.VITE_GEMINI_PROXY_URL || '/api/proxy'
 const COMMENT_MODEL = 'gemini-2.5-flash' // 純文字評語、便宜足夠
@@ -606,10 +607,15 @@ export async function saveParentReportCache(
       console.warn('[parentReport] 快取儲存失敗', res.status, t.slice(0, 300))
       return false
     }
-    // 固定扣除:家長報告收費點在此(2 點/生);個人扣款回新餘額 → 活更新頂欄墨水
+    // 固定扣除:家長報告收費點在此(2 點/生);扣款回新餘額 → 活更新對應餘額顯示
+    // (personal=教師端頂欄;school=行政端 SchoolAdminPanel header)
     try {
       const j = (await res.json().catch(() => null)) as { billing?: { scope?: string | null; balanceAfter?: number | null } } | null
-      if (j?.billing?.scope === 'personal' && typeof j.billing.balanceAfter === 'number') dispatchInkBalance(j.billing.balanceAfter)
+      const bill = j?.billing
+      if (typeof bill?.balanceAfter === 'number') {
+        if (bill.scope === 'personal') dispatchInkBalance(bill.balanceAfter)
+        else if (bill.scope === 'school') dispatchSchoolWalletBalance(bill.balanceAfter)
+      }
     } catch { /* 非致命 */ }
     return true
   } catch (e) {

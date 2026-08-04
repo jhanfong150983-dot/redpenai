@@ -25,6 +25,7 @@ import { db, type Assignment, type Student, type Submission, type Classroom } fr
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import { FLAT_BILLING, gradingPriceText } from '@/lib/action-pricing'
 import { dispatchInkBalance } from '@/lib/ink-events'
+import { dispatchSchoolWalletBalance } from '@/lib/school-billing'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import {
   gradePhaseA,
@@ -2667,14 +2668,18 @@ export default function GradingPage({
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
   // 2026-08-04 固定扣除:本輪已扣點數(save-grading 回應累加;fire-and-forget 落地時活更新結果視窗)
   const [billedPoints, setBilledPoints] = useState(0)
-  // 固定扣除回應統一入口:累加本輪扣點+把個人新餘額推給頂欄墨水 widget
-  // (舊制餘額由 proxy 逐 call 回應更新;新制扣款在 save-grading,不接這裡頂欄會停在舊值直到重整)
+  // 固定扣除回應統一入口:累加本輪扣點+把新餘額推給對應的餘額顯示
+  // (舊制餘額由 proxy 逐 call 回應更新;新制扣款在 save-grading,不接這裡餘額會停在舊值直到重整)
+  // personal → 教師端頂欄墨水 widget;school → 行政端 SchoolAdminPanel header(嵌入模式)
   const applySaveGradingBilling = useCallback((j: unknown) => {
     const b = (j as { billing?: { points?: number; scope?: string | null; balanceAfter?: number | null } } | null)?.billing
     if (!b) return
     const pts = b.points
     if (typeof pts === 'number' && pts > 0) setBilledPoints((p) => p + pts)
-    if (b.scope === 'personal' && typeof b.balanceAfter === 'number') dispatchInkBalance(b.balanceAfter)
+    if (typeof b.balanceAfter === 'number') {
+      if (b.scope === 'personal') dispatchInkBalance(b.balanceAfter)
+      else if (b.scope === 'school') dispatchSchoolWalletBalance(b.balanceAfter)
+    }
   }, [])
   const [phaseAResultNotice, setPhaseAResultNotice] = useState<PhaseAResultNotice | null>(null)
   // 跑 Phase A 過程的計數先 stash、等審查全部完成才一起包 notice 顯示
