@@ -3,6 +3,8 @@
 //       選項誘答力、疑似解答問題偵測（≥50% 齊答非正解）、整卷品質（平均 P/D、Cronbach's α）。
 // 口徑：二元題（全有全無）＝答對率；部分給分題＝得分率（score/maxScore），UI 需註明。
 
+
+import { deriveDimension, sectionKeyOf, sectionTitleOf } from '@/lib/exam-dimensions'
 export type ItemAnalysisQuestion = {
   id?: string
   questionId?: string
@@ -15,6 +17,8 @@ export type ItemAnalysisQuestion = {
   /** 題幹裁圖用（答案卷模板座標） */
   answerBbox?: { x: number; y: number; w: number; h: number }
   pageIndex?: number
+  /** 2026-08-07 大題彙總用：抽題時寫入，格式如「位於『一、國字注音』表格第 1 格」 */
+  anchorHint?: string
 }
 
 type DetailLike = {
@@ -86,6 +90,21 @@ export type ItemAnalysisResult = {
   totals: number[]
   /** 整卷滿分（各題配分合計） */
   examMaxScore: number
+  /** 2026-08-07 大題彙總（依題號 頁-大題 分組、標題取自 anchorHint；全科通用） */
+  sections: SectionStat[]
+}
+
+export type SectionStat = {
+  key: string
+  /** 大題標題（anchorHint 取不到 → 「第 N 大題」） */
+  title: string
+  /** 評量向度（目前只有國語可推；判不出來 null＝未分類） */
+  dimension: string | null
+  questionCount: number
+  /** 該大題的整體得分率（Σ得分 / Σ配分，跨全班） */
+  scoreRate: number
+  /** 該大題配分合計 */
+  maxScore: number
 }
 
 const CHOICE_LIKE = new Set(['single_choice', 'true_false', 'single_check', 'circle_select_one'])
@@ -132,7 +151,9 @@ function pBandOf(p: number): ItemStat['pBand'] {
 
 export function computeItemAnalysis(
   questions: ItemAnalysisQuestion[],
-  submissions: ItemAnalysisSubmissionLike[]
+  submissions: ItemAnalysisSubmissionLike[],
+  /** 2026-08-07 大題彙總的向度推導用（國語才推；不傳＝只做大題彙總、向度全 null） */
+  domain?: string | null
 ): ItemAnalysisResult | null {
   const qList = (questions || [])
     .map((q) => ({
@@ -140,7 +161,8 @@ export function computeItemAnalysis(
       type: String(q.questionCategory ?? q.questionType ?? '').trim(),
       maxScore: Number(q.maxScore) > 0 ? Number(q.maxScore) : 0,
       key: String(q.answer ?? q.referenceAnswer ?? '').trim(),
-      parts: Array.isArray(q.parts) ? q.parts : null
+      parts: Array.isArray(q.parts) ? q.parts : null,
+      anchorHint: String(q.anchorHint ?? '')
     }))
     .filter((q) => q.id)
   if (!qList.length) return null
@@ -304,6 +326,32 @@ export function computeItemAnalysis(
     }
   }
 
+  // ── 大題彙總（2026-08-07）：依題號「頁-大題」分組，標題取 anchorHint 的『』內原文 ──
+  //   得分率＝Σ(該題得分率 × 配分) / Σ配分（配分加權＝大題整體得分率）
+  const hintById = new Map(qList.map((q) => [q.id, q.anchorHint]))
+  const secAgg = new Map<string, { title: string | null; count: number; got: number; max: number; order: number }>()
+  for (const it of items) {
+    const key = sectionKeyOf(it.questionId)
+    if (!secAgg.has(key)) {
+      secAgg.set(key, { title: sectionTitleOf(hintById.get(it.questionId)), count: 0, got: 0, max: 0, order: secAgg.size })
+    }
+    const e = secAgg.get(key)!
+    if (!e.title) e.title = sectionTitleOf(hintById.get(it.questionId)) // 首題沒 hint 時由後續題補
+    e.count++
+    e.got += it.scoreRateAll * it.maxScore
+    e.max += it.maxScore
+  }
+  const sections: SectionStat[] = [...secAgg.entries()]
+    .sort((a, b) => a[1].order - b[1].order)
+    .map(([key, e], i) => ({
+      key,
+      title: e.title || `第 ${i + 1} 大題`,
+      dimension: deriveDimension(domain, e.title),
+      questionCount: e.count,
+      scoreRate: e.max > 0 ? e.got / e.max : 0,
+      maxScore: e.max
+    }))
+
   return {
     n,
     groupSize,
@@ -315,6 +363,7 @@ export function computeItemAnalysis(
     dBandCounts,
     flagged,
     totals,
-    examMaxScore: qList.reduce((a, q) => a + q.maxScore, 0)
+    examMaxScore: qList.reduce((a, q) => a + q.maxScore, 0),
+    sections
   }
 }

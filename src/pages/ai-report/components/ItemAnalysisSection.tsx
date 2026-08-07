@@ -130,7 +130,7 @@ export function DistributionBar({ item, onAiFeatures }: { item: ItemStat; onAiFe
 }
 
 export default function ItemAnalysisSection({ questions, submissions, assignmentId, domain, templateId, requestInk }: Props) {
-  const result = useMemo(() => computeItemAnalysis(questions, submissions), [questions, submissions])
+  const result = useMemo(() => computeItemAnalysis(questions, submissions, domain), [questions, submissions, domain])
   const [showAll, setShowAll] = useState(false)
   const [aiItem, setAiItem] = useState<ItemStat | null>(null)
   if (!result) return null
@@ -173,6 +173,40 @@ export default function ItemAnalysisSection({ questions, submissions, assignment
           </div>
         </div>
       </div>
+
+      {/* 2026-08-07 大題彙總（純程式、零 AI）：逐題表看得到「哪一題」，這裡看得到「哪一個大題整體弱」。
+          標題取自答案卷 anchorHint；國語另標評量向度（縣市學生學習能力檢測十向度，判不出來不標）。 */}
+      {result.sections.length > 1 && (
+        <div style={{ margin: '4px 0 14px' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
+            大題彙總
+            <span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 6 }}>各大題整體得分率（依配分加權）</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {result.sections.map((s) => {
+              const pct = Math.round(s.scoreRate * 100)
+              const color = pct >= 80 ? '#16a34a' : pct >= 60 ? '#d97706' : '#dc2626'
+              return (
+                <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ flex: '0 0 210px', fontSize: 12, color: '#334155', display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</span>
+                    <span style={{ flex: '0 0 auto', fontSize: 10, color: '#94a3b8' }}>{s.questionCount} 題</span>
+                  </div>
+                  {s.dimension && (
+                    <span style={{ flex: '0 0 auto', fontSize: 10, color: '#475569', background: '#f1f5f9', borderRadius: 4, padding: '1px 6px' }}>
+                      {s.dimension}
+                    </span>
+                  )}
+                  <div style={{ flex: 1, height: 14, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden', minWidth: 60 }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }} />
+                  </div>
+                  <div style={{ flex: '0 0 42px', textAlign: 'right', fontSize: 12, fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{pct}%</div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 2026-07-16 user 拍板：「建議檢視」清單拿掉——老師直接看表格的難易/鑑別徽章即可；
           flagged 仍由 computeItemAnalysis 計算（留給未來自動提示用）、只是不渲染 */}
