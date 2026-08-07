@@ -778,12 +778,12 @@ export const REPORT_CSS = `
 .pr-mtopic { font-size:12.5px; font-weight:700; color:#1F2933; margin:12px 0 7px; }
 .pr-mtopic-badge { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 8px; border-radius:3px; margin-left:8px; }
 .pr-cgrid { display:flex; flex-wrap:wrap; gap:6px; }
-/* 2026-08-07 會考能力等級描述（主題徽章下的說明句）＋段末免責 */
-.pr-capdesc { margin:0 0 8px; padding:7px 10px; background:#F7F9FA; border-left:3px solid #CFD8DD; border-radius:0 4px 4px 0; }
-.pr-capln { font-size:11.5px; color:#3D4650; line-height:1.7; }
-.pr-capln .k { font-weight:700; color:#7B8794; margin-right:6px; }
-.pr-capln.next { color:#8A939C; }
-.pr-capdis { margin-top:12px; padding-top:8px; border-top:1px dashed #E2E7EB; font-size:10px; color:#98A2AB; line-height:1.7; }
+/* 2026-08-07 圖例＝三等第說明（會考能力等級描述、整份只出現一次）＋主題答對率 */
+.pr-mlgd-row { display:flex; align-items:baseline; gap:6px; margin-top:4px; font-size:11px; line-height:1.65; }
+.pr-mlgd-row b { flex:0 0 44px; color:#52606D; font-weight:700; }
+.pr-mlgd-row .d { color:#7B8794; }
+.pr-mtopic-rate { font-size:10.5px; font-weight:600; color:#7B8794; margin-left:8px; }
+.pr-capdis { margin-top:8px; padding-top:6px; border-top:1px dashed #E2E7EB; font-size:9.5px; color:#98A2AB; line-height:1.6; }
 .pr-cell { font-size:12.5px; font-weight:600; padding:6px 11px; border-radius:4px; color:#fff; letter-spacing:.01em; }
 .pr-cell.expert { background:#256B4C; }
 .pr-cell.basic { background:#9A5B00; }
@@ -863,23 +863,30 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
   const moreRow = r.moreWrongCount > 0
     ? `<div class="pr-more">另有 ${r.moreWrongCount} 題失分，完整內容請見孩子的考卷。</div>` : ''
   // 第三段：精熟程度總覽（全部主題+知識點、三色點）
-  const masteryLegend = `<div class="pr-mlegend">每一格是一個知識點，顏色代表掌握狀態：<span class="pr-mlgd-dot" style="background:#256B4C"></span>精熟　<span class="pr-mlgd-dot" style="background:#9A5B00"></span>基礎　<span class="pr-mlgd-dot" style="background:#B0301C"></span>待加強</div>`
-  // 2026-08-07 每個主題徽章下補「這一級代表什麼／再上一級是什麼」＝會考官方能力等級描述（純字串、不呼叫 AI）。
-  //   科目對不上會考五科（藝文/健體…）→ capLevelDesc 回 null、整段不渲染，免責也不顯示。
-  let anyCapDesc = false
+  // 2026-08-07 圖例升級為「等第說明」：三個等第各配一句會考官方能力等級描述（整份報告只出現一次＝
+  //   等第是什麼意思講清楚就好；逐主題重複同一句沒有資訊量、user 退回）。科目對不上會考五科→ 退回原本純色塊圖例。
+  const capGloss = (['green', 'amber', 'red'] as const)
+    .map((b) => ({ b, d: capLevelDesc(h.subject, b) }))
+    .filter((x) => x.d)
+  const legendRow = (color: string, label: string, desc?: string) =>
+    `<div class="pr-mlgd-row"><span class="pr-mlgd-dot" style="background:${color}"></span><b>${label}</b>${desc ? `<span class="d">${esc(desc)}</span>` : ''}</div>`
+  const masteryLegend = capGloss.length === 3
+    ? `<div class="pr-mlegend">每一格是一個知識點，顏色代表掌握狀態：
+        ${legendRow('#256B4C', '精熟', capGloss[0].d!.current)}
+        ${legendRow('#9A5B00', '基礎', capGloss[1].d!.current)}
+        ${legendRow('#B0301C', '待加強', capGloss[2].d!.current)}
+        <div class="pr-capdis">${esc(CAP_LEVEL_DISCLAIMER)}</div>
+      </div>`
+    : `<div class="pr-mlegend">每一格是一個知識點，顏色代表掌握狀態：<span class="pr-mlgd-dot" style="background:#256B4C"></span>精熟　<span class="pr-mlgd-dot" style="background:#9A5B00"></span>基礎　<span class="pr-mlgd-dot" style="background:#B0301C"></span>待加強</div>`
+  // 2026-08-07 主題列補「該主題的答對率」——ratePct 本來就算好了但沒顯示；
+  //   這是真正逐主題不同的資訊（等第語言只是三個等第的通用解釋、放在圖例即可，見 masteryLegend）。
   const masteryHtml = r.topicMastery.map((t) => {
     const badge = t.band === 'green' ? 'badge-green' : t.band === 'amber' ? 'badge-amber' : 'badge-red'
     const badgeText = t.band === 'green' ? '精熟' : t.band === 'amber' ? '基礎' : '待加強'
     const cells = t.kps.map((k) => `<span class="pr-cell ${k.level}">${esc(k.kp)}</span>`).join('')
-    const cap = capLevelDesc(h.subject, t.band)
-    if (cap) anyCapDesc = true
-    const capHtml = cap
-      ? `<div class="pr-capdesc"><div class="pr-capln"><span class="k">這一級是</span><span>${esc(cap.current)}</span></div>${cap.next ? `<div class="pr-capln next"><span class="k">再上一級</span><span>${esc(cap.next)}</span></div>` : ''}</div>`
-      : ''
     // pr-mgroup 包裹＝主題標題與其知識點格永遠同頁（分頁不可切開、user 回饋）
-    return `<div class="pr-mgroup"><div class="pr-mtopic">${esc(t.topic)}<span class="pr-mtopic-badge ${badge}">${badgeText}</span></div>${capHtml}<div class="pr-cgrid">${cells}</div></div>`
+    return `<div class="pr-mgroup"><div class="pr-mtopic">${esc(t.topic)}<span class="pr-mtopic-badge ${badge}">${badgeText}</span><span class="pr-mtopic-rate">答對率 ${t.ratePct}%</span></div><div class="pr-cgrid">${cells}</div></div>`
   }).join('')
-  const capDisclaimerHtml = anyCapDesc ? `<div class="pr-capdis">${esc(CAP_LEVEL_DISCLAIMER)}</div>` : ''
   // 第四段：逐題錯題分析（全部錯題、依題號排序；crop/why/suggest 由 generate 流程填）
   const errorCards = r.errorRows.map((e) => {
     const crop = e.cropDataUrl ? `<div class="pr-qcrop"><img src="${esc(e.cropDataUrl)}"></div>` : ''
@@ -950,7 +957,6 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     <div class="pr-sec">三、各主題知識點的精熟程度</div>
     ${masteryLegend}
     ${masteryHtml}
-    ${capDisclaimerHtml}
 
     <div class="pr-page2">
       <div class="pr-sec">四、逐題錯題分析</div>
