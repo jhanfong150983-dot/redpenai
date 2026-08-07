@@ -92,7 +92,35 @@ export type ItemAnalysisResult = {
   examMaxScore: number
   /** 2026-08-07 大題彙總（依題號 頁-大題 分組、標題取自 anchorHint；全科通用） */
   sections: SectionStat[]
+  /** 2026-08-07 卷面結構：題型配分（依作答形式分組） */
+  formGroups: FormGroupStat[]
+  /** 2026-08-07 卷面結構：難度分布（偏易/適中/偏難） */
+  difficulty: DifficultyStat[]
 }
+
+// 作答形式分組（給老師看「這張卷長什麼樣」；⛔不是批改用的 bucket A/B/C/D，那是內部術語）。
+// 2026-08-07 user 拍板：國小/國中/高中統一一版、不與會考或學測比對——
+//   會考除數學外幾乎全選擇題，拿來對標段考會暗示老師「少出非選」，與素養導向相反。
+const FORM_GROUPS: Array<{ key: string; label: string; color: string; cats: string[] }> = [
+  { key: 'choice', label: '選擇・是非', color: '#3b82f6',
+    cats: ['single_choice', 'multi_choice', 'true_false', 'single_check', 'multi_check', 'table_check', 'circle_select_one', 'circle_select_many'] },
+  { key: 'fill', label: '填空・填寫', color: '#10b981',
+    cats: ['fill_blank', 'multi_fill', 'fill_variants', 'table_cell', 'matching', 'ordering', 'mark_in_text'] },
+  { key: 'written', label: '簡答・問答', color: '#f59e0b',
+    cats: ['short_answer', 'calculation', 'word_problem'] },
+  { key: 'draw', label: '作圖・標記', color: '#8b5cf6',
+    cats: ['map_fill', 'map_symbol', 'grid_geometry', 'connect_dots', 'diagram_draw', 'diagram_color'] },
+  { key: 'compound', label: '複合題', color: '#64748b',
+    cats: ['compound_circle_with_explain', 'compound_check_with_explain', 'compound_writein_with_explain', 'multi_check_other', 'compound_judge_with_correction', 'compound_judge_with_explain', 'compound_chain_table'] },
+]
+const FORM_OF = new Map<string, typeof FORM_GROUPS[number]>()
+for (const g of FORM_GROUPS) for (const c of g.cats) FORM_OF.set(c, g)
+const FORM_OTHER = { key: 'other', label: '其他', color: '#94a3b8' }
+
+/** 2026-08-07 卷面結構——題型配分（依作答形式分組，非批改 bucket；老師看得懂的名字） */
+export type FormGroupStat = { key: string; label: string; color: string; questionCount: number; maxScore: number }
+/** 2026-08-07 卷面結構——難度分布（沿用逐題已算好的 pBand） */
+export type DifficultyStat = { band: ItemStat['pBand']; questionCount: number; maxScore: number }
 
 export type SectionStat = {
   key: string
@@ -352,6 +380,28 @@ export function computeItemAnalysis(
       maxScore: e.max
     }))
 
+  // ── 卷面結構（2026-08-07）：題型配分 + 難度分布，兩者都從已算好的資料彙總、零額外成本 ──
+  const formAgg = new Map<string, FormGroupStat>()
+  for (const it of items) {
+    const g = FORM_OF.get(it.questionType) ?? FORM_OTHER
+    if (!formAgg.has(g.key)) formAgg.set(g.key, { key: g.key, label: g.label, color: g.color, questionCount: 0, maxScore: 0 })
+    const e = formAgg.get(g.key)!
+    e.questionCount++
+    e.maxScore += it.maxScore
+  }
+  const formOrder = [...FORM_GROUPS.map((g) => g.key), FORM_OTHER.key]
+  const formGroups = [...formAgg.values()].sort((a, b) => formOrder.indexOf(a.key) - formOrder.indexOf(b.key))
+
+  const diffAgg = new Map<ItemStat['pBand'], DifficultyStat>()
+  for (const it of items) {
+    if (!diffAgg.has(it.pBand)) diffAgg.set(it.pBand, { band: it.pBand, questionCount: 0, maxScore: 0 })
+    const e = diffAgg.get(it.pBand)!
+    e.questionCount++
+    e.maxScore += it.maxScore
+  }
+  const diffOrder: ItemStat['pBand'][] = ['偏易', '適中', '偏難']
+  const difficulty = diffOrder.filter((b) => diffAgg.has(b)).map((b) => diffAgg.get(b)!)
+
   return {
     n,
     groupSize,
@@ -364,6 +414,8 @@ export function computeItemAnalysis(
     flagged,
     totals,
     examMaxScore: qList.reduce((a, q) => a + q.maxScore, 0),
-    sections
+    sections,
+    formGroups,
+    difficulty
   }
 }

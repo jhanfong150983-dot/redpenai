@@ -174,6 +174,67 @@ export default function ItemAnalysisSection({ questions, submissions, assignment
         </div>
       </div>
 
+      {/* 2026-08-07 卷面結構（純程式、零 AI；user 拍板：國小/國中/高中統一一版、不與會考或學測比對）：
+          題型配分＝這張卷把分數放在哪些作答形式上；難度分布＝補上摘要磚只有鑑別度、沒有難易度的缺口。 */}
+      {(result.formGroups.length > 0 || result.difficulty.length > 0) && (
+        <div style={{ margin: '4px 0 16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 18 }}>
+          {result.formGroups.length > 0 && (() => {
+            const total = result.formGroups.reduce((a, g) => a + g.maxScore, 0) || 1
+            return (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
+                  題型配分<span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 6 }}>依配分計算</span>
+                </div>
+                <div style={{ display: 'flex', height: 22, borderRadius: 4, overflow: 'hidden' }}>
+                  {result.formGroups.map((g) => {
+                    const pct = Math.round((g.maxScore / total) * 100)
+                    return (
+                      <div key={g.key} title={`${g.label} ${g.questionCount} 題・${g.maxScore} 分`}
+                        style={{ flex: g.maxScore, background: g.color, color: '#fff', fontSize: 10.5, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 0, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                        {pct >= 12 ? `${pct}%` : ''}
+                      </div>
+                    )
+                  })}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 7, fontSize: 11, color: '#475569' }}>
+                  {result.formGroups.map((g) => (
+                    <span key={g.key} style={{ whiteSpace: 'nowrap' }}>
+                      <i style={{ display: 'inline-block', width: 9, height: 9, borderRadius: 2, background: g.color, marginRight: 5, verticalAlign: 'middle' }} />
+                      {g.label} {g.questionCount} 題・{g.maxScore} 分
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
+
+          {result.difficulty.length > 0 && (() => {
+            const maxCount = Math.max(...result.difficulty.map((d) => d.questionCount), 1)
+            const color: Record<string, string> = { 偏易: '#94a3b8', 適中: '#16a34a', 偏難: '#dc2626' }
+            return (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 6 }}>
+                  難度分布<span style={{ fontWeight: 400, color: '#94a3b8', marginLeft: 6 }}>依難易度 P（&gt;0.8 偏易、&lt;0.4 偏難）</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {result.difficulty.map((d) => (
+                    <div key={d.band} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ flex: '0 0 40px', fontSize: 11.5, color: '#334155' }}>{d.band}</span>
+                      <span style={{ flex: 1, height: 13, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden', minWidth: 40 }}>
+                        <span style={{ display: 'block', width: `${Math.round((d.questionCount / maxCount) * 100)}%`, height: '100%', background: color[d.band] ?? '#94a3b8', borderRadius: 3 }} />
+                      </span>
+                      <span style={{ flex: '0 0 86px', textAlign: 'right', fontSize: 11, color: '#64748b', fontVariantNumeric: 'tabular-nums' }}>
+                        {d.questionCount} 題・{d.maxScore} 分
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
+        </div>
+      )}
+
       {/* 2026-08-07 大題彙總（純程式、零 AI）：逐題表看得到「哪一題」，這裡看得到「哪一個大題整體弱」。
           標題取自答案卷 anchorHint；國語另標評量向度（縣市學生學習能力檢測十向度，判不出來不標）。 */}
       {result.sections.length > 1 && (
