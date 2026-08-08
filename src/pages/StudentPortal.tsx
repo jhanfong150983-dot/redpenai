@@ -41,11 +41,7 @@ import {
 import type { AnswerKey } from '@/lib/db'
 // 2026-06-02: 學生自助批改沿用老師端複核畫面（最小抽取 export 自 GradingPage）
 import {
-  ConsistencyQuestionCard,
   OriginalPageViewer,
-  buildFinalAnswerForQR,
-  legacyQuestionNeedsReview,
-  type ConsistencyDecision,
 } from '@/pages/GradingPage'
 
 type StudentTab = 'overview' | 'upload' | 'correction'
@@ -442,7 +438,7 @@ function getStatusStyle(status: string) {
 // 2026-06-02: 沿用老師端複核畫面（ConsistencyQuestionCard / OriginalPageViewer），
 // 單卷一條龍。學生 client 不持有 answerKey（傳空殼，由 proxy server 端注入）。
 type AiGradeState =
-  | 'begin' | 'phase_a_running' | 'review' | 'phase_b_running' | 'finalizing' | 'done' | 'failed'
+  | 'begin' | 'phase_a_running' | 'phase_b_running' | 'finalizing' | 'done' | 'failed'
 
 const STAGE_TEXT: Record<string, string> = {
   classify: '讀取你的作答…',
@@ -452,10 +448,7 @@ const STAGE_TEXT: Record<string, string> = {
   explain: '整理結果…',
 }
 
-// 一題是否需要學生確認（與老師端 BatchConsistencyReviewSection.isNeedsReview 對齊）
-// 2026-08-08: legacy fallback 統一走 legacyQuestionNeedsReview——舊卷的 consistencyStatus 可能整片
-//   被捏造成 unstable（實測 19 個作業有此症狀），原本會讓學生端整份卷每題都跳待確認。
-const studentQuestionNeedsReview = (q: PhaseAQuestionResult): boolean => legacyQuestionNeedsReview(q)
+// 2026-08-08 移除 studentQuestionNeedsReview：0 審查架構下恆為 false（見 start() 內註解）。
 
 function StudentGradingFlow({
   item,
@@ -470,7 +463,6 @@ function StudentGradingFlow({
   const [stageMsg, setStageMsg] = useState('準備中…')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [phaseA, setPhaseA] = useState<PhaseAResult | null>(null)
-  const [decisions, setDecisions] = useState<Map<string, ConsistencyDecision>>(new Map())
   const [viewerQ, setViewerQ] = useState<PhaseAQuestionResult | null>(null)
   const [doneResult, setDoneResult] = useState<{ hasMistakes: boolean; score: number | null } | null>(null)
   const ctxRef = useRef<{
@@ -488,7 +480,8 @@ function StudentGradingFlow({
 
   const fail = (msg: string) => { setErrorMsg(msg); setState('failed') }
 
-  const runPhaseB = useCallback(async (finalAnswers: ReturnType<typeof buildFinalAnswerForQR>[]) => {
+  // 2026-08-08：原本可帶老師/學生複核確認的 finalAnswers；0 審查架構下恆為空 → 參數拔掉
+  const runPhaseB = useCallback(async () => {
     const ctx = ctxRef.current
     if (!ctx) { fail('批改內容遺失，請重試'); return }
     setState('phase_b_running')
@@ -496,7 +489,7 @@ function StudentGradingFlow({
     try {
       const result = await gradePhaseBFromCache(
         ctx.blob, ctx.submissionId, item.id, ctx.domain, ctx.answerSheetMode,
-        undefined, finalAnswers.length > 0 ? finalAnswers : undefined, onStage
+        undefined, undefined, onStage
       )
       setState('finalizing')
       const resp = await fetch('/api/data/student-finalize-grading', {
@@ -568,12 +561,9 @@ function StudentGradingFlow({
         fail(pa.pipelineFailure.userMessage || 'AI 辨識失敗，請重試'); return
       }
       setPhaseA(pa)
-      const reviewQs = (pa.questionResults || []).filter(studentQuestionNeedsReview)
-      if (reviewQs.length === 0) {
-        await runPhaseB([]) // 無待複核題 → 直接 Phase B（server 用 arbiterDecisions 補答案）
-      } else {
-        setState('review')
-      }
+      // 2026-08-08 學生端複核移除（0 審查架構）：鏈把每格轉 arbitrated_agree，
+      //   studentQuestionNeedsReview 恆為 false → 原本的 else 分支不可達，直接 Phase B。
+      await runPhaseB() // server 用 arbiterDecisions 補答案
     } catch (err) {
       fail(err instanceof Error ? err.message : '批改失敗，請重試')
     }
@@ -585,38 +575,8 @@ function StudentGradingFlow({
     void start()
   }, [start])
 
-  const reviewQs = phaseA ? (phaseA.questionResults || []).filter(studentQuestionNeedsReview) : []
-  const allConfirmed = reviewQs.length > 0 && reviewQs.every((q) => decisions.get(q.questionId)?.confirmed)
-
-  const handleDecision = (questionId: string, update: Partial<ConsistencyDecision>) => {
-    setDecisions((prev) => {
-      const next = new Map(prev)
-      const existing = next.get(questionId) || { questionId, source: 'ai_read1', finalAnswer: '', confirmed: false }
-      next.set(questionId, { ...existing, ...update, questionId } as ConsistencyDecision)
-      return next
-    })
-  }
-
-  const handleConfirmReview = async () => {
-    if (!phaseA) return
-    const finalAnswers = reviewQs.map((q) => buildFinalAnswerForQR(q, decisions.get(q.questionId)))
-    const ctx = ctxRef.current
-    if (!ctx) { fail('批改內容遺失，請重試'); return }
-    setState('phase_b_running')
-    try {
-      const resp = await fetch('/api/data/student-save-final-answers', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ assignmentId: item.id, submissionId: ctx.submissionId, finalAnswers }),
-      })
-      if (!resp.ok) {
-        const d = await resp.json().catch(() => ({}))
-        fail(d?.error || '儲存複核結果失敗'); return
-      }
-    } catch (err) {
-      fail(err instanceof Error ? err.message : '儲存複核結果失敗'); return
-    }
-    await runPhaseB(finalAnswers)
-  }
+  // 2026-08-08 移除：reviewQs / allConfirmed / handleDecision / handleConfirmReview
+  //   （學生端複核 UI 與 student-save-final-answers 呼叫）——見上方說明。
 
   const Spinner = () => (
     <div className="flex flex-col items-center gap-3 py-10 text-center">
@@ -641,28 +601,6 @@ function StudentGradingFlow({
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {(state === 'begin' || state === 'phase_a_running' || state === 'phase_b_running' || state === 'finalizing') && (
           <Spinner />
-        )}
-
-        {state === 'review' && phaseA && (
-          <div className="mx-auto max-w-xl space-y-3">
-            <div className="rounded-lg border border-orange-200 bg-orange-50 px-4 py-3">
-              <p className="text-sm font-bold text-slate-900">請確認這幾題你的答案</p>
-              <p className="mt-0.5 text-xs text-slate-600">AI 有 {reviewQs.length} 題看不太清楚，幫忙確認一下你寫的是哪個。</p>
-            </div>
-            <div className="space-y-2">
-              {reviewQs.map((q) => (
-                <ConsistencyQuestionCard
-                  key={q.questionId}
-                  studentId={item.id}
-                  questionResult={q}
-                  decision={decisions.get(q.questionId)}
-                  onDecision={handleDecision}
-                  disabled={false}
-                  onViewOriginal={() => setViewerQ(q)}
-                />
-              ))}
-            </div>
-          </div>
         )}
 
         {state === 'done' && doneResult && (
@@ -696,24 +634,6 @@ function StudentGradingFlow({
           </div>
         )}
       </div>
-
-      {/* 複核底部固定送出列 */}
-      {state === 'review' && (
-        <div className="border-t border-slate-200 px-4 py-3">
-          <div className="mx-auto flex max-w-xl items-center justify-between gap-3">
-            <span className="text-xs text-slate-500">
-              已確認 {reviewQs.filter((q) => decisions.get(q.questionId)?.confirmed).length}/{reviewQs.length} 題
-            </span>
-            <button
-              onClick={() => void handleConfirmReview()}
-              disabled={!allConfirmed}
-              className="rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              完成複核、繼續批改
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* 看原圖 */}
       {viewerQ && ctxRef.current && (
