@@ -798,103 +798,9 @@ interface BatchPhaseAEntry {
   pageBreaks?: number[]  // 2026-06-01 Phase4: 多頁合併比例、「看原圖」切單頁用
 }
 
-// ─── 2026-07-03 續審（resume review）：關頁中斷的人工審查、重開時從持久化資料重建審查 entries ───
-//   資料來源全是既存持久化欄位：phaseAState.arbiterDecisions(哪些題 NR+最終答案)、
-//   phaseAState.readAnswer1/2(兩讀)、gradingResult.details(題型/bbox/reviewCandidates 暫定分)、
-//   Dexie imageBlob(crop 重切+看原圖)。已確認的學生 finalAnswers 已寫→submissionPendingReview=false 自動跳過。
-type ResumeDetailRow = {
-  questionId?: string; questionType?: string; studentAnswer?: string
-  answerBbox?: { x: number; y: number; w: number; h: number }
-  reviewCandidates?: { ai_read1?: { studentAnswer?: string } | null; ai_read2?: { studentAnswer?: string } | null }
-}
-const resumeAnswerStatus = (t: string): string => (!t || t === '未作答') ? 'blank' : t === '無法辨識' ? 'unreadable' : 'read'
-// 從整張(可能多頁合併)圖 canvas 裁出題目區域的 dataURL（審查卡片顯示用；失敗回 null、卡片仍有「看原圖」）
-async function cropDataUrlFromBlob(
-  blob: Blob, bbox: { x: number; y: number; w: number; h: number }, padX = 0.03, padY = 0.02
-): Promise<string | null> {
-  try {
-    const bmp = await createImageBitmap(blob)
-    const W = bmp.width; const H = bmp.height
-    const x0 = Math.max(0, Math.floor((bbox.x - padX) * W))
-    const y0 = Math.max(0, Math.floor((bbox.y - padY) * H))
-    const x1 = Math.min(W, Math.ceil((bbox.x + bbox.w + padX) * W))
-    const y1 = Math.min(H, Math.ceil((bbox.y + bbox.h + padY) * H))
-    if (x1 - x0 < 4 || y1 - y0 < 4) { bmp.close(); return null }
-    const canvas = document.createElement('canvas')
-    canvas.width = x1 - x0; canvas.height = y1 - y0
-    const ctx = canvas.getContext('2d')
-    if (!ctx) { bmp.close(); return null }
-    ctx.drawImage(bmp, x0, y0, x1 - x0, y1 - y0, 0, 0, x1 - x0, y1 - y0)
-    bmp.close()
-    return canvas.toDataURL('image/jpeg', 0.85)
-  } catch { return null }
-}
-async function buildResumeEntry(sub: Submission): Promise<BatchPhaseAEntry | null> {
-  const pa = sub.phaseAState as {
-    arbiterDecisions?: Array<{ questionId?: string; arbiterStatus?: string; finalAnswer?: string }>
-    readAnswer1?: Array<{ questionId: string; status: string; answer: string; partValues?: Array<{ subId: string; student: string }> }>
-    readAnswer2?: Array<{ questionId: string; status: string; answer: string; partValues?: Array<{ subId: string; student: string }> }>
-  } | undefined
-  const ad = Array.isArray(pa?.arbiterDecisions) ? pa!.arbiterDecisions! : []
-  const details = ((sub.gradingResult as { details?: ResumeDetailRow[] } | undefined)?.details) ?? []
-  if (!sub.imageBlob || ad.length === 0 || details.length === 0) return null
-  const adByQid = new Map(ad.map((d) => [String(d.questionId ?? ''), d]))
-  const r1ByQid = new Map((pa?.readAnswer1 ?? []).map((r) => [String(r.questionId), r]))
-  const r2ByQid = new Map((pa?.readAnswer2 ?? []).map((r) => [String(r.questionId), r]))
-  const questionResults: PhaseAQuestionResult[] = []
-  let nrCount = 0
-  for (const d of details) {
-    const qid = String(d.questionId ?? '')
-    if (!qid) continue
-    const dec = adByQid.get(qid)
-    const arbiterStatus = (dec?.arbiterStatus === 'needs_review' ? 'needs_review' : 'arbitrated_agree') as 'needs_review' | 'arbitrated_agree'
-    const isNR = questionNeedsConfirm(arbiterStatus, dec?.finalAnswer, d.questionType)
-    // 兩讀文字：優先 phaseAState 的 read1/2（sync 可能沒帶）→ 退 reviewCandidates 各候選文字
-    const r1Text = r1ByQid.get(qid)?.answer ?? d.reviewCandidates?.ai_read1?.studentAnswer ?? ''
-    const r2Text = r2ByQid.get(qid)?.answer ?? d.reviewCandidates?.ai_read2?.studentAnswer ?? ''
-    const qr: PhaseAQuestionResult = {
-      questionId: qid,
-      questionType: d.questionType,
-      consistencyStatus: isNR ? 'diff' : 'stable',
-      // 2026-07-05b: partValues 現已持久化於 phase_a_state → 續審也能重建四小格
-      readAnswer1: { status: resumeAnswerStatus(r1Text), studentAnswer: r1Text || '未作答', partValues: r1ByQid.get(qid)?.partValues },
-      readAnswer2: { status: resumeAnswerStatus(r2Text), studentAnswer: r2Text || '未作答', partValues: r2ByQid.get(qid)?.partValues },
-      answerBbox: d.answerBbox,
-      arbiterResult: { arbiterStatus, finalAnswer: dec?.finalAnswer }
-    }
-    if (isNR) {
-      nrCount++
-      if (d.answerBbox && typeof d.answerBbox.x === 'number') {
-        const url = await cropDataUrlFromBlob(sub.imageBlob, d.answerBbox)
-        if (url) qr.answerCropImageUrl = url
-      }
-    }
-    questionResults.push(qr)
-  }
-  if (nrCount === 0) return null
-  // 決策 seed（鏡像 live 流程）：非 NR 題 seed ai_arbiter(confirmed、確認時 finalAnswers 用 arbiter 最終答案)；
-  //   NR 題不 seed(老師本輪決定)。手改 FA：非 NR 題保留(confirmed、老師 detail 明確改過)、NR 題只當 prefill。
-  const nrQids = new Set(questionResults.filter((q) => q.arbiterResult?.arbiterStatus === 'needs_review').map((q) => q.questionId))
-  const decisions = new Map<string, ConsistencyDecision>()
-  for (const q of questionResults) {
-    if (nrQids.has(q.questionId)) continue
-    decisions.set(q.questionId, { questionId: q.questionId, source: 'ai_arbiter', finalAnswer: q.arbiterResult?.finalAnswer ?? '', confirmed: true })
-  }
-  for (const fa of (Array.isArray(sub.finalAnswers) ? sub.finalAnswers : [])) {
-    if (fa?.finalAnswerSource === 'manual' && String(fa.finalStudentAnswer ?? '').trim()) {
-      const isNRQ = nrQids.has(fa.questionId)
-      decisions.set(fa.questionId, { questionId: fa.questionId, source: 'manual', finalAnswer: fa.finalStudentAnswer ?? '', confirmed: !isNRQ })
-    }
-  }
-  return {
-    submissionId: sub.id,
-    studentId: sub.studentId,
-    phaseAResult: { phaseAComplete: true, questionResults, stableCount: 0, diffCount: 0, unstableCount: 0, needsReviewCount: nrCount },
-    decisions,
-    imageBlob: sub.imageBlob,
-    pageBreaks: sub.pageBreaks
-  }
-}
+// ─── 2026-07-03 續審的重建 helper（buildResumeEntry / cropDataUrlFromBlob /
+//     resumeAnswerStatus / ResumeDetailRow）已於 2026-08-08 隨續審 UI 一併移除；
+//     原因與實測數據見下方「續審（resume review）整段移除」註解。
 
 // ─── Peer baseline outlier detection (post-batch revisit) ──────────────────
 // 用 batch 內其他已成功的 sub 算 per-qid bbox median 當基準、
@@ -2825,66 +2731,17 @@ export default function GradingPage({
   // qualityCheckRetryCount removed — quality checks are now internal (server-side)
   const [postRetryWarnings, setPostRetryWarnings] = useState<Array<{ submissionId: string; studentLabel: string; unreadCount: number }>>([])
 
-  // ─── 2026-07-03 續審：上次人工審查沒做完就關頁 → 重開批改頁詢問「要不要繼續」 ───
-  //   偵測條件＝submissionPendingReview（卡片待複核的同一事實來源）+ 本機有 imageBlob。
-  //   banner 每次進頁最多出現一次；按「稍後」縮成常駐小按鈕、隨時可再進。
-  const resumeBannerShownRef = useRef(false)
-  const [resumeReview, setResumeReview] = useState<null | { mode: 'banner' | 'mini'; count: number }>(null)
-  const [isResuming, setIsResuming] = useState(false)
-  // 2026-07-03 fix：reviewAfterB 架構下 NR 卷在「審查前」就被統一 Phase B 批了暫定分(status='graded')，
-  //   submissionPendingReview 開頭「graded→false」短路 → 中斷的末端審查偵測不到(實測整批 graded)。
-  //   新訊號＝graded 但 arbiterDecisions 有 needs_review 且 finalAnswers 沒覆蓋那題(老師還沒確認)。
-  //   舊流程(Phase A 完未批)仍由 submissionPendingReview 涵蓋、兩者取聯集。
-  const hasUnresolvedReview = useCallback((s: Submission): boolean => {
-    const pa = s.phaseAState as { arbiterDecisions?: Array<{ questionId?: string; arbiterStatus?: string }> } | undefined
-    const ads = Array.isArray(pa?.arbiterDecisions) ? pa!.arbiterDecisions! : []
-    if (ads.length === 0) return false
-    if (s.gradingResult && (s.gradingResult as { manuallyReviewed?: boolean }).manuallyReviewed) return false
-    if (isPhaseAStale(s) && s.status === 'graded') return false  // 答案卷變過等 stale 情況不提供續審
-    const faQids = new Set((Array.isArray(s.finalAnswers) ? s.finalAnswers : []).map((f) => f.questionId))
-    return ads.some((d) => d.arbiterStatus === 'needs_review' && d.questionId && !faQids.has(d.questionId))
-  }, [])
-  const findResumePending = useCallback(() => (
-    Array.from(submissions.values()).filter((s) => s.imageBlob && (submissionPendingReview(s) || hasUnresolvedReview(s)))
-  ), [submissions, hasUnresolvedReview])
-  useEffect(() => {
-    if (resumeBannerShownRef.current) return
-    if (isGrading || gradingPhase !== 'idle' || batchPhaseAEntries.length > 0) return
-    const pend = findResumePending()
-    if (pend.length > 0) {
-      resumeBannerShownRef.current = true
-      setResumeReview({ mode: 'banner', count: pend.length })
-    }
-  }, [submissions, isGrading, gradingPhase, batchPhaseAEntries.length, findResumePending])
-  const startResumeReview = async () => {
-    setIsResuming(true)
-    try {
-      const pend = findResumePending()
-      // 按座號排、審查順序穩定
-      const seatOf = (s: Submission) => students.find((st) => st.id === s.studentId)?.seatNumber ?? 9999
-      pend.sort((a, b) => seatOf(a) - seatOf(b))
-      const entries: BatchPhaseAEntry[] = []
-      for (const sub of pend) {
-        try { const e = await buildResumeEntry(sub); if (e) entries.push(e) }
-        catch (err) { console.warn('[resume-review] rebuild failed', sub.id, err) }
-      }
-      if (entries.length === 0) {
-        void alertModal('找不到可續審的卷（資料可能已更新）。可用「智慧批改」重新處理待複核的卷。')
-        setResumeReview(null)
-        return
-      }
-      // 與 reviewAfterB 末端審查同一條路：onStudentConfirmed 只存 final_answers、onAllDone → finalize
-      //  （選 read1/read2 直接套 reviewCandidates 分數、人工輸入走單題重批、VJ/map_fill 整份重批）。
-      oneClickScopeRef.current = entries.map((e) => e.submissionId)
-      oneClickBgGradedIdsRef.current = new Set()
-      reviewAfterBModeRef.current = true
-      phaseAOnlyReviewModeRef.current = true
-      setReviewStreamingDone(true)
-      setBatchPhaseAEntries(entries)
-      setGradingPhase('awaiting_review')
-      setResumeReview(null)
-    } finally { setIsResuming(false) }
-  }
+  // ─── 2026-08-08 續審（resume review）整段移除 ─────────────────────────────────
+  //   0 審查架構（applyEscalationChain + applyZeroReviewTail 都預設開）會把每一格轉成
+  //   arbitrated_agree，沒有格子留在 needs_review → 續審的偵測條件（submissionPendingReview /
+  //   arbiterDecisions 含 needs_review 且缺 final_answer）永遠不成立、banner 不會出現。
+  //   實測（2026-08-08 全庫 904 份有 phase_a_state 的卷）：會被續審抓到的只有 40 份，
+  //   全部是 2026-06-02 或更早的舊卷，其中 3 個作業從未完成 Phase B＝廢棄測試資料；
+  //   鏈上線（2026-07-11）之後批改的卷一份都沒有。user 拍板移除（要用直接重批）。
+  //   ⚠ 代價：ESCALATION_CHAIN=0 / ZERO_REVIEW_TAIL=0 這兩個 kill switch 變成單向——
+  //     關掉後會留下 needs_review 格而沒有介面處理（會落到 zero-review-tail 之外）。
+  //   一併移除：buildResumeEntry / cropDataUrlFromBlob / resumeAnswerStatus / ResumeDetailRow
+  //   （那三個 helper 只被續審使用、外部零引用）。
 
   useEffect(() => {
     onGradingPhaseChange?.(gradingPhase)
@@ -7772,43 +7629,7 @@ export default function GradingPage({
           </div>
         )}
 
-        {/* 2026-07-03 續審詢問：上次審查沒做完 → banner 問要不要繼續；「稍後」縮成常駐小按鈕 */}
-        {resumeReview && gradingPhase === 'idle' && !isGrading && (
-          resumeReview.mode === 'banner' ? (
-            <div className="fixed bottom-4 right-4 z-40 w-80 rounded-xl border border-orange-300 bg-white shadow-xl p-4 space-y-2">
-              <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
-                <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0" />
-                上次人工審查尚未完成
-              </div>
-              <p className="text-xs text-gray-600">
-                還有 <span className="font-bold text-orange-700">{resumeReview.count}</span> 位學生的待複核題未確認。要接著審嗎？（已確認的不會重來）
-              </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => { void startResumeReview() }}
-                  disabled={isResuming}
-                  className="flex-1 py-2 rounded-lg bg-purple-600 text-white text-xs font-bold hover:bg-purple-700 disabled:opacity-50 transition-colors"
-                >
-                  {isResuming ? '整理中…' : '繼續審查'}
-                </button>
-                <button
-                  onClick={() => setResumeReview((p) => (p ? { ...p, mode: 'mini' } : p))}
-                  className="px-3 py-2 rounded-lg border border-gray-200 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
-                >
-                  稍後
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => { void startResumeReview() }}
-              disabled={isResuming}
-              className="fixed bottom-4 right-4 z-40 rounded-full border border-orange-300 bg-white shadow-lg px-4 py-2 text-xs font-semibold text-orange-700 hover:bg-orange-50 disabled:opacity-50 transition-colors"
-            >
-              {isResuming ? '整理中…' : `繼續上次審查（${resumeReview.count}）`}
-            </button>
-          )
-        )}
+        {/* 2026-08-08 續審 UI 已移除（0 審查架構）：見下方 BatchConsistencyReviewSection 上方說明 */}
         {gradingPhase === 'awaiting_review' && batchPhaseAEntries.length > 0 && (
           <BatchConsistencyReviewSection
             entries={batchPhaseAEntries}
