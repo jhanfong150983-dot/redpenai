@@ -44,7 +44,7 @@ import {
   ConsistencyQuestionCard,
   OriginalPageViewer,
   buildFinalAnswerForQR,
-  questionNeedsConfirm,
+  legacyQuestionNeedsReview,
   type ConsistencyDecision,
 } from '@/pages/GradingPage'
 
@@ -453,12 +453,9 @@ const STAGE_TEXT: Record<string, string> = {
 }
 
 // 一題是否需要學生確認（與老師端 BatchConsistencyReviewSection.isNeedsReview 對齊）
-function studentQuestionNeedsReview(q: PhaseAQuestionResult): boolean {
-  if (q.arbiterResult) {
-    return questionNeedsConfirm(q.arbiterResult.arbiterStatus, q.arbiterResult.finalAnswer, q.questionType)
-  }
-  return q.consistencyStatus !== 'stable' // legacy fallback
-}
+// 2026-08-08: legacy fallback 統一走 legacyQuestionNeedsReview——舊卷的 consistencyStatus 可能整片
+//   被捏造成 unstable（實測 19 個作業有此症狀），原本會讓學生端整份卷每題都跳待確認。
+const studentQuestionNeedsReview = (q: PhaseAQuestionResult): boolean => legacyQuestionNeedsReview(q)
 
 function StudentGradingFlow({
   item,

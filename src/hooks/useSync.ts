@@ -115,6 +115,16 @@ const toMillis = (value: unknown): number | undefined => {
   return undefined
 }
 
+// 反建 details 時比對兩讀值用（見 reconstructedDetails 的 consistencyStatus）。
+// 對齊 server computeConsistencyStatus 的 edgePunctNorm：去標點兩側空格＋去字串結尾標點。
+// 只用於一致性比對、不影響計分。
+const foldForConsistency = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/\s*([,.!?，。！？])\s*/g, '$1')
+    .replace(/[,.!?，。！？]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
 const toNumber = (value: unknown): number | undefined => {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim()) {
@@ -1159,9 +1169,21 @@ export function useSync(options: UseSyncOptions = {}) {
               readAnswer1: r1 ? { status: r1.status ?? 'ok', studentAnswer: r1.answer ?? '' } : undefined,
               readAnswer2: r2 ? { status: r2.status ?? 'ok', studentAnswer: r2.answer ?? '' } : undefined,
               arbiterResult: arb,
+              // 2026-08-08：原本 arbiterResult 缺失時一律寫 'unstable'。反建路徑跑的正是「舊卷 +
+              //   arbiterResult 不存在」，所以整份卷每一格都被標 unstable —— B班國語實測 1500/1500
+              //   全 unstable，而它的兩讀其實 95% 一致（238/250）。這個欄位有三個 legacy fallback
+              //   消費端（GradingPage isNeedsReview / 需審查題數統計 / StudentPortal 待確認）都用
+              //   `consistencyStatus !== 'stable'` 判定，於是整份 60 題全變「待審查／待確認」。
+              //   改成直接比兩個讀值——這才是這個欄位本來的語意，而且反建時 r1/r2 就在手上。
+              //   比對對齊 server 的 edgePunctNorm（去標點兩側空格＋字串結尾標點）——否則
+              //   「深藍。」vs「深藍」這種純句末標點差又會被判 unstable，重造一批假待審查。
+              //   兩讀資料缺失時取 'stable'（＝不標記）：反建拿不到原始批改的真實狀態，
+              //   標記反而給老師/學生一格沒東西可看的待確認。
               consistencyStatus: arb?.consistent === true ? 'stable'
                 : arb?.consistent === false ? 'diff'
-                : 'unstable',
+                : (r1 && r2)
+                  ? (foldForConsistency(r1.answer) === foldForConsistency(r2.answer) ? 'stable' : 'unstable')
+                  : 'stable',
               answerBbox: aq.answerBbox,
             }
           })

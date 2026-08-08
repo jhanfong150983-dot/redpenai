@@ -218,6 +218,48 @@ export function questionNeedsConfirm(arbiterStatus?: string, _finalAnswer?: stri
   return false
 }
 
+// 2026-08-08 舊資料 legacy fallback 修正 ────────────────────────────────────────
+//   `arbiterResult` 從來沒有被持久化進 grading_result.details（存檔時就被剝掉），所以任何從
+//   Dexie/同步資料重開的複核判定，走的都是 `consistencyStatus !== 'stable'` 這條 legacy fallback。
+//   而 consistencyStatus 在部分資料上是**被捏造的**：實測全庫 75 個作業裡有 19 個存在「整份卷
+//   每一格都 unstable」（培英國中數學 31/32 份、自然考卷測試 29/29、社會期中考 28/29、B班國語
+//   25/25…），而那些卷的兩讀其實大多一致（B班 250 格 short_answer 有 238 格相同）。
+//   後果：開啟這些卷時整份 60 題全被判「待審查／待學生確認」。
+//   （已知會寫出整片 unstable 的地方：useSync 反建 details 時 arbiterResult 缺失就一律填 unstable，
+//     已於同一批修掉；但沒有證據證明那 19 個作業全是它寫的 → 消費端也要自己站得住。）
+//   修法必須「單調」：只能**取消**標記、絕不新增。
+//   ⛔ 第一版寫成「沒有 arbiterResult 就直接比兩讀值」→ 全庫回歸實測**46 個作業的待審查數暴增**
+//     （數練u5 p41-42 從 26 → 124、數練U5 p39-40 從 22 → 135…）。原因：server 的
+//     computeConsistencyStatus 對型別各有專屬比法——calculation/word_problem **只比最終答案、
+//     忽略計算過程排版**、fill_blank 比 partValues、還有 true_false/table_cell/diagram 正規化與
+//     Jaccard 相似度。用原始字串比對等於把這些全丟掉，把「兩讀只差步驟排版」的數學格判成不一致。
+//   所以：`stable` 一律信任（server 那套型別邏輯比 client 能重建的任何比對聰明），
+//   只有在欄位說「非 stable」而兩讀**逐字相同**時才推翻——那種格子顯然是欄位被捏造的。
+const foldReadForCompare = (v: unknown): string =>
+  String(v ?? '')
+    .replace(/\s*([,.!?，。！？])\s*/g, '$1')   // 對齊 server computeConsistencyStatus 的 edgePunctNorm
+    .replace(/[,.!?，。！？]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const readValueFor = (ra?: { status?: string; studentAnswer?: string; studentAnswerRaw?: string }): string | null => {
+  if (!ra) return null
+  const st = String(ra.status ?? '')
+  if (st === 'blank') return ''
+  if (st === 'unreadable') return null
+  const v = String(ra.studentAnswer ?? ra.studentAnswerRaw ?? '')
+  return v || ''
+}
+
+export function legacyQuestionNeedsReview(q: PhaseAQuestionResult): boolean {
+  if (q.arbiterResult) return questionNeedsConfirm(q.arbiterResult.arbiterStatus, q.arbiterResult.finalAnswer, q.questionType)
+  if (q.consistencyStatus === 'stable') return false        // 信任 stable，不新增標記
+  const v1 = readValueFor(q.readAnswer1)
+  const v2 = readValueFor(q.readAnswer2)
+  if (v1 !== null && v2 !== null && foldReadForCompare(v1) === foldReadForCompare(v2)) return false  // 兩讀逐字相同＝欄位被捏造
+  return true
+}
+
 /**
  * 整份卷是否「還有未確認的待複核題」——卡片與 detail banner 的唯一事實來源。
  * - 未審查 / stale → 看 phase_a_state.arbiterDecisions（含 blank 偵測）有沒有未確認題
@@ -2360,11 +2402,10 @@ function BatchConsistencyReviewSection({
   // isPhaseBRunning 不再使用（Accessor 在背景跑）
   // Helper: determine if a question needs human review
   // New architecture: use arbiterResult.arbiterStatus; fall back to consistencyStatus for old data
-  const isNeedsReview = (q: PhaseAQuestionResult) => {
-    // 2026-05-30: needs_review 或 blank（空白要老師確認真空白）都進審查；map_fill/VJ 自己排除
-    if (q.arbiterResult) return questionNeedsConfirm(q.arbiterResult.arbiterStatus, q.arbiterResult.finalAnswer, q.questionType)
-    return q.consistencyStatus !== 'stable'  // legacy fallback
-  }
+  // 2026-05-30: needs_review 或 blank（空白要老師確認真空白）都進審查；map_fill/VJ 自己排除
+  // 2026-08-08: legacy fallback 改走 legacyQuestionNeedsReview（舊卷 consistencyStatus 可能整片被
+  //   捏造成 unstable → 原本會讓整份 60 題全變待審查；見該函式上方說明）
+  const isNeedsReview = (q: PhaseAQuestionResult) => legacyQuestionNeedsReview(q)
 
   // 按學生分組：只收集需審查的學生
   // 2026-06-20: 依 submissionId 去重——串流 append 或重複進佇列時可能同一份卷出現多次，
@@ -6217,7 +6258,8 @@ export default function GradingPage({
           if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
           // 即時統計需審查「題數」
           const reviewQuestionCount = phaseAResult.questionResults.filter(
-            (qr) => qr.arbiterResult ? qr.arbiterResult.arbiterStatus === 'needs_review' : qr.consistencyStatus !== 'stable'
+            // 2026-08-08: 舊卷 consistencyStatus 可能整片是假 unstable → 同走 legacyQuestionNeedsReview
+            (qr) => qr.arbiterResult ? qr.arbiterResult.arbiterStatus === 'needs_review' : legacyQuestionNeedsReview(qr)
           ).length
           if (reviewQuestionCount > 0) setPhaseANeedsReviewCount((prev) => prev + reviewQuestionCount)
           setPhaseATotalQuestionCount((prev) => prev + phaseAResult.questionResults.length)
