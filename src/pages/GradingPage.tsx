@@ -2719,6 +2719,11 @@ export default function GradingPage({
   // (舊制餘額由 proxy 逐 call 回應更新;新制扣款在 save-grading,不接這裡餘額會停在舊值直到重整)
   // personal → 教師端頂欄墨水 widget;school → 行政端 SchoolAdminPanel header(嵌入模式)
   const applySaveGradingBilling = useCallback((j: unknown) => {
+    // 2026-08-08 停頓診斷：server 回傳的分段耗時直接印在 console（免開 Vercel）。
+    //   相鄰兩段相減＝該段耗時；auth→lock→update→readback→transitions→chargeSelect→asgSelect
+    //   →targets→debit→stampCharged→total（累計毫秒）。
+    const t = (j as { timings?: Record<string, number> } | null)?.timings
+    if (t) console.log('[save-grading] 分段耗時(累計ms)', t)
     const b = (j as { billing?: { points?: number; scope?: string | null; balanceAfter?: number | null } } | null)?.billing
     if (!b) return
     const pts = b.points
@@ -2738,9 +2743,12 @@ export default function GradingPage({
     ;(async () => {
       let settled = true
       const pending = [...billingPendingRef.current]
+      // 2026-08-08 停頓診斷：這裡就是 user 感知到的停頓——modal 等 save-grading 全部落地才顯示
+      const waitStart = performance.now()
       if (FLAT_BILLING && pending.length > 0) {
         const all = Promise.allSettled(pending).then(() => true)
         settled = await Promise.race([all, new Promise<boolean>((res) => window.setTimeout(() => res(false), 5000))])
+        console.log(`[grade-modal] 等結算 ${Math.round(performance.now() - waitStart)}ms（${pending.length} 個 save-grading in-flight、settled=${settled}）`)
         if (!cancelled) { setBillingSettled(settled); setGradeNoticeVisible(true) }
         if (!settled) { await all; if (!cancelled) setBillingSettled(true) }
         return
