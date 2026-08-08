@@ -1654,23 +1654,8 @@ function App() {
         return
       }
 
-      // 守門：Phase A 一致性審查未提交，離開要確認
-      if ((currentPage === 'grading' || currentPage === 'batch-grading')
-        && gradingPagePhase === 'awaiting_review') {
-        const confirmed = await confirmModal({
-          tone: 'warning',
-          title: '一致性審查尚未提交批改',
-          message: 'Phase A 已完成並產生費用，離開後本次費用仍會結算。\n\n確定要離開批改頁面嗎？',
-          confirmLabel: '離開',
-          cancelLabel: '留在批改頁',
-        })
-        if (!confirmed) {
-          // 使用者取消離開，把 URL 推回 currentPage
-          const currentId = currentPage === 'grading' ? selectedAssignmentId || undefined : undefined
-          writeCurrentPageToUrl(currentPage, currentId, 'push')
-          return
-        }
-      }
+      // 2026-08-08 移除「一致性審查未提交」離開守門：0 審查架構下 gradingPhase 永不進
+      //   awaiting_review（GradingPage 已無任何 setGradingPhase('awaiting_review')）→ 條件恆假。
 
       if (targetAssignmentId) {
         setSelectedAssignmentId(targetAssignmentId)
@@ -1682,17 +1667,7 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopstate)
   }, [urlPageHandled, auth.status, currentPage, selectedAssignmentId, canAccessTracking, isAdmin, hasSchoolAdmin, gradingPagePhase, confirmModal])
 
-  // Stage 6：beforeunload 守門 — Phase A awaiting_review 時，按 F5 / 關分頁 / 改網址都會跳瀏覽器原生離開警告
-  useEffect(() => {
-    if ((currentPage !== 'grading' && currentPage !== 'batch-grading') || gradingPagePhase !== 'awaiting_review') return
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      // 部分瀏覽器需要設 returnValue 才會跳警告
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [currentPage, gradingPagePhase])
+  // 2026-08-08 移除 beforeunload 守門（同上：awaiting_review 已不可達）。
 
   // 拖檔到頁面非拖放區時、阻止瀏覽器預設行為（直接打開檔案、整個 SPA 會被取代、看起來像頁面自己重新整理）
   // 真正的拖放區（AnswerBank / AssignmentList 等）自己會 preventDefault，事件冒泡到 window 再 preventDefault 一次無害
@@ -2027,16 +2002,9 @@ function App() {
     }
   }
 
-  const confirmLeaveGrading = async () => {
-    if ((currentPage !== 'grading' && currentPage !== 'batch-grading') || gradingPagePhase !== 'awaiting_review') return true
-    return confirmModal({
-      tone: 'warning',
-      title: '一致性審查尚未提交批改',
-      message: 'Phase A 已完成並產生費用，離開後本次費用仍會結算。\n\n確定要離開批改頁面嗎？',
-      confirmLabel: '離開',
-      cancelLabel: '留在批改頁',
-    })
-  }
+  // 2026-08-08：原本在 awaiting_review 時攔離開；該狀態已不可達 → 恆回 true
+  //   （保留函式與所有呼叫點，之後若要加別的離開守門有現成掛點）。
+  const confirmLeaveGrading = async () => true
 
   const openOverview = async () => {
     if (!(await confirmLeaveGrading())) return
