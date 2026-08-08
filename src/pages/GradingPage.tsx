@@ -5006,7 +5006,10 @@ export default function GradingPage({
             if (missingReview.length > 0) {
               const stu = students.find((s) => s.id === sub.studentId)
               const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
-              env.failReasons.push(`${label}：${missingReview.length} 題待複核未確認、已跳過批改，請先完成人工審查`)
+              // 2026-08-08：0 審查架構下人工審查介面已移除 → 訊息改指向唯一可行的出路（重跑智慧批改
+              //   會重生 arbiterDecisions、鏈把每格轉 arbitrated_agree、閘門自然通過）。
+              //   閘門本身保留：它是「舊卷殘留 needs_review」的保護網，避免拿未確認的讀值直接出分。
+              env.failReasons.push(`${label}：${missingReview.length} 題是舊版待複核資料、已跳過批改，請用「智慧批改」重跑辨識`)
               env.counters.failCount++
               env.counters.heldForReviewCount++
               return null
@@ -5259,7 +5262,7 @@ export default function GradingPage({
     requestSync()  // 把 server 端寫的 score / gradingResult 拉回 local
     // 待複核被擋下的卷：在結果面板最上面提示老師「先去複核」（智慧批改會把它們帶回審查面板）
     if (heldForReviewCount > 0) {
-      failReasons.unshift(`⚠ ${heldForReviewCount} 份有待複核題尚未確認、已跳過批改 — 請按「智慧批改」完成人工審查後再批`)
+      failReasons.unshift(`⚠ ${heldForReviewCount} 份含舊版待複核資料、已跳過批改 — 請按「智慧批改」重跑辨識（會重新讀取，不需人工逐題確認）`)
     }
     if (!opts?.silent) {
       // noticeOffset：把「複核期間已背景批的乾淨卷」數量加進總數、結果視窗才是正確總數。
@@ -6998,8 +7001,11 @@ export default function GradingPage({
           {unfinishedBuckets.needA.length > 0 && <li>🔵 <strong>{unfinishedBuckets.needA.length}</strong> 份未擷取</li>}
           {unfinishedBuckets.needB.length > 0 && <li>🟢 <strong>{unfinishedBuckets.needB.length}</strong> 份待批改</li>}
         </ul>
+        {/* 2026-08-08 移除「AI 沒把握會請你確認再繼續；可隨時暫停」——0 審查架構下批改不再中途停下
+            要老師確認（鏈 + zero-review-tail 全格出分），這句已與實際行為不符（user 指出）。
+            改成說明低信心標示：那才是現在老師需要知道的事。 */}
         <div className="text-slate-600">
-          ℹ️ 過程中若 AI 對某些答案沒把握，會請你確認再繼續；可隨時暫停、之後接著做。
+          ℹ️ 批改會一次跑完;AI 把握度低的題目會標示出來,批改完可以點進去核對。
         </div>
       </InkConfirmModal>
 
@@ -7075,7 +7081,7 @@ export default function GradingPage({
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
               {gradeBlockModal.reason === 'needs_extract'
                 ? `以下 ${gradeBlockModal.submissions.length} 份作業還沒擷取答案、無法直接批改。請先按「截取答案」。`
-                : `以下 ${gradeBlockModal.submissions.length} 份作業有題目 AI 不確定（待複核）、請進入個別作業補答後再批改。`}
+                : `以下 ${gradeBlockModal.submissions.length} 份作業含舊版待複核資料、無法直接批改。請按「智慧批改」重跑辨識。`}
             </div>
             <div className="max-h-60 overflow-y-auto mb-4 border border-gray-100 rounded-lg">
               <ul className="text-sm divide-y divide-gray-100">
