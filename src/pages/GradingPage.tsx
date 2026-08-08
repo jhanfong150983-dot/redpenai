@@ -2734,8 +2734,18 @@ export default function GradingPage({
       else if (b.scope === 'school') dispatchSchoolWalletBalance(b.balanceAfter)
     }
   }, [])
-  // 結果視窗延遲顯示:notice 設定後先等扣點結算(通常 <1 秒、批改本身以分鐘計=體感無差);
-  // 超過 5 秒 fail-open 照樣顯示(灰色「以餘額為準」),之後若結算補到再原地轉正。
+  // 結果視窗延遲顯示:notice 設定後先等扣點結算,等到就一次顯示藍卡(含點數+餘額);
+  // 逾時則 fail-open 顯示灰卡「結算中,實際扣點以餘額為準」,結算補到後原地轉成藍卡。
+  //
+  // 2026-08-08 逾時 5000 → 1200ms(user 回報 modal 有可感知停頓、實測定位):
+  //   原本註解假設「通常 <1 秒」是錯的。實測 save-grading 單卷 TTFB 3.68s(冷啟動時 7.99s),
+  //   server 分段 auth 282 / 查鎖 +271 / UPDATE +291 / 回讀 +260 / 狀態轉換 +2109 = total 3213ms。
+  //   根因不是程式:**每次 Supabase 往返約 270ms**——Vercel 函式在預設 iad1(美東)、Supabase 在亞洲
+  //   (本機台灣量同樣查詢中位 165ms),整支端點 ~12-17 次序列往返全吃這個距離。
+  //   → 等 5 秒的結果是 100% 撞逾時、灰卡照樣出現＝使用者付了 5 秒什麼都沒換到。
+  //   1200ms 的取捨:區域對齊後端點若降到 ~0.8s,這個等待就能接回「一次顯示藍卡」的原始設計;
+  //   在那之前先讓 modal 快點出來、點數晚一點原地補上(只有那一列會變，不是整個畫面)。
+  const BILLING_WAIT_MS = 1200
   const [gradeNoticeVisible, setGradeNoticeVisible] = useState(false)
   useEffect(() => {
     if (!gradeResultNotice) { setGradeNoticeVisible(false); return }
@@ -2747,8 +2757,8 @@ export default function GradingPage({
       const waitStart = performance.now()
       if (FLAT_BILLING && pending.length > 0) {
         const all = Promise.allSettled(pending).then(() => true)
-        settled = await Promise.race([all, new Promise<boolean>((res) => window.setTimeout(() => res(false), 5000))])
-        console.log(`[grade-modal] 等結算 ${Math.round(performance.now() - waitStart)}ms（${pending.length} 個 save-grading in-flight、settled=${settled}）`)
+        settled = await Promise.race([all, new Promise<boolean>((res) => window.setTimeout(() => res(false), BILLING_WAIT_MS))])
+        console.log(`[grade-modal] 等結算 ${Math.round(performance.now() - waitStart)}ms（上限 ${BILLING_WAIT_MS}ms、${pending.length} 個 save-grading in-flight、settled=${settled}）`)
         if (!cancelled) { setBillingSettled(settled); setGradeNoticeVisible(true) }
         if (!settled) { await all; if (!cancelled) setBillingSettled(true) }
         return
