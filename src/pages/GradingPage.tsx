@@ -1665,10 +1665,8 @@ export default function GradingPage({
   // 2026-06-20 省時：一鍵流程中「老師複核時就背景批掉」的乾淨卷 ID。runOneClickPhaseB 會跳過這些、不重複批。
   const oneClickBgGradedIdsRef = useRef<Set<string>>(new Set())
   // 2026-06-20 串流管線（只智慧批改）：read+arbiter/乾淨PhaseB/複核PhaseB 共用的併發限制器。
-  const pipelineSemaphoreRef = useRef<ReturnType<typeof makeSemaphore> | null>(null)
   // STAGE 3 串流是否全部 read+arbiter 跑完（給複核元件當「可以收尾」閘門、防提早觸發最終 PhaseB）。
   // 本次串流是否有任何需複核卷進過佇列（決定 executeRecaptureOnly 回傳 true=有複核 / false=直接收尾）。
-  const reviewAppendedCountRef = useRef(0)
   // 2026-06-30 [審查後移重構步驟2]：本次 reviewAfterB 流程的所有成功 Phase A entries（含乾淨與 NR）。
   //   Phase A 階段不進審查、先 stash；統一 Phase B(全批) 跑完後再用這份篩 NR 卷進末端審查。
   const reviewAfterBEntriesRef = useRef<BatchPhaseAEntry[]>([])
@@ -3582,20 +3580,13 @@ export default function GradingPage({
     }))
 
     // ── STAGE 3：read1 + read2 + read3(arbiter)（resume classify context、不重跑 classify）──
-    // 2026-06-20 串流（只智慧批改 oneClickScope 非空）：read+arbiter 一份完就分流——
-    //   乾淨→立刻排 Phase B；需複核→塞進複核佇列(讓老師立刻開始看)，不等全部 read 完。
-    //   共用 semaphore：read+arbiter 與 乾淨/複核卷 Phase B 共吃、把同時打 Gemini 的重請求壓住、防 504。
-    //   read+arbiter 額外仍受 runWithConcurrency 的 gradeConcurrency 上限（保險：semaphore 萬一失效也不暴衝）。
-    // 2026-06-20: user 選穩定版——關掉「邊批邊插進複核」的串流(畫面會在複核↔loading 變來變去)。
-    //   改成：read 全部跑完(4 段 overlay+進度)→一次進複核→複核完結算。乾淨卷複核時背景批(Option A)、
-    //   複核卷確認一份立刻背景批一份(Option B)仍保留(下方 success 分支 isStreaming=false 不走串流路由、
-    //   post-loop else 走「一次進複核」、onStudentConfirmed 的 Option B 仍以 oneClickScope 為閘)。
-    const isStreaming = false
-    if (isStreaming) {
-      reviewAppendedCountRef.current = 0
-      setBatchPhaseAEntries([])  // 清掉上一輪殘留、避免複核佇列出現重複/舊卷
-      pipelineSemaphoreRef.current = makeSemaphore(gradeConcurrency + 1)
-    }
+    // ─── 2026-08-08 移除舊串流路徑 isStreaming ────────────────────────────────
+    //   它是 2026-06-20 的「read+arbiter 一份完就分流」實作，同日被 user 關掉（理由：畫面會在
+    //   複核↔loading 變來變去），之後於 2026-07-06 被 runReviewAfterBFlow 的 streamAB 取代
+    //   （VITE_STREAM_A_TO_B 預設 'true'、已在 production 跑）——沙盒 E3「柵欄 14.7 分→串流
+    //   8.4 分」那個數字屬於 streamAB，不屬於這條舊路徑。故此處為被取代的死碼，整段刪除。
+    //   連帶移除 pipelineSemaphoreRef（僅此處使用）與 reviewAppendedCountRef（複核佇列計數，
+    //   其 increment 已隨階段 3a 的複核分支一起消失）。makeSemaphore 保留：streamAB 仍在用。
     await runWithConcurrency(
       okSubs, gradeConcurrency, 2000,
       async (sub) => {
@@ -3618,8 +3609,7 @@ export default function GradingPage({
             (stage, event) => { if (stage !== 'classify') bumpStage(stage, event) },
             { resumeClassifyContext: classifyCtxBySub.get(sub.id) }
           )
-          const sem = isStreaming ? pipelineSemaphoreRef.current : null
-          const phaseAResult = sem ? await sem.run(runReadArbiter) : await runReadArbiter()
+          const phaseAResult = await runReadArbiter()
           if (phaseAResult.pipelineFailure) {
             const stu = students.find((s) => s.id === sub.studentId)
             const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
@@ -3770,18 +3760,6 @@ export default function GradingPage({
           if (opts?.reviewAfterB && opts?.onSubPhaseADone) {
             try { opts.onSubPhaseADone(sub) } catch (e) { console.error('[streamAB] dispatch 失敗', e) }
           }
-          // 2026-06-20 串流分流（只智慧批改）：這份 read+arbiter 一完就立刻路由、不等其他卷。
-          if (isStreaming) {
-            // 2026-08-08 移除「needsRev → 進複核佇列」分支：0 審查架構下鏈+zero-review-tail 把每格
-            //   轉成 arbitrated_agree，questionNeedsConfirm 恆為 false → 該分支不可達，永遠走這條。
-            // 乾淨 → 立刻排 Phase B（共用 semaphore；加進已背景批清單讓 runOneClickPhaseB 跳過、不重複批）
-            oneClickBgGradedIdsRef.current.add(sub.id)
-            const semB = pipelineSemaphoreRef.current
-            const runB = () => executeBatchPhaseB([newEntry], true)
-            backgroundPhaseBPromises.current.push(
-              (semB ? semB.run(runB) : runB()).catch((err) => console.error('串流背景批乾淨卷失敗:', err))
-            )
-          }
           return phaseAResult
         } catch (err) {
           const stu = students.find((s) => s.id === sub.studentId)
@@ -3829,15 +3807,6 @@ export default function GradingPage({
       failedCandidates,
     }
 
-    // 2026-06-20 串流：分流已在 loop 內逐份做完（需複核→佇列、乾淨→已排 Phase B）。
-    //   標記 read+arbiter 全完→複核元件可收尾；有複核→交 onAllDone，無複核→回 false 讓 runOneClickPhaseB 批 needB。
-    if (isStreaming) {
-      if (reviewAppendedCountRef.current > 0) {
-        return true  // 複核已在串流中開始；streamingDone 後 onAllDone 觸發最終 Phase B
-      }
-      setGradingPhase('idle')
-      return false
-    }
 
     // 2026-06-30 [審查後移重構步驟2]：reviewAfterB 模式——Phase A 階段「不進審查」，只把全部成功 entries
     //   stash 起來，交回 orchestrator(runReviewAfterBFlow)：先跑統一 Phase B(全批、NR 用 read2 provisional)、
