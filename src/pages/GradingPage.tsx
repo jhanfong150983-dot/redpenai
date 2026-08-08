@@ -4850,24 +4850,15 @@ export default function GradingPage({
           }
           // 2026-06-20 串流分流（只智慧批改）：這份 read+arbiter 一完就立刻路由、不等其他卷。
           if (isStreaming) {
-            const needsRev = newEntry.phaseAResult.questionResults.some((qr) =>
-              questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType))
-            if (needsRev) {
-              // 需複核 → 進複核佇列、立刻讓老師開始看（不等其他卷批完）。
-              //   入口已 setBatchPhaseAEntries([]) 清空、每份 okSub 只處理一次、複核元件又依 submissionId 去重→不會重複。
-              reviewAppendedCountRef.current++
-              phaseAOnlyReviewModeRef.current = !opts?.chainPhaseB
-              setBatchPhaseAEntries((prev) => (prev.some((e) => e.submissionId === newEntry.submissionId) ? prev : [...prev, newEntry]))
-              setGradingPhase('awaiting_review')
-            } else {
-              // 乾淨 → 立刻排 Phase B（共用 semaphore；加進已背景批清單讓 runOneClickPhaseB 跳過、不重複批）
-              oneClickBgGradedIdsRef.current.add(sub.id)
-              const semB = pipelineSemaphoreRef.current
-              const runB = () => executeBatchPhaseB([newEntry], true)
-              backgroundPhaseBPromises.current.push(
-                (semB ? semB.run(runB) : runB()).catch((err) => console.error('串流背景批乾淨卷失敗:', err))
-              )
-            }
+            // 2026-08-08 移除「needsRev → 進複核佇列」分支：0 審查架構下鏈+zero-review-tail 把每格
+            //   轉成 arbitrated_agree，questionNeedsConfirm 恆為 false → 該分支不可達，永遠走這條。
+            // 乾淨 → 立刻排 Phase B（共用 semaphore；加進已背景批清單讓 runOneClickPhaseB 跳過、不重複批）
+            oneClickBgGradedIdsRef.current.add(sub.id)
+            const semB = pipelineSemaphoreRef.current
+            const runB = () => executeBatchPhaseB([newEntry], true)
+            backgroundPhaseBPromises.current.push(
+              (semB ? semB.run(runB) : runB()).catch((err) => console.error('串流背景批乾淨卷失敗:', err))
+            )
           }
           return phaseAResult
         } catch (err) {
@@ -4937,52 +4928,25 @@ export default function GradingPage({
       return false
     }
 
-    // 2026-05-18: 篩出有 needs_review 的 entries、若有 → 進審查頁（不接 Phase B）
-    // 2026-05-30: 含 blank（空白要老師確認）
-    const needsReviewEntries = successfulEntries.filter((entry) =>
-      entry.phaseAResult.questionResults.some((qr) => questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType))
-    )
-    if (needsReviewEntries.length > 0) {
-      console.log(`[recaptureOnly] ${needsReviewEntries.length} 份有 needs_review、進審查頁`)
-      // chainPhaseB=true → review-only 關閉、審查完接 Phase B；預設(undefined/false)→ review-only(現行)
-      phaseAOnlyReviewModeRef.current = !opts?.chainPhaseB
-      // 2026-06-20 省時：一鍵流程下、老師複核的同時把「不用複核的乾淨卷」在背景先批 Phase B
-      //   （與複核時間重疊＝省掉這段 Phase B 的等待）。複核完 runOneClickPhaseB 會跳過這些已批的卷。
-      //   executeBatchPhaseB(background=true) 不動 grading phase/loading UI（其副作用 state 皆未使用、
-      //   phaseBTotalCount 維持 0 故 notice useEffect 不誤觸），安全在 awaiting_review 期間跑。
-      if (oneClickScopeRef.current.length > 0) {
-        const reviewIds = new Set(needsReviewEntries.map((e) => e.submissionId))
-        const cleanEntries = successfulEntries.filter((e) => !reviewIds.has(e.submissionId))
-        if (cleanEntries.length > 0) {
-          cleanEntries.forEach((e) => oneClickBgGradedIdsRef.current.add(e.submissionId))
-          console.log(`[oneClick] 複核時背景批 ${cleanEntries.length} 份乾淨卷 Phase B`)
-          backgroundPhaseBPromises.current.push(
-            executeBatchPhaseB(cleanEntries, true).catch((err) => console.error('背景批乾淨卷失敗:', err))
-          )
-        }
-      }
-      setBatchPhaseAEntries(needsReviewEntries)
-      setGradingPhase('awaiting_review')
-      // 不顯示 notice、讓老師直接進審查；審查全部完成時用 stash 包 Phase A notice
-      return true
-    } else {
-      // 無 needs_review 直接收尾、顯示 Phase A 完成 notice
-      setGradingPhase('idle')
-      // 一鍵流程（suppressNotice）：略過 Phase A 自己的收尾 notice，留給統一 Phase B 的結果視窗
-      if (!opts?.suppressNotice) {
-        setPhaseAResultNotice({
-          stopped: stopRequestedRef.current,
-          successCount,
-          failCount,
-          needsReviewedCount: 0,
-          totalCount: candidates.length,
-          failReasons: failReasons.slice(0, 10),
-          failedCandidates,
-        })
-      }
-      phaseAStashRef.current = null
-      return false
+    // 2026-08-08 移除「有 needs_review → 進審查頁」整段分支（0 審查架構下恆為空、不可達）：
+    //   原 if 分支會 setBatchPhaseAEntries + setGradingPhase('awaiting_review')，並在複核期間
+    //   背景批乾淨卷；現在一律走原 else 的收尾路徑（idle + Phase A 完成 notice）。
+    // 無 needs_review 直接收尾、顯示 Phase A 完成 notice
+    setGradingPhase('idle')
+    // 一鍵流程（suppressNotice）：略過 Phase A 自己的收尾 notice，留給統一 Phase B 的結果視窗
+    if (!opts?.suppressNotice) {
+      setPhaseAResultNotice({
+        stopped: stopRequestedRef.current,
+        successCount,
+        failCount,
+        needsReviewedCount: 0,
+        totalCount: candidates.length,
+        failReasons: failReasons.slice(0, 10),
+        failedCandidates,
+      })
     }
+    phaseAStashRef.current = null
+    return false
   }, [
     inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students,
     partitionCandidatesByCorrection, clearCorrectionForRerunOnServer, executeBatchPhaseB
@@ -5706,25 +5670,10 @@ export default function GradingPage({
     }
     // ③ 末端審查：用 stash 的 Phase A entries 篩出 NR 卷（此時 provisional 分數已寫入、審查面板可顯示）。
     requestSync()  // 拉統一 Phase B 寫的 score/gradingResult 回 local、審查卡片才看得到 provisional 分
-    const nrEntries = reviewAfterBEntriesRef.current.filter((e) =>
-      e.phaseAResult.questionResults.some((qr) =>
-        questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType)))
-    if (nrEntries.length > 0) {
-      phaseAOnlyReviewModeRef.current = true  // onStudentConfirmed 走「只存 final_answers」分支（reviewAfterB 另擋背景批）
-      // 進審查前清掉上一輪殘留的結果視窗（否則「批改完成」彈窗會疊在審查畫面上、看起來像審查+批改完成同時出現）
-      setGradeResultNotice(null)
-      setPhaseAResultNotice(null)
-      // 2026-07-05: 進審查前清 Phase B 計數器殘值（防之後 finalize 設 phase_b_running 時 legacy 完成監聽誤觸發雙 modal）
-      setPhaseBScoredCount(0)
-      setPhaseBTotalCount(0)
-      setReviewStreamingDone(true)
-      setBatchPhaseAEntries(nrEntries)
-      setGradingPhase('awaiting_review')
-      setIsGrading(false)
-    } else {
-      // 無 NR → 直接 finalize（全 scope 已在統一 Phase B 批好、彈結果視窗）
-      await finalizeReviewAfterB([])
-    }
+    // 2026-08-08 移除「有 NR → 進末端審查」分支（0 審查架構下 nrEntries 恆為空、不可達）：
+    //   一律直接 finalize（全 scope 已在統一 Phase B 批好、彈結果視窗）。
+    // 無 NR → 直接 finalize（全 scope 已在統一 Phase B 批好、彈結果視窗）
+    await finalizeReviewAfterB([])
   }
 
   // 2026-05-31 Phase1c（重做）：一鍵接著批改——把所有未完成的接著批改到完成。
@@ -6688,31 +6637,9 @@ export default function GradingPage({
         setBatchPhaseAEntries(validEntries)
         setPendingPhaseAFailures(phaseAFailures)
 
-        // ── 穩定學生立刻送 Accessor（背景） ── 2026-05-30: blank 也算需審查、不自動送
-        const isNeedsReview = (e: BatchPhaseAEntry) =>
-          e.phaseAResult.questionResults.some(qr =>
-            questionNeedsConfirm(qr.arbiterResult?.arbiterStatus, qr.arbiterResult?.finalAnswer, qr.questionType)
-          )
-        const stableEntries = validEntries.filter(e => !isNeedsReview(e))
-        const reviewEntries = validEntries.filter(e => isNeedsReview(e))
-
-        if (reviewEntries.length === 0) {
-          // 全部穩定，不需審查 → 前台跑全部 Accessor
-          console.log('✅ 全部穩定，直接進入 Phase B')
-          void executeBatchPhaseB(validEntries, false, phaseAFailures)
-        } else {
-          // 穩定學生背景先跑 Accessor
-          backgroundPhaseBPromises.current = []
-          if (stableEntries.length > 0) {
-            console.log(`🚀 ${stableEntries.length} 位穩定學生送 Accessor（背景）`)
-            backgroundPhaseBPromises.current.push(
-              executeBatchPhaseB(stableEntries, true).catch(err =>
-                console.error('Background Accessor failed:', err)
-              )
-            )
-          }
-          setGradingPhase('awaiting_review')
-        }
+        // 2026-08-08 移除「有 needs_review → 部分背景批 + 進審查」分支（0 審查架構下
+        //   reviewEntries 恆為空、不可達）：一律前台跑全部 Accessor。
+        void executeBatchPhaseB(validEntries, false, phaseAFailures)
         // Fire-and-forget: write Phase A forensic data to Supabase for calibration
         const forensicRows = entries.flatMap((entry) =>
           entry.phaseAResult.questionResults.map((qr) => {
