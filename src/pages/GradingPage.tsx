@@ -941,12 +941,14 @@ function humanizePhaseBFailMsg(raw: string): string {
   if (/failed:\s*5\d\d|\b50[023]\b|忙線|overload|unavailable/i.test(s)) return 'AI 批改服務暫時忙線，請按下方「重新批改」重試（通常一次就好）'
   if (/timeout|逾時|\b504\b/i.test(s)) return '這份批改逾時了，請重試一次'
   if (/empty response|無法解析|缺少|JSON|parse/i.test(s)) return 'AI 回傳格式異常，請重試一次'
-  // 2026-08-09：Phase B fromCache 找不到 phase_a_state ＝這份的「版面掃描」根本沒完成
-  //   （實例：classify 階段回 Unauthorized／讀取使用者點數失敗＝登入逾時），Phase B 只是下游症狀。
-  //   原訊息把技術字串（runStagedGradingPhaseB fromCache: 找不到 submission=… 的 phase_a_state）
-  //   丟給老師看，指向錯的階段、也看不懂。
-  if (/找不到.*phase_a_state|phase_a_state.*找不到/i.test(s)) return '版面掃描未完成（可能是登入逾時），請重新整理頁面後再批改這幾份'
-  if (/unauthorized|401|讀取使用者點數失敗/i.test(s)) return '登入已逾時，請重新整理頁面後再批改這幾份'
+  // 2026-08-09：Phase B fromCache 找不到 phase_a_state ＝這份的「版面掃描」根本沒完成，
+  //   Phase B 只是下游症狀。原訊息把技術字串（runStagedGradingPhaseB fromCache: 找不到
+  //   submission=… 的 phase_a_state）丟給老師看，指向錯的階段、也看不懂。
+  //   ⚠ 我一度把根因誤判為「登入逾時」——實錘否決：那一輪 605 次呼叫裡只有 2 次前置檢查
+  //   （profile 讀取／auth）瞬時失敗，同輪另外 28 份全部成功；逾時不可能只殺 2 份。
+  //   真因＝proxy 每次呼叫的前置檢查沒有重試（已於同批加 3 次重試）。故建議是「重試」而非「重新登入」。
+  if (/找不到.*phase_a_state|phase_a_state.*找不到/i.test(s)) return '版面掃描未完成（連線瞬斷），請再按一次「智慧批改」補批這幾份'
+  if (/unauthorized|401|讀取使用者點數失敗/i.test(s)) return '連線驗證瞬間失敗，請再按一次「智慧批改」補批這幾份'
   return s
 }
 
