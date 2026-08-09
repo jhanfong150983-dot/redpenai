@@ -941,6 +941,12 @@ function humanizePhaseBFailMsg(raw: string): string {
   if (/failed:\s*5\d\d|\b50[023]\b|忙線|overload|unavailable/i.test(s)) return 'AI 批改服務暫時忙線，請按下方「重新批改」重試（通常一次就好）'
   if (/timeout|逾時|\b504\b/i.test(s)) return '這份批改逾時了，請重試一次'
   if (/empty response|無法解析|缺少|JSON|parse/i.test(s)) return 'AI 回傳格式異常，請重試一次'
+  // 2026-08-09：Phase B fromCache 找不到 phase_a_state ＝這份的「版面掃描」根本沒完成
+  //   （實例：classify 階段回 Unauthorized／讀取使用者點數失敗＝登入逾時），Phase B 只是下游症狀。
+  //   原訊息把技術字串（runStagedGradingPhaseB fromCache: 找不到 submission=… 的 phase_a_state）
+  //   丟給老師看，指向錯的階段、也看不懂。
+  if (/找不到.*phase_a_state|phase_a_state.*找不到/i.test(s)) return '版面掃描未完成（可能是登入逾時），請重新整理頁面後再批改這幾份'
+  if (/unauthorized|401|讀取使用者點數失敗/i.test(s)) return '登入已逾時，請重新整理頁面後再批改這幾份'
   return s
 }
 
@@ -1564,6 +1570,8 @@ export default function GradingPage({
   // 守門 modal 被關掉之前、被擋下的批改流程從哪繼續。退回成功後呼叫此 ref 恢復流程。
   const pendingGradeResumeRef = useRef<(() => void) | null>(null)
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
+  // 2026-08-09：串流 Phase B 收集到的失敗原因，交給 finalizeReviewAfterB 放進結果視窗
+  const finalizeFailReasonsRef = useRef<string[]>([])
   // 2026-08-04 固定扣除:本輪已扣點數(save-grading 回應累加;fire-and-forget 落地時活更新結果視窗)
   const [billedPoints, setBilledPoints] = useState(0)
   // 扣款後的新餘額(結果視窗「餘額 N 點」小字用;personal/school 都顯示最後一筆)
@@ -4456,9 +4464,11 @@ export default function GradingPage({
       successCount: success,
       failCount: scopeIds.length - success,
       totalCount: scopeIds.length,
-      failReasons: [],
+      // 2026-08-09：串流 Phase B 的失敗原因帶進結果視窗（原本恆為空陣列、原因只出現在另一個 modal）
+      failReasons: finalizeFailReasonsRef.current,
       failedEntries: [],
     })
+    finalizeFailReasonsRef.current = []
   }
 
   // 2026-06-30 [審查後移重構步驟2] 新流程編排：A → B(全批、NR provisional) → 末端審查 → finalize。
@@ -4518,7 +4528,9 @@ export default function GradingPage({
         }).catch((e) => {
           console.error('[streamAB] 單卷 Phase B 失敗', e)
           const stu = students.find((s) => s.id === sub.studentId)
-          streamBFailures.push(stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8))
+          const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
+          // 2026-08-09：原本只推座號、把原因丟掉 → 老師看不到為什麼失敗。帶上人性化原因。
+          streamBFailures.push(`${label}：${humanizePhaseBFailMsg(safeFailMsg(e))}`)
         }))
       }
       // needB 桶（本輪不跑 A、已有 phase_a_state）先行派發、與 Phase A 重疊
@@ -4542,10 +4554,12 @@ export default function GradingPage({
       // 失敗必開口：banner 常駐顯示（不用 modal、不被審查畫面清掉）
       // 2026-07-12: 軟失敗（無圖片/待複核擋下等 failReasons）也要進 banner——16號實測「無圖片」
       //   靜默跳過、進度照 +1、畫面顯示成功——軟失敗與例外同等級對待。
+      // 2026-08-09（user 指出）：失敗清單改走「批改完成」結果視窗的失敗原因區，不再另開一個
+      //   標題寫「載入失敗」的 modal——那個標題與內容都讓人困惑，而且和最後的總結視窗打對台。
+      //   原本用 setError 的理由（2026-07-11：清單會被進審查前的 setGradeResultNotice(null) 吞掉）
+      //   已隨人工審查移除而消失。finalizeReviewAfterB 會把這裡的清單放進 notice.failReasons。
       const allBFailures = [...streamBFailures, ...streamEnv.failReasons]
-      if (allBFailures.length > 0) {
-        setError(`⚠ ${allBFailures.length} 份評分未完成（${allBFailures.slice(0, 5).join('、')}${allBFailures.length > 5 ? '…' : ''}）：請再按一次「智慧批改」補批；若重複出現請回報。`)
-      }
+      if (allBFailures.length > 0) finalizeFailReasonsRef.current = allBFailures
     } else {
       // ── 柵欄舊路（kill-switch 用）：A 全班 → B 全班 ──
       if (phaseATargets.length > 0) {
