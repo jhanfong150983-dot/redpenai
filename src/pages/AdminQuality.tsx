@@ -1,695 +1,323 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { RefreshCw, AlertTriangle, Search, CheckCircle2, XCircle, AlertCircle, FileQuestion } from 'lucide-react'
+// ═══ 批改品質 v2(2026-08-10 全面重寫、0 人工審查版)═══════════════════════════════
+//   取代舊「人工審查品質」頁(stage_log/needsReview 時代、量的東西已不存在)。
+//   A/B/C 模型(user 拍板):
+//     A=單輪健康度:每份作業環節燈號 classify → read(VJ) → accessor,一眼看達標/哪個環節出問題
+//     B=跨輪一致性:作業有 ≥2 輪快照自動顯示,逐類別翻盤率 vs L3 門檻(選擇99.9/判官99.5/手寫唯一99)
+//     C=不一致格附 crop 眼球裁決 → grading_run_verdicts 累積誤殺/放水統計(L4 資料來源)
+//   資料來源=grading_run_history(每 AI 輪逐格快照;server 端 save-grading 自動寫入)。
+import { useEffect, useState, useCallback } from 'react'
+import { RefreshCw, AlertTriangle, ChevronLeft, Eye, CheckCircle2, XCircle } from 'lucide-react'
 
-// 2026-06-20: 題號自然排序（"1-A-2"→[1,A,2]）。逐段比較、數字當數字、字母當字母。
-//   修 admin 批改品質題目順序亂掉（後端給的 detail.questions 非作業順序）。
-function cmpQid(a: string, b: string): number {
-  const pa = String(a).split('-'), pb = String(b).split('-')
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i] ?? '', y = pb[i] ?? ''
-    const nx = parseInt(x, 10), ny = parseInt(y, 10)
-    if (!Number.isNaN(nx) && !Number.isNaN(ny)) { if (nx !== ny) return nx - ny }
-    else if (x !== y) return x < y ? -1 : 1
+const API = '/api/admin/quality'
+
+// ── types(對齊 server q2Detail 回傳)──────────────────────────────
+type AsgRow = { id: string; title: string; domain: string; classroom: string; papers: number; snapshots: number; rounds: number; lastGradedAt: number }
+type Light = 'green' | 'yellow' | 'red'
+type RunCell = { gradedAt: number; ok: boolean; score: number | null; ans: string; journey: string | null; votes: string[] | null; reason: string | null }
+type FlipCell = { submissionId: string; seat: number | null; qid: string; type: string; cls: string; sameConfig: boolean; a: RunCell; b: RunCell; bbox: { x: number; y: number; w: number; h: number } | null }
+type Detail = {
+  empty?: boolean
+  assignment: { id: string; title: string; domain: string; expectedCells: number | null }
+  health: {
+    papers: number; cells: number; missingCellPapers: number
+    unreadable: number; unstable: number; lowConf: number; chainCells: number
+    judgeCells: number; judgeSplit: number; codeJudged: number
+    perQuestionAnomalies: Array<{ qid: string; unreadable: number; papers: number }>
+    contradictions: Array<{ qid: string; ans: string; cases: Array<{ seat: number | null; score: number | null }> }>
   }
-  return 0
-}
-
-type AssignmentInfo = {
-  id: string
-  title: string
-  total_pages: number | null
-  doc_type: string | null
-  log_count: number
-}
-
-type SubmissionListItem = {
-  submissionId: string
-  studentId: string | null
-  studentName: string
-  seatNumber: number | null
-  source: string | null
-  status: string | null
-  totalQuestions: number
-  needsReviewCount: number
-  gradedAt: number | null
-  lastActivityAt: string | null  // ISO timestamp of latest stage_log
-  lastActivityPhase: 'phase_a' | 'phase_b' | string | null  // phase of latest stage_log
-  runCount: number
-  phaseACount: number
-  phaseBCount: number
-}
-
-type RunInfo = {
-  pipelineRunId: string | null
-  phase: 'phase_a' | 'phase_b' | string
-  model: string | null
-  createdAt: string
-  needsReviewCount: number | null
-  totalScore: number | null
-  hasPhaseAData: boolean
-  isSelected: boolean
-}
-
-type QuestionDetail = {
-  qid: string
-  type: string | null
-  page: number
-  bbox: { x: number; y: number; w: number; h: number } | null
-  bboxSource: 'raw' | 'ocr_override' | 'row_anchor' | null
-  ai1: { answer: string; status: string | null } | null
-  ai2: { answer: string; status: string | null } | null
-  // VJ 視覺判斷題：逐柱結果（取代 AI1/AI2 read 行）
-  vjItems?: Array<{ idx: number | null; label: string; verdict: 'correct' | 'wrong' | 'blank' | 'pending' | null; reason: string }> | null
-  arbiterConsistent: boolean | null
-  // 'ai3'=AI3 語意判官判的、'fallback'=AI3 沒產出、程式字串比對判的、null=不適用
-  consistencySource?: 'ai3' | 'fallback' | null
-  finalAnswer: string | null
-  finalAnswerSource: string | null
-  isMistake: boolean
-  // Phase B accessor 結果
-  score: number | null
-  maxScore: number | null
-  isCorrect: boolean | null
-  scoringReason: string | null
-}
-
-type SubmissionDetail = {
-  submissionId: string
-  assignmentId: string
-  assignmentTitle: string
-  totalPages: number
-  studentName: string
-  seatNumber: number | null
-  source: string | null
-  status: string | null
-  imageUrl: string | null
-  needsReviewCount: number
-  selectedPipelineRunId: string | null
-  runs: RunInfo[]
-  questions: QuestionDetail[]
-}
-
-const API_BASE = '/api/admin/quality'
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { credentials: 'include' })
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '')
-    throw new Error(`HTTP ${res.status}: ${txt.slice(0, 200)}`)
+  lights: { classify: Light; read: Light; accessor: Light; overall: Light }
+  crossRun: null | {
+    pairCount: number; sameConfigPairs: number
+    types: Record<string, { pairs: number; flips: number; scoreChanges: number; rate: number; threshold: number | null; pass: boolean | null }>
+    flippedCells: FlipCell[]
   }
-  return res.json()
+  verdicts: Array<{ submission_id: string; question_id: string; run_a_graded_at: number; run_b_graded_at: number; verdict: string; note: string | null }>
 }
 
-// 格式化最新批改時間：< 1 小時顯示 "Xm 前"、< 24h 顯示 "Xh 前"、否則 MM/dd HH:mm（台灣時區）
-function formatLastActivity(isoTs: string): string {
-  const t = new Date(isoTs).getTime()
-  const now = Date.now()
-  const diffMin = Math.floor((now - t) / 60000)
-  if (diffMin < 1) return '剛剛'
-  if (diffMin < 60) return `${diffMin}m 前`
-  const diffHr = Math.floor(diffMin / 60)
-  if (diffHr < 24) return `${diffHr}h 前`
-  const d = new Date(isoTs)
-  const tw = new Date(d.getTime() + (8 * 60 + d.getTimezoneOffset()) * 60000)  // 轉成台灣時區
-  return `${String(tw.getMonth() + 1).padStart(2, '0')}/${String(tw.getDate()).padStart(2, '0')} ${String(tw.getHours()).padStart(2, '0')}:${String(tw.getMinutes()).padStart(2, '0')}`
+const CLS_LABEL: Record<string, string> = { choice: '選擇/勾選', judge: '國字注音(判官)', text_unique: '手寫唯一答案', subjective: '簡答(語意/±2分)' }
+const VERDICT_LABEL: Record<string, string> = { a_correct: '前輪對', b_correct: '後輪對', both_correct: '都算對', both_wrong: '都錯', unclear: '看不清' }
+
+function LightDot({ v, label }: { v: Light; label: string }) {
+  const color = v === 'green' ? 'bg-emerald-500' : v === 'yellow' ? 'bg-amber-400' : 'bg-rose-500'
+  return <span className="inline-flex items-center gap-1.5 text-sm"><span className={`inline-block w-3 h-3 rounded-full ${color}`} />{label}</span>
+}
+function fmtTime(ms: number) { return new Date(ms).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
+function pct(x: number) { return `${(x * 100).toFixed(2)}%` }
+
+async function getJson<T>(url: string): Promise<T> {
+  const r = await fetch(url, { credentials: 'include' })
+  if (!r.ok) throw new Error(`HTTP ${r.status}: ${(await r.text().catch(() => '')).slice(0, 160)}`)
+  return r.json()
+}
+async function postJson<T>(body: unknown): Promise<T> {
+  const r = await fetch(API, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return r.json()
 }
 
-// 依 needs_review / total 比例分等級
-function reviewTier(needs: number, total: number): 'full' | 'high' | 'mid' | 'low' {
-  if (total === 0) return 'full'
-  const rate = needs / total
-  if (rate === 0) return 'full'
-  if (rate < 0.1) return 'high'
-  if (rate < 0.25) return 'mid'
-  return 'low'
-}
-
-const TIER_BG: Record<'full' | 'high' | 'mid' | 'low', string> = {
-  full: 'bg-emerald-500',
-  high: 'bg-lime-500',
-  mid: 'bg-amber-500',
-  low: 'bg-rose-500'
-}
-
-function todayStr(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+// ── C 層:單一不一致格卡片(crop 懶載 + 裁決按鈕)──────────────────
+function FlipCard({ f, verdict, onVerdict }: {
+  f: FlipCell
+  verdict: string | null
+  onVerdict: (f: FlipCell, v: string) => void
+}) {
+  const [img, setImg] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const loadCrop = useCallback(async () => {
+    if (!f.bbox || img || loading) return
+    setLoading(true)
+    try { const r = await postJson<{ image: string }>({ op: 'crop', submissionId: f.submissionId, bbox: f.bbox }); setImg(r.image) }
+    catch { setImg(null) } finally { setLoading(false) }
+  }, [f, img, loading])
+  useEffect(() => { void loadCrop() }, [loadCrop])
+  const dirText = f.a.ok && !f.b.ok ? '對→錯' : !f.a.ok && f.b.ok ? '錯→對' : '分數變動'
+  return (
+    <div className="border border-gray-200 rounded-xl p-3 bg-white">
+      <div className="flex items-center gap-2 text-sm font-semibold text-gray-800 mb-2 flex-wrap">
+        <span>座{f.seat ?? '?'} · {f.qid}</span>
+        <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">{f.type}</span>
+        <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700">{CLS_LABEL[f.cls] ?? f.cls}</span>
+        <span className={`text-xs px-1.5 py-0.5 rounded ${f.a.ok && !f.b.ok ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>{dirText}</span>
+        <span className={`text-xs px-1.5 py-0.5 rounded ${f.sameConfig ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{f.sameConfig ? '同組態(真變異)' : '跨組態(含改版)'}</span>
+      </div>
+      <div className="grid md:grid-cols-2 gap-2 text-xs mb-2">
+        {([['前輪', f.a], ['後輪', f.b]] as const).map(([lab, r]) => (
+          <div key={lab} className={`rounded-lg border p-2 ${r.ok ? 'border-emerald-200 bg-emerald-50/50' : 'border-rose-200 bg-rose-50/50'}`}>
+            <div className="font-semibold text-gray-700 mb-0.5">{lab} {fmtTime(r.gradedAt)}　{r.ok ? '判對' : '判錯'}　{r.score ?? '?'} 分</div>
+            <div className="text-gray-800 break-all">讀值「{r.ans}」</div>
+            {r.journey && <div className="text-gray-500 mt-0.5">{r.journey}</div>}
+            {r.votes && r.votes.length > 0 && <div className="text-gray-500 mt-0.5 break-all">票:{r.votes.join(' / ')}</div>}
+            {r.reason && <div className="text-gray-400 mt-0.5">{r.reason}</div>}
+          </div>
+        ))}
+      </div>
+      <div className="mb-2">
+        {img ? <img src={img} alt="crop" className="max-w-full border border-gray-300 rounded" style={{ maxHeight: 220 }} />
+          : loading ? <div className="text-xs text-gray-400">裁圖載入中…</div>
+            : <div className="text-xs text-gray-400">{f.bbox ? '裁圖載入失敗' : '無 bbox、無法裁圖'}</div>}
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-xs text-gray-500 mr-1"><Eye className="w-3.5 h-3.5 inline mr-0.5" />你的裁決:</span>
+        {Object.entries(VERDICT_LABEL).map(([v, lab]) => (
+          <button key={v} onClick={() => onVerdict(f, v)}
+            className={`text-xs px-2 py-1 rounded-lg border transition-colors ${verdict === v
+              ? 'bg-indigo-600 text-white border-indigo-600'
+              : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>{lab}</button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export default function AdminQuality() {
-  const [date, setDate] = useState(() => todayStr())
-  const [assignments, setAssignments] = useState<AssignmentInfo[]>([])
-  const [selectedAssignmentId, setSelectedAssignmentId] = useState<string | null>(null)
-  const [submissions, setSubmissions] = useState<SubmissionListItem[]>([])
-  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null)
-  const [detail, setDetail] = useState<SubmissionDetail | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [assignments, setAssignments] = useState<AsgRow[]>([])
+  const [listLoading, setListLoading] = useState(false)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [detail, setDetail] = useState<Detail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const [filter, setFilter] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [onlySameConfig, setOnlySameConfig] = useState(false)
 
-  // 1) 載入 assignment 列表（某一天有批改的作業）
-  useEffect(() => {
-    setLoading(true); setErr(null)
-    setAssignments([])
-    setSelectedAssignmentId(null)
-    fetchJson<{ assignments: AssignmentInfo[] }>(`${API_BASE}?mode=assignments&date=${date}`)
-      .then((r) => {
-        setAssignments(r.assignments || [])
-        if (r.assignments?.[0]) setSelectedAssignmentId(r.assignments[0].id)
-      })
-      .catch((e) => setErr(e instanceof Error ? e.message : '讀取作業列表失敗'))
-      .finally(() => setLoading(false))
-  }, [date])
+  const loadList = useCallback(async () => {
+    setListLoading(true); setError(null)
+    try { const r = await getJson<{ assignments: AsgRow[] }>(`${API}?mode=assignments`); setAssignments(r.assignments) }
+    catch (e) { setError(e instanceof Error ? e.message : '載入失敗') } finally { setListLoading(false) }
+  }, [])
+  useEffect(() => { void loadList() }, [loadList])
 
-  // 2) 切 assignment → 載學生列表
-  const loadSubmissions = useCallback(async () => {
-    if (!selectedAssignmentId) return
-    setLoading(true); setErr(null)
-    setSubmissions([])
-    setSelectedSubmissionId(null)
-    setDetail(null)
+  const loadDetail = useCallback(async (id: string) => {
+    setSelected(id); setDetail(null); setDetailLoading(true); setError(null)
+    try { setDetail(await getJson<Detail>(`${API}?mode=detail&assignmentId=${encodeURIComponent(id)}`)) }
+    catch (e) { setError(e instanceof Error ? e.message : '載入失敗') } finally { setDetailLoading(false) }
+  }, [])
+
+  const verdictKey = (f: FlipCell) => `${f.submissionId}|${f.qid}|${f.a.gradedAt}|${f.b.gradedAt}`
+  const verdictOf = (f: FlipCell): string | null => {
+    const v = detail?.verdicts.find((x) => x.submission_id === f.submissionId && x.question_id === f.qid
+      && Number(x.run_a_graded_at) === f.a.gradedAt && Number(x.run_b_graded_at) === f.b.gradedAt)
+    return v?.verdict ?? null
+  }
+  const saveVerdict = useCallback(async (f: FlipCell, v: string) => {
+    if (!selected) return
     try {
-      const r = await fetchJson<{ submissions: SubmissionListItem[] }>(
-        `${API_BASE}?mode=submissions&assignmentId=${selectedAssignmentId}`
-      )
-      setSubmissions(r.submissions || [])
-      if (r.submissions?.[0]) setSelectedSubmissionId(r.submissions[0].submissionId)
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : '讀取學生列表失敗')
-    } finally {
-      setLoading(false)
+      await postJson({ op: 'verdict', submissionId: f.submissionId, assignmentId: selected, questionId: f.qid, runA: f.a.gradedAt, runB: f.b.gradedAt, verdict: v })
+      setDetail((prev) => {
+        if (!prev) return prev
+        const rest = prev.verdicts.filter((x) => !(x.submission_id === f.submissionId && x.question_id === f.qid
+          && Number(x.run_a_graded_at) === f.a.gradedAt && Number(x.run_b_graded_at) === f.b.gradedAt))
+        return { ...prev, verdicts: [...rest, { submission_id: f.submissionId, question_id: f.qid, run_a_graded_at: f.a.gradedAt, run_b_graded_at: f.b.gradedAt, verdict: v, note: null }] }
+      })
+    } catch (e) { setError(e instanceof Error ? e.message : '裁決儲存失敗') }
+  }, [selected])
+
+  // 誤殺/放水統計(C 層裁決 × 翻盤方向;user 取捨哲學=放水抓到值得投資)
+  const misStats = (() => {
+    if (!detail?.crossRun) return null
+    let miskill = 0, overcredit = 0, bothWrong = 0, unclear = 0, done = 0
+    for (const f of detail.crossRun.flippedCells) {
+      const v = verdictOf(f); if (!v) continue
+      done++
+      if (v === 'unclear') { unclear++; continue }
+      if (v === 'both_wrong') { bothWrong++; continue }
+      const wrongRun = v === 'a_correct' ? f.b : v === 'b_correct' ? f.a : null
+      if (!wrongRun) continue
+      if (wrongRun.ok) overcredit++; else miskill++
     }
-  }, [selectedAssignmentId])
+    return { miskill, overcredit, bothWrong, unclear, done, total: detail.crossRun.flippedCells.length }
+  })()
 
-  useEffect(() => { void loadSubmissions() }, [loadSubmissions])
-
-  // 3) 切學生 → 載 detail（pinnedRunId 不為 null 時用該特定 run、否則用最新 Phase A）
-  const [pinnedRunId, setPinnedRunId] = useState<string | null>(null)
-  // 切學生時清掉 pin
-  useEffect(() => { setPinnedRunId(null) }, [selectedSubmissionId])
-  useEffect(() => {
-    if (!selectedSubmissionId) { setDetail(null); return }
-    setDetailLoading(true); setErr(null)
-    const runParam = pinnedRunId ? `&pipelineRunId=${encodeURIComponent(pinnedRunId)}` : ''
-    fetchJson<SubmissionDetail>(`${API_BASE}?mode=submission_detail&submissionId=${selectedSubmissionId}${runParam}`)
-      .then(setDetail)
-      .catch((e) => setErr(e instanceof Error ? e.message : '讀取卷子細節失敗'))
-      .finally(() => setDetailLoading(false))
-  }, [selectedSubmissionId, pinnedRunId])
-
-  const filteredSubmissions = useMemo(() => {
-    if (!filter.trim()) return submissions
-    const f = filter.trim().toLowerCase()
-    return submissions.filter((s) =>
-      s.studentName.toLowerCase().includes(f) ||
-      String(s.seatNumber ?? '').includes(f) ||
-      s.submissionId.toLowerCase().includes(f)
-    )
-  }, [submissions, filter])
-
-  return (
-    <div className="flex flex-col h-[calc(100vh-120px)] gap-3">
-      {/* 頂部工具列 */}
-      <div className="bg-white rounded-xl border border-slate-200 p-3 flex flex-wrap items-center gap-3">
-        <input
-          type="date"
-          value={date}
-          max={todayStr()}
-          onChange={(e) => setDate(e.target.value)}
-          className="px-2 py-1.5 rounded-lg bg-slate-100 text-sm border-0 font-mono"
-          title="篩選該日批改的作業"
-        />
-        <select
-          value={selectedAssignmentId || ''}
-          onChange={(e) => setSelectedAssignmentId(e.target.value || null)}
-          className="px-3 py-1.5 rounded-lg bg-slate-100 text-sm border-0 min-w-[300px]"
-          disabled={loading && submissions.length === 0}
-        >
-          <option value="">選擇作業…</option>
-          {assignments.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.title} ({a.log_count})
-            </option>
-          ))}
-        </select>
-        <span className="text-xs text-slate-500">
-          {submissions.length > 0 && `${submissions.length} 份卷子`}
-        </span>
-        <button
-          onClick={() => void loadSubmissions()}
-          disabled={loading}
-          className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          重新整理
-        </button>
-      </div>
-
-      {err && (
-        <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-sm text-rose-700 flex items-start gap-2">
-          <AlertTriangle className="w-4 h-4 mt-0.5" />
-          {err}
+  // ── 清單視圖 ──
+  if (!selected) {
+    return (
+      <div className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold text-gray-900">批改品質(0 人工審查版)</h2>
+          <button onClick={() => void loadList()} className="text-sm text-gray-500 hover:text-gray-800 inline-flex items-center gap-1">
+            <RefreshCw className={`w-4 h-4 ${listLoading ? 'animate-spin' : ''}`} />重新整理
+          </button>
         </div>
-      )}
+        {error && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{error}</div>}
+        <p className="text-xs text-gray-500">
+          資料=批改輪快照(每次 AI 批改自動存、每卷留 5 輪)。一輪→健康度;≥2 輪→自動加跨輪一致性+不一致格眼球裁決。
+          只涵蓋快照上線(2026-08-10)之後的批改。
+        </p>
+        <div className="border border-gray-200 rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-500 text-xs">
+              <tr><th className="text-left px-3 py-2">作業</th><th className="text-left px-3 py-2">班級</th><th className="px-2 py-2">科目</th><th className="px-2 py-2">卷數</th><th className="px-2 py-2">輪數</th><th className="px-2 py-2">快照</th><th className="text-left px-3 py-2">最後批改</th></tr>
+            </thead>
+            <tbody>
+              {assignments.map((a) => (
+                <tr key={a.id} onClick={() => void loadDetail(a.id)} className="border-t border-gray-100 hover:bg-indigo-50/40 cursor-pointer">
+                  <td className="px-3 py-2 font-medium text-gray-800">{a.title}</td>
+                  <td className="px-3 py-2 text-gray-500">{a.classroom}</td>
+                  <td className="px-2 py-2 text-center text-gray-500">{a.domain}</td>
+                  <td className="px-2 py-2 text-center">{a.papers}</td>
+                  <td className="px-2 py-2 text-center">
+                    <span className={`px-1.5 py-0.5 rounded text-xs ${a.rounds >= 2 ? 'bg-indigo-100 text-indigo-700 font-semibold' : 'bg-gray-100 text-gray-500'}`}>{a.rounds}{a.rounds >= 2 ? ' 可比' : ''}</span>
+                  </td>
+                  <td className="px-2 py-2 text-center text-gray-400">{a.snapshots}</td>
+                  <td className="px-3 py-2 text-gray-500">{fmtTime(a.lastGradedAt)}</td>
+                </tr>
+              ))}
+              {!assignments.length && !listLoading && <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 text-sm">還沒有批改輪快照 — 批改任何作業後就會出現</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
 
-      <div className="flex-1 flex gap-3 min-h-0">
-        {/* 左側 sidebar：學生列表 */}
-        <div className="w-64 shrink-0 bg-white rounded-xl border border-slate-200 flex flex-col min-h-0">
-          <div className="p-3 border-b border-slate-200">
-            <div className="relative">
-              <Search className="absolute left-2 top-2 w-3.5 h-3.5 text-slate-400" />
-              <input
-                type="text"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="搜尋學生 / 座號"
-                className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-slate-100 text-sm border-0"
-              />
-            </div>
+  // ── 詳情視圖 ──
+  const h = detail && !detail.empty ? detail.health : null
+  const flips = detail?.crossRun?.flippedCells.filter((f) => !onlySameConfig || f.sameConfig) ?? []
+  return (
+    <div className="p-4 space-y-4">
+      <button onClick={() => { setSelected(null); setDetail(null) }} className="text-sm text-gray-500 hover:text-gray-800 inline-flex items-center gap-1">
+        <ChevronLeft className="w-4 h-4" />返回清單
+      </button>
+      {error && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{error}</div>}
+      {detailLoading && <div className="text-sm text-gray-400">載入中…</div>}
+      {detail?.empty && <div className="text-sm text-gray-400">這份作業還沒有快照</div>}
+      {detail && !detail.empty && h && (
+        <>
+          {/* A 層:總燈 + 環節燈 */}
+          <div className="flex items-center gap-4 flex-wrap">
+            <h2 className="text-lg font-bold text-gray-900">{detail.assignment.title}</h2>
+            <LightDot v={detail.lights.overall} label={detail.lights.overall === 'green' ? '達標' : detail.lights.overall === 'yellow' ? '注意' : '異常'} />
+            <span className="text-gray-300">|</span>
+            <LightDot v={detail.lights.classify} label="classify" />
+            <span className="text-gray-300">→</span>
+            <LightDot v={detail.lights.read} label="read / VJ" />
+            <span className="text-gray-300">→</span>
+            <LightDot v={detail.lights.accessor} label="accessor" />
           </div>
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {filteredSubmissions.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-8">
-                {loading ? '載入中…' : submissions.length === 0 ? '無資料' : '無符合學生'}
-              </p>
-            ) : (
-              filteredSubmissions.map((s) => {
-                const tier = reviewTier(s.needsReviewCount, s.totalQuestions)
-                const active = s.submissionId === selectedSubmissionId
-                return (
-                  <button
-                    key={s.submissionId}
-                    onClick={() => setSelectedSubmissionId(s.submissionId)}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-lg flex flex-col gap-0.5 transition-colors ${
-                      active ? 'bg-slate-900 text-white' : 'hover:bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${TIER_BG[tier]}`} />
-                      <span className="text-xs font-mono w-6 shrink-0 opacity-60">
-                        {s.seatNumber != null ? String(s.seatNumber).padStart(2, '0') : '--'}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2 text-center">
+            {[
+              ['卷數', `${h.papers}`], ['缺格卷', `${h.missingCellPapers}`],
+              ['無法辨識', `${h.unreadable}(${pct(h.unreadable / Math.max(1, h.cells))})`],
+              ['兩讀分歧', `${h.unstable}(${pct(h.unstable / Math.max(1, h.cells))})`],
+              ['低信心<70', `${h.lowConf}`],
+              ['判官票分歧', h.judgeCells ? `${h.judgeSplit}/${h.judgeCells}` : '—'],
+              ['code直判率', pct(h.codeJudged / Math.max(1, h.cells))]
+            ].map(([k, v]) => (
+              <div key={k} className="rounded-lg border border-gray-200 bg-white px-2 py-2">
+                <div className="text-[11px] text-gray-400">{k}</div>
+                <div className="text-sm font-semibold text-gray-800">{v}</div>
+              </div>
+            ))}
+          </div>
+          {/* 硬紅燈明細 */}
+          {h.perQuestionAnomalies.length > 0 && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              <AlertTriangle className="w-4 h-4 inline mr-1" />整班同題異常(classify/版型訊號):
+              {h.perQuestionAnomalies.map((x) => ` ${x.qid}(${x.unreadable}/${x.papers} 卷無法辨識)`).join('、')}
+            </div>
+          )}
+          {h.contradictions.length > 0 && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              <AlertTriangle className="w-4 h-4 inline mr-1" />同寫法不同分(accessor 尺度矛盾)&nbsp;{h.contradictions.length} 組:
+              <ul className="mt-1 space-y-0.5 text-xs">
+                {h.contradictions.slice(0, 8).map((c, i) => (
+                  <li key={i}>{c.qid}「{c.ans}」→ {c.cases.map((x) => `座${x.seat ?? '?'}:${x.score}分`).join('、')}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {/* B 層 */}
+          {detail.crossRun ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h3 className="font-bold text-gray-900">跨輪一致性</h3>
+                <span className="text-xs text-gray-500">輪對 {detail.crossRun.pairCount}(同組態 {detail.crossRun.sameConfigPairs})</span>
+              </div>
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-500 text-xs">
+                    <tr><th className="text-left px-3 py-1.5">類別</th><th className="px-2">格次</th><th className="px-2">翻盤</th><th className="px-2">翻盤率</th><th className="px-2">門檻</th><th className="px-2">判定</th></tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(detail.crossRun.types).map(([k, t]) => (
+                      <tr key={k} className="border-t border-gray-100 text-center">
+                        <td className="text-left px-3 py-1.5 font-medium text-gray-700">{CLS_LABEL[k] ?? k}</td>
+                        <td>{t.pairs}</td><td>{t.flips}</td><td>{pct(t.rate)}</td>
+                        <td className="text-gray-400">{t.threshold != null ? `≤${pct(t.threshold)}` : '分差≤2'}</td>
+                        <td>{t.pass == null ? <span className="text-gray-400">—</span> : t.pass
+                          ? <CheckCircle2 className="w-4 h-4 text-emerald-500 inline" />
+                          : <XCircle className="w-4 h-4 text-rose-500 inline" />}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* C 層 */}
+              {detail.crossRun.flippedCells.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <h3 className="font-bold text-gray-900">不一致格({flips.length})</h3>
+                    <label className="text-xs text-gray-500 inline-flex items-center gap-1">
+                      <input type="checkbox" checked={onlySameConfig} onChange={(e) => setOnlySameConfig(e.target.checked)} />只看同組態(真變異)
+                    </label>
+                    {misStats && misStats.done > 0 && (
+                      <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+                        已裁決 {misStats.done}/{misStats.total}:誤殺 {misStats.miskill}、放水 {misStats.overcredit}、都錯 {misStats.bothWrong}、看不清 {misStats.unclear}
                       </span>
-                      <span className="text-sm flex-1 truncate">{s.studentName}</span>
-                      {s.runCount > 2 && (
-                        <span
-                          className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
-                            active ? 'bg-white/20 text-white' : 'bg-sky-100 text-sky-700'
-                          }`}
-                          title={`重跑過：Phase A ${s.phaseACount} 次 / Phase B ${s.phaseBCount} 次（總 ${s.runCount} 筆 log）`}
-                        >
-                          ↻{s.runCount}
-                        </span>
-                      )}
-                      <span
-                        className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
-                          active
-                            ? 'bg-white/20 text-white'
-                            : tier === 'low' ? 'bg-rose-100 text-rose-700'
-                            : tier === 'mid' ? 'bg-amber-100 text-amber-700'
-                            : tier === 'high' ? 'bg-lime-100 text-lime-700'
-                            : 'bg-emerald-100 text-emerald-700'
-                        }`}
-                        title={`${s.needsReviewCount} / ${s.totalQuestions} 題需 review`}
-                      >
-                        {s.needsReviewCount}/{s.totalQuestions}
-                      </span>
-                    </div>
-                    {s.lastActivityAt && (
-                      <div
-                        className={`text-[10px] font-mono pl-4 flex items-center gap-1.5 ${active ? 'opacity-70' : 'opacity-50'}`}
-                        title={`${s.lastActivityPhase || '(未知 phase)'} · ${new Date(s.lastActivityAt).toLocaleString('zh-Hant', { timeZone: 'Asia/Taipei' })}`}
-                      >
-                        {s.lastActivityPhase && (
-                          <span
-                            className={`px-1 rounded font-semibold ${
-                              active
-                                ? 'bg-white/20 text-white'
-                                : s.lastActivityPhase === 'phase_a'
-                                  ? 'bg-sky-100 text-sky-700'
-                                  : s.lastActivityPhase === 'phase_b'
-                                    ? 'bg-violet-100 text-violet-700'
-                                    : 'bg-slate-200 text-slate-600'
-                            }`}
-                          >
-                            {s.lastActivityPhase === 'phase_a' ? 'A' : s.lastActivityPhase === 'phase_b' ? 'B' : s.lastActivityPhase}
-                          </span>
-                        )}
-                        <span>{formatLastActivity(s.lastActivityAt)}</span>
-                      </div>
                     )}
-                  </button>
-                )
-              })
-            )}
-          </div>
-        </div>
-
-        {/* 主畫面：viz */}
-        <div className="flex-1 min-w-0 overflow-hidden">
-          {detailLoading ? (
-            <div className="h-full flex items-center justify-center text-sm text-slate-400">
-              載入中…
-            </div>
-          ) : detail ? (
-            <SubmissionViz detail={detail} pinnedRunId={pinnedRunId} onPinRun={setPinnedRunId} />
-          ) : (
-            <div className="h-full flex items-center justify-center text-sm text-slate-400">
-              請從左側選擇學生
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── 視覺化：左原圖+bbox / 右 read ──
-
-function SubmissionViz({
-  detail, pinnedRunId, onPinRun
-}: {
-  detail: SubmissionDetail
-  pinnedRunId: string | null
-  onPinRun: (runId: string | null) => void
-}) {
-  const [hoveredQid, setHoveredQid] = useState<string | null>(null)
-  // Phase A runs（hasPhaseAData）才可切 viz、Phase B 只顯示
-  const phaseARuns = detail.runs.filter((r) => r.hasPhaseAData)
-  const hasMultipleRuns = detail.runs.length > 2
-
-  return (
-    <div className="h-full flex flex-col min-h-0">
-      {/* 卷子標頭 */}
-      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-3 flex flex-wrap items-baseline gap-x-4 gap-y-1 shrink-0">
-        <h2 className="font-semibold text-slate-900">
-          {detail.seatNumber != null && (
-            <span className="font-mono text-slate-400 mr-1.5">
-              {String(detail.seatNumber).padStart(2, '0')}
-            </span>
-          )}
-          {detail.studentName}
-        </h2>
-        <span className="text-xs text-slate-500">{detail.assignmentTitle}</span>
-        <span className="text-xs font-mono text-slate-400">…{detail.submissionId.slice(-12)}</span>
-        <span className="ml-auto text-xs">
-          <span className="text-slate-500">需 review:</span>{' '}
-          <span className={detail.needsReviewCount > 0 ? 'font-semibold text-rose-600' : 'text-emerald-600'}>
-            {detail.needsReviewCount} / {detail.questions.length}
-          </span>
-        </span>
-      </div>
-
-      {/* 批改紀錄：>2 筆 log 才顯示（預設一份卷 1A+1B = 2 筆是正常的）*/}
-      {hasMultipleRuns && (
-        <div className="bg-white rounded-xl border border-slate-200 p-2 mb-3 shrink-0">
-          <div className="flex items-center gap-2 mb-1.5 px-1">
-            <span className="text-xs font-semibold text-slate-700">批改紀錄</span>
-            <span className="text-[10px] text-slate-400">
-              {phaseARuns.length} 次 Phase A、{detail.runs.length - phaseARuns.length} 次 Phase B、
-              點 Phase A 可切換 bbox/read 顯示
-            </span>
-            {pinnedRunId && (
-              <button
-                onClick={() => onPinRun(null)}
-                className="ml-auto text-[10px] text-slate-500 hover:text-slate-900 underline"
-              >
-                回最新
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {detail.runs.map((r, idx) => {
-              const isPhaseA = r.hasPhaseAData
-              const isCurrent = r.isSelected
-              const localTime = new Date(r.createdAt).toLocaleTimeString('zh-Hant', {
-                hour: '2-digit', minute: '2-digit', hour12: false
-              })
-              const localDate = new Date(r.createdAt).toLocaleDateString('zh-Hant', {
-                month: '2-digit', day: '2-digit'
-              })
-              const stats = isPhaseA
-                ? `review ${r.needsReviewCount ?? '-'}`
-                : `score ${r.totalScore ?? '-'}`
-              return (
-                <button
-                  key={r.pipelineRunId || idx}
-                  onClick={() => isPhaseA && r.pipelineRunId && onPinRun(r.pipelineRunId)}
-                  disabled={!isPhaseA}
-                  className={`px-2 py-1 rounded text-[10px] font-mono border transition-colors ${
-                    isCurrent
-                      ? 'bg-slate-900 text-white border-slate-900'
-                      : isPhaseA
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 cursor-pointer'
-                      : 'bg-slate-50 text-slate-500 border-slate-200 cursor-default'
-                  }`}
-                  title={`${r.phase} · ${r.model || '?'} · ${localDate} ${localTime}`}
-                >
-                  <span className="font-semibold">#{idx + 1}</span>{' '}
-                  {isPhaseA ? 'A' : 'B'} {localTime} · {stats}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 左右 layout：兩個獨立 scroll container */}
-      <div
-        className="grid gap-3 flex-1 min-h-0"
-        style={{ gridTemplateColumns: 'minmax(360px, 560px) minmax(280px, 1fr)' }}
-      >
-        {/* 左：原圖 + SVG bbox（獨立 scroll）*/}
-        <div className="bg-white rounded-xl border border-slate-200 p-2 overflow-y-auto min-h-0">
-          {detail.imageUrl ? (
-            <div className="relative">
-              <img
-                src={detail.imageUrl}
-                alt="submission"
-                className="block w-full h-auto rounded"
-              />
-              <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
-                {detail.questions.filter((q) => q.bbox).map((q) => {
-                  const b = q.bbox!
-                  const hot = q.qid === hoveredQid
-                  const color = q.arbiterConsistent === false
-                    ? '#e11d48'  // rose
-                    : q.isMistake
-                    ? '#f59e0b'  // amber
-                    : '#10b981'  // emerald
-                  return (
-                    <rect
-                      key={q.qid}
-                      x={`${b.x * 100}%`}
-                      y={`${b.y * 100}%`}
-                      width={`${b.w * 100}%`}
-                      height={`${b.h * 100}%`}
-                      fill={hot ? color + '33' : 'none'}
-                      stroke={color}
-                      strokeWidth={hot ? 3 : 1.5}
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  )
-                })}
-              </svg>
+                  </div>
+                  <div className="grid lg:grid-cols-2 gap-3">
+                    {flips.map((f) => (
+                      <FlipCard key={verdictKey(f)} f={f} verdict={verdictOf(f)} onVerdict={(ff, v) => void saveVerdict(ff, v)} />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
-            <div className="aspect-[3/4] flex items-center justify-center text-sm text-slate-400">
-              無原圖
+            <div className="text-sm text-gray-400 border border-dashed border-gray-200 rounded-lg px-3 py-3">
+              只有一輪批改 → 顯示健康度。重批(整班或個別)後會自動出現跨輪一致性對照。
             </div>
           )}
-        </div>
-
-        {/* 右：read 列表（獨立 scroll）*/}
-        <div className="space-y-2 overflow-y-auto pr-1 min-h-0">
-          {detail.questions.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200 p-6 text-sm text-slate-400 text-center">
-              無題目資料
-            </div>
-          ) : (
-            [...detail.questions].sort((a, b) => cmpQid(a.qid, b.qid)).map((q) => (
-              <QuestionCard
-                key={q.qid}
-                question={q}
-                onHover={setHoveredQid}
-                hovered={hoveredQid === q.qid}
-              />
-            ))
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function QuestionCard({
-  question,
-  onHover,
-  hovered
-}: {
-  question: QuestionDetail
-  onHover: (qid: string | null) => void
-  hovered: boolean
-}) {
-  const {
-    qid, type, bboxSource, ai1, ai2, arbiterConsistent, consistencySource, vjItems,
-    finalAnswer, finalAnswerSource, isMistake,
-    score, maxScore, isCorrect, scoringReason
-  } = question
-  const hasGrade = score != null && maxScore != null
-  const showReason = isCorrect === false && !!scoringReason
-  const isVJ = !!type && ['diagram_color', 'map_symbol', 'grid_geometry'].includes(type) && Array.isArray(vjItems)
-
-  // 區分 AI3（語意判官真的判過）vs 程式 fallback（AI3 沒產出、靠字串比對）。
-  // 「程式一致」用琥珀色警示：代表 AI3 沒運作、這題只是程式比對說一致、不一定可信。
-  const isAi3 = consistencySource === 'ai3'
-  const consistencyBadge =
-    arbiterConsistent === false ? (
-      <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${isAi3 ? 'bg-rose-100 text-rose-700' : 'bg-orange-100 text-orange-700'}`}>
-        <XCircle className="w-3 h-3" /> {isAi3 ? 'AI送審' : '程式送審'}
-      </span>
-    ) : arbiterConsistent === true ? (
-      <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded ${isAi3 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}
-        title={isAi3 ? 'AI3 語意判官判定一致' : '⚠️ AI3 未產出結果、由程式字串比對判一致（AI3 可能失效、不一定可信）'}>
-        {isAi3 ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />} {isAi3 ? 'AI一致' : '程式一致'}
-      </span>
-    ) : (
-      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
-        <FileQuestion className="w-3 h-3" /> 無 arbiter
-      </span>
-    )
-
-  const a1 = ai1?.answer ?? ''
-  const a2 = ai2?.answer ?? ''
-  const a1Unreadable = ai1?.status === 'unreadable'
-  const a2Unreadable = ai2?.status === 'unreadable'
-  const sameAnswer = a1 === a2
-
-  return (
-    <div
-      className={`bg-white rounded-xl border p-2.5 transition-colors ${
-        hovered ? 'border-slate-900 shadow-md' : 'border-slate-200'
-      }`}
-      onMouseEnter={() => onHover(qid)}
-      onMouseLeave={() => onHover(null)}
-    >
-      <div className="flex items-baseline gap-2 mb-1.5">
-        <span className="font-mono text-sm font-semibold">{qid}</span>
-        {type && <span className="text-[10px] font-mono text-slate-400">{type}</span>}
-        {bboxSource && bboxSource !== 'raw' && (
-          <span
-            className="text-[10px] font-mono px-1 py-0.5 rounded bg-sky-100 text-sky-700"
-            title="bbox 來源：raw=AI classify 原始輸出、ocr_override=OCR width_floor+x_shift 後處理、row_anchor=OCR 整列 anchor 完整替換"
-          >
-            {bboxSource}
-          </span>
-        )}
-        <div className="ml-auto flex items-center gap-1.5">
-          {hasGrade && (
-            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded font-mono ${
-              isCorrect === false
-                ? 'bg-rose-100 text-rose-700'
-                : isCorrect === true
-                ? 'bg-emerald-100 text-emerald-700'
-                : 'bg-slate-100 text-slate-600'
-            }`} title={isCorrect === false ? '答錯' : isCorrect === true ? '答對' : '尚未批改'}>
-              {score}/{maxScore} {isCorrect === false ? '✗' : isCorrect === true ? '✓' : ''}
-            </span>
-          )}
-          {!hasGrade && isMistake && (
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
-              答錯
-            </span>
-          )}
-          {consistencyBadge}
-        </div>
-      </div>
-
-      <div className="text-xs space-y-1 font-mono">
-        {isVJ ? (
-          <VjItemLines items={vjItems!} />
-        ) : (
-          <>
-            <ReadLine label="AI1" answer={a1} unreadable={a1Unreadable} highlight={!sameAnswer} />
-            <ReadLine label="AI2" answer={a2} unreadable={a2Unreadable} highlight={!sameAnswer} />
-          </>
-        )}
-        {finalAnswer != null && (
-          <div className="flex gap-2 pt-1 mt-1 border-t border-slate-100">
-            <span className="text-slate-500 shrink-0">最終</span>
-            <span className="font-semibold text-slate-900 break-all">{finalAnswer || '∅'}</span>
-            {finalAnswerSource && (
-              <span className="ml-auto text-[10px] text-slate-400 shrink-0">{finalAnswerSource}</span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {showReason && (
-        <div className="mt-2 p-2 rounded bg-rose-50 border border-rose-200 text-xs leading-relaxed text-rose-900">
-          <span className="font-semibold mr-1">批改理由：</span>
-          {scoringReason}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// VJ 視覺判斷題：逐柱「有畫/沒畫 + 對錯」（取代 AI1/AI2 read 散文）
-function VjItemLines({
-  items
-}: {
-  items: Array<{ idx: number | null; label: string; verdict: 'correct' | 'wrong' | 'blank' | 'pending' | null; reason: string }>
-}) {
-  const meta = (v: string | null) => {
-    switch (v) {
-      case 'correct': return { text: '有畫 ✓', cls: 'bg-emerald-100 text-emerald-700' }
-      case 'wrong': return { text: '有畫 ✗', cls: 'bg-rose-100 text-rose-700' }
-      case 'blank': return { text: '沒畫（0分）', cls: 'bg-slate-100 text-slate-500' }
-      case 'pending': return { text: '有畫（待批改）', cls: 'bg-amber-100 text-amber-700' }
-      default: return { text: v || '—', cls: 'bg-slate-100 text-slate-500' }
-    }
-  }
-  if (!items.length) {
-    return <div className="text-slate-400">（無逐柱結果 — 視覺判斷題尚未批改）</div>
-  }
-  return (
-    <div className="space-y-1">
-      {items.map((it, i) => {
-        const m = meta(it.verdict)
-        return (
-          <div key={it.idx ?? i} className="flex gap-2 items-center">
-            <span className="text-slate-600 shrink-0">{it.label || `項${it.idx ?? i + 1}`}</span>
-            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${m.cls}`}>{m.text}</span>
-            {it.reason && it.reason !== '正確' && (
-              <span className="text-slate-400 break-all">{it.reason}</span>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function ReadLine({
-  label, answer, unreadable, highlight
-}: {
-  label: string
-  answer: string
-  unreadable: boolean
-  highlight: boolean
-}) {
-  return (
-    <div className="flex gap-2">
-      <span className="text-slate-500 shrink-0 w-8">{label}</span>
-      {unreadable ? (
-        <span className="inline-flex items-center gap-1 text-rose-600">
-          <AlertCircle className="w-3 h-3" /> unreadable
-        </span>
-      ) : (
-        <span className={`break-all ${highlight ? 'text-rose-700 font-semibold' : 'text-slate-900'}`}>
-          {answer || <span className="text-slate-300">∅</span>}
-        </span>
+        </>
       )}
     </div>
   )
