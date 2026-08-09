@@ -11,7 +11,7 @@ import { RefreshCw, AlertTriangle, ChevronLeft, Eye, CheckCircle2, XCircle } fro
 const API = '/api/admin/quality'
 
 // ── types(對齊 server q2Detail 回傳)──────────────────────────────
-type AsgRow = { id: string; title: string; domain: string; classroom: string; papers: number; snapshots: number; rounds: number; lastGradedAt: number }
+type AsgRow = { id: string; title: string; domain: string; classroom: string; papers: number; snapshots: number; rounds: number; comparablePapers: number; lastGradedAt: number }
 type Light = 'green' | 'yellow' | 'red'
 type RunCell = { gradedAt: number; ok: boolean; score: number | null; ans: string; journey: string | null; votes: string[] | null; reason: string | null }
 type FlipCell = { submissionId: string; seat: number | null; qid: string; type: string; cls: string; sameConfig: boolean; a: RunCell; b: RunCell; bbox: { x: number; y: number; w: number; h: number } | null }
@@ -194,7 +194,7 @@ export default function AdminQuality() {
                   <td className="px-2 py-2 text-center text-gray-500">{a.domain}</td>
                   <td className="px-2 py-2 text-center">{a.papers}</td>
                   <td className="px-2 py-2 text-center">
-                    <span className={`px-1.5 py-0.5 rounded text-xs ${a.rounds >= 2 ? 'bg-indigo-100 text-indigo-700 font-semibold' : 'bg-gray-100 text-gray-500'}`}>{a.rounds}{a.rounds >= 2 ? ' 可比' : ''}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-xs ${a.rounds >= 2 ? 'bg-indigo-100 text-indigo-700 font-semibold' : 'bg-gray-100 text-gray-500'}`}>{a.rounds}{a.rounds >= 2 ? ` 可比(${a.comparablePapers}卷)` : ''}</span>
                   </td>
                   <td className="px-2 py-2 text-center text-gray-400">{a.snapshots}</td>
                   <td className="px-3 py-2 text-gray-500">{fmtTime(a.lastGradedAt)}</td>
