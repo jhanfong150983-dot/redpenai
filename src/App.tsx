@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   Link as LinkIcon,
   School,
+  Target,
   X
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -81,6 +82,7 @@ type Page =
   | 'correction'
   | 'correction-history'
   | 'ai-report'
+  | 'learning-track'
   | 'admin-panel'
   | 'admin-user-detail'
   | 'ink-topup'
@@ -2025,6 +2027,13 @@ function App() {
     if (!canAccessTracking) return
     setCurrentPage('ai-report')
   }
+  // 2026-08-11 資訊架構重整(user 拍板):「看考卷」與「看學生」拆兩個入口——
+  //   考卷分析(ai-report)=單一考卷生命週期;學習追蹤(learning-track)=概念雷達等跨考卷視圖
+  const openLearningTrack = async () => {
+    if (!(await confirmLeaveGrading())) return
+    if (!canAccessTracking) return
+    setCurrentPage('learning-track')
+  }
   // 2026-07-20 歷程分析先隱藏（user 用不到）：導覽入口與此開啟函式一併停用。要恢復把此函式與側欄項目取消註解。
   // const openCorrectionHistory = () => {
   //   if (!(await confirmLeaveGrading())) return
@@ -2116,10 +2125,19 @@ function App() {
         // },
         {
           key: 'report',
-          label: '學情報告',
-          description: 'AI 分析弱點與教學建議',
+          label: '考卷分析',
+          description: '成績總覽、試題與樣態分析、家長報告',
           icon: FileText,
           onClick: openAiReport,
+          disabled: !canAccessTracking,
+          badge: canAccessTracking ? undefined : 'Pro'
+        },
+        {
+          key: 'learning-track',
+          label: '學習追蹤',
+          description: '概念雷達：跨考卷看學生學習狀況',
+          icon: Target,
+          onClick: openLearningTrack,
           disabled: !canAccessTracking,
           badge: canAccessTracking ? undefined : 'Pro'
         }
@@ -2647,14 +2665,19 @@ function App() {
                     </button>
                   </div>
                 )
-              ) : currentPage === 'ai-report' ? (
+              ) : currentPage === 'ai-report' || currentPage === 'learning-track' ? (
                 canAccessTracking ? (
-                  <AiReport embedded onBack={() => setCurrentPage('home')} />
+                  <AiReport
+                    key={currentPage}
+                    embedded
+                    variant={currentPage === 'learning-track' ? 'track' : 'exam'}
+                    onBack={() => setCurrentPage('home')}
+                  />
                 ) : (
                   <div className="mx-auto w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
                     <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
                     <p className="mt-2 text-sm text-gray-600">
-                      Pro 權限才可使用 AI 學情報告。
+                      Pro 權限才可使用考卷分析與學習追蹤。
                     </p>
                     <button
                       type="button"

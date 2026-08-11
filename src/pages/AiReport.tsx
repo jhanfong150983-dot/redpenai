@@ -282,9 +282,17 @@ function isGraded(submission: PreparedSubmission) {
 type AiReportProps = {
   onBack: () => void
   embedded?: boolean
+  /**
+   * 2026-08-11 user 拍板（資訊架構重整）：依「看考卷 vs 看學生」拆成兩個入口。
+   *   exam（預設）＝「考卷分析」：作業總覽→試題分析→樣態分析→家長報告（單一考卷生命週期）
+   *   track＝「學習追蹤」：概念雷達（跨考卷、看學生；未來 S-P 表/趨勢類都進這裡）
+   */
+  variant?: 'exam' | 'track'
 }
 
-export default function AiReport({ onBack, embedded }: AiReportProps) {
+export default function AiReport({ onBack, embedded, variant = 'exam' }: AiReportProps) {
+  const isTrack = variant === 'track'
+  const pageEyebrow = isTrack ? '學習追蹤' : '考卷分析'
   const [syncData, setSyncData] = useState<SyncPayload | null>(null)
   const [reportData, setReportData] = useState<ReportPayload | null>(null)
   const [loading, setLoading] = useState(true)
@@ -301,7 +309,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   >({})
   // 手動觸發領域診斷重生（後補題本後可用，繞過 cache）
   const [domainDiagnosisRegenCounter, setDomainDiagnosisRegenCounter] = useState(0)
-  const [activeTab, setActiveTab] = useState<'overview' | 'class' | 'items' | 'patterns' | 'parent' | 'domain' | 'student'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'class' | 'items' | 'patterns' | 'parent' | 'domain' | 'student'>(isTrack ? 'student' : 'overview')
   // 2026-06-01: 生成/重生報告會花墨水 → 先跳同意框，同意才跑（存待執行動作）
   // 2026-07-22：requestInk 支援自訂 modal 內容（統一走 InkConfirmModal、不再混用 window.confirm）
   const [inkAction, setInkAction] = useState<{ fn: () => void; message?: React.ReactNode } | null>(null)
@@ -957,7 +965,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
         <main className="report">
           <header className="page-header">
             <div>
-              <div className="eyebrow">AI學情報告</div>
+              <div className="eyebrow">{pageEyebrow}</div>
               <h1>資料載入中</h1>
               <p className="subtitle">正在取得最新作業資料。</p>
             </div>
@@ -974,7 +982,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
         <main className="report">
           <header className="page-header">
             <div>
-              <div className="eyebrow">AI學情報告</div>
+              <div className="eyebrow">{pageEyebrow}</div>
               <h1>資料讀取失敗</h1>
               <p className="subtitle">{error}</p>
             </div>
@@ -996,7 +1004,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
       <main className="report">
         <header className="page-header">
           <div className="page-header-main">
-            <div className="eyebrow">AI學情報告</div>
+            <div className="eyebrow">{pageEyebrow}</div>
             <h1
               className="page-title"
               style={{ fontSize: pageTitleFontSize }}
@@ -1037,20 +1045,18 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
         {/* Tab bar */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 mb-6">
           <div className="flex">
-            {([
-              { id: 'overview', label: '作業總覽' },
-              { id: 'items', label: '試題分析' },
-              { id: 'patterns', label: '樣態分析' },
-              // 2026-08-11 user 拍板:退役的 student 診斷性快報復活為「概念雷達」——
-              //   課綱雷達(既有)+學生知識點面板(主題趨勢跨卷/單卷 KP 地圖,吃建卷預跑的 KP)
-              { id: 'student', label: '概念雷達' },
-              { id: 'parent', label: '家長報告' },
-              // 2026-07-20 三個「診斷性快報」退役（user：沒特別作用、且會浪費 AI 點數）。
-              //   面板碼保留但無入口＝不可達；領域診斷的自動 LLM 另在下方 useEffect 停用。要恢復把下面三行取消註解即可。
-              // { id: 'class', label: '作業診斷性快報' },
-              // { id: 'domain', label: '領域診斷性快報' },
-              // { id: 'student', label: '班級診斷性快報' },
-            ] as const).map((tab) => (
+            {/* 2026-08-11 資訊架構重整(user 拍板):考卷分析=單一考卷生命週期四 TAB(照工作流排序);
+                概念雷達獨立成「學習追蹤」入口(variant='track'、跨考卷看學生)。
+                2026-07-20 三個「診斷性快報」退役;面板碼保留但無入口。 */}
+            {(isTrack
+              ? ([{ id: 'student', label: '概念雷達' }] as const)
+              : ([
+                  { id: 'overview', label: '作業總覽' },
+                  { id: 'items', label: '試題分析' },
+                  { id: 'patterns', label: '樣態分析' },
+                  { id: 'parent', label: '家長報告' },
+                ] as const)
+            ).map((tab) => (
               <button
                 key={tab.id}
                 type="button"
