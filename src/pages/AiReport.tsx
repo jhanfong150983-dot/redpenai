@@ -5,6 +5,7 @@ import type { Submission } from '@/lib/db'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
 import ItemAnalysisSection from './ai-report/components/ItemAnalysisSection'
 import AnswerPatternsTab from './ai-report/components/AnswerPatternsTab'
+import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamClassroomIds } from '@/lib/school-exam'
 import { ParentReportTab } from './ai-report/components/ParentReportTab'
 import AssignmentOverviewSection from './ai-report/components/AssignmentOverviewSection'
 import type { ItemAnalysisQuestion } from './ai-report/item-analysis'
@@ -48,6 +49,7 @@ type SyncStudent = {
 type SyncClassroom = {
   id: string
   name?: string
+  folder?: string | null
 }
 
 type SyncSubmission = {
@@ -367,7 +369,17 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           reportResponse.json()
         ])) as [SyncPayload, ReportPayload]
         if (isActive) {
-          setSyncData(data)
+          // 2026-08-11(user 抓到):行政端「學校考卷」班級鏡像(folder='學校考卷'、雙身分帳號 66 班)
+          //   漏進學情報告的班級下拉——sync payload 在此源頭過濾,班級/作業/學生一次擋掉
+          //   (同一判定模組 school-exam.ts;首頁/作業列表/匯入 2026-08-01 已堵、本頁漏網)。
+          const schoolCrIds = schoolExamClassroomIds(data.classrooms ?? [])
+          const filtered: SyncPayload = {
+            ...data,
+            classrooms: withoutSchoolExamClassrooms(data.classrooms ?? []),
+            assignments: withoutSchoolExamAssignments((data.assignments ?? []) as any, schoolCrIds) as any,
+            students: (data.students ?? []).filter((st) => !st.classroomId || !schoolCrIds.has(st.classroomId))
+          }
+          setSyncData(filtered)
           setReportData(report)
         }
       } catch (err) {
