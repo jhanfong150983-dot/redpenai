@@ -238,11 +238,14 @@ export default function ItemAnalysisSection({ questions, submissions, domain }: 
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</span>
                     <span style={{ flex: '0 0 auto', fontSize: 10, color: '#94a3b8' }}>{s.questionCount} 題</span>
                   </div>
-                  {s.dimension && (
-                    <span style={{ flex: '0 0 auto', fontSize: 10, color: '#475569', background: '#f1f5f9', borderRadius: 4, padding: '1px 6px' }}>
-                      {s.dimension}
-                    </span>
-                  )}
+                  {/* 向度欄固定寬:沒有向度的大題(如「選擇題」=題型名、十向度判不出)留空位,長條起點才對得齊 */}
+                  <span style={{ flex: '0 0 62px', display: 'flex', justifyContent: 'center' }}>
+                    {s.dimension && (
+                      <span style={{ fontSize: 10, color: '#475569', background: '#f1f5f9', borderRadius: 4, padding: '1px 6px', whiteSpace: 'nowrap' }}>
+                        {s.dimension}
+                      </span>
+                    )}
+                  </span>
                   <div style={{ flex: 1, height: 14, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden', minWidth: 60 }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 3 }} />
                   </div>
