@@ -12,6 +12,7 @@ import type { ItemAnalysisQuestion } from './ai-report/item-analysis'
 import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
 import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
+import StudentKpPanel from './ai-report/components/StudentKpPanel'
 import DomainDiagnosisView from './ai-report/components/DomainDiagnosisView'
 import InkConfirmModal from '@/components/InkConfirmModal'
 import {
@@ -944,6 +945,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               { id: 'overview', label: '作業總覽' },
               { id: 'items', label: '試題分析' },
               { id: 'patterns', label: '樣態分析' },
+              // 2026-08-11 user 拍板:退役的 student 診斷性快報復活為「概念雷達」——
+              //   課綱雷達(既有)+學生知識點面板(主題趨勢跨卷/單卷 KP 地圖,吃建卷預跑的 KP)
+              { id: 'student', label: '概念雷達' },
               { id: 'parent', label: '家長報告' },
               // 2026-07-20 三個「診斷性快報」退役（user：沒特別作用、且會浪費 AI 點數）。
               //   面板碼保留但無入口＝不可達；領域診斷的自動 LLM 另在下方 useEffect 停用。要恢復把下面三行取消註解即可。
@@ -981,7 +985,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 ))}
               </select>
             </label>
-            {(activeTab === 'class' || activeTab === 'overview' || activeTab === 'items' || activeTab === 'patterns' || activeTab === 'parent') && (
+            {(activeTab === 'class' || activeTab === 'overview' || activeTab === 'items' || activeTab === 'patterns' || activeTab === 'parent' || activeTab === 'student') && (
               <label>
                 作業
                 <select
@@ -1165,6 +1169,11 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 students={conceptMasteryData.students}
                 concepts={conceptMasteryData.concepts}
                 debugInfo={conceptMasteryData.debugInfo}
+              />
+              <StudentKpPanel
+                assignments={classAssignments.map((a) => assignmentById.get(a.id) ?? a) as never}
+                submissions={localSubmissions as never}
+                students={classFilteredStudents as never}
               />
             </section>
           )}
