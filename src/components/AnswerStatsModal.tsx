@@ -22,6 +22,7 @@ export default function AnswerStatsModal({ entries, onClose, onUpdated }: Props)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [doneMsg, setDoneMsg] = useState<string | null>(null)
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
+  const [expandedReason, setExpandedReason] = useState<string | null>(null)
 
   const active = stats.find((q) => q.qid === activeQid) ?? stats[0]
   if (!active) {
@@ -147,6 +148,15 @@ export default function AnswerStatsModal({ entries, onClose, onUpdated }: Props)
                             {!g.locked && <GripVertical className="w-4 h-4 text-gray-300 shrink-0 mt-0.5" />}
                             <div className="min-w-0 flex-1">
                               <div className="font-medium text-gray-900 break-all">「{g.raw}」</div>
+                              {g.reason && (
+                                <div
+                                  onClick={() => setExpandedReason(expandedReason === fullKey ? null : fullKey)}
+                                  className={`mt-0.5 text-xs text-gray-500 cursor-pointer ${expandedReason === fullKey ? '' : 'line-clamp-2'}`}
+                                  title={expandedReason === fullKey ? '點擊收合' : '點擊展開完整理由'}
+                                >
+                                  {g.reason}
+                                </div>
+                              )}
                               <button
                                 onClick={() => setExpandedGroup(isExpanded ? null : fullKey)}
                                 className="mt-1 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"

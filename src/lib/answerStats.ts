@@ -23,6 +23,7 @@ export type GroupMember = {
   name: string
   score: number
   edited: boolean          // _aiOriginal 存在 = 老師已編輯過
+  reason: string
 }
 
 export type AnswerGroup = {
@@ -32,6 +33,7 @@ export type AnswerGroup = {
   score: number            // 群代表分(眾數)
   mixed: boolean           // 群內分數不一致(=同寫法不同分)
   locked: boolean          // 特殊狀態(未作答/無法辨識/圖像辨識/空白)不可拖
+  reason: string           // 代表理由(多數分數成員的 AI 理由;查表題=同答同理由)
 }
 
 export type QuestionStats = {
@@ -70,14 +72,15 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
       if (Number.isFinite(mx) && mx > 0) maxByQid.set(qid, Math.max(maxByQid.get(qid) ?? 0, mx))
       const gm = byQid.get(qid) ?? new Map<string, AnswerGroup>()
       const gKey = locked ? `__special__${rawText || '(空白)'}` : key
-      const g = gm.get(gKey) ?? { key: gKey, raw: locked ? (rawText || '(空白)') : rawText, members: [], score: 0, mixed: false, locked }
+      const g = gm.get(gKey) ?? { key: gKey, raw: locked ? (rawText || '(空白)') : rawText, members: [], score: 0, mixed: false, locked, reason: '' }
       g.members.push({
         submissionId: submission.id,
         studentId: submission.studentId,
         seat: student.seatNumber ?? null,
         name: student.name ?? '',
         score: Number.isFinite(Number(d?.score)) ? Number(d.score) : 0,
-        edited: !!d?._aiOriginal
+        edited: !!d?._aiOriginal,
+        reason: String(d?.reason ?? d?.comment ?? '').trim()
       })
       gm.set(gKey, g)
       byQid.set(qid, gm)
@@ -92,6 +95,8 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
       const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])
       g.score = sorted[0]?.[0] ?? 0
       g.mixed = tally.size > 1
+      g.reason = g.members.find((m) => m.score === g.score && m.reason)?.reason
+        ?? g.members.find((m) => m.reason)?.reason ?? ''
     }
     groups.sort((a, b) => b.members.length - a.members.length)
     out.push({
