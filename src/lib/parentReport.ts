@@ -836,6 +836,8 @@ export const REPORT_CSS = `
    手寫字的大小由框高決定,對齊高度=每張的字看起來一樣大。 */
 .pr-qbody { display:flex; gap:14px; margin-bottom:9px; align-items:flex-start; }
 .pr-qr .cls { color:#5B6B7C; }
+.pr-wcrop img { display:block; max-height:52px; max-width:300px; border:1px solid #E4E8EC; border-radius:4px; margin-bottom:4px; }
+.pr-wcls { font-size:11px; color:#5B6B7C; margin:2px 0; }
 .pr-qcrop { flex:0 0 auto; }
 .pr-qcrop img { display:block; width:auto; height:auto; max-height:60px; max-width:320px; border:1px solid #E4E8EC; border-radius:4px; }
 .pr-qinfo { flex:1 1 0; min-width:0; }
@@ -872,13 +874,21 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
       <td class="barcell"><div class="pr-track"><div class="fill ${cls}" style="width:${t.studentRate}%"></div><div class="cls" style="left:${t.classRate}%"></div></div></td>
       <td class="pct">${t.studentRate}%</td></tr>`
   }).join('')
+  // 2026-08-11(user):基礎版錯題也帶作答裁圖+班級狀況——裁圖=server 現切、零 AI 零墨水,
+  //   本來就在 preview/download 時抓進 errorRows,初階只是沒渲染;由 errorRows 依 questionId 補上。
+  const errRowByQid = new Map(r.errorRows.map((e) => [e.questionId, e]))
   const wrongsHtml = r.wrongs.length ? r.wrongs.map((w) => {
+    const er = errRowByQid.get(w.questionId)
     const shownStu = w.imageJudged ? '圖像辨識' : (w.studentAnswer || '（未作答）')
+    const cropImg = er?.cropDataUrl ? `<div class="pr-wcrop"><img src="${esc(er.cropDataUrl)}"></div>` : ''
     const ansLine = (w.studentAnswer || w.referenceAnswer || w.imageJudged)
       ? `<div class="pr-ans">孩子的答案：<span class="y"${w.imageJudged ? ' style="color:#6B7684"' : ''}>${esc(shownStu)}</span>${w.referenceAnswer ? `　正確答案：<span class="r">${esc(w.referenceAnswer)}</span>` : ''}</div>`
       : ''
+    const clsLine = er && er.classTotal > 0
+      ? `<div class="pr-wcls">班級狀況：全班 ${er.classTotal} 人中 ${er.classFull} 人此題拿滿分</div>`
+      : ''
     return `<tr><td class="qcell"><span class="qno">${esc(formatQuestionLabel(w.questionId))}</span><span class="qt">${esc(w.typeLabel)}</span></td>
-      <td>${ansLine}<span class="pr-fix">✎ ${esc(w.reason || '請對照正確答案重新檢視這一題。')}</span></td></tr>`
+      <td>${cropImg}${ansLine}${clsLine}<span class="pr-fix">✎ ${esc(w.reason || '請對照正確答案重新檢視這一題。')}</span></td></tr>`
   }).join('') : `<tr><td colspan="2" style="text-align:center;color:#7B8794;padding:14px">本次沒有明顯失分的題目，表現很好！</td></tr>`
   const moreRow = r.moreWrongCount > 0
     ? `<div class="pr-more">另有 ${r.moreWrongCount} 題失分，完整內容請見孩子的考卷。</div>` : ''
