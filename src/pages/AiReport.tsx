@@ -13,6 +13,7 @@ import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
 import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
 import ConceptDrillDown from './ai-report/components/ConceptDrillDown'
+import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
 
 // 跨班比較（exam-compare 端點的匿名彙總；classCount 之外無任何來源資訊）
 export type CrossCompare = {
@@ -283,16 +284,16 @@ type AiReportProps = {
   onBack: () => void
   embedded?: boolean
   /**
-   * 2026-08-11 user 拍板（資訊架構重整）：依「看考卷 vs 看學生」拆成兩個入口。
-   *   exam（預設）＝「考卷分析」：作業總覽→試題分析→樣態分析→家長報告（單一考卷生命週期）
-   *   track＝「學習追蹤」：概念雷達（跨考卷、看學生；未來 S-P 表/趨勢類都進這裡）
+   * 2026-08-12 user 二修（教學影片情境對齊：考試→檢討→分析三階段）：
+   *   exam（預設）＝「檢討考卷」：考試總覽（含檢討單下載）→樣態分析——考完隔天的檢討課用
+   *   track＝「後續追蹤」：試題分析→概念雷達→家長報告——檢討完的深入分析與對外交付
    */
   variant?: 'exam' | 'track'
 }
 
 export default function AiReport({ onBack, embedded, variant = 'exam' }: AiReportProps) {
   const isTrack = variant === 'track'
-  const pageEyebrow = isTrack ? '學習追蹤' : '考卷分析'
+  const pageEyebrow = isTrack ? '後續追蹤' : '檢討考卷'
   const [syncData, setSyncData] = useState<SyncPayload | null>(null)
   const [reportData, setReportData] = useState<ReportPayload | null>(null)
   const [loading, setLoading] = useState(true)
@@ -309,7 +310,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   >({})
   // 手動觸發領域診斷重生（後補題本後可用，繞過 cache）
   const [domainDiagnosisRegenCounter, setDomainDiagnosisRegenCounter] = useState(0)
-  const [activeTab, setActiveTab] = useState<'overview' | 'class' | 'items' | 'patterns' | 'parent' | 'domain' | 'student'>(isTrack ? 'student' : 'overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'class' | 'items' | 'patterns' | 'parent' | 'domain' | 'student'>(isTrack ? 'items' : 'overview')
   // 2026-06-01: 生成/重生報告會花墨水 → 先跳同意框，同意才跑（存待執行動作）
   // 2026-07-22：requestInk 支援自訂 modal 內容（統一走 InkConfirmModal、不再混用 window.confirm）
   const [inkAction, setInkAction] = useState<{ fn: () => void; message?: React.ReactNode } | null>(null)
@@ -964,6 +965,26 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     [classFilteredSubmissions]
   )
 
+  // ── 檢討單下載（2026-08-12 從訂正頁移植到考試總覽;與行政端同一條 reviewSheetPdf 管線）──
+  const [reviewSheetBusy, setReviewSheetBusy] = useState(false)
+  const [reviewSheetProgress, setReviewSheetProgress] = useState<{ done: number; total: number } | null>(null)
+  const [reviewSheetMsg, setReviewSheetMsg] = useState('')
+  const handleDownloadReviewSheet = async () => {
+    if (reviewSheetBusy || !selectedAssignmentId) return
+    setReviewSheetBusy(true); setReviewSheetMsg(''); setReviewSheetProgress(null)
+    try {
+      const r = await downloadClassReviewSheetPdf(selectedAssignmentId, {
+        onProgress: (_phase, done, total) => setReviewSheetProgress({ done, total }),
+      })
+      setReviewSheetMsg(`✅ 已下載全班檢討單（${r.students} 位）${r.failed > 0 ? `、${r.failed} 位失敗略過` : ''}`)
+    } catch (e) {
+      setReviewSheetMsg(e instanceof Error ? e.message : '產生檢討單失敗，請再試一次')
+    } finally {
+      setReviewSheetBusy(false); setReviewSheetProgress(null)
+    }
+  }
+  useEffect(() => { setReviewSheetMsg('') }, [selectedAssignmentId])
+
   // 補齊逐題資料期間的載入卡（各 TAB 共用；取代誤導的「不足 3 份」訊息）
   const detailsLoadingCard = (
     <section className="card" style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1058,16 +1079,18 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
         {/* Tab bar */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 mb-6">
           <div className="flex">
-            {/* 2026-08-11 資訊架構重整(user 拍板):考卷分析=單一考卷生命週期四 TAB(照工作流排序);
-                概念雷達獨立成「學習追蹤」入口(variant='track'、跨考卷看學生)。
+            {/* 2026-08-12 資訊架構二修(user 拍板、對齊教學影片三階段情境):
+                檢討考卷=考試總覽(含檢討單下載)+樣態分析;後續追蹤=試題分析+概念雷達+家長報告。
                 2026-07-20 三個「診斷性快報」退役;面板碼保留但無入口。 */}
             {(isTrack
-              ? ([{ id: 'student', label: '概念雷達' }] as const)
-              : ([
-                  { id: 'overview', label: '作業總覽' },
+              ? ([
                   { id: 'items', label: '試題分析' },
-                  { id: 'patterns', label: '樣態分析' },
+                  { id: 'student', label: '概念雷達' },
                   { id: 'parent', label: '家長報告' },
+                ] as const)
+              : ([
+                  { id: 'overview', label: '考試總覽' },
+                  { id: 'patterns', label: '樣態分析' },
                 ] as const)
             ).map((tab) => (
               <button
@@ -1138,18 +1161,39 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
             </section>
           )}
 
-          {/* 2026-07-16 作業總覽（user 拍板資料層重構）：純程式即時、零墨水 */}
+          {/* 2026-07-16 考試總覽（原作業總覽）：純程式即時、零墨水。
+              2026-08-12 user 拍板:檢討單下載從訂正頁移植到這裡（檢討課情境的第一步） */}
           {activeTab === 'overview' && (
             <section>
               {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 3 ? (
-                <AssignmentOverviewSection
-                  questions={itemAnalysisQuestions}
-                  submissions={itemAnalysisSubmissions}
-                  assignmentId={selectedAssignmentId}
-                  domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
-                  templateId={itemAnalysisTemplateId}
-                  requestInk={requestInk}
-                />
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => void handleDownloadReviewSheet()}
+                      disabled={reviewSheetBusy}
+                      title="全班已批改者人人一份(全題+裁圖+正解、低信心黃框、簽名欄),整班合併一份 PDF 直接列印"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: reviewSheetBusy ? 'not-allowed' : 'pointer',
+                        border: '1px solid #cbd5e1', background: '#fff', color: '#334155', opacity: reviewSheetBusy ? 0.6 : 1,
+                      }}
+                    >
+                      🖨 {reviewSheetBusy
+                        ? `檢討單產生中${reviewSheetProgress ? ` ${reviewSheetProgress.done}/${reviewSheetProgress.total}` : '…'}`
+                        : '下載檢討單'}
+                    </button>
+                    {reviewSheetMsg && <span style={{ fontSize: 12, color: reviewSheetMsg.startsWith('✅') ? '#15803d' : '#b91c1c' }}>{reviewSheetMsg}</span>}
+                  </div>
+                  <AssignmentOverviewSection
+                    questions={itemAnalysisQuestions}
+                    submissions={itemAnalysisSubmissions}
+                    assignmentId={selectedAssignmentId}
+                    domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
+                    templateId={itemAnalysisTemplateId}
+                    requestInk={requestInk}
+                  />
+                </>
               ) : detailsLoading ? detailsLoadingCard : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   {itemAnalysisSubmissions.length < 3

@@ -2027,8 +2027,8 @@ function App() {
     if (!canAccessTracking) return
     setCurrentPage('ai-report')
   }
-  // 2026-08-11 資訊架構重整(user 拍板):「看考卷」與「看學生」拆兩個入口——
-  //   考卷分析(ai-report)=單一考卷生命週期;學習追蹤(learning-track)=概念雷達等跨考卷視圖
+  // 2026-08-12 資訊架構二修(user 拍板、對齊教學影片「考試→檢討→分析」三階段):
+  //   檢討考卷(ai-report)=檢討單下載+考試總覽+樣態分析;後續追蹤(learning-track)=試題分析+概念雷達+家長報告
   const openLearningTrack = async () => {
     if (!(await confirmLeaveGrading())) return
     if (!canAccessTracking) return
@@ -2125,8 +2125,8 @@ function App() {
         // },
         {
           key: 'report',
-          label: '考卷分析',
-          description: '成績總覽、試題與樣態分析、家長報告',
+          label: '檢討考卷',
+          description: '檢討單下載、考試總覽、樣態分析',
           icon: FileText,
           onClick: openAiReport,
           disabled: !canAccessTracking,
@@ -2134,8 +2134,8 @@ function App() {
         },
         {
           key: 'learning-track',
-          label: '學習追蹤',
-          description: '概念雷達：跨考卷看學生學習狀況',
+          label: '後續追蹤',
+          description: '試題分析、概念雷達、家長報告',
           icon: Target,
           onClick: openLearningTrack,
           disabled: !canAccessTracking,
@@ -2677,7 +2677,7 @@ function App() {
                   <div className="mx-auto w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
                     <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
                     <p className="mt-2 text-sm text-gray-600">
-                      Pro 權限才可使用考卷分析與學習追蹤。
+                      Pro 權限才可使用檢討考卷與後續追蹤。
                     </p>
                     <button
                       type="button"

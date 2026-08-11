@@ -13,12 +13,10 @@ import {
   Flag,
   ThumbsUp,
   ThumbsDown,
-  Download,
   X,
   RotateCcw
 } from 'lucide-react'
 import { requestSync, waitForSync } from '@/lib/sync-events'
-import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
 
 interface CorrectionManagementProps {
   embedded?: boolean
@@ -150,8 +148,6 @@ export default function CorrectionManagement({
   const [isResolvingDispute, setIsResolvingDispute] = useState(false)
   const [manualPassingStudentId, setManualPassingStudentId] = useState<string | null>(null)
   const [revertingManualPassStudentId, setRevertingManualPassStudentId] = useState<string | null>(null)
-  const [isGeneratingNotice, setIsGeneratingNotice] = useState(false)
-  const [noticeProgress, setNoticeProgress] = useState<{ done: number; total: number } | null>(null)
 
   const loadDashboard = useCallback(async (force = false) => {
     setError(null)
@@ -467,29 +463,7 @@ export default function CorrectionManagement({
     }
   }
 
-  // 2026-08-12 user 拍板:訂正通知單退役、改用與行政端相同的「學生檢討單」
-  //   (reviewSheetPdf:全題列出+裁圖+擷取/正解+低信心黃框+簽名欄,整班合併一份 PDF 直接列印)。
-  //   檢討單=全班已批改者人人一份(全對也有,當第二道複核線),不吃勾選名單。
-  const handleDownloadReviewSheet = async () => {
-    if (isGeneratingNotice) return
-    setError(null)
-    setMessage(null)
-    setIsGeneratingNotice(true)
-    setNoticeProgress({ done: 0, total: 0 })
-    try {
-      const result = await downloadClassReviewSheetPdf(assignmentId, {
-        onProgress: (_phase, done, total) => setNoticeProgress({ done, total })
-      })
-      const parts = [`已下載全班檢討單（${result.students} 位、合併一份 PDF）`]
-      if (result.failed > 0) parts.push(`${result.failed} 位產生失敗、已略過`)
-      setMessage(parts.join('；') + '。')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '產生檢討單失敗')
-    } finally {
-      setIsGeneratingNotice(false)
-      setNoticeProgress(null)
-    }
-  }
+  // 2026-08-12 訂正通知單退役;檢討單下載再移植到「檢討考卷→考試總覽」(user 拍板,檢討課情境第一步)。
 
   const handleOpenDisputePanel = async (student: DashboardStudent) => {
     if (disputeLoadingStudentId) return
@@ -652,25 +626,7 @@ export default function CorrectionManagement({
               </button>
             ) : null}
 
-            {(() => {
-              const progressLabel = noticeProgress && noticeProgress.total > 0
-                ? `${noticeProgress.done} / ${noticeProgress.total}`
-                : null
-              return (
-                <button
-                  type="button"
-                  onClick={() => void handleDownloadReviewSheet()}
-                  disabled={isGeneratingNotice || isLoading || !dashboard}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                  title="全班已批改者人人一份(全題+裁圖+正解、低信心黃框標示、簽名欄),整班合併一份 PDF 直接列印——與行政端相同版型"
-                >
-                  {isGeneratingNotice ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  {isGeneratingNotice
-                    ? `產生中${progressLabel ? ` ${progressLabel}` : '…'}`
-                    : '下載檢討單'}
-                </button>
-              )
-            })()}
+            {/* 檢討單下載已移至「檢討考卷 → 考試總覽」 */}
           </div>
         </div>
 
