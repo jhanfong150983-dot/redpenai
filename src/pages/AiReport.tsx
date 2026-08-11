@@ -20,6 +20,8 @@ export type CrossCompare = {
   byCode: Record<string, { full: number; partial: number; wrong: number; total: number; label?: string }>
   byQuestion: Record<string, { full: number; partial: number; wrong: number; blank: number; total: number }>
   answers: Record<string, Array<{ value: string; score: number; count: number }>>
+  /** 匿名作答向量（無 id、已打亂）：試題分析全體重算用——多班當一個母體算 P/D/高低分組/α */
+  responses?: Array<{ details: Array<{ q: string; s: number; m: number | null; c: boolean; v: string }> }>
 }
 
 // 跨班比較切換鈕（三個視圖共用同一個開關狀態）
@@ -643,6 +645,16 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     }
     return out
   }, [crossData])
+  // 全體試題分析用:匿名作答向量→ItemAnalysisSubmissionLike 形狀(多班合併成一個母體、原元件整套重算)
+  const crossSubmissions = useMemo(() =>
+    (crossData?.responses ?? []).map((r) => ({
+      gradingResult: {
+        details: r.details.map((d) => ({
+          questionId: d.q, score: d.s, maxScore: d.m ?? undefined, isCorrect: d.c, studentAnswer: d.v,
+        })),
+      },
+    })),
+    [crossData])
   // 下鑽頁的資料範圍與雷達一致（同一組 domain 過濾、取完整 assignment 物件拿 conceptTags/answerKey）
   const conceptDrillAssignments = useMemo(() =>
     classAssignments
@@ -1135,15 +1147,21 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 3 ? (
                 <>
                   {crossData && (
-                    <div style={{ marginBottom: 8 }}>
+                    <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                       <CrossToggle on={crossOn} onToggle={() => setCrossOn((v) => !v)} classCount={crossData.classCount} />
+                      {crossOn && (
+                        <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                          全體試題分析：同卷 {crossData.classCount} 班合併成一個母體重算（P／鑑別度／高低分組／α；匿名、不顯示班級來源）
+                        </span>
+                      )}
                     </div>
                   )}
+                  {/* 2026-08-11 user 拍板:跨班=「多班統整的試卷分析」不是逐題比較欄——
+                      同一個分析元件、換成全體匿名作答向量整套重算 */}
                   <ItemAnalysisSection
                     questions={itemAnalysisQuestions}
-                    submissions={itemAnalysisSubmissions}
+                    submissions={crossOn && crossData && crossSubmissions.length >= 3 ? crossSubmissions : itemAnalysisSubmissions}
                     domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
-                    cross={crossOn && crossData ? { classCount: crossData.classCount, byQuestion: crossData.byQuestion } : undefined}
                   />
                 </>
               ) : (
