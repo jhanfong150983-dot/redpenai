@@ -532,18 +532,23 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   )
 
   // 從 IndexedDB 讀取批改詳情（sync API 不含 grading_result）
+  // 2026-08-11 user 回報:補齊期間各 TAB 顯示「不足 3 份」誤導老師以為沒資料——
+  //   加 detailsLoading 旗標,載入中各 TAB 改顯示載入卡、不顯示不足訊息。
+  const [detailsLoading, setDetailsLoading] = useState(false)
   useEffect(() => {
     if (!classAssignmentIds.size) {
       setLocalSubmissions([])
       return
     }
     const ids = Array.from(classAssignmentIds)
+    setDetailsLoading(true)
     // 2026-08-03 sync 瘦身:逐題 details 已不隨 sync 下來,學情報告/試題分析要先補齊
     void ensureAssignmentDetails(ids)
       .catch((err) => console.warn('[AiReport] 補齊批改詳情失敗:', err))
       .then(() => db.submissions.where('assignmentId').anyOf(ids).toArray())
       .then(setLocalSubmissions)
       .catch(() => setLocalSubmissions([]))
+      .finally(() => setDetailsLoading(false))
   }, [classAssignmentIds])
 
   const classFilteredSubmissions = useMemo(() => {
@@ -959,6 +964,14 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     [classFilteredSubmissions]
   )
 
+  // 補齊逐題資料期間的載入卡（各 TAB 共用；取代誤導的「不足 3 份」訊息）
+  const detailsLoadingCard = (
+    <section className="card" style={{ color: '#64748b', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span className="inline-block w-4 h-4 rounded-full border-2 border-slate-300 border-t-sky-500 animate-spin" />
+      正在載入批改資料…（首次進入需要幾秒鐘）
+    </section>
+  )
+
   if (loading) {
     return (
       <div className={`ai-report${embedded ? ' embedded' : ''}`}>
@@ -1137,7 +1150,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   templateId={itemAnalysisTemplateId}
                   requestInk={requestInk}
                 />
-              ) : (
+              ) : detailsLoading ? detailsLoadingCard : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   {itemAnalysisSubmissions.length < 3
                     ? '此作業已批改的卷數不足 3 份，暫無法統計。'
@@ -1170,7 +1183,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                     domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
                   />
                 </>
-              ) : (
+              ) : detailsLoading ? detailsLoadingCard : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   {itemAnalysisSubmissions.length < 3
                     ? '此作業已批改的卷數不足 3 份，暫無法進行試題分析。'
@@ -1198,7 +1211,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                     cross={crossOn && crossData ? { classCount: crossData.classCount, answers: crossData.answers } : undefined}
                   />
                 </>
-              ) : (
+              ) : detailsLoading ? detailsLoadingCard : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   請先選擇一份已批改的作業。
                 </section>
@@ -1232,7 +1245,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   onKpSaved={() => setKpReloadTick((t) => t + 1)}
                   grade={(syncData?.classrooms.find((c) => c.id === selectedClassroomId) as { grade?: number } | undefined)?.grade}
                 />
-              ) : (
+              ) : detailsLoading ? detailsLoadingCard : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   {itemAnalysisSubmissions.length < 3
                     ? '此作業已批改的卷數不足 3 份，暫無法產生家長報告。'
