@@ -22,7 +22,6 @@ async function loadCompare(assignmentId: string): Promise<CompareData | null> {
   if (!self || !tplId) return null
   const all = await db.assignments.toArray()
   const group = all.filter((a) => (a as { answerKeyTemplateId?: string }).answerKeyTemplateId === tplId)
-  if (group.length < 2) return null
 
   // sync 瘦身後 gradingResult 不隨 sync 下來：其他班的逐題資料先補齊（本班進報告頁時已補）
   await ensureAssignmentDetails(group.map((a) => a.id))
@@ -75,6 +74,33 @@ async function loadCompare(assignmentId: string): Promise<CompareData | null> {
       byCode,
     })
   }
+  // ── 跨帳號（任務②）：同校其他老師的同卷班級——server 只回班級級聚合、不含學生資料。
+  //    失敗/未授權/血緣 DDL 未跑 → 靜默略過，比較範圍退回本帳號（fail-open）。
+  try {
+    const res = await fetch('/api/data/exam-compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ assignmentId }),
+    })
+    if (res.ok) {
+      const data = (await res.json().catch(() => null)) as {
+        classes?: Array<{ assignmentId: string; className: string; isMine?: boolean; byCode?: Record<string, { full?: number; partial?: number; wrong?: number; total?: number; label?: string }> }>
+      } | null
+      const have = new Set(rows.map((r) => r.assignmentId))
+      for (const c of data?.classes ?? []) {
+        if (!c?.assignmentId || have.has(c.assignmentId)) continue
+        const byCode: Record<string, CodeStat> = {}
+        for (const [code, s] of Object.entries(c.byCode ?? {})) {
+          byCode[code] = { full: s.full ?? 0, partial: s.partial ?? 0, wrong: s.wrong ?? 0, total: s.total ?? 0 }
+          if (!codeLabels.has(code)) codeLabels.set(code, s.label || code)
+        }
+        if (!Object.keys(byCode).length) continue
+        rows.push({ assignmentId: c.assignmentId, className: c.className, isSelf: false, byCode })
+      }
+    }
+  } catch { /* 離線/端點未部署 → 本帳號範圍照常 */ }
+
   if (rows.length < 2 || !rows.some((r) => r.isSelf)) return null
   const codes = [...codeLabels.entries()].map(([code, label]) => ({ code, label })).sort((x, y) => x.code.localeCompare(y.code))
   return { codes, rows }
@@ -188,7 +214,8 @@ export default function ExamClassCompare({ assignmentId }: { assignmentId: strin
         })}
       </div>
       <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 10 }}>
-        目前比較範圍＝這個帳號底下使用同一份答案卷的班級；其他老師的班級待跨帳號匯總功能上線後納入。
+        比較範圍＝使用同一份答案卷（分享碼血緣）的班級，含同校其他老師的班；
+        他班只顯示班級整體統計、不含學生名單與個別成績。
       </div>
     </div>
   )
