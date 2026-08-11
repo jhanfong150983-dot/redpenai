@@ -95,6 +95,8 @@ export type QErrorRow = {
   why: string            // AI 專家診斷「為什麼會這樣寫錯」（後填）
   suggest: string        // 在家建議（後填）
   cropDataUrl: string    // 學生作答截圖 data URI（後填）
+  classFull: number      // 全班此題拿滿分人數(2026-08-11 user:讓家長讀出相對位置——大家都會/都不會)
+  classTotal: number     // 全班已批改人數
 }
 export type WeakKp = { kp: string; tip: string }
 export type WeakTopic = { topic: string; band: 'red' | 'amber'; ratePct: number; total: number; wrong: number; weakKps: WeakKp[] }
@@ -256,6 +258,21 @@ export function assembleParentReports(
   const classTypeRate = new Map<string, number>()
   for (const [label, e] of classTypeAgg) classTypeRate.set(label, e.max > 0 ? (e.got / e.max) * 100 : 0)
 
+  // 全班逐題滿分統計(2026-08-11 user):錯題卡顯示「全班 N/M 人拿滿分」——數字自己說話,
+  //   家長讀出三種訊息:大家都會=應該也要會/大家都不會我會=優秀/大家都不會=正常
+  const qFullMark = new Map<string, { full: number; total: number }>()
+  for (const p of papers) {
+    for (const d of p.details) {
+      const qid = String(d.questionId ?? '').trim()
+      const mx = num(d.maxScore) > 0 ? num(d.maxScore) : (qMaxById.get(qid) || 0)
+      if (!qid || !(mx > 0)) continue
+      const e = qFullMark.get(qid) ?? { full: 0, total: 0 }
+      e.total++
+      if (num(d.score) >= mx) e.full++
+      qFullMark.set(qid, e)
+    }
+  }
+
   const gradeLabelOf = (ratio: number): string =>
     ratio >= 85 ? '優異' : ratio >= 70 ? '良好' : ratio >= 60 ? '尚可' : '待加強'
 
@@ -313,6 +330,8 @@ export function assembleParentReports(
         reason: String(x.d.reason ?? '').trim(),
         imageJudged: isImageJudgedAnswer(x.d.reason, x.d.finalAnswerSource) && String(x.d.studentAnswer ?? '').trim() !== '未作答' && String(x.d.studentAnswer ?? '').trim() !== '',
         why: '', suggest: '', cropDataUrl: '',
+        classFull: qFullMark.get(x.qid)?.full ?? 0,
+        classTotal: qFullMark.get(x.qid)?.total ?? 0,
       }))
 
     // 依大主題彙整 + 逐知識點精熟度
@@ -816,6 +835,7 @@ export const REPORT_CSS = `
    改成用「高度」對齊:所有裁圖同一個高度上限,寬度隨長寬比自然延伸、再受寬度上限保護。
    手寫字的大小由框高決定,對齊高度=每張的字看起來一樣大。 */
 .pr-qbody { display:flex; gap:14px; margin-bottom:9px; align-items:flex-start; }
+.pr-qr .cls { color:#5B6B7C; }
 .pr-qcrop { flex:0 0 auto; }
 .pr-qcrop img { display:block; width:auto; height:auto; max-height:60px; max-width:320px; border:1px solid #E4E8EC; border-radius:4px; }
 .pr-qinfo { flex:1 1 0; min-width:0; }
@@ -893,9 +913,13 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     const shownStudent = e.imageJudged
       ? `<span class="you imgjudge">圖像辨識</span>`
       : `<span class="you">${esc(e.studentAnswer || '（空白）')}</span>`
+    const classStat = e.classTotal > 0
+      ? `<div class="pr-qr"><span class="l">班級狀況</span><span class="cls">全班 ${e.classTotal} 人中 ${e.classFull} 人此題拿滿分</span></div>`
+      : ''
     const info = `<div class="pr-qinfo">
         <div class="pr-qr"><span class="l">AI 讀到</span>${shownStudent}</div>
         <div class="pr-qr"><span class="l">標準答案</span><span class="ans">${esc(e.referenceAnswer || '—')}</span></div>
+        ${classStat}
       </div>`
     const why = e.why
       ? `<div class="pr-qwhy"><b>🧠 為什麼會這樣：</b>${esc(e.why)}</div>`
