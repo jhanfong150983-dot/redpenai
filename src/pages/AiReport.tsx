@@ -13,6 +13,7 @@ import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
 import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
 import ConceptDrillDown from './ai-report/components/ConceptDrillDown'
+import ExamClassCompare from './ai-report/components/ExamClassCompare'
 import DomainDiagnosisView from './ai-report/components/DomainDiagnosisView'
 import InkConfirmModal from '@/components/InkConfirmModal'
 import {
@@ -1196,13 +1197,16 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   onBack={() => setConceptDrill(null)}
                 />
               ) : (
-                // 摘要：只有班級雷達（點課綱代碼進細節）
-                <ConceptRadarChart
-                  students={conceptMasteryData.students}
-                  concepts={conceptMasteryData.concepts}
-                  debugInfo={conceptMasteryData.debugInfo}
-                  onSelectCode={(code, label) => setConceptDrill({ code, label })}
-                />
+                // 摘要：班級雷達（點課綱代碼進細節）＋選定作業的同卷跨班比較
+                <>
+                  <ConceptRadarChart
+                    students={conceptMasteryData.students}
+                    concepts={conceptMasteryData.concepts}
+                    debugInfo={conceptMasteryData.debugInfo}
+                    onSelectCode={(code, label) => setConceptDrill({ code, label })}
+                  />
+                  <ExamClassCompare assignmentId={selectedAssignmentId} />
+                </>
               )}
             </section>
           )}
