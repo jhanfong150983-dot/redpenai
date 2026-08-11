@@ -10,6 +10,7 @@
 //   (重用家長報告 headless Chrome 端點、零 server 改動;逐生 POST 也避開 4MB 上限)
 //   → pdf-lib 合併成「一班一個 PDF」直接列印(user 拍板,不用 zip)。
 import { db, type Submission, type Student, type Assignment } from '@/lib/db'
+import { resolveStdAnswer } from '@/lib/parentReport'
 
 const PDF_ENDPOINT = '/api/report/parent-pdf'
 const FONT_LINK = '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet">'
@@ -122,7 +123,7 @@ export async function buildClassReviewSheets(
   const subs = (await db.submissions.where('assignmentId').equals(assignmentId).toArray())
     .filter((s) => s.status === 'graded' && s.gradingResult)
   // 題序與正解以答案卷為準(考卷原始順序)
-  const akQuestions = (assignment.answerKey?.questions ?? []) as Array<{ id?: string; answer?: unknown; maxScore?: number }>
+  const akQuestions = (assignment.answerKey?.questions ?? []) as Array<{ id?: string; answer?: string; referenceAnswer?: string; parts?: Array<{ answer?: string }>; maxScore?: number }>
 
   const ordered = subs
     .map((sub) => ({ sub, stu: stuById.get(sub.studentId) }))
@@ -169,7 +170,9 @@ export async function buildClassReviewSheets(
         qNum: m ? m[2] : qid,
         score, maxScore,
         studentAnswer: String(d.studentAnswer ?? ''),
-        correctAnswer: String(q?.answer ?? ''),
+        // 2026-08-12 user 抓漏:注釋等語意題正解存 referenceAnswer(answer 為空)、多小題存 parts
+        //   → 用家長報告同一個 resolveStdAnswer(answer→referenceAnswer→parts 組合)
+        correctAnswer: q ? resolveStdAnswer(q) : '',
         wrong: score < maxScore,
         lowConfidence: isLowConfidence(d),
         cropDataUri: c?.uri ?? null,
