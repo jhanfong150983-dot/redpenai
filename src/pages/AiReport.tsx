@@ -1177,23 +1177,16 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           {activeTab === 'student' && (
             <section>
               {conceptDrill ? (
-                // 下鑽頁（細節）：該課綱指標下的知識點×三階段學生比例
-                <ConceptDrillDown
-                  code={conceptDrill.code}
-                  label={conceptDrill.label}
-                  assignments={conceptDrillAssignments as never}
-                  submissions={localSubmissions as never}
-                  students={classFilteredStudents as never}
-                  onBack={() => setConceptDrill(null)}
-                />
-              ) : (
-                // 摘要：班級雷達（點代碼下鑽）＋單一學生知識點面板
+                // 下鑽頁（細節）：知識點×三階段班級分布 ＋ 單一學生知識點面板
+                // （2026-08-11 user 修正：學生知識點狀況不放摘要頁、跟著下鑽頁走——摘要頁只留雷達）
                 <>
-                  <ConceptRadarChart
-                    students={conceptMasteryData.students}
-                    concepts={conceptMasteryData.concepts}
-                    debugInfo={conceptMasteryData.debugInfo}
-                    onSelectCode={(code, label) => setConceptDrill({ code, label })}
+                  <ConceptDrillDown
+                    code={conceptDrill.code}
+                    label={conceptDrill.label}
+                    assignments={conceptDrillAssignments as never}
+                    submissions={localSubmissions as never}
+                    students={classFilteredStudents as never}
+                    onBack={() => setConceptDrill(null)}
                   />
                   <StudentKpPanel
                     assignments={classAssignments.map((a) => assignmentById.get(a.id) ?? a) as never}
@@ -1201,6 +1194,14 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                     students={classFilteredStudents as never}
                   />
                 </>
+              ) : (
+                // 摘要：只有班級雷達（點課綱代碼進細節）
+                <ConceptRadarChart
+                  students={conceptMasteryData.students}
+                  concepts={conceptMasteryData.concepts}
+                  debugInfo={conceptMasteryData.debugInfo}
+                  onSelectCode={(code, label) => setConceptDrill({ code, label })}
+                />
               )}
             </section>
           )}
