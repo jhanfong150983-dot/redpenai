@@ -12,6 +12,8 @@ type ConceptRadarChartProps = {
   students: StudentMastery[]
   concepts: ConceptEntry[]
   debugInfo?: AssignmentDebugInfo[]
+  /** 2026-08-11 user 拍板（摘要→細節）：點課綱代碼 → 下鑽「知識點×三階段學生比例」頁。 */
+  onSelectCode?: (code: string, label: string) => void
 }
 
 const CX = 250
@@ -47,7 +49,7 @@ function masteryColor(ratio: number) {
 }
 
 
-export default function ConceptRadarChart({ students, concepts, debugInfo }: ConceptRadarChartProps) {
+export default function ConceptRadarChart({ students, concepts, debugInfo, onSelectCode }: ConceptRadarChartProps) {
   // Empty state
   if (concepts.length === 0 || students.length === 0) {
     return (
@@ -123,6 +125,9 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
       <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
         {n} 個概念 · {students.length} 位學生
       </span>
+      {onSelectCode && (
+        <span style={{ fontSize: '0.7rem', color: '#7c3aed' }}>點課綱代碼看知識點分布 →</span>
+      )}
     </div>
   )
 
@@ -135,12 +140,17 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
           {sorted.map((item) => {
             const pct = Math.round(item.ratio * 100)
             return (
-              <div key={item.code}>
+              <div
+                key={item.code}
+                onClick={onSelectCode ? () => onSelectCode(item.code, item.label) : undefined}
+                title={onSelectCode ? '點一下看這個指標下的知識點分布' : undefined}
+                style={onSelectCode ? { cursor: 'pointer' } : undefined}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#374151' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: onSelectCode ? '#6d28d9' : '#374151', textDecoration: onSelectCode ? 'underline' : 'none' }}>
                     {item.code}
                     {item.label && item.label !== item.code && (
-                      <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: '0.4rem' }}>{item.label.split(/\s*[—–-]\s*/)[0].trim()}</span>
+                      <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: '0.4rem', textDecoration: 'none' }}>{item.label.split(/\s*[—–-]\s*/)[0].trim()}</span>
                     )}
                   </span>
                   <span style={{ fontSize: '0.75rem', fontWeight: 600, color: masteryColor(item.ratio) }}>{pct}%</span>
@@ -195,16 +205,28 @@ export default function ConceptRadarChart({ students, concepts, debugInfo }: Con
                 </g>
               )
             })}
-            {/* Vertex labels */}
+            {/* Vertex labels（可點擊 → 下鑽知識點分布） */}
             {concepts.map((c, i) => {
               const angle = vertexAngle(i, n)
               const { x, y } = toXY(angle, LABEL_R)
               const anchor = Math.abs(Math.cos(angle)) < 0.1 ? 'middle' : Math.cos(angle) > 0 ? 'start' : 'end'
               const dy = Math.sin(angle) < -0.5 ? -6 : Math.sin(angle) > 0.5 ? 14 : 4
               return (
-                <g key={c.code} cursor="help">
-                  <title>{c.label}</title>
-                  <text x={x} y={y + dy} textAnchor={anchor} fontSize={13} fontWeight={700} fill="#374151">{c.code}</text>
+                <g
+                  key={c.code}
+                  cursor={onSelectCode ? 'pointer' : 'help'}
+                  onClick={onSelectCode ? () => onSelectCode(c.code, c.label) : undefined}
+                >
+                  <title>{onSelectCode ? `${c.label}｜點一下看知識點分布` : c.label}</title>
+                  {/* 透明大熱區：SVG 文字本身太小、放大可點範圍 */}
+                  <circle cx={x} cy={y + dy - 4} r={18} fill="transparent" />
+                  <text
+                    x={x} y={y + dy} textAnchor={anchor} fontSize={13} fontWeight={700}
+                    fill={onSelectCode ? '#6d28d9' : '#374151'}
+                    textDecoration={onSelectCode ? 'underline' : undefined}
+                  >
+                    {c.code}
+                  </text>
                 </g>
               )
             })}

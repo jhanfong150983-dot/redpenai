@@ -12,6 +12,7 @@ import type { ItemAnalysisQuestion } from './ai-report/item-analysis'
 import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
 import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
+import ConceptDrillDown from './ai-report/components/ConceptDrillDown'
 import StudentKpPanel from './ai-report/components/StudentKpPanel'
 import DomainDiagnosisView from './ai-report/components/DomainDiagnosisView'
 import InkConfirmModal from '@/components/InkConfirmModal'
@@ -577,6 +578,16 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
       })),
     [domainDiagnosisLoading, domainDiagnoses, domainPlans]
   )
+
+  // 2026-08-11 概念雷達下鑽（user 拍板：摘要→細節）：點雷達上的課綱代碼 → 知識點×三階段分布頁
+  const [conceptDrill, setConceptDrill] = useState<{ code: string; label: string } | null>(null)
+  useEffect(() => { setConceptDrill(null) }, [selectedClassroomId, selectedDomain])
+  // 下鑽頁的資料範圍與雷達一致（同一組 domain 過濾、取完整 assignment 物件拿 conceptTags/answerKey）
+  const conceptDrillAssignments = useMemo(() =>
+    classAssignments
+      .filter((a) => !selectedDomain || selectedDomain === '全部' || normalizeDomain(a.domain) === selectedDomain)
+      .map((a) => assignmentById.get(a.id) ?? a),
+    [classAssignments, selectedDomain, assignmentById])
 
   const conceptMasteryData = useMemo(() => {
     const filteredAssignments = classAssignments.filter((a) =>
@@ -1165,16 +1176,32 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
 
           {activeTab === 'student' && (
             <section>
-              <ConceptRadarChart
-                students={conceptMasteryData.students}
-                concepts={conceptMasteryData.concepts}
-                debugInfo={conceptMasteryData.debugInfo}
-              />
-              <StudentKpPanel
-                assignments={classAssignments.map((a) => assignmentById.get(a.id) ?? a) as never}
-                submissions={localSubmissions as never}
-                students={classFilteredStudents as never}
-              />
+              {conceptDrill ? (
+                // 下鑽頁（細節）：該課綱指標下的知識點×三階段學生比例
+                <ConceptDrillDown
+                  code={conceptDrill.code}
+                  label={conceptDrill.label}
+                  assignments={conceptDrillAssignments as never}
+                  submissions={localSubmissions as never}
+                  students={classFilteredStudents as never}
+                  onBack={() => setConceptDrill(null)}
+                />
+              ) : (
+                // 摘要：班級雷達（點代碼下鑽）＋單一學生知識點面板
+                <>
+                  <ConceptRadarChart
+                    students={conceptMasteryData.students}
+                    concepts={conceptMasteryData.concepts}
+                    debugInfo={conceptMasteryData.debugInfo}
+                    onSelectCode={(code, label) => setConceptDrill({ code, label })}
+                  />
+                  <StudentKpPanel
+                    assignments={classAssignments.map((a) => assignmentById.get(a.id) ?? a) as never}
+                    submissions={localSubmissions as never}
+                    students={classFilteredStudents as never}
+                  />
+                </>
+              )}
             </section>
           )}
         </div>
