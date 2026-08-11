@@ -1931,10 +1931,19 @@ export default function GradingPage({
         if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
 
         // 嵌入 concept code：批改完成當下凍結，與答案鍵未來的改動脫鉤
+        // 2026-08-11 新制 fallback：模板流程沒有 conceptTags（舊制、只在作業設定直傳路徑產生），
+        //   但 KP 歸類（建卷/建模板預跑）已把課綱代碼寫在 answerKey analysis.code——沒 tag 就用它凍結
+        //   （label 用 topic 白話短名）。優先序：conceptTags（舊制、帶完整條文）> analysis.code（新制）。
         const conceptTags = assignment?.conceptTags
-        if (conceptTags && gradingResult.details) {
+        const akAnalysisByQid = new Map<string, { code: string; label: string }>()
+        for (const q of (assignment?.answerKey?.questions ?? []) as Array<{ id?: unknown; analysis?: { code?: string; topic?: string } }>) {
+          const qid = String(q?.id ?? '')
+          const code = q?.analysis?.code
+          if (qid && code) akAnalysisByQid.set(qid, { code, label: q.analysis?.topic || code })
+        }
+        if ((conceptTags || akAnalysisByQid.size) && gradingResult.details) {
           for (const detail of gradingResult.details) {
-            const tag = conceptTags[detail.questionId]
+            const tag = conceptTags?.[detail.questionId] ?? akAnalysisByQid.get(String(detail.questionId))
             if (tag) {
               detail.conceptCode = tag.code
               detail.conceptLabel = tag.label

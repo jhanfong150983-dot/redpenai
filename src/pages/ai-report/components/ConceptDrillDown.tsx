@@ -13,7 +13,7 @@ type AssignmentLike = {
   title?: string
   createdAt?: string | number
   conceptTags?: Record<string, { code?: string; label?: string }>
-  answerKey?: { questions?: Array<{ id?: string; analysis?: { topic?: string; knowledgePoints?: string[] } }> }
+  answerKey?: { questions?: Array<{ id?: string; analysis?: { code?: string; topic?: string; knowledgePoints?: string[] } }> }
 }
 type SubmissionLike = {
   assignmentId: string
@@ -73,6 +73,8 @@ export default function ConceptDrillDown({ code, label, assignments, submissions
 
     const sorted = [...assignments].sort((a, b) => String(a.createdAt ?? a.id).localeCompare(String(b.createdAt ?? b.id)))
     for (const a of sorted) {
+      // 歸屬鍵與雷達聚合同一套:舊制 conceptTags 優先、新制 fallback=answerKey analysis.code
+      //(模板流程沒有 conceptTags、KP 歸類的 code 就在 analysis 上)
       const tagQids = new Set<string>()
       for (const [qid, tag] of Object.entries(a.conceptTags ?? {})) {
         if (tag?.code === code) tagQids.add(String(qid))
@@ -80,8 +82,10 @@ export default function ConceptDrillDown({ code, label, assignments, submissions
       const kpsByQid = new Map<string, string[]>()
       for (const q of a.answerKey?.questions ?? []) {
         if (!q.id) continue
+        const qid = String(q.id)
+        if (!a.conceptTags?.[qid]?.code && q.analysis?.code === code) tagQids.add(qid)
         const kps = (q.analysis?.knowledgePoints ?? []).filter(Boolean)
-        kpsByQid.set(String(q.id), kps.length ? kps : [q.analysis?.topic ? `${q.analysis.topic}（未細分）` : '未細分'])
+        kpsByQid.set(qid, kps.length ? kps : [q.analysis?.topic ? `${q.analysis.topic}（未細分）` : '未細分'])
       }
 
       for (const sub of submissions) {

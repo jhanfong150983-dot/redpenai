@@ -595,7 +595,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     const filteredIds = new Set(filteredAssignments.map((a) => a.id))
 
     // Build per-assignment map: questionId → {code, label}
-    // Read from conceptTags (separate field, safe from answerKey contamination)
+    // 舊制=conceptTags（作業設定直傳路徑產生、帶完整課綱條文 label）；
+    // 2026-08-11 新制 fallback=answerKey analysis.code（KP 建卷/建模板預跑產生）——
+    //   模板流程（考卷）沒有 conceptTags，沒這條 fallback 雷達整片空。label 用 topic 白話短名。
     type QConceptMap = Map<string, { code: string; label: string }>
     const assignmentConceptMaps = new Map<string, QConceptMap>()
     for (const a of filteredAssignments) {
@@ -607,6 +609,14 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           if (!tag?.code) continue
           qMap.set(qId, { code: tag.code, label: tag.label ?? tag.code })
         }
+      }
+      const rawAk = full?.answerKey
+      const parsedAk = typeof rawAk === 'string' ? (() => { try { return JSON.parse(rawAk) } catch { return null } })() : rawAk
+      for (const q of ((parsedAk as { questions?: Array<{ id?: unknown; analysis?: { code?: string; topic?: string } }> } | null)?.questions ?? [])) {
+        const qid = String(q?.id ?? '')
+        const code = q?.analysis?.code
+        if (!qid || !code || qMap.has(qid)) continue
+        qMap.set(qid, { code, label: q.analysis?.topic || code })
       }
       assignmentConceptMaps.set(a.id, qMap)
     }
@@ -686,14 +696,13 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
       }))
       .sort((a, b) => (a.seatNumber ?? 999) - (b.seatNumber ?? 999))
 
-    // Diagnostic info for empty state
+    // Diagnostic info for empty state（withCode＝conceptTags∪analysis.code 聯集，與聚合實際用的一致）
     const debugInfo = filteredAssignments.map((a) => {
       const full = assignmentById.get(a.id)
       const raw = full?.answerKey
       const parsed = typeof raw === 'string' ? (() => { try { return JSON.parse(raw) } catch { return null } })() : raw
       const questions = (parsed as { questions?: unknown[] } | null)?.questions ?? []
-      const conceptTags = full?.conceptTags
-      const withCode = conceptTags ? Object.keys(conceptTags).length : 0
+      const withCode = assignmentConceptMaps.get(a.id)?.size ?? 0
       const gradedCount = assignmentGradedCounts.get(a.id) ?? 0
       const matchedCount = assignmentMatchedIds.get(a.id)?.size ?? 0
       return { title: a.title ?? a.id, total: questions.length, withCode, gradedCount, matchedCount }
