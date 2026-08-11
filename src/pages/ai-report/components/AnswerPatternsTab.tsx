@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import { type Submission } from '@/lib/db'
-import { buildQuestionStats, type AnswerGroup } from '@/lib/answerStats'
+import { buildQuestionStats, normAnswerValue, type AnswerGroup } from '@/lib/answerStats'
 
 type StudentLike = { id: string; seatNumber?: number | string | null; name?: string | null }
 
@@ -24,17 +24,32 @@ type Props = {
 
 const SPECIAL_RAW = new Set(['', '未作答', '無法辨識', '圖像辨識', '(空白)'])
 
-// 把匿名彙總轉成本 TAB 的群結構（members 只當人數容器、名單一律不顯示）
+// 把匿名彙總轉成本 TAB 的群結構（members 只當人數容器、名單一律不顯示）。
+// 2026-08-12 user 抓漏:server 回的是「原始值」分布,這裡要過與本班同一套 normAnswerValue 再合併
+//（「深藍」「深藍。」是同一群);顯示字樣取群內人數最多的原文。
 function crossToGroups(entries: Array<{ value: string; score: number; count: number }>): AnswerGroup[] {
-  return entries.map((e, i) => ({
-    key: `x${i}`,
-    raw: e.value || '(空白)',
-    members: Array.from({ length: e.count }, (_, j) => ({
-      submissionId: `x${i}-${j}`, studentId: '', seat: null, name: '', score: e.score, edited: false, reason: '',
+  const merged = new Map<string, { raw: string; rawCount: number; score: number; count: number; locked: boolean }>()
+  for (const e of entries) {
+    const locked = SPECIAL_RAW.has(e.value)
+    const norm = locked ? `__special__${e.value || '(空白)'}` : normAnswerValue(e.value)
+    const key = `${norm}|${e.score}`
+    const g = merged.get(key)
+    if (!g) {
+      merged.set(key, { raw: e.value || '(空白)', rawCount: e.count, score: e.score, count: e.count, locked })
+    } else {
+      g.count += e.count
+      if (e.count > g.rawCount) { g.raw = e.value || '(空白)'; g.rawCount = e.count }
+    }
+  }
+  return [...merged.entries()].map(([key, g], i) => ({
+    key: `x${i}|${key}`,
+    raw: g.raw,
+    members: Array.from({ length: g.count }, (_, j) => ({
+      submissionId: `x${i}-${j}`, studentId: '', seat: null, name: '', score: g.score, edited: false, reason: '',
     })),
-    score: e.score,
+    score: g.score,
     mixed: false,
-    locked: SPECIAL_RAW.has(e.value),
+    locked: g.locked,
     reason: '',
   }))
 }
