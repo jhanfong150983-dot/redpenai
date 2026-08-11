@@ -2,7 +2,9 @@
 // 每題聚合全班答案 → 依分數分桶;老師拖曳整群改分 → 批次套用既有 manual 改分機制
 // (AI 原判 _aiOriginal 快照、「已修改」badge、回復鈕、aiScore/scoreSource 規則全部沿用,
 //  邏輯鏡像 SubmissionDetailModal.handleDetailScoreChange —— 動那邊記得同步這邊)。
-import { db, type Submission, type Student } from '@/lib/db'
+import { db, type Submission } from '@/lib/db'
+
+export type StudentLike = { seatNumber?: number | string | null; name?: string | null }
 import { requestSync } from '@/lib/sync-events'
 
 // 正規化(鏡像 server semantic-score-table.normSemanticValue:全半形/空白/頭尾標點折疊、一字不折)
@@ -56,7 +58,7 @@ export function cmpQid(a: string, b: string): number {
   return 0
 }
 
-export function buildQuestionStats(entries: Array<{ submission: Submission; student: Student }>): QuestionStats[] {
+export function buildQuestionStats(entries: Array<{ submission: Submission; student: StudentLike }>): QuestionStats[] {
   const byQid = new Map<string, Map<string, AnswerGroup>>()
   const maxByQid = new Map<string, number>()
   for (const { submission, student } of entries) {

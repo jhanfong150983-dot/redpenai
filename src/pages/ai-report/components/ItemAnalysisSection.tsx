@@ -4,16 +4,12 @@
 import { useMemo, useState } from 'react'
 import { computeItemAnalysis, isImageAnswerItem } from '../item-analysis'
 import type { ItemAnalysisQuestion, ItemAnalysisSubmissionLike, ItemStat } from '../item-analysis'
-import QuestionErrorFeaturesModal from './QuestionErrorFeaturesModal'
 
 type Props = {
   questions: ItemAnalysisQuestion[]
   submissions: ItemAnalysisSubmissionLike[]
   /** 有帶齊這三個才會出現「AI 歸納錯誤樣態」按鈕（開放文字題） */
-  assignmentId?: string
   domain?: string
-  templateId?: string
-  requestInk?: (fn: () => void) => void
 }
 
 export const BAND_STYLE: Record<string, { bg: string; fg: string }> = {
@@ -42,7 +38,7 @@ export function Badge({ text, palette }: { text: string; palette: { bg: string; 
 // 答案分布橫條：單一量值比例條——正解綠、其他灰、未答/無法辨識淺灰；文字標籤永遠並列。
 // 2026-07-16 修（user 抓到湊不滿人數）：開放文字題（樣態幾乎人人不同）逐字樣態沒有統計意義、
 //   前 6 個以外被截掉還漏掉未答段 → 改「答對/答錯/未答」聚合視角；樣態條保證含未答段＋「其他」尾巴。
-export function DistributionBar({ item, onAiFeatures }: { item: ItemStat; onAiFeatures?: () => void }) {
+export function DistributionBar({ item }: { item: ItemStat }) {
   const total = item.n || 1
   const nonBlankVariants = item.distribution.filter((o) => !o.isBlank)
   const blankTotal = item.blankCount + item.unrecognizableCount
@@ -77,18 +73,9 @@ export function DistributionBar({ item, onAiFeatures }: { item: ItemStat; onAiFe
           ))}
         </div>
         {isImageAnswer && (
-          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>圖上作答，無文字樣態——可用下方 AI 看作答圖歸納</div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>圖上作答，無文字樣態——樣態請至「樣態分析」分頁</div>
         )}
-        {/* 2026-07-16 user 二次拍板：取消系統性樣態列舉→改 AI 歸納 modal；2026-07-20 圖上作答改送作答圖 */}
-        {onAiFeatures && (item.n - item.correctCount - blankTotal) >= 3 && (
-          <button
-            type="button"
-            onClick={onAiFeatures}
-            style={{ marginTop: 2, fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-          >
-            🔎 AI 歸納錯誤樣態{isImageAnswer ? '（看作答圖）' : ''}
-          </button>
-        )}
+        {/* 2026-08-11 user 拍板:AI 歸納錯誤樣態整組取消 → 樣態分析 TAB(零 AI、查表/批改理由直出) */}
       </div>
     )
   }
@@ -129,12 +116,10 @@ export function DistributionBar({ item, onAiFeatures }: { item: ItemStat; onAiFe
   )
 }
 
-export default function ItemAnalysisSection({ questions, submissions, assignmentId, domain, templateId, requestInk }: Props) {
+export default function ItemAnalysisSection({ questions, submissions, domain }: Props) {
   const result = useMemo(() => computeItemAnalysis(questions, submissions, domain), [questions, submissions, domain])
   const [showAll, setShowAll] = useState(false)
-  const [aiItem, setAiItem] = useState<ItemStat | null>(null)
   if (!result) return null
-  const aiEnabled = Boolean(assignmentId && requestInk)
 
   const tiles: Array<{ label: string; value: string; hint?: string }> = [
     { label: '樣本數', value: `${result.n} 卷`, hint: `高低分組各 ${result.groupSize} 人（27%）` },
@@ -306,28 +291,13 @@ export default function ItemAnalysisSection({ questions, submissions, assignment
                   {it.correctCount}／{it.wrongCount}／{it.blankCount + it.unrecognizableCount}
                 </td>
                 <td style={{ padding: '6px 8px' }}>
-                  <DistributionBar item={it} onAiFeatures={aiEnabled ? () => setAiItem(it) : undefined} />
+                  <DistributionBar item={it} />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {aiEnabled && (
-        <QuestionErrorFeaturesModal
-          open={!!aiItem}
-          onClose={() => setAiItem(null)}
-          assignmentId={assignmentId!}
-          domain={domain ?? ''}
-          item={aiItem}
-          stemSource={(() => {
-            if (!aiItem || !templateId) return null
-            const q = questions.find((x) => String(x.id ?? x.questionId ?? '') === aiItem.questionId)
-            return q?.answerBbox ? { templateId, pageIndex: q.pageIndex ?? 0, bbox: q.answerBbox } : null
-          })()}
-          requestInk={requestInk!}
-        />
-      )}
       {result.items.length > 60 && !showAll && (
         <button type="button" onClick={() => setShowAll(true)} style={{ marginTop: 8, fontSize: 12, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer' }}>
           顯示全部 {result.items.length} 題

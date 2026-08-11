@@ -4,6 +4,7 @@ import { ensureAssignmentDetails } from '@/lib/submission-details'
 import type { Submission } from '@/lib/db'
 import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPanel'
 import ItemAnalysisSection from './ai-report/components/ItemAnalysisSection'
+import AnswerPatternsTab from './ai-report/components/AnswerPatternsTab'
 import { ParentReportTab } from './ai-report/components/ParentReportTab'
 import AssignmentOverviewSection from './ai-report/components/AssignmentOverviewSection'
 import type { ItemAnalysisQuestion } from './ai-report/item-analysis'
@@ -267,7 +268,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   >({})
   // 手動觸發領域診斷重生（後補題本後可用，繞過 cache）
   const [domainDiagnosisRegenCounter, setDomainDiagnosisRegenCounter] = useState(0)
-  const [activeTab, setActiveTab] = useState<'overview' | 'class' | 'items' | 'parent' | 'domain' | 'student'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'class' | 'items' | 'patterns' | 'parent' | 'domain' | 'student'>('overview')
   // 2026-06-01: 生成/重生報告會花墨水 → 先跳同意框，同意才跑（存待執行動作）
   // 2026-07-22：requestInk 支援自訂 modal 內容（統一走 InkConfirmModal、不再混用 window.confirm）
   const [inkAction, setInkAction] = useState<{ fn: () => void; message?: React.ReactNode } | null>(null)
@@ -930,6 +931,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
             {([
               { id: 'overview', label: '作業總覽' },
               { id: 'items', label: '試題分析' },
+              { id: 'patterns', label: '樣態分析' },
               { id: 'parent', label: '家長報告' },
               // 2026-07-20 三個「診斷性快報」退役（user：沒特別作用、且會浪費 AI 點數）。
               //   面板碼保留但無入口＝不可達；領域診斷的自動 LLM 另在下方 useEffect 停用。要恢復把下面三行取消註解即可。
@@ -967,7 +969,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 ))}
               </select>
             </label>
-            {(activeTab === 'class' || activeTab === 'overview' || activeTab === 'items' || activeTab === 'parent') && (
+            {(activeTab === 'class' || activeTab === 'overview' || activeTab === 'items' || activeTab === 'patterns' || activeTab === 'parent') && (
               <label>
                 作業
                 <select
@@ -1034,16 +1036,31 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 <ItemAnalysisSection
                   questions={itemAnalysisQuestions}
                   submissions={itemAnalysisSubmissions}
-                  assignmentId={selectedAssignmentId}
                   domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
-                  templateId={itemAnalysisTemplateId}
-                  requestInk={requestInk}
                 />
               ) : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   {itemAnalysisSubmissions.length < 3
                     ? '此作業已批改的卷數不足 3 份，暫無法進行試題分析。'
                     : '請先選擇一份有答案卷的作業。'}
+                </section>
+              )}
+            </section>
+          )}
+
+          {/* 2026-08-11 樣態分析(user 拍板):課堂逐題檢討用、零 AI、答案聚合+批改理由直出;
+              取代原「AI 歸納錯誤樣態」按鈕(已拔) */}
+          {activeTab === 'patterns' && (
+            <section>
+              {itemAnalysisSubmissions.length > 0 ? (
+                <AnswerPatternsTab
+                  questions={itemAnalysisQuestions}
+                  submissions={itemAnalysisSubmissions as any}
+                  students={syncData?.students ?? []}
+                />
+              ) : (
+                <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
+                  請先選擇一份已批改的作業。
                 </section>
               )}
             </section>

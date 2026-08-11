@@ -3,9 +3,8 @@
 //       檢討順序清單（錯最多的題、附答案樣態——老師開檢討課的現成講次）。
 import { useMemo, useState } from 'react'
 import { computeItemAnalysis } from '../item-analysis'
-import type { ItemAnalysisQuestion, ItemAnalysisSubmissionLike, ItemStat } from '../item-analysis'
+import type { ItemAnalysisQuestion, ItemAnalysisSubmissionLike } from '../item-analysis'
 import { DistributionBar } from './ItemAnalysisSection'
-import QuestionErrorFeaturesModal from './QuestionErrorFeaturesModal'
 
 type Props = {
   questions: ItemAnalysisQuestion[]
@@ -25,12 +24,10 @@ const BANDS = [
   { label: '60 以下', min: -Infinity, max: 0.6 },
 ]
 
-export default function AssignmentOverviewSection({ questions, submissions, assignmentId, domain, templateId, requestInk }: Props) {
+export default function AssignmentOverviewSection({ questions, submissions }: Props) {
   const result = useMemo(() => computeItemAnalysis(questions, submissions), [questions, submissions])
   const [showAllReview, setShowAllReview] = useState(false)
-  const [aiItem, setAiItem] = useState<ItemStat | null>(null)
   if (!result) return null
-  const aiEnabled = Boolean(assignmentId && requestInk)
 
   const { totals, examMaxScore, n } = result
   const sorted = [...totals].sort((a, b) => a - b)
@@ -132,28 +129,13 @@ export default function AssignmentOverviewSection({ questions, submissions, assi
                     {it.correctCount}／{it.wrongCount}／{it.blankCount + it.unrecognizableCount}
                   </td>
                   <td style={{ padding: '6px 8px' }}>
-                    <DistributionBar item={it} onAiFeatures={aiEnabled ? () => setAiItem(it) : undefined} />
+                    <DistributionBar item={it} />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {aiEnabled && (
-          <QuestionErrorFeaturesModal
-            open={!!aiItem}
-            onClose={() => setAiItem(null)}
-            assignmentId={assignmentId!}
-            domain={domain ?? ''}
-            item={aiItem}
-            stemSource={(() => {
-              if (!aiItem || !templateId) return null
-              const q = questions.find((x) => String(x.id ?? x.questionId ?? '') === aiItem.questionId)
-              return q?.answerBbox ? { templateId, pageIndex: q.pageIndex ?? 0, bbox: q.answerBbox } : null
-            })()}
-            requestInk={requestInk!}
-          />
-        )}
         {!showAllReview && reviewItems.length > defaultList.length && (
           <button type="button" onClick={() => setShowAllReview(true)} style={{ marginTop: 8, fontSize: 12, color: '#0369a1', background: 'none', border: 'none', cursor: 'pointer' }}>
             顯示全部 {reviewItems.length} 題
