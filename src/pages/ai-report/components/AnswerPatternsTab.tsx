@@ -15,6 +15,28 @@ type Props = {
   questions: any[]
   submissions: Submission[]
   students: StudentLike[]
+  /**
+   * 2026-08-11 跨班比較（匿名）：同卷全體的答案值分布 [{value,score,count}]。
+   * 有帶＝整個 TAB 切到「同卷全體」視角：值+人數+分數而已，無名單、無班級來源、無 AI 理由。
+   */
+  cross?: { classCount: number; answers: Record<string, Array<{ value: string; score: number; count: number }>> }
+}
+
+const SPECIAL_RAW = new Set(['', '未作答', '無法辨識', '圖像辨識', '(空白)'])
+
+// 把匿名彙總轉成本 TAB 的群結構（members 只當人數容器、名單一律不顯示）
+function crossToGroups(entries: Array<{ value: string; score: number; count: number }>): AnswerGroup[] {
+  return entries.map((e, i) => ({
+    key: `x${i}`,
+    raw: e.value || '(空白)',
+    members: Array.from({ length: e.count }, (_, j) => ({
+      submissionId: `x${i}-${j}`, studentId: '', seat: null, name: '', score: e.score, edited: false, reason: '',
+    })),
+    score: e.score,
+    mixed: false,
+    locked: SPECIAL_RAW.has(e.value),
+    reason: '',
+  }))
 }
 
 const scoreTone = (score: number, max: number) => {
@@ -48,7 +70,7 @@ function MemberList({ g }: { g: AnswerGroup }) {
 
 const CHOICE_LIKE = new Set(['single_choice', 'multi_choice', 'true_false', 'single_check', 'multi_check', 'circle_select_one', 'circle_select_many', 'multi_fill', 'matching', 'ordering'])
 
-export default function AnswerPatternsTab({ questions, submissions, students }: Props) {
+export default function AnswerPatternsTab({ questions, submissions, students, cross }: Props) {
   const stats = useMemo(() => {
     const stuById = new Map(students.map((s) => [s.id, s]))
     const entries = submissions
@@ -70,7 +92,14 @@ export default function AnswerPatternsTab({ questions, submissions, students }: 
   if (!stats.length) {
     return <section className="card" style={{ color: '#64748b', fontSize: 13 }}>此作業還沒有可統計的批改資料。</section>
   }
-  const active = stats[Math.min(idx, stats.length - 1)]
+  const own = stats[Math.min(idx, stats.length - 1)]
+  // 跨班比較開啟＝整個視角換成同卷全體（匿名彙總）；題號導覽/配分沿用本班結構
+  const crossMode = !!cross
+  const active = crossMode
+    ? { ...own, groups: crossToGroups(cross!.answers[own.qid] ?? []), hasMixed: false,
+        lockedOnly: (cross!.answers[own.qid] ?? []).length > 0 && crossToGroups(cross!.answers[own.qid] ?? []).every((g) => g.locked) }
+    : own
+  const showMembers = !crossMode
   const isChoice = CHOICE_LIKE.has(catByQid.get(active.qid) ?? '')
   const total = active.groups.reduce((a, g) => a + g.members.length, 0)
   const correctN = active.groups.filter((g) => active.maxScore > 0 && g.score >= active.maxScore).reduce((a, g) => a + g.members.length, 0)
@@ -100,10 +129,19 @@ export default function AnswerPatternsTab({ questions, submissions, students }: 
           className="p-2 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-30"
         ><ChevronRight className="w-5 h-5" /></button>
         <span className="text-sm text-slate-500">第 {idx + 1} / {stats.length} 題・配分 {active.maxScore || '—'}</span>
+        {crossMode && (
+          <span className="px-2 py-0.5 rounded-full bg-slate-700 text-white text-xs font-bold" title="同卷全體匿名彙總（含本班）、不顯示班級來源與名單">
+            同卷全體({cross!.classCount}班)
+          </span>
+        )}
         <span className="ml-auto text-lg font-bold text-slate-800">
           答對 <span className="text-green-600">{correctN}</span> / {total}
         </span>
       </div>
+
+      {crossMode && total === 0 && (
+        <div className="mt-5 text-sm text-slate-400">全體彙總沒有這一題的統計資料。</div>
+      )}
 
       {active.lockedOnly ? (
         /* 圖像判分題:對/部分/錯/未作答 長條 */
@@ -144,7 +182,7 @@ export default function AnswerPatternsTab({ questions, submissions, students }: 
                     {g.members.length} 人{!g.locked && active.maxScore > 0 && g.score >= active.maxScore ? ' ✓' : ''}
                   </div>
                 </div>
-                <div className="w-20"><MemberList g={g} /></div>
+                <div className="w-20">{showMembers ? <MemberList g={g} /> : <span className="text-xs text-slate-400">{g.members.length} 人</span>}</div>
               </div>
             )
           })}
@@ -182,7 +220,7 @@ export default function AnswerPatternsTab({ questions, submissions, students }: 
                         {g.mixed && (
                           <div className="mt-1 text-xs font-semibold text-rose-600">⚠ 群內有不同分數(展開名單可見)</div>
                         )}
-                        <div className="mt-1.5"><MemberList g={g} /></div>
+                        {showMembers && <div className="mt-1.5"><MemberList g={g} /></div>}
                       </div>
                     )
                   })}

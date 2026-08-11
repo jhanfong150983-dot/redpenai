@@ -13,7 +13,34 @@ import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
 import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
 import ConceptDrillDown from './ai-report/components/ConceptDrillDown'
-import ExamClassCompare from './ai-report/components/ExamClassCompare'
+
+// 跨班比較（exam-compare 端點的匿名彙總；classCount 之外無任何來源資訊）
+export type CrossCompare = {
+  classCount: number
+  byCode: Record<string, { full: number; partial: number; wrong: number; total: number; label?: string }>
+  byQuestion: Record<string, { full: number; partial: number; wrong: number; blank: number; total: number }>
+  answers: Record<string, Array<{ value: string; score: number; count: number }>>
+}
+
+// 跨班比較切換鈕（三個視圖共用同一個開關狀態）
+function CrossToggle({ on, onToggle, classCount }: { on: boolean; onToggle: () => void; classCount: number }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '4px 12px', borderRadius: 999, fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
+        border: on ? '1px solid #7c3aed' : '1px solid #cbd5e1',
+        background: on ? '#7c3aed' : '#fff',
+        color: on ? '#fff' : '#475569',
+      }}
+      title="與使用同一份答案卷的其他班級比較（匿名彙總、不顯示班級來源）"
+    >
+      {on ? '✓' : ''} 跨班比較（同卷 {classCount} 班）
+    </button>
+  )
+}
 import DomainDiagnosisView from './ai-report/components/DomainDiagnosisView'
 import InkConfirmModal from '@/components/InkConfirmModal'
 import {
@@ -582,6 +609,40 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   // 2026-08-11 概念雷達下鑽（user 拍板：摘要→細節）：點雷達上的課綱代碼 → 知識點×三階段分布頁
   const [conceptDrill, setConceptDrill] = useState<{ code: string; label: string } | null>(null)
   useEffect(() => { setConceptDrill(null) }, [selectedClassroomId, selectedDomain])
+
+  // ── 2026-08-11 跨班比較（user 拍板：切換模式、匿名）──────────────────────────
+  //   同卷全體＝答案卷血緣家族（分享碼複製品）＋同校閘的「匿名彙總」：只有總班數，
+  //   無任何班級/作業名稱（無法推論資料來源）。三個視圖共用同一份資料：
+  //   概念雷達疊圖、試題分析全體答對率欄、樣態分析全體分布。
+  const [crossOn, setCrossOn] = useState(false)
+  const [crossData, setCrossData] = useState<CrossCompare | null>(null)
+  useEffect(() => {
+    setCrossOn(false); setCrossData(null)
+    if (!selectedAssignmentId) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch('/api/data/exam-compare', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ assignmentId: selectedAssignmentId }),
+        })
+        if (!res.ok) return
+        const data = (await res.json().catch(() => null)) as CrossCompare | null
+        // 只有 1 班（只有自己）＝沒東西好比 → 不顯示切換
+        if (!cancelled && data && Number(data.classCount) >= 2) setCrossData(data)
+      } catch { /* 離線/未部署 → 沒有跨班比較而已 */ }
+    })()
+    return () => { cancelled = true }
+  }, [selectedAssignmentId])
+  const crossRatioByCode = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const [code, s] of Object.entries(crossData?.byCode ?? {})) {
+      if (s.total > 0) out[code] = (s.full + s.partial * 0.5) / s.total
+    }
+    return out
+  }, [crossData])
   // 下鑽頁的資料範圍與雷達一致（同一組 domain 過濾、取完整 assignment 物件拿 conceptTags/answerKey）
   const conceptDrillAssignments = useMemo(() =>
     classAssignments
@@ -590,9 +651,12 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     [classAssignments, selectedDomain, assignmentById])
 
   const conceptMasteryData = useMemo(() => {
-    const filteredAssignments = classAssignments.filter((a) =>
-      !selectedDomain || selectedDomain === '全部' || normalizeDomain(a.domain) === selectedDomain
-    )
+    // 跨班比較開啟時：本班雷達縮到「選定作業」——疊圖比的是同一份考卷，跨卷混算會對不上全體線
+    const filteredAssignments = crossOn && crossData && selectedAssignmentId
+      ? classAssignments.filter((a) => a.id === selectedAssignmentId)
+      : classAssignments.filter((a) =>
+          !selectedDomain || selectedDomain === '全部' || normalizeDomain(a.domain) === selectedDomain
+        )
     const filteredIds = new Set(filteredAssignments.map((a) => a.id))
 
     // Build per-assignment map: questionId → {code, label}
@@ -710,7 +774,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     })
 
     return { students, concepts, debugInfo }
-  }, [classAssignments, selectedDomain, localSubmissions, classFilteredStudents, assignmentById])
+  }, [classAssignments, selectedDomain, localSubmissions, classFilteredStudents, assignmentById, crossOn, crossData, selectedAssignmentId])
 
 
   const assignmentMeta = useMemo(() => {
@@ -1069,11 +1133,19 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           {activeTab === 'items' && (
             <section>
               {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 3 ? (
-                <ItemAnalysisSection
-                  questions={itemAnalysisQuestions}
-                  submissions={itemAnalysisSubmissions}
-                  domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
-                />
+                <>
+                  {crossData && (
+                    <div style={{ marginBottom: 8 }}>
+                      <CrossToggle on={crossOn} onToggle={() => setCrossOn((v) => !v)} classCount={crossData.classCount} />
+                    </div>
+                  )}
+                  <ItemAnalysisSection
+                    questions={itemAnalysisQuestions}
+                    submissions={itemAnalysisSubmissions}
+                    domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
+                    cross={crossOn && crossData ? { classCount: crossData.classCount, byQuestion: crossData.byQuestion } : undefined}
+                  />
+                </>
               ) : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   {itemAnalysisSubmissions.length < 3
@@ -1089,11 +1161,19 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           {activeTab === 'patterns' && (
             <section>
               {itemAnalysisSubmissions.length > 0 ? (
-                <AnswerPatternsTab
-                  questions={itemAnalysisQuestions}
-                  submissions={itemAnalysisSubmissions as any}
-                  students={syncData?.students ?? []}
-                />
+                <>
+                  {crossData && (
+                    <div style={{ marginBottom: 8 }}>
+                      <CrossToggle on={crossOn} onToggle={() => setCrossOn((v) => !v)} classCount={crossData.classCount} />
+                    </div>
+                  )}
+                  <AnswerPatternsTab
+                    questions={itemAnalysisQuestions}
+                    submissions={itemAnalysisSubmissions as any}
+                    students={syncData?.students ?? []}
+                    cross={crossOn && crossData ? { classCount: crossData.classCount, answers: crossData.answers } : undefined}
+                  />
+                </>
               ) : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   請先選擇一份已批改的作業。
@@ -1197,15 +1277,25 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   onBack={() => setConceptDrill(null)}
                 />
               ) : (
-                // 摘要：班級雷達（點課綱代碼進細節）＋選定作業的同卷跨班比較
+                // 摘要：班級雷達（點課綱代碼進細節）；跨班比較=切換疊圖（匿名、只在雷達上顯示）
                 <>
+                  {crossData && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                      <CrossToggle on={crossOn} onToggle={() => setCrossOn((v) => !v)} classCount={crossData.classCount} />
+                      {crossOn && (
+                        <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                          比較範圍＝選定作業・同卷 {crossData.classCount} 班匿名彙總（不顯示班級來源）
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <ConceptRadarChart
                     students={conceptMasteryData.students}
                     concepts={conceptMasteryData.concepts}
                     debugInfo={conceptMasteryData.debugInfo}
                     onSelectCode={(code, label) => setConceptDrill({ code, label })}
+                    overlay={crossOn && crossData ? { label: `同卷全體(${crossData.classCount}班)`, byCode: crossRatioByCode } : undefined}
                   />
-                  <ExamClassCompare assignmentId={selectedAssignmentId} />
                 </>
               )}
             </section>

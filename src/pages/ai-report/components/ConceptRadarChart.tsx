@@ -14,6 +14,12 @@ type ConceptRadarChartProps = {
   debugInfo?: AssignmentDebugInfo[]
   /** 2026-08-11 user 拍板（摘要→細節）：點課綱代碼 → 下鑽「知識點×三階段學生比例」頁。 */
   onSelectCode?: (code: string, label: string) => void
+  /**
+   * 2026-08-11 跨班比較（user 拍板：切換模式、疊在雷達上、匿名）：
+   *   同卷全體（含本班、同校他師班級的匿名彙總）的逐指標比率——灰虛線多邊形疊圖。
+   *   不帶任何班級/作業名稱，只有總班數。
+   */
+  overlay?: { label: string; byCode: Record<string, number> }
 }
 
 const CX = 250
@@ -49,7 +55,7 @@ function masteryColor(ratio: number) {
 }
 
 
-export default function ConceptRadarChart({ students, concepts, debugInfo, onSelectCode }: ConceptRadarChartProps) {
+export default function ConceptRadarChart({ students, concepts, debugInfo, onSelectCode, overlay }: ConceptRadarChartProps) {
   // Empty state
   if (concepts.length === 0 || students.length === 0) {
     return (
@@ -113,6 +119,7 @@ export default function ConceptRadarChart({ students, concepts, debugInfo, onSel
 
   const n = concepts.length
   const sorted = [...concepts.map((c, i) => ({ ...c, ratio: ratios[i] }))].sort((a, b) => a.ratio - b.ratio)
+  const overlayRatios = overlay ? concepts.map((c) => overlay.byCode[c.code] ?? 0) : null
 
   const header = (title: string) => (
     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
@@ -158,6 +165,19 @@ export default function ConceptRadarChart({ students, concepts, debugInfo, onSel
                 <div style={{ background: '#f3f4f6', borderRadius: '3px', height: '10px', overflow: 'hidden' }}>
                   <div style={{ width: `${pct}%`, height: '100%', background: masteryColor(item.ratio), borderRadius: '3px' }} />
                 </div>
+                {overlay && (() => {
+                  const ov = overlay.byCode[item.code]
+                  if (typeof ov !== 'number') return null
+                  const ovPct = Math.round(ov * 100)
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                      <div style={{ flex: 1, background: '#f8fafc', borderRadius: '3px', height: '6px', overflow: 'hidden' }}>
+                        <div style={{ width: `${ovPct}%`, height: '100%', background: '#94a3b8', borderRadius: '3px' }} />
+                      </div>
+                      <span style={{ fontSize: '0.65rem', color: '#64748b', whiteSpace: 'nowrap' }}>{overlay.label} {ovPct}%</span>
+                    </div>
+                  )
+                })()}
               </div>
             )
           })}
@@ -172,6 +192,16 @@ export default function ConceptRadarChart({ students, concepts, debugInfo, onSel
     <div className="card" style={{ padding: '1.25rem 1.5rem', marginBottom: '1rem', position: 'relative' }}>
       {header('班級概念精熟雷達圖')}
       <div style={{ position: 'absolute', top: '1.25rem', right: '1.5rem' }}>{colorLegend()}</div>
+      {overlay && (
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginTop: '-0.4rem', marginBottom: '0.4rem' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: '#475569' }}>
+            <span style={{ width: 18, height: 3, background: '#7c3aed', borderRadius: 2 }} />本班
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: '#475569' }}>
+            <span style={{ width: 18, height: 0, borderTop: '2.5px dashed #64748b' }} />{overlay.label}
+          </span>
+        </div>
+      )}
 
       <div style={{ display: 'grid', justifyItems: 'center', gap: '0.75rem' }}>
         {/* Radar SVG */}
@@ -191,8 +221,24 @@ export default function ConceptRadarChart({ students, concepts, debugInfo, onSel
               const { x, y } = toXY(vertexAngle(0, n), level * R)
               return <text key={level} x={x + 4} y={y - 3} fontSize={9} fill="#9ca3af">{Math.round(level * 100)}%</text>
             })}
+            {/* 全體疊圖（灰虛線、畫在本班 polygon 下層） */}
+            {overlayRatios && (
+              <polygon points={polygonPoints(overlayRatios)} fill="rgba(100,116,139,0.08)" stroke="#64748b" strokeWidth={2} strokeDasharray="6 4" />
+            )}
             {/* Data polygon */}
             <polygon points={polygonPoints(ratios)} fill="rgba(109,40,217,0.15)" stroke="#7c3aed" strokeWidth={2} />
+            {/* 全體疊圖的資料點＋灰色 % 標籤（標在點下方、避開本班標籤） */}
+            {overlayRatios && overlayRatios.map((r, i) => {
+              const { x, y } = toXY(vertexAngle(i, n), r * R)
+              return (
+                <g key={`ov-${i}`}>
+                  <circle cx={x} cy={y} r={3.5} fill="#64748b" stroke="#fff" strokeWidth={1} />
+                  <text x={x} y={y + 14} textAnchor="middle" fontSize={9} fontWeight={600} fill="#64748b">
+                    {Math.round(r * 100)}%
+                  </text>
+                </g>
+              )
+            })}
             {/* Data points + % labels */}
             {ratios.map((r, i) => {
               const { x, y } = toXY(vertexAngle(i, n), r * R)

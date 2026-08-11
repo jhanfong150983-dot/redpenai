@@ -10,6 +10,11 @@ type Props = {
   submissions: ItemAnalysisSubmissionLike[]
   /** 有帶齊這三個才會出現「AI 歸納錯誤樣態」按鈕（開放文字題） */
   domain?: string
+  /**
+   * 2026-08-11 跨班比較（匿名）：同卷全體（血緣家族+同校閘彙總）的逐題統計。
+   * 有帶＝逐題表多「全體答對率」對照欄＋差距；只有總班數、無任何班級來源資訊。
+   */
+  cross?: { classCount: number; byQuestion: Record<string, { full: number; partial: number; wrong: number; blank: number; total: number }> }
 }
 
 export const BAND_STYLE: Record<string, { bg: string; fg: string }> = {
@@ -116,7 +121,7 @@ export function DistributionBar({ item }: { item: ItemStat }) {
   )
 }
 
-export default function ItemAnalysisSection({ questions, submissions, domain }: Props) {
+export default function ItemAnalysisSection({ questions, submissions, domain, cross }: Props) {
   const result = useMemo(() => computeItemAnalysis(questions, submissions, domain), [questions, submissions, domain])
   const [showAll, setShowAll] = useState(false)
   if (!result) return null
@@ -268,6 +273,11 @@ export default function ItemAnalysisSection({ questions, submissions, domain }: 
               <th style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} title="高分組（前27%）得分率">高分組</th>
               <th style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} title="低分組（後27%）得分率">低分組</th>
               <th style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>對／錯／未答</th>
+              {cross && (
+                <th style={{ padding: '6px 8px', whiteSpace: 'nowrap' }} title={`同卷 ${cross.classCount} 班匿名彙總（含本班）`}>
+                  全體答對率
+                </th>
+              )}
               <th style={{ padding: '6px 8px' }}>答案分布（✓＝正解；滑鼠停留看高低分組人數）</th>
             </tr>
           </thead>
@@ -290,6 +300,23 @@ export default function ItemAnalysisSection({ questions, submissions, domain }: 
                 <td style={{ padding: '6px 8px', whiteSpace: 'nowrap' }}>
                   {it.correctCount}／{it.wrongCount}／{it.blankCount + it.unrecognizableCount}
                 </td>
+                {cross && (() => {
+                  const q = cross.byQuestion[it.questionId]
+                  if (!q || !(q.total > 0)) return <td style={{ padding: '6px 8px', color: '#cbd5e1' }}>—</td>
+                  const allRate = q.full / q.total
+                  const myRate = it.n > 0 ? it.correctCount / it.n : null
+                  const gap = myRate !== null ? Math.round((myRate - allRate) * 100) : null
+                  return (
+                    <td style={{ padding: '6px 8px', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                      {Math.round(allRate * 100)}%
+                      {gap !== null && gap !== 0 && (
+                        <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 700, color: gap > 0 ? '#15803d' : '#b91c1c' }}>
+                          {gap > 0 ? `▲+${gap}` : `▼${gap}`}
+                        </span>
+                      )}
+                    </td>
+                  )
+                })()}
                 <td style={{ padding: '6px 8px' }}>
                   <DistributionBar item={it} />
                 </td>
@@ -305,6 +332,7 @@ export default function ItemAnalysisSection({ questions, submissions, domain }: 
       )}
       <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 8 }}>
         P＝(高分組＋低分組得分率)/2、D＝高分組−低分組（Ebel 標準）；非全有全無題以得分率計。🚩＝多數齊答非正解、建議確認解答。
+        {cross && <>　全體答對率＝同卷 {cross.classCount} 班匿名彙總（含本班）；▲▼＝本班−全體（百分點）。</>}
       </div>
     </section>
   )
