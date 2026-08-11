@@ -44,6 +44,7 @@ import { downloadImageFromSupabase } from '@/lib/supabase-download'
 import { fixCorruptedBase64 } from '@/lib/utils'
 import SubmissionDetailModal from '@/components/SubmissionDetailModal'
 import AnswerStatsModal from '@/components/AnswerStatsModal'
+import LowConfidenceModal from '@/components/LowConfidenceModal'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import { blobToBase64 } from '@/lib/imageCompression'
@@ -1513,6 +1514,8 @@ export default function GradingPage({
   const [addClassMenuOpen, setAddClassMenuOpen] = useState(false)
   // 2026-08-11 評分統計(user 設計):每題一 TAB、答案聚合依分數分桶、拖曳整群改分
   const [showAnswerStats, setShowAnswerStats] = useState(false)
+  // 2026-08-11 低信心檢視 modal(學校建議、取代重新整理鈕):全班低信心格聚合快速瀏覽
+  const [showLowConf, setShowLowConf] = useState(false)
 
   const [assignment, setAssignment] = useState<Assignment | null>(null)
   const [classroom, setClassroom] = useState<Classroom | null>(null)
@@ -1526,7 +1529,6 @@ export default function GradingPage({
   // submissionClassroomMap: studentId → classroomId（用於分組顯示）
   const [submissionClassroomMap, setSubmissionClassroomMap] = useState<Map<string, string>>(new Map())
   const [isLoading, setIsLoading] = useState(true)
-  const [isRefreshing, setIsRefreshing] = useState(false)
   const [isGrading, setIsGrading] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [isCheckingCorrectionState, setIsCheckingCorrectionState] = useState(false)
@@ -2854,14 +2856,19 @@ export default function GradingPage({
     return () => window.clearInterval(timer)
   }, [isBusy])
 
-  const handleRefresh = useCallback(async () => {
-    setIsRefreshing(true)
-    try {
-      await syncAndReload()
-    } finally {
-      setIsRefreshing(false)
+  // 2026-08-11 「重新整理」鈕退役(user:幾乎沒用到)——位置改成「低信心檢視」modal(學校建議)。
+  //   syncAndReload 保留給初始載入等既有呼叫點。
+  const lowConfCellCount = useMemo(() => {
+    let n = 0
+    for (const sub of submissions.values()) {
+      const det = (sub.gradingResult as { details?: Array<{ systemConfidence?: unknown }> } | undefined)?.details ?? []
+      for (const d of det) {
+        const c = Number(d?.systemConfidence)
+        if (Number.isFinite(c) && c < 70) n++
+      }
     }
-  }, [syncAndReload])
+    return n
+  }, [submissions])
 
   const handleCloseModal = () => {
     setSelectedSubmission(null)
@@ -5740,10 +5747,10 @@ export default function GradingPage({
   //   左半=智慧批改（一鍵接著批改）；右半 ▼=進階選單。total=0 時左半鎖住改字「已批改完成」、▼ 仍可點。
   const smartHasWork = unfinishedBuckets.total > 0
   const smartHasSubs = submissions.size > 0
-  const smartBusy = isGrading || isDownloading || isRefreshing || isCheckingCorrectionState || !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'
+  const smartBusy = isGrading || isDownloading || isCheckingCorrectionState || !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'
   const smartLabel = smartHasWork ? `智慧批改 (${unfinishedBuckets.total})` : (smartHasSubs ? '已批改完成' : '智慧批改')
   const smartLeftDisabled = smartBusy || !smartHasWork
-  const advTriggerDisabled = isBusy || isDownloading || isRefreshing || isCheckingCorrectionState || !inkSessionReady || !smartHasSubs
+  const advTriggerDisabled = isBusy || isDownloading || isCheckingCorrectionState || !inkSessionReady || !smartHasSubs
 
   return (
     <div className={`${embedded ? 'bg-white p-0' : 'min-h-screen bg-white p-4'}`}>
@@ -6258,7 +6265,7 @@ export default function GradingPage({
                 <button
                   type="button"
                   onClick={() => setAddClassMenuOpen((v) => !v)}
-                  disabled={isGrading || isDownloading || isRefreshing}
+                  disabled={isGrading || isDownloading}
                   title="把同一張答案卷的其他班級加進來、一起批改"
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -6297,7 +6304,7 @@ export default function GradingPage({
               <button
                 type="button"
                 onClick={() => setAddedAssignmentIds([])}
-                disabled={isGrading || isDownloading || isRefreshing}
+                disabled={isGrading || isDownloading}
                 title="移除所有新增的班級、回到原本進來的那一班"
                 className="inline-flex items-center gap-1 rounded-lg px-2 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -6308,19 +6315,22 @@ export default function GradingPage({
             <Button
               variant="outline"
               onClick={() => setShowAnswerStats(true)}
-              disabled={isGrading || isRefreshing}
+              disabled={isGrading}
               title="每題答案聚合:同答案一群、拖曳到不同分數欄可整群改分"
             >
               <BarChart3 className="w-5 h-5" />
               評分統計
             </Button>
+            {/* 2026-08-11 取代「重新整理」(user:幾乎沒用):低信心綜合檢視(學校建議)——
+                批改完快速掃一遍 AI 沒把握的格子;低信心標記永久保留、改分走既有教師編輯 */}
             <Button
               variant="outline"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
+              onClick={() => setShowLowConf(true)}
+              disabled={isGrading || lowConfCellCount === 0}
+              title={lowConfCellCount === 0 ? '目前沒有低信心的批改格' : '集中檢視全班 AI 低信心的批改格,可就地改分或回復 AI 原判'}
             >
-              <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              重新整理
+              <AlertTriangle className={`w-5 h-5 ${lowConfCellCount > 0 ? 'text-amber-500' : ''}`} />
+              低信心{lowConfCellCount > 0 ? ` ${lowConfCellCount}` : ''}
             </Button>
             {/*
               2026-06-01 Phase3: 分段式「智慧批改 ▼」主按鈕。左半=智慧批改(一鍵接著批改)、右半 ▼=個別批改。
@@ -6410,7 +6420,7 @@ export default function GradingPage({
                   onClick={startAdvanced}
                   disabled={
                     selectedSubmissionCount === 0 ||
-                    isGrading || isDownloading || isRefreshing || isCheckingCorrectionState ||
+                    isGrading || isDownloading || isCheckingCorrectionState ||
                     !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'
                   }
                 >
@@ -6418,15 +6428,6 @@ export default function GradingPage({
                   開始{advancedMode === 'phase_a' ? '重新截取答案' : advancedMode === 'full' ? '個別批改' : '重新批改作業'}（{selectedSubmissionCount}）
                 </Button>
               </div>
-            </div>
-          </div>
-        )}
-
-        {isRefreshing && !isBusy && (
-          <div className="sticky top-4 z-40 mb-4">
-            <div className="bg-sky-50 border border-sky-200 rounded-xl px-4 py-2.5 flex items-center gap-3">
-              <RefreshCw className="w-4 h-4 text-sky-500 animate-spin shrink-0" />
-              <p className="text-sm text-sky-700 font-medium">正在同步最新資料，請稍候…</p>
             </div>
           </div>
         )}
@@ -6879,6 +6880,19 @@ export default function GradingPage({
             .filter((e): e is { student: typeof e.student; submission: NonNullable<typeof e.submission> } =>
               !!e.submission && Array.isArray((e.submission.gradingResult as { details?: unknown[] } | undefined)?.details))}
           onClose={() => setShowAnswerStats(false)}
+          onUpdated={(updated) => {
+            setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
+          }}
+        />
+      )}
+      {/* 低信心檢視(2026-08-11 學校建議):全班低信心格聚合、就地改分/回復;低信心標記永久保留 */}
+      {showLowConf && (
+        <LowConfidenceModal
+          entries={sortedStudents
+            .map((student) => ({ student, submission: submissions.get(student.id) }))
+            .filter((e): e is { student: typeof e.student; submission: NonNullable<typeof e.submission> } =>
+              !!e.submission && Array.isArray((e.submission.gradingResult as { details?: unknown[] } | undefined)?.details))}
+          onClose={() => setShowLowConf(false)}
           onUpdated={(updated) => {
             setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
           }}

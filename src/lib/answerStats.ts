@@ -194,6 +194,59 @@ export async function applyScoreEditsToSubmission(
   }
 }
 
+// ── 單格回復 AI 原判(鏡像 SubmissionDetailModal.handleDetailRestore、改依 qid 定位)──
+//   _aiOriginal 快照還原+清快照、總分/錯題清單重算、finalAnswers 退回 ai_read1、
+//   scoreSource:全卷無殘餘編輯→'ai'、否則維持 'manual'。動那邊記得同步這邊。
+export async function restoreDetailToAi(submissionId: string, qid: string): Promise<BatchEditResult> {
+  try {
+    const submission = await db.submissions.get(submissionId)
+    if (!submission) return { submissionId, ok: false, error: 'submission not found' }
+    const gr: any = submission.gradingResult
+    const details: any[] = Array.isArray(gr?.details) ? gr.details : []
+    const index = details.findIndex((d: any) => String(d?.questionId ?? '').trim() === qid)
+    const target: any = details[index]
+    const snap = target?._aiOriginal
+    if (!snap) return { submissionId, ok: true, updated: submission }
+    const restoredRow: any = { ...target, ...snap }
+    delete restoredRow._aiOriginal
+    const updatedDetails = details.map((d, i) => (i === index ? restoredRow : d))
+    const newTotal = parseFloat(updatedDetails.reduce((s: number, d: any) => s + (Number.isFinite(Number(d.score)) ? Number(d.score) : 0), 0).toFixed(1))
+    const newGradingResult: any = { ...(gr || {}), details: updatedDetails, totalScore: newTotal }
+    const oldMistakesByQid = new Map<string, any>()
+    for (const m of (Array.isArray(gr?.mistakes) ? gr.mistakes : []) as any[]) {
+      if (m?.questionId) oldMistakesByQid.set(m.questionId, m)
+    }
+    newGradingResult.mistakes = updatedDetails
+      .filter((d: any) => d?.isCorrect === false && d?.questionId)
+      .map((d: any) => oldMistakesByQid.get(d.questionId) ?? ({ questionId: d.questionId, questionText: '', studentAnswer: d.studentAnswer || '', correctAnswer: '', reason: d.reason || '' }))
+    const newFinalAnswers = (Array.isArray(submission.finalAnswers) ? submission.finalAnswers : []).map((fa: any) =>
+      fa.questionId === restoredRow.questionId
+        ? { ...fa, finalStudentAnswer: String(snap.studentAnswer ?? ''), finalAnswerSource: 'ai_read1' as const }
+        : fa
+    )
+    const now = Date.now()
+    const stillEdited = updatedDetails.some((d: any) => d?._aiOriginal)
+    const nextSource: 'ai' | 'manual' = stillEdited ? 'manual' : 'ai'
+    await db.submissions.update(submissionId, {
+      gradingResult: newGradingResult, finalAnswers: newFinalAnswers,
+      score: newTotal, aiScore: submission.aiScore, scoreSource: nextSource, updatedAt: now,
+    })
+    void fetch('/api/data/save-final-answers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ submissions: [{ id: submissionId, finalAnswers: newFinalAnswers }] })
+    }).catch(() => {})
+    void fetch('/api/data/save-grading', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ submissions: [{ id: submissionId, score: newTotal, aiScore: submission.aiScore, scoreSource: nextSource, gradingResult: newGradingResult, gradedAt: submission.gradedAt ?? now }], fromManualScoreEdit: true })
+    }).catch(() => {})
+    requestSync()
+    const updated = await db.submissions.get(submissionId)
+    return { submissionId, ok: true, updated: updated ?? undefined }
+  } catch (e) {
+    return { submissionId, ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 // 全部套用:staged(qid → (groupKey → newScore)) × 統計資料 → 逐卷合併編輯、並行 4 路
 export async function applyStagedGroupEdits(
   stats: QuestionStats[],
