@@ -13,7 +13,6 @@ import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
 import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
 import ConceptDrillDown from './ai-report/components/ConceptDrillDown'
-import StudentKpPanel from './ai-report/components/StudentKpPanel'
 import DomainDiagnosisView from './ai-report/components/DomainDiagnosisView'
 import InkConfirmModal from '@/components/InkConfirmModal'
 import {
@@ -1177,23 +1176,16 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           {activeTab === 'student' && (
             <section>
               {conceptDrill ? (
-                // 下鑽頁（細節）：知識點×三階段班級分布 ＋ 單一學生知識點面板
-                // （2026-08-11 user 修正：學生知識點狀況不放摘要頁、跟著下鑽頁走——摘要頁只留雷達）
-                <>
-                  <ConceptDrillDown
-                    code={conceptDrill.code}
-                    label={conceptDrill.label}
-                    assignments={conceptDrillAssignments as never}
-                    submissions={localSubmissions as never}
-                    students={classFilteredStudents as never}
-                    onBack={() => setConceptDrill(null)}
-                  />
-                  <StudentKpPanel
-                    assignments={classAssignments.map((a) => assignmentById.get(a.id) ?? a) as never}
-                    submissions={localSubmissions as never}
-                    students={classFilteredStudents as never}
-                  />
-                </>
+                // 下鑽頁（細節）：知識點×三階段班級分布長條圖
+                // （2026-08-11 user 三修：學生知識點狀況面板整個取消——長條圖 hover 名單已涵蓋）
+                <ConceptDrillDown
+                  code={conceptDrill.code}
+                  label={conceptDrill.label}
+                  assignments={conceptDrillAssignments as never}
+                  submissions={localSubmissions as never}
+                  students={classFilteredStudents as never}
+                  onBack={() => setConceptDrill(null)}
+                />
               ) : (
                 // 摘要：只有班級雷達（點課綱代碼進細節）
                 <ConceptRadarChart
