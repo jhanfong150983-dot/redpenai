@@ -35,6 +35,7 @@ import { sortClassroomsByName } from '@/lib/classroom-order'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages, reanalyzeQuestions, tagConceptsForAnswerKey } from '@/lib/gemini'
+import { runKpUpgradeInline } from '@/lib/parentReport'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { convertPdfToImages, getFileType, fileToBlob, getDefaultImageFormat } from '@/lib/pdfToImage'
 import { compressImageFile } from '@/lib/imageCompression'
@@ -1300,6 +1301,44 @@ export default function AssignmentSetup({
       // 非同步上傳答案卷圖片和答案截圖（不阻塞建立流程）
       if (answerSheetImages.length > 0) {
         uploadAnswerSheetImages(assignment.id, answerSheetImages)
+      }
+      // 2026-08-11 KP 建卷預跑(user 拍板):擷取答案→108課綱分類→逐題知識點,三階段的第三階。
+      //   非同步、fail-open(失敗→家長報告端「升級為進階版」懶跑兜底、行為同舊)。
+      //   一般模式(with_questions):答案卷本身含題幹→直接餵;答案卷模式(answer_only):
+      //   有題本才跑、沒題本跳過(題本另本、建卷當下可能沒上傳)。
+      if (assignment.answerKey?.questions?.length) {
+        const kpImages = createAnswerSheetMode === 'answer_only'
+          ? (questionBookletBlobs.length > 0 ? questionBookletBlobs.slice() : null)
+          : (answerSheetImages.length > 0 ? answerSheetImages.slice() : null)
+        if (kpImages) {
+          const kpClassroom = classrooms.find(c => c.id === selectedClassroomId)
+          runKpUpgradeInline(assignmentDomain || '學科', assignment.answerKey.questions as never, kpClassroom?.grade, kpImages)
+            .then(async (r) => {
+              const tagged = new Map(r.items.map((it) => [it.questionId, it]))
+              const cur = await db.assignments.get(assignment.id)
+              const ak = cur?.answerKey as (typeof cur extends undefined ? never : NonNullable<typeof cur>['answerKey']) & { questions?: Array<{ id?: string }>; kpTips?: Record<string, string> }
+              if (!ak?.questions) return
+              ak.questions = ak.questions.map((q) => {
+                const it = tagged.get(String(q.id ?? ''))
+                if (!it) return q
+                return {
+                  ...q,
+                  analysis: {
+                    ...(it.code ? { code: it.code } : {}),
+                    topic: it.topic,
+                    knowledgePoints: it.knowledgePoints,
+                    ...(it.ability ? { ability: it.ability } : {}),
+                    ...(it.note ? { note: it.note } : {}),
+                  },
+                }
+              })
+              ak.kpTips = { ...(ak.kpTips ?? {}), ...r.kpTips }
+              await db.assignments.update(assignment.id, { answerKey: ak as never })
+              requestSync()
+              console.log(`[kp-prebuild] 知識點歸類完成：${r.items.length} 題`)
+            })
+            .catch((err) => console.warn('⚠️ 知識點歸類失敗（非致命、家長報告端可補跑）', err))
+        }
       }
       if (questionBookletBlobs.length > 0) {
         uploadQuestionBookletImages(assignment.id, questionBookletBlobs)

@@ -1128,7 +1128,15 @@ async function callKpRoute(promptText: string, assignmentId: string, withBooklet
     .join('')
 }
 
-export async function runKpUpgrade(assignmentId: string, subject: string, questions: PRQuestion[], grade?: number): Promise<KpUpgradeResult> {
+// 共用核心(2026-08-11 抽出):①tagging ②kpTips;transport 由呼叫端注入——
+//   報告端=callKpRoute(assignmentId+withBooklet server 注入題本圖)、建卷端=inline 圖片直送。
+async function runKpUpgradeCore(
+  subject: string,
+  questions: PRQuestion[],
+  grade: number | undefined,
+  callTag: (prompt: string) => Promise<string>,
+  callTips: (prompt: string) => Promise<string>,
+): Promise<KpUpgradeResult> {
   const qs = questions.filter((q) => String(q.id ?? '').trim())
   if (!qs.length) throw new Error('此作業沒有題目')
   const ansList = qs.map((q) => `${q.id}：${resolveStdAnswer(q) || '(無)'}`).join('\n')
@@ -1180,7 +1188,7 @@ ${ansList}
 答案清單：
 ${ansList}
 只輸出 JSON：{"items":[{"questionId":"...","topic":"...","knowledgePoints":[...],"ability":"...","note":"..."}]}`
-  const tagText = await callKpRoute(tagPrompt, assignmentId, true)
+  const tagText = await callTag(tagPrompt)
   const tagMatch = tagText.match(/\{[\s\S]*\}/)
   if (!tagMatch) throw new Error('歸類結果解析失敗')
   const parsed = JSON.parse(tagMatch[0]) as { items?: Array<{ questionId?: string; code?: string; topic?: string; kps?: string[]; knowledgePoints?: string[]; ability?: string; note?: string }> }
@@ -1231,23 +1239,71 @@ ${ansList}
 ${allKps.map((k) => `- ${k}`).join('\n')}
 只輸出 JSON：{"tips":{"知識點":"一句建議", ...}}`
     try {
-      const tipText = await callKpRoute(tipPrompt, assignmentId, false)
+      const tipText = await callTips(tipPrompt)
       const m = tipText.match(/\{[\s\S]*\}/)
       if (m) kpTips = (JSON.parse(m[0]) as { tips?: Record<string, string> }).tips ?? {}
     } catch { /* kpTips 失敗不擋主流程（加強地圖仍可用、只是缺建議句） */ }
   }
-  // ③ 寫入 server（外科手術合併、owner 驗證）
+  return { items, kpTips }
+}
+
+// 報告端入口(原行為不變):core + ③ kp-save 寫入 server(外科手術合併、owner 驗證)
+export async function runKpUpgrade(assignmentId: string, subject: string, questions: PRQuestion[], grade?: number): Promise<KpUpgradeResult> {
+  const result = await runKpUpgradeCore(
+    subject, questions, grade,
+    (prompt) => callKpRoute(prompt, assignmentId, true),
+    (prompt) => callKpRoute(prompt, assignmentId, false),
+  )
   const saveRes = await fetch('/api/report/kp-save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     credentials: 'include',
-    body: JSON.stringify({ assignmentId, items, kpTips }),
+    body: JSON.stringify({ assignmentId, items: result.items, kpTips: result.kpTips }),
   })
   if (!saveRes.ok) {
     const err = await saveRes.json().catch(() => null)
     throw new Error(`歸類寫入失敗：${(err as { error?: string })?.error ?? saveRes.status}`)
   }
-  return { items, kpTips }
+  return result
+}
+
+// ── 2026-08-11 建卷預跑(user 拍板):擷取答案 → 108課綱分類 → 逐題知識點,三階段的第三階 ──
+//   inline 圖片直送(建卷當下 storage 未必上傳完、不能靠 withBooklet server 注入);
+//   不含寫入——呼叫端(AssignmentSetup)自行把 items/kpTips 合併進 answerKey 後存 Dexie+sync。
+//   失敗=非致命:報告端「升級為進階版」懶跑路徑原樣保留當兜底。
+function kpBlobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '')
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+export async function runKpUpgradeInline(subject: string, questions: PRQuestion[], grade: number | undefined, images: Blob[]): Promise<KpUpgradeResult> {
+  const imageParts = await Promise.all(images.map(async (img) => ({
+    inlineData: { mimeType: img.type || 'image/jpeg', data: await kpBlobToBase64(img) },
+  })))
+  const call = (withImages: boolean) => async (promptText: string): Promise<string> => {
+    const inkSessionId = await ensureInkSessionId()
+    const res = await fetch(GEMINI_PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        model: COMMENT_MODEL,
+        contents: [{ role: 'user', parts: [{ text: promptText }, ...(withImages ? imageParts : [])] }],
+        routeKey: 'report.kp_tagging',
+        ...(inkSessionId ? { inkSessionId } : {}),
+      }),
+    })
+    if (!res.ok) throw new Error(`AI 呼叫失敗（${res.status}）`)
+    const data = await res.json().catch(() => null)
+    return ((data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> })?.candidates ?? [])
+      .flatMap((c) => c?.content?.parts ?? [])
+      .map((pt) => (typeof pt?.text === 'string' ? pt.text : ''))
+      .join('')
+  }
+  return runKpUpgradeCore(subject, questions, grade, call(true), call(false))
 }
 
 // ── 本地儲存：報告抬頭設定（老師個人、偏好設定頁維護）＋ 老師編輯過的評語（依作業快取） ──
