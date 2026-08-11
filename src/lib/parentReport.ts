@@ -1,13 +1,14 @@
-// 家長學習報告（2026-07-18、B2B MVP、user 拍板）：老師選一份作業 → 批量產生全班家長報告 PDF、打包 zip。
-//   一份作業＝一份報告（不跨科合併）。資料全來自既有批改結果＋試題分析，唯一 AI 呼叫＝老師評語（純文字、便宜）。
+// 家長學習報告（2026-07-18 B2B MVP → 2026-08-11 退回無 AI 版、皆 user 拍板）：
+//   老師選一份作業 → 全班家長報告 PDF、打包 zip。一份作業＝一份報告（不跨科合併）。
+//   報告＝純程式確定性產物（成績/落點/題型/知識點加強地圖/錯題裁圖＋正解＋班級狀況），
+//   永遠對應最新批改、重批不需重生；「為什麼錯」的解讀歸老師專業——AI 逐題診斷與評語草擬已移除。
+//   唯一留在此檔的 AI 呼叫＝知識點歸類（runKpUpgrade 系列；新卷建卷預跑、舊卷報告頁補跑）。
 //   PDF 產出沿用 correctionNoticePdf.ts 骨架（html2canvas→jsPDF、系統中文字型、每生一頁）。
 import { ensureInkSessionFresh } from '@/lib/ink-session'
-import { dispatchInkBalance } from '@/lib/ink-events'
-import { dispatchSchoolWalletBalance } from '@/lib/school-billing'
 import { MASTERY_THRESHOLDS, capLevelDesc, CAP_LEVEL_DISCLAIMER } from '@/lib/cap-levels'
 
 const GEMINI_PROXY_URL = import.meta.env?.VITE_GEMINI_PROXY_URL || '/api/proxy'
-const COMMENT_MODEL = 'gemini-2.5-flash' // 純文字評語、便宜足夠
+const COMMENT_MODEL = 'gemini-2.5-flash' // KP 歸類等純文字呼叫、便宜足夠
 
 // ── 輸入型別（寬鬆、對齊 AiReport 現有資料） ──
 export type PRQuestion = {
@@ -414,124 +415,16 @@ export function assembleParentReports(
   return reports
 }
 
-// ── AI 老師評語（鼓勵型、純文字、餵真實成績＋錯題） ──
+// ── 墨水會話（KP 歸類等付費呼叫用） ──
 async function ensureInkSessionId(): Promise<string | null> {
   // 用 fresh 版：會話過期/剩<60s 自動續期，避免長時間停留後送舊 id 被判「會話已過期」。
   try { const { sessionId } = await ensureInkSessionFresh(); return sessionId }
   catch { return null }
 }
-function buildCommentPrompt(r: StudentReport, subject: string): string {
-  // 有試題分析 → 用「單元＋知識點」給評語更精準；否則退回題型/錯題
-  const strong = r.hasAnalysis
-    ? r.strongTopics.slice(0, 3)
-    : r.typeRates.filter((t) => t.studentRate >= 80).map((t) => t.label).slice(0, 3)
-  const weak = r.hasAnalysis
-    ? r.weakTopics.slice(0, 3).map((t) => t.topic)
-    : r.typeRates.filter((t) => t.studentRate < 65).map((t) => t.label).slice(0, 3)
-  const wrongLines = r.hasAnalysis
-    ? (r.weakTopics.slice(0, 3).map((t) => `・${t.topic}：${t.weakKps.map((k) => k.kp).join('、') || '整體不穩'}`).join('\n') || '（各單元表現都不錯）')
-    : (r.wrongs.slice(0, 4).map((w) => `・${formatQuestionLabel(w.questionId)}（${w.typeLabel}）：${w.reason || '答錯'}`).join('\n') || '（無明顯錯題）')
-  return `你是一位溫暖但務實的${subject}老師，正在為家長寫一段簡短的學習回饋（給家長看，稱呼學生用姓名）。
-根據以下這位學生本次評量的表現，寫一段 80～120 字的繁體中文回饋：先肯定表現好的地方，再具體點出「一個」最該加強的重點與一句可行的建議。語氣鼓勵、正向、像老師親口對家長說的話。不要條列、不要 markdown、不要提到分數數字，只輸出這段回饋文字本身。
-
-學生：${r.name}
-科目：${subject}
-得分表現：${r.ratioPct >= 85 ? '優異' : r.ratioPct >= 70 ? '良好' : r.ratioPct >= 60 ? '尚可' : '待加強'}（班級平均之${r.isLow ? '下' : '上'}）
-表現較好的題型：${strong.length ? strong.join('、') : '（無特別突出）'}
-較弱的題型：${weak.length ? weak.join('、') : '（無明顯弱項）'}
-主要錯題：
-${wrongLines}`
-}
-
-/** 產生單一學生的老師評語；失敗回空字串（報告仍可出、老師可自行補寫）。 */
-export async function generateParentComment(r: StudentReport, subject: string): Promise<string> {
-  try {
-    const inkSessionId = await ensureInkSessionId()
-    const res = await fetch(GEMINI_PROXY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        model: COMMENT_MODEL,
-        contents: [{ role: 'user', parts: [{ text: buildCommentPrompt(r, subject) }] }],
-        routeKey: 'report.parent_comment',
-        ...(inkSessionId ? { inkSessionId } : {}),
-      }),
-    })
-    if (!res.ok) return ''
-    const data = await res.json().catch(() => null)
-    const text = ((data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> })?.candidates ?? [])
-      .flatMap((c) => c?.content?.parts ?? [])
-      .map((p) => (typeof p?.text === 'string' ? p.text : ''))
-      .join('')
-      .replace(/```/g, '')
-      .trim()
-    return text
-  } catch { return '' }
-}
-
-// ── AI 逐題錯因診斷（2.5-flash、餵題本圖由 server 注入、一生一 call 批全部錯題） ──
-export type DiagnosisWrong = { questionId: string; studentAnswer: string; referenceAnswer: string; imageJudged?: boolean; reason?: string }
+/* 2026-08-11 退回無 AI 版（user 拍板：「為什麼錯」歸老師的專業與責任）：
+   AI 老師評語（generateParentComment）與逐題錯因診斷（generateParentDiagnosis）整個移除——
+   報告改為純程式確定性產物；老師的話一律手動輸入。DiagnosisItem 型別保留給舊快取回讀（只取評語）。 */
 export type DiagnosisItem = { why: string; suggest: string }
-
-function buildDiagnosisPrompt(subject: string, wrongs: DiagnosisWrong[]): string {
-  // 2026-07-22 user 抓 bug：國字注音 VJ 格的「圖像辨識」是系統佔位字、不是學生寫的字——
-  //   AI 曾產出「他寫下的『圖像辨識』是不相關詞語」這種診斷。這類格改送批改理由（判官描述哪裡寫錯）。
-  const lines = wrongs
-    .map((w) => {
-      if (w.imageJudged || w.studentAnswer === '圖像辨識') {
-        return `${w.questionId}：學生有手寫作答（由 AI 圖像判定對錯、無文字轉錄）。批改判定理由：「${w.reason || '字形／注音寫法與標準不符'}」正解「${w.referenceAnswer || '—'}」`
-      }
-      return `${w.questionId}：學生寫「${w.studentAnswer || '（空白）'}」正解「${w.referenceAnswer || '—'}」`
-    })
-    .join('\n')
-  return `你是資深台灣${subject}老師與學習診斷專家。附上完整題本（多頁圖）。以下是某位學生本次評量所有寫錯的題。
-請逐題像專家一樣分析「他為什麼會這樣寫錯」——推論他的思路或迷思、務必結合題幹內容說明，用白話寫給家長看、每題 2～3 句、語氣不責備。不要只做表層貼標（例如別只寫「計算錯誤」，要推論他卡在哪個觀念或哪一步）。再給家長一句「在家可以怎麼幫」的具體建議。
-注意：標示「由 AI 圖像判定」的題目，學生是有寫字的，只是系統不轉錄手寫內容——請依「批改判定理由」分析他哪裡寫錯，絕不可把佔位文字當成學生寫的答案。
-錯題（題號：學生寫「」正解「」）：
-${lines}
-只輸出 JSON、不要 markdown：{"items":[{"questionId":"題號","why":"為什麼會這樣寫錯","suggest":"在家建議"}]}`
-}
-
-/** 產生一位學生全部錯題的 AI 錯因診斷；回 Map<questionId,{why,suggest}>；失敗回空 Map（報告仍可出、卡片留白）。 */
-export async function generateParentDiagnosis(
-  assignmentId: string,
-  subject: string,
-  wrongs: DiagnosisWrong[],
-): Promise<Map<string, DiagnosisItem>> {
-  const out = new Map<string, DiagnosisItem>()
-  if (!assignmentId || wrongs.length === 0) return out
-  try {
-    const inkSessionId = await ensureInkSessionId()
-    const res = await fetch(GEMINI_PROXY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        model: COMMENT_MODEL,
-        contents: [{ role: 'user', parts: [{ text: buildDiagnosisPrompt(subject, wrongs) }] }],
-        routeKey: 'report.parent_diagnosis',
-        assignmentId, // server 據此撈題本圖注入 contents（client 不必自抓、避開 bucket RLS）
-        ...(inkSessionId ? { inkSessionId } : {}),
-      }),
-    })
-    if (!res.ok) return out
-    const data = await res.json().catch(() => null)
-    const text = ((data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> })?.candidates ?? [])
-      .flatMap((c) => c?.content?.parts ?? [])
-      .map((p) => (typeof p?.text === 'string' ? p.text : ''))
-      .join('')
-    const m = text.match(/\{[\s\S]*\}/)
-    if (!m) return out
-    const parsed = JSON.parse(m[0]) as { items?: Array<{ questionId?: string; why?: string; suggest?: string }> }
-    for (const it of parsed.items ?? []) {
-      const qid = String(it.questionId ?? '').trim()
-      if (!qid) continue
-      out.set(qid, { why: String(it.why ?? '').trim(), suggest: String(it.suggest ?? '').trim() })
-    }
-    return out
-  } catch { return out }
-}
 
 // ── 錯題截圖（server 端切、方案 A）：回 Map<題號, dataURI>；失敗回空 Map（卡片不顯示圖） ──
 const CROPS_ENDPOINT = '/api/report/crops'
@@ -559,16 +452,16 @@ export async function fetchQuestionCrops(
   } catch { return out }
 }
 
-// ── 家長報告快取（parent_reports：只存 AI 產物＝診斷 + 評語；截圖免費不進表） ──
+// ── 家長報告舊快取（parent_reports）：無 AI 版後只回讀「評語」讓老師先前寫過的話不消失；
+//    診斷欄位與 stale 指紋不再使用（報告即時計算、無失效概念）。不再寫入。 ──
 const PARENT_CACHE_ENDPOINT = '/api/report/parent-cache'
 export type CachedReport = { diagnosis: Record<string, DiagnosisItem>; comment: string; stale: boolean }
 
-/** 載入某作業全部已快取的診斷/評語（含 stale 指紋比對）；回 Map<studentId, CachedReport>。 */
+/** 載入某作業已快取的舊評語；回 Map<studentId, CachedReport>（diagnosis/stale 僅為相容保留）。 */
 export async function loadParentReportCache(assignmentId: string): Promise<Map<string, CachedReport>> {
   const out = new Map<string, CachedReport>()
   if (!assignmentId) return out
-  // 逾時保護：這是報告 tab 載入用（撈全班診斷 + answer_key、較重）。前置閘已改用輕量 parentReportCount，
-  //   故這裡放寬到 20s、避免冷啟動/大回應被 6s 砍掉→報告全變「待生成」（診斷其實在 DB）。
+  // 逾時保護：放寬到 20s、避免冷啟動/大回應被砍掉害老師以為評語不見。
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 20000)
   try {
@@ -591,75 +484,8 @@ export async function loadParentReportCache(assignmentId: string): Promise<Map<s
   } catch { return out } finally { clearTimeout(timer) }
 }
 
-/** 輕量：查有幾筆家長報告（給重批改/改答案卷前置閘用；不撈診斷、快）。
- *  傳 studentIds 只算那幾位（重批改只影響被重批的學生）；不傳＝整份作業（改答案卷用）。逾時/失敗回 0（fail-open）。 */
-export async function parentReportCount(assignmentId: string, studentIds?: string[]): Promise<number> {
-  if (!assignmentId) return 0
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), 4000)
-  try {
-    let url = `${PARENT_CACHE_ENDPOINT}?assignmentId=${encodeURIComponent(assignmentId)}&countOnly=1`
-    if (studentIds && studentIds.length) url += `&studentIds=${encodeURIComponent(studentIds.join(','))}`
-    const res = await fetch(url, {
-      credentials: 'include',
-      signal: ctrl.signal,
-    })
-    if (!res.ok) return 0
-    const data = (await res.json().catch(() => null)) as { count?: number } | null
-    return Number(data?.count) || 0
-  } catch { return 0 } finally { clearTimeout(timer) }
-}
-
-/** 批次寫回快取（server 端當下蓋指紋）；回是否成功。 */
-export async function saveParentReportCache(
-  assignmentId: string,
-  items: Array<{ studentId: string; diagnosis: Record<string, DiagnosisItem>; comment: string }>,
-): Promise<boolean> {
-  if (!assignmentId || items.length === 0) return false
-  try {
-    const res = await fetch(PARENT_CACHE_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ assignmentId, items }),
-    })
-    // 2026-07-22：儲存失敗曾被靜默吞掉（graded_fp bigint schema 地雷）害整批 AI 診斷白跑，
-    //   留下狀態碼與錯誤內文，未來一眼可診斷。
-    if (!res.ok) {
-      const t = await res.text().catch(() => '')
-      console.warn('[parentReport] 快取儲存失敗', res.status, t.slice(0, 300))
-      return false
-    }
-    // 固定扣除:家長報告收費點在此(2 點/生);扣款回新餘額 → 活更新對應餘額顯示
-    // (personal=教師端頂欄;school=行政端 SchoolAdminPanel header)
-    try {
-      const j = (await res.json().catch(() => null)) as { billing?: { scope?: string | null; balanceAfter?: number | null } } | null
-      const bill = j?.billing
-      if (typeof bill?.balanceAfter === 'number') {
-        if (bill.scope === 'personal') dispatchInkBalance(bill.balanceAfter)
-        else if (bill.scope === 'school') dispatchSchoolWalletBalance(bill.balanceAfter)
-      }
-    } catch { /* 非致命 */ }
-    return true
-  } catch (e) {
-    console.warn('[parentReport] 快取儲存失敗(網路/例外)', e)
-    return false
-  }
-}
-
-/** 從報告取出要送診斷的錯題清單（給 generateParentDiagnosis 用）。 */
-export function diagnosisWrongsOf(r: StudentReport): DiagnosisWrong[] {
-  return r.errorRows.map((e) => ({
-    questionId: e.questionId,
-    studentAnswer: e.studentAnswer,
-    referenceAnswer: e.referenceAnswer,
-    // 圖像判定格：把批改理由帶給診斷 AI（佔位字「圖像辨識」不是學生寫的字）。
-    // 條件放寬：不只靠 imageJudged 旗標（regex 對 reason 措辭敏感）、答案值本身是佔位字也算。
-    ...(e.imageJudged || e.studentAnswer === '圖像辨識' ? { imageJudged: true, reason: e.reason } : {}),
-  }))
-}
-
-/** 把 AI 診斷（why/suggest）與截圖（cropDataUrl）併回報告的 errorRows，回新報告（不改原物件）。 */
+/** 把 why/suggest 與截圖（cropDataUrl）併回報告的 errorRows，回新報告（不改原物件）。
+ *  2026-08-11 無 AI 版後只剩截圖用途（diag 一律傳空 Map）；簽名保留、少動呼叫端。 */
 export function applyDiagnosisAndCrops(
   r: StudentReport,
   diag: Map<string, DiagnosisItem>,
@@ -678,18 +504,6 @@ export function applyDiagnosisAndCrops(
       }
     }),
   }
-}
-
-/** 把快取的 CachedReport（診斷 Record + 評語）併回報告；截圖不在此、另由 ensureCrops 補。 */
-export function applyCachedReport(r: StudentReport, cached: CachedReport): StudentReport {
-  const diagMap = new Map<string, DiagnosisItem>(Object.entries(cached.diagnosis || {}))
-  const merged = applyDiagnosisAndCrops(r, diagMap, new Map())
-  return { ...merged, comment: cached.comment || merged.comment }
-}
-
-/** report.errorRows 是否已全部帶到 AI 診斷（判斷「已生成 / 待生成」）。 */
-export function hasDiagnosis(r: StudentReport): boolean {
-  return r.errorRows.length > 0 && r.errorRows.every((e) => Boolean(e.why))
 }
 
 // ── 版面 CSS ──
@@ -943,7 +757,8 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
   const errorSection = r.errorRows.length
     ? `${aiCheckNote}${errorCards}`
     : `<div class="pr-allgood">本次沒有明顯失分的題目，表現很好！</div>`
-  const commentHtml = r.comment ? esc(r.comment) : `<span class="ph">（老師評語）</span>`
+  // 2026-08-11 無 AI 版：評語一律老師手動輸入；留空＝印空白欄位（含署名），紙本可手寫。
+  const commentHtml = r.comment ? esc(r.comment) : '&nbsp;'
   const noteHtml = `<div class="pr-note">${commentHtml}<div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>`
   const footHtml = `<div class="pr-foot2"><div class="dis">本報告由 AI 批改系統自動彙整生成，內容（含作答判讀、分數與分析）可能有誤，僅供學習參考、非最終成績；如有疑問請以老師確認為準．答對率以本次評量實際作答計算</div><div class="org">${esc(h.schoolName)}・${esc(h.subject)}科</div></div>`
 

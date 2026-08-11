@@ -46,7 +46,6 @@ import SubmissionDetailModal from '@/components/SubmissionDetailModal'
 import AnswerStatsModal from '@/components/AnswerStatsModal'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
-import { parentReportCount } from '@/lib/parentReport'
 import { blobToBase64 } from '@/lib/imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-storage'
 
@@ -1672,10 +1671,6 @@ export default function GradingPage({
   // 流程：先全 Phase A(review-only)→ 複核 →（onAllDone 或無複核時）對「全 scope」跑一次統一 Phase B。
   // 非空 = 目前在一鍵流程中（當 flag 用）；runOneClickPhaseB 跑完清空。
   const oneClickScopeRef = useRef<string[]>([])
-  // 2026-07-20 家長報告失效警告：重批改前若這份作業已有家長報告，先提醒（重生手動、不自動扣點）。
-  const [regradeWarn, setRegradeWarn] = useState<{ count: number } | null>(null)
-  const pendingRegradeRef = useRef<null | (() => void)>(null)
-  const regradeAckRef = useRef(false)
   // 2026-06-20 省時：一鍵流程中「老師複核時就背景批掉」的乾淨卷 ID。runOneClickPhaseB 會跳過這些、不重複批。
   const oneClickBgGradedIdsRef = useRef<Set<string>>(new Set())
   // 2026-06-20 串流管線（只智慧批改）：read+arbiter/乾淨PhaseB/複核PhaseB 共用的併發限制器。
@@ -4601,20 +4596,7 @@ export default function GradingPage({
       void alertModal('沒有可批改的作業')
       return
     }
-    // 2026-07-20 家長報告失效前置閘：這份作業已有家長報告時，重批改前先提醒（只在已有報告時擋＝只影響重批改；
-    //   第一次批改時還沒有報告故不觸發）。fail-open：查詢失敗照常批改、絕不因此擋住批改。
-    if (!regradeAckRef.current && assignmentId) {
-      try {
-        // 只算「這次要重批的學生」裡有幾位已有家長報告——重批改只讓被重批的那幾位失效、不影響其他人。
-        const count = await parentReportCount(assignmentId, scope.map((s) => s.studentId))
-        if (count > 0) {
-          pendingRegradeRef.current = () => { regradeAckRef.current = true; void runOneClickForBuckets(needA, needReview, needB) }
-          setRegradeWarn({ count })
-          return
-        }
-      } catch { /* 查不到就照常批改 */ }
-    }
-    regradeAckRef.current = false
+    // 2026-08-11 家長報告失效前置閘已移除（報告退回無 AI 版＝即時計算、重批不會使報告失效）。
     setBilledPoints(0)  // 固定扣除:新一輪歸零
     setBilledBalanceAfter(null)
     setBillingSettled(true)
@@ -5960,24 +5942,6 @@ export default function GradingPage({
           const candidates = recaptureConfirm?.submissions ?? []
           setRecaptureConfirm(null)
           void executeRecaptureOnly(candidates)
-        }}
-      />
-
-      {/* 2026-07-20: 家長報告失效警告（重批改前、這份作業已有家長報告時） */}
-      <DangerConfirmModal
-        open={!!regradeWarn}
-        severity="high"
-        title={`重新批改的學生有 ${regradeWarn?.count ?? 0} 位已生成家長報告`}
-        clears={[`這 ${regradeWarn?.count ?? 0} 位的家長報告將失效、需回學情報告頁重新生成`]}
-        keeps={['其他學生的家長報告', '學生作答照片', '目前的批改結果（重批改後才更新）']}
-        acknowledgeText="我了解重新批改會使這幾位已生成的家長報告失效，之後需自行重新生成（重生為手動、不會自動扣點）"
-        confirmLabel="仍要重新批改"
-        cancelLabel="取消"
-        onCancel={() => { setRegradeWarn(null); pendingRegradeRef.current = null }}
-        onConfirm={() => {
-          const run = pendingRegradeRef.current
-          setRegradeWarn(null); pendingRegradeRef.current = null
-          run?.()
         }}
       />
 
