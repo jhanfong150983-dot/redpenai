@@ -1062,9 +1062,48 @@ ${allKps.map((k) => `- ${k}`).join('\n')}
   return { items, kpTips }
 }
 
-// 報告端入口(原行為不變):core + ③ kp-save 寫入 server(外科手術合併、owner 驗證)
+// ── 2026-08-11 KP 掛 template 層(跨班公平性前置):補跑前先查模板 ──
+//   同一份考卷(模板)的 KP 歸類只該跑一次 AI:第一個班跑完 kp-save 已鏡寫模板,
+//   其他班(含分享碼匯入的複製品,answer_key 整包帶著 analysis 過來)從模板免費取用——
+//   零 AI 零墨水,且跨班 KP 名稱同一套,班際比較才有意義。
+//   覆蓋率 <80% 視為「模板沒有完整歸類」→ 照常跑 AI(半套寧可重跑)。
+async function tryKpFromTemplate(assignmentId: string, questions: PRQuestion[]): Promise<KpUpgradeResult | null> {
+  try {
+    const { db } = await import('@/lib/db')
+    const a = await db.assignments.get(assignmentId)
+    const tplId = (a as { answerKeyTemplateId?: string } | undefined)?.answerKeyTemplateId
+    if (!tplId) return null
+    const tpl = await db.answerKeyTemplates.get(tplId)
+    const ak = tpl?.answerKey as {
+      questions?: Array<{ id?: string; analysis?: { code?: string; topic?: string; knowledgePoints?: string[]; ability?: string; note?: string } }>
+      kpTips?: Record<string, string>
+    } | undefined
+    if (!ak?.questions?.length) return null
+    const items: KpTagItem[] = []
+    for (const q of ak.questions) {
+      const an = q.analysis
+      if (!q.id || !an?.topic) continue
+      items.push({
+        questionId: String(q.id),
+        ...(an.code ? { code: an.code } : {}),
+        topic: an.topic,
+        knowledgePoints: Array.isArray(an.knowledgePoints) ? an.knowledgePoints : [],
+        ...(an.ability ? { ability: an.ability } : {}),
+        ...(an.note ? { note: an.note } : {}),
+      })
+    }
+    const qids = new Set(questions.map((q) => String((q as { id?: unknown }).id ?? '')).filter(Boolean))
+    if (!qids.size) return null
+    const covered = items.filter((it) => qids.has(it.questionId)).length
+    if (covered / qids.size < 0.8) return null
+    console.log(`[kp] 模板已有歸類(${covered}/${qids.size} 題)、免跑 AI 直接取用`)
+    return { items, kpTips: ak.kpTips ?? {} }
+  } catch { return null }
+}
+
+// 報告端入口:先查模板(免費)、沒有才跑 AI;之後 ③ kp-save 寫入 server(外科手術合併、owner 驗證)
 export async function runKpUpgrade(assignmentId: string, subject: string, questions: PRQuestion[], grade?: number): Promise<KpUpgradeResult> {
-  const result = await runKpUpgradeCore(
+  const result = (await tryKpFromTemplate(assignmentId, questions)) ?? await runKpUpgradeCore(
     subject, questions, grade,
     (prompt) => callKpRoute(prompt, assignmentId, true),
     (prompt) => callKpRoute(prompt, assignmentId, false),

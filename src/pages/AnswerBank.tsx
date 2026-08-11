@@ -10,6 +10,7 @@ import type { AnswerKey, AnswerKeyTemplate } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages } from '@/lib/gemini'
+import { runKpUpgradeInline } from '@/lib/parentReport'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { getSchoolBillingContext } from '@/lib/school-billing'
 import { checkFolderNameUnique, domainRank, sortByDomainThenName } from '@/lib/utils'
@@ -596,6 +597,44 @@ export default function AnswerBank(_props: AnswerBankProps) {
       uploadAnswerSheetImages(templateId, imageBlobs)
       if (metadata.answerSheetMode === 'answer_only' && metadata.questionBookletBlobs.length > 0) {
         uploadQuestionBookletImages(templateId, metadata.questionBookletBlobs)
+      }
+      // 2026-08-11 KP 掛 template 層:建模板就預跑知識點歸類(非同步、fail-open)。
+      //   歸類長在模板上=源頭一次付費:之後從模板建的每個班、分享碼匯入的每位老師
+      //   全部直接繼承同一套 KP(跨班名稱一致、班際比較才成立),不會 11 個班燒 11 次。
+      //   模式分流同 AssignmentSetup:一般=答案卷含題幹直餵;答案卷模式=有題本才跑、沒題本跳過
+      //   (報告端「補跑歸類」懶跑路徑原樣保留當兜底)。
+      if (answerKey.questions?.length) {
+        const kpImages = metadata.answerSheetMode === 'answer_only'
+          ? (metadata.questionBookletBlobs.length > 0 ? metadata.questionBookletBlobs.slice() : null)
+          : (imageBlobs.length > 0 ? imageBlobs.slice() : null)
+        if (kpImages) {
+          runKpUpgradeInline(metadata.domain || '學科', answerKey.questions as never, undefined, kpImages)
+            .then(async (r) => {
+              const tagged = new Map(r.items.map((it) => [it.questionId, it]))
+              const cur = await db.answerKeyTemplates.get(templateId)
+              const ak = cur?.answerKey as (AnswerKey & { kpTips?: Record<string, string> }) | undefined
+              if (!ak?.questions) return
+              ak.questions = ak.questions.map((q) => {
+                const it = tagged.get(String(q.id ?? ''))
+                if (!it) return q
+                return {
+                  ...q,
+                  analysis: {
+                    ...(it.code ? { code: it.code } : {}),
+                    topic: it.topic,
+                    knowledgePoints: it.knowledgePoints,
+                    ...(it.ability ? { ability: it.ability } : {}),
+                    ...(it.note ? { note: it.note } : {}),
+                  },
+                }
+              })
+              ak.kpTips = { ...(ak.kpTips ?? {}), ...r.kpTips }
+              await db.answerKeyTemplates.update(templateId, { answerKey: ak, updatedAt: Date.now() })
+              requestSync()
+              console.log(`[kp-prebuild] 模板知識點歸類完成:${r.items.length} 題`)
+            })
+            .catch((err) => console.warn('⚠️ 模板知識點歸類失敗(非致命、報告端可補跑)', err))
+        }
       }
     }
     requestSync(); await loadData()
