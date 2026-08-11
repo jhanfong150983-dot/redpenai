@@ -8,11 +8,13 @@ export type StudentLike = { seatNumber?: number | string | null; name?: string |
 import { requestSync } from '@/lib/sync-events'
 
 // 正規化(鏡像 server semantic-score-table.normSemanticValue:全半形/空白/頭尾標點折疊、一字不折)
+// 2026-08-12 加 CJK 內部分隔標點折疊(兩側皆中文字的 , . ; : =AI read 漂移;數字鄰接保留)——與 server 同步改
 export function normAnswerValue(raw: unknown): string {
   return String(raw ?? '')
     .trim()
     .replace(/\s+/g, '')
     .replace(/，/g, ',').replace(/。/g, '.').replace(/；/g, ';').replace(/：/g, ':').replace(/、/g, ',')
+    .replace(/([一-鿿])[,.;:]+(?=[一-鿿])/g, '$1')
     .replace(/^[,.;:!?，。；：、！？\s]+|[,.;:!?，。；：、！？\s]+$/g, '')
 }
 
