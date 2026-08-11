@@ -17,7 +17,8 @@ import {
   CheckCircle2,
   CheckSquare,
   ChevronDown,
-  Plus
+  Plus,
+  BarChart3
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
@@ -42,6 +43,7 @@ import { startInkSession, closeInkSession, getInkSessionId } from '@/lib/ink-ses
 import { downloadImageFromSupabase } from '@/lib/supabase-download'
 import { fixCorruptedBase64 } from '@/lib/utils'
 import SubmissionDetailModal from '@/components/SubmissionDetailModal'
+import AnswerStatsModal from '@/components/AnswerStatsModal'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import { parentReportCount } from '@/lib/parentReport'
@@ -1510,6 +1512,8 @@ export default function GradingPage({
   // 同答案卷、尚未納入的其他班級（批改頁「＋新增班級」下拉用）
   const [siblingClasses, setSiblingClasses] = useState<{ assignmentId: string; classroomId: string; className: string; uploadedCount: number; hasAnswerKey: boolean }[]>([])
   const [addClassMenuOpen, setAddClassMenuOpen] = useState(false)
+  // 2026-08-11 評分統計(user 設計):每題一 TAB、答案聚合依分數分桶、拖曳整群改分
+  const [showAnswerStats, setShowAnswerStats] = useState(false)
 
   const [assignment, setAssignment] = useState<Assignment | null>(null)
   const [classroom, setClassroom] = useState<Classroom | null>(null)
@@ -6330,6 +6334,15 @@ export default function GradingPage({
             {/* 2026-05-18: 待複核按鈕拿掉、user 在 PR2 設計討論時決定移除（卡片本身會用顏色標出待複核狀態） */}
             <Button
               variant="outline"
+              onClick={() => setShowAnswerStats(true)}
+              disabled={isGrading || isRefreshing}
+              title="每題答案聚合:同答案一群、拖曳到不同分數欄可整群改分"
+            >
+              <BarChart3 className="w-5 h-5" />
+              評分統計
+            </Button>
+            <Button
+              variant="outline"
               onClick={handleRefresh}
               disabled={isRefreshing}
             >
@@ -6885,6 +6898,19 @@ export default function GradingPage({
         )}
 
       </div>
+      {/* 評分統計 */}
+      {showAnswerStats && (
+        <AnswerStatsModal
+          entries={sortedStudents
+            .map((student) => ({ student, submission: submissions.get(student.id) }))
+            .filter((e): e is { student: typeof e.student; submission: NonNullable<typeof e.submission> } =>
+              !!e.submission && Array.isArray((e.submission.gradingResult as { details?: unknown[] } | undefined)?.details))}
+          onClose={() => setShowAnswerStats(false)}
+          onUpdated={(updated) => {
+            setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
+          }}
+        />
+      )}
       {/* Modal */}
       {selectedSubmission && (
         <SubmissionDetailModal
