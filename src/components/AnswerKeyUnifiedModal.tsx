@@ -523,6 +523,8 @@ export default function AnswerKeyUnifiedModal({
   const [didReextract, setDidReextract] = useState(false)
   // 已存檔的答案卷唯讀；重新解析出來的新內容還沒存檔，所以解鎖讓老師確認後再存
   const locked = editMode && !didReextract
+  // 純答案卷模式：題本是判題型的唯一依據，缺了就不給解析
+  const needsBooklet = answerSheetMode === 'answer_only' && bookletPageItems.length === 0
 
   // Edit mode: 父層非同步從 Storage 下載答案卷圖後，把 prop 同步進編輯預覽用的 state
   useEffect(() => {
@@ -541,6 +543,15 @@ export default function AnswerKeyUnifiedModal({
    * 花墨水的同意框在 onExtract 內另跳。
    */
   const handleReextract = async () => {
+    // 純答案卷缺題本 → 不給重新解析。AI 看不到題目就判不出題型，
+    // 會把應用題判成填空、級分制不觸發，而且結果看起來完全正常。
+    if (needsBooklet) {
+      await alertModal(
+        '這是純答案卷，但沒有題本。AI 看不到題目內容，無法判斷題型（例如哪幾題要求寫出計算過程），'
+        + '解析結果會不正確。\n\n請先回上一步上傳題本，或建立一份新的答案卷。'
+      )
+      return
+    }
     const lines = [
       '會用 AI 重讀原始答案卷，產生**一份新的答案卷**。',
       '',
@@ -553,10 +564,7 @@ export default function AnswerKeyUnifiedModal({
     if (reextractClassLabels.length > 0) {
       lines.push('', `目前這份正被 ${reextractClassLabels.length} 個班級作業使用，它們仍會繼續用舊版，不受影響。`)
     }
-    // 純答案卷沒有題本時 AI 看不到題目，解析品質會明顯變差——寧可講明白也不要靜默跑
-    if (answerSheetMode === 'answer_only' && bookletPageItems.length === 0) {
-      lines.push('', '⚠️ 這是純答案卷，但目前沒有題本。AI 看不到題目內容，解析結果會比原本差。')
-    }
+
     const ok = await confirmModal({
       tone: 'danger',
       title: '重新 AI 解析這份答案卷？',
@@ -1053,7 +1061,14 @@ export default function AnswerKeyUnifiedModal({
       if (goingBackFromEdit) {
         return { label: '下一步：題目編輯', disabled: false, icon: <ChevronRight className="w-4 h-4" /> }
       }
-      return { label: '確認送出解析', disabled: pageItems.length === 0, icon: <Check className="w-4 h-4" /> }
+      // 2026-08-14（user 拍板）：純答案卷沒有題本一律不准解析。
+      //   答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上；
+      //   沒題本就只能瞎猜，應用題會被判成填空、級分制永遠不觸發，而且錯得無聲無息。
+      return {
+        label: needsBooklet ? '請先上傳題本' : '確認送出解析',
+        disabled: pageItems.length === 0 || needsBooklet,
+        icon: <Check className="w-4 h-4" />,
+      }
     }
     // editing
     return {
@@ -1368,10 +1383,18 @@ export default function AnswerKeyUnifiedModal({
                           <div className="flex items-baseline justify-between mb-3">
                             <div className="flex items-center gap-2">
                               <h3 className="text-sm font-semibold text-blue-900">📚 題本</h3>
-                              <span className="text-[11px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">建議上傳</span>
+                              <span className="text-[11px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-medium">必須上傳</span>
                               <span className="text-xs text-gray-500">— 學生看的乾淨題目卷</span>
                             </div>
                           </div>
+                          {/* 答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上。
+                              沒題本＝只能瞎猜題型，而且會錯得無聲無息，所以直接擋住解析。 */}
+                          {needsBooklet && (
+                            <div className="mb-3 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5 leading-relaxed">
+                              沒有題本就無法解析。答案卷上只有格子，AI 看不出哪幾題要求寫出計算過程，
+                              會把應用題判成填空題，批改時學生只寫答案就能拿分。
+                            </div>
+                          )}
                           <input ref={bookletFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleBookletFileChange} />
                           <input ref={bookletAddFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleBookletAddFiles} />
                           {bookletPageItems.length === 0 ? (

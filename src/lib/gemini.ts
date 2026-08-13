@@ -1833,6 +1833,50 @@ function buildTypeSpecs(): string {
  * 只描述領域特化的細節（如國字注音、社會圈選說明判別、數學 word_problem 邊界），
  * 不重複決策樹的分類邏輯（那部分在 buildDecisionTree + buildTypeSpecs）。
  */
+// 級分制（數學應用題）規格。**一般模式與純答案卷模式共用同一份**——
+// 這兩支 prompt 是各自獨立的函式，先前級分制只寫在一般模式的數學區塊，
+// 純答案卷模式根本看不到，導致純答案卷的應用題永遠不會產生 levelRubric。
+const LEVEL_RUBRIC_SPEC = `▸ ⭐ word_problem 追加：levelRubric（級分制評分規準）
+
+  只有 word_problem 要填 levelRubric，calculation / fill_blank 一律不填。
+  目的：應用題只比最終答案會讓「湊對答案」拿滿分。改判 0~3 級分，過程不足自然掉級。
+
+  【最重要：要素必須可檢核】
+  requiredElements 每一項都要寫成**閱卷者能直接在學生作答上找到的具體東西**——
+  具體數值、具體算式、具體結論。
+    ✅ 好：「出現 15000 ÷ 400 = 37.5（看到 37.5 這個數字即算呈現）」
+    ✅ 好：「求出垂足距離 15√3」
+    ✅ 好：「結論為第 17 週星期四」
+    ❌ 不可以：「推導完整」「解題步驟清楚」「正確運用數學概念」「過程合理」
+  只要是無法用「有沒有出現這個值／這個式子」來檢查的敘述，就不要寫進要素。
+  **你必須自己把題目算過一遍**，才填得出正確的中間值與邊界值——這是這份規準能不能用的關鍵。
+
+  【替代解法】
+  同一題常有多條合理解法（代數式求解 vs 列舉檢驗、邊長比例 vs 畢氏定理）。
+  放進 alternativeGroups：每組只要滿足其中一項就算達成。
+  不要把不同解法混寫成同一條要素（會變成「兩種都要做才給分」）。
+  只有一條路徑時不要硬湊 alternativeGroups，留空陣列即可。
+
+  【容許瑕疵】toleratedFlaws：不影響解題正確性、不該因此降級的小毛病（如未寫單位）。
+  寫得出來就寫，寫不出來留空陣列——老師之後會自己補（這塊要看過學生實際作答才知道）。
+
+  ⛔ levels 只填 criteria（該級分的判定條件），**不要填分數**。分數由系統依配分換算。
+
+  格式：
+  "levelRubric": {
+    "requiredElements": [{ "key": "E1", "desc": "具體可檢核的敘述（含數值）" }],
+    "alternativeGroups": [
+      { "key": "G1", "desc": "這組在講什麼", "options": [{ "key": "G1a", "desc": "具體敘述" }] }
+    ],
+    "toleratedFlaws": ["不應降級的瑕疵"],
+    "levels": [
+      { "level": 3, "criteria": "必要要素全部呈現，且推導完整或大致完整" },
+      { "level": 2, "criteria": "..." },
+      { "level": 1, "criteria": "..." },
+      { "level": 0, "criteria": "只有答案沒有過程；或策略錯誤／與題目無關" }
+    ]
+  }`
+
 function buildDomainRefinements(domain: string = '其他'): string {
   const domainMap: Record<string, string> = {
     國語: `
@@ -1920,50 +1964,16 @@ function buildDomainRefinements(domain: string = '其他'): string {
     學生寫了 "35 ÷ 4 = 8.75" + 「答：8.75 公里/時」
     → word_problem, answer = "8.75 公里/時"（不含「答：」）
 
+  ⚠️ 上面 Step 1/Step 2 看的是「答案卷上有沒有工作區、有沒有答句行」。
+     **純答案卷模式（只有答案格、另附題本）沒有工作區也沒有答句行**，這兩步會全部落到 fill_blank。
+     此模式一律以「題本參考」章節的規則為準：題幹要求寫出計算／推導過程 → word_problem。
+     不要因為答案卷上只看到格子就判成 fill_blank。
+
   ⚠️ calculation/word_problem 不需要 rubricsDimensions（過程交 Accessor 自行判斷）
   ⚠️「算算看」「計算看看」後若有「答：」行 → word_problem
   ⚠️ 即使括號內只有單一值，只要學生寫了算式步驟 → calculation 或 word_problem
 
-▸ ⭐ word_problem 追加：levelRubric（級分制評分規準）
-
-  只有 word_problem 要填 levelRubric，calculation / fill_blank 一律不填。
-  目的：應用題只比最終答案會讓「湊對答案」拿滿分。改判 0~3 級分，過程不足自然掉級。
-
-  【最重要：要素必須可檢核】
-  requiredElements 每一項都要寫成**閱卷者能直接在學生作答上找到的具體東西**——
-  具體數值、具體算式、具體結論。
-    ✅ 好：「出現 15000 ÷ 400 = 37.5（看到 37.5 這個數字即算呈現）」
-    ✅ 好：「求出垂足距離 15√3」
-    ✅ 好：「結論為第 17 週星期四」
-    ❌ 不可以：「推導完整」「解題步驟清楚」「正確運用數學概念」「過程合理」
-  只要是無法用「有沒有出現這個值／這個式子」來檢查的敘述，就不要寫進要素。
-  **你必須自己把題目算過一遍**，才填得出正確的中間值與邊界值——這是這份規準能不能用的關鍵。
-
-  【替代解法】
-  同一題常有多條合理解法（代數式求解 vs 列舉檢驗、邊長比例 vs 畢氏定理）。
-  放進 alternativeGroups：每組只要滿足其中一項就算達成。
-  不要把不同解法混寫成同一條要素（會變成「兩種都要做才給分」）。
-  只有一條路徑時不要硬湊 alternativeGroups，留空陣列即可。
-
-  【容許瑕疵】toleratedFlaws：不影響解題正確性、不該因此降級的小毛病（如未寫單位）。
-  寫得出來就寫，寫不出來留空陣列——老師之後會自己補（這塊要看過學生實際作答才知道）。
-
-  ⛔ levels 只填 criteria（該級分的判定條件），**不要填分數**。分數由系統依配分換算。
-
-  格式：
-  "levelRubric": {
-    "requiredElements": [{ "key": "E1", "desc": "具體可檢核的敘述（含數值）" }],
-    "alternativeGroups": [
-      { "key": "G1", "desc": "這組在講什麼", "options": [{ "key": "G1a", "desc": "具體敘述" }] }
-    ],
-    "toleratedFlaws": ["不應降級的瑕疵"],
-    "levels": [
-      { "level": 3, "criteria": "必要要素全部呈現，且推導完整或大致完整" },
-      { "level": 2, "criteria": "..." },
-      { "level": 1, "criteria": "..." },
-      { "level": 0, "criteria": "只有答案沒有過程；或策略錯誤／與題目無關" }
-    ]
-  }
+  ${LEVEL_RUBRIC_SPEC}
 
 ▸ 比例式格式（word_problem 特化）：
   學生可能寫「箭頭式」「÷N 標註式」「括號 + 除以式」三種比例式表達。
@@ -2194,10 +2204,35 @@ function buildAnswerKeyAnswerOnlyPrompt(domain?: string, hasBooklet = false): st
     ? `\n【領域提示】科目：${domain}\n- 影響 fill_blank 答案的單位／格式判讀（例：自然 → SI 單位、英語 → 拼字／時態）\n- 影響 short_answer 的 rubricsDimensions criteria 寫法：\n  · 數學／自然 → 強調「列式正確、過程清晰、單位標注」\n  · 國語／社會 → 強調「論述完整、依據明確、結論清楚」\n  · 英語 → 強調「文法正確、用字精準、句構流暢」\n- 用 domain 推 criteria 比硬從答案內容反推更可靠`
     : ''
 
-  // 題本（學生看的乾淨題目卷）若也一起傳給 AI，能用題幹來推 short_answer 的 rubricsDimensions criteria，
-  // 比從答案內容反推大幅準確。
+  // 題本（學生看的乾淨題目卷）若也一起傳給 AI，用途有二：
+  //  ① 推 short_answer 的 rubricsDimensions criteria（比從答案內容反推準確得多）
+  //  ② 2026-08-14：**判題型**。純答案卷上只看得到格子，「要求寫出計算／推導過程」這件事
+  //     只存在於題本。不看題本 → 應用題一律被判成 fill_blank → 級分制永遠不會觸發，
+  //     學生只寫結論就能拿分（老師卻在題本寫了「否則不予計分」）。
   const bookletSection = hasBooklet
-    ? `\n## ⭐ 題本參考（重要，僅在 short_answer 時使用）\n你會收到「答案卷圖片」+「題本圖片」兩組。題本圖片不需要逐格抽答案——你只需要從題本上找出每個 short_answer 題目的「題目要求」，依此推導 rubricsDimensions 的 criteria：\n- 找到題本上對應題號的題幹\n- 把題幹的核心要求拆解成兩個 criteria 維度（作答依據 + 結論表達），寫進 rubricsDimensions\n- 例：題本 4-2 寫「比較 A 與 B 兩物體在...時的速度大小，並說明原因」+ 答案卷寫「一樣大」\n  → criteria 應是「正確比較速度大小（一樣大／A>B／A<B），並依守恆定律說明原因」，而不是只反推答案的「指出『一樣大』」\n- single_choice / multi_choice / fill_blank 不需要參考題本，照答案卷的內容判斷即可\n- 嚴禁因為看了題本就把題幹文字塞進 answer 欄位，answer/referenceAnswer 一律來自答案卷的格子`
+    ? `
+## ⭐ 題本參考（重要）
+你會收到「答案卷圖片」+「題本圖片」兩組。題本不需要逐格抽答案，但有兩個必須用途：
+
+### 用途 1：判斷題型（所有題目都要做）
+答案卷上只有格子，看不出題目要求什麼。**必須回題本讀該題的題幹**再決定 questionCategory。
+
+⭐ 最重要的判準：**題幹有沒有要求寫出過程**。
+若題幹出現「請寫下計算過程」「請完整寫出解題過程」「並詳細說明」「說明理由」「否則不予計分」等要求
+→ 該題為 **word_problem**（走級分制、看整份推導給等第），**即使答案卷上只是一格一格的空格也一樣**。
+
+- 同一大題底下多個小問（(1)(2)(3)…）只要**其中任一小問**要求寫出過程
+  → 整個大題合為 **1 個 word_problem entry**，不要拆成多個 fill_blank；
+  answer 欄位把各小問的最終答案依序拼接（例：「(1) 6700000-x (2) x>6700000-x (3) x≥5000000 (4) 否」）
+- 題幹只要求填值、明寫「不需化簡」「直接寫答案」且無過程要求 → 維持 fill_blank
+- 作圖題（grid_geometry 等）不受此規則影響，仍走視覺判斷
+
+### 用途 2：推 short_answer 的評分維度
+從題本找出該題的「題目要求」，拆解成兩個 criteria 維度（作答依據 + 結論表達）寫進 rubricsDimensions：
+- 例：題本 4-2 寫「比較 A 與 B 兩物體在...時的速度大小，並說明原因」+ 答案卷寫「一樣大」
+  → criteria 應是「正確比較速度大小（一樣大／A>B／A<B），並依守恆定律說明原因」，而不是只反推答案的「指出『一樣大』」
+
+⛔ 嚴禁因為看了題本就把題幹文字塞進 answer 欄位——answer/referenceAnswer 一律來自答案卷的格子`
     : ''
 
   return `
@@ -2298,10 +2333,20 @@ bbox 定位由後續的 locate.answer_only 階段視覺搜尋決定。
   - 小題答案含推導過程時，answer 只放最終答案（如「答：否」→ "否"）
 - 整題 maxScore = 該格標示的總配分（如「3.(4分)」→ 4）
 - questionCategory：小題答案是數值／算式／短語 → "fill_blank"（頂層 answer 欄位省略、答案全在 parts）
-- 例：格子標「3.(4分)」、內寫 (1) 6700000-x (2) x>6700000-x (3) x≥5000000 (4) 推導後答否
-  → 1 entry：{"id":"2-3","questionCategory":"fill_blank","maxScore":4,"parts":[{"subId":"a","answer":"6700000-x","maxScore":1},{"subId":"b","answer":"x>6700000-x","maxScore":1},{"subId":"c","answer":"x>=5000000","maxScore":1},{"subId":"d","answer":"否","maxScore":1}]}
+- 例：格子標「2.(4分)」、內寫 (1) 12 (2) 30 (3) 5:2 (4) 18（題本只要求填值、無過程要求）
+  → 1 entry：{"id":"2-2","questionCategory":"fill_blank","maxScore":4,"parts":[{"subId":"a","answer":"12","maxScore":1},{"subId":"b","answer":"30","maxScore":1},{"subId":"c","answer":"5:2","maxScore":1},{"subId":"d","answer":"18","maxScore":1}]}
 - ⛔ 只要格內有 ≥2 個子標小題答案，就**必定**輸出 parts——即使其中某小題寫了多行推導，也**禁止**因此把整格改成 short_answer（該小題的 answer 只放最終結論，如「答：否」→ "否"）。
+
+  ⭐ 唯一例外（優先於上面這條 ⛔）：**題本上該題要求寫出計算／推導過程**時
+  （出現「請寫下計算過程」「請完整寫出解題過程」「並詳細說明」「否則不予計分」等字樣）
+  → 整格改判 **word_problem**、不要輸出 parts，並附上 levelRubric（見下方級分制規格）。
+    answer 欄位把各小問最終答案依序拼接，例：「(1) 6700000-x (2) x>6700000-x (3) x≥5000000 (4) 否」
+    理由：那種題目只比對結論的話，學生只寫「否」就能拿分，違背老師「否則不予計分」的要求。
 - 4B 的 sub-cell 拆題**只適用於卷面有實體子格分隔線**的格子；沒有分隔線一律走本節 parts。
+
+## 4C. 級分制（word_problem 專用）
+
+${LEVEL_RUBRIC_SPEC}
 
 ## 5. maxScore 推論
 - 優先從 section 標題抓「每題 X 分」（例：「一、單選題（12題 每題4分 共48分）」→ 每題 4 分）
