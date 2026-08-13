@@ -6,10 +6,7 @@ import {
   ArrowRight, CheckCircle2, Mail, Phone, Users, ScanLine, ShieldCheck,
   LineChart, FileText, Scale
 } from 'lucide-react'
-import { SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/legal'
-import { buildApiUrl } from '../lib/api-base'
-
-const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
+import { SUPPORT_EMAIL, SUPPORT_PHONE, LINE_OA_URL } from '../lib/legal'
 const PAGE_TITLE = 'RedPen AI 學校方案 — 全校一次段考，統一批改'
 const PAGE_DESC = '學校統一批改紙本段考卷：跨班同一套判準、行政端集中送批、1Campus 名冊同步，並批次產出檢討單與家長報告。以學期或學年約計價，學校統一付費。'
 
@@ -295,10 +292,12 @@ export default function SchoolPlanPage() {
               預約校內說明會<ArrowRight className="h-5 w-5" />
             </a>
             <a
-              href={LOGIN_URL}
+              href={LINE_OA_URL}
+              target="_blank"
+              rel="noreferrer"
               className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-gray-200 bg-white px-8 py-4 text-lg font-semibold text-gray-700 transition-colors hover:border-gray-300"
             >
-              我是老師，想先自己試
+              用 LINE 先問幾個問題
             </a>
           </div>
         </div>

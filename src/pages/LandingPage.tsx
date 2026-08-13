@@ -11,14 +11,14 @@ import {
   CheckCircle2,
   Mail,
   Phone,
-  RefreshCw,
   Play,
   ScanLine,
   ShieldCheck,
   Users,
-  LineChart
+  LineChart,
+  MessageCircle
 } from 'lucide-react'
-import { SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/legal'
+import { SUPPORT_EMAIL, SUPPORT_PHONE, LINE_OA_URL } from '../lib/legal'
 import { buildApiUrl } from '../lib/api-base'
 import { TUTORIAL_EPISODES } from '../data/tutorials'
 
@@ -29,9 +29,14 @@ const STUDENT_LOGIN_URL = buildApiUrl('/api/auth/google?entry=student')
 /** 行銷介紹影片（YouTube） */
 const PROMO_VIDEO_ID = 'L-1pNKoww5o'
 
-/** 品牌 slogan——文案以此為準，不要另創標語 */
-const SLOGAN_MAIN = ['批改有品質，', '時間有價值']
+/** 品牌 slogan——文案以此為準，不要另創標語。
+ *  主標兩行刻意各 5 字、不帶標點，兩行才會左右對齊。 */
+const SLOGAN_MAIN = ['批改有品質', '時間有價值']
 const SLOGAN_SUB = 'RedPen AI，重新定義評量'
+
+/** 導入洽詢：官網不做自助試用，一律走預約導入 */
+const CONTACT_SUBJECT = 'RedPen AI 導入洽詢'
+const CONTACT_MAIL = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(CONTACT_SUBJECT)}&body=${encodeURIComponent('學校／單位：\n聯絡人／職稱：\n聯絡電話：\n任教領域與班級數：\n想了解的部分：\n')}`
 
 /** 可查證的事實（取代無法佐證的累積數字） */
 const FACTS = [
@@ -183,14 +188,22 @@ export default function LandingPage() {
               <a href="#pricing" className="transition-colors hover:text-gray-900">定價</a>
               <a href="#faq" className="transition-colors hover:text-gray-900">常見問題</a>
             </div>
-            <button
-              type="button"
-              disabled={loginLoading !== null}
-              onClick={() => handleLogin('teacher')}
-              className="ml-auto rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors duration-200 hover:bg-gray-700 active:scale-95 disabled:cursor-wait disabled:opacity-70"
-            >
-              {loginLoading === 'teacher' ? '登入中…' : '教師登入'}
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                disabled={loginLoading !== null}
+                onClick={() => handleLogin('teacher')}
+                className="hidden rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-70 sm:inline-flex"
+              >
+                {loginLoading === 'teacher' ? '登入中…' : '教師登入'}
+              </button>
+              <a
+                href="#contact"
+                className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors duration-200 hover:bg-gray-700 active:scale-95"
+              >
+                預約導入
+              </a>
+            </div>
           </div>
         </div>
       </nav>
@@ -200,25 +213,21 @@ export default function LandingPage() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="grid items-center gap-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
             <div className="animate-fade-in-up">
-              <h1 className="text-4xl font-bold leading-[1.22] tracking-tight text-gray-900 sm:text-5xl">
+              <h1 className="text-5xl font-bold leading-[1.16] tracking-tight text-gray-900 sm:text-6xl lg:text-7xl">
                 {SLOGAN_MAIN[0]}
                 <br />
                 {SLOGAN_MAIN[1]}
               </h1>
-              <p className="mt-6 text-xl font-semibold tracking-tight text-gray-500 sm:text-2xl">
+              <p className="mt-5 text-base font-medium tracking-wide text-gray-500 sm:text-lg">
                 {SLOGAN_SUB}
               </p>
               <div className="mt-9 flex flex-col gap-4 sm:flex-row">
-                <button
-                  type="button"
-                  disabled={loginLoading !== null}
-                  onClick={() => handleLogin('teacher')}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-7 py-4 text-lg font-semibold text-white transition-colors duration-200 hover:bg-gray-700 active:scale-95 disabled:cursor-wait disabled:opacity-70"
+                <a
+                  href="#contact"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-7 py-4 text-lg font-semibold text-white transition-colors duration-200 hover:bg-gray-700 active:scale-95"
                 >
-                  {loginLoading === 'teacher' ? (
-                    <><RefreshCw className="mr-1 h-5 w-5 animate-spin" />登入中…</>
-                  ) : (<>免費試用，先批一份考卷<ArrowRight className="h-5 w-5" /></>)}
-                </button>
+                  預約導入<ArrowRight className="h-5 w-5" />
+                </a>
                 <a
                   href="/tutorials"
                   className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-gray-200 bg-white px-7 py-4 text-lg font-semibold text-gray-700 transition-colors duration-200 hover:border-gray-300 hover:bg-gray-50"
@@ -226,7 +235,6 @@ export default function LandingPage() {
                   <Play className="h-4 w-4 fill-gray-700" />看教學影片
                 </a>
               </div>
-              <p className="mt-4 text-sm text-gray-400">用 Google 帳號登入即可開始，不需信用卡。</p>
             </div>
 
             <div className="animate-fade-in-up animation-delay-200">
@@ -523,18 +531,17 @@ export default function LandingPage() {
                 </p>
               </div>
               <div className="rounded-2xl border border-gray-200 bg-white p-7">
-                <h3 className="font-bold text-gray-900">先免費試一份</h3>
+                <h3 className="font-bold text-gray-900">先跑一輪再決定</h3>
                 <p className="mt-2 leading-relaxed text-gray-500">
-                  登入後就能建立答案卷、匯入一份考卷跑完整流程，確認合用再儲值。
+                  我們陪你用一份真實的考卷走完整個流程：建答案卷、匯入、批改、產出報表，
+                  跑完再談要不要導入。
                 </p>
-                <button
-                  type="button"
-                  disabled={loginLoading !== null}
-                  onClick={() => handleLogin('teacher')}
-                  className="mt-5 w-full rounded-xl bg-gray-900 py-3 font-semibold text-white transition-colors hover:bg-gray-700 disabled:opacity-70"
+                <a
+                  href="#contact"
+                  className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 py-3 font-semibold text-white transition-colors hover:bg-gray-700"
                 >
-                  {loginLoading === 'teacher' ? '登入中…' : '免費開始'}
-                </button>
+                  預約導入<ArrowRight className="h-4 w-4" />
+                </a>
               </div>
             </div>
           </div>
@@ -566,31 +573,73 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Final CTA */}
-      <section className="border-t border-gray-100 bg-gray-50 py-20 sm:py-28">
-        <div className="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
-          <h2 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">
-            下一次段考，讓考卷留下資料
-          </h2>
-          <p className="mt-5 text-xl text-gray-500">先批一份試試，不需要信用卡。</p>
-          <div className="mt-9 flex flex-col justify-center gap-4 sm:flex-row">
+      {/* 聯繫我們（預約導入制：官網不做自助註冊入口） */}
+      <section id="contact" className="scroll-mt-20 border-t border-gray-100 bg-gray-50 py-20 sm:py-28">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <h2 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">
+              下一次段考，就可以開始
+            </h2>
+            <p className="mx-auto mt-5 max-w-xl text-xl leading-relaxed text-gray-500">
+              我們採預約導入制：先聊一次，用你自己的一份考卷示範完整流程，再決定要不要用。
+            </p>
+          </div>
+
+          <div className="mt-12 grid gap-5 sm:grid-cols-2">
+            {/* Email */}
+            <div className="flex flex-col rounded-2xl border border-gray-200 bg-white p-7">
+              <Mail className="h-6 w-6 text-gray-900" />
+              <h3 className="mt-4 text-xl font-bold text-gray-900">Email 洽詢</h3>
+              <p className="mt-2 flex-1 leading-relaxed text-gray-500">
+                告訴我們學校／單位、任教領域與班級數，我們會回覆導入方式與時間。
+              </p>
+              <a
+                href={CONTACT_MAIL}
+                className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-6 py-3.5 font-semibold text-white transition-colors hover:bg-gray-700"
+              >
+                寄信給我們<ArrowRight className="h-4 w-4" />
+              </a>
+              <p className="mt-3 text-center text-sm text-gray-400">{SUPPORT_EMAIL}</p>
+            </div>
+
+            {/* LINE 官方帳號 */}
+            <div className="flex flex-col rounded-2xl border border-gray-200 bg-white p-7">
+              <MessageCircle className="h-6 w-6" style={{ color: '#06C755' }} />
+              <h3 className="mt-4 text-xl font-bold text-gray-900">LINE 官方帳號</h3>
+              <p className="mt-2 leading-relaxed text-gray-500">
+                想先問幾個問題最快的方式。手機直接點加入，電腦可掃右邊 QR。
+              </p>
+              <div className="mt-5 flex flex-1 items-end gap-5">
+                <a
+                  href={LINE_OA_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-6 py-3.5 font-semibold text-white transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: '#06C755' }}
+                >
+                  加入 LINE 好友
+                </a>
+                <img
+                  src="/site/line-qr.png"
+                  alt="RedPen AI LINE 官方帳號 QR Code"
+                  className="h-24 w-24 flex-shrink-0 rounded-lg border border-gray-100"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          </div>
+
+          <p className="mt-8 text-center text-sm text-gray-400">
+            已經是使用者？
             <button
               type="button"
               disabled={loginLoading !== null}
               onClick={() => handleLogin('teacher')}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-8 py-4 text-lg font-semibold text-white transition-colors duration-200 hover:bg-gray-700 active:scale-95 disabled:cursor-wait disabled:opacity-70"
+              className="ml-1 font-semibold text-gray-600 underline decoration-gray-300 transition-colors hover:text-gray-900 disabled:opacity-70"
             >
-              {loginLoading === 'teacher' ? (
-                <><RefreshCw className="mr-1 h-5 w-5 animate-spin" />登入中…</>
-              ) : (<>免費試用<ArrowRight className="h-5 w-5" /></>)}
+              {loginLoading === 'teacher' ? '登入中…' : '教師登入'}
             </button>
-            <a
-              href="/tutorials"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-gray-200 bg-white px-8 py-4 text-lg font-semibold text-gray-700 transition-colors duration-200 hover:border-gray-300"
-            >
-              看教學影片
-            </a>
-          </div>
+          </p>
         </div>
       </section>
 

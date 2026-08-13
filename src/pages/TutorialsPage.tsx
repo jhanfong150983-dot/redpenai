@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, Play, ChevronDown, Clock } from 'lucide-react'
 import { TUTORIAL_EPISODES, formatTime, type TutorialEpisode } from '../data/tutorials'
 import { buildApiUrl } from '../lib/api-base'
+import { LINE_OA_URL } from '../lib/legal'
 
 const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
 const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
@@ -51,10 +52,9 @@ function useVideoSchema(episodes: TutorialEpisode[]): void {
 
 const ROMAN = ['一', '二', '三']
 
-function EpisodeBlock({ episode, index, onLogin }: {
+function EpisodeBlock({ episode, index }: {
   episode: TutorialEpisode
   index: number
-  onLogin: () => void
 }) {
   const [startAt, setStartAt] = useState<number | null>(null)
   const [txOpen, setTxOpen] = useState(false)
@@ -68,10 +68,10 @@ function EpisodeBlock({ episode, index, onLogin }: {
   }, [episode.youtubeId, startAt])
 
   const cta = [
-    { label: '免費試用，先批一份考卷', action: onLogin },
-    { label: '下載檢討單範例', href: '#' },
-    { label: '看學校方案', href: '/#pricing' },
-  ][index] ?? { label: '免費試用', action: onLogin }
+    { label: '預約導入', href: '/#contact' },
+    { label: '看定價方式', href: '/#pricing' },
+    { label: '看學校方案', href: '/school' },
+  ][index] ?? { label: '預約導入', href: '/#contact' }
 
   return (
     <section id={episode.id} className="scroll-mt-24 border-t border-gray-100 py-12 first:border-t-0 sm:py-16">
@@ -183,22 +183,12 @@ function EpisodeBlock({ episode, index, onLogin }: {
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
-            {'action' in cta && cta.action ? (
-              <button
-                type="button"
-                onClick={cta.action}
-                className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-5 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-gray-700"
-              >
-                {cta.label}
-              </button>
-            ) : (
-              <a
-                href={'href' in cta ? cta.href : '/'}
-                className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-5 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-gray-700"
-              >
-                {cta.label}
-              </a>
-            )}
+            <a
+              href={cta.href}
+              className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-5 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-gray-700"
+            >
+              {cta.label}
+            </a>
             {index < TUTORIAL_EPISODES.length - 1 && (
               <a
                 href={`#${TUTORIAL_EPISODES[index + 1].id}`}
@@ -291,30 +281,31 @@ export default function TutorialsPage() {
       <main className="px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-6xl">
           {TUTORIAL_EPISODES.map((e, i) => (
-            <EpisodeBlock key={e.id} episode={e} index={i} onLogin={handleLogin} />
+            <EpisodeBlock key={e.id} episode={e} index={i} />
           ))}
         </div>
       </main>
 
       <section className="mt-8 border-t border-gray-100 bg-gray-50 px-4 py-16 sm:px-6 sm:py-20 lg:px-8">
         <div className="mx-auto max-w-3xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">看完了，換你試一份</h2>
-          <p className="mt-4 text-lg text-gray-500">先用一份考卷體驗完整流程，不需要信用卡。</p>
+          <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">看完了，我們陪你跑第一輪</h2>
+          <p className="mt-4 text-lg text-gray-500">
+            採預約導入制：用你自己的一份考卷示範完整流程，再決定要不要用。
+          </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
-            <button
-              type="button"
-              onClick={handleLogin}
-              disabled={loginLoading}
-              className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-8 py-4 text-lg font-semibold text-white transition-colors hover:bg-gray-700 disabled:opacity-70"
-            >
-              {loginLoading ? '前往登入…' : '免費開始使用'}
-              <ArrowRight className="h-5 w-5" />
-            </button>
             <a
-              href="/"
+              href="/#contact"
+              className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-8 py-4 text-lg font-semibold text-white transition-colors hover:bg-gray-700"
+            >
+              預約導入<ArrowRight className="h-5 w-5" />
+            </a>
+            <a
+              href={LINE_OA_URL}
+              target="_blank"
+              rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-xl border-2 border-gray-200 bg-white px-8 py-4 text-lg font-semibold text-gray-700 transition-colors hover:border-gray-300"
             >
-              回首頁看方案
+              用 LINE 詢問
             </a>
           </div>
         </div>
