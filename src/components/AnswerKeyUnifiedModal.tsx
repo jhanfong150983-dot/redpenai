@@ -127,6 +127,8 @@ export interface AnswerKeyUnifiedModalProps {
     title: string; domain: string; docType: 'worksheet' | 'exam'
     folder: string; answerSheetMode: 'with_questions' | 'answer_only'
     questionBookletBlobs: Blob[]
+    /** 這次編輯是否重新解析過。重新解析＝產生新版本答案卷，不覆蓋原本那份 */
+    reextracted?: boolean
   }) => Promise<void>
   // Edit mode data
   editMode?: boolean
@@ -517,6 +519,10 @@ export default function AnswerKeyUnifiedModal({
     initialAnswerSheetImages.length > 0 ? [...initialAnswerSheetImages] : []
   )
   const [notice, setNotice] = useState<string | null>(null)
+  // 編輯模式下按過「重新 AI 解析」→ 儲存時另存為新版本答案卷（原本那份原封不動）
+  const [didReextract, setDidReextract] = useState(false)
+  // 已存檔的答案卷唯讀；重新解析出來的新內容還沒存檔，所以解鎖讓老師確認後再存
+  const locked = editMode && !didReextract
 
   // Edit mode: 父層非同步從 Storage 下載答案卷圖後，把 prop 同步進編輯預覽用的 state
   useEffect(() => {
@@ -535,24 +541,20 @@ export default function AnswerKeyUnifiedModal({
    */
   const handleReextract = async () => {
     const lines = [
-      '重新解析會用 AI 重讀原始答案卷，**整份題目會被覆蓋**。',
+      '會用 AI 重讀原始答案卷，產生**一份新的答案卷**。',
       '',
-      '會失去（無法復原）：',
-      '・手動畫的答案框、調整過的配分與題號',
-      '・補充的可接受答案、修改過的評分標準',
+      '目前這份**不會被更動**——題目、批改結果、分享碼都保持原樣。',
+      '',
+      '新答案卷是獨立的一份：',
+      '・要用它批改，需到班級作業裡改用新答案卷（會重新批改）',
+      '・要和其他老師一致，把新的分享碼給對方',
     ]
     if (reextractClassLabels.length > 0) {
-      lines.push('', `會連帶更新這 ${reextractClassLabels.length} 個班級作業的答案卷：`)
-      lines.push(...reextractClassLabels.slice(0, 8).map((s) => `・${s}`))
-      if (reextractClassLabels.length > 8) lines.push(`・…等共 ${reextractClassLabels.length} 個`)
-    }
-    if (hasGradedSubmissions) {
-      lines.push('', '⚠️ 其中已有批改過的考卷。重新解析後，那些成績的判分依據會與新答案卷不一致，建議重新批改。')
+      lines.push('', `目前這份正被 ${reextractClassLabels.length} 個班級作業使用，它們仍會繼續用舊版，不受影響。`)
     }
     // 純答案卷沒有題本時 AI 看不到題目，解析品質會明顯變差——寧可講明白也不要靜默跑
     if (answerSheetMode === 'answer_only' && bookletPageItems.length === 0) {
       lines.push('', '⚠️ 這是純答案卷，但目前沒有題本。AI 看不到題目內容，解析結果會比原本差。')
-      lines.push('建議先回上一步補上題本再重新解析。')
     }
     const ok = await confirmModal({
       tone: 'danger',
@@ -561,6 +563,7 @@ export default function AnswerKeyUnifiedModal({
       confirmLabel: '重新解析',
     })
     if (!ok) return
+    setDidReextract(true)
     await handleStartExtract()
   }
 
@@ -941,9 +944,29 @@ export default function AnswerKeyUnifiedModal({
   const handleSaveClick = () => {
     if (hasGradedSubmissions) {
       setConfirmOverlay('save')
-    } else {
-      void doSave()
+      return
     }
+    // 存檔＝定版。之後只能重新解析成新版本，不能再改這一份，所以先講清楚。
+    // 已鎖定的答案卷（純粹改名稱/資料夾）不必再問一次。
+    if (!locked) {
+      void (async () => {
+        const ok = await confirmModal({
+          tone: 'warning',
+          title: '儲存後就不能再修改題目',
+          message: [
+            '答案卷是批改的判準，存檔後會鎖定。',
+            '',
+            '之後要調整，只能「重新 AI 解析」產生新版本，或建立新的答案卷。',
+            '',
+            '請先確認題號、答案、配分都正確再儲存。',
+          ].join('\n'),
+          confirmLabel: '確認儲存',
+        })
+        if (ok) void doSave()
+      })()
+      return
+    }
+    void doSave()
   }
 
   const doSave = async () => {
@@ -995,6 +1018,7 @@ export default function AnswerKeyUnifiedModal({
         folder,
         answerSheetMode,
         questionBookletBlobs: finalBookletBlobs,
+        reextracted: didReextract,
       })
     } finally {
       setIsSaving(false)
@@ -1076,7 +1100,7 @@ export default function AnswerKeyUnifiedModal({
           <div className="w-52 bg-gray-50 border-r border-gray-200 flex flex-col shrink-0">
             <div className="px-4 py-4 border-b border-gray-200">
               <h2 className="text-base font-semibold text-gray-900">
-                {editMode ? '編輯答案卷' : '新增答案卷'}
+                {!editMode ? '新增答案卷' : locked ? '查看答案卷' : '確認新版本答案卷'}
               </h2>
             </div>
             {/* 流程清單為純文字，導航全交由 footer 主按鈕（樣式保留） */}
@@ -1450,7 +1474,22 @@ export default function AnswerKeyUnifiedModal({
 
               {/* ══ Step 4: 題目編輯 ���═ */}
               {activeStep === 'editing' && editingKey && (
-                <div className="flex h-full overflow-hidden">
+                /* 2026-08-14（user 拍板）：答案卷存檔後鎖定。
+                   理由：答案卷是批改的判準，改了就得重新批改；而且多位老師共用時，
+                   任一方偷偷改一格就會讓「同一份卷」名存實亡。要改＝重新解析成新版本。
+                   用 fieldset disabled 一次鎖住底下所有輸入，避免逐個控制項漏掉。 */
+                <fieldset
+                  disabled={locked}
+                  className="flex h-full overflow-hidden border-0 p-0 m-0 min-w-0 disabled:opacity-100"
+                >
+                  {locked && (
+                    <div className="absolute top-0 inset-x-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-slate-100 border-b border-slate-200 text-[11px] text-slate-600">
+                      <Lock className="w-3 h-3 shrink-0" />
+                      <span>
+                        已儲存的答案卷不能修改題目。要調整請到上一步「重新 AI 解析」，會產生一份新的答案卷。
+                      </span>
+                    </div>
+                  )}
                   {/* Question list sidebar */}
                   <div className="w-48 border-r border-gray-200 flex flex-col shrink-0 min-h-0">
                     <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between shrink-0">
@@ -1936,7 +1975,7 @@ export default function AnswerKeyUnifiedModal({
                       </div>
                     )}
                   </div>
-                </div>
+                </fieldset>
               )}
 
               {/* Step 4 empty state when no editing key */}

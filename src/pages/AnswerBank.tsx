@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import Button from '@/components/ui/Button'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import {
-  Plus, Search, BookOpen, Pencil, Trash2, FileUp, Loader2,
+  Plus, Search, BookOpen, Eye, Trash2, FileUp, Loader2,
   Folder, ChevronDown, ChevronRight, Edit2, Download, Copy
 } from 'lucide-react'
 import { db, generateId } from '@/lib/db'
@@ -109,6 +109,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const [editingAnswerSheetImages, setEditingAnswerSheetImages] = useState<Blob[]>([])
   // 重新 AI 解析的影響範圍（null = 尚未算完）
   const [reextractImpact, setReextractImpact] = useState<{ classLabels: string[]; hasGraded: boolean } | null>(null)
+  const [templateUsage, setTemplateUsage] = useState<Record<string, { sameVersion: number; diverged: number }>>({})
   // 純答案卷模式的題本（重新解析時要一起餵給 AI）
   const [editingBookletImages, setEditingBookletImages] = useState<Blob[]>([])
   const domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他']
@@ -202,12 +203,30 @@ export default function AnswerBank(_props: AnswerBankProps) {
         if (a.answerKeyTemplateId) used.add(a.answerKeyTemplateId)
       }
       setUsedTemplateIds(used)
+      void loadTemplateUsage(allTemplates.map((x) => x.id))
     } catch (err) {
       console.error('Failed to load answer bank data', err)
     } finally {
       setIsLoading(false)
     }
   }, [])
+
+  // 同一份答案卷被分享後，各人手上是獨立副本；任一方重新解析或改題目就會分歧。
+  // 這裡只取「跟我同版本的班級數」與「已分歧的班級數」，讓老師知道這個版本還有誰在用。
+  const loadTemplateUsage = async (ids: string[]) => {
+    if (ids.length === 0) return
+    try {
+      const res = await fetch('/api/data/template-usage', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateIds: ids }),
+      })
+      if (!res.ok) return
+      const { usage } = await res.json() as { usage: Record<string, { sameVersion: number; diverged: number }> }
+      setTemplateUsage(usage ?? {})
+    } catch { /* 顯示用途，失敗就不顯示 */ }
+  }
 
   useEffect(() => { void loadData() }, [loadData])
 
@@ -552,8 +571,14 @@ export default function AnswerBank(_props: AnswerBankProps) {
     title: string; domain: string; docType: 'worksheet' | 'exam'
     folder: string; answerSheetMode: 'with_questions' | 'answer_only'
     questionBookletBlobs: Blob[]
+    reextracted?: boolean
   }) => {
-    if (editingTemplateId) {
+    // 2026-08-14（user 拍板）：批改的最大原則是「兩位老師的答案卷必須完全一致」。
+    //   重新解析＝內容變了＝**新版本**，所以另存為一份新答案卷（新 id、新分享碼、新血緣根），
+    //   原本那份完全不動——舊版仍可用、舊分享碼仍有效、已批改的班級不受影響。
+    //   要跟對方保持一致，就把新的分享碼給對方；不給＝兩邊各走各的版本（血緣自然分開）。
+    const saveAsNewVersion = !!editingTemplateId && !!metadata.reextracted
+    if (editingTemplateId && !saveAsNewVersion) {
       // 比對 answerKey 是否有實際變動
       const original = await db.answerKeyTemplates.get(editingTemplateId)
       const answerKeyChanged = !original?.answerKey
@@ -576,6 +601,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
       // 要更新題本請建立新答案卷。
     } else {
       const templateId = generateId()
+      // 重新解析產生的新版本：沿用原名並加上日期，老師在清單上分得出來
+      const created = new Date()
+      const displayTitle = saveAsNewVersion
+        ? `${metadata.title}（重新解析 ${created.getMonth() + 1}/${created.getDate()}）`
+        : metadata.title
       const pageOrientations: ('portrait' | 'landscape')[] = []
       for (const blob of imageBlobs) {
         try {
@@ -588,7 +618,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       }
       const template: AnswerKeyTemplate = {
         id: templateId,
-        name: metadata.title,
+        name: displayTitle,
         domain: metadata.domain,
         docType: metadata.docType,
         answerSheetMode: metadata.answerSheetMode,
@@ -778,10 +808,32 @@ export default function AnswerBank(_props: AnswerBankProps) {
             </span>
           )}
         </p>
+        {/* 共用狀況：只有這份卷真的被分享出去時才顯示，沒人共用就不佔版面 */}
+        {(() => {
+          const u = templateUsage[t.id]
+          if (!u || (u.sameVersion <= 1 && u.diverged === 0)) return null
+          return (
+            <p className="mt-0.5 text-xs">
+              {u.sameVersion > 1 && (
+                <span className="text-slate-500">{u.sameVersion} 個班級使用此版本</span>
+              )}
+              {u.diverged > 0 && (
+                <span
+                  className={u.sameVersion > 1 ? 'ml-2 text-amber-600' : 'text-amber-600'}
+                  title="對方重新解析或改過題目，答案卷內容已不同。跨班比較不會納入這些班級。"
+                >
+                  {u.sameVersion <= 1 && '此版本只剩你的班級在使用 · '}
+                  另有 {u.diverged} 個班級改用不同版本
+                </span>
+              )}
+            </p>
+          )
+        })()}
       </div>
       <div className="flex items-center gap-1.5 ml-3">
-        <button type="button" onClick={() => handleEdit(t)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-blue-300 hover:text-blue-600" title="編輯答案卷">
-          <Pencil className="h-4 w-4" />
+        {/* 答案卷存檔後即鎖定，這裡是「查看」而非編輯——用鉛筆會誤導 */}
+        <button type="button" onClick={() => handleEdit(t)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-blue-300 hover:text-blue-600" title="查看答案卷">
+          <Eye className="h-4 w-4" />
         </button>
         <button type="button" onClick={() => void handleDelete(t.id)} aria-label="刪除答案卷" className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-red-300 hover:text-red-600" title="刪除答案卷">
           <Trash2 className="h-4 w-4" />
