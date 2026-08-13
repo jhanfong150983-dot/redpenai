@@ -39,6 +39,7 @@ const AiReport = lazy(() => import('@/pages/AiReport'))
 const CorrectionHistory = lazy(() => import('@/pages/CorrectionHistory'))
 const LandingPage = lazy(() => import('@/pages/LandingPage'))
 const TutorialsPage = lazy(() => import('@/pages/TutorialsPage'))
+const SchoolPlanPage = lazy(() => import('@/pages/SchoolPlanPage'))
 const AdminUserDetail = lazy(() => import('@/pages/AdminUserDetail'))
 const TeacherPreferences = lazy(() => import('@/pages/TeacherPreferences'))
 const SchoolAdminPanel = lazy(() => import('@/pages/SchoolAdminPanel'))
@@ -380,11 +381,16 @@ const PATH_PAGE_MAP: Record<string, Page> = {
 }
 
 // 公開頁白名單（不需登入即可瀏覽；SPA rewrite 已把所有路徑導向 index.html）
-const PUBLIC_PAGE_PATHS = ['/tutorials'] as const
-const isPublicPagePath = (): boolean => {
-  if (typeof window === 'undefined') return false
+// 要再加公開頁（例如隱私權），在這裡加一行即可。
+type PublicPageKey = 'tutorials' | 'school'
+const PUBLIC_PAGE_PATHS: Record<string, PublicPageKey> = {
+  '/tutorials': 'tutorials',
+  '/school': 'school'
+}
+const resolvePublicPage = (): PublicPageKey | null => {
+  if (typeof window === 'undefined') return null
   const path = window.location.pathname.replace(/\/+$/, '') || '/'
-  return (PUBLIC_PAGE_PATHS as readonly string[]).includes(path)
+  return PUBLIC_PAGE_PATHS[path] ?? null
 }
 
 const parseUrlPageParam = (raw: string | null | undefined): Page | null => {
@@ -1752,16 +1758,17 @@ function App() {
     void loadHomeOverview()
   }, [auth.status, isUserMenuOpen, loadHomeOverview])
 
-  // 公開頁（不需登入、也不等驗證結果就能看）：目前只有教學中心。
+  // 公開頁（不需登入、也不等驗證結果就能看）：教學中心、學校方案。
   // 必須放在 auth gate 之前，否則未登入訪客會被下面的分支導向 LandingPage。
-  if (isPublicPagePath()) {
+  const publicPage = resolvePublicPage()
+  if (publicPage) {
     return (
       <Suspense fallback={
         <div className="min-h-screen bg-white flex items-center justify-center">
           <div className="w-10 h-10 border-4 border-gray-300 border-t-transparent rounded-full animate-spin" />
         </div>
       }>
-        <TutorialsPage />
+        {publicPage === 'school' ? <SchoolPlanPage /> : <TutorialsPage />}
       </Suspense>
     )
   }
