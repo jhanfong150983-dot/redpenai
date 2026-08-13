@@ -5417,7 +5417,8 @@ export async function extractAnswerKeyFromImages(
           if (cropUrl) q.cropImageUrl = cropUrl
         }
         // map_fill positions + VJ rubric Stage A（fan-out 路徑也要跑、否則生不出 positions/vjRubric）
-        await runAnswerKeyStageA(merged.questions)
+        await runAnswerKeyStageA(merged.questions,
+          opts?.answerSheetMode === 'answer_only' ? (opts?.bookletImages ?? []) : [])
       } catch (err) {
         console.warn('⚠️ [AnswerKey fan-out] locate / crop 階段失敗：', err)
       }
@@ -5560,7 +5561,7 @@ export async function extractAnswerKeyFromImages(
 
   // answer_only 模式：附帶題本圖片（用於 short_answer rubric 推導，不抽答案）
   if (hasBooklet) {
-    requestParts.push(`--- 以下為「題本」圖片（${bookletImages.length} 張）：學生看的乾淨題目卷。僅用於推導 short_answer 題的 rubricsDimensions criteria，不要從題本抽答案 ---`)
+    requestParts.push(`--- 以下為「題本」圖片（${bookletImages.length} 張）：學生看的乾淨題目卷。用途有二：① 判斷每題的 questionCategory（尤其題幹是否要求寫出計算／推導過程 → word_problem）；② 推導 short_answer 的 rubricsDimensions criteria。⛔ 不要從題本抽答案，answer 一律來自答案卷 ---`)
     for (let i = 0; i < bookletImages.length; i++) {
       const imageBase64 = await blobToBase64(bookletImages[i])
       const mimeType = bookletImages[i].type || 'image/jpeg'
@@ -5649,7 +5650,7 @@ export async function extractAnswerKeyFromImages(
     }
 
     // ─── Phase 4: map_fill 位置偵測 + VJ rubric 偵測（Stage A，共用 helper）─────
-    await runAnswerKeyStageA(result.questions)
+    await runAnswerKeyStageA(result.questions, bookletImages)
   }
 
   return result
@@ -5660,7 +5661,12 @@ export async function extractAnswerKeyFromImages(
 async function detectVisualRubric(
   cropImageDataUrl: string,
   category: string,
-  refText: string
+  refText: string,
+  // 2026-08-14：題本一起餵。原本 A0 只看答案卷 crop + 一句 refText hint，
+  // 而 refText 本身是擷取階段產生的——擷取寫得粗糙，判準就跟著粗糙（連鎖劣化）；
+  // 加上 crop 可能把關鍵標籤（如對稱軸 L／M）裁在邊界外，A0 就更沒依據。
+  // 題本才有題目的原始要求（「先以直線 L…再以直線 M…」），是唯一權威來源。
+  bookletImages: Blob[] = []
 ): Promise<{ itemLabels: string[]; condition: string; gradingDefinition: string } | null> {
   const m = cropImageDataUrl.match(/^data:([^;]+);base64,(.+)$/)
   if (!m) {
@@ -5698,10 +5704,18 @@ async function detectVisualRubric(
 
 依閱讀順序列出 itemLabels，只看印刷正解、不臆造。只輸出 JSON。`
 
-  const rawText = (await generateGeminiText(currentModelName, [
-    prompt,
-    { inlineData: { mimeType, data } }
-  ], {
+  const parts: GeminiRequestPart[] = [prompt, { inlineData: { mimeType, data } }]
+  if (bookletImages.length > 0) {
+    parts.push('--- 以下為「題本」圖片：學生看到的原始題目。'
+      + '請找到這一題的題幹，**以題幹寫的要求為準**寫評判標準——'
+      + '例如題幹指明「先以直線 L 為對稱軸、再以直線 M」，itemLabels 與 gradingDefinition 就必須寫出是哪一條軸；'
+      + '題幹標了各步驟配分，也要照抄。⛔ 不要從題本抓答案，正解一律以答案卷 crop 為準 ---')
+    for (const b of bookletImages) {
+      const b64 = await blobToBase64(b)
+      parts.push({ inlineData: { mimeType: b.type || 'image/jpeg', data: b64 } })
+    }
+  }
+  const rawText = (await generateGeminiText(currentModelName, parts, {
     routeKey: 'answer_key.locate'  // 復用 locate route（=PRO、proxy 已支援、同 map_fill A0）
   })).replace(/```json|```/g, '').trim()
 
@@ -5725,7 +5739,7 @@ async function detectVisualRubric(
 
 // ─── 答案卷 Stage A 共用 helper：map_fill positions + VJ rubric ──────────────
 // 兩條抽取路徑（fan-out 與單次）都呼叫此 helper，避免漏跑。
-async function runAnswerKeyStageA(questions: AnswerKeyQuestion[]): Promise<void> {
+async function runAnswerKeyStageA(questions: AnswerKeyQuestion[], bookletImages: Blob[] = []): Promise<void> {
   // map_fill 位置偵測（Direction Y Stage A）
   const mapFillQs = questions.filter((q) => q.questionCategory === 'map_fill' && q.cropImageUrl)
   if (mapFillQs.length > 0) {
@@ -5757,7 +5771,8 @@ async function runAnswerKeyStageA(questions: AnswerKeyQuestion[]): Promise<void>
           const vjRubric = await detectVisualRubric(
             q.cropImageUrl!,
             q.questionCategory ?? '',
-            q.referenceAnswer || (q as { answer?: string }).answer || ''
+            q.referenceAnswer || (q as { answer?: string }).answer || '',
+            bookletImages
           )
           if (vjRubric && vjRubric.itemLabels.length > 0) {
             ;(q as { vjRubric?: typeof vjRubric }).vjRubric = vjRubric
