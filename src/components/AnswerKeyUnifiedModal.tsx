@@ -536,8 +536,9 @@ export default function AnswerKeyUnifiedModal({
   /**
    * 編輯既有答案卷時的「重新 AI 解析」。
    * 原始整頁圖本來就從 Storage 還原進 pageItems，所以直接重跑 handleStartExtract 即可——
-   * 缺的一直只是入口。但它會覆蓋整份題目、並經 server 反向同步進所有引用的班級作業，
-   * 所以先用 DangerConfirm 如實列出會失去什麼、會影響誰（花墨水的同意框在 onExtract 內另跳）。
+   * 缺的一直只是入口。結果會另存成新版本答案卷（見 AnswerBank.handleUnifiedSave 的
+   * saveAsNewVersion），原本那份不動，所以這裡不是破壞性操作；確認框只說明會產生新的一份。
+   * 花墨水的同意框在 onExtract 內另跳。
    */
   const handleReextract = async () => {
     const lines = [
@@ -1239,9 +1240,9 @@ export default function AnswerKeyUnifiedModal({
                       {pageItems.length > 0 && (
                         <div className="mb-4 shrink-0 flex items-start justify-between gap-3 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg">
                           <div className="text-xs text-amber-800 leading-relaxed">
-                            <div className="font-medium">重新用 AI 讀一次這份答案卷</div>
+                            <div className="font-medium">重新用 AI 讀一次，產生新版本</div>
                             <div className="text-amber-700 mt-0.5">
-                              會覆蓋目前所有題目與你手動修改過的內容，並消耗墨水。
+                              會另存成一份新的答案卷，目前這份不會被更動。需消耗墨水。
                             </div>
                           </div>
                           <button
