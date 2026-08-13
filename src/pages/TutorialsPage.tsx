@@ -1,8 +1,9 @@
-// 教學中心（公開頁 /tutorials）：三支教學影片＋章節跳點＋逐字稿。
+// 教學中心（公開頁 /tutorials）：三支教學影片＋章節跳點。
+// 逐字稿不在畫面上顯示（user 拍板不需要），但仍寫進 VideoObject 結構化資料供 SEO 使用。
 // 設計原則：沿用 LandingPage 的單色系統（白底＋gray-900），只用三階段色（藍/綠/紫）當每集識別色。
 // 影片來源＝YouTube（youtubeId 空字串時顯示「即將上線」的封面狀態）；章節點擊 → 以 ?start= 重載播放器。
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, Play, ChevronDown, Clock } from 'lucide-react'
+import { ArrowRight, Play, Clock } from 'lucide-react'
 import { TUTORIAL_EPISODES, formatTime, type TutorialEpisode } from '../data/tutorials'
 import { buildApiUrl } from '../lib/api-base'
 import { LINE_OA_URL } from '../lib/legal'
@@ -11,7 +12,7 @@ const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
 const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
 
 const PAGE_TITLE = 'RedPen AI 教學中心 — 三支影片走完批改、檢討、分析'
-const PAGE_DESC = '三支教學影片，用實際系統畫面帶你走完一次段考：建立答案卷與 AI 批改、檢討單與樣態分析、試題分析與家長報告。附章節跳點與逐字稿。'
+const PAGE_DESC = '三支教學影片，用實際系統畫面帶你走完一次段考：建立答案卷與 AI 批改、檢討單與樣態分析、試題分析與家長報告。每支影片附章節跳點。'
 
 /** 設定 <title> / description，離開頁面時還原（本專案沒有 head manager，改用 effect 處理） */
 function usePageMeta(): void {
@@ -57,7 +58,6 @@ function EpisodeBlock({ episode, index }: {
   index: number
 }) {
   const [startAt, setStartAt] = useState<number | null>(null)
-  const [txOpen, setTxOpen] = useState(false)
   const playing = startAt !== null && Boolean(episode.youtubeId)
 
   const embedSrc = useMemo(() => {
@@ -76,7 +76,7 @@ function EpisodeBlock({ episode, index }: {
   return (
     <section id={episode.id} className="scroll-mt-24 border-t border-gray-100 py-12 first:border-t-0 sm:py-16">
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] lg:gap-10">
-        {/* 播放器＋逐字稿 */}
+        {/* 播放器 */}
         <div>
           <div className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 shadow-lg">
             <div className="relative aspect-video">
@@ -121,33 +121,6 @@ function EpisodeBlock({ episode, index }: {
             </div>
           </div>
 
-          <div className="mt-5 border-t border-gray-100 pt-4">
-            <button
-              type="button"
-              onClick={() => setTxOpen((v) => !v)}
-              aria-expanded={txOpen}
-              className="flex items-center gap-2 text-sm font-semibold text-gray-500 transition-colors hover:text-gray-900"
-            >
-              {txOpen ? '收合逐字稿' : `展開逐字稿（${episode.transcript.length} 句，可搜尋）`}
-              <ChevronDown className={`h-4 w-4 transition-transform ${txOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {txOpen && (
-              <div className="mt-3 space-y-1.5">
-                {episode.transcript.map((line) => (
-                  <div key={line.t} className="grid grid-cols-[48px_1fr] gap-3 text-[15px] leading-relaxed">
-                    <button
-                      type="button"
-                      onClick={() => episode.youtubeId && setStartAt(line.t)}
-                      className="pt-0.5 text-left font-mono text-xs font-semibold tabular-nums text-gray-400 hover:text-gray-900"
-                    >
-                      {formatTime(line.t)}
-                    </button>
-                    <p className="m-0 text-gray-600">{line.text}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
         {/* 標題＋章節＋CTA */}
