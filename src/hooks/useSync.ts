@@ -184,6 +184,26 @@ export function clearSyncCursor() {
 }
 
 /**
+ * 2026-08-13: 凡是清空 Dexie（登出、偵測到換使用者）就必須連同步狀態一起清。
+ *
+ * 事故：user 登出再登入後「完全沒有資料」。handleLogout 砍了整個 Dexie，卻把
+ * `redpen-sync-cursor` 留在 localStorage → 重新登入第一次 sync 仍帶 ?since=<今天的游標>，
+ * 而後端只對 submissions / deleted_records 套 since（classrooms/students/assignments 是全拉）
+ * → 405 筆 submissions 一筆都拉不回來。那些 row 的 updated_at 不會再變，等於**永久補不回來**。
+ *
+ * `redpen-last-sync-at` 同理：它是首頁「上次同步 < 60 秒就直接讀 local、不等 sync」的依據
+ * （App.tsx home overview effect），Dexie 已清空還留著會讓首頁直接渲染空白概覽。
+ *
+ * 增量同步的前提是「本機留著上次拉回來的 row」；本機被清掉時前提就不成立，
+ * 游標必須跟著失效、下一次退回全拉。
+ */
+export function clearSyncState() {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(SYNC_CURSOR_STORAGE_KEY)
+  window.localStorage.removeItem(LAST_SYNC_TIME_STORAGE_KEY)
+}
+
+/**
  * 2026-05-25: self-heal — 掃 local 是否有 stale Phase A row（status=graded 但
  * gradingResult.totalScore 缺）。incremental sync 不會重拉 updated_at 沒變的 row、
  * 所以這類 row 永遠 stale。清掉 cursor 強制下次 sync 全拉 → server-first merge

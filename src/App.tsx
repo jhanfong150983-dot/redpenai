@@ -57,6 +57,7 @@ import {
   SYNC_COMPLETE_EVENT_NAME,
   type SyncCompleteDetail
 } from '@/lib/sync-events'
+import { clearSyncState } from '@/hooks/useSync'
 import '@/lib/debug-sync'
 import { debugLog } from '@/lib/logger'
 import { LEGAL_MODAL_EVENT, type LegalModalDetail } from '@/lib/legal-events'
@@ -585,6 +586,10 @@ function App() {
         } catch (err) {
           console.error('❌ 清空本地資料庫失敗', err)
         }
+        // Dexie 被清空 → 增量同步游標必須跟著失效，否則下次 sync 帶著舊 cursor
+        // 只會拉到 delta、submissions 永遠補不回來（見 clearSyncState 註解）。
+        // 放在 try/catch 外：即使 db.delete() 失敗，本機資料也已經處於不可信狀態。
+        clearSyncState()
       }
       window.localStorage.setItem(CURRENT_USER_ID_KEY, data.user.id)
 
@@ -636,6 +641,8 @@ function App() {
     } catch (err) {
       console.error('❌ 登出時清空本地資料庫失敗', err)
     }
+    // 同上：清 Dexie 必須連增量同步游標一起清，否則重新登入後 submissions 拉不回來
+    clearSyncState()
     // 清空所有 Service Worker 快取，釋放儲存配額（避免 QuotaExceededError）
     if ('caches' in window) {
       try {
