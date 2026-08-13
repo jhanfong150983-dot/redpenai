@@ -1502,10 +1502,7 @@ export default function AnswerKeyUnifiedModal({
                    理由：答案卷是批改的判準，改了就得重新批改；而且多位老師共用時，
                    任一方偷偷改一格就會讓「同一份卷」名存實亡。要改＝重新解析成新版本。
                    用 fieldset disabled 一次鎖住底下所有輸入，避免逐個控制項漏掉。 */
-                <fieldset
-                  disabled={locked}
-                  className="flex h-full overflow-hidden border-0 p-0 m-0 min-w-0 disabled:opacity-100"
-                >
+                <div className="flex h-full overflow-hidden relative">
                   {locked && (
                     <div className="absolute top-0 inset-x-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-slate-100 border-b border-slate-200 text-[11px] text-slate-600">
                       <Lock className="w-3 h-3 shrink-0" />
@@ -1640,7 +1637,12 @@ export default function AnswerKeyUnifiedModal({
                   </div>
 
                   {/* Question editing panel */}
-                  <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+                  {/* 只鎖「詳情面板」：左側題目清單必須保持可點，否則老師無法逐題檢視。
+                     fieldset disabled 會連同底下所有 input/button 一起鎖，是最不容易漏掉的做法。 */}
+                  <fieldset
+                    disabled={locked}
+                    className="flex-1 flex flex-col overflow-hidden min-h-0 border-0 p-0 m-0 disabled:opacity-100"
+                  >
                     {selectedQuestion ? (
                       <>
                         {/* Image preview */}
@@ -1880,6 +1882,33 @@ export default function AnswerKeyUnifiedModal({
                           )}
 
                           {/* Bucket C / D: 參考答案 + Rubric */}
+                          {/* 級分制（數學應用題）。⚠️ 不能掛在 showRubric（那是 bucket C/D）底下——
+                              word_problem 是 bucket A，掛進去等於永遠不顯示，老師無從確認規準。
+                              判斷依據一律是「這題有沒有 levelRubric」，與 bucket 無關。 */}
+                          {selectedQuestion.levelRubric && (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-500">評分方式：</span>
+                                <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 font-medium">
+                                  整題分級評分（看解題過程給等第）
+                                </span>
+                                <span className="text-[10px] text-gray-400">由題型自動決定</span>
+                              </div>
+                              <LevelRubricEditor
+                                rubric={selectedQuestion.levelRubric}
+                                showScores={scoringMode !== 'unscored'}
+                                onChange={(next) => patchLevelRubric(selectedIdx, () => next)}
+                              />
+                            </div>
+                          )}
+
+                          {/* 應用題卻沒有規準＝AI 沒產出來，老師不會知道；明示比靜默好 */}
+                          {selectedCategory === 'word_problem' && !selectedQuestion.levelRubric && (
+                            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                              這題是應用題，但沒有產生分級評分規準，批改時會只比對最終答案。
+                              如果這題要求學生寫出計算過程，請重新解析一次。
+                            </div>
+                          )}
                           {showRubric && (
                             <div className="space-y-2">
                               <div className="flex items-start gap-2">
@@ -1928,14 +1957,6 @@ export default function AnswerKeyUnifiedModal({
                                     </div>
                                   )}
                                 </div>
-                              )}
-                              {/* 級分制（數學應用題）：整題一個等第，不是逐項加分 */}
-                              {!isVJ && selectedQuestion.levelRubric && (
-                                <LevelRubricEditor
-                                  rubric={selectedQuestion.levelRubric}
-                                  showScores={scoringMode !== 'unscored'}
-                                  onChange={(next) => patchLevelRubric(selectedIdx, () => next)}
-                                />
                               )}
                               {!isVJ && !selectedQuestion.levelRubric && selectedQuestion.rubricsDimensions && (
                                 <div>
@@ -1998,8 +2019,8 @@ export default function AnswerKeyUnifiedModal({
                         {editingKey.questions.length === 0 ? '尚無題目，點擊左上角 + 新增' : '請從左側選取���目'}
                       </div>
                     )}
-                  </div>
-                </fieldset>
+                  </fieldset>
+                </div>
               )}
 
               {/* Step 4 empty state when no editing key */}
