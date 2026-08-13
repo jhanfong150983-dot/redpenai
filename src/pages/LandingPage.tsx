@@ -26,6 +26,13 @@ const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
 const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
 const STUDENT_LOGIN_URL = buildApiUrl('/api/auth/google?entry=student')
 
+/** 行銷介紹影片（YouTube） */
+const PROMO_VIDEO_ID = 'L-1pNKoww5o'
+
+/** 品牌 slogan——文案以此為準，不要另創標語 */
+const SLOGAN_MAIN = ['批改有品質，', '時間有價值']
+const SLOGAN_SUB = 'RedPen AI，重新定義評量'
+
 /** 可查證的事實（取代無法佐證的累積數字） */
 const FACTS = [
   { k: '約 7 分鐘', v: '30 人班的段考卷批完（內部實測）' },
@@ -194,13 +201,12 @@ export default function LandingPage() {
           <div className="grid items-center gap-14 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
             <div className="animate-fade-in-up">
               <h1 className="text-4xl font-bold leading-[1.22] tracking-tight text-gray-900 sm:text-5xl">
-                段考卷掃進去，
+                {SLOGAN_MAIN[0]}
                 <br />
-                出來的是能上課的資料
+                {SLOGAN_MAIN[1]}
               </h1>
-              <p className="mt-6 text-lg leading-relaxed text-gray-500 sm:text-xl">
-                AI 批改整份紙本考卷，手寫題一起改。批完直接產出檢討單、作答樣態、
-                108 課綱概念雷達和家長報告——不用你再整理一次。
+              <p className="mt-6 text-xl font-semibold tracking-tight text-gray-500 sm:text-2xl">
+                {SLOGAN_SUB}
               </p>
               <div className="mt-9 flex flex-col gap-4 sm:flex-row">
                 <button
@@ -223,8 +229,17 @@ export default function LandingPage() {
               <p className="mt-4 text-sm text-gray-400">用 Google 帳號登入即可開始，不需信用卡。</p>
             </div>
 
-            <div className="animate-fade-in-up animation-delay-200 overflow-hidden rounded-2xl border border-gray-100 shadow-xl">
-              <img src="/screenshot-grading.jpg" alt="AI 批改整班紙本作業的畫面" className="h-auto w-full" />
+            <div className="animate-fade-in-up animation-delay-200">
+              <div className="relative aspect-video overflow-hidden rounded-2xl bg-gray-900 shadow-xl">
+                <iframe
+                  className="absolute inset-0 h-full w-full"
+                  src={`https://www.youtube.com/embed/${PROMO_VIDEO_ID}?rel=0&modestbranding=1`}
+                  title="RedPen AI 介紹影片"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                  loading="lazy"
+                />
+              </div>
             </div>
           </div>
 
@@ -589,7 +604,7 @@ export default function LandingPage() {
                 <span className="text-xl font-bold text-white">RedPen AI</span>
               </div>
               <p className="mt-4 text-sm leading-relaxed text-gray-500">
-                批改整份紙本考卷，把考卷變成能上課的資料。
+                {SLOGAN_MAIN.join('')}。{SLOGAN_SUB}。
               </p>
             </div>
 

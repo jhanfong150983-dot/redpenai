@@ -313,7 +313,7 @@ export default function SchoolPlanPage() {
                 <span className="text-xl font-bold text-white">RedPen AI</span>
               </div>
               <p className="mt-4 max-w-sm text-sm leading-relaxed text-gray-500">
-                批改整份紙本考卷，把考卷變成能上課的資料。
+                批改有品質，時間有價值。RedPen AI，重新定義評量。
               </p>
             </div>
             <ul className="space-y-2">

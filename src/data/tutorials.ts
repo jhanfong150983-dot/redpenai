@@ -1,6 +1,8 @@
 // 教學中心頁資料——由 promo-video 的時間軸自動產生（scripts 見 local-only 記錄）。
 // 章節時間對齊 EP_SEGS、逐字稿對齊 EP_SUBS，因此與影片內容保證一致；
 // 影片重新剪輯後請重新產生，不要手改時間。
+// ⚠️ youtubeId 是手動維護的欄位（EP1 VM6bMYUf0FA / EP2 Zw7VxcAH7jM / EP3 rohDOjZOXB4）——
+//    重新產生本檔時務必補回，否則播放器會退回「即將上線」狀態。
 export type TutorialChapter = { t: number; label: string }
 export type TutorialLine = { t: number; text: string }
 export type TutorialEpisode = {
@@ -29,8 +31,7 @@ export const TUTORIAL_EPISODES: TutorialEpisode[] = [
     durationSec: 310,
     duration: '5:10',
     poster: '/tutorials/ep1.jpg',
-    // TODO 影片上架後填入 YouTube 影片 ID（unlisted 亦可）；留空時頁面顯示「即將上線」
-    youtubeId: '',
+    youtubeId: 'VM6bMYUf0FA',
     chapters: [
       { t: 0, label: '三階段總覽' },
       { t: 22, label: '建立答案卷：AI 解析題目' },
@@ -102,8 +103,7 @@ export const TUTORIAL_EPISODES: TutorialEpisode[] = [
     durationSec: 204,
     duration: '3:24',
     poster: '/tutorials/ep2.jpg',
-    // TODO 影片上架後填入 YouTube 影片 ID（unlisted 亦可）；留空時頁面顯示「即將上線」
-    youtubeId: '',
+    youtubeId: 'Zw7VxcAH7jM',
     chapters: [
       { t: 0, label: '檢討課要決定什麼' },
       { t: 23, label: '下載檢討單（每人一份 PDF）' },
@@ -158,8 +158,7 @@ export const TUTORIAL_EPISODES: TutorialEpisode[] = [
     durationSec: 221,
     duration: '3:41',
     poster: '/tutorials/ep3.jpg',
-    // TODO 影片上架後填入 YouTube 影片 ID（unlisted 亦可）；留空時頁面顯示「即將上線」
-    youtubeId: '',
+    youtubeId: 'rohDOjZOXB4',
     chapters: [
       { t: 0, label: '分數登記完，然後呢' },
       { t: 23, label: '成績統計與匯出 CSV' },
