@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
+import LevelRubricEditor from '@/components/LevelRubricEditor'
 import { useAlertModal } from '@/components/ConfirmModal'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory } from '@/lib/db'
 import { QUESTION_CATEGORY_TO_BUCKET, QUESTION_CATEGORY_LABELS as CATEGORY_LABELS } from '@/lib/db'
@@ -872,7 +873,11 @@ export default function AnswerKeyWizardModal({
                           <div className="flex items-center gap-2">
                             <span className="text-gray-500">評分方式：</span>
                             <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 font-medium">
-                              {isVJ ? '視覺逐項判斷（看圖逐項判對錯）' : selectedQuestion.rubric ? '4 級評價' : '評分維度'}
+                              {isVJ
+                                ? '視覺逐項判斷（看圖逐項判對錯）'
+                                : selectedQuestion.levelRubric
+                                  ? '整題分級評分（看解題過程給等第）'
+                                  : selectedQuestion.rubric ? '4 級評價' : '評分維度'}
                             </span>
                             <span className="text-[10px] text-gray-400">由題型自動決定</span>
                           </div>
@@ -907,7 +912,21 @@ export default function AnswerKeyWizardModal({
                               )}
                             </div>
                           )}
-                          {!isVJ && selectedQuestion.rubricsDimensions && (
+                          {/* 級分制（數學應用題）：整題一個等第，不是逐項加分 */}
+                          {!isVJ && selectedQuestion.levelRubric && (
+                            <LevelRubricEditor
+                              rubric={selectedQuestion.levelRubric}
+                              showScores={scoringMode !== 'unscored'}
+                              onChange={(next) => {
+                                setEditingKey((prev) => {
+                                  if (!prev) return prev
+                                  return { ...prev, questions: prev.questions.map((q, i) =>
+                                    i === selectedIdx ? { ...q, levelRubric: next } : q) }
+                                })
+                              }}
+                            />
+                          )}
+                          {!isVJ && !selectedQuestion.levelRubric && selectedQuestion.rubricsDimensions && (
                             <div>
                               <div className="flex items-center justify-between mb-1">
                                 <span className="text-gray-500">評分維度</span>

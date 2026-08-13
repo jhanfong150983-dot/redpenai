@@ -13,6 +13,40 @@ export interface Rubric {
 }
 
 /**
+ * 2026-08-13 級分制評分規準（數學應用題）。
+ * 沙盒實測：要素寫成「可檢核的具體值」時一致率 95%、零放水；寫成「推導完整」這類模糊敘述會掉到 80%。
+ *
+ * 與 rubricsDimensions（逐維度加分）互斥、且哲學相反：
+ *   級分制是**整題一個等第**——先判級分，再由 code 查 levels[].score 換成分數。
+ *   不可改成逐要素加分，否則「答案湊對就拿分」的問題會原地復活。
+ */
+export interface LevelRubricItem {
+  key: string   // E1 / E2…（AI 產生；只作內部對照，UI 一律顯示 desc）
+  desc: string  // 必須是看得到就能勾的具體敘述（例：「出現 15000 ÷ 400 = 37.5」）
+}
+
+/** 等價的解題路徑：滿足其中一條即可，不必全中（例：用公式解 vs 一格一格列舉） */
+export interface LevelRubricGroup {
+  key: string
+  desc: string
+  options: LevelRubricItem[]
+}
+
+export interface LevelRubricLevel {
+  level: 3 | 2 | 1 | 0
+  criteria: string  // 該級分的判定條件（AI 依官方會考格式產生、老師可改）
+  score: number     // 該級分實得幾分——老師直接改數字，不是改百分比
+}
+
+export interface LevelRubric {
+  requiredElements: LevelRubricItem[]
+  alternativeGroups?: LevelRubricGroup[]
+  /** 不因此降級的小毛病。AI 推不出來（它沒看過學生的卷），以老師補充為主 */
+  toleratedFlaws?: string[]
+  levels: LevelRubricLevel[]
+}
+
+/**
  * @deprecated 已被 QuestionBucket 取代。
  * 此 type alias 僅保留供讀取極舊資料中的 question.type 欄位（read-only fallback）。
  * 1=唯一答案(精確), 2=多答案可接受(模糊), 3=依表現給分(評價)
@@ -216,6 +250,10 @@ export interface AnswerKeyQuestion {
   // Type 3 專用：評分規準
   rubric?: Rubric // 4級評價（純評價題）
   rubricsDimensions?: RubricDimension[] // 多維度評分（有標準答案+思考過程）
+
+  // 2026-08-13 數學應用題級分制。由系統依領域＋題型自動決定，**不開放老師切換判分方式**。
+  // 有 levelRubric 時，該題走級分制判官，忽略 rubricsDimensions。
+  levelRubric?: LevelRubric
 
   maxScore: number
   aiMaxScore?: number // AI 原始配分（永遠不動，供老師還原用）

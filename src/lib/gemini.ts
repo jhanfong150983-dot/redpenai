@@ -6,6 +6,7 @@ import {
   type AnswerKeyQuestion,
   type AnswerExtractionCorrection
 } from './db'
+import { normalizeLevelRubric } from './levelRubric'
 import { blobToBase64 as blobToDataUrl, compressImageFile } from './imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from './blob-storage'
 import { dispatchInkBalance } from './ink-events'
@@ -1923,6 +1924,47 @@ function buildDomainRefinements(domain: string = '其他'): string {
   ⚠️「算算看」「計算看看」後若有「答：」行 → word_problem
   ⚠️ 即使括號內只有單一值，只要學生寫了算式步驟 → calculation 或 word_problem
 
+▸ ⭐ word_problem 追加：levelRubric（級分制評分規準）
+
+  只有 word_problem 要填 levelRubric，calculation / fill_blank 一律不填。
+  目的：應用題只比最終答案會讓「湊對答案」拿滿分。改判 0~3 級分，過程不足自然掉級。
+
+  【最重要：要素必須可檢核】
+  requiredElements 每一項都要寫成**閱卷者能直接在學生作答上找到的具體東西**——
+  具體數值、具體算式、具體結論。
+    ✅ 好：「出現 15000 ÷ 400 = 37.5（看到 37.5 這個數字即算呈現）」
+    ✅ 好：「求出垂足距離 15√3」
+    ✅ 好：「結論為第 17 週星期四」
+    ❌ 不可以：「推導完整」「解題步驟清楚」「正確運用數學概念」「過程合理」
+  只要是無法用「有沒有出現這個值／這個式子」來檢查的敘述，就不要寫進要素。
+  **你必須自己把題目算過一遍**，才填得出正確的中間值與邊界值——這是這份規準能不能用的關鍵。
+
+  【替代解法】
+  同一題常有多條合理解法（代數式求解 vs 列舉檢驗、邊長比例 vs 畢氏定理）。
+  放進 alternativeGroups：每組只要滿足其中一項就算達成。
+  不要把不同解法混寫成同一條要素（會變成「兩種都要做才給分」）。
+  只有一條路徑時不要硬湊 alternativeGroups，留空陣列即可。
+
+  【容許瑕疵】toleratedFlaws：不影響解題正確性、不該因此降級的小毛病（如未寫單位）。
+  寫得出來就寫，寫不出來留空陣列——老師之後會自己補（這塊要看過學生實際作答才知道）。
+
+  ⛔ levels 只填 criteria（該級分的判定條件），**不要填分數**。分數由系統依配分換算。
+
+  格式：
+  "levelRubric": {
+    "requiredElements": [{ "key": "E1", "desc": "具體可檢核的敘述（含數值）" }],
+    "alternativeGroups": [
+      { "key": "G1", "desc": "這組在講什麼", "options": [{ "key": "G1a", "desc": "具體敘述" }] }
+    ],
+    "toleratedFlaws": ["不應降級的瑕疵"],
+    "levels": [
+      { "level": 3, "criteria": "必要要素全部呈現，且推導完整或大致完整" },
+      { "level": 2, "criteria": "..." },
+      { "level": 1, "criteria": "..." },
+      { "level": 0, "criteria": "只有答案沒有過程；或策略錯誤／與題目無關" }
+    ]
+  }
+
 ▸ 比例式格式（word_problem 特化）：
   學生可能寫「箭頭式」「÷N 標註式」「括號 + 除以式」三種比例式表達。
   rubric 評分時，列式維度應接受任一種比例式格式為合格列式。
@@ -2503,6 +2545,7 @@ function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: 
     q = normalizeChoiceAnswerSymbols(q)
     q = sanitizeUnorderedCriteria(q)
     q = normalizeTableCellQuestion(q)
+    q = normalizeLevelRubricQuestion(q)
     return q
   })
 
@@ -2510,6 +2553,28 @@ function normalizeAnswerKeyShortAnswerDimensions(answerKey: AnswerKey, domain?: 
     ...answerKey,
     questions: normalizedQuestions
   }
+}
+
+/**
+ * 2026-08-13 級分制：只有數學 word_problem 留 levelRubric，其餘一律拔掉
+ * （AI 偶爾會在鄰近題型上多吐一份，留著會讓那題誤走級分制判官）。
+ * 分數一律由 code 依配分換算，AI 若回傳 score 會在 normalizeLevelRubric 裡被丟棄。
+ */
+function normalizeLevelRubricQuestion(question: AnswerKeyQuestion): AnswerKeyQuestion {
+  const raw = (question as AnswerKeyQuestion & { levelRubric?: unknown }).levelRubric
+  if (!raw) return question
+  if (question.questionCategory !== 'word_problem') {
+    const { levelRubric: _drop, ...rest } = question as AnswerKeyQuestion & { levelRubric?: unknown }
+    void _drop
+    return rest as AnswerKeyQuestion
+  }
+  const normalized = normalizeLevelRubric(raw as Parameters<typeof normalizeLevelRubric>[0], question.maxScore)
+  if (!normalized) {
+    const { levelRubric: _drop, ...rest } = question as AnswerKeyQuestion & { levelRubric?: unknown }
+    void _drop
+    return rest as AnswerKeyQuestion
+  }
+  return { ...question, levelRubric: normalized }
 }
 
 /**

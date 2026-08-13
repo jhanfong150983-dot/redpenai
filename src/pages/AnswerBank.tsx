@@ -107,6 +107,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const [editingFolder, setEditingFolder] = useState('')
   const [editingAnswerSheetMode, setEditingAnswerSheetMode] = useState<'with_questions' | 'answer_only'>('with_questions')
   const [editingAnswerSheetImages, setEditingAnswerSheetImages] = useState<Blob[]>([])
+  // 重新 AI 解析的影響範圍（null = 尚未算完）
+  const [reextractImpact, setReextractImpact] = useState<{ classLabels: string[]; hasGraded: boolean } | null>(null)
+  // 純答案卷模式的題本（重新解析時要一起餵給 AI）
+  const [editingBookletImages, setEditingBookletImages] = useState<Blob[]>([])
   const domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他']
 
   // 匯入短碼
@@ -509,11 +513,15 @@ export default function AnswerBank(_props: AnswerBankProps) {
   }
 
   // 從 Supabase Storage 動態探測 page-0..9，回傳依序命中的 blob
-  const downloadAnswerSheetImages = async (templateId: string): Promise<Blob[]> => {
+  const downloadAnswerSheetImages = async (
+    templateId: string,
+    prefix?: 'question-booklets',
+  ): Promise<Blob[]> => {
     const MAX_PAGES = 10
     try {
+      const prefixParam = prefix ? `&prefix=${prefix}` : ''
       const fetchPage = (i: number) =>
-        fetch(`/api/storage/download?templateId=${encodeURIComponent(templateId)}&pageIndex=${i}`, {
+        fetch(`/api/storage/download?templateId=${encodeURIComponent(templateId)}&pageIndex=${i}${prefixParam}`, {
           credentials: 'include',
         }).then(r => r.ok ? r.blob() : null)
 
@@ -528,9 +536,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
         if (!b) break
         blobs.push(b)
       }
-      // 自動修復本地快取
-      const paths = blobs.map((_, i) => `template-answer-sheets/${templateId}/page-${i}.webp`)
-      await db.answerKeyTemplates.update(templateId, { answerSheetImagePaths: paths }).catch(() => {})
+      // 自動修復本地快取（題本沒有等價的本地欄位，跳過）
+      if (!prefix) {
+        const paths = blobs.map((_, i) => `template-answer-sheets/${templateId}/page-${i}.webp`)
+        await db.answerKeyTemplates.update(templateId, { answerSheetImagePaths: paths }).catch(() => {})
+      }
       return blobs
     } catch (err) {
       console.warn('⚠️ 答案卷圖片下載例外', err)
@@ -643,8 +653,32 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   // ── Edit / Delete ──────────────────────────────────────────────────────────
 
+  // 重新 AI 解析會覆蓋整份題目、並經 server 反向同步進所有引用此模板的班級作業。
+  // 先算出影響範圍（班級名單＋是否已批改），交給 modal 在確認框裡如實列出。
+  const loadReextractImpact = async (templateId: string) => {
+    const allAssignments = await db.assignments.toArray()
+    const linked = allAssignments.filter((a) => a.answerKeyTemplateId === templateId)
+    if (linked.length === 0) {
+      setReextractImpact({ classLabels: [], hasGraded: false })
+      return
+    }
+    const allClassrooms = await db.classrooms.toArray()
+    const classLabels = linked.map((a) => {
+      const cn = allClassrooms.find((c) => c.id === a.classroomId)?.name || '未知班級'
+      return `${cn}「${a.title}」`
+    })
+    const linkedIds = new Set(linked.map((a) => a.id))
+    const graded = await db.submissions.where('status').equals('graded').toArray()
+    setReextractImpact({
+      classLabels,
+      hasGraded: graded.some((s) => linkedIds.has(s.assignmentId)),
+    })
+  }
+
   const handleEdit = (t: AnswerKeyTemplate) => {
     setEditingTemplateId(t.id)
+    setReextractImpact(null)
+    void loadReextractImpact(t.id)
     setEditingAnswerKey(t.answerKey)
     setEditingTitle(t.name)
     setEditingDomain(t.domain || '')
@@ -657,6 +691,12 @@ export default function AnswerBank(_props: AnswerBankProps) {
     void downloadAnswerSheetImages(t.id).then((blobs) => {
       if (blobs.length > 0) setEditingAnswerSheetImages(blobs)
     })
+    setEditingBookletImages([])
+    if ((t.answerSheetMode as string) === 'answer_only') {
+      void downloadAnswerSheetImages(t.id, 'question-booklets').then((blobs) => {
+        if (blobs.length > 0) setEditingBookletImages(blobs)
+      })
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -937,6 +977,9 @@ export default function AnswerBank(_props: AnswerBankProps) {
           initialAnswerSheetMode={editingAnswerSheetMode}
           initialAnswerKey={editingAnswerKey}
           initialAnswerSheetImages={editingAnswerSheetImages}
+          reextractClassLabels={reextractImpact?.classLabels ?? []}
+          initialBookletImages={editingBookletImages}
+          hasGradedSubmissions={reextractImpact?.hasGraded ?? false}
           domainOptions={domainOptions}
         />
       )}

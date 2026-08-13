@@ -15,11 +15,12 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
-import { useAlertModal } from '@/components/ConfirmModal'
+import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
 import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
-import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric } from '@/lib/db'
+import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric } from '@/lib/db'
+import LevelRubricEditor from '@/components/LevelRubricEditor'
 import { QUESTION_CATEGORY_TO_BUCKET, QUESTION_CATEGORY_LABELS as CATEGORY_LABELS } from '@/lib/db'
 
 function getEffectiveCategory(q: AnswerKeyQuestion): QuestionCategory {
@@ -138,6 +139,10 @@ export interface AnswerKeyUnifiedModalProps {
   initialAnswerSheetImages?: Blob[]
   scoringMode?: 'scored' | 'unscored'
   hasGradedSubmissions?: boolean
+  /** 編輯模式重新解析時，會被連帶更新的班級作業（伺服器端會反向同步）。空陣列＝沒有班級引用 */
+  reextractClassLabels?: string[]
+  /** 純答案卷模式的題本圖（從 Storage 還原）。重新解析時要一起送，AI 沒題目就寫不出評分規準 */
+  initialBookletImages?: Blob[]
   // Options
   domainOptions?: string[]
 }
@@ -159,10 +164,13 @@ export default function AnswerKeyUnifiedModal({
   initialAnswerSheetImages = [],
   scoringMode = 'scored',
   hasGradedSubmissions = false,
+  reextractClassLabels = [],
+  initialBookletImages = [],
   domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他'],
 }: AnswerKeyUnifiedModalProps) {
   // 2026-07-22 modal 統一：alert → 共用 ConfirmModal
   const alertModal = useAlertModal()
+  const confirmModal = useConfirm()
 
   // ── step state machine ────────────────────────────────────────────────────
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
@@ -519,6 +527,55 @@ export default function AnswerKeyUnifiedModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editMode, initialAnswerSheetImages])
 
+  /**
+   * 編輯既有答案卷時的「重新 AI 解析」。
+   * 原始整頁圖本來就從 Storage 還原進 pageItems，所以直接重跑 handleStartExtract 即可——
+   * 缺的一直只是入口。但它會覆蓋整份題目、並經 server 反向同步進所有引用的班級作業，
+   * 所以先用 DangerConfirm 如實列出會失去什麼、會影響誰（花墨水的同意框在 onExtract 內另跳）。
+   */
+  const handleReextract = async () => {
+    const lines = [
+      '重新解析會用 AI 重讀原始答案卷，**整份題目會被覆蓋**。',
+      '',
+      '會失去（無法復原）：',
+      '・手動畫的答案框、調整過的配分與題號',
+      '・補充的可接受答案、修改過的評分標準',
+    ]
+    if (reextractClassLabels.length > 0) {
+      lines.push('', `會連帶更新這 ${reextractClassLabels.length} 個班級作業的答案卷：`)
+      lines.push(...reextractClassLabels.slice(0, 8).map((s) => `・${s}`))
+      if (reextractClassLabels.length > 8) lines.push(`・…等共 ${reextractClassLabels.length} 個`)
+    }
+    if (hasGradedSubmissions) {
+      lines.push('', '⚠️ 其中已有批改過的考卷。重新解析後，那些成績的判分依據會與新答案卷不一致，建議重新批改。')
+    }
+    // 純答案卷沒有題本時 AI 看不到題目，解析品質會明顯變差——寧可講明白也不要靜默跑
+    if (answerSheetMode === 'answer_only' && bookletPageItems.length === 0) {
+      lines.push('', '⚠️ 這是純答案卷，但目前沒有題本。AI 看不到題目內容，解析結果會比原本差。')
+      lines.push('建議先回上一步補上題本再重新解析。')
+    }
+    const ok = await confirmModal({
+      tone: 'danger',
+      title: '重新 AI 解析這份答案卷？',
+      message: lines.join('\n'),
+      confirmLabel: '重新解析',
+    })
+    if (!ok) return
+    await handleStartExtract()
+  }
+
+  // 父層非同步下載題本完成後灌進 state（老師若已自行上傳就不覆蓋）
+  useEffect(() => {
+    if (!editMode || initialBookletImages.length === 0) return
+    setBookletPages((prev) => {
+      if (prev.length > 0) return prev
+      return initialBookletImages.map((blob, i) => ({
+        index: i, blob, url: URL.createObjectURL(blob),
+      }))
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode, initialBookletImages])
+
   const handleStartExtract = async () => {
     setIsExtracting(true)
     setExtractError(null)
@@ -792,6 +849,23 @@ export default function AnswerKeyUnifiedModal({
       })}
     })
   }
+
+  // ── 級分制（數學應用題）：老師可改「每級幾分」「要素敘述」「容許瑕疵」 ──
+  // 判分方式不開放切換（系統依題型決定），所以這裡沒有任何「改用其他判分方式」的入口。
+  const patchLevelRubric = (idx: number, fn: (lr: LevelRubric) => LevelRubric) => {
+    setEditingKey((prev) => {
+      if (!prev) return prev
+      return { ...prev, questions: prev.questions.map((q, i) => {
+        if (i !== idx || !q.levelRubric) return q
+        return { ...q, levelRubric: fn(q.levelRubric) }
+      })}
+    })
+  }
+
+
+
+
+
 
   // VJ：編輯 vjRubric.gradingDefinition（itemLabels 唯讀、不可改）
   const updateVjGradingDefinition = (idx: number, value: string) => {
@@ -1135,8 +1209,26 @@ export default function AnswerKeyUnifiedModal({
                     <>
                       <div className="mb-4 shrink-0 flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
                         <Lock className="w-3.5 h-3.5 shrink-0" />
-                        <span>答案卷僅供瀏覽，如需重新上傳請建立新答案卷</span>
+                        <span>答案卷僅供瀏覽，如需更換圖片請建立新答案卷</span>
                       </div>
+                      {/* 重新 AI 解析：用原本存下來的整頁圖重跑一次，不必重建答案卷 */}
+                      {pageItems.length > 0 && (
+                        <div className="mb-4 shrink-0 flex items-start justify-between gap-3 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                          <div className="text-xs text-amber-800 leading-relaxed">
+                            <div className="font-medium">重新用 AI 讀一次這份答案卷</div>
+                            <div className="text-amber-700 mt-0.5">
+                              會覆蓋目前所有題目與你手動修改過的內容，並消耗墨水。
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleReextract()}
+                            className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 font-medium"
+                          >
+                            重新 AI 解析
+                          </button>
+                        </div>
+                      )}
                       {pageItems.length > 0 ? (
                         <>
                           <div className="mb-3 text-sm text-gray-600">共 {pageItems.length} 頁</div>
@@ -1735,7 +1827,11 @@ export default function AnswerKeyUnifiedModal({
                               <div className="flex items-center gap-2">
                                 <span className="text-gray-500">評分方式：</span>
                                 <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700 font-medium">
-                                  {isVJ ? '視覺逐項判斷（看圖逐項判對錯）' : selectedQuestion.rubric ? '4 級評價' : '評分維度'}
+                                  {isVJ
+                                    ? '視覺逐項判斷（看圖逐項判對錯）'
+                                    : selectedQuestion.levelRubric
+                                      ? '整題分級評分（看解題過程給等第）'
+                                      : selectedQuestion.rubric ? '4 級評價' : '評分維度'}
                                 </span>
                                 <span className="text-[10px] text-gray-400">由題型自動決定</span>
                               </div>
@@ -1770,7 +1866,15 @@ export default function AnswerKeyUnifiedModal({
                                   )}
                                 </div>
                               )}
-                              {!isVJ && selectedQuestion.rubricsDimensions && (
+                              {/* 級分制（數學應用題）：整題一個等第，不是逐項加分 */}
+                              {!isVJ && selectedQuestion.levelRubric && (
+                                <LevelRubricEditor
+                                  rubric={selectedQuestion.levelRubric}
+                                  showScores={scoringMode !== 'unscored'}
+                                  onChange={(next) => patchLevelRubric(selectedIdx, () => next)}
+                                />
+                              )}
+                              {!isVJ && !selectedQuestion.levelRubric && selectedQuestion.rubricsDimensions && (
                                 <div>
                                   <div className="flex items-center justify-between mb-1">
                                     <span className="text-gray-500">評分維度</span>
