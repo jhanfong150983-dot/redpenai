@@ -63,7 +63,7 @@ export default function AssignmentOverviewSection({ questions, submissions }: Pr
   return (
     <section className="card" style={{ marginTop: 16 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>作業總覽</h3>
+        <h3 style={{ margin: 0, fontSize: 16 }}>考卷總覽</h3>
         <span style={{ fontSize: 12, color: '#64748b' }}>純統計、即時計算、不耗墨水</span>
       </div>
 

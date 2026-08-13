@@ -1089,7 +1089,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   { id: 'parent', label: '家長報告' },
                 ] as const)
               : ([
-                  { id: 'overview', label: '考試總覽' },
+                  { id: 'overview', label: '考卷總覽' },
                   { id: 'patterns', label: '樣態分析' },
                 ] as const)
             ).map((tab) => (

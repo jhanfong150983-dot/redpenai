@@ -2126,7 +2126,7 @@ function App() {
         {
           key: 'report',
           label: '檢討考卷',
-          description: '檢討單下載、考試總覽、樣態分析',
+          description: '檢討單下載、考卷總覽、樣態分析',
           icon: FileText,
           onClick: openAiReport,
           disabled: !canAccessTracking,
