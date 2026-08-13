@@ -11,10 +11,22 @@ import {
   CheckCircle2,
   Mail,
   Phone,
-  RefreshCw
+  RefreshCw,
+  Play
 } from 'lucide-react'
 import { SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/legal'
 import { buildApiUrl } from '../lib/api-base'
+import { TUTORIAL_EPISODES } from '../data/tutorials'
+
+// 教學影片入口區塊用（卡片文案比教學頁的 takeaway 短，首頁只需一句）
+const TUTORIAL_CARD_COPY = [
+  '建立答案卷、收卷掃描、一鍵 AI 批改。',
+  '檢討單、重點題、申訴修正。',
+  '試題分析、概念雷達、家長報告。'
+]
+const TUTORIAL_TOTAL_MIN = Math.round(
+  TUTORIAL_EPISODES.reduce((sum, e) => sum + e.durationSec, 0) / 60
+)
 
 const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
 const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
@@ -180,8 +192,73 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 功能深挖：AI 批改 */}
+      {/* 教學影片入口（完整內容在 /tutorials） */}
       <section className="py-16 sm:py-24 bg-white">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="max-w-2xl animate-fade-in-up">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-gray-400">教學影片</p>
+            <h2 className="mt-3 text-3xl sm:text-4xl font-bold text-gray-900">
+              三支影片，{TUTORIAL_TOTAL_MIN} 分鐘看完整套流程
+            </h2>
+            <p className="mt-4 text-lg text-gray-500">
+              從答案卷建立到家長報告，每個階段都用真實系統畫面走一遍。不用先註冊。
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-5 sm:grid-cols-3">
+            {TUTORIAL_EPISODES.map((e, index) => (
+              <a
+                key={e.id}
+                href={`/tutorials#${e.id}`}
+                className="group flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white transition-all duration-200 hover:-translate-y-1 hover:shadow-lg animate-fade-in-up"
+                style={{ animationDelay: `${index * 80}ms` }}
+              >
+                <div className="relative aspect-video overflow-hidden bg-gray-100">
+                  <img
+                    src={e.poster}
+                    alt={`${e.stage}階段教學影片`}
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                  <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: e.color }} />
+                  <span className="absolute inset-0 grid place-items-center">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white/95 shadow-lg transition-transform group-hover:scale-105">
+                      <Play className="ml-0.5 h-4 w-4 fill-gray-900 text-gray-900" />
+                    </span>
+                  </span>
+                  <span className="absolute bottom-2 right-2 rounded-md bg-gray-900/85 px-2 py-1 font-mono text-[11px] font-semibold tabular-nums text-white">
+                    {e.duration}
+                  </span>
+                </div>
+                <div className="flex flex-1 flex-col gap-2 p-5">
+                  <span className="text-[13px] font-bold tracking-wide" style={{ color: e.color }}>
+                    <span className="mr-2 font-mono text-[11px] text-gray-400">EP{e.ep}</span>
+                    第{['一', '二', '三'][index]}階段・{e.stage}
+                  </span>
+                  <h3 className="text-lg font-bold text-gray-900">{e.title}</h3>
+                  <p className="text-sm leading-relaxed text-gray-500">{TUTORIAL_CARD_COPY[index]}</p>
+                  <span className="mt-auto pt-3 text-sm font-semibold" style={{ color: e.color }}>
+                    看這一支 →
+                  </span>
+                </div>
+              </a>
+            ))}
+          </div>
+
+          <div className="mt-8">
+            <a
+              href="/tutorials"
+              className="inline-flex items-center gap-2 rounded-xl border-2 border-gray-200 bg-white px-6 py-3 text-base font-semibold text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50"
+            >
+              看完整教學中心
+              <ArrowRight className="w-4 h-4" />
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* 功能深挖：AI 批改 */}
+      <section className="py-16 sm:py-24 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             <div className="animate-fade-in-up">
@@ -217,7 +294,7 @@ export default function LandingPage() {
       </section>
 
       {/* 功能深挖：AI 訂正 */}
-      <section className="py-16 sm:py-24 bg-gray-50">
+      <section className="py-16 sm:py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             <div className="order-2 lg:order-1 animate-fade-in-up animation-delay-200 rounded-2xl overflow-hidden border border-gray-100 shadow-lg">
@@ -253,7 +330,7 @@ export default function LandingPage() {
       </section>
 
       {/* 功能深挖：學情報告 */}
-      <section className="py-16 sm:py-24 bg-white">
+      <section className="py-16 sm:py-24 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             <div className="animate-fade-in-up">
@@ -289,7 +366,7 @@ export default function LandingPage() {
       </section>
 
       {/* 定價 */}
-      <section className="py-16 sm:py-24 bg-gray-50">
+      <section id="pricing" className="py-16 sm:py-24 bg-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16 animate-fade-in-up">
             <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
@@ -400,7 +477,7 @@ export default function LandingPage() {
       </section>
 
       {/* Final CTA */}
-      <section className="py-24 sm:py-32 bg-white">
+      <section className="py-24 sm:py-32 bg-gray-50">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center animate-fade-in-up">
           <h2 className="text-4xl sm:text-6xl font-bold text-gray-900 tracking-tight">
             今天就試試看
