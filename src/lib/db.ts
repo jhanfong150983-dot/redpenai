@@ -614,6 +614,16 @@ export interface GradingDetail {
     verdict: 'correct' | 'wrong' | 'blank' | 'pending'  // pending=老師切「有畫」、待重新批改
     reason: string       // 簡短理由（如「位置正確」「未作答」）
   }>
+  // 2026-08-14 級分制（數學應用題）逐要素結果。
+  // found 是判官投票後認定「有呈現」的要素 key；split 是三位判官意見不一致的要素。
+  // ⭐ 這也是日後「同要素組合聚合」的鍵——應用題的 studentAnswer 只是「卷面作答」，
+  //    拿它聚合會讓全班塌成同一桶；要分群必須用 found。
+  levelResult?: {
+    level: 0 | 1 | 2 | 3
+    found: string[]
+    split: string[]
+    votes?: Array<{ judge: string; found: string[]; uncertain?: string }>
+  }
   // 批改時嵌入的 108 課綱概念標記（來自 assignment.conceptTags，批改當下凍結）
   conceptCode?: string
   conceptLabel?: string
