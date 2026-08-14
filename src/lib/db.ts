@@ -34,8 +34,25 @@ export interface LevelRubricGroup {
 
 export interface LevelRubricLevel {
   level: 3 | 2 | 1 | 0
-  criteria: string  // 該級分的判定條件（AI 依官方會考格式產生、老師可改）
+  criteria: string  // 該級分的判定條件（自然語言、給老師看；code 不讀這欄）
   score: number     // 該級分實得幾分——老師直接改數字，不是改百分比
+}
+
+/**
+ * 級分判定規則（**給 code 執行**，與 criteria 的自然語言互為對照）。
+ *
+ * 沙盒實測（21 份會考樣卷 × 5 輪 × 三判官）：判官只回報「哪些要素有」、級分由 code 依本規則算，
+ * 得到 21/21 準確、0 放水、級分 100% 不跳動。若改由 AI 自己判級分，同樣的要素會判出不同級分
+ * （實測 q1_L1_s3「要素完全相同、級分在 2/1 之間跳」）——那正是跨學生不一致的來源。
+ *
+ * 由上而下（3→0）逐條比對，**第一條成立者即為該級分**；都不成立→0。
+ */
+export interface LevelRule {
+  level: 3 | 2 | 1 | 0
+  requireAll?: string[]       // 這些要素 key 必須全部呈現
+  requireAny?: string[]       // 這些要素 key 至少呈現一個
+  requireGroups?: string[]    // 這些替代組 key，每一組都要滿足其中一個選項
+  requireAnyGroup?: string[]  // 這些替代組 key，至少有一組被滿足
 }
 
 export interface LevelRubric {
@@ -44,6 +61,8 @@ export interface LevelRubric {
   /** 不因此降級的小毛病。AI 推不出來（它沒看過學生的卷），以老師補充為主 */
   toleratedFlaws?: string[]
   levels: LevelRubricLevel[]
+  /** 給 code 執行的級分判定規則；缺這欄時無法由 code 算級分（見 LevelRule） */
+  levelRules?: LevelRule[]
 }
 
 /**

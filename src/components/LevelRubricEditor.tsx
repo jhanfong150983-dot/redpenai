@@ -101,6 +101,15 @@ export default function LevelRubricEditor({ rubric, showScores, onChange }: Prop
         </div>
       )}
 
+      {/* 沒有判定規則＝系統算不出級分，只能退回讓 AI 自由心證（跨學生會不一致）。
+          這件事老師從畫面上看不出來，所以明講。 */}
+      {(rubric.levelRules ?? []).length === 0 && (
+        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+          這題缺少等第判定規則，批改時等第會由 AI 自行認定，不同學生可能出現同樣寫法不同分的情形。
+          建議重新解析一次。
+        </div>
+      )}
+
       <div>
         <div className="flex items-center justify-between mb-1">
           <span className="text-gray-500 text-xs">不扣分的小毛病</span>

@@ -8,7 +8,7 @@
  *
  * 沙盒依據：local-only/math-rubric-sandbox（21 份會考公告樣卷，附官方級分）。
  */
-import type { LevelRubric, LevelRubricLevel } from './db'
+import type { LevelRubric, LevelRubricLevel, LevelRule } from './db'
 
 /** user 拍板的預設比例；「只有答案」預設落在 1 級分（30%）而非 0 分，老師可自行調回 0。 */
 export const LEVEL_RATIO: Record<number, number> = { 3: 1, 2: 0.65, 1: 0.3, 0: 0 }
@@ -75,7 +75,64 @@ export function normalizeLevelRubric(
       .filter((g) => g.options.length >= 2),
     toleratedFlaws: (raw.toleratedFlaws ?? []).map((t) => String(t ?? '').trim()).filter(Boolean),
     levels,
+    levelRules: normalizeLevelRules(raw.levelRules),
   }
+}
+
+/**
+ * 只留下引用得到、且條件非空的規則。AI 可能吐出參照到不存在的要素 key 的規則，
+ * 那種規則永遠不會成立、會讓級分靜默掉到 0——寧可丟掉也不要留著。
+ */
+function normalizeLevelRules(raw: LevelRule[] | undefined): LevelRule[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined
+  const out: LevelRule[] = []
+  for (const r of raw) {
+    const lv = Number(r?.level)
+    if (![0, 1, 2, 3].includes(lv)) continue
+    const pick = (v: unknown) =>
+      Array.isArray(v) ? v.map((x) => String(x ?? '').trim()).filter(Boolean) : []
+    const rule: LevelRule = { level: lv as 3 | 2 | 1 | 0 }
+    const all = pick(r.requireAll)
+    const any = pick(r.requireAny)
+    const gs = pick(r.requireGroups)
+    const ag = pick(r.requireAnyGroup)
+    if (all.length) rule.requireAll = all
+    if (any.length) rule.requireAny = any
+    if (gs.length) rule.requireGroups = gs
+    if (ag.length) rule.requireAnyGroup = ag
+    // 0 級是兜底、允許無條件；其餘級分沒有任何條件＝無條件成立，會把所有卷都判成該級
+    if (lv !== 0 && !rule.requireAll && !rule.requireAny && !rule.requireGroups && !rule.requireAnyGroup) continue
+    out.push(rule)
+  }
+  return out.length > 0 ? out : undefined
+}
+
+/**
+ * 依 levelRules 從「判官回報的要素集合」算出級分。
+ * 由高到低逐條比對，第一條成立者即為該級分；沒有任何一條成立 → 0。
+ * 回傳 null＝這份規準沒有 levelRules，無法由 code 裁定（呼叫端自行決定 fallback）。
+ *
+ * 為什麼不讓 AI 判級分：沙盒實測同一份卷、要素完全相同時，AI 仍會判出不同級分，
+ * 那就是跨學生「同樣寫法不同分」的來源。要素判定交給 AI、級分裁定交給 code，
+ * 21 份會考樣卷 × 5 輪得到 100% 準確、0 放水、級分零跳動。
+ */
+export function levelFromElements(rubric: LevelRubric, found: Iterable<string>): number | null {
+  const rules = rubric.levelRules
+  if (!rules || rules.length === 0) return null
+  const has = new Set(found)
+  const groups = rubric.alternativeGroups ?? []
+  const groupOk = (key: string) => {
+    const g = groups.find((x) => x.key === key)
+    return !!g && g.options.some((o) => has.has(o.key))
+  }
+  for (const r of [...rules].sort((a, b) => b.level - a.level)) {
+    if ((r.requireAll ?? []).some((k) => !has.has(k))) continue
+    if ((r.requireAny ?? []).length > 0 && !(r.requireAny ?? []).some((k) => has.has(k))) continue
+    if ((r.requireGroups ?? []).some((k) => !groupOk(k))) continue
+    if ((r.requireAnyGroup ?? []).length > 0 && !(r.requireAnyGroup ?? []).some(groupOk)) continue
+    return r.level
+  }
+  return 0
 }
 
 /** 級分 → 分數。找不到就退回 0，不猜。 */
