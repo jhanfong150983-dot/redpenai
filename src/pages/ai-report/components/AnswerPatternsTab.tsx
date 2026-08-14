@@ -45,11 +45,12 @@ function crossToGroups(entries: Array<{ value: string; score: number; count: num
     key: `x${i}|${key}`,
     raw: g.raw,
     members: Array.from({ length: g.count }, (_, j) => ({
-      submissionId: `x${i}-${j}`, studentId: '', seat: null, name: '', score: g.score, edited: false, reason: '',
+      submissionId: `x${i}-${j}`, assignmentId: '', studentId: '', seat: null, name: '', score: g.score, edited: false, reason: '',
     })),
     score: g.score,
     mixed: false,
     locked: g.locked,
+    imageAgg: false,   // 跨班匿名彙總只有值分布、無學生身分 → 取不到代表卷面
     reason: '',
   }))
 }

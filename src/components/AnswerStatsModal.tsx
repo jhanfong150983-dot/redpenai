@@ -2,8 +2,8 @@
 // 每題一個 TAB;內容=答案聚合卡片、依分數分桶(欄);拖曳卡片到別的分數欄=整群改分(staged),
 // 「儲存變更」批次套用既有 manual 改分機制 → 批改卡片同步變分、沿用「已修改」badge 與回復鈕。
 // 特殊狀態群(未作答/無法辨識/圖像辨識)鎖定不可拖;群內分數不一致=紅角標(拖曳順便統一)。
-import { useMemo, useState } from 'react'
-import { X, GripVertical, AlertTriangle, Users } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { X, GripVertical, AlertTriangle, Users, ChevronLeft, ChevronRight } from 'lucide-react'
 import { type Submission, type Student } from '@/lib/db'
 import { buildQuestionStats, applyStagedGroupEdits, type QuestionStats, type AnswerGroup } from '@/lib/answerStats'
 
@@ -23,8 +23,66 @@ export default function AnswerStatsModal({ entries, onClose, onUpdated }: Props)
   const [doneMsg, setDoneMsg] = useState<string | null>(null)
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
   const [expandedReason, setExpandedReason] = useState<string | null>(null)
+  // 圖像判分群(級分制/作圖題)的群名是判定結果、不是學生答案，老師看不出「這群卷面長怎樣」
+  // → 配一張代表卷面。裁圖走 /api/report/crops（server 現切、零墨水，同低信心面板）。
+  const [crops, setCrops] = useState<Map<string, string>>(new Map())   // `${studentId}|${qid}` → dataURI
+  const [zoom, setZoom] = useState<{ groupKey: string; idx: number } | null>(null)
+  const cropsRequested = useRef(new Set<string>())
 
-  const active = stats.find((q) => q.qid === activeQid) ?? stats[0]
+  const fetchCrops = useCallback(async (targets: Array<{ assignmentId: string; studentId: string; qid: string }>) => {
+    const byStudent = new Map<string, { assignmentId: string; studentId: string; qids: string[] }>()
+    for (const t of targets) {
+      const k = `${t.studentId}|${t.qid}`
+      if (cropsRequested.current.has(k)) continue
+      cropsRequested.current.add(k)
+      const e = byStudent.get(t.studentId) ?? { assignmentId: t.assignmentId, studentId: t.studentId, qids: [] }
+      e.qids.push(t.qid)
+      byStudent.set(t.studentId, e)
+    }
+    const tasks = [...byStudent.values()]
+    if (!tasks.length) return
+    let i = 0
+    await Promise.all(Array.from({ length: Math.min(3, tasks.length) }, async () => {
+      while (i < tasks.length) {
+        const t = tasks[i++]
+        try {
+          const res = await fetch('/api/report/crops', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+            body: JSON.stringify({ assignmentId: t.assignmentId, studentId: t.studentId, questionIds: t.qids }),
+          })
+          if (!res.ok) continue
+          const data = (await res.json().catch(() => null)) as { crops?: Record<string, string> } | null
+          if (!data?.crops) continue
+          setCrops((prev) => {
+            const next = new Map(prev)
+            for (const [qid, uri] of Object.entries(data.crops!)) {
+              if (typeof uri === 'string' && uri) next.set(`${t.studentId}|${qid}`, uri)
+            }
+            return next
+          })
+        } catch { /* 個別裁圖失敗不擋整頁 */ }
+      }
+    }))
+  }, [])
+
+  const activeQ = stats.find((q) => q.qid === activeQid) ?? stats[0]
+  // 切到某題才抓該題各群的代表卷面（一群一張，不是一人一張）
+  useEffect(() => {
+    if (!activeQ) return
+    const targets = activeQ.groups
+      .filter((g) => g.imageAgg && g.members[0])
+      .map((g) => ({ assignmentId: g.members[0].assignmentId, studentId: g.members[0].studentId, qid: activeQ.qid }))
+    if (targets.length) void fetchCrops(targets)
+  }, [activeQ, fetchCrops])
+  // 放大檢視翻閱同群其他人時才補抓那一張
+  useEffect(() => {
+    if (!zoom || !activeQ) return
+    const g = activeQ.groups.find((x) => `${activeQ.qid}|${x.key}` === zoom.groupKey)
+    const m = g?.members[zoom.idx]
+    if (m) void fetchCrops([{ assignmentId: m.assignmentId, studentId: m.studentId, qid: activeQ.qid }])
+  }, [zoom, activeQ, fetchCrops])
+
+  const active = activeQ
   if (!active) {
     return (
       <div className="fixed inset-0 z-[130] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={onClose}>
@@ -147,7 +205,23 @@ export default function AnswerStatsModal({ entries, onClose, onUpdated }: Props)
                           <div className="flex items-start gap-1.5">
                             {!g.locked && <GripVertical className="w-4 h-4 text-gray-300 shrink-0 mt-0.5" />}
                             <div className="min-w-0 flex-1">
-                              <div className="font-medium text-gray-900 break-all">「{g.raw}」</div>
+                              {g.imageAgg && (() => {
+                                const rep = g.members[0]
+                                const uri = rep ? crops.get(`${rep.studentId}|${active.qid}`) : undefined
+                                return (
+                                  <button
+                                    type="button" draggable={false}
+                                    onClick={(e) => { e.stopPropagation(); setZoom({ groupKey: fullKey, idx: 0 }) }}
+                                    className="block w-full mb-1.5 rounded border border-gray-200 bg-gray-50 overflow-hidden hover:border-sky-400"
+                                    title="點擊放大;可翻閱同群其他人的卷面"
+                                  >
+                                    {uri
+                                      ? <img src={uri} alt="" draggable={false} className="w-full object-contain" style={{ maxHeight: 96 }} />
+                                      : <div className="h-14 flex items-center justify-center text-[10px] text-gray-400">載入卷面…</div>}
+                                  </button>
+                                )
+                              })()}
+                              <div className="font-medium text-gray-900 break-all">{g.imageAgg ? g.raw : `「${g.raw}」`}</div>
                               {g.reason && (
                                 <div
                                   onClick={() => setExpandedReason(expandedReason === fullKey ? null : fullKey)}
@@ -199,7 +273,37 @@ export default function AnswerStatsModal({ entries, onClose, onUpdated }: Props)
             </div>
           )}
         </div>
-        {/* Footer */}
+        {/* 代表卷面放大 — 沿用既有「簡易 overlay」慣例;可左右翻閱同群其他人做抽查 */}
+      {zoom && (() => {
+        const g = active.groups.find((x) => `${active.qid}|${x.key}` === zoom.groupKey)
+        if (!g || g.members.length === 0) return null
+        const idx = Math.min(zoom.idx, g.members.length - 1)
+        const m = g.members[idx]
+        const uri = crops.get(`${m.studentId}|${active.qid}`)
+        const go = (d: number) => setZoom({ groupKey: zoom.groupKey, idx: (idx + d + g.members.length) % g.members.length })
+        return (
+          <div className="fixed inset-0 z-[140] bg-black/80 flex flex-col items-center justify-center p-6" onClick={() => setZoom(null)}>
+            <div className="text-white text-sm mb-3 text-center max-w-3xl">{g.raw}</div>
+            <div className="flex items-center gap-3 max-w-full" onClick={(e) => e.stopPropagation()}>
+              <button onClick={() => go(-1)} disabled={g.members.length < 2}
+                className="p-2 rounded-full bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 shrink-0">
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+              {uri
+                ? <img src={uri} alt="放大檢視" className="max-w-full max-h-[72vh] object-contain bg-white rounded" />
+                : <div className="text-white/70 text-sm px-20 py-24">載入中…</div>}
+              <button onClick={() => go(1)} disabled={g.members.length < 2}
+                className="p-2 rounded-full bg-white/10 text-white hover:bg-white/20 disabled:opacity-30 shrink-0">
+                <ChevronRight className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="text-white/80 text-xs mt-3">
+              {m.seat != null ? `${m.seat} ` : ''}{m.name} — {m.score} 分・{idx + 1}/{g.members.length} 人
+            </div>
+          </div>
+        )
+      })()}
+      {/* Footer */}
         <div className="flex items-center gap-3 px-5 py-3 border-t border-gray-200 shrink-0 bg-white">
           <span className="text-xs text-gray-400">
             改分=老師手動編輯(重新批改時會被 AI 重判覆蓋);批改卡片上可逐題「回復 AI 批改」

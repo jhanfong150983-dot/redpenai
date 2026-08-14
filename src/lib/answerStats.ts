@@ -22,6 +22,7 @@ const SPECIAL_VALUES = new Set(['', '未作答', '無法辨識', '圖像辨識']
 
 export type GroupMember = {
   submissionId: string
+  assignmentId: string   // 取代表卷面 crop 用（/api/report/crops）
   studentId: string
   seat: number | string | null
   name: string
@@ -37,6 +38,7 @@ export type AnswerGroup = {
   score: number            // 群代表分(眾數)
   mixed: boolean           // 群內分數不一致(=同寫法不同分)
   locked: boolean          // 特殊狀態(未作答/無法辨識/圖像辨識/空白)不可拖
+  imageAgg: boolean        // 圖像判分聚合群(級分制/作圖題)→ 群名不是學生答案,要配代表卷面 crop
   reason: string           // 代表理由(多數分數成員的 AI 理由;查表題=同答同理由)
 }
 
@@ -113,9 +115,10 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
       if (Number.isFinite(mx) && mx > 0) maxByQid.set(qid, Math.max(maxByQid.get(qid) ?? 0, mx))
       const gm = byQid.get(qid) ?? new Map<string, AnswerGroup>()
       const gKey = isImageAgg ? key : (locked ? `__special__${rawText || '(空白)'}` : key)
-      const g = gm.get(gKey) ?? { key: gKey, raw: isImageAgg ? rawText : (locked ? (rawText || '(空白)') : rawText), members: [], score: 0, mixed: false, locked, reason: '' }
+      const g = gm.get(gKey) ?? { key: gKey, raw: isImageAgg ? rawText : (locked ? (rawText || '(空白)') : rawText), members: [], score: 0, mixed: false, locked, imageAgg: isImageAgg, reason: '' }
       g.members.push({
         submissionId: submission.id,
+        assignmentId: submission.assignmentId,
         studentId: submission.studentId,
         seat: student.seatNumber ?? null,
         name: student.name ?? '',
