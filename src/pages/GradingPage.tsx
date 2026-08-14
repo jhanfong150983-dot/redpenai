@@ -3183,7 +3183,21 @@ export default function GradingPage({
     let failCount = 0
     const failReasons: string[] = []
     const failedCandidates: Submission[] = []  // 失敗的 Submission、收尾 notice 提供「重新讀取」按鈕
-    const ANSWER_KEY = assignment.answerKey  // narrowed for closure
+    // 2026-08-14：assignment.answerKey 是模板的反向同步副本，要等下一次 sync 才更新。
+    //   老師「改完答案卷馬上批改」時它還是舊的 → 用舊規準批完、分數照出、完全靜默。
+    //   實測：11:33 存新規準、11:37 批改、副本 11:47 才同步 → 整批走的是舊答案卷。
+    //   模板才是 SSoT（反向同步本來就是 template → assignment 單向），有模板就以模板為準。
+    const baseAnswerKey = assignment.answerKey  // 上方已 guard 過、型別已窄化
+    const ANSWER_KEY = await (async (): Promise<typeof baseAnswerKey> => {
+      const tplId = assignment.answerKeyTemplateId
+      if (!tplId) return baseAnswerKey
+      const tpl = await db.answerKeyTemplates.get(tplId)
+      if (!tpl?.answerKey?.questions?.length) return baseAnswerKey
+      const stale = JSON.stringify(baseAnswerKey.questions ?? [])
+        !== JSON.stringify(tpl.answerKey.questions)
+      if (stale) console.log('[grading] 作業的答案卷副本落後模板、改用模板版本')
+      return tpl.answerKey
+    })()
     // 2026-05-18: 收集成功的 Phase A 結果、跑完判斷有沒有 needs_review、有就帶老師進審查頁
     const successfulEntries: BatchPhaseAEntry[] = []
 
