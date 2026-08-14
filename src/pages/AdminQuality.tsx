@@ -6,6 +6,7 @@
 //     C=不一致格附 crop 眼球裁決 → grading_run_verdicts 累積誤殺/放水統計(L4 資料來源)
 //   資料來源=grading_run_history(每 AI 輪逐格快照;server 端 save-grading 自動寫入)。
 import { useEffect, useState, useCallback } from 'react'
+import { normAnswerValue } from '@/lib/answerStats'
 import { RefreshCw, AlertTriangle, ChevronLeft, Eye, CheckCircle2, XCircle } from 'lucide-react'
 
 const API = '/api/admin/quality'
@@ -42,6 +43,9 @@ function LightDot({ v, label }: { v: Light; label: string }) {
   return <span className="inline-flex items-center gap-1.5 text-sm"><span className={`inline-block w-3 h-3 rounded-full ${color}`} />{label}</span>
 }
 function fmtTime(ms: number) { return new Date(ms).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
+function fmtHm(ms: number) { return new Date(ms).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' }) }
+// 相鄰快照間隔 ≤ 此值視為同一次批改（依據見 flipGroups 註解）
+const BATCH_GAP_MS = 180_000
 function pct(x: number) { return `${(x * 100).toFixed(2)}%` }
 
 async function getJson<T>(url: string): Promise<T> {
@@ -214,15 +218,43 @@ export default function AdminQuality() {
   // 2026-08-15 user：同一份作業重批多次時，各輪對的不一致格全攤在同一個格線裡，
   //   看不出「該拿哪兩輪來比」。依輪對(a.gradedAt|b.gradedAt)分區塊、新的比對排前面。
   //   flips 每次 render 都是新陣列 → 不用 useMemo（也避開早退後加 hook 的順序問題）。
+  //   ⚠ 一次重批全班＝每份卷各有自己的 graded_at（35 份跨約 3.5 分鐘），拿精確時間戳配對
+  //     會碎成一堆組、看不出「是哪一次批改」→ 先用間隔門檻把時間戳夾成「批」。
+  //     門檻取 BATCH_GAP_MS：實測批內間隔 p50=7s／p90=33s，批間為 351/617/905/1157s，
+  //     34s~351s 之間是空的 → 180s 落在空帶正中央，怎麼取都同一個結果。
+  const batches = (() => {
+    const ts = [...new Set(flips.flatMap((f) => [f.a.gradedAt, f.b.gradedAt]))].sort((x, y) => x - y)
+    const out: Array<{ start: number; end: number }> = []
+    for (const v of ts) {
+      const last = out[out.length - 1]
+      if (last && v - last.end <= BATCH_GAP_MS) last.end = v
+      else out.push({ start: v, end: v })
+    }
+    return out
+  })()
+  const batchOf = (ms: number) => batches.findIndex((b) => ms >= b.start && ms <= b.end)
+  const fmtBatch = (i: number) => {
+    const b = batches[i]
+    if (!b) return '?'
+    return b.start === b.end ? fmtTime(b.start) : `${fmtTime(b.start)}–${fmtHm(b.end)}`
+  }
   const flipGroups = (() => {
-    const m = new Map<string, { key: string; a: number; b: number; sameConfig: boolean; items: FlipCell[] }>()
+    const m = new Map<string, { key: string; ai: number; bi: number; sameConfig: boolean; items: FlipCell[] }>()
     for (const f of flips) {
-      const key = `${f.a.gradedAt}|${f.b.gradedAt}`
-      const g = m.get(key) ?? { key, a: f.a.gradedAt, b: f.b.gradedAt, sameConfig: f.sameConfig, items: [] }
+      const ai = batchOf(f.a.gradedAt), bi = batchOf(f.b.gradedAt)
+      const key = `${ai}|${bi}`
+      const g = m.get(key) ?? { key, ai, bi, sameConfig: f.sameConfig, items: [] }
       g.items.push(f)
       m.set(key, g)
     }
-    return [...m.values()].sort((x, y) => y.b - x.b || y.a - x.a)
+    // 讀值同/異拆開：兩者的病灶不同——讀值同=評分尺度在晃(accessor/判官)、讀值異=讀取不穩
+    return [...m.values()]
+      .map((g) => ({
+        ...g,
+        sameRead: g.items.filter((f) => normAnswerValue(f.a.ans) === normAnswerValue(f.b.ans)),
+        diffRead: g.items.filter((f) => normAnswerValue(f.a.ans) !== normAnswerValue(f.b.ans)),
+      }))
+      .sort((x, y) => y.bi - x.bi || y.ai - x.ai)
   })()
   return (
     <div className="p-4 space-y-4">
@@ -308,7 +340,7 @@ export default function AdminQuality() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-3 flex-wrap">
                     <h3 className="font-bold text-gray-900">不一致格({flips.length})</h3>
-                    <span className="text-xs text-gray-400">{flipGroups.length} 組輪對・新的在上</span>
+                    <span className="text-xs text-gray-400">{batches.length} 次批改・{flipGroups.length} 組比對・新的在上</span>
                     <label className="text-xs text-gray-500 inline-flex items-center gap-1">
                       <input type="checkbox" checked={onlySameConfig} onChange={(e) => setOnlySameConfig(e.target.checked)} />只看同組態(真變異)
                     </label>
@@ -325,18 +357,31 @@ export default function AdminQuality() {
                         <div key={g.key} className="border border-gray-200 rounded-xl overflow-hidden">
                           <div className="flex items-center gap-2 flex-wrap px-3 py-2 bg-gray-50 border-b border-gray-200">
                             {gi === 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 font-semibold">最新</span>}
-                            <span className="text-sm font-semibold text-gray-800">{fmtTime(g.a)}<span className="mx-1.5 text-gray-400">→</span>{fmtTime(g.b)}</span>
+                            <span className="text-sm font-semibold text-gray-800">
+                              第{g.ai + 1}次 {fmtBatch(g.ai)}<span className="mx-1.5 text-gray-400">→</span>第{g.bi + 1}次 {fmtBatch(g.bi)}
+                            </span>
                             <span className="text-xs text-gray-500">{g.items.length} 格</span>
                             <span className={`text-xs px-1.5 py-0.5 rounded ${g.sameConfig ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
                               {g.sameConfig ? '同組態(真變異)' : '跨組態(含改版)'}
                             </span>
                             <span className="ml-auto text-xs text-gray-500">已裁決 {judged}/{g.items.length}</span>
                           </div>
-                          <div className="grid lg:grid-cols-2 gap-3 p-3">
-                            {g.items.map((f) => (
-                              <FlipCard key={verdictKey(f)} f={f} verdict={verdictOf(f)} onVerdict={(ff, v) => void saveVerdict(ff, v)} />
-                            ))}
-                          </div>
+                          {([
+                            ['讀值相同、判定不同', g.sameRead, '讀取穩定 → 病灶在評分尺度(accessor/判官)', 'bg-rose-50 text-rose-700 border-rose-200'],
+                            ['讀值不同', g.diffRead, '讀取本身在晃 → 先看裁圖確認寫的是什麼', 'bg-amber-50 text-amber-700 border-amber-200'],
+                          ] as const).filter(([, items]) => items.length > 0).map(([label, items, hint, tone]) => (
+                            <div key={label}>
+                              <div className={`flex items-center gap-2 flex-wrap px-3 py-1.5 border-b text-xs ${tone}`}>
+                                <span className="font-semibold">{label}({items.length})</span>
+                                <span className="opacity-75">{hint}</span>
+                              </div>
+                              <div className="grid lg:grid-cols-2 gap-3 p-3">
+                                {items.map((f) => (
+                                  <FlipCard key={verdictKey(f)} f={f} verdict={verdictOf(f)} onVerdict={(ff, v) => void saveVerdict(ff, v)} />
+                                ))}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       )
                     })}
