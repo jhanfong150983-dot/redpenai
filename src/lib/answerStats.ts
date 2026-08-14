@@ -69,14 +69,23 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
     for (const d of details) {
       const qid = String(d?.questionId ?? '').trim()
       if (!qid) continue
-      const rawText = String(d?.studentAnswer ?? d?.studentFinalAnswer ?? '').trim()
-      const key = normAnswerValue(rawText)
-      const locked = SPECIAL_VALUES.has(rawText) || SPECIAL_VALUES.has(key) || key === ''
+      // 2026-08-14 級分制（應用題）：studentAnswer 一律是「卷面作答」，
+      //   用它分群會讓全班塌成一群、群內出現多種分數（實測 32 人一群、4 種分數）。
+      //   改用「判官認定呈現了哪些要素」當鍵——同一組要素必定同級分，這才是真正的同質群。
+      const lvFound = (d as { levelResult?: { found?: string[] } })?.levelResult?.found
+      const isLevel = Array.isArray(lvFound)
+      const rawText = isLevel
+        ? (lvFound.length > 0 ? `做到：${lvFound.join('、')}` : '未做到任何要素')
+        : String(d?.studentAnswer ?? d?.studentFinalAnswer ?? '').trim()
+      const key = isLevel ? `__level__${[...lvFound].sort().join('|')}` : normAnswerValue(rawText)
+      // 級分制群組不可拖曳改分（分數由要素組合決定，改了會與規準脫節）→ 一律 locked
+      const locked = isLevel
+        || SPECIAL_VALUES.has(rawText) || SPECIAL_VALUES.has(key) || key === ''
       const mx = Number(d?.maxScore)
       if (Number.isFinite(mx) && mx > 0) maxByQid.set(qid, Math.max(maxByQid.get(qid) ?? 0, mx))
       const gm = byQid.get(qid) ?? new Map<string, AnswerGroup>()
-      const gKey = locked ? `__special__${rawText || '(空白)'}` : key
-      const g = gm.get(gKey) ?? { key: gKey, raw: locked ? (rawText || '(空白)') : rawText, members: [], score: 0, mixed: false, locked, reason: '' }
+      const gKey = isLevel ? key : (locked ? `__special__${rawText || '(空白)'}` : key)
+      const g = gm.get(gKey) ?? { key: gKey, raw: isLevel ? rawText : (locked ? (rawText || '(空白)') : rawText), members: [], score: 0, mixed: false, locked, reason: '' }
       g.members.push({
         submissionId: submission.id,
         studentId: submission.studentId,
