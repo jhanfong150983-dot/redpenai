@@ -868,14 +868,51 @@ export default function SubmissionDetailModal({
                             {/* 2026-05-18 PR3: 學生答案 inline edit、debounce 1s auto save、textarea 自動撐高 */}
                             {/* 2026-05-30: VJ 視覺判斷題 → 逐柱「有畫/沒畫」開關（不給文字框）；其他題型維持文字編輯 */}
                             {isLevel ? (
-                              /* 級分制＝視覺判斷型：整份手寫推導沒有單一「學生答案」可填，
-                                 所以不給文字框（同 VJ）。缺哪幾項要素寫在下面的理由欄。 */
-                              <div className="flex items-center gap-2 text-gray-700">
-                                <span className="shrink-0">批改方式：</span>
-                                <span className="font-semibold text-gray-900">
-                                  整題分級評分 — {['零', '一', '二', '三'][lvRes!.level] ?? '?'}級分
-                                </span>
-                                <span className="text-[10px] text-gray-400">（看整份解題過程給等第，詳見理由）</span>
+                              /* 級分制＝視覺判斷型：整份手寫推導沒有單一「學生答案」可填，所以不給文字框（同國字注音）。
+                                 逐要素改用羅列式呈現——理由擠成一整句很難讀，老師要的是「哪些做到、哪些沒做到」。 */
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-2 text-gray-700">
+                                  <span className="shrink-0">學生答案：</span>
+                                  <span className="font-medium text-gray-900">（圖像辨識）</span>
+                                  <span className="text-[10px] text-gray-400">
+                                    整題分級評分 — {['零', '一', '二', '三'][lvRes!.level] ?? '?'}級分
+                                  </span>
+                                </div>
+                                {(() => {
+                                  const rubric = ((assignment?.answerKey as {
+                                    questions?: Array<{ id?: string; levelRubric?: {
+                                      requiredElements?: Array<{ key: string; desc: string }>
+                                      alternativeGroups?: Array<{ options?: Array<{ key: string; desc: string }> }>
+                                    } }>
+                                  })?.questions ?? []).find((q) => String(q?.id ?? '') === String(d.questionId ?? ''))?.levelRubric
+                                  const items = [
+                                    ...(rubric?.requiredElements ?? []),
+                                    ...(rubric?.alternativeGroups ?? []).flatMap((g) => g.options ?? []),
+                                  ]
+                                  if (items.length === 0) return null
+                                  return (
+                                    <div className="space-y-1">
+                                      {items.map((el) => {
+                                        const ok = lvRes!.found.includes(el.key)
+                                        const split = (lvRes!.split ?? []).includes(el.key)
+                                        // ⛔ 之後是給判官看的邊界條款，對老師是雜訊
+                                        const text = String(el.desc ?? '').split('⛔')[0].trim()
+                                        return (
+                                          <div key={el.key}
+                                            className="flex items-start gap-2 bg-white border border-gray-200 rounded px-2 py-1">
+                                            <span className={`shrink-0 font-semibold ${
+                                              split ? 'text-amber-600' : ok ? 'text-emerald-600' : 'text-gray-400'
+                                            }`}>{split ? '？' : ok ? '✓' : '✗'}</span>
+                                            <span className="flex-1 text-gray-700 leading-snug">{text}</span>
+                                            {split && (
+                                              <span className="shrink-0 text-[10px] text-amber-600">判官不一致</span>
+                                            )}
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  )
+                                })()}
                               </div>
                             ) : isVJ ? (
                               <div className="space-y-1.5">
