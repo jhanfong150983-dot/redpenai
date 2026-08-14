@@ -2,7 +2,7 @@
 // 每題聚合全班答案 → 依分數分桶;老師拖曳整群改分 → 批次套用既有 manual 改分機制
 // (AI 原判 _aiOriginal 快照、「已修改」badge、回復鈕、aiScore/scoreSource 規則全部沿用,
 //  邏輯鏡像 SubmissionDetailModal.handleDetailScoreChange —— 動那邊記得同步這邊)。
-import { db, type Submission } from '@/lib/db'
+import { db, type Submission, type GradingDetail } from '@/lib/db'
 
 export type StudentLike = { seatNumber?: number | string | null; name?: string | null }
 import { requestSync } from '@/lib/sync-events'
@@ -69,23 +69,51 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
     for (const d of details) {
       const qid = String(d?.questionId ?? '').trim()
       if (!qid) continue
-      // 2026-08-14 級分制（應用題）：studentAnswer 一律是「卷面作答」，
-      //   用它分群會讓全班塌成一群、群內出現多種分數（實測 32 人一群、4 種分數）。
-      //   改用「判官認定呈現了哪些要素」當鍵——同一組要素必定同級分，這才是真正的同質群。
-      const lvFound = (d as { levelResult?: { found?: string[] } })?.levelResult?.found
-      const isLevel = Array.isArray(lvFound)
-      const rawText = isLevel
-        ? (lvFound.length > 0 ? `做到：${lvFound.join('、')}` : '未做到任何要素')
-        : String(d?.studentAnswer ?? d?.studentFinalAnswer ?? '').trim()
-      const key = isLevel ? `__level__${[...lvFound].sort().join('|')}` : normAnswerValue(rawText)
-      // 級分制群組不可拖曳改分（分數由要素組合決定，改了會與規準脫節）→ 一律 locked
-      const locked = isLevel
-        || SPECIAL_VALUES.has(rawText) || SPECIAL_VALUES.has(key) || key === ''
+      // ── 圖像判分題的聚合鍵 ──────────────────────────────────────────────
+      // 這類題的 studentAnswer 是「卷面作答」「圖上作答」等佔位字串，拿它分群會讓
+      // 全班塌成一群（實測 32 人一群、群內 4 種分數）。但它們都留下了**逐項判定向量**，
+      // 那才是真正的「同樣的作答樣態」：同一組判定必定同分。
+      //   ・應用題級分制 → levelResult（哪些要素有呈現）
+      //   ・作圖題 VJ    → vjItemResults（逐項對／錯／空白）
+      const lv = (d as { levelResult?: NonNullable<GradingDetail['levelResult']> })?.levelResult
+      const vj = (d as { vjItemResults?: Array<{ idx: number; label?: string; verdict?: string }> })?.vjItemResults
+      const isLevel = Array.isArray(lv?.found)
+      const isVj = Array.isArray(vj) && vj.length > 0
+
+      let rawText = ''
+      let key = ''
+      if (isLevel) {
+        // 群名列「缺哪幾項」（user 選 B）：老師檢討時要找的是這群卡在哪一步。
+        // 標籤在批改時就存進 evidence.label——統計面板拿不到答案卷，不能靠 key 反查。
+        const ev = lv!.evidence ?? []
+        const done = lv!.found?.length ?? 0
+        const total = ev.length || done
+        // waived＝替代組已由另一條滿足，不算缺
+        const missing = ev.filter((e) => !e.present && !e.waived)
+        // 舊批改資料沒存 label；寧可只顯示數量，也不把 E1/E2 代號露給老師
+        const named = missing.every((e) => !!e.label) ? missing.map((e) => e.label!) : []
+        rawText = missing.length === 0
+          ? (total > 0 ? `全部做到（${done}/${total} 項）` : '全部做到')
+          : named.length > 0
+            ? `${done}/${total} 項｜缺：${named.join('、')}`
+            : `${done}/${total} 項`
+        key = `__level__${[...(lv!.found ?? [])].sort().join('|')}`
+      } else if (isVj) {
+        rawText = vj!.map((i) => `${i.label || `項目${i.idx}`}${i.verdict === 'correct' ? '✓' : i.verdict === 'blank' ? '（空白）' : '✗'}`).join('　')
+        key = `__vj__${vj!.map((i) => `${i.idx}:${i.verdict}`).join('|')}`
+      } else {
+        rawText = String(d?.studentAnswer ?? d?.studentFinalAnswer ?? '').trim()
+        key = normAnswerValue(rawText)
+      }
+      // user 拍板：老師拖曳＝老師的專業判斷，人工才是最標準的原則 → 圖像判分題一樣可整群改分
+      const isImageAgg = isLevel || isVj
+      const locked = !isImageAgg
+        && (SPECIAL_VALUES.has(rawText) || SPECIAL_VALUES.has(key) || key === '')
       const mx = Number(d?.maxScore)
       if (Number.isFinite(mx) && mx > 0) maxByQid.set(qid, Math.max(maxByQid.get(qid) ?? 0, mx))
       const gm = byQid.get(qid) ?? new Map<string, AnswerGroup>()
-      const gKey = isLevel ? key : (locked ? `__special__${rawText || '(空白)'}` : key)
-      const g = gm.get(gKey) ?? { key: gKey, raw: isLevel ? rawText : (locked ? (rawText || '(空白)') : rawText), members: [], score: 0, mixed: false, locked, reason: '' }
+      const gKey = isImageAgg ? key : (locked ? `__special__${rawText || '(空白)'}` : key)
+      const g = gm.get(gKey) ?? { key: gKey, raw: isImageAgg ? rawText : (locked ? (rawText || '(空白)') : rawText), members: [], score: 0, mixed: false, locked, reason: '' }
       g.members.push({
         submissionId: submission.id,
         studentId: submission.studentId,

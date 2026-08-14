@@ -623,6 +623,11 @@ export interface GradingDetail {
     found: string[]
     split: string[]
     votes?: Array<{ judge: string; found: string[]; uncertain?: string }>
+    // label＝批改時凍結的人類短標籤（評分統計拿不到答案卷，不能靠 key 反查）
+    // waived＝替代組已由另一條滿足，這條不算「缺」
+    evidence?: Array<{ key: string; label?: string; present?: boolean; waived?: boolean; evidence?: string; uncertain?: string }>
+    unsure?: string[]
+    missingAnswer?: string[]
   }
   // 批改時嵌入的 108 課綱概念標記（來自 assignment.conceptTags，批改當下凍結）
   conceptCode?: string
