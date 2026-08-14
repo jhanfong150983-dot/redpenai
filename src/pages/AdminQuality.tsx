@@ -211,6 +211,19 @@ export default function AdminQuality() {
   // ── 詳情視圖 ──
   const h = detail && !detail.empty ? detail.health : null
   const flips = detail?.crossRun?.flippedCells.filter((f) => !onlySameConfig || f.sameConfig) ?? []
+  // 2026-08-15 user：同一份作業重批多次時，各輪對的不一致格全攤在同一個格線裡，
+  //   看不出「該拿哪兩輪來比」。依輪對(a.gradedAt|b.gradedAt)分區塊、新的比對排前面。
+  //   flips 每次 render 都是新陣列 → 不用 useMemo（也避開早退後加 hook 的順序問題）。
+  const flipGroups = (() => {
+    const m = new Map<string, { key: string; a: number; b: number; sameConfig: boolean; items: FlipCell[] }>()
+    for (const f of flips) {
+      const key = `${f.a.gradedAt}|${f.b.gradedAt}`
+      const g = m.get(key) ?? { key, a: f.a.gradedAt, b: f.b.gradedAt, sameConfig: f.sameConfig, items: [] }
+      g.items.push(f)
+      m.set(key, g)
+    }
+    return [...m.values()].sort((x, y) => y.b - x.b || y.a - x.a)
+  })()
   return (
     <div className="p-4 space-y-4">
       <button onClick={() => { setSelected(null); setDetail(null) }} className="text-sm text-gray-500 hover:text-gray-800 inline-flex items-center gap-1">
@@ -295,6 +308,7 @@ export default function AdminQuality() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-3 flex-wrap">
                     <h3 className="font-bold text-gray-900">不一致格({flips.length})</h3>
+                    <span className="text-xs text-gray-400">{flipGroups.length} 組輪對・新的在上</span>
                     <label className="text-xs text-gray-500 inline-flex items-center gap-1">
                       <input type="checkbox" checked={onlySameConfig} onChange={(e) => setOnlySameConfig(e.target.checked)} />只看同組態(真變異)
                     </label>
@@ -304,10 +318,28 @@ export default function AdminQuality() {
                       </span>
                     )}
                   </div>
-                  <div className="grid lg:grid-cols-2 gap-3">
-                    {flips.map((f) => (
-                      <FlipCard key={verdictKey(f)} f={f} verdict={verdictOf(f)} onVerdict={(ff, v) => void saveVerdict(ff, v)} />
-                    ))}
+                  <div className="space-y-4">
+                    {flipGroups.map((g, gi) => {
+                      const judged = g.items.filter((f) => verdictOf(f)).length
+                      return (
+                        <div key={g.key} className="border border-gray-200 rounded-xl overflow-hidden">
+                          <div className="flex items-center gap-2 flex-wrap px-3 py-2 bg-gray-50 border-b border-gray-200">
+                            {gi === 0 && <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 font-semibold">最新</span>}
+                            <span className="text-sm font-semibold text-gray-800">{fmtTime(g.a)}<span className="mx-1.5 text-gray-400">→</span>{fmtTime(g.b)}</span>
+                            <span className="text-xs text-gray-500">{g.items.length} 格</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded ${g.sameConfig ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                              {g.sameConfig ? '同組態(真變異)' : '跨組態(含改版)'}
+                            </span>
+                            <span className="ml-auto text-xs text-gray-500">已裁決 {judged}/{g.items.length}</span>
+                          </div>
+                          <div className="grid lg:grid-cols-2 gap-3 p-3">
+                            {g.items.map((f) => (
+                              <FlipCard key={verdictKey(f)} f={f} verdict={verdictOf(f)} onVerdict={(ff, v) => void saveVerdict(ff, v)} />
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
               )}
