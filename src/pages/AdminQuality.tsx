@@ -21,6 +21,7 @@ type RunCell = {
   votes: string[] | null; reason: string | null
   // 讀鏈（快照本來就有，2026-08-15 才往前端送）
   r1: ReadRec | null; r2: ReadRec | null; cons: string | null; chain: ChainRec | null; sysConf: number | null
+  src: string | null   // finalAnswerSource：兩讀分歧後最終採用哪一讀
 }
 type FlipCell = { submissionId: string; seat: number | null; qid: string; type: string; cls: string; sameConfig: boolean; a: RunCell; b: RunCell; bbox: { x: number; y: number; w: number; h: number } | null }
 type Detail = {
@@ -123,6 +124,22 @@ function FlipCard({ f, verdict, onVerdict }: {
                 </div>
               ))}
               <div className="text-gray-500">盲讀一致性：{r.cons ?? '—'}</div>
+              {/* unstable 最重要的是「後來怎麼收斂」。有鏈的格看下方鏈明細；沒有鏈資料的格
+                  （實測 4290 格中只有 187 格有鏈）至少要交代最終採用值與它來自哪一讀，
+                  否則展開只停在 unstable、等於沒回答問題（user 2026-08-15）。 */}
+              {r.cons === 'unstable' && !r.chain && (
+                <div className="text-gray-700 border-t border-gray-200 pt-1 mt-1">
+                  <div className="text-gray-500 mb-0.5">↓ 分歧後的收斂（這一輪沒有留下鏈明細）</div>
+                  最終採用「{r.ans}」
+                  <span className="ml-1 text-gray-400">
+                    {normAnswerValue(r.ans) === normAnswerValue(r.r1?.v ?? ' ') ? '＝盲讀1'
+                      : normAnswerValue(r.ans) === normAnswerValue(r.r2?.v ?? ' ') ? '＝盲讀2'
+                        : '兩讀皆非(鏈/判官改寫)'}
+                    {r.src ? `・來源 ${r.src}` : ''}
+                  </span>
+                  {r.journey && <div className="text-gray-500">路徑 {r.journey}</div>}
+                </div>
+              )}
               {r.chain && (
                 <div className="text-gray-700 border-t border-gray-200 pt-1 mt-1">
                   {/* 這裡的一致性與上面「盲讀一致性」是不同的兩對讀值：鏈是被盲讀分歧觸發的，
@@ -133,7 +150,14 @@ function FlipCard({ f, verdict, onVerdict }: {
                   <div className="text-gray-500 pl-1">
                     鏈重讀 {r.chain.picks.length > 0 ? r.chain.picks.map((x, i) => `第${i + 1}次:「${x}」`).join(' → ') : '—'}
                   </div>
-                  <div className="text-gray-500 pl-1">採用「{r.chain.adopted}」</div>
+                  <div className="text-gray-500 pl-1">
+                    採用「{r.chain.adopted}」
+                    <span className="ml-1 text-gray-400">
+                      {normAnswerValue(r.chain.adopted) === normAnswerValue(r.r1?.v ?? ' ') ? '＝盲讀1'
+                        : normAnswerValue(r.chain.adopted) === normAnswerValue(r.r2?.v ?? ' ') ? '＝盲讀2'
+                          : '兩讀皆非'}
+                    </span>
+                  </div>
                 </div>
               )}
               {r.votes && r.votes.length > 0 && <div className="text-gray-500 break-all">判官票 {r.votes.join(' / ')}</div>}
