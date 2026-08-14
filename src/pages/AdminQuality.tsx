@@ -14,7 +14,14 @@ const API = '/api/admin/quality'
 // ── types(對齊 server q2Detail 回傳)──────────────────────────────
 type AsgRow = { id: string; title: string; domain: string; classroom: string; papers: number; snapshots: number; rounds: number; comparablePapers: number; lastGradedAt: number }
 type Light = 'green' | 'yellow' | 'red'
-type RunCell = { gradedAt: number; ok: boolean; score: number | null; ans: string; journey: string | null; votes: string[] | null; reason: string | null }
+type ReadRec = { v: string; st: string; p?: Array<{ s: string; v: string }> }
+type ChainRec = { level: string; adopted: string; picks: string[]; conf: number | null }
+type RunCell = {
+  gradedAt: number; ok: boolean; score: number | null; ans: string; journey: string | null
+  votes: string[] | null; reason: string | null
+  // 讀鏈（快照本來就有，2026-08-15 才往前端送）
+  r1: ReadRec | null; r2: ReadRec | null; cons: string | null; chain: ChainRec | null; sysConf: number | null
+}
 type FlipCell = { submissionId: string; seat: number | null; qid: string; type: string; cls: string; sameConfig: boolean; a: RunCell; b: RunCell; bbox: { x: number; y: number; w: number; h: number } | null }
 type Detail = {
   empty?: boolean
@@ -67,6 +74,7 @@ function FlipCard({ f, verdict, onVerdict }: {
 }) {
   const [img, setImg] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [openChain, setOpenChain] = useState(false)
   const loadCrop = useCallback(async () => {
     if (!f.bbox || img || loading) return
     setLoading(true)
@@ -95,6 +103,40 @@ function FlipCard({ f, verdict, onVerdict }: {
           </div>
         ))}
       </div>
+      <button
+        type="button" onClick={() => setOpenChain((v) => !v)}
+        className="text-xs text-gray-500 hover:text-gray-800 mb-2 inline-flex items-center gap-1"
+      >
+        {openChain ? '▾' : '▸'} 讀鏈明細
+      </button>
+      {openChain && (
+        <div className="grid md:grid-cols-2 gap-2 text-xs mb-2">
+          {([['前輪', f.a], ['後輪', f.b]] as const).map(([lab, r]) => (
+            <div key={lab} className="rounded-lg border border-gray-200 bg-gray-50 p-2 space-y-0.5">
+              <div className="font-semibold text-gray-600">{lab}讀鏈{r.sysConf != null && <span className="ml-1 font-normal text-gray-400">系統信心 {r.sysConf}</span>}</div>
+              {([['read1', r.r1], ['read2', r.r2]] as const).map(([n, rr]) => (
+                <div key={n} className="text-gray-700">
+                  {n}：{rr ? <>「{rr.v}」<span className="text-gray-400 ml-1">{rr.st}</span></> : <span className="text-gray-400">無</span>}
+                  {rr?.p && rr.p.length > 0 && (
+                    <div className="text-gray-500 pl-9">分項 {rr.p.map((x) => `${x.s}:「${x.v}」`).join('、')}</div>
+                  )}
+                </div>
+              ))}
+              <div className="text-gray-500">兩讀一致性：{r.cons ?? '—'}</div>
+              {r.chain && (
+                <div className="text-gray-700">
+                  知答鏈 <span className="px-1 rounded bg-white border border-gray-200">{r.chain.level}</span>
+                  {r.chain.conf != null && <span className="text-gray-400 ml-1">信心 {r.chain.conf}</span>}
+                  <div className="text-gray-500 pl-1">逐輪 {r.chain.picks.length > 0 ? r.chain.picks.map((x, i) => `r${i + 1}:「${x}」`).join(' → ') : '—'}</div>
+                  <div className="text-gray-500 pl-1">採用「{r.chain.adopted}」</div>
+                </div>
+              )}
+              {r.votes && r.votes.length > 0 && <div className="text-gray-500 break-all">判官票 {r.votes.join(' / ')}</div>}
+              {!r.chain && !r.votes?.length && !r.r1 && !r.r2 && <div className="text-gray-400">這一輪沒有留下讀鏈（舊快照或未走讀取）</div>}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="mb-2">
         {img ? <img src={img} alt="crop" className="max-w-full border border-gray-300 rounded" style={{ maxHeight: 220 }} />
           : loading ? <div className="text-xs text-gray-400">裁圖載入中…</div>
