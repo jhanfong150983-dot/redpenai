@@ -904,9 +904,11 @@ export default function SubmissionDetailModal({
                                         return (
                                           <div key={el.key}
                                             className="flex items-start gap-2 bg-white border border-gray-200 rounded px-2 py-1">
+                                            {/* 一律 ✓／✗：這一格已依多數票定案，分歧只是附帶資訊（用右側標籤表示）。
+                                                顯示「？」會讓老師以為這格沒有結論。 */}
                                             <span className={`shrink-0 font-semibold ${
-                                              split ? 'text-amber-600' : ok ? 'text-emerald-600' : 'text-gray-400'
-                                            }`}>{split ? '？' : ok ? '✓' : '✗'}</span>
+                                              ok ? 'text-emerald-600' : 'text-gray-400'
+                                            }`}>{ok ? '✓' : '✗'}</span>
                                             <span className="flex-1 text-gray-700 leading-snug">{text}</span>
                                             {split && (
                                               <span className="shrink-0 text-[10px] text-amber-600">判官不一致</span>
