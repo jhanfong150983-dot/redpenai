@@ -114,7 +114,7 @@ function FlipCard({ f, verdict, onVerdict }: {
           {([['前輪', f.a], ['後輪', f.b]] as const).map(([lab, r]) => (
             <div key={lab} className="rounded-lg border border-gray-200 bg-gray-50 p-2 space-y-0.5">
               <div className="font-semibold text-gray-600">{lab}讀鏈{r.sysConf != null && <span className="ml-1 font-normal text-gray-400">系統信心 {r.sysConf}</span>}</div>
-              {([['read1', r.r1], ['read2', r.r2]] as const).map(([n, rr]) => (
+              {([['盲讀1', r.r1], ['盲讀2', r.r2]] as const).map(([n, rr]) => (
                 <div key={n} className="text-gray-700">
                   {n}：{rr ? <>「{rr.v}」<span className="text-gray-400 ml-1">{rr.st}</span></> : <span className="text-gray-400">無</span>}
                   {rr?.p && rr.p.length > 0 && (
@@ -122,12 +122,17 @@ function FlipCard({ f, verdict, onVerdict }: {
                   )}
                 </div>
               ))}
-              <div className="text-gray-500">兩讀一致性：{r.cons ?? '—'}</div>
+              <div className="text-gray-500">盲讀一致性：{r.cons ?? '—'}</div>
               {r.chain && (
-                <div className="text-gray-700">
+                <div className="text-gray-700 border-t border-gray-200 pt-1 mt-1">
+                  {/* 這裡的一致性與上面「盲讀一致性」是不同的兩對讀值：鏈是被盲讀分歧觸發的，
+                      L0_agree 指「鏈自己重讀的兩次彼此一致」，不是指盲讀一致（user 實際誤讀過）。 */}
+                  <div className="text-gray-500 mb-0.5">↓ 盲讀分歧才啟動；以下是鏈帶著答案卷重讀的票</div>
                   知答鏈 <span className="px-1 rounded bg-white border border-gray-200">{r.chain.level}</span>
-                  {r.chain.conf != null && <span className="text-gray-400 ml-1">信心 {r.chain.conf}</span>}
-                  <div className="text-gray-500 pl-1">逐輪 {r.chain.picks.length > 0 ? r.chain.picks.map((x, i) => `r${i + 1}:「${x}」`).join(' → ') : '—'}</div>
+                  {r.chain.conf != null && <span className="text-gray-400 ml-1">鏈信心 {r.chain.conf}</span>}
+                  <div className="text-gray-500 pl-1">
+                    鏈重讀 {r.chain.picks.length > 0 ? r.chain.picks.map((x, i) => `第${i + 1}次:「${x}」`).join(' → ') : '—'}
+                  </div>
                   <div className="text-gray-500 pl-1">採用「{r.chain.adopted}」</div>
                 </div>
               )}
