@@ -167,6 +167,18 @@ export function validateLevelRubric(r: LevelRubric): string[] {
   // 兩個端點必須成立，否則規則與要素在語意上是脫節的
   if (levelFromElements(r, keys) !== 3) problems.push('要素全部命中時算不出 3 級')
   if (levelFromElements(r, []) !== 0) problems.push('完全沒有要素時不是 0 級（空白卷會拿到分數）')
+
+  // 中段也要檢查：端點對、中間仍可能壞。實測 AI 產出過
+  //   { level: 2, requireAny: [E1..E5] } —— 「任一項」等於只寫對第(1)小題就給 65% 分數。
+  // 一步做對不該拿到二級分，所以：只命中單一要素時，級分必須 ≤ 1。
+  // （沙盒驗證過的兩份規準都通過此條——它們的 2 級都要求「主要結論＋實質推導」兩者。）
+  for (const e of r.requiredElements) {
+    const lv = levelFromElements(r, [e.key])
+    if (lv != null && lv >= 2) {
+      problems.push(`只命中「${e.key}」一項就給 ${lv} 級（一步做對不該拿到二級分）`)
+      break
+    }
+  }
   return problems
 }
 
