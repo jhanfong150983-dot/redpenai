@@ -95,11 +95,13 @@ export default function AnswerStatsModal({ entries, onClose, onUpdated }: Props)
   // 分數欄:配分 ≤5 → 0..max 全列;>5 → 現有分數 ∪ staged 分數(高→低)
   const buckets = useMemo(() => {
     if (!active) return [] as number[]
-    if (active.maxScore > 0 && active.maxScore <= 5) {
-      return Array.from({ length: active.maxScore + 1 }, (_, i) => active.maxScore - i)
-    }
+    // ⚠️ 一律聯集「實際存在的分數」：級分制會產生半分（4 分題的 2 級＝2.5 分），
+    //    只列整數階梯會讓那一群沒有欄位可掛 → 整群連同學生從畫面消失（2026-08-14 user 抓到）。
     const set = new Set<number>([0])
     if (active.maxScore > 0) set.add(active.maxScore)
+    if (active.maxScore > 0 && active.maxScore <= 5) {
+      for (let s = 0; s <= active.maxScore; s++) set.add(s)
+    }
     for (const g of active.groups) { set.add(g.score); const st = staged.get(`${active.qid}|${g.key}`); if (st != null) set.add(st) }
     return [...set].sort((a, b) => b - a)
   }, [active, staged])
