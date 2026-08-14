@@ -753,6 +753,10 @@ export default function SubmissionDetailModal({
                         const vjItems: Array<{ idx: number; label: string; verdict: string; reason: string }> =
                           Array.isArray(d.vjItemResults) ? d.vjItemResults : []
                         const isVJ = vjItems.length > 0
+                        // 2026-08-14 級分制（應用題）：跟視覺判斷題同性質——判的是整份手寫推導，
+                        //   沒有「學生答案」這種單一值可填，所以不給文字框、改列逐要素結果。
+                        const lvRes = (d as { levelResult?: { level: number; found: string[]; split: string[] } }).levelResult
+                        const isLevel = !!lvRes && Array.isArray(lvRes.found)
 
                         return (
                           <div
@@ -863,7 +867,17 @@ export default function SubmissionDetailModal({
                             </div>
                             {/* 2026-05-18 PR3: 學生答案 inline edit、debounce 1s auto save、textarea 自動撐高 */}
                             {/* 2026-05-30: VJ 視覺判斷題 → 逐柱「有畫/沒畫」開關（不給文字框）；其他題型維持文字編輯 */}
-                            {isVJ ? (
+                            {isLevel ? (
+                              /* 級分制＝視覺判斷型：整份手寫推導沒有單一「學生答案」可填，
+                                 所以不給文字框（同 VJ）。缺哪幾項要素寫在下面的理由欄。 */
+                              <div className="flex items-center gap-2 text-gray-700">
+                                <span className="shrink-0">批改方式：</span>
+                                <span className="font-semibold text-gray-900">
+                                  整題分級評分 — {['零', '一', '二', '三'][lvRes!.level] ?? '?'}級分
+                                </span>
+                                <span className="text-[10px] text-gray-400">（看整份解題過程給等第，詳見理由）</span>
+                              </div>
+                            ) : isVJ ? (
                               <div className="space-y-1.5">
                                 <div className="flex items-center gap-2 text-gray-700">
                                   <span className="shrink-0">學生答案：</span>
