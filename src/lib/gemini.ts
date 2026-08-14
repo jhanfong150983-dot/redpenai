@@ -6,7 +6,7 @@ import {
   type AnswerKeyQuestion,
   type AnswerExtractionCorrection
 } from './db'
-import { normalizeLevelRubric } from './levelRubric'
+import { normalizeLevelRubric, validateLevelRubric } from './levelRubric'
 import { blobToBase64 as blobToDataUrl, compressImageFile } from './imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from './blob-storage'
 import { dispatchInkBalance } from './ink-events'
@@ -1836,81 +1836,14 @@ function buildTypeSpecs(): string {
 // 級分制（數學應用題）規格。**一般模式與純答案卷模式共用同一份**——
 // 這兩支 prompt 是各自獨立的函式，先前級分制只寫在一般模式的數學區塊，
 // 純答案卷模式根本看不到，導致純答案卷的應用題永遠不會產生 levelRubric。
-const LEVEL_RUBRIC_SPEC = `▸ ⭐ word_problem 追加：levelRubric（級分制評分規準）
+const LEVEL_RUBRIC_SPEC = `▸ word_problem 的級分制規準（levelRubric）**不在這裡填**
 
-  只有 word_problem 要填 levelRubric，calculation / fill_blank 一律不填。
-  目的：應用題只比最終答案會讓「湊對答案」拿滿分。改判 0~3 級分，過程不足自然掉級。
+  應用題的評分規準由後續獨立階段逐題產生（見 detectLevelRubric）。
+  原因：主擷取要同時處理整份卷的題號／答案／配分，若再為每題寫完整規準，
+  題數一多規準就會被輸出壓力擠掉（實測 9 題應用題：一輪產 9 份、另一輪只產 1 份）。
 
-  ⭐ 這份規準的使用方式：閱卷 AI **只回報「哪些要素有出現」**，級分由系統依 levelRules 計算。
-     所以要素與 levelRules 的品質＝判分的品質；模糊的要素會讓全班分數不一致。
-
-  【要素必須可檢核，而且要問「寫出了哪些正確的值」】
-  requiredElements 每一項都要寫成**閱卷者能直接在學生作答上找到的具體東西**。
-    ✅ 好：「出現 15000 ÷ 400 = 37.5（看到 37.5 這個數字即算呈現）」
-    ✅ 好：「求出垂足距離 15√3」
-    ✅ 好：「結論為第 17 週星期四」
-    ❌ 不可以：「推導完整」「解題步驟清楚」「正確運用數學概念」「過程合理」
-  ⚠️ 不要只問「有沒有做這個步驟」，要問「**做出來的值對不對**」。
-     例：學生列舉到第 17 週但數字錯位（寫 35／37 圈，正解 37／39 圈）——
-     若要素只寫「有列舉」就會誤判成有做到；寫「出現 39 圈（15600 公尺）」才分得出來。
-
-  【每條要素都必須附 ⛔ 否定條件】（必填，不可省略）
-  ⛔ 的用途是**指名一個「做到一半」的具體狀態**——那才是閱卷會猶豫的地方。
-    ✅ 好：「⛔ 只寫 15 公里 = 15000 公尺、沒有再換算成圈數 → 不算」
-    ✅ 好：「⛔ 只出現 15√3、沒有加上 180 → 不算」
-    ✅ 好：「⛔ 只寫出結論『否』、沒有任何比較算式 → 不算」
-    ❌ 沒有用：「⛔ 未正確寫出表示式算未呈現」「⛔ 沒有列出不等式就不算」
-       ——這是把正面敘述換句話說（同義反覆），沒有提供任何新資訊，等於沒寫。
-  寫之前先自問：「學生最可能在哪裡只做了一半？」把那個狀態寫出來。
-  等值寫法一律算呈現（不同算式、不同命名、不同排列順序），但 ⛔ 標明的情況明確不算。
-
-  【替代解法：想不到才留空，不是懶得想就留空】
-  同一題常有多條合理解法（代數列式 vs 列舉檢驗 vs 距離遞增；邊長比例 vs 畢氏定理）。
-  請主動想一遍「這題學生還可能怎麼解」，把想得到的都放進 alternativeGroups。
-  想法提示（至少各檢查一遍）：
-    ・可以列式求解，也可以逐項列舉、代入檢驗嗎？
-    ・可以比大小，也可以兩邊同乘／同除換個形式比嗎？
-      （例：比較「同意票 4676767 ≥ 門檻 5000000」與「同意票×4 ≥ 總數 20000000」是同一件事的兩種寫法）
-    ・可以用單位 A 算，也可以換成單位 B 算嗎？（公尺／公里、圈數／距離）
-  ⚠️ 漏列一條路徑＝用該方法的學生會被判成「沒有推導過程」而扣分，這是誤殺。
-  真的只有唯一解法才留空陣列。不要把不同解法混寫成同一條要素（會變成兩種都要做才給分）。
-
-  【容許瑕疵】toleratedFlaws：不影響解題正確性、不該因此降級的小毛病（如未寫單位）。
-  寫得出來就寫，寫不出來留空陣列——老師之後會自己補（這塊要看過學生實際作答才知道）。
-
-  【levelRules：給系統執行的級分規則】（必填）
-  把 levels 的文字條件翻成 key 的組合。系統由 3 級往下逐條比對，**第一條成立者即為該級分**。
-    requireAll      = 這些要素 key 必須全部出現
-    requireAny      = 這些要素 key 至少出現一個
-    requireGroups   = 這些替代組每一組都要滿足其中一個選項
-    requireAnyGroup = 這些替代組至少有一組被滿足
-  ⚠️ 三級分＝要素齊全；二級分通常是「主要結論或第一小題正確 ＋ 有實質推導路徑」；
-     一級分是「只呈現零星解題要素」；零級分是兜底（不寫條件）。
-  ⛔ 只寫出最終答案、沒有任何推導 → 必須落在 0 或 1 級，不可以到 2 級
-     （若二級分只要求「結論正確」，就等於把「湊對答案拿分」放回來了）。
-
-  ⛔ levels 只填 criteria（給老師看的文字），**不要填分數**。分數由系統依配分換算。
-
-  格式：
-  "levelRubric": {
-    "requiredElements": [{ "key": "E1", "desc": "具體可檢核的敘述（含正確的值）＋⛔ 什麼情況不算" }],
-    "alternativeGroups": [
-      { "key": "G1", "desc": "這組在講什麼", "options": [{ "key": "G1a", "desc": "具體敘述＋⛔" }] }
-    ],
-    "toleratedFlaws": ["不應降級的瑕疵"],
-    "levels": [
-      { "level": 3, "criteria": "必要要素全部呈現，且推導完整或大致完整" },
-      { "level": 2, "criteria": "..." },
-      { "level": 1, "criteria": "..." },
-      { "level": 0, "criteria": "只有答案沒有過程；或策略錯誤／與題目無關" }
-    ],
-    "levelRules": [
-      { "level": 3, "requireAll": ["E1","E2","E3"], "requireGroups": ["G1"] },
-      { "level": 2, "requireAll": ["E1"], "requireAnyGroup": ["G1"] },
-      { "level": 1, "requireAny": ["E1","E2","E3"] },
-      { "level": 0 }
-    ]
-  }`
+  你在這裡**只要正確判出 questionCategory = "word_problem" 並填好 answer / maxScore 即可**，
+  不需要輸出 levelRubric 欄位。`
 
 function buildDomainRefinements(domain: string = '其他'): string {
   const domainMap: Record<string, string> = {
@@ -5453,7 +5386,8 @@ export async function extractAnswerKeyFromImages(
         }
         // map_fill positions + VJ rubric Stage A（fan-out 路徑也要跑、否則生不出 positions/vjRubric）
         await runAnswerKeyStageA(merged.questions,
-          opts?.answerSheetMode === 'answer_only' ? (opts?.bookletImages ?? []) : [])
+          opts?.answerSheetMode === 'answer_only' ? (opts?.bookletImages ?? []) : [],
+          answerSheetImages)
       } catch (err) {
         console.warn('⚠️ [AnswerKey fan-out] locate / crop 階段失敗：', err)
       }
@@ -5685,7 +5619,7 @@ export async function extractAnswerKeyFromImages(
     }
 
     // ─── Phase 4: map_fill 位置偵測 + VJ rubric 偵測（Stage A，共用 helper）─────
-    await runAnswerKeyStageA(result.questions, bookletImages)
+    await runAnswerKeyStageA(result.questions, bookletImages, answerSheetImages)
   }
 
   return result
@@ -5693,6 +5627,113 @@ export async function extractAnswerKeyFromImages(
 
 // ─── VJ Stage A0: 看 AnswerKey crop 產生 vjRubric ───────────────────────────
 // 對應 server 端 visual-judgment-grader.js 的 buildVjRubricPrompt / parseVjRubricResult（須同步）
+/**
+ * 級分制規準（應用題）：Stage A 逐題產生，**不在主擷取裡做**。
+ *
+ * 2026-08-14 實測（國小六年級卷、9 題應用題、同一輸入跑 2 輪）：
+ *   輪1 產出 9 份規準、輪2 只產出 1 份 —— 主擷取要同時抽 31 題的題號/答案/配分，
+ *   再為 9 題各寫一份完整規準，輸出壓力一大時規準是第一個被放棄的東西。
+ *   培英那張卷之所以每次都成功，是因為它只有 1 題應用題（負擔輕）。
+ * → 改成逐題單獨呼叫（比照 vjRubric 的 A0），每次只處理一題。
+ */
+async function detectLevelRubric(
+  q: AnswerKeyQuestion,
+  cropImageDataUrl: string,
+  bookletImages: Blob[] = [],
+): Promise<import('./db').LevelRubric | undefined> {
+  const m = cropImageDataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  if (!m) return undefined
+  const answer = q.referenceAnswer || (q as { answer?: string }).answer || ''
+
+  const prompt = `這是一份數學考卷上「一題應用題」的區域圖（老師的答案卷，紅字是正解）。
+請為這一題產出「級分制評分規準」，供後續 AI 閱卷使用。
+
+【這一題的正解】${answer || '（見圖）'}
+【配分】${q.maxScore ?? '未知'} 分
+
+⭐ 使用方式：閱卷 AI 只回報「哪些要素有出現」，級分由系統依 levelRules 計算。
+   所以要素與規則的品質＝判分的品質。
+
+【要素怎麼掃出來】（不要自由發揮，照這份清單逐項掃）
+會考官方的評分要素不是「想」出來的，是從解題路徑上「必經的點」抓出來的。逐項檢查：
+  ① **每個小問的最終答案** → 各一條（必填，且必須獨立成一條）
+  ② **求出答案必經的中間值** → 每個一條。
+     ⭐ 最有效的做法：看圖中老師正解的算式，**每個等號右邊出現的數字都是候選**。
+     例：正解寫「60÷1.5=40／60÷2.5=24／40+24=64」→ 掃出 40、24、64 三個必經值。
+  ③ **本題考的關鍵公式或關係** → 一條（梯形面積公式、等差關係、30°-60°-90° 比例…）
+  ④ 題目若要求**比較／判斷／檢驗** → 邊界值一條（不足與超過都要寫、且值要正確）
+  ⑤ 題目若明文要求**特定作答形式**（例如「合併成一個算式」）→ 一條
+
+【寫法要求】
+1. **最終答案必須單獨成為一條**，不可與計算過程綁在一起。
+   ❌ 錯誤示範：「運用梯形面積公式正確列式並求出面積為 8」
+      —— 綁在一起時，學生只寫「8」也會命中，等於答案對就滿分。
+   ✅ 正確：拆成兩條 →「列出算式 (3.75+6¼)×1.6÷2」、「求得答案 8 平方公分」
+2. 掃完清單後**至少要有 2 條**（過程 ≥1 ＋ 答案 1）。只給 1 條代表沒掃 ②③⑤，回去重掃。
+3. 每條都要寫成**看得到就能勾的具體東西**：具體數值、具體算式、具體結論。
+   ❌ 不可以：「推導完整」「解題步驟清楚」「正確運用數學概念」
+4. 每條都必須附 ⛔ 否定條件，**指名一個「做到一半」的具體狀態**。
+   ✅ 好：「⛔ 只算出 40、沒有再加 24 → 不算」
+   ❌ 沒用：「⛔ 未正確計算不算」（同義反覆，等於沒寫）
+5. 等值寫法一律算呈現（不同算式、不同命名、不同順序）。
+
+【替代解法】想一遍學生還可能怎麼解（列式 vs 逐項計算、換單位算、兩邊同乘換形式）。
+漏列一條＝用該法的學生被判成沒有過程，是誤殺。真的只有一條路才留空。
+
+【levelRules】把級分條件翻成 key 的組合，系統由 3 往下比對、第一條成立即該級分。
+  requireAll / requireAny＝要素 key；requireGroups / requireAnyGroup＝替代組 key。
+⛔ 除了 level 0（兜底）以外，**每一條都必須有條件**——沒有條件等於全部學生都符合，
+   空白卷也會拿到該級分。
+⛔ 只寫出最終答案、沒有任何過程 → 必須落在 0 或 1 級。
+
+只輸出 JSON，不要加說明或程式碼框：
+{
+  "requiredElements": [{ "key": "E1", "desc": "具體敘述 ⛔ 什麼情況不算" }],
+  "alternativeGroups": [{ "key": "G1", "desc": "這組在講什麼", "options": [{ "key": "G1a", "desc": "具體敘述" }] }],
+  "toleratedFlaws": ["不應降級的瑕疵"],
+  "levels": [
+    { "level": 3, "criteria": "..." }, { "level": 2, "criteria": "..." },
+    { "level": 1, "criteria": "..." }, { "level": 0, "criteria": "..." }
+  ],
+  "levelRules": [
+    { "level": 3, "requireAll": ["E1","E2"] },
+    { "level": 2, "requireAll": ["E1"] },
+    { "level": 1, "requireAny": ["E1","E2"] },
+    { "level": 0 }
+  ]
+}`
+
+  const parts: GeminiRequestPart[] = [prompt, { inlineData: { mimeType: m[1], data: m[2] } }]
+  if (bookletImages.length > 0) {
+    parts.push('--- 以下是這一題的**題目全文**（可能是題本，也可能是整張考卷）。'
+      + '上面那張小圖只框住作答區、看不到題目在問什麼，所以請在這裡找到本題的題幹，'
+      + '依「題目要求什麼」推導要素；題目若明文要求特定作答形式（如「合併成一個算式」）也要納入。'
+      + '⛔ 正解仍以上面那張作答區小圖為準，不要從這裡抓答案 ---')
+    for (const b of bookletImages) {
+      parts.push({ inlineData: { mimeType: b.type || 'image/jpeg', data: await blobToBase64(b) } })
+    }
+  }
+  // 產出後驗證、不合就重試：prompt 講了不一定聽（明寫「至少 2 條」仍會給 1 條），
+  // 而這兩種缺陷都是靜默的——要素綁在一起＝只寫答案就滿分；規則兜不攏＝全對卻扣到 1 級。
+  let best: import('./db').LevelRubric | undefined
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const raw = (await generateGeminiText(currentModelName, parts, {
+        routeKey: 'answer_key.locate',  // 復用 locate route（=PRO、proxy 已支援，同 VJ A0）
+      })).replace(/```json|```/g, '').trim()
+      const lr = normalizeLevelRubric(JSON.parse(raw), q.maxScore ?? 0)
+      if (!lr) continue
+      const problems = validateLevelRubric(lr)
+      if (problems.length === 0) return lr
+      best ??= lr   // 留著當退路：有瑕疵的規準仍比完全沒有好（沒有就退回只比對最終答案）
+      console.warn(`[LevelRubric A0] ${q.id} 第 ${attempt + 1} 次不合格：${problems.join('、')}`)
+    } catch (err) {
+      console.warn(`[LevelRubric A0] ${q.id} 第 ${attempt + 1} 次失敗`, err)
+    }
+  }
+  return best
+}
+
 async function detectVisualRubric(
   cropImageDataUrl: string,
   category: string,
@@ -5774,7 +5815,13 @@ async function detectVisualRubric(
 
 // ─── 答案卷 Stage A 共用 helper：map_fill positions + VJ rubric ──────────────
 // 兩條抽取路徑（fan-out 與單次）都呼叫此 helper，避免漏跑。
-async function runAnswerKeyStageA(questions: AnswerKeyQuestion[], bookletImages: Blob[] = []): Promise<void> {
+async function runAnswerKeyStageA(
+  questions: AnswerKeyQuestion[],
+  bookletImages: Blob[] = [],
+  // 一般模式（題目答案同卷）沒有題本，但題幹就印在整頁上——crop 只框作答區，看不到題目在問什麼。
+  // 級分制要素必須依題目要求推導，缺題幹時 AI 只寫得出「答案」一條（實測 4-5-1 兩輪都只有 1 條）。
+  pageImages: Blob[] = [],
+): Promise<void> {
   // map_fill 位置偵測（Direction Y Stage A）
   const mapFillQs = questions.filter((q) => q.questionCategory === 'map_fill' && q.cropImageUrl)
   if (mapFillQs.length > 0) {
@@ -5817,6 +5864,33 @@ async function runAnswerKeyStageA(questions: AnswerKeyQuestion[], bookletImages:
           }
         } catch (e) {
           console.warn(`  ❌ ${q.id}: A0 失敗`, e)
+        }
+      })
+    )
+  }
+
+  // 2026-08-14 應用題級分制規準（A0）：逐題單獨呼叫。
+  //   放在主擷取裡時，題數一多就會被輸出壓力擠掉（實測 9 題應用題：輪1 產 9 份、輪2 只產 1 份）。
+  const lrQs = questions.filter((q) => q.questionCategory === 'word_problem' && q.cropImageUrl)
+  if (lrQs.length > 0) {
+    console.log(`📐 [AnswerKey 級分制] ${lrQs.length} 題應用題、逐題產生規準...`)
+    await Promise.all(
+      lrQs.map(async (q) => {
+        try {
+          const pageIdx = q.pageIndex ?? 0
+          const context = bookletImages.length > 0
+            ? bookletImages                                    // 純答案卷：題本才有題目
+            : (pageImages[pageIdx] ? [pageImages[pageIdx]] : [])  // 一般模式：該題所在整頁
+          const lr = await detectLevelRubric(q, q.cropImageUrl!, context)
+          if (lr) {
+            ;(q as { levelRubric?: typeof lr }).levelRubric = lr
+            console.log(`  ✅ ${q.id}: 要素 ${lr.requiredElements.length} 項、`
+              + `規則 ${(lr.levelRules ?? []).length} 條、替代組 ${(lr.alternativeGroups ?? []).length}`)
+          } else {
+            console.warn(`  ⚠️ ${q.id}: 未產生級分制規準（批改會只比對最終答案）`)
+          }
+        } catch (e) {
+          console.warn(`  ❌ ${q.id}: 級分制 A0 失敗`, e)
         }
       })
     )

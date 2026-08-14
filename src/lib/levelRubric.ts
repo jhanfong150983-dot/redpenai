@@ -135,6 +135,41 @@ export function levelFromElements(rubric: LevelRubric, found: Iterable<string>):
   return 0
 }
 
+/**
+ * 規準自洽性檢查。回傳問題清單（空陣列＝通過）。
+ *
+ * 實測（國小卷 9 題 × 2 輪）AI 會產出兩種自相矛盾的規準，而且都是靜默的：
+ *   ・要素只寫 1 條、且把過程與答案綁在一起 → 學生只寫答案就命中唯一要素＝滿分
+ *   ・levelRules 與要素兜不攏 → 「要素全中卻只算成 1 級」（該拿滿分的被扣到 30%）
+ * prompt 講了不一定聽（明寫「至少 2 條」仍會給 1 條），所以改成產出後驗證、不合就重試。
+ */
+export function validateLevelRubric(r: LevelRubric): string[] {
+  const problems: string[] = []
+  const keys = new Set(r.requiredElements.map((e) => e.key))
+  const groupKeys = new Set((r.alternativeGroups ?? []).map((g) => g.key))
+  for (const g of r.alternativeGroups ?? []) {
+    for (const o of g.options) keys.add(o.key)
+  }
+
+  if (r.requiredElements.length < 2) problems.push('要素少於 2 條（過程與答案至少要分開）')
+  if (!r.levelRules || r.levelRules.length === 0) {
+    problems.push('缺少 levelRules')
+    return problems
+  }
+  for (const rule of r.levelRules) {
+    for (const k of [...(rule.requireAll ?? []), ...(rule.requireAny ?? [])]) {
+      if (!keys.has(k)) problems.push(`規則 ${rule.level} 級引用了不存在的要素 ${k}`)
+    }
+    for (const k of [...(rule.requireGroups ?? []), ...(rule.requireAnyGroup ?? [])]) {
+      if (!groupKeys.has(k)) problems.push(`規則 ${rule.level} 級引用了不存在的替代組 ${k}`)
+    }
+  }
+  // 兩個端點必須成立，否則規則與要素在語意上是脫節的
+  if (levelFromElements(r, keys) !== 3) problems.push('要素全部命中時算不出 3 級')
+  if (levelFromElements(r, []) !== 0) problems.push('完全沒有要素時不是 0 級（空白卷會拿到分數）')
+  return problems
+}
+
 /** 級分 → 分數。找不到就退回 0，不猜。 */
 export function levelToScore(rubric: LevelRubric | undefined, level: number | null | undefined): number {
   if (!rubric || level == null) return 0
