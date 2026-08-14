@@ -370,14 +370,13 @@ export default function AdminQuality() {
               {h.perQuestionAnomalies.map((x) => ` ${x.qid}(${x.unreadable}/${x.papers} 卷無法辨識)`).join('、')}
             </div>
           )}
+          {/* 2026-08-15 user：同寫法不同分的逐組清單移除——評分統計已經用正確的聚合鍵做這件事
+              （圖像判分題有專屬聚合鍵、還能整群改分），這裡是較差的重複品。只留下計數，
+              明細請看評分統計。 */}
           {h.contradictions.length > 0 && (
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              <AlertTriangle className="w-4 h-4 inline mr-1" />同寫法不同分(accessor 尺度矛盾)&nbsp;{h.contradictions.length} 組:
-              <ul className="mt-1 space-y-0.5 text-xs">
-                {h.contradictions.slice(0, 8).map((c, i) => (
-                  <li key={i}>{c.qid}「{c.ans}」→ {c.cases.map((x) => `座${x.seat ?? '?'}:${x.score}分`).join('、')}</li>
-                ))}
-              </ul>
+              <AlertTriangle className="w-4 h-4 inline mr-1" />同寫法不同分 {h.contradictions.length} 組
+              <span className="text-xs text-rose-500 ml-2">明細與整群改分請到批改頁的「評分統計」</span>
             </div>
           )}
           {/* B 層 */}
