@@ -88,6 +88,7 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated }: Prop
 
   // ── 裁圖（server 現切、零墨水）：依學生批次抓、併發 3、進視窗才需要的其實全都要 → 開窗即抓 ──
   const [crops, setCrops] = useState<Map<string, string>>(new Map()) // `${studentId}|${qid}` → dataURI
+  const [zoomCrop, setZoomCrop] = useState<string | null>(null)  // 點縮圖放大（沿用既有「簡易 overlay」慣例）
   const cropsRequested = useRef(new Set<string>())
   useEffect(() => {
     const byStudent = new Map<string, { assignmentId: string; studentId: string; qids: string[] }>()
@@ -217,7 +218,13 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated }: Prop
                       {/* 裁圖 */}
                       <div className="mt-2 rounded-lg bg-slate-100 overflow-hidden min-h-[44px] flex items-center justify-center">
                         {crop
-                          ? <img src={crop} alt="" className="w-full object-contain" style={{ maxHeight: 110 }} />
+                          ? (
+                            // 110px 高的縮圖看不清手寫推導（尤其應用題整段算式）→ 點擊放大
+                            <button type="button" onClick={() => setZoomCrop(crop)}
+                              className="w-full cursor-zoom-in" title="點擊放大">
+                              <img src={crop} alt="" className="w-full object-contain" style={{ maxHeight: 110 }} />
+                            </button>
+                          )
                           : <span className="text-[11px] text-slate-300 py-4">裁圖載入中…</span>}
                       </div>
                       {/* AI 讀值 + 理由（編輯後顯示 AI 原判資訊，老師才看得到當初 AI 怎麼判） */}
@@ -312,6 +319,16 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated }: Prop
           改分後批改卡片同步更新、跨裝置同步，詳細編輯（含改讀值）請進該生的批改卡片。
         </div>
       </div>
+
+      {/* 放大檢視：沿用既有「簡易 overlay」慣例——點任意處關閉、不做縮放控制 */}
+      {zoomCrop && (
+        <div
+          className="fixed inset-0 z-[400] bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"
+          onClick={() => setZoomCrop(null)}
+        >
+          <img src={zoomCrop} alt="放大檢視" className="max-w-full max-h-full object-contain" />
+        </div>
+      )}
     </div>
   )
 }

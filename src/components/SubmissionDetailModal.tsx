@@ -123,6 +123,10 @@ export default function SubmissionDetailModal({
               partResults: Array.isArray(d.partResults) ? d.partResults : undefined,
               // VJ 逐柱（render 逐柱按鈕 + toggle 用）— 白名單原本漏了
               vjItemResults,
+              // ⚠️ 這個 map 是白名單：沒列進來的欄位在 UI 端一律讀不到。
+              //   levelResult 沒帶 → isLevel 永遠 false → 級分制題退回文字框、羅列式不顯示。
+              //   （同一個坑今天已經踩過三次：server detail 白名單、accessor 合併、systemConfidence）
+              levelResult: (d as { levelResult?: unknown }).levelResult,
               // 2026-07-13 系統信心（內部值、<70 題目列紅底）
               systemConfidence:
                 typeof d.systemConfidence === 'number' && Number.isFinite(d.systemConfidence)
