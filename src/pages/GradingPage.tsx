@@ -1579,6 +1579,11 @@ export default function GradingPage({
   const [gradeResultNotice, setGradeResultNotice] = useState<GradeResultNotice | null>(null)
   // 2026-08-09：串流 Phase B 收集到的失敗原因，交給 finalizeReviewAfterB 放進結果視窗
   const finalizeFailReasonsRef = useRef<string[]>([])
+  // 2026-08-15 user 抓到：結果視窗顯示「成功 32／失敗 0」卻列出 32 筆失敗原因。
+  //   根因＝成功數用 `status === 'graded'` 判定，而那是**上一輪留下的持久狀態**：
+  //   這 32 份先前批過，本輪 Phase B 全部拋錯、什麼都沒寫，狀態仍是 graded → 全算成功。
+  //   改用「本輪起始時間」比對 gradedAt（只有成功寫入才會更新 gradedAt）。
+  const gradingRunStartRef = useRef(0)
   // 2026-08-04 固定扣除:本輪已扣點數(save-grading 回應累加;fire-and-forget 落地時活更新結果視窗)
   const [billedPoints, setBilledPoints] = useState(0)
   // 扣款後的新餘額(結果視窗「餘額 N 點」小字用;personal/school 都顯示最後一筆)
@@ -4214,6 +4219,7 @@ export default function GradingPage({
   // 2026-05-17: Phase B only 入口（批改作業按鈕）
   // 步驟：1. 檢查 in-scope 卡片狀態  2. 若需先截取或補答、block modal  3. 若會覆寫、warning modal  4. 否則直接跑
   const handleGradeOnly = async () => {
+    gradingRunStartRef.current = Date.now()   // 本輪起始（成功數判定用，見 gradingRunStartRef）
     setBilledPoints(0)  // 固定扣除:新一輪歸零
     setBilledBalanceAfter(null)
     setBillingSettled(true)
@@ -4266,10 +4272,12 @@ export default function GradingPage({
         await Promise.allSettled(backgroundPhaseBPromises.current)
         backgroundPhaseBPromises.current = []
       }
+      // 同上：狀態是持久的，要看本輪有沒有更新 gradedAt（見 gradingRunStartRef）
+      const bgRunStart = gradingRunStartRef.current || 0
       let bgSuccess = 0
       for (const id of bgIds) {
         const s = await db.submissions.get(id)
-        if (s?.status === 'graded') bgSuccess++
+        if (s?.status === 'graded' && (s.gradedAt ?? 0) >= bgRunStart) bgSuccess++
       }
       const restIds = ids.filter((id) => !bgIds.has(id))
       const fresh: Submission[] = []
@@ -4485,8 +4493,13 @@ export default function GradingPage({
       setGradingMessage('正在整理成績…')
     }
     requestSync()
+    // 只認「本輪真的批出結果」：gradedAt 必須落在本輪開始之後（成功路徑才會更新它）
+    const runStart = gradingRunStartRef.current || 0
     let success = 0
-    for (const id of scopeIds) { const s = await db.submissions.get(id); if (s?.status === 'graded') success++ }
+    for (const id of scopeIds) {
+      const s = await db.submissions.get(id)
+      if (s?.status === 'graded' && (s.gradedAt ?? 0) >= runStart) success++
+    }
     console.log(`[finalize] done in ${Date.now() - fzT0}ms（scope=${scopeIds.length}、graded=${success}）`)
     setGradingPhase('idle')
     setIsGrading(false)
@@ -4507,6 +4520,7 @@ export default function GradingPage({
   const runReviewAfterBFlow = async (
     needA: Submission[], needReview: Submission[], _needB: Submission[]
   ) => {
+    gradingRunStartRef.current = Date.now()
     reviewAfterBEntriesRef.current = []
     reviewAfterBModeRef.current = true
     // 開新一輪先清上一輪殘留的結果視窗/審查殘留（避免「批改完成」彈窗疊在新一輪審查上）
