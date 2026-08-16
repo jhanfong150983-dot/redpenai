@@ -13,7 +13,7 @@ export interface GradingSettings {
   strictness: 'strict' | 'standard' | 'lenient'
   scoringMode: 'scored' | 'unscored'
   fractionRule: 'require_simplified' | 'allow_equivalent'
-  multiCheckRule: 'all_or_nothing' | 'partial' | 'partial_strict'
+  multiCheckRule: 'deduct' | 'all_or_nothing' | 'partial' | 'partial_strict'
   unitErrorRule: 'zero' | 'half' | 'deduct'
   unitErrorDeduction: number
   processCreditRule: 'none' | 'half' | 'deduct'
@@ -30,7 +30,7 @@ type FormSettings = {
   strictness: 'strict' | 'standard' | 'lenient' | null
   scoringMode: 'scored' | 'unscored' | null
   fractionRule: 'require_simplified' | 'allow_equivalent' | null
-  multiCheckRule: 'all_or_nothing' | 'partial' | 'partial_strict'
+  multiCheckRule: 'deduct' | 'all_or_nothing' | 'partial' | 'partial_strict'
   unitErrorRule: 'zero' | 'half' | 'deduct'
   unitErrorDeduction: number
   processCreditRule: 'none' | 'half' | 'deduct'
@@ -106,7 +106,7 @@ const DEFAULT_FORM_SETTINGS: FormSettings = {
   strictness: null,
   scoringMode: null,
   fractionRule: null,
-  multiCheckRule: 'all_or_nothing',
+  multiCheckRule: 'deduct',
   unitErrorRule: 'zero',
   unitErrorDeduction: 1,
   processCreditRule: 'none',
@@ -208,7 +208,7 @@ export default function AssignmentFormModal({
     strictness: initialSettings?.strictness ?? null,
     scoringMode: initialSettings?.scoringMode ?? null,
     fractionRule: initialSettings?.fractionRule ?? null,
-    multiCheckRule: initialSettings?.multiCheckRule ?? 'all_or_nothing',
+    multiCheckRule: initialSettings?.multiCheckRule ?? 'deduct',
     unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
     unitErrorDeduction: initialSettings?.unitErrorDeduction ?? 1,
     processCreditRule: initialSettings?.processCreditRule ?? 'none',
@@ -240,7 +240,7 @@ export default function AssignmentFormModal({
       strictness: initialSettings?.strictness ?? null,
       scoringMode: initialSettings?.scoringMode ?? null,
       fractionRule: initialSettings?.fractionRule ?? null,
-    multiCheckRule: initialSettings?.multiCheckRule ?? 'all_or_nothing',
+    multiCheckRule: initialSettings?.multiCheckRule ?? 'deduct',
       unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
       unitErrorDeduction: initialSettings?.unitErrorDeduction ?? 1,
       processCreditRule: initialSettings?.processCreditRule ?? 'none',
@@ -751,9 +751,9 @@ export default function AssignmentFormModal({
                     <label className="block text-base font-semibold text-gray-800 mb-2">多選題計分</label>
                     <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
                       {([
+                        ['deduct', '錯一個扣 1 分'],
                         ['all_or_nothing', '全對才給分'],
                         ['partial', '答對幾個給幾分'],
-                        ['partial_strict', '選錯即 0'],
                       ] as const).map(([val, label], i) => (
                         <button
                           key={val}
@@ -768,11 +768,11 @@ export default function AssignmentFormModal({
                       ))}
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
-                      {settings.multiCheckRule === 'all_or_nothing'
-                        ? '正解 1,3；學生選 3,4 → 0 分'
-                        : settings.multiCheckRule === 'partial'
-                          ? '正解 1,3（2 分）；學生選 3,4 → 1 分（選對 1 個、誤選不倒扣）'
-                          : '正解 1,3（2 分）；學生選 3,4 → 0 分（有誤選）；只選 1 → 1 分'}
+                      {settings.multiCheckRule === 'deduct'
+                        ? '正解 1,3（2 分）：漏選與誤選各扣 1 分、下限 0。只選 1 → 1 分；選 1,3,4 → 1 分；選 3,4 → 0 分'
+                        : settings.multiCheckRule === 'all_or_nothing'
+                          ? '正解 1,3；只要不完全相同 → 0 分'
+                          : '正解 1,3（2 分）：滿分 × 選對數/正解數，誤選不倒扣。選 3,4 → 1 分'}
                     </p>
                   </div>
 
