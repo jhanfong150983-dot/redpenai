@@ -9,8 +9,36 @@ import { requestSync } from '@/lib/sync-events'
 
 // 正規化(鏡像 server semantic-score-table.normSemanticValue:全半形/空白/頭尾標點折疊、一字不折)
 // 2026-08-12 加 CJK 內部分隔標點折疊(兩側皆中文字的 , . ; : =AI read 漂移;數字鄰接保留)——與 server 同步改
+// 2026-08-16 數學式分支:大小寫與關係符號折疊(鏡像 server foldMathValue)。
+//   事故(user 回報):「x>=50/7」「X>=50/7」「x≥50/7」「x≧50/7」在評分統計分成四群,實為同一答案。
+//   ⚠ 只在數學式才折——核心規則是一字不折(錯字是 charerr 的事);英語「Dog」vs「dog」會扣分,
+//     無條件小寫化會併成一群→群內兩種分數。守門:①整串無中文 ②必須含關係符號(英文單字走原路)。
+const MATHY_VALUE = /^[A-Za-z0-9+\-*/^().,%<>=≤≥≦≧⩽⩾≠√πθ°:| \\{}]+$/u
+function deLatexForCompare(raw: string): string {
+  let t = raw
+  if (!t.includes('\\')) return t
+  t = t.replace(/\\frac\s*\{([^{}]+)\}\s*\{([^{}]+)\}/gu, '$1/$2')
+  t = t.replace(/\\sqrt\s*\{([^{}]+)\}/gu, '√$1')
+  t = t.replace(/\\(?:leqslant|leqq|leq|le)(?![a-z])/gu, '<=')
+  t = t.replace(/\\(?:geqslant|geqq|geq|ge)(?![a-z])/gu, '>=')
+  t = t.replace(/\\lt(?![a-z])/gu, '<').replace(/\\gt(?![a-z])/gu, '>')
+  t = t.replace(/\\(?:times|cdot)(?![a-z])/gu, '×').replace(/\\div(?![a-z])/gu, '÷')
+  t = t.replace(/\\%/gu, '%').replace(/\\(?:left|right)(?![a-z])/gu, '')
+  return t
+}
+function foldMathValue(base: string): string {
+  if (!base || !MATHY_VALUE.test(base)) return base
+  // de-LaTeX 要在守門之前:「x\geqq 50/7」的關係是字母不是符號,先還原才認得出來
+  let t = deLatexForCompare(base)
+  if (!/[<>=≤≥≦≧⩽⩾]/u.test(t)) return base
+  t = t.replace(/[≦≤⩽]/gu, '<=').replace(/[≧≥⩾]/gu, '>=').replace(/≠/gu, '!=')
+  t = t.replace(/=>/gu, '>=').replace(/=</gu, '<=')
+  t = t.replace(/\s*(<=|>=|!=|<|>|=)\s*/gu, '$1')
+  return t.toLowerCase()
+}
+
 export function normAnswerValue(raw: unknown): string {
-  return String(raw ?? '')
+  return foldMathValue(String(raw ?? '')
     .trim()
     // 2026-08-14 帶分數:數字↔數字之間的空白保留成單一空白,其餘照舊全刪。
     //   事故:「x<=6 7/11」(6又7/11,正確) 與「x<= 67/11」(67/11,錯) 全刪空白後同鍵 →
@@ -19,7 +47,7 @@ export function normAnswerValue(raw: unknown): string {
     .replace(/\s+/g, (m, off, s) => (/\d$/.test(s.slice(0, off)) && /^\d/.test(s.slice(off + m.length)) ? ' ' : ''))
     .replace(/，/g, ',').replace(/。/g, '.').replace(/；/g, ';').replace(/：/g, ':').replace(/、/g, ',')
     .replace(/([一-鿿])[,.;:]+(?=[一-鿿])/g, '$1')
-    .replace(/^[,.;:!?，。；：、！？\s]+|[,.;:!?，。；：、！？\s]+$/g, '')
+    .replace(/^[,.;:!?，。；：、！？\s]+|[,.;:!?，。；：、！？\s]+$/g, ''))
 }
 
 const SPECIAL_VALUES = new Set(['', '未作答', '無法辨識', '圖像辨識'])
