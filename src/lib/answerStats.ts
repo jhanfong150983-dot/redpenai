@@ -297,7 +297,8 @@ export async function restoreDetailToAi(submissionId: string, qid: string): Prom
 export async function applyStagedGroupEdits(
   stats: QuestionStats[],
   staged: Map<string, number>,        // key = `${qid}|${groupKey}`
-  onProgress?: (done: number, total: number) => void
+  onProgress?: (done: number, total: number) => void,
+  assignmentId?: string,              // 查表制回寫需要（解析 scope_key）
 ): Promise<BatchEditResult[]> {
   const editsBySubmission = new Map<string, Map<string, number>>()
   for (const q of stats) {
@@ -328,19 +329,25 @@ export async function applyStagedGroupEdits(
   //   下次重批又會跑出 AI 的原判、把老師的修正蓋掉（＝白改）。
   //   只送圖像判分群（imageAgg）；成功與否都不擋改分（分數已寫進本機與 server）。
   try {
-    const vjItems: Array<{ submissionId: string; questionId: string; score: number }> = []
+    // 圖像判分群 → 依 submission+question 回寫（圖各自不同）
+    // 文字/數值群   → 另帶 value，讓 server 依「答案值」回寫查表制（跨學生、同答同分）
+    const items: Array<{ submissionId: string; questionId: string; score: number; value?: string }> = []
     for (const q of stats) {
       for (const g of q.groups) {
-        if (!g.imageAgg) continue
         const newScore = staged.get(`${q.qid}|${g.key}`)
         if (newScore == null) continue
-        for (const m of g.members) vjItems.push({ submissionId: m.submissionId, questionId: q.qid, score: newScore })
+        for (const m of g.members) {
+          items.push({
+            submissionId: m.submissionId, questionId: q.qid, score: newScore,
+            ...(g.imageAgg ? {} : { value: g.raw }),
+          })
+        }
       }
     }
-    if (vjItems.length > 0) {
+    if (items.length > 0) {
       await fetch('/api/data/vj-freeze-override', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ items: vjItems }),
+        body: JSON.stringify({ assignmentId, items }),
       })
     }
   } catch { /* 非致命：回寫失敗不影響本次改分，只是下次重批可能被 AI 覆蓋 */ }

@@ -133,7 +133,7 @@ export default function AnswerStatsModal({ entries, onClose, onUpdated }: Props)
     setSaving(true)
     setProgress({ done: 0, total: affectedPapers })
     try {
-      const results = await applyStagedGroupEdits(stats, staged, (done, total) => setProgress({ done, total }))
+      const results = await applyStagedGroupEdits(stats, staged, (done, total) => setProgress({ done, total }), entries[0]?.submission?.assignmentId)
       for (const r of results) if (r.ok && r.updated) onUpdated(r.updated)
       const failed = results.filter((r) => !r.ok).length
       setDoneMsg(failed === 0 ? `已套用 ${results.length} 份卷的改分` : `完成,但有 ${failed} 份卷儲存失敗,請重試`)
