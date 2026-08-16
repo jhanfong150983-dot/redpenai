@@ -749,11 +749,12 @@ export default function AssignmentFormModal({
                       答案卷裡沒有這條規則 → 不同批次可能給不同分。改成正式設定、老師改得動。 */}
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">多選題計分</label>
+                    <p className="text-xs text-slate-500 mb-2">一律按比例扣分（每個扣 滿分÷正解數、下限 0），差別只在誤選要不要罰。</p>
                     <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
                       {([
-                        ['deduct', '按比例扣分'],
+                        ['deduct', '選錯會倒扣'],
                         ['all_or_nothing', '全對才給分'],
-                        ['partial', '答對幾個給幾分'],
+                        ['partial', '選錯不會倒扣'],
                       ] as const).map(([val, label], i) => (
                         <button
                           key={val}
@@ -769,10 +770,10 @@ export default function AssignmentFormModal({
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
                       {settings.multiCheckRule === 'deduct'
-                        ? '每漏選或誤選一個，扣滿分÷正解數、下限 0。正解 1,3（2 分）：只選 1 → 1 分、選 3,4 → 0 分；正解 1,3,4（15 分）：漏一個 → 10 分'
+                        ? '漏選和誤選都扣。正解 1,3（2 分）：只選 1 → 1 分、選 1,3,4 → 1 分、選 3,4 → 0 分'
                         : settings.multiCheckRule === 'all_or_nothing'
-                          ? '正解 1,3；只要不完全相同 → 0 分'
-                          : '正解 1,3（2 分）：滿分 × 選對數/正解數，誤選不倒扣。選 3,4 → 1 分'}
+                          ? '只要不完全相同就 0 分。正解 1,3：選 1,3,4 → 0 分'
+                          : '只看選對幾個，多選不罰。正解 1,3（2 分）：只選 1 → 1 分、選 1,3,4 → 2 分（全選反而穩拿滿分）'}
                     </p>
                   </div>
 
