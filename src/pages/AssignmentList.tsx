@@ -2097,6 +2097,8 @@ export default function AssignmentList({
               const cloned: AnswerKey = JSON.parse(JSON.stringify(akTemplate.answerKey))
               domain = akTemplate.domain
               cloned.strictness = data.settings.strictness
+              // 多選題計分：不分領域（英/社/自/數都有多選題）
+              cloned.multiCheckRule = data.settings.multiCheckRule
               if (domain === '數學') { cloned.fractionRule = data.settings.fractionRule; cloned.unitErrorRule = data.settings.unitErrorRule; cloned.unitErrorDeduction = data.settings.unitErrorDeduction; cloned.processCreditRule = data.settings.processCreditRule; cloned.processCreditDeduction = data.settings.processCreditDeduction }
               if (domain === '英語') {
                 cloned.englishRules = {
