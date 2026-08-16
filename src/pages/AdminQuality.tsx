@@ -32,6 +32,8 @@ type Detail = {
     unreadable: number; unstable: number; lowConf: number; chainCells: number
     judgeCells: number; judgeSplit: number; codeJudged: number
     perQuestionAnomalies: Array<{ qid: string; unreadable: number; papers: number }>
+    // 2026-08-16 user：要能看出「哪幾題會被送老師檢查」——只有總數看不出是集中在一題還是散落全卷
+    lowConfQuestions?: Array<{ qid: string; n: number; reason: string }>
     contradictions: Array<{ qid: string; ans: string; cases: Array<{ seat: number | null; score: number | null }> }>
   }
   lights: { classify: Light; read: Light; accessor: Light; overall: Light }
@@ -373,6 +375,23 @@ export default function AdminQuality() {
           {/* 2026-08-15 user：同寫法不同分的逐組清單移除——評分統計已經用正確的聚合鍵做這件事
               （圖像判分題有專屬聚合鍵、還能整群改分），這裡是較差的重複品。只留下計數，
               明細請看評分統計。 */}
+          {/* 低信心逐題：systemConfidence < 70 的格會亮紅底並進複核面板 → 老師要看的就是這些 */}
+          {(h.lowConfQuestions?.length ?? 0) > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <AlertTriangle className="w-4 h-4 inline mr-1" />
+              會送老師檢查（低信心 &lt;70）共 {h.lowConf} 格、分布在 {h.lowConfQuestions!.length} 題：
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {h.lowConfQuestions!.slice(0, 24).map((q) => (
+                  <span key={q.qid} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-white border border-amber-200 text-xs">
+                    <span className="font-semibold text-amber-900">{q.qid}</span>
+                    <span className="text-amber-700">{q.n} 格</span>
+                    {q.reason && <span className="text-amber-500">· {q.reason}</span>}
+                  </span>
+                ))}
+                {h.lowConfQuestions!.length > 24 && <span className="text-xs text-amber-600">…另 {h.lowConfQuestions!.length - 24} 題</span>}
+              </div>
+            </div>
+          )}
           {h.contradictions.length > 0 && (
             <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
               <AlertTriangle className="w-4 h-4 inline mr-1" />同寫法不同分 {h.contradictions.length} 組
