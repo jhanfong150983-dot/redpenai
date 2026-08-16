@@ -391,7 +391,8 @@ export interface AnswerKey {
   fixedPerScore?: number  // 每題固定分（scoreMode=fixed_per_question 或 fixed_both 時）
   fixedTotal?: number     // 固定總分（scoreMode=fixed_total 或 fixed_both 時）
   // 2026-08-15 多選題計分（作業層級、user 拍板）：把「部分給分」從 AI 自行加碼改成正式設定。
-  //   deduct=每錯一個扣 multiCheckDeduction 分(預設、扣 1 分；漏選與誤選同權、下限 0)、
+  //   deduct=每錯一個扣「一個選項的配分」(滿分÷正解數；預設；漏選與誤選同權、下限 0；
+  //          指定 multiCheckDeduction 則改扣該固定分數)、
   //   all_or_nothing=全對才給分、partial=滿分×選對數/正解數(誤選不倒扣)、
   //   partial_strict=選到非正解即 0
   multiCheckRule?: 'deduct' | 'all_or_nothing' | 'partial' | 'partial_strict'
