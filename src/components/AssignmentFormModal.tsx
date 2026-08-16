@@ -751,7 +751,7 @@ export default function AssignmentFormModal({
                     <label className="block text-base font-semibold text-gray-800 mb-2">多選題計分</label>
                     <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
                       {([
-                        ['deduct', '錯一個扣一格分'],
+                        ['deduct', '按比例扣分'],
                         ['all_or_nothing', '全對才給分'],
                         ['partial', '答對幾個給幾分'],
                       ] as const).map(([val, label], i) => (
@@ -769,7 +769,7 @@ export default function AssignmentFormModal({
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
                       {settings.multiCheckRule === 'deduct'
-                        ? '每漏選／誤選一個，扣「一個選項的配分」(滿分÷正解數)、下限 0。正解 1,3（2 分）：只選 1 → 1 分、選 3,4 → 0 分；正解 1,3,4（15 分）：漏一個 → 10 分'
+                        ? '每漏選或誤選一個，扣滿分÷正解數、下限 0。正解 1,3（2 分）：只選 1 → 1 分、選 3,4 → 0 分；正解 1,3,4（15 分）：漏一個 → 10 分'
                         : settings.multiCheckRule === 'all_or_nothing'
                           ? '正解 1,3；只要不完全相同 → 0 分'
                           : '正解 1,3（2 分）：滿分 × 選對數/正解數，誤選不倒扣。選 3,4 → 1 分'}
