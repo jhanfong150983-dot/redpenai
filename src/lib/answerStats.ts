@@ -323,6 +323,27 @@ export async function applyStagedGroupEdits(
       onProgress?.(done, tasks.length)
     }
   }))
+  // ── 老師裁決回寫 VJ 冷凍表（2026-08-16 user 拍板）────────────────────────
+  //   圖像判分題的判定被凍結後，重批會沿用；若老師在這裡調整過分數卻不回寫，
+  //   下次重批又會跑出 AI 的原判、把老師的修正蓋掉（＝白改）。
+  //   只送圖像判分群（imageAgg）；成功與否都不擋改分（分數已寫進本機與 server）。
+  try {
+    const vjItems: Array<{ submissionId: string; questionId: string; score: number }> = []
+    for (const q of stats) {
+      for (const g of q.groups) {
+        if (!g.imageAgg) continue
+        const newScore = staged.get(`${q.qid}|${g.key}`)
+        if (newScore == null) continue
+        for (const m of g.members) vjItems.push({ submissionId: m.submissionId, questionId: q.qid, score: newScore })
+      }
+    }
+    if (vjItems.length > 0) {
+      await fetch('/api/data/vj-freeze-override', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ items: vjItems }),
+      })
+    }
+  } catch { /* 非致命：回寫失敗不影響本次改分，只是下次重批可能被 AI 覆蓋 */ }
   requestSync()
   return results
 }

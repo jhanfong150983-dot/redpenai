@@ -371,6 +371,9 @@ export interface AnswerKeyQuestion {
   // 詳見 server/ai/visual-judgment-grader.js
   vjRubric?: {
     itemLabels: string[]       // 每個要作答的子元素（如「左上半圓柱體」）
+    // 2026-08-16 逐項配分：分數＝Σ(判對項目的配分)。缺漏／長度不符 → 退回「滿分×通過項數÷項數」。
+    //   規準寫「步驟1佔2分、步驟2佔1分」時，平均分配會讓兩種不同的錯誤拿到同一個分數。
+    itemScores?: number[]
     condition?: string         // 學生每項該做什麼（一句話）
     gradingDefinition?: string // 什麼樣的作答算對（Phase B grade 判準）
   }
