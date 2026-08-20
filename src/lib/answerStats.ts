@@ -70,7 +70,9 @@ export type AnswerGroup = {
   score: number            // 群代表分(眾數)
   mixed: boolean           // 群內分數不一致(=同寫法不同分)
   locked: boolean          // 特殊狀態(未作答/無法辨識/圖像辨識/空白)不可拖
-  imageAgg: boolean        // 圖像判分聚合群(級分制/作圖題)→ 群名不是學生答案,要配代表卷面 crop
+  imageAgg: boolean        // 向量聚合群(級分制/作圖題/compound rubric)→ 群名不是學生答案,要配代表卷面 crop
+                           // ⚠ 旗標語意是「群名不是學生答案」,不只是圖像判分:它同時控制
+                           //    ①抓代表 crop ②群名不加「」③回寫時不送 value(不可誤寫進值→分數表)
   reason: string           // 代表理由(多數分數成員的 AI 理由;查表題=同答同理由)
 }
 
@@ -109,10 +111,23 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
       // 那才是真正的「同樣的作答樣態」：同一組判定必定同分。
       //   ・應用題級分制 → levelResult（哪些要素有呈現）
       //   ・作圖題 VJ    → vjItemResults（逐項對／錯／空白）
+      //   ・複合非選題   → rubricScores（逐維度得分；2026-08-16 加）
       const lv = (d as { levelResult?: NonNullable<GradingDetail['levelResult']> })?.levelResult
       const vj = (d as { vjItemResults?: Array<{ idx: number; label?: string; verdict?: string }> })?.vjItemResults
+      const rs = (d as { rubricScores?: Array<{ dimension?: string; score?: number; maxScore?: number }> })?.rubricScores
       const isLevel = Array.isArray(lv?.found)
       const isVj = Array.isArray(vj) && vj.length > 0
+      // 2026-08-16 社會非選聚合:只有 compound_*（選一個＋寫理由）改用 rubric 向量分群。
+      //   判準是題型不是資料,才不會同一題型在不同班表現不同。全庫實測（只計實際存有向量的題）:
+      //     compound_circle_with_explain 87格→文字87群(100%)  compound_chain_table 58格→58群(100%)
+      //     compound_judge_with_explain  54格→54群(100%)      compound_check_with_explain 29格→29群(100%)
+      //     ——每個學生自己一群,等於沒有聚合;改用向量後降到 3~11 群。
+      //   ⛔ short_answer 不納入:618格→文字171群(28%),文字聚合本來就有效,
+      //      改用向量會把「深藍」「湛藍」併成一群,老師就看不到不同寫法了。
+      //   detail.questionType 在 compound_* 格 228/228 全部存在,可安全當判準;缺席時退回文字分群。
+      const isRubric = !isLevel && !isVj
+        && /^compound_/.test(String((d as { questionType?: string })?.questionType ?? ''))
+        && Array.isArray(rs) && rs.length > 0
 
       let rawText = ''
       let key = ''
@@ -135,12 +150,22 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
       } else if (isVj) {
         rawText = vj!.map((i) => `${i.label || `項目${i.idx}`}${i.verdict === 'correct' ? '✓' : i.verdict === 'blank' ? '（空白）' : '✗'}`).join('　')
         key = `__vj__${vj!.map((i) => `${i.idx}:${i.verdict}`).join('|')}`
+      } else if (isRubric) {
+        // 群名列「缺哪幾個維度」，與級分制同形狀（老師檢討時要找的是這群卡在哪一項）
+        const miss = rs!.filter((x) => Number(x.score ?? 0) < Number(x.maxScore ?? 0))
+        rawText = miss.length === 0
+          ? '全部做到'
+          : `缺：${miss.map((x) => `${x.dimension ?? '?'}(${Number(x.score ?? 0)}/${Number(x.maxScore ?? 0)})`).join('、')}`
+        // 鍵用「完整分數向量」而非「缺哪些維度」：影響 1/2 與 0/2 都算「缺影響」但總分差 1，
+        //   只有完整向量能保證同群必同分（實測 214 格逐維度加總 vs 總分 零不符）。
+        // 維度名排序後入鍵：AI 回傳的陣列順序不可信，排序才不會因順序漂移把同一判定裂成兩群。
+        key = `__rubric__${rs!.map((x) => `${x.dimension ?? '?'}=${Number(x.score ?? 0)}`).sort().join('|')}`
       } else {
         rawText = String(d?.studentAnswer ?? d?.studentFinalAnswer ?? '').trim()
         key = normAnswerValue(rawText)
       }
-      // user 拍板：老師拖曳＝老師的專業判斷，人工才是最標準的原則 → 圖像判分題一樣可整群改分
-      const isImageAgg = isLevel || isVj
+      // user 拍板：老師拖曳＝老師的專業判斷，人工才是最標準的原則 → 向量聚合題一樣可整群改分
+      const isImageAgg = isLevel || isVj || isRubric
       const locked = !isImageAgg
         && (SPECIAL_VALUES.has(rawText) || SPECIAL_VALUES.has(key) || key === '')
       const mx = Number(d?.maxScore)
