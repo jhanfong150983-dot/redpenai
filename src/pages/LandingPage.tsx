@@ -117,13 +117,13 @@ const GUARDRAILS = [
   { t: '改分留紀錄', d: '疑義當面提出、老師當場判斷，系統負責把紀錄留下來。' }
 ]
 
-const PRICE_ROWS = [
-  { label: '批改一份・20 題以內', pt: '5' },
-  { label: '21–40 題', pt: '10' },
-  { label: '41–60 題（標準段考卷）', pt: '15', hi: true },
-  { label: '61 題以上', pt: '20' },
-  { label: '家長報告（每位學生）', pt: '2' },
-  { label: '答案卷建置・檢討單・學情分析・成績報表', pt: '0', free: true }
+// 2026-08-27 user 拍板：廢除題數級距，改「按考卷內容計價」——定價細節與試算器移到公開頁 /pricing。
+const PRICE_HIGHLIGHTS = [
+  { label: '選擇／是非題', price: 'NT$ 0.15 /題' },
+  { label: '填空題（文字）', price: 'NT$ 0.2 /題' },
+  { label: '簡答／問答題', price: 'NT$ 0.3 /題' },
+  { label: '應用題・作圖題', price: 'NT$ 1.6–4.5 /題' },
+  { label: '檢討單・學情分析・成績報表・家長報告', price: '包含', free: true }
 ]
 
 const FAQS = [
@@ -487,11 +487,11 @@ export default function LandingPage() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="max-w-2xl animate-fade-in-up">
             <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-              按考卷規模計價，功能不分方案
+              按考卷內容計價，功能不分方案
             </h2>
             <p className="mt-4 text-lg text-gray-500">
               沒有「升級才能看學情報告」這種事。分析、檢討單、成績報表全部包含在內，
-              只有 AI 批改本身按考卷題數計算。
+              只有 AI 批改本身按考卷的題型組成計算——怎麼出卷，就怎麼計價。
             </p>
           </div>
 
@@ -502,15 +502,15 @@ export default function LandingPage() {
                   <thead>
                     <tr>
                       <th className="bg-gray-50 px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-gray-400">動作</th>
-                      <th className="bg-gray-50 px-5 py-3 text-right text-xs font-bold uppercase tracking-wider text-gray-400">點數</th>
+                      <th className="bg-gray-50 px-5 py-3 text-right text-xs font-bold uppercase tracking-wider text-gray-400">牌價</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {PRICE_ROWS.map((r) => (
-                      <tr key={r.label} className={`border-t border-gray-100 ${r.hi ? 'bg-blue-50/60 font-semibold' : ''}`}>
+                    {PRICE_HIGHLIGHTS.map((r) => (
+                      <tr key={r.label} className="border-t border-gray-100">
                         <td className="px-5 py-3 text-gray-700">{r.label}</td>
                         <td className={`px-5 py-3 text-right font-mono font-bold tabular-nums ${r.free ? 'text-green-600' : 'text-gray-900'}`}>
-                          {r.pt}
+                          {r.price}
                         </td>
                       </tr>
                     ))}
@@ -518,17 +518,24 @@ export default function LandingPage() {
                 </table>
               </div>
               <p className="mt-4 text-sm leading-relaxed text-gray-400">
-                批改失敗不扣點，重批照輪計算。個人儲值約每點 NT$1；學校學期約與學年約另有折扣。
+                批改失敗不收費，重批照輪計算。學校學期約與學年約另有折扣。
               </p>
+              <a href="/pricing" className="mt-3 inline-flex items-center gap-1.5 font-semibold text-gray-900 underline underline-offset-4 hover:text-gray-600">
+                打開試算器，直接估你的考卷<ArrowRight className="h-4 w-4" />
+              </a>
             </div>
 
             <div className="grid animate-fade-in-up animation-delay-100 gap-4">
               <div className="rounded-2xl bg-gray-900 p-7">
                 <h3 className="font-bold text-white">一份標準段考卷</h3>
-                <p className="mt-3 text-4xl font-bold tracking-tight text-white">約 NT$15</p>
+                <p className="mt-3 text-4xl font-bold tracking-tight text-white">約 NT$10–22</p>
                 <p className="mt-2 leading-relaxed text-gray-400">
-                  40–60 題，含檢討單與完整分析。一個 30 人班約 NT$450。
+                  依題型組成而定：選擇題為主的卷最省，應用題、作圖題較高。
+                  含檢討單與完整分析。
                 </p>
+                <a href="/pricing" className="mt-4 inline-flex items-center gap-1.5 font-semibold text-white underline underline-offset-4 hover:text-gray-300">
+                  用你的考卷試算<ArrowRight className="h-4 w-4" />
+                </a>
               </div>
               <div className="rounded-2xl border border-gray-200 bg-white p-7">
                 <h3 className="font-bold text-gray-900">先跑一輪再決定</h3>
