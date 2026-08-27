@@ -23,3 +23,17 @@ export function gradingPriceText(papers: number, totalQuestions: number | undefi
   const per = gradingActionPoints(totalQuestions)
   return `${papers} 份 × ${per} 點 = ${papers * per} 點`
 }
+
+// 2026-08-27 菜單制:每份點數由題型組成計算(exam-pricing 鏡像)。VITE_MENU_BILLING='1' 時
+// 取代題數級距文案;答案卷缺失時退回級距(價仍確定,server 端 fail-open 同向)。
+import { MENU_BILLING, computePointsPerSheet } from '@/lib/exam-pricing'
+export function gradingPriceTextSmart(
+  papers: number,
+  answerKey: unknown,
+  classSize: number,
+): string {
+  const ak = answerKey as { questions?: unknown[] } | undefined
+  if (!MENU_BILLING || !ak?.questions?.length) return gradingPriceText(papers, ak?.questions?.length)
+  const per = computePointsPerSheet(ak as Parameters<typeof computePointsPerSheet>[0], classSize)
+  return `${papers} 份 × ${per} 點 = ${papers * per} 點`
+}

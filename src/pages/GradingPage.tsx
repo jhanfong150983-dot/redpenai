@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
-import { FLAT_BILLING, gradingPriceText } from '@/lib/action-pricing'
+import { FLAT_BILLING, gradingPriceTextSmart } from '@/lib/action-pricing'
 import { dispatchInkBalance } from '@/lib/ink-events'
 import { dispatchSchoolWalletBalance } from '@/lib/school-billing'
 import { requestSync, waitForSync } from '@/lib/sync-events'
@@ -5929,7 +5929,7 @@ export default function GradingPage({
         </div>
         {FLAT_BILLING && (
           <div className="mb-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
-            費用:{gradingPriceText(unfinishedBuckets.total, (assignment?.answerKey?.questions as unknown[] | undefined)?.length)}
+            費用:{gradingPriceTextSmart(unfinishedBuckets.total, assignment?.answerKey, sortedStudents.length)}
             <span className="ml-1 text-xs text-sky-600">(固定價;失敗的卷不扣)</span>
           </div>
         )}
@@ -5955,7 +5955,7 @@ export default function GradingPage({
         <div>即將{advInkConfirm?.kind === 'phase_a' ? '重新截取答案' : '重新批改'} <strong>{advInkConfirm?.count ?? 0}</strong> 份作業。</div>
         {FLAT_BILLING && advInkConfirm?.kind !== 'phase_a' && (
           <div className="mt-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
-            費用:{gradingPriceText(advInkConfirm?.count ?? 0, (assignment?.answerKey?.questions as unknown[] | undefined)?.length)}
+            費用:{gradingPriceTextSmart(advInkConfirm?.count ?? 0, assignment?.answerKey, sortedStudents.length)}
             <span className="ml-1 text-xs text-sky-600">(固定價;失敗的卷不扣)</span>
           </div>
         )}
