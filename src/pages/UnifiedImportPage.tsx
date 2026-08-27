@@ -248,6 +248,11 @@ function SortableUploadCard({ id, displayIdx, url, rotation, expectedOrientation
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
+// 2026-08-27 user 拍板：照片/相機上傳全面停用（成本因素——照片卷無版面模板可持久化、
+//   classify 每份每次實付且無上限；PDF 掃描卷建模一次全班共用）。合作條款同步要求 PDF 匯入。
+//   保留原始程式碼路徑不刪，要恢復把這個旗標改 false 即可。
+const PHOTO_IMPORT_DISABLED = true
+
 export default function UnifiedImportPage({
   assignmentId,
   onBack,
@@ -992,8 +997,8 @@ export default function UnifiedImportPage({
       if (hasSubmission) {
         // Has submission → open preview
         void openPreview(student)
-      } else if (pdfOnly) {
-        // pdfOnly(行政考卷模式):無拍照/照片,點空白卡直接開單生 PDF 選檔(補考情境)
+      } else if (pdfOnly || PHOTO_IMPORT_DISABLED) {
+        // pdfOnly(行政考卷模式)/照片停用:無拍照/照片,點空白卡直接開單生 PDF 選檔
         triggerPdfUpload(student)
       } else {
         // No submission → toggle action sheet
@@ -1199,7 +1204,7 @@ export default function UnifiedImportPage({
                 </button>
 
                 {/* Action sheet popover — show BELOW the card(pdfOnly 隱藏) */}
-                {!pdfOnly && actionSheetStudent?.id === student.id && (
+                {!pdfOnly && !PHOTO_IMPORT_DISABLED && actionSheetStudent?.id === student.id && (
                   <>
                     {/* Backdrop */}
                     <div
