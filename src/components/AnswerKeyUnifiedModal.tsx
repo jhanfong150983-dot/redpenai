@@ -1223,7 +1223,18 @@ export default function AnswerKeyUnifiedModal({
 
                   {/* 答案卷模式 — 卡片式選擇器 */}
                   <div>
-                    <label className="block text-base font-semibold text-gray-800 mb-2">答案卷模式</label>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <label className="block text-base font-semibold text-gray-800">答案卷模式</label>
+                      {/* 2026-08-29 公版答案卷範本：標頭含角標＋座號塗卡格，全班同卷可油印，配合座號辨識匯入 */}
+                      <a
+                        href="/templates/redpen-answer-sheet-template.docx"
+                        download
+                        className="text-xs text-green-700 underline underline-offset-2 hover:text-green-800"
+                        title="含座號塗卡標頭的 Word 範本：編輯題目後直接列印，全班同卷可影印/油印；考後匯入可自動辨識座號"
+                      >
+                        下載公版答案卷範本 (Word)
+                      </a>
+                    </div>
                     {editMode ? (
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{answerSheetMode === 'with_questions' ? '一般模式（題目帶答案）' : '答案卷模式（題本分開）'}</p>
                     ) : (
