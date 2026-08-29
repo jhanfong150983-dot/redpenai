@@ -9,6 +9,7 @@ import { db } from '@/lib/db'
 import { ensureSubmissionDetails } from '@/lib/submission-details'
 import { withoutSchoolExamClassrooms, onlySchoolExamClassrooms } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
+import { withoutArchivedClassrooms, onlyArchivedClassrooms } from '@/lib/classroom-archive'
 import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import type {
   Assignment,
@@ -26,8 +27,9 @@ interface GradebookProps {
    * 2026-08-01 行政端成績統計（user 提議「對齊教師端」）：
    *   'teacher'(預設)=教師介面,濾掉學校考卷班級;'school'=行政端,只看學校考卷班級。
    *   兩邊共用同一個元件與同一個改分 modal——操作權仍分離(各自只看得到自己該管的班)。
+   * 2026-08-29 'archived'=歷史資料頁,只看已封存班級且全程唯讀（要改先恢復班級）。
    */
-  scope?: 'teacher' | 'school'
+  scope?: 'teacher' | 'school' | 'archived'
 }
 
 interface SimpleStats {
@@ -94,6 +96,8 @@ function normalizeWeightsToHundred(rawWeights: number[]): number[] {
 }
 
 export default function Gradebook({ embedded = false, scope = 'teacher' }: GradebookProps) {
+  // 2026-08-29 歷史資料（封存班級）＝唯讀：藏所有寫入 UI、modal 走 readOnly
+  const readOnly = scope === 'archived'
   // 2026-08-03 Step 11 階段 3:教師端多一個「學校考卷」檢視(唯讀、server 現抓)。
   //   行政端(scope='school')本來就在看學校考卷,不需要這個切換。
   const [view, setView] = useState<'mine' | 'school'>('mine')
@@ -144,6 +148,10 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
       columns: CustomColumn[]
       didUpdate: boolean
     }> => {
+      // 封存班級唯讀：連權重正規化 seed 這種背景寫入也跳過
+      if (scope === 'archived') {
+        return { assignments: sourceAssignments, columns: sourceColumns, didUpdate: false }
+      }
       const scoredAssignments = sourceAssignments.filter((a) => a.scoringMode !== 'unscored')
       if (scoredAssignments.length === 0) {
         return {
@@ -230,7 +238,13 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
       setIsLoading(true)
       const all = await db.classrooms.toArray()
       // 依年級→班序排序(DB 回傳是寫入順序;行政端 74 班不排會完全亂掉)
-      const list = sortClassroomsByName(scope === 'school' ? onlySchoolExamClassrooms(all) : withoutSchoolExamClassrooms(all))
+      const list = sortClassroomsByName(
+        scope === 'school'
+          ? onlySchoolExamClassrooms(all)
+          : scope === 'archived'
+            ? onlyArchivedClassrooms(withoutSchoolExamClassrooms(all))
+            : withoutArchivedClassrooms(withoutSchoolExamClassrooms(all))
+      )
       setClassrooms(list)
       if (list.length > 0) {
         // 保持 isLoading=true，讓第二個 useEffect（load grades）接手
@@ -364,8 +378,8 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
           }
         } catch { /* 離線時用本地資料 */ }
 
-        // 補推：把本地有分數但 Supabase 可能沒有的推上去
-        if (!hasPushedScoresRef.current) {
+        // 補推：把本地有分數但 Supabase 可能沒有的推上去（封存班級唯讀，跳過）
+        if (!hasPushedScoresRef.current && !readOnly) {
           hasPushedScoresRef.current = true
           const gradedSubs = subs.filter((s) => s.status === 'graded' && s.score != null)
           if (gradedSubs.length > 0) {
@@ -849,6 +863,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
               </select>
             </div>
             <div className="flex items-center gap-2">
+              {!readOnly && (
               <button
                 type="button"
                 onClick={handleAddColumn}
@@ -857,6 +872,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                 <Plus className="w-3 h-3" />
                 新增自訂欄位
               </button>
+              )}
               <button
                 type="button"
                 onClick={handleExportCsv}
@@ -899,10 +915,12 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                         <input
                           type="text"
                           value={col.name}
+                          readOnly={readOnly}
                           onChange={(e) => handleCustomNameChange(col.id, e.target.value)}
                           className="min-w-0 flex-1 bg-transparent text-center text-xs font-semibold text-amber-900 outline-none border-b border-transparent hover:border-amber-300 focus:border-amber-500 transition-colors truncate"
                           aria-label="欄位名稱"
                         />
+                        {!readOnly && (
                         <button
                           type="button"
                           onClick={() => handleDeleteColumn(col.id)}
@@ -911,6 +929,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                         >
                           <X className="w-3 h-3" />
                         </button>
+                        )}
                       </div>
                     </th>
                   ))}
@@ -936,6 +955,9 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                   {customColumns.map((col) => (
                     <th key={col.id} className="sticky top-9 z-20 bg-amber-50 p-0 text-center border-b border-amber-200">
                       <div className="h-9 flex items-center justify-center px-2">
+                        {readOnly ? (
+                          <span className="text-xs text-amber-800 tabular-nums">{col.weightPercent}</span>
+                        ) : (
                         <NumericInput
                           allowDecimal={true}
                           min={0}
@@ -943,12 +965,16 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                           onChange={(v) => handleCustomWeightChange(col.id, typeof v === 'number' ? v : Number(v) || 0)}
                           className="w-16 rounded border border-amber-300 bg-white px-2 py-0.5 text-xs text-center text-amber-800"
                         />
+                        )}
                       </div>
                     </th>
                   ))}
                   {filteredAssignments.map((a) => (
                     <th key={a.id} className="sticky top-9 z-20 bg-gray-50 p-0 text-center border-b border-gray-200">
                       <div className="h-9 flex items-center justify-center px-2">
+                        {readOnly ? (
+                          <span className="text-xs text-gray-700 tabular-nums">{toNonNegativeNumber(a.gradeWeightPercent, 0)}</span>
+                        ) : (
                         <NumericInput
                           allowDecimal={true}
                           min={0}
@@ -956,6 +982,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                           onChange={(v) => handleWeightChange(a.id, typeof v === 'number' ? v : Number(v) || 0)}
                           className="w-16 rounded border border-gray-300 px-2 py-0.5 text-xs text-center text-gray-700"
                         />
+                        )}
                       </div>
                     </th>
                   ))}
@@ -1040,9 +1067,11 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                           <input
                             type="number"
                             value={r.customScores[idx] ?? ''}
+                            readOnly={readOnly}
+                            disabled={readOnly}
                             onChange={(e) => handleCustomScoreChange(col.id, r.student.id, e.target.value)}
                             placeholder="—"
-                            className="w-20 rounded border border-amber-200 bg-white px-2 py-1 text-center text-sm tabular-nums text-gray-900 placeholder-gray-300 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-300"
+                            className="w-20 rounded border border-amber-200 bg-white px-2 py-1 text-center text-sm tabular-nums text-gray-900 placeholder-gray-300 outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-300 disabled:bg-transparent disabled:border-transparent"
                           />
                         </td>
                       ))}
@@ -1117,6 +1146,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
           student={detailCtx.student}
           assignment={detailCtx.assignment}
           classroomName={classrooms.find((c) => c.id === selectedClassroomId)?.name}
+          readOnly={readOnly}
           onClose={() => setDetailCtx(null)}
           onUpdated={(updated) => {
             setDetailCtx((prev) => (prev ? { ...prev, submission: updated } : prev))

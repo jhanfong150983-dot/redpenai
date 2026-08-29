@@ -3,6 +3,7 @@ import { ArrowLeft, BookOpen, Loader, Folder, Users } from 'lucide-react'
 import { db } from '@/lib/db'
 import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
+import { withoutArchivedClassrooms } from '@/lib/classroom-archive'
 import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import type { Assignment, Classroom, Folder as AssignmentFolder } from '@/lib/db'
 
@@ -63,7 +64,7 @@ export default function CorrectionSelect({
       try {
         const [assignmentData, classroomData, folderData] = await Promise.all([
           db.assignments.toArray(),
-          db.classrooms.toArray().then(withoutSchoolExamClassrooms).then(sortClassroomsByName),
+          db.classrooms.toArray().then(withoutSchoolExamClassrooms).then(withoutArchivedClassrooms).then(sortClassroomsByName),
           db.folders.where('type').equals('assignment').toArray()
         ])
 

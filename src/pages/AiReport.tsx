@@ -6,6 +6,7 @@ import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPane
 import ItemAnalysisSection from './ai-report/components/ItemAnalysisSection'
 import AnswerPatternsTab from './ai-report/components/AnswerPatternsTab'
 import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamClassroomIds } from '@/lib/school-exam'
+import { withoutArchivedClassrooms, onlyArchivedClassrooms } from '@/lib/classroom-archive'
 import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import { ParentReportTab } from './ai-report/components/ParentReportTab'
 import AssignmentOverviewSection from './ai-report/components/AssignmentOverviewSection'
@@ -83,6 +84,7 @@ type SyncClassroom = {
   id: string
   name?: string
   folder?: string | null
+  archived?: boolean
 }
 
 type SyncSubmission = {
@@ -290,9 +292,11 @@ type AiReportProps = {
    *   track＝「後續追蹤」：試題分析→概念雷達→家長報告——檢討完的深入分析與對外交付
    */
   variant?: 'exam' | 'track'
+  /** 2026-08-29 歷史資料頁：'archived'=只看已封存班級 */
+  classroomScope?: 'active' | 'archived'
 }
 
-export default function AiReport({ onBack, embedded, variant = 'exam' }: AiReportProps) {
+export default function AiReport({ onBack, embedded, variant = 'exam', classroomScope = 'active' }: AiReportProps) {
   const isTrack = variant === 'track'
   const pageEyebrow = isTrack ? '後續追蹤' : '檢討考卷'
   const [syncData, setSyncData] = useState<SyncPayload | null>(null)
@@ -414,11 +418,19 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           //   漏進學情報告的班級下拉——sync payload 在此源頭過濾,班級/作業/學生一次擋掉
           //   (同一判定模組 school-exam.ts;首頁/作業列表/匯入 2026-08-01 已堵、本頁漏網)。
           const schoolCrIds = schoolExamClassroomIds(data.classrooms ?? [])
+          // 2026-08-29 班級歸檔：主介面只看 active、歷史資料頁只看 archived（作業/學生跟著班級走）
+          const scopedClassrooms =
+            classroomScope === 'archived'
+              ? onlyArchivedClassrooms(withoutSchoolExamClassrooms(data.classrooms ?? []))
+              : withoutArchivedClassrooms(withoutSchoolExamClassrooms(data.classrooms ?? []))
+          const scopedClassIds = new Set(scopedClassrooms.map((c) => c.id))
           const filtered: SyncPayload = {
             ...data,
-            classrooms: withoutSchoolExamClassrooms(data.classrooms ?? []),
-            assignments: withoutSchoolExamAssignments((data.assignments ?? []) as any, schoolCrIds) as any,
-            students: (data.students ?? []).filter((st) => !st.classroomId || !schoolCrIds.has(st.classroomId))
+            classrooms: scopedClassrooms,
+            assignments: (withoutSchoolExamAssignments((data.assignments ?? []) as any, schoolCrIds) as any[]).filter(
+              (a) => !a.classroomId || scopedClassIds.has(a.classroomId)
+            ) as any,
+            students: (data.students ?? []).filter((st) => !st.classroomId || scopedClassIds.has(st.classroomId))
           }
           setSyncData(filtered)
           setReportData(report)

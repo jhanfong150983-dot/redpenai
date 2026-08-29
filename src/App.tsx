@@ -23,6 +23,7 @@ import type { LucideIcon } from 'lucide-react'
 
 // ── Lazy-loaded page components ──
 const ClassroomManagement = lazy(() => import('@/pages/ClassroomManagement'))
+const ClassroomArchivePage = lazy(() => import('@/pages/ClassroomArchivePage'))
 const AssignmentSetup = lazy(() => import('@/pages/AssignmentSetup'))
 const AnswerBank = lazy(() => import('@/pages/AnswerBank'))
 const AssignmentList = lazy(() => import('@/pages/AssignmentList'))
@@ -70,10 +71,12 @@ import {
   type Submission
 } from '@/lib/db'
 import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamClassroomIds } from '@/lib/school-exam'
+import { withoutArchivedClassrooms } from '@/lib/classroom-archive'
 
 type Page =
   | 'home'
   | 'classroom-management'
+  | 'classroom-archive'
   | 'assignment-setup'
   | 'answer-bank'
   | 'assignment-import-select'
@@ -359,6 +362,7 @@ const PAGE_PATH_MAP: Partial<Record<Page, string>> = {
   'school-admin-panel': '/school-admin',
   'answer-bank': '/answer-bank',
   'classroom-management': '/classroom',
+  'classroom-archive': '/classroom-archive',
   'gradebook': '/gradebook',
   'correction-history': '/correction-history',
   'ai-report': '/ai-report',
@@ -374,6 +378,7 @@ const PATH_PAGE_MAP: Record<string, Page> = {
   '/school-admin': 'school-admin-panel',
   '/answer-bank': 'answer-bank',
   '/classroom': 'classroom-management',
+  '/classroom-archive': 'classroom-archive',
   '/gradebook': 'gradebook',
   '/correction-history': 'correction-history',
   '/ai-report': 'ai-report',
@@ -1321,8 +1326,12 @@ function App() {
       ])
       // 學校考卷（行政端）不進教師介面:班級與作業都要濾,否則作業會以「未知班級」漏出來
       const schoolClassIds = schoolExamClassroomIds(allClassrooms)
-      const classrooms = withoutSchoolExamClassrooms(allClassrooms)
-      const assignments = withoutSchoolExamAssignments(allAssignments, schoolClassIds)
+      // 2026-08-29 已封存班級退出總覽統計（連同其作業）
+      const classrooms = withoutArchivedClassrooms(withoutSchoolExamClassrooms(allClassrooms))
+      const activeClassIds = new Set(classrooms.map((c) => c.id))
+      const assignments = withoutSchoolExamAssignments(allAssignments, schoolClassIds).filter((a) =>
+        activeClassIds.has(a.classroomId)
+      )
 
       const classroomMap = new Map<string, Classroom>(
         classrooms.map((classroom) => [classroom.id, classroom])
@@ -2485,7 +2494,13 @@ function App() {
                   onRequireInkTopUp={() => setCurrentPage('ink-topup')}
                 />
               ) : currentPage === 'classroom-management' ? (
-                <ClassroomManagement embedded onBack={() => setCurrentPage('home')} />
+                <ClassroomManagement
+                  embedded
+                  onBack={() => setCurrentPage('home')}
+                  onOpenArchive={() => setCurrentPage('classroom-archive')}
+                />
+              ) : currentPage === 'classroom-archive' ? (
+                <ClassroomArchivePage embedded onBack={() => setCurrentPage('classroom-management')} />
               ) : currentPage === 'assignment-import-select' ? (
                 <AssignmentImportSelect
                   embedded

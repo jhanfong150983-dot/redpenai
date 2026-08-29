@@ -12,13 +12,15 @@ import {
   X,
   HelpCircle,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  Archive
 } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { db, generateId } from '@/lib/db'
 import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
+import { withoutArchivedClassrooms, onlyArchivedClassrooms } from '@/lib/classroom-archive'
 import { requestSync, SYNC_COMPLETE_EVENT_NAME } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { checkFolderNameUnique } from '@/lib/utils'
@@ -29,6 +31,8 @@ import type { Classroom, Student } from '@/lib/db'
 interface ClassroomManagementProps {
   onBack?: () => void
   embedded?: boolean
+  /** 2026-08-29 開啟「歷史資料」頁（已封存班級的唯讀彙集＋恢復入口） */
+  onOpenArchive?: () => void
 }
 
 interface ClassroomWithStats {
@@ -61,13 +65,14 @@ const reorderList = <T,>(list: T[], draggedItem: T, targetItem: T): T[] => {
 const isSameStringArray = (a: string[], b: string[]) =>
   a.length === b.length && a.every((value, index) => value === b[index])
 
-export default function ClassroomManagement({ onBack, embedded = false }: ClassroomManagementProps) {
+export default function ClassroomManagement({ onBack, embedded = false, onOpenArchive }: ClassroomManagementProps) {
   // 引导式教学
   const tutorial = useTutorial('classroom')
   // 2026-07-22 modal 統一：window.confirm → 共用 ConfirmModal
   const confirmModal = useConfirm()
 
   const [items, setItems] = useState<ClassroomWithStats[]>([])
+  const [archivedCount, setArchivedCount] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -136,12 +141,16 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     setIsLoading(true)
     setError(null)
     try {
-      const [classrooms, students, assignments, folders] = await Promise.all([
+      const [allClassrooms, students, assignments, folders] = await Promise.all([
         db.classrooms.toArray().then(withoutSchoolExamClassrooms).then(sortClassroomsByName),
         db.students.toArray(),
         db.assignments.toArray(),
         db.folders.toArray()
       ])
+      // 2026-08-29 班級歸檔：主畫面只列 active；archived 留著算數量與「全夾已封存」的資料夾隱藏
+      const classrooms = withoutArchivedClassrooms(allClassrooms)
+      const archivedRows = onlyArchivedClassrooms(allClassrooms)
+      setArchivedCount(archivedRows.length)
 
       const list: ClassroomWithStats[] = classrooms.map((c) => {
         const studentCount = students.filter((s) => s.classroomId === c.id).length
@@ -153,9 +162,14 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
 
       // 載入空資料夾（classroom 類型）
       console.log('📦 資料庫中所有 folders:', folders)
+      // 「夾內有班且全部已封存」的資料夾不再以空資料夾形式出現（真正的空資料夾照常顯示）
+      const archivedFolderNames = new Set(
+        archivedRows.map((c) => c.folder).filter((f): f is string => !!f)
+      )
       const emptyClassroomFolders = folders
         .filter(f => f.type === 'classroom')
         .map(f => f.name)
+        .filter((name) => !archivedFolderNames.has(name))
       console.log('📁 載入班級空資料夾:', emptyClassroomFolders)
 
       // 再次驗證資料庫
@@ -1079,6 +1093,56 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
     )
   }
 
+  // 2026-08-29 班級歸檔：旗標只存在班級身上（資料夾歸檔=批次打旗標）。
+  //   歸檔後主畫面消失、恢復要到「歷史資料」頁（不對稱摩擦是刻意的：歸檔易、誤觸難、恢復要刻意）。
+  const handleArchiveClassroom = async (item: ClassroomWithStats) => {
+    const ok = await confirmModal({
+      tone: 'warning',
+      title: `將「${item.classroom.name}」存入歷史資料？`,
+      message: `此班有 ${item.studentCount} 位學生、${item.assignmentCount} 份作業。封存後不再出現在主畫面（唯讀），可到「歷史資料」頁查詢或恢復。`,
+      confirmLabel: '存入歷史資料',
+    })
+    if (!ok) return
+    setIsSaving(true)
+    setError(null)
+    try {
+      await db.classrooms.update(item.classroom.id, { archived: true })
+      requestSync()
+      await loadData()
+    } catch (e) {
+      console.error(e)
+      setError(e instanceof Error ? e.message : '封存班級失敗')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleArchiveFolder = async (folderName: string) => {
+    const targets = (classroomsByFolder.get(folderName) ?? []).map((i) => i.classroom)
+    if (targets.length === 0) return
+    const ok = await confirmModal({
+      tone: 'warning',
+      title: `將資料夾「${folderName}」存入歷史資料？`,
+      message: `資料夾內的 ${targets.length} 個班級會全部封存（唯讀），可到「歷史資料」頁逐班或整夾恢復。`,
+      confirmLabel: '全部存入歷史資料',
+    })
+    if (!ok) return
+    setIsSaving(true)
+    setError(null)
+    try {
+      for (const c of targets) {
+        await db.classrooms.update(c.id, { archived: true })
+      }
+      requestSync()
+      await loadData()
+    } catch (e) {
+      console.error(e)
+      setError(e instanceof Error ? e.message : '封存資料夾失敗')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const renderClassroomCard = (
     item: ClassroomWithStats,
     tutorialCard?: string
@@ -1173,6 +1237,19 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
           >
             <Users className="h-4 w-4" />
           </button>
+          {/* 歸檔 icon 自建/1Campus 一視同仁（歸檔只是旗標，不牴觸同步班級禁刪禁拖） */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              void handleArchiveClassroom(item)
+            }}
+            className="rounded-full border border-gray-200 bg-white p-1.5 text-gray-600 hover:bg-amber-50 hover:text-amber-700 disabled:opacity-60"
+            title="存入歷史資料"
+            disabled={isSaving}
+          >
+            <Archive className="h-4 w-4" />
+          </button>
           {!isSyncedClassroom(item.classroom) && (
             <button
               type="button"
@@ -1233,11 +1310,22 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
               {isLoading && (
                 <Loader className="h-4 w-4 animate-spin text-gray-400" />
               )}
+              {onOpenArchive && (
+                <button
+                  type="button"
+                  onClick={onOpenArchive}
+                  className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  title="已封存班級的唯讀查詢與恢復"
+                >
+                  <Archive className="h-4 w-4" />
+                  歷史資料{archivedCount > 0 ? ` (${archivedCount})` : ''}
+                </button>
+              )}
               <button
                 type="button"
                 data-tutorial="create-folder"
                 onClick={() => setIsCreateFolderModalOpen(true)}
-                className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className={`${onOpenArchive ? '' : 'ml-auto '}inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50`}
               >
                 <Plus className="h-4 w-4" />
                 建立資料夾
@@ -1388,6 +1476,21 @@ export default function ClassroomManagement({ onBack, embedded = false }: Classr
                                 <span className="ml-auto text-xs text-gray-500">
                                   {folderClassrooms.length} 班
                                 </span>
+                              </button>
+                            )}
+                            {/* 資料夾歸檔：1Campus 資料夾也要有（放在同步保護 guard 外） */}
+                            {folderClassrooms.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  void handleArchiveFolder(folder)
+                                }}
+                                className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-amber-50 hover:text-amber-700"
+                                title="整個資料夾存入歷史資料"
+                                disabled={isSaving}
+                              >
+                                <Archive className="h-4 w-4" />
                               </button>
                             )}
                             {!syncedFolderSet.has(folder) && (

@@ -3,6 +3,7 @@ import { ArrowLeft, BookOpen, Loader, Folder, Upload, Users } from 'lucide-react
 import { db } from '@/lib/db'
 import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamClassroomIds } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
+import { withoutArchivedClassrooms } from '@/lib/classroom-archive'
 import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import type { Assignment, Classroom, Folder as AssignmentFolder } from '@/lib/db'
 
@@ -80,8 +81,13 @@ export default function AssignmentImportSelect({
         ])
         // 2026-08-01 學校考卷（行政端）不進教師介面——班級與作業都要濾
         const schoolClassIds = schoolExamClassroomIds(allClassroomData)
-        const classroomData = sortClassroomsByName(withoutSchoolExamClassrooms(allClassroomData))
-        const assignmentData = withoutSchoolExamAssignments(allAssignmentData, schoolClassIds)
+        const classroomData = sortClassroomsByName(
+          withoutArchivedClassrooms(withoutSchoolExamClassrooms(allClassroomData))
+        )
+        const activeClassIds = new Set(classroomData.map((c) => c.id))
+        const assignmentData = withoutSchoolExamAssignments(allAssignmentData, schoolClassIds).filter(
+          (a) => activeClassIds.has(a.classroomId)
+        )
 
         const classroomMap = new Map(classroomData.map((c) => [c.id, c]))
         const withClassroom: AssignmentWithClassroom[] = assignmentData.map((a) => ({

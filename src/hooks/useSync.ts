@@ -709,6 +709,8 @@ export function useSync(options: UseSyncOptions = {}) {
         name: c.name,
         folder: c.folder === undefined ? null : c.folder,
         grade: c.grade ?? null,
+        // 2026-08-29 班級歸檔：恢復=false 是實值，不可送 null/undefined
+        archived: c.archived === true,
         updatedAt: c.updatedAt
       }))
 
@@ -1298,6 +1300,10 @@ export function useSync(options: UseSyncOptions = {}) {
     const localSchoolIdMap = new Map(
       existingClassrooms.map((c) => [c.id, (c as Classroom & { school_id?: string }).school_id])
     )
+    // 2026-08-29 班級歸檔：新 server 永遠帶布林 archived；缺欄=舊 server（部署過渡期）→保留本地值
+    const localArchivedMap = new Map(
+      existingClassrooms.map((c) => [c.id, c.archived])
+    )
 
     const normalizedClassrooms: Classroom[] = classrooms
       .filter((c: Classroom) => c?.id && !deletedClassroomSet.has(c.id))
@@ -1315,12 +1321,16 @@ export function useSync(options: UseSyncOptions = {}) {
         const finalGrade = cloudGrade !== undefined ? cloudGrade : localGradeMap.get(c.id)
         const cloudSchoolId = (c as Classroom & { school_id?: string }).school_id
         const finalSchoolId = cloudSchoolId !== undefined ? cloudSchoolId : localSchoolIdMap.get(c.id)
+        const cloudArchived = (c as Classroom & { archived?: unknown }).archived
+        const finalArchived =
+          typeof cloudArchived === 'boolean' ? cloudArchived : localArchivedMap.get(c.id) === true
         return {
           id: c.id,
           name: c.name,
           folder: finalFolder,
           school_id: finalSchoolId,
           grade: finalGrade,
+          archived: finalArchived,
           updatedAt: toMillis(
             (c as Classroom & { updatedAt?: unknown }).updatedAt ??
               (c as { updated_at?: unknown }).updated_at

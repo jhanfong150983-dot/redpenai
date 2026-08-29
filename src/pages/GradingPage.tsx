@@ -2759,6 +2759,7 @@ export default function GradingPage({
       const out: typeof siblingClasses = []
       for (const a of sibs) {
         const cls = await db.classrooms.get(a.classroomId)
+        if (cls?.archived === true) continue // 2026-08-29 已封存班級不進「＋新增班級」
         const cnt = await db.submissions.where('assignmentId').equals(a.id).count()
         out.push({ assignmentId: a.id, classroomId: a.classroomId, className: cls?.name ?? '未知班級', uploadedCount: cnt, hasAnswerKey: !!a.answerKey })
       }

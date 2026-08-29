@@ -3,12 +3,15 @@ import { ChevronDown, ChevronRight, History, Loader2 } from 'lucide-react'
 import { db } from '@/lib/db'
 import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
+import { withoutArchivedClassrooms, onlyArchivedClassrooms } from '@/lib/classroom-archive'
 import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import type { Classroom, Student } from '@/lib/db'
 
 type CorrectionHistoryProps = {
   onBack: () => void
   embedded?: boolean
+  /** 2026-08-29 歷史資料頁：'archived'=只列已封存班級（本頁本來就是唯讀查詢） */
+  classroomScope?: 'active' | 'archived'
 }
 
 type AssignmentMeta = {
@@ -101,7 +104,7 @@ function buildStudentRedoUrl(questionId: string, submissionId: string | null | u
   return `/api/storage/download?${params.toString()}`
 }
 
-export default function CorrectionHistory({ onBack, embedded }: CorrectionHistoryProps) {
+export default function CorrectionHistory({ onBack, embedded, classroomScope = 'active' }: CorrectionHistoryProps) {
   const [classrooms, setClassrooms] = useState<Classroom[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const [selectedClassroomId, setSelectedClassroomId] = useState('')
@@ -117,11 +120,16 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
     let canceled = false
     void (async () => {
       const [classroomRows, studentRows] = await Promise.all([
-        db.classrooms.toArray().then(withoutSchoolExamClassrooms).then(sortClassroomsByName),
+        db.classrooms
+          .toArray()
+          .then(withoutSchoolExamClassrooms)
+          .then((rows) =>
+            classroomScope === 'archived' ? onlyArchivedClassrooms(rows) : withoutArchivedClassrooms(rows)
+          )
+          .then(sortClassroomsByName),
         db.students.toArray()
       ])
       if (canceled) return
-      classroomRows.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
       setClassrooms(classroomRows)
       setStudents(studentRows)
       if (classroomRows.length > 0 && !selectedClassroomId) {
