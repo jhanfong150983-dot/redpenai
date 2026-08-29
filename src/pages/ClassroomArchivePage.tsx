@@ -12,21 +12,19 @@ import { groupClassroomsByFolder } from '@/lib/classroom-order'
 import { requestSync, SYNC_COMPLETE_EVENT_NAME } from '@/lib/sync-events'
 import Gradebook from '@/pages/Gradebook'
 import AiReport from '@/pages/AiReport'
-import CorrectionHistory from '@/pages/CorrectionHistory'
 
 interface ClassroomArchivePageProps {
   onBack: () => void
   embedded?: boolean
 }
 
-type TabKey = 'classes' | 'gradebook' | 'exam' | 'track' | 'corrections'
+type TabKey = 'classes' | 'gradebook' | 'exam' | 'track'
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'classes', label: '班級恢復' },
   { key: 'gradebook', label: '成績統計' },
   { key: 'exam', label: '檢討考卷' },
-  { key: 'track', label: '後續追蹤' },
-  { key: 'corrections', label: '訂正紀錄' }
+  { key: 'track', label: '後續追蹤' }
 ]
 
 export default function ClassroomArchivePage({ onBack, embedded = false }: ClassroomArchivePageProps) {
@@ -237,14 +235,6 @@ export default function ClassroomArchivePage({ onBack, embedded = false }: Class
                 key={`track-${reloadTick}`}
                 embedded
                 variant="track"
-                classroomScope="archived"
-                onBack={() => setActiveTab('classes')}
-              />
-            )}
-            {activeTab === 'corrections' && (
-              <CorrectionHistory
-                key={`ch-${reloadTick}`}
-                embedded
                 classroomScope="archived"
                 onBack={() => setActiveTab('classes')}
               />
