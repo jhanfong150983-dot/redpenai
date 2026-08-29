@@ -3247,18 +3247,7 @@ export default function AssignmentSetup({
                   {modalMode === 'edit' && <p className="mt-1 text-xs text-slate-400">領域在建立後無法更改</p>}
                 </div>
                 <div>
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <label className="block text-sm font-medium text-gray-700">答案卷模式</label>
-                    {/* 2026-08-29 公版答案卷範本：標頭含角標＋座號塗卡格（v2 無 QR、全班同卷可油印），配合座號辨識匯入 */}
-                    <a
-                      href="/templates/redpen-answer-sheet-template.docx"
-                      download
-                      className="text-xs text-green-700 underline underline-offset-2 hover:text-green-800"
-                      title="含座號塗卡標頭的 Word 範本：編輯題目後直接列印，全班同卷可影印/油印；考後匯入可自動辨識座號"
-                    >
-                      下載公版答案卷範本 (Word)
-                    </a>
-                  </div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">答案卷模式</label>
                   {modalMode === 'edit' ? (
                     <p className="text-sm text-gray-700 px-3 py-2.5 bg-slate-100 rounded-xl border border-gray-300">
                       {createAnswerSheetMode === 'with_questions' ? '一般模式（題目帶答案）' : '答案卷模式（題本分開）'}

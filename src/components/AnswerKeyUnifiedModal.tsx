@@ -227,6 +227,27 @@ export default function AnswerKeyUnifiedModal({
 
   const metadataValid = title.trim() !== '' && domain !== ''
 
+  // 2026-08-29 公版答案卷範本下載（動態產生：帶校名/名稱/科目；docx 套件 dynamic import）
+  const [isGeneratingTemplate, setIsGeneratingTemplate] = useState(false)
+  const handleDownloadTemplate = async () => {
+    if (!metadataValid || isGeneratingTemplate) return
+    setIsGeneratingTemplate(true)
+    try {
+      const { generateAnswerSheetTemplateDocx } = await import('@/lib/answerSheetTemplate')
+      const blob = await generateAnswerSheetTemplateDocx({ examTitle: title.trim(), domain })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `答案卷範本_${title.trim()}.docx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('答案卷範本產生失敗', err)
+    } finally {
+      setIsGeneratingTemplate(false)
+    }
+  }
+
   // Auto-complete/uncomplete metadata step (skip in edit mode — steps are pre-completed)
   useEffect(() => {
     if (editMode) return
@@ -1225,15 +1246,20 @@ export default function AnswerKeyUnifiedModal({
                   <div>
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <label className="block text-base font-semibold text-gray-800">答案卷模式</label>
-                      {/* 2026-08-29 公版答案卷範本：標頭含角標＋座號塗卡格，全班同卷可油印，配合座號辨識匯入 */}
-                      <a
-                        href="/templates/redpen-answer-sheet-template.docx"
-                        download
-                        className="text-xs text-green-700 underline underline-offset-2 hover:text-green-800"
-                        title="含座號塗卡標頭的 Word 範本：編輯題目後直接列印，全班同卷可影印/油印；考後匯入可自動辨識座號"
+                      {/* 2026-08-29 公版答案卷範本改「動態產生」：帶入校名/名稱/科目；名稱與領域必填才可下載 */}
+                      <button
+                        type="button"
+                        disabled={!metadataValid || isGeneratingTemplate}
+                        onClick={() => void handleDownloadTemplate()}
+                        className="text-xs text-green-700 underline underline-offset-2 hover:text-green-800 disabled:text-gray-400 disabled:no-underline disabled:cursor-not-allowed"
+                        title={
+                          metadataValid
+                            ? '產生 Word 範本：標題與科目自動帶入，標頭含座號劃卡格；全班同卷可影印/油印，考後匯入可自動辨識座號'
+                            : '請先填寫「答案卷名稱」與「領域」，範本會自動帶入這些資訊'
+                        }
                       >
-                        下載公版答案卷範本 (Word)
-                      </a>
+                        {isGeneratingTemplate ? '產生中…' : '下載公版答案卷範本 (Word)'}
+                      </button>
                     </div>
                     {editMode ? (
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{answerSheetMode === 'with_questions' ? '一般模式（題目帶答案）' : '答案卷模式（題本分開）'}</p>
