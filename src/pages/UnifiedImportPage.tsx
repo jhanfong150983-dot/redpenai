@@ -53,6 +53,8 @@ import PdfImportPreviewDialog, {
   type PdfImportPreviewResult,
 } from '@/components/PdfImportPreviewDialog'
 import { buildApiUrl } from '@/lib/api-base'
+import { recognizeSeatFromPage } from '@/lib/omrRecognition'
+import OmrImportConfirmDialog, { type OmrPageItem } from '@/components/OmrImportConfirmDialog'
 
 // 2026-05-26 老師端拍照入口從 webRTC CameraCapturePage 改為 native camera。
 // 桌面（觸控不可用）只開放上傳、平板/手機開放拍照+上傳。
@@ -295,6 +297,11 @@ export default function UnifiedImportPage({
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const actionStudentRef = useRef<Student | null>(null)
+
+  // 2026-08-29 座號辨識匯入（第 3 期）：'seq'=照順序（現行）、'omr'=公版答案卷劃卡辨識
+  const [importMode, setImportMode] = useState<'seq' | 'omr'>('seq')
+  const [omrPages, setOmrPages] = useState<OmrPageItem[]>([])
+  const [showOmrConfirm, setShowOmrConfirm] = useState(false)
 
   // ── Preview modal ───────────────────────────────────────────────────────
   const [previewStudent, setPreviewStudent] = useState<Student | null>(null)
@@ -693,6 +700,58 @@ export default function UnifiedImportPage({
     }
   }, [])
 
+  // 2026-08-29 座號辨識模式：轉圖後逐頁跑劃卡辨識（純 code），開確認畫面
+  const convertPdfsAndRecognize = useCallback(async (fileArray: File[]) => {
+    setError(null)
+    setIsBatchProcessing(true)
+    setBatchProgress('正在轉換 PDF...')
+    const items: OmrPageItem[] = []
+    try {
+      for (let fi = 0; fi < fileArray.length; fi++) {
+        const file = fileArray[fi]
+        const blobs = await convertPdfToImages(file, {
+          onProgress: (current, total) => {
+            setBatchProgress(
+              `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name} — 第 ${current}/${total} 頁`,
+            )
+          },
+        })
+        if (blobs.length === 0) throw new Error(`${file.name}：無法讀取 PDF 頁面`)
+        for (let pi = 0; pi < blobs.length; pi++) {
+          items.push({
+            id: `${fi}-${pi}`,
+            blob: blobs[pi],
+            url: URL.createObjectURL(blobs[pi]),
+            originLabel: fileArray.length > 1 ? `${file.name} 第${pi + 1}頁` : `第 ${pi + 1} 頁`,
+            // 先佔位，下一輪逐頁辨識時回填
+            result: { anchorsFound: false, seatNumber: null, tens: null, ones: null, handwrittenCropUrl: null, headerCropUrl: null },
+          })
+        }
+      }
+      for (let i = 0; i < items.length; i++) {
+        setBatchProgress(`正在辨識座號（${i + 1}/${items.length}）...`)
+        items[i] = { ...items[i], result: await recognizeSeatFromPage(items[i].blob) }
+      }
+      setOmrPages(items)
+      setShowOmrConfirm(true)
+    } catch (e) {
+      console.error(e)
+      items.forEach((p) => URL.revokeObjectURL(p.url))
+      setError(e instanceof Error ? e.message : '處理檔案失敗')
+    } finally {
+      setIsBatchProcessing(false)
+      setBatchProgress('')
+    }
+  }, [])
+
+  const cleanupOmrPages = useCallback(() => {
+    setOmrPages((prev) => {
+      prev.forEach((p) => URL.revokeObjectURL(p.url))
+      return []
+    })
+    setShowOmrConfirm(false)
+  }, [])
+
   const handlePdfInputChange = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const student = actionStudentRef.current
@@ -751,10 +810,14 @@ export default function UnifiedImportPage({
       event.target.value = ''
 
       if (fileArray.length === 0) return
-      await convertPdfsAndPreview(fileArray)
+      if (importMode === 'omr') {
+        await convertPdfsAndRecognize(fileArray)
+      } else {
+        await convertPdfsAndPreview(fileArray)
+      }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [importMode],
   )
 
   const handleImportPreviewCancel = useCallback(() => {
@@ -1100,6 +1163,29 @@ export default function UnifiedImportPage({
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             </button>
+            {/* 2026-08-29 批次匯入模式：照順序（現行）/ 座號辨識（公版答案卷劃卡） */}
+            <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-0.5 text-sm">
+              <button
+                type="button"
+                onClick={() => setImportMode('seq')}
+                className={`rounded-lg px-3 py-1.5 font-medium transition-colors ${
+                  importMode === 'seq' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+                title="掃描檔已按座號排序，依序分配給學生"
+              >
+                照順序
+              </button>
+              <button
+                type="button"
+                onClick={() => setImportMode('omr')}
+                className={`rounded-lg px-3 py-1.5 font-medium transition-colors ${
+                  importMode === 'omr' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}
+                title="使用公版答案卷（標頭含座號劃卡格）時，自動辨識每頁座號，不需按號碼排序"
+              >
+                座號辨識
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => batchPdfInputRef.current?.click()}
@@ -1585,6 +1671,21 @@ export default function UnifiedImportPage({
           onConfirm={handleImportPreviewConfirm}
           onCancel={handleImportPreviewCancel}
           rotateBlob={rotateImageBlob}
+        />
+      )}
+
+      {/* 座號辨識確認畫面（第 3 期）——輸出同 PdfImportPreviewResult，重用覆蓋確認＋儲存管線 */}
+      {showOmrConfirm && omrPages.length > 0 && (
+        <OmrImportConfirmDialog
+          pages={omrPages}
+          students={students.map((s) => ({ id: s.id, seatNumber: s.seatNumber, name: s.name }))}
+          pagesPerStudent={pagesPerStudent}
+          onConfirm={async (result) => {
+            setShowOmrConfirm(false)
+            await handleImportPreviewConfirm(result)
+            cleanupOmrPages()
+          }}
+          onCancel={cleanupOmrPages}
         />
       )}
     </div>
