@@ -336,11 +336,14 @@ export default function AssignmentList({
 
   // 完整模板 ID 集合（含空白模板），用來判斷 assignment 綁的答案卷是否已被刪除
   const [allTemplateIds, setAllTemplateIds] = useState<Set<string>>(new Set())
+  // 2026-08-29 卡片外側顯示綁定的答案卷名稱（user 要求）；含空白模板，名稱查得到就顯示
+  const [templateNameMap, setTemplateNameMap] = useState<Map<string, string>>(new Map())
 
   useEffect(() => {
     db.answerKeyTemplates.toArray().then((all) => {
       setAllTemplates(all.filter((t) => t.answerKey?.questions?.length))
       setAllTemplateIds(new Set(all.map((t) => t.id)))
+      setTemplateNameMap(new Map(all.map((t) => [t.id, t.name])))
     })
   }, [assignments])
 
@@ -1331,6 +1334,9 @@ export default function AssignmentList({
             <p className="text-sm text-gray-600">
               {assignment.classroom?.name || '未知班級'} · 共 {assignment.totalPages} 頁 ·
               已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
+              {assignment.answerKeyTemplateId && templateNameMap.get(assignment.answerKeyTemplateId) && (
+                <> · 答案卷：{templateNameMap.get(assignment.answerKeyTemplateId)}</>
+              )}
             </p>
             {isAnswerKeyDeleted(assignment) ? (
               <p className="mt-1 text-xs text-red-500">
