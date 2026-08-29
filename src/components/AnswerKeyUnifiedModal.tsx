@@ -100,6 +100,32 @@ function SortablePageCard({ item, onRotate, onDelete, canDelete }: { item: PageI
 
 // ─── types ─────────────��────────────────────────────────────────────────────
 
+// 2026-08-29 基本資料草稿（user 回報：打好字下載範本後關掉，下次要全部重打）。
+//   只存文字欄位（名稱/年級/領域/模式），不存上傳圖；建立成功即清除。localStorage=單機便利、非 SSoT。
+const METADATA_DRAFT_KEY = 'redpen-answerkey-draft'
+interface MetadataDraft {
+  title?: string
+  grade?: number
+  subjectLabel?: string
+  domain?: string
+  answerSheetMode?: 'with_questions' | 'answer_only'
+}
+function readMetadataDraft(): MetadataDraft | null {
+  try {
+    const raw = localStorage.getItem(METADATA_DRAFT_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as MetadataDraft
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+function clearMetadataDraft() {
+  try {
+    localStorage.removeItem(METADATA_DRAFT_KEY)
+  } catch { /* noop */ }
+}
+
 type UnifiedStep = 'metadata' | 'extract' | 'editing'
 
 const STEP_CONFIG: { key: UnifiedStep; label: string; shortLabel: string }[] = [
@@ -223,17 +249,61 @@ export default function AnswerKeyUnifiedModal({
   )
 
   // ── Step 1: metadata state ────────���───────────────────────────────────────
-  const [title, setTitle] = useState(initialTitle)
-  const [domain, setDomain] = useState(initialDomain)
+  // 建立模式：從 localStorage 草稿還原（modal 每次開啟重新掛載，initializer 讀一次即可）
+  const draftRef = useRef<MetadataDraft | null>(editMode ? null : readMetadataDraft())
+  const draft = draftRef.current
+  const [title, setTitle] = useState(initialTitle || draft?.title || '')
+  const [domain, setDomain] = useState(initialDomain || draft?.domain || '')
   // 2026-08-29 年級→領域（user 拍板：選年級才可選領域，依課綱分科）。
   //   grade/subjectLabel 只給 UI 與範本列印用；存檔一律存傘狀 domain（社會-歷史→社會），
   //   因為 server 批改管線寫死 domain === '社會'/'自然' 等分支，細科目直接存會掉出既有規則。
-  const [grade, setGrade] = useState<number | ''>(initialGrade ?? '')
-  const [subjectLabel, setSubjectLabel] = useState('')
+  const [grade, setGrade] = useState<number | ''>(initialGrade ?? draft?.grade ?? '')
+  const [subjectLabel, setSubjectLabel] = useState(() => {
+    // 草稿的科目要仍在該年級的清單裡才還原（清單改版防呆）
+    if (!draft?.subjectLabel || draft?.grade == null) return ''
+    return subjectOptionsForGrade(draft.grade).some((s) => s.label === draft.subjectLabel)
+      ? draft.subjectLabel
+      : ''
+  })
+  const [draftRestored, setDraftRestored] = useState(
+    () => !editMode && !!draft && !!(draft.title || draft.grade || draft.domain)
+  )
   // docType UI 已移除（AI 直接從圖片視覺判斷雙欄/單欄）；保留變數供 sync 與 onExtract 傳遞
   const [docType] = useState<'worksheet' | 'exam'>(initialDocType)
   const [folder] = useState(initialFolder)
-  const [answerSheetMode, setAnswerSheetMode] = useState<'with_questions' | 'answer_only'>(initialAnswerSheetMode)
+  const [answerSheetMode, setAnswerSheetMode] = useState<'with_questions' | 'answer_only'>(
+    editMode ? initialAnswerSheetMode : (draft?.answerSheetMode ?? initialAnswerSheetMode)
+  )
+
+  // 草稿自動保存（只在建立模式）；全空就清掉
+  useEffect(() => {
+    if (editMode) return
+    const empty = !title.trim() && grade === '' && !subjectLabel && !domain
+    if (empty) {
+      clearMetadataDraft()
+      return
+    }
+    try {
+      const payload: MetadataDraft = {
+        title,
+        grade: grade === '' ? undefined : grade,
+        subjectLabel,
+        domain,
+        answerSheetMode
+      }
+      localStorage.setItem(METADATA_DRAFT_KEY, JSON.stringify(payload))
+    } catch { /* noop */ }
+  }, [editMode, title, grade, subjectLabel, domain, answerSheetMode])
+
+  const handleClearDraft = () => {
+    clearMetadataDraft()
+    setTitle('')
+    setGrade('')
+    setSubjectLabel('')
+    setDomain('')
+    setAnswerSheetMode('with_questions')
+    setDraftRestored(false)
+  }
 
   const metadataValid = title.trim() !== '' && domain !== '' && (editMode || grade !== '')
 
@@ -1066,6 +1136,7 @@ export default function AnswerKeyUnifiedModal({
         grade: grade === '' ? undefined : grade,
         reextracted: didReextract,
       })
+      if (!editMode) clearMetadataDraft() // 建立成功→草稿功成身退
     } finally {
       setIsSaving(false)
     }
@@ -1222,6 +1293,19 @@ export default function AnswerKeyUnifiedModal({
                     <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
                       <Lock className="w-3.5 h-3.5 shrink-0" />
                       <span>編輯模式下基本資料僅供瀏覽，如需修改請建立新答案卷</span>
+                    </div>
+                  )}
+                  {/* 上次未完成的草稿提示 */}
+                  {draftRestored && (
+                    <div className="flex items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+                      <span>已恢復上次未儲存的輸入</span>
+                      <button
+                        type="button"
+                        onClick={handleClearDraft}
+                        className="shrink-0 underline underline-offset-2 hover:text-green-900"
+                      >
+                        清除重填
+                      </button>
                     </div>
                   )}
                   {/* 答案卷名稱 */}
