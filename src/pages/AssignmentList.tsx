@@ -1334,10 +1334,12 @@ export default function AssignmentList({
             <p className="text-sm text-gray-600">
               {assignment.classroom?.name || '未知班級'} · 共 {assignment.totalPages} 頁 ·
               已上傳 {assignment.uploadedCount ?? 0} 份 · 已批改 {assignment.gradedCount ?? 0} 份
-              {assignment.answerKeyTemplateId && templateNameMap.get(assignment.answerKeyTemplateId) && (
-                <> · 答案卷：{templateNameMap.get(assignment.answerKeyTemplateId)}</>
-              )}
             </p>
+            {assignment.answerKeyTemplateId && templateNameMap.get(assignment.answerKeyTemplateId) && (
+              <p className="mt-0.5 truncate text-xs text-gray-500">
+                答案卷：{templateNameMap.get(assignment.answerKeyTemplateId)}
+              </p>
+            )}
             {isAnswerKeyDeleted(assignment) ? (
               <p className="mt-1 text-xs text-red-500">
                 答案卷已刪除，請重新選擇答案卷。
