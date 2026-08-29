@@ -32,6 +32,7 @@ import {
 } from '@/lib/db'
 import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
+import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages, reanalyzeQuestions, tagConceptsForAnswerKey } from '@/lib/gemini'
@@ -2860,11 +2861,7 @@ export default function AssignmentSetup({
                   onChange={(e) => setSelectedClassroomId(e.target.value)}
                   className="px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                 >
-                  {classrooms.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
+                  <ClassroomSelectOptions classrooms={classrooms} />
                 </select>
                 {isAssignmentsLoading && (
                   <Loader className="w-4 h-4 text-gray-400 animate-spin" />
@@ -3212,9 +3209,7 @@ export default function AssignmentSetup({
                     className={`w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-colors ${modalMode === 'edit' ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'}`}
                     disabled={isSubmitting || modalMode === 'edit'}
                   >
-                    {classrooms.map((classroom) => (
-                      <option key={classroom.id} value={classroom.id}>{classroom.name}</option>
-                    ))}
+                    <ClassroomSelectOptions classrooms={classrooms} />
                   </select>
                   {modalMode === 'edit' && <p className="mt-1 text-xs text-slate-400">班級在建立後無法更改</p>}
                 </div>
@@ -3668,11 +3663,7 @@ export default function AssignmentSetup({
                   disabled={isSavingAnswerKey}
                 >
                   <option value="">請選擇</option>
-                  {classrooms.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
+                  <ClassroomSelectOptions classrooms={classrooms} />
                 </select>
               </div>
 

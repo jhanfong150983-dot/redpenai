@@ -9,6 +9,7 @@ import { db } from '@/lib/db'
 import { ensureSubmissionDetails } from '@/lib/submission-details'
 import { withoutSchoolExamClassrooms, onlySchoolExamClassrooms } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
+import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import type {
   Assignment,
   Classroom,
@@ -822,11 +823,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                 disabled={!hasClassrooms}
               >
                 {hasClassrooms ? (
-                  classrooms.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))
+                  <ClassroomSelectOptions classrooms={classrooms} />
                 ) : (
                   <option value="">尚未建立班級</option>
                 )}

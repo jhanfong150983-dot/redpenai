@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Lock, School, RefreshCw } from 'lucide-react'
 import SubmissionDetailModal from '@/components/SubmissionDetailModal'
 import type { Assignment, Student, Submission } from '@/lib/db'
+import { compareClassroomName } from '@/lib/classroom-order'
 
 /**
  * 2026-08-03 Step 11 階段 3:教師端唯讀學校考卷成績。
@@ -276,11 +277,13 @@ export default function SchoolExamReadOnly() {
             className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-green-500"
             aria-label="選擇班級"
           >
-            {currentExam.classes.map((c) => (
-              <option key={c.campusClassId} value={c.campusClassId}>
-                {c.className}
-              </option>
-            ))}
+            {[...currentExam.classes]
+              .sort((a, b) => compareClassroomName(a.className, b.className))
+              .map((c) => (
+                <option key={c.campusClassId} value={c.campusClassId}>
+                  {c.className}
+                </option>
+              ))}
           </select>
         )}
 

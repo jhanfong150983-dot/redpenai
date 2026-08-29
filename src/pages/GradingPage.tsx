@@ -21,6 +21,7 @@ import {
   BarChart3
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
+import { compareClassroomName } from '@/lib/classroom-order'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import { FLAT_BILLING, gradingPriceTextSmart } from '@/lib/action-pricing'
 import { dispatchInkBalance } from '@/lib/ink-events'
@@ -2761,7 +2762,8 @@ export default function GradingPage({
         const cnt = await db.submissions.where('assignmentId').equals(a.id).count()
         out.push({ assignmentId: a.id, classroomId: a.classroomId, className: cls?.name ?? '未知班級', uploadedCount: cnt, hasAnswerKey: !!a.answerKey })
       }
-      out.sort((x, y) => x.className.localeCompare(y.className, 'zh-Hant'))
+      // 2026-08-29 改用共用比較子：純 localeCompare 會把「10年1班」排在「2年1班」前
+      out.sort((x, y) => compareClassroomName(x.className, y.className))
       if (!cancelled) setSiblingClasses(out)
     })()
     return () => { cancelled = true }

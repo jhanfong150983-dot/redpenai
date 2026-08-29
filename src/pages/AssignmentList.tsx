@@ -31,6 +31,7 @@ import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { isPhaseAStale } from '@/pages/GradingPage'
 import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamClassroomIds } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
+import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import type {
   AnswerKey,
   AnswerKeyTemplate,
@@ -1477,11 +1478,7 @@ export default function AssignmentList({
               onChange={(e) => setSelectedClassroomId(e.target.value)}
               className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none transition-colors focus:border-transparent focus:ring-2 focus:ring-green-500"
             >
-              {classrooms.map((classroom) => (
-                <option key={classroom.id} value={classroom.id}>
-                  {classroom.name}
-                </option>
-              ))}
+              <ClassroomSelectOptions classrooms={classrooms} />
             </select>
           </div>
         )}

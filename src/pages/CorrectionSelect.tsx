@@ -3,6 +3,7 @@ import { ArrowLeft, BookOpen, Loader, Folder, Users } from 'lucide-react'
 import { db } from '@/lib/db'
 import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
+import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import type { Assignment, Classroom, Folder as AssignmentFolder } from '@/lib/db'
 
 interface CorrectionSelectProps {
@@ -145,11 +146,7 @@ export default function CorrectionSelect({
                     onChange={(e) => setSelectedClassroomId(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent outline-none transition-colors bg-white"
                   >
-                    {classrooms.map((classroom) => (
-                      <option key={classroom.id} value={classroom.id}>
-                        {classroom.name}
-                      </option>
-                    ))}
+                    <ClassroomSelectOptions classrooms={classrooms} />
                   </select>
                 </div>
                 <div>

@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, History, Loader2 } from 'lucide-react'
 import { db } from '@/lib/db'
 import { withoutSchoolExamClassrooms } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
+import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import type { Classroom, Student } from '@/lib/db'
 
 type CorrectionHistoryProps = {
@@ -301,11 +302,7 @@ export default function CorrectionHistory({ onBack, embedded }: CorrectionHistor
               onChange={(e) => setSelectedClassroomId(e.target.value)}
               className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm"
             >
-              {classrooms.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
+              <ClassroomSelectOptions classrooms={classrooms} />
             </select>
           </label>
           <label className="block">

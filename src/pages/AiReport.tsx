@@ -6,6 +6,7 @@ import AssignmentSummaryPanel from './ai-report/components/AssignmentSummaryPane
 import ItemAnalysisSection from './ai-report/components/ItemAnalysisSection'
 import AnswerPatternsTab from './ai-report/components/AnswerPatternsTab'
 import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamClassroomIds } from '@/lib/school-exam'
+import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import { ParentReportTab } from './ai-report/components/ParentReportTab'
 import AssignmentOverviewSection from './ai-report/components/AssignmentOverviewSection'
 import type { ItemAnalysisQuestion } from './ai-report/item-analysis'
@@ -1060,11 +1061,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   title={selectedClassroomName || undefined}
                   onChange={(event) => setSelectedClassroomId(event.target.value)}
                 >
-                  {classroomOptions.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name ?? '未命名班級'}
-                    </option>
-                  ))}
+                  <ClassroomSelectOptions classrooms={classroomOptions} />
                 </select>
               </label>
             )}

@@ -40,3 +40,65 @@ export function compareClassroomName(a: string, b: string): number {
 export function sortClassroomsByName<T extends { name?: string }>(rows: T[]): T[] {
   return [...rows].sort((x, y) => compareClassroomName(x.name ?? '', y.name ?? ''))
 }
+
+// ── 2026-08-29 班級下拉「學年度區塊」──
+//   學年資訊不在 school_year 欄位（前端拿不到、手動班為 null），而是在 folder 名稱：
+//   1Campus 同步班 folder=「校名 114-2」、也可能有手動的「112學年度」。以 folder 分組。
+
+export const UNGROUPED_FOLDER_LABEL = '未分類'
+
+/** 資料夾名稱 → 學年鍵：「培英國中 114-2」→ {114,2}、「112學年度」→ {112,0}；抓不到回 null */
+function folderYearKey(label: string): { year: number; semester: number } | null {
+  const ys = label.match(/(\d{2,3})\s*-\s*(\d)\b/)
+  if (ys) return { year: parseInt(ys[1], 10), semester: parseInt(ys[2], 10) }
+  const y = label.match(/(\d{2,3})\s*學年/)
+  if (y) return { year: parseInt(y[1], 10), semester: 0 }
+  return null
+}
+
+/**
+ * 資料夾（學年度區塊）比較子：帶學年的排前面且新學年優先（老師多半選當期），
+ * 抓不到學年的自訂資料夾按名稱排在後面。
+ */
+export function compareFolderLabel(a: string, b: string): number {
+  const ka = folderYearKey(a)
+  const kb = folderYearKey(b)
+  if (ka && kb) {
+    if (ka.year !== kb.year) return kb.year - ka.year
+    if (ka.semester !== kb.semester) return kb.semester - ka.semester
+    return a.localeCompare(b, 'zh-Hant')
+  }
+  if (ka) return -1
+  if (kb) return 1
+  return a.localeCompare(b, 'zh-Hant')
+}
+
+export interface ClassroomFolderGroup<T> {
+  label: string
+  classrooms: T[]
+}
+
+/**
+ * 依 folder（學年度）分組：組間 compareFolderLabel、無 folder 歸「未分類」排最後，
+ * 組內 sortClassroomsByName。不改原陣列。
+ */
+export function groupClassroomsByFolder<T extends { name?: string; folder?: string | null }>(
+  rows: T[]
+): ClassroomFolderGroup<T>[] {
+  const byFolder = new Map<string, T[]>()
+  for (const row of rows) {
+    const key = (row.folder ?? '').trim() || UNGROUPED_FOLDER_LABEL
+    const bucket = byFolder.get(key)
+    if (bucket) bucket.push(row)
+    else byFolder.set(key, [row])
+  }
+  const labels = [...byFolder.keys()].sort((a, b) => {
+    if (a === UNGROUPED_FOLDER_LABEL) return 1
+    if (b === UNGROUPED_FOLDER_LABEL) return -1
+    return compareFolderLabel(a, b)
+  })
+  return labels.map((label) => ({
+    label,
+    classrooms: sortClassroomsByName(byFolder.get(label) ?? [])
+  }))
+}
