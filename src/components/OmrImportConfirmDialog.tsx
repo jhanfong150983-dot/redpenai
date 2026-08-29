@@ -99,7 +99,8 @@ export default function OmrImportConfirmDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    // z-[120]=匯入類全螢幕 dialog 慣例（同 PdfImportPreviewDialog），低於此會被 app 頂欄蓋住
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
       <div className="flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
