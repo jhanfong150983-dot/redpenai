@@ -8,7 +8,6 @@ import {
   ImageIcon,
   Loader,
   Plus,
-  Printer,
   RefreshCw,
   RotateCw,
   Trash2,
@@ -54,7 +53,6 @@ import PdfImportPreviewDialog, {
   type PdfImportPreviewResult,
 } from '@/components/PdfImportPreviewDialog'
 import { buildApiUrl } from '@/lib/api-base'
-import { generateStudentAnswerSheetPdf } from '@/lib/studentAnswerSheet'
 
 // 2026-05-26 老師端拍照入口從 webRTC CameraCapturePage 改為 native camera。
 // 桌面（觸控不可用）只開放上傳、平板/手機開放拍照+上傳。
@@ -297,9 +295,6 @@ export default function UnifiedImportPage({
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const actionStudentRef = useRef<Student | null>(null)
-  // 2026-08-29 座號答案卷：老師選「空白考卷 PDF」→ 產出整班帶座號/姓名/QR 的列印檔
-  const blankSheetInputRef = useRef<HTMLInputElement>(null)
-  const [isGeneratingSheets, setIsGeneratingSheets] = useState(false)
 
   // ── Preview modal ───────────────────────────────────────────────────────
   const [previewStudent, setPreviewStudent] = useState<Student | null>(null)
@@ -1032,54 +1027,6 @@ export default function UnifiedImportPage({
 
   // ── Render: Grid view ───────────────────────────────────────────────────
 
-  // 2026-08-29 座號答案卷：選空白考卷 PDF → 逐生蓋座號/姓名/QR → 下載整批列印檔（純 code）
-  const handleBlankSheetSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file || !assignment) return
-    if (students.length === 0) {
-      void alertModal('此班級還沒有學生名冊，請先到班級管理建立學生。')
-      return
-    }
-    setIsGeneratingSheets(true)
-    try {
-      const [bytes, classroom] = await Promise.all([
-        file.arrayBuffer(),
-        db.classrooms.get(assignment.classroomId)
-      ])
-      const result = await generateStudentAnswerSheetPdf({
-        assignment,
-        classroomName: classroom?.name ?? '',
-        students,
-        blankPdfBytes: bytes
-      })
-      const url = URL.createObjectURL(result.blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `座號答案卷_${assignment.title}_${classroom?.name ?? ''}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
-      const sourcePages = result.pageCountPerStudent - (result.paddedBlankPage ? 1 : 0)
-      const notes: string[] = [
-        `已產生 ${result.studentCount} 位學生 × ${result.pageCountPerStudent} 頁的列印檔。`
-      ]
-      if (assignment.totalPages && sourcePages !== assignment.totalPages) {
-        notes.push(
-          `注意：所選 PDF 為 ${sourcePages} 頁，與此作業設定的 ${assignment.totalPages} 頁不同，請確認選對檔案。`
-        )
-      }
-      if (result.paddedBlankPage) {
-        notes.push('頁數為奇數，已為每位學生補一張空白頁，雙面列印時不同學生不會印在同一張紙上。')
-      }
-      void alertModal(notes.join('\n'))
-    } catch (err) {
-      console.error('座號答案卷產生失敗', err)
-      void alertModal(err instanceof Error ? err.message : '座號答案卷產生失敗')
-    } finally {
-      setIsGeneratingSheets(false)
-    }
-  }
-
   return (
     <div
       className={`${embedded ? 'h-full' : 'h-screen'} bg-white flex flex-col overflow-hidden`}
@@ -1118,13 +1065,6 @@ export default function UnifiedImportPage({
         className="hidden"
         onChange={handleBatchPdfSelect}
       />
-      <input
-        ref={blankSheetInputRef}
-        type="file"
-        accept=".pdf"
-        className="hidden"
-        onChange={(e) => void handleBlankSheetSelected(e)}
-      />
 
       {/* Header — fixed in flex layout, not sticky */}
       <div className="shrink-0 bg-white border-b border-slate-200 px-4 py-3">
@@ -1159,20 +1099,6 @@ export default function UnifiedImportPage({
               title="同步雲端資料"
             >
               <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              type="button"
-              onClick={() => blankSheetInputRef.current?.click()}
-              disabled={isBatchProcessing || isGeneratingSheets}
-              className="flex items-center gap-2 px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 transition-colors"
-              title="選取空白考卷 PDF，產生整班帶座號、姓名與 QR code 的列印檔"
-            >
-              {isGeneratingSheets ? (
-                <Loader className="w-4 h-4 animate-spin" />
-              ) : (
-                <Printer className="w-4 h-4" />
-              )}
-              下載學生答案卷
             </button>
             <button
               type="button"
