@@ -8,8 +8,10 @@ import { db } from '@/lib/db'
 export interface TemplateInputs {
   /** 答案卷名稱（modal 必填欄），例「109學年度第一學期第2次定期考查 一年級」 */
   examTitle: string
-  /** 領域（modal 必填欄）→ 印成「科目」 */
+  /** 領域/細科目（modal 必填欄）→ 印成「科目」（可為細科目標籤如「社會-歷史」） */
   domain: string
+  /** 年級短標（「一年級」…）；有給就進標題列 */
+  gradeLabel?: string
   /** 校名；不給則自動偵測（1Campus 班級資料夾），偵測不到留手寫底線 */
   schoolName?: string
 }
@@ -27,7 +29,7 @@ export async function detectSchoolName(): Promise<string> {
 }
 
 export async function generateAnswerSheetTemplateDocx(inputs: TemplateInputs): Promise<Blob> {
-  const { examTitle, domain } = inputs
+  const { examTitle, domain, gradeLabel } = inputs
   const schoolName = inputs.schoolName ?? (await detectSchoolName())
 
   const [docx, headerPngResp] = await Promise.all([
@@ -47,7 +49,7 @@ export async function generateAnswerSheetTemplateDocx(inputs: TemplateInputs): P
   const IMG_W = Math.round((174 / 25.4) * 96)
   const IMG_H = Math.round((34 / 25.4) * 96)
 
-  const titleLine = `${schoolName || '＿＿＿＿＿＿＿＿'}${examTitle}　答案卷`
+  const titleLine = `${schoolName || '＿＿＿＿＿＿＿＿'}${examTitle}${gradeLabel ? `　${gradeLabel}` : ''}　答案卷`
 
   const doc = new Document({
     creator: 'RedPen AI',

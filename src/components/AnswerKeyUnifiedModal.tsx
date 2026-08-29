@@ -15,6 +15,7 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
+import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel } from '@/lib/domainByGrade'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
@@ -146,6 +147,7 @@ export interface AnswerKeyUnifiedModalProps {
   /** 純答案卷模式的題本圖（從 Storage 還原）。重新解析時要一起送，AI 沒題目就寫不出評分規準 */
   initialBookletImages?: Blob[]
   // Options
+  /** @deprecated 2026-08-29 領域改由年級決定（domainByGrade.ts），此 prop 不再使用 */
   domainOptions?: string[]
 }
 
@@ -168,7 +170,6 @@ export default function AnswerKeyUnifiedModal({
   hasGradedSubmissions = false,
   reextractClassLabels = [],
   initialBookletImages = [],
-  domainOptions = ['數學', '國語（測試中）', '社會', '自然', '英語', '其他'],
 }: AnswerKeyUnifiedModalProps) {
   // 2026-07-22 modal 統一：alert → 共用 ConfirmModal
   const alertModal = useAlertModal()
@@ -220,12 +221,17 @@ export default function AnswerKeyUnifiedModal({
   // ── Step 1: metadata state ────────���───────────────────────────────────────
   const [title, setTitle] = useState(initialTitle)
   const [domain, setDomain] = useState(initialDomain)
+  // 2026-08-29 年級→領域（user 拍板：選年級才可選領域，依課綱分科）。
+  //   grade/subjectLabel 只給 UI 與範本列印用；存檔一律存傘狀 domain（社會-歷史→社會），
+  //   因為 server 批改管線寫死 domain === '社會'/'自然' 等分支，細科目直接存會掉出既有規則。
+  const [grade, setGrade] = useState<number | ''>('')
+  const [subjectLabel, setSubjectLabel] = useState('')
   // docType UI 已移除（AI 直接從圖片視覺判斷雙欄/單欄）；保留變數供 sync 與 onExtract 傳遞
   const [docType] = useState<'worksheet' | 'exam'>(initialDocType)
   const [folder] = useState(initialFolder)
   const [answerSheetMode, setAnswerSheetMode] = useState<'with_questions' | 'answer_only'>(initialAnswerSheetMode)
 
-  const metadataValid = title.trim() !== '' && domain !== ''
+  const metadataValid = title.trim() !== '' && domain !== '' && (editMode || grade !== '')
 
   // 2026-08-29 公版答案卷範本下載（動態產生：帶校名/名稱/科目；docx 套件 dynamic import）
   const [isGeneratingTemplate, setIsGeneratingTemplate] = useState(false)
@@ -234,7 +240,12 @@ export default function AnswerKeyUnifiedModal({
     setIsGeneratingTemplate(true)
     try {
       const { generateAnswerSheetTemplateDocx } = await import('@/lib/answerSheetTemplate')
-      const blob = await generateAnswerSheetTemplateDocx({ examTitle: title.trim(), domain })
+      const blob = await generateAnswerSheetTemplateDocx({
+        examTitle: title.trim(),
+        // 範本科目印細科目標籤（社會-歷史）；存檔 domain 仍是傘狀值
+        domain: subjectLabel || domain,
+        gradeLabel: grade === '' ? '' : gradeShortLabel(grade)
+      })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -1224,7 +1235,38 @@ export default function AnswerKeyUnifiedModal({
                     )}
                   </div>
 
-                  {/* 領域 */}
+                  {/* 年級（2026-08-29 新增：選了年級才可選領域） */}
+                  {!editMode && (
+                    <div>
+                      <label className="block text-base font-semibold text-gray-800 mb-2">
+                        年級 <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={grade === '' ? '' : String(grade)}
+                        onChange={(e) => {
+                          const next = e.target.value === '' ? '' : Number(e.target.value)
+                          setGrade(next)
+                          // 換年級時，若目前選的科目不在新清單裡就清掉
+                          if (next === '' || !subjectOptionsForGrade(next).some((s) => s.label === subjectLabel)) {
+                            setSubjectLabel('')
+                            setDomain('')
+                          }
+                        }}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none"
+                      >
+                        <option value="">請選擇</option>
+                        {GRADE_GROUPS.map((g) => (
+                          <optgroup key={g.stage} label={g.stage}>
+                            {g.grades.map((x) => (
+                              <option key={x.value} value={x.value}>{g.stage}{x.label}</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* 領域（依年級課綱給選項；細科目只影響顯示與範本，存檔為傘狀 domain） */}
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">
                       領域 {!editMode && <span className="text-red-500">*</span>}
@@ -1233,11 +1275,21 @@ export default function AnswerKeyUnifiedModal({
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{domain || '—'}</p>
                     ) : (
                       <select
-                        value={domain} onChange={(e) => setDomain(e.target.value)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none"
+                        value={subjectLabel}
+                        disabled={grade === ''}
+                        onChange={(e) => {
+                          const label = e.target.value
+                          setSubjectLabel(label)
+                          const opt = grade === '' ? undefined : subjectOptionsForGrade(grade).find((s) => s.label === label)
+                          setDomain(opt?.domain ?? '')
+                        }}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-green-400 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
                       >
-                        <option value="">請選擇</option>
-                        {domainOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                        <option value="">{grade === '' ? '請先選擇年級' : '請選擇'}</option>
+                        {grade !== '' &&
+                          subjectOptionsForGrade(grade).map((s) => (
+                            <option key={s.label} value={s.label}>{s.label}</option>
+                          ))}
                       </select>
                     )}
                   </div>
