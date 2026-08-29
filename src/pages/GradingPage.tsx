@@ -22,6 +22,19 @@ import {
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
 import { compareClassroomName } from '@/lib/classroom-order'
+
+// 2026-08-29 B案:gradeBand 年級來源=classroom.grade、缺時 fallback 答案卷模板 grade
+//（新增答案卷 modal 年級必填後,模板幾乎都有;班級沒設年級的高中卷不再誤走 k9 公式）
+async function resolveGradeBand(
+  classroomGrade: number | undefined,
+  answerKeyTemplateId?: string
+): Promise<'k9' | 'high'> {
+  let g = classroomGrade
+  if (!g && answerKeyTemplateId) {
+    g = (await db.answerKeyTemplates.get(answerKeyTemplateId))?.grade
+  }
+  return (g ?? 0) >= 10 ? 'high' : 'k9'
+}
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import { FLAT_BILLING, gradingPriceTextSmart } from '@/lib/action-pricing'
 import { dispatchInkBalance } from '@/lib/ink-events'
@@ -1891,7 +1904,7 @@ export default function GradingPage({
     const phaseBClassroom = assignment?.classroomId
       ? await db.classrooms.get(assignment.classroomId)
       : null
-    const phaseBGradeBand: 'k9' | 'high' = (phaseBClassroom?.grade ?? 0) >= 10 ? 'high' : 'k9'
+    const phaseBGradeBand: 'k9' | 'high' = await resolveGradeBand(phaseBClassroom?.grade, assignment?.answerKeyTemplateId)
 
     let successCount = 0
     let failCount = 0
@@ -4166,7 +4179,7 @@ export default function GradingPage({
     const phaseBClassroom = assignment?.classroomId
       ? await db.classrooms.get(assignment.classroomId)
       : null
-    const gradeBand: 'k9' | 'high' = (phaseBClassroom?.grade ?? 0) >= 10 ? 'high' : 'k9'
+    const gradeBand: 'k9' | 'high' = await resolveGradeBand(phaseBClassroom?.grade, assignment?.answerKeyTemplateId)
 
     let completedCount = 0
     let successCount = 0
@@ -4401,7 +4414,7 @@ export default function GradingPage({
     }
     // 單題 accessor 的 gradeBand（高中多選扣分公式）
     const fzClassroom = assignment?.classroomId ? await db.classrooms.get(assignment.classroomId) : null
-    const fzGradeBand: 'k9' | 'high' = (fzClassroom?.grade ?? 0) >= 10 ? 'high' : 'k9'
+    const fzGradeBand: 'k9' | 'high' = await resolveGradeBand(fzClassroom?.grade, assignment?.answerKeyTemplateId)
     const wholeRegrade: Submission[] = []
     for (const entry of reviewedEntries) {
       const sub = await db.submissions.get(entry.submissionId)
@@ -4549,7 +4562,7 @@ export default function GradingPage({
       const phaseBClassroomS = assignment?.classroomId ? await db.classrooms.get(assignment.classroomId) : null
       const streamEnv: GradeCacheEnv = {
         opts: bOpts,
-        gradeBand: (phaseBClassroomS?.grade ?? 0) >= 10 ? 'high' : 'k9',
+        gradeBand: await resolveGradeBand(phaseBClassroomS?.grade, assignment?.answerKeyTemplateId),
         reconcileStudentIds: new Set(
           Array.from(submissions.values())
             .filter((s) => ['correction_required', 'correction_in_progress', 'correction_pending_review', 'correction_failed', 'correction_passed'].includes(correctionStatusByStudent[s.studentId] ?? ''))

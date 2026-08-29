@@ -15,7 +15,7 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
-import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel } from '@/lib/domainByGrade'
+import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
@@ -128,6 +128,8 @@ export interface AnswerKeyUnifiedModalProps {
     title: string; domain: string; docType: 'worksheet' | 'exam'
     folder: string; answerSheetMode: 'with_questions' | 'answer_only'
     questionBookletBlobs: Blob[]
+    /** 2026-08-29 年級（1–12），存進模板供課綱/KP 使用；editMode 沿用既有值 */
+    grade?: number
     /** 這次編輯是否重新解析過。重新解析＝產生新版本答案卷，不覆蓋原本那份 */
     reextracted?: boolean
   }) => Promise<void>
@@ -135,6 +137,7 @@ export interface AnswerKeyUnifiedModalProps {
   editMode?: boolean
   initialTitle?: string
   initialDomain?: string
+  initialGrade?: number
   initialDocType?: 'worksheet' | 'exam'
   initialFolder?: string
   initialAnswerSheetMode?: 'with_questions' | 'answer_only'
@@ -161,6 +164,7 @@ export default function AnswerKeyUnifiedModal({
   editMode = false,
   initialTitle = '',
   initialDomain = '',
+  initialGrade,
   initialDocType = 'worksheet',
   initialFolder = '',
   initialAnswerSheetMode = 'with_questions',
@@ -224,7 +228,7 @@ export default function AnswerKeyUnifiedModal({
   // 2026-08-29 年級→領域（user 拍板：選年級才可選領域，依課綱分科）。
   //   grade/subjectLabel 只給 UI 與範本列印用；存檔一律存傘狀 domain（社會-歷史→社會），
   //   因為 server 批改管線寫死 domain === '社會'/'自然' 等分支，細科目直接存會掉出既有規則。
-  const [grade, setGrade] = useState<number | ''>('')
+  const [grade, setGrade] = useState<number | ''>(initialGrade ?? '')
   const [subjectLabel, setSubjectLabel] = useState('')
   // docType UI 已移除（AI 直接從圖片視覺判斷雙欄/單欄）；保留變數供 sync 與 onExtract 傳遞
   const [docType] = useState<'worksheet' | 'exam'>(initialDocType)
@@ -1059,6 +1063,7 @@ export default function AnswerKeyUnifiedModal({
         folder,
         answerSheetMode,
         questionBookletBlobs: finalBookletBlobs,
+        grade: grade === '' ? undefined : grade,
         reextracted: didReextract,
       })
     } finally {
@@ -1235,8 +1240,15 @@ export default function AnswerKeyUnifiedModal({
                     )}
                   </div>
 
-                  {/* 年級（2026-08-29 新增：選了年級才可選領域） */}
-                  {!editMode && (
+                  {/* 年級（2026-08-29 新增：選了年級才可選領域；editMode 唯讀顯示既有值） */}
+                  {editMode ? (
+                    <div>
+                      <label className="block text-base font-semibold text-gray-800 mb-2">年級</label>
+                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">
+                        {grade === '' ? '—（此答案卷建立時尚無年級欄位）' : gradeFullLabel(grade)}
+                      </p>
+                    </div>
+                  ) : (
                     <div>
                       <label className="block text-base font-semibold text-gray-800 mb-2">
                         年級 <span className="text-red-500">*</span>

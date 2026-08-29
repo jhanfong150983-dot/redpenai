@@ -870,6 +870,7 @@ export function useSync(options: UseSyncOptions = {}) {
         questionCount: t.questionCount ?? t.answerKey?.questions?.length ?? 0,
         totalScore: t.totalScore ?? t.answerKey?.totalScore ?? 0,
         version: t.version ?? 1,
+        grade: t.grade ?? undefined,
         shareCode: t.shareCode ?? undefined,
         pageOrientations: t.pageOrientations ?? undefined,
         answerSheetMode: t.answerSheetMode ?? undefined,
@@ -1578,6 +1579,8 @@ export function useSync(options: UseSyncOptions = {}) {
           id: t.id,
           name: t.name ?? '',
           domain: t.domain ?? undefined,
+          // 2026-08-29 年級：缺欄=舊 server（部署過渡期）→保留本地值
+          grade: typeof t.grade === 'number' ? t.grade : localData?.grade,
           docType: t.docType ?? t.doc_type ?? undefined,
           folder: t.folder ?? undefined,
           schoolId: t.schoolId ?? t.school_id ?? undefined,

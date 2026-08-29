@@ -25,6 +25,15 @@ export const GRADE_GROUPS: GradeGroup[] = [
   { stage: '高中', grades: Array.from({ length: 3 }, (_, i) => ({ value: i + 10, label: `${CN[i]}年級` })) }
 ]
 
+/** 年級數字 → 「國中二年級」完整標（清單/唯讀顯示用） */
+export function gradeFullLabel(grade: number): string {
+  for (const g of GRADE_GROUPS) {
+    const hit = g.grades.find((x) => x.value === grade)
+    if (hit) return `${g.stage}${hit.label}`
+  }
+  return ''
+}
+
 /** 年級數字 → 該學段內的「X年級」短標（範本標題列印用） */
 export function gradeShortLabel(grade: number): string {
   for (const g of GRADE_GROUPS) {

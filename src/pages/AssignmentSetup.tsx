@@ -1817,7 +1817,12 @@ export default function AssignmentSetup({
     // answer_only 模式：從 storage 下載題本給 AI 看題幹；with_questions 模式：用答案卷
     if (editingAnswerAssignment) {
       const classroom = classrooms.find(c => c.id === (editingClassroomId || editingAnswerAssignment.classroomId))
-      if (classroom?.grade) {
+      // 2026-08-29 B案:班級沒設年級時 fallback 到答案卷模板的年級（新增答案卷 modal 必填欄）
+      const fallbackTemplateGrade = !classroom?.grade && editingAnswerAssignment.answerKeyTemplateId
+        ? (await db.answerKeyTemplates.get(editingAnswerAssignment.answerKeyTemplateId))?.grade
+        : undefined
+      const effectiveGrade = classroom?.grade ?? fallbackTemplateGrade
+      if (effectiveGrade) {
         const assignmentId = editingAnswerAssignment.id
         const templateId = editingAnswerAssignment.answerKeyTemplateId
         const isAnswerOnly = editingAnswerAssignment.answerSheetMode === 'answer_only'
@@ -1849,7 +1854,7 @@ export default function AssignmentSetup({
         }
 
         // 帶 domain 過濾、跟 create flow 對齊（避免拿到其他科目代碼污染 AI tagging）
-        const conceptMapParams = new URLSearchParams({ grade: String(classroom.grade) })
+        const conceptMapParams = new URLSearchParams({ grade: String(effectiveGrade) })
         if (editingDomain) conceptMapParams.set('domain', editingDomain)
         Promise.all([
           fetch(`/api/data/concept-map?${conceptMapParams.toString()}`, { credentials: 'include' }).then(r => r.ok ? r.json() : { items: [] }),

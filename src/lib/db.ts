@@ -478,6 +478,7 @@ export interface AnswerKeyTemplate {
   id: string
   name: string
   domain?: string
+  grade?: number // 2026-08-29 年級（1–12）：課綱概念清單/KP 歸類的年段依據、classroom.grade 缺時的備援
   docType?: 'worksheet' | 'exam'
   answerSheetMode?: 'with_questions' | 'answer_only'
   folder?: string
