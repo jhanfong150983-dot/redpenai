@@ -32,10 +32,11 @@ function usePageMeta(): void {
 const UNIT_PRICE = [
   { key: 'choice',  label: '選擇／是非／勾選／配合', hint: '答案是選項代號', price: 0.15 },
   { key: 'fillTxt', label: '填空（文字、英文）',     hint: '答案是詞語或短句', price: 0.2 },
-  { key: 'fillMath',label: '填空（數學式）',         hint: '算式、分數、不等式', price: 0.35 },
+  { key: 'fillMath',label: '填空（數學式）',         hint: '算式、分數、不等式', price: 0.2 },
   { key: 'short',   label: '簡答／問答',             hint: '依評分規準逐項判定', price: 0.3 },
-  { key: 'draw',    label: '作圖題',                 hint: 'AI 視覺三重判定', price: 1.6 },
-  { key: 'word',    label: '應用題（級分制）',       hint: '會考級分制、逐要素判定', price: 4.5 },
+  { key: 'handwrite',label: '國字／注音書寫',        hint: '字形與注音逐格校對', price: 0.9 },
+  { key: 'draw',    label: '作圖題',                 hint: 'AI 視覺三重判定', price: 1.4 },
+  { key: 'word',    label: '應用題（級分制）',       hint: '會考級分制、逐要素判定', price: 2.1 },
 ] as const
 type UnitKey = typeof UNIT_PRICE[number]['key']
 
@@ -47,11 +48,11 @@ const baseFee = (mode: 'ao' | 'wq', pages: number, classSize: number): number =>
 }
 
 const PRESETS: Array<{ label: string; mode: 'ao' | 'wq'; pages: number; counts: Record<UnitKey, number> }> = [
-  { label: '數學段考', mode: 'ao', pages: 1, counts: { choice: 0, fillTxt: 0, fillMath: 28, short: 0, draw: 1, word: 2 } },
-  { label: '國語段考', mode: 'ao', pages: 2, counts: { choice: 40, fillTxt: 10, fillMath: 0, short: 10, draw: 0, word: 0 } },
-  { label: '英語段考', mode: 'wq', pages: 3, counts: { choice: 40, fillTxt: 8, fillMath: 0, short: 0, draw: 0, word: 0 } },
-  { label: '社會段考', mode: 'wq', pages: 6, counts: { choice: 31, fillTxt: 1, fillMath: 0, short: 8, draw: 0, word: 0 } },
-  { label: '選擇題小考', mode: 'ao', pages: 1, counts: { choice: 25, fillTxt: 0, fillMath: 0, short: 0, draw: 0, word: 0 } },
+  { label: '數學段考', mode: 'ao', pages: 1, counts: { choice: 0, fillTxt: 0, fillMath: 28, short: 0, handwrite: 0, draw: 1, word: 2 } },
+  { label: '國語段考', mode: 'ao', pages: 2, counts: { choice: 40, fillTxt: 0, fillMath: 0, short: 10, handwrite: 10, draw: 0, word: 0 } },
+  { label: '英語段考', mode: 'wq', pages: 3, counts: { choice: 40, fillTxt: 8, fillMath: 0, short: 0, handwrite: 0, draw: 0, word: 0 } },
+  { label: '社會段考', mode: 'wq', pages: 6, counts: { choice: 31, fillTxt: 1, fillMath: 0, short: 8, handwrite: 0, draw: 0, word: 0 } },
+  { label: '選擇題小考', mode: 'ao', pages: 1, counts: { choice: 25, fillTxt: 0, fillMath: 0, short: 0, handwrite: 0, draw: 0, word: 0 } },
 ]
 
 const fmt = (n: number): string => (Math.round(n * 20) / 20).toLocaleString('zh-TW', { maximumFractionDigits: 2 })
@@ -81,7 +82,7 @@ export default function PricingPage() {
   const [mode, setMode] = useState<'ao' | 'wq'>('ao')
   const [pages, setPages] = useState(2)
   const [classSize, setClassSize] = useState(30)
-  const [counts, setCounts] = useState<Record<UnitKey, number>>({ choice: 30, fillTxt: 10, fillMath: 0, short: 5, draw: 0, word: 0 })
+  const [counts, setCounts] = useState<Record<UnitKey, number>>({ choice: 30, fillTxt: 10, fillMath: 0, short: 5, handwrite: 0, draw: 0, word: 0 })
   const [loginLoading, setLoginLoading] = useState(false)
 
   const handleLogin = () => {

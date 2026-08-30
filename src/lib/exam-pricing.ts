@@ -4,12 +4,14 @@
 //   驗證兩邊同輸入同輸出（normAnswerValue 兩處漂移的教訓）。
 // 開關：VITE_MENU_BILLING='1'（編譯期），與 server MENU_BILLING 同版部署後才能開。
 
-export const PRICING_VERSION = 'menu-2026-08-27'
+export const PRICING_VERSION = 'menu-2026-08-30'
 export const MENU_BILLING =
   (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_MENU_BILLING === '1'
 
+// ⚠ 2026-08-28 修正：數學相關單價原為雙重計算（同卷連續重批兩次被誤當一輪）
 export const UNIT_POINTS = {
-  choice: 0.15, fillTxt: 0.2, fillMath: 0.35, short: 0.3, vj: 1.6, level: 4.5, zhuyin: 1.1, unknown: 0.3
+  choice: 0.15, fillTxt: 0.2, fillMath: 0.2, short: 0.3, vj: 1.4, level: 2.1,
+  handwrite: 0.9, zhuyin: 0.9, unknown: 0.3
 } as const
 export type MenuClass = keyof typeof UNIT_POINTS
 
@@ -23,6 +25,9 @@ const SHORT_SET = new Set([
   'compound_chain_table', 'compound_check_with_explain', 'fill_variants', 'table_cell'
 ])
 
+// 2026-08-30 國語手寫格（字形/注音判官各 3 票，實測 0.41/格）
+const HANDWRITE_CATS = new Set(['fill_blank', 'short_answer'])
+const isCjkShort = (ans: string): boolean => /^[一-鿿]{1,4}$/u.test(ans.trim())
 const mathishAnswer = (ans: string): boolean =>
   /[0-9]/.test(ans) && (/[<>≥≤≦≧=+\-×÷/√^%]/.test(ans) || /^[0-9.,\s/]+$/.test(ans))
 const zhuyinAnswer = (ans: string): boolean => /[ㄅ-ㄯˊˇˋ˙]/.test(ans)
@@ -30,12 +35,13 @@ const zhuyinAnswer = (ans: string): boolean => /[ㄅ-ㄯˊˇˋ˙]/.test(ans)
 type QuestionLike = { questionCategory?: string; answer?: unknown; levelRubric?: unknown; pageIndex?: number; id?: unknown }
 type AnswerKeyLike = { questions?: QuestionLike[]; _layoutDetected?: Array<{ layout?: string }> }
 
-export function menuClassOf(q: QuestionLike | undefined): MenuClass {
+export function menuClassOf(q: QuestionLike | undefined, domain = ''): MenuClass {
   const c = String(q?.questionCategory ?? '').trim()
   const ans = String(q?.answer ?? '')
   if (q?.levelRubric) return 'level'
   if (VJ_SET.has(c)) return 'vj'
   if (CHOICE_SET.has(c)) return 'choice'
+  if (String(domain).includes('國') && HANDWRITE_CATS.has(c) && (isCjkShort(ans) || zhuyinAnswer(ans))) return 'handwrite'
   if (zhuyinAnswer(ans)) return 'zhuyin'
   if (SHORT_SET.has(c)) return 'short'
   if (c === 'word_problem' || c === 'calculation' || c === 'fill_blank')
@@ -61,10 +67,10 @@ export function detectLayout(answerKey: AnswerKeyLike | undefined): { mode: 'ao'
   return { mode, pages: maxPage + 1 }
 }
 
-export function computePointsPerSheet(answerKey: AnswerKeyLike | undefined, classSize: number): number {
+export function computePointsPerSheet(answerKey: AnswerKeyLike | undefined, classSize: number, domain = ''): number {
   const qs = answerKey?.questions ?? []
   const { mode, pages } = detectLayout(answerKey)
   let qSum = 0
-  for (const q of qs) qSum += UNIT_POINTS[menuClassOf(q)]
+  for (const q of qs) qSum += UNIT_POINTS[menuClassOf(q, domain)]
   return Math.max(1, Math.round(baseFeePoints(mode, pages, classSize) + qSum))
 }
