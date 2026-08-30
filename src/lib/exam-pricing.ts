@@ -32,7 +32,7 @@ const mathishAnswer = (ans: string): boolean =>
   /[0-9]/.test(ans) && (/[<>≥≤≦≧=+\-×÷/√^%]/.test(ans) || /^[0-9.,\s/]+$/.test(ans))
 const zhuyinAnswer = (ans: string): boolean => /[ㄅ-ㄯˊˇˋ˙]/.test(ans)
 
-type QuestionLike = { questionCategory?: string; answer?: unknown; levelRubric?: unknown; pageIndex?: number; id?: unknown }
+type QuestionLike = { questionCategory?: string; answer?: unknown; levelRubric?: unknown; rubricsDimensions?: unknown; pageIndex?: number; id?: unknown }
 type AnswerKeyLike = { questions?: QuestionLike[]; _layoutDetected?: Array<{ layout?: string }> }
 
 export function menuClassOf(q: QuestionLike | undefined, domain = ''): MenuClass {
@@ -41,7 +41,9 @@ export function menuClassOf(q: QuestionLike | undefined, domain = ''): MenuClass
   if (q?.levelRubric) return 'level'
   if (VJ_SET.has(c)) return 'vj'
   if (CHOICE_SET.has(c)) return 'choice'
-  if (String(domain).includes('國') && HANDWRITE_CATS.has(c) && (isCjkShort(ans) || zhuyinAnswer(ans))) return 'handwrite'
+  // ⛔ 排除 rubricsDimensions（註釋題走查表制、不跑判官）——鏡像 server 同條件
+  if (String(domain).includes('國') && HANDWRITE_CATS.has(c) && !q?.rubricsDimensions
+      && (isCjkShort(ans) || zhuyinAnswer(ans))) return 'handwrite'
   if (zhuyinAnswer(ans)) return 'zhuyin'
   if (SHORT_SET.has(c)) return 'short'
   if (c === 'word_problem' || c === 'calculation' || c === 'fill_blank')
