@@ -127,6 +127,10 @@ export default function SubmissionDetailModal({
               //   levelResult 沒帶 → isLevel 永遠 false → 級分制題退回文字框、羅列式不顯示。
               //   （同一個坑今天已經踩過三次：server detail 白名單、accessor 合併、systemConfidence）
               levelResult: (d as { levelResult?: unknown }).levelResult,
+              //   2026-09-03 rubric 判官逐維度結果（社會/自然開放式概念題）——同理，
+              //   漏帶就讀不到，而逐維度聚合正是導入這個判官的主要動機。
+              rubricDims: (d as { rubricDims?: unknown }).rubricDims,
+              rubricUncertain: (d as { rubricUncertain?: unknown }).rubricUncertain,
               // 2026-07-13 系統信心（內部值、<70 題目列紅底）
               systemConfidence:
                 typeof d.systemConfidence === 'number' && Number.isFinite(d.systemConfidence)
