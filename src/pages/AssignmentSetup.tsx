@@ -111,7 +111,14 @@ export default function AssignmentSetup({
   const [dragOverFolderName, setDragOverFolderName] = useState<string | null>(null)
 
   // const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false) // removed: advanced settings replaced by Section 3+4
-  const [createStrictness, setCreateStrictness] = useState<'strict' | 'standard' | 'lenient' | ''>('')
+  // 2026-09-03 user 拍板：問答題嚴謹度 UI 關閉（實際使用後發現用不到）。
+  //   strictness 仍是 accessor prompt 的輸入（GRADING STRICTNESS: …），所以不能留空字串，
+  //   直接以 'standard' 建立；下方 :1207/:1262 的 `createStrictness || 'standard'` 因此永遠成立。
+  //   要復原：把旗標改回 true，UI、必填驗證、摘要行會一起回來。
+  const STRICTNESS_UI_ENABLED = false
+  const [createStrictness, setCreateStrictness] = useState<'strict' | 'standard' | 'lenient' | ''>(
+    STRICTNESS_UI_ENABLED ? '' : 'standard'
+  )
   const [createFractionRule, setCreateFractionRule] = useState<'require_simplified' | 'allow_equivalent' | ''>('')
   // 英語專屬規則
   const [createEnPunctuationCheck, setCreateEnPunctuationCheck] = useState(false)
@@ -612,7 +619,7 @@ export default function AssignmentSetup({
       }
     }
     // Section 3: 批改規則
-    if (!createStrictness) {
+    if (STRICTNESS_UI_ENABLED && !createStrictness) {
       missing.push('問答題嚴謹度')
     }
     if (assignmentDomain === '數學' && !createFractionRule) {
@@ -3164,9 +3171,11 @@ export default function AssignmentSetup({
                       <p className="mt-1 text-sm font-medium text-green-900">
                         {classrooms.find((classroom) => classroom.id === selectedClassroomId)?.name || '尚未指定班級'}
                       </p>
-                      <p className="mt-2 text-xs text-green-700">
-                        批改嚴格度：{createStrictnessLabels[createStrictness]}
-                      </p>
+                      {STRICTNESS_UI_ENABLED && (
+                        <p className="mt-2 text-xs text-green-700">
+                          批改嚴格度：{createStrictnessLabels[createStrictness]}
+                        </p>
+                      )}
                       {createScoringMode === 'unscored' ? (
                         <p className="mt-1 text-xs text-green-700">分數：不計分數</p>
                       ) : createScoreMode !== 'ai_auto' && (
@@ -3477,7 +3486,8 @@ export default function AssignmentSetup({
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">3</span>
                       </div>
                       <div className="space-y-5">
-                        {/* 問答題嚴謹度 — all domains */}
+                        {/* 問答題嚴謹度（2026-09-03 起 UI 關閉，一律 standard） */}
+                        {STRICTNESS_UI_ENABLED && (
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-2">問答題嚴謹度</label>
                           <div className="grid grid-cols-3 gap-2">
@@ -3499,6 +3509,7 @@ export default function AssignmentSetup({
                           </div>
                           {!createStrictness && <p className="mt-1 text-xs text-amber-600">請選擇一個嚴謹度</p>}
                         </div>
+                        )}
 
                         {/* 分數約分規則 — 僅數學領域 */}
                         {assignmentDomain === '數學' && (

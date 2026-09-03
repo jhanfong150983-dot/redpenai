@@ -101,10 +101,24 @@ interface AssignmentFormModalProps {
   }
 }
 
+// ── 2026-09-03 user 拍板：暫時關閉兩個設定區塊 ────────────────────────────────
+//   學生繳交作業（含學生自助 AI 批改）：功能暫停，UI 整塊隱藏。
+//     ⚠ 隱藏的同時必須把預設值改成 false——原本 studentUploadEnabled 預設 true，
+//       只藏 UI 會變成「每張新作業都靜默開啟學生繳交」。
+//   問答題嚴謹度：實際使用後發現用不到，UI 移除、一律以 'standard' 建立。
+//     ⚠ strictness 仍是 accessor prompt 的輸入（GRADING STRICTNESS: …），
+//       不可留 null，否則判分基準會變成未定義。
+//   要復原：把旗標改回 true，UI 與必填驗證會一起回來。
+const STUDENT_SUBMIT_UI_ENABLED = false
+const STRICTNESS_UI_ENABLED = false
+const STRICTNESS_WHEN_HIDDEN = 'standard' as const
+
 // 表單初始值：必填欄位預設 null，老師必須自行選擇（避免不知不覺套到沒檢查過的預設值）
 const DEFAULT_FORM_SETTINGS: FormSettings = {
-  strictness: null,
-  scoringMode: null,
+  // 2026-09-03：嚴謹度 UI 移除 → 預設 standard（不可留 null，accessor 要用）
+  strictness: STRICTNESS_UI_ENABLED ? null : STRICTNESS_WHEN_HIDDEN,
+  // 2026-09-03 user 拍板：計分方式預設「計分」
+  scoringMode: 'scored',
   fractionRule: null,
   multiCheckRule: 'deduct',
   unitErrorRule: 'zero',
@@ -205,8 +219,8 @@ export default function AssignmentFormModal({
   // 編輯模式：initialSettings 帶入既有作業的值（非 null）→ 全欄位都已選妥
   // 新增模式：initialSettings undefined → 必填欄位 null，等老師選
   const [settings, setSettings] = useState<FormSettings>({
-    strictness: initialSettings?.strictness ?? null,
-    scoringMode: initialSettings?.scoringMode ?? null,
+    strictness: initialSettings?.strictness ?? (STRICTNESS_UI_ENABLED ? null : STRICTNESS_WHEN_HIDDEN),
+    scoringMode: initialSettings?.scoringMode ?? 'scored',
     fractionRule: initialSettings?.fractionRule ?? null,
     multiCheckRule: initialSettings?.multiCheckRule ?? 'deduct',
     unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
@@ -219,7 +233,7 @@ export default function AssignmentFormModal({
     enWordOrderDeduction: initialSettings?.enWordOrderDeduction ?? DEFAULT_FORM_SETTINGS.enWordOrderDeduction,
   })
   const [akSearch, setAkSearch] = useState('')
-  const [studentUploadEnabled, setStudentUploadEnabled] = useState(initialStudentUploadEnabled ?? true)
+  const [studentUploadEnabled, setStudentUploadEnabled] = useState(STUDENT_SUBMIT_UI_ENABLED ? (initialStudentUploadEnabled ?? true) : false)
   // 2026-06-02 學生自助 AI 批改：預設「不允許」，老師主動開
   const [allowStudentAiGrading, setAllowStudentAiGrading] = useState(initialAllowStudentAiGrading ?? false)
   const [studentAiGradingLimit, setStudentAiGradingLimit] = useState(
@@ -237,8 +251,8 @@ export default function AssignmentFormModal({
     setFolder(initialFolder)
     setSelectedAnswerKeyId('')
     setSettings({
-      strictness: initialSettings?.strictness ?? null,
-      scoringMode: initialSettings?.scoringMode ?? null,
+      strictness: initialSettings?.strictness ?? (STRICTNESS_UI_ENABLED ? null : STRICTNESS_WHEN_HIDDEN),
+      scoringMode: initialSettings?.scoringMode ?? 'scored',
       fractionRule: initialSettings?.fractionRule ?? null,
     multiCheckRule: initialSettings?.multiCheckRule ?? 'deduct',
       unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
@@ -314,7 +328,7 @@ export default function AssignmentFormModal({
   // ── Step completion logic ──
   // 必填規則欄位都選妥才算完成；數學領域多一個 fractionRule 必填
   const requiredRulesSet =
-    settings.strictness !== null &&
+    (!STRICTNESS_UI_ENABLED || settings.strictness !== null) &&
     settings.scoringMode !== null &&
     (domain !== '數學' || settings.fractionRule !== null)
 
@@ -491,7 +505,7 @@ export default function AssignmentFormModal({
                   </div>
 
                   {/* 學生繳交作業 — segmented control(行政端考卷模式整塊隱藏) */}
-                  {!hideStudentOptions && (
+                  {STUDENT_SUBMIT_UI_ENABLED && !hideStudentOptions && (
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">學生繳交作業</label>
                     <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
@@ -732,7 +746,8 @@ export default function AssignmentFormModal({
                     </p>
                   </div>
 
-                  {/* 問答題嚴謹度 */}
+                  {/* 問答題嚴謹度（2026-09-03 起 UI 關閉，一律 standard） */}
+                  {STRICTNESS_UI_ENABLED && (
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-3">問答題嚴謹度</label>
                     <div className="flex gap-3">
@@ -744,6 +759,7 @@ export default function AssignmentFormModal({
                       <p className="mt-2 text-xs text-slate-500">請選擇問答題嚴謹度</p>
                     )}
                   </div>
+                  )}
 
                   {/* 2026-08-15 多選題計分（user 拍板 B 案）：原本 AI 自行「答對一個給一半」，
                       答案卷裡沒有這條規則 → 不同批次可能給不同分。改成正式設定、老師改得動。 */}
