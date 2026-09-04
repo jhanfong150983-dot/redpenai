@@ -259,7 +259,9 @@ export default function AnswerKeyUnifiedModal({
   }, [])
 
   const allComplete = useMemo(() =>
-    STEP_CONFIG.every(s => completedSteps.has(s.key)),
+    // 「前置步驟完成」：step④（作答卷製作）不算——否則會變成「要先完成④才能進④」的死鎖；
+    // ④ 自己的完成條件是排版 ok（makerResult），在主按鈕 dispatcher 另行把關。
+    STEP_CONFIG.filter(s => s.key !== 'sheet').every(s => completedSteps.has(s.key)),
     [completedSteps]
   )
 
