@@ -258,6 +258,7 @@ type GeminiRouteKey =
   | 'grading.phase_b'
   | 'grading.locate'
   | 'answer_key.extract'
+  | 'answer_key.solve'
   | 'answer_key.locate'
   | 'answer_key.reanalyze'
   | 'answer_key.tag_concepts'
@@ -6707,4 +6708,176 @@ export async function tagConceptsForAnswerKey(
   }
 
   return result
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 生成答案卷：AI 解題起草（answer_key.solve）
+//   老師只給題目卷 → ①結構推斷（大題/題數/配分/缺題偵測）→ ②解題×2（分歧標記）
+//   → 組 AnswerKey 草稿交人工確認。prompt 取自 2026-09-04 段1 沙盒實證版
+//   （國語可解 82.5%、數學 91%、結構推斷 5/5；佐證見 redpenaisever/docs/實驗成本記錄.md）。
+//   ⛔ 鐵則：缺題大題（題目印在別處）一律出空答案格請老師補，不得讓 AI 硬編。
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface SolveStructureSection {
+  section: string
+  perScore: number
+  totalScore: number
+  count: number
+  questionsInBooklet: boolean
+  questionCategory: string
+}
+
+const SOLVE_TYPE_MENU =
+  'single_choice(單選/配合)、fill_blank(填空/國字注音/列式)、short_answer(簡答/註釋)、true_false(是非)、multi_check(多選勾選)、word_problem(應用題，要求寫出計算過程)、grid_geometry(作圖題)'
+
+function buildSolveStructurePrompt(pageCount: number): string {
+  return `你是考卷系統的解析引擎。以下是一份考卷的「題目卷」共 ${pageCount} 頁。
+這種考卷有時是分離式：部分大題的題目印在另一張答案卷上，題目卷只有大題標題（例如「一、國字注音（每字1分，共10分，答案請書寫於答案卷）」）。
+
+請盤點每一個大題，輸出：
+- section：大題編號與名稱（如「一、國字注音」）
+- perScore：每題（或每字）配分
+- totalScore：該大題總分
+- count：題數——若題目不在題目卷上，就從「每題X分，共Y分」推算
+- questionsInBooklet：true/false——這個大題的題目本身是否印在題目卷上（false = 只有標題，需要請老師補標準答案）
+- questionCategory：從這個清單選一個——${SOLVE_TYPE_MENU}
+
+注意：「每字1分」的大題若一題考多個字，題數以答案格數計。全卷總分應等於各大題 totalScore 加總，請自我檢查。
+
+只輸出 JSON：
+{"sections":[{"section":"一、...","perScore":1,"totalScore":10,"count":10,"questionsInBooklet":true,"questionCategory":"fill_blank"}],"fullTotal":100}`
+}
+
+function buildSolvePrompt(domain: string, pageCount: number, idLines: string): string {
+  return `你是${domain || '學科'}老師，正在為這份考卷編製標準答案。以下是完整題本 ${pageCount} 頁的圖。
+
+請逐題解題，題號清單（依卷面順序；括號是該題所在大題與序號，卷面印的題號順序與清單一致）：
+${idLines}
+
+每一題輸出：
+- id：照清單
+- questionCategory：從這個清單選一個——${SOLVE_TYPE_MENU}
+- answer：標準答案
+  ・選擇題：只寫選項代號；⚠ 依卷面實際選項作答——配合題選項可能是 A~J 不只 A~D
+  ・要求「列出算式/不等式」的題：只寫式子（用 x 當未知數、<= >= 表示不等號），除非題目也要求解
+  ・要求解的題：只寫最終答案（數值或範圍，如 x>=7、無解）
+  ・國字注音題：題目給注音要你寫國字 → 只寫那個國字；給國字要你寫注音 → 只寫注音（含調號）
+  ・註釋題（解釋詞義）：用最精簡的釋義，可用頓號列多種寫法
+- referenceAnswer：作圖題/應用題的完整參考答案（含步驟）；其他題可省略
+- levelRubric：只有 word_problem 與 grid_geometry 要輸出——會考級分制評分規準：
+  {"levels":[{"level":3,"score":<滿分>,"criteria":"..."},{"level":2,...},{"level":1,...},{"level":0,"score":0,"criteria":"..."}],
+   "levelRules":[{"level":3,"requireAll":["E1",...]},{"level":2,"requireAll":[...],"requireAny":[...]},{"level":1,"requireAny":[...]},{"level":0}],
+   "requiredElements":[{"key":"E1","desc":"具體要素（寫出實際式子/數值/圖形特徵）＋⛔註明什麼不算給分"}],
+   "toleratedFlaws":["可容忍的寫法差異（單位、同義描述、未化簡）"]}
+  要素越具體，之後 AI 批改越準。
+
+規則：
+1. 每題認真計算、驗算後再作答；依題本上的文章與題幹作答，不要憑課外記憶猜測。
+2. 沒把握的題照樣作答，並在 uncertain 欄列出題號。
+3. ⛔ 只作答清單上的題，不可自行增加題目。
+4. 只輸出 JSON：
+{"answers":[{"id":"1-1-1","questionCategory":"fill_blank","answer":"..."}],"uncertain":"沒把握的題號；沒有就空字串"}`
+}
+
+/** 解題答案正規化（分歧比對用；同段1c 沙盒） */
+function normalizeSolvedAnswer(s: unknown): string {
+  return String(s ?? '')
+    .replace(/[\s，,。．.（）()「」'"]/g, '')
+    .replace(/≤|≦/g, '<=')
+    .replace(/≥|≧/g, '>=')
+    .replace(/×/g, '*')
+    .replace(/÷/g, '/')
+    .replace(/[０-９ａ-ｚＡ-Ｚ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .toUpperCase()
+}
+
+export interface SolveAnswerKeyOptions {
+  domain?: string
+  onProgress?: (msg: string) => void
+}
+
+export async function solveAnswerKeyFromBooklet(
+  bookletImages: Blob[],
+  opts?: SolveAnswerKeyOptions
+): Promise<AnswerKey> {
+  if (!bookletImages.length) throw new Error('沒有題目卷可解析')
+  const onProgress = opts?.onProgress ?? (() => {})
+  const imageParts: GeminiRequestPart[] = []
+  for (let i = 0; i < bookletImages.length; i++) {
+    imageParts.push(`【第 ${i + 1} 頁】`)
+    imageParts.push({
+      inlineData: { mimeType: bookletImages[i].type || 'image/jpeg', data: await blobToBase64(bookletImages[i]) }
+    })
+  }
+
+  // ① 結構推斷
+  onProgress('AI 正在分析考卷結構（大題、題數、配分）…')
+  const structText = await generateGeminiText(
+    currentModelName,
+    [buildSolveStructurePrompt(bookletImages.length), ...imageParts],
+    { routeKey: 'answer_key.solve' }
+  )
+  const struct = parseGeminiJsonText(structText) as { sections?: SolveStructureSection[] } | null
+  const sections = Array.isArray(struct?.sections) ? struct!.sections! : []
+  if (!sections.length) throw new Error('AI 無法辨識考卷結構，請確認題目卷影像清晰完整')
+
+  // 題號骨架（id 慣例 1-<大題>-<序>；anchorHint 供大題標題與排版引擎使用）
+  const skeleton = sections.flatMap((sec, si) =>
+    Array.from({ length: Math.max(0, Math.min(200, sec.count | 0)) }, (_, n) => ({
+      id: `1-${si + 1}-${n + 1}`,
+      section: sec,
+      anchorHint: `位於『${sec.section}』第 ${n + 1} 格`
+    }))
+  )
+  const solvable = skeleton.filter((q) => q.section.questionsInBooklet)
+
+  // ② 解題 ×2（分歧標記——不穩定的題請老師優先看）
+  let solvedById = new Map<string, { questionCategory?: string; answer?: string; referenceAnswer?: string; levelRubric?: unknown }>()
+  const disagreementIds = new Set<string>()
+  if (solvable.length > 0) {
+    onProgress(`AI 正在解 ${solvable.length} 題（跑兩次交叉比對）…`)
+    const idLines = solvable.map((q) => `${q.id}（${q.anchorHint}）`).join('\n')
+    const solveOnce = async () => {
+      const text = await generateGeminiText(
+        currentModelName,
+        [buildSolvePrompt(opts?.domain ?? '', bookletImages.length, idLines), ...imageParts],
+        { routeKey: 'answer_key.solve' }
+      )
+      const parsed = parseGeminiJsonText(text) as { answers?: Array<{ id: string; questionCategory?: string; answer?: string; referenceAnswer?: string; levelRubric?: unknown }> } | null
+      return new Map((parsed?.answers ?? []).map((a) => [String(a.id), a]))
+    }
+    const [run1, run2] = await Promise.all([solveOnce(), solveOnce()])
+    solvedById = run1
+    for (const q of solvable) {
+      const a1 = run1.get(q.id)
+      const a2 = run2.get(q.id)
+      if (!a1 || !a2 || normalizeSolvedAnswer(a1.answer) !== normalizeSolvedAnswer(a2.answer)) {
+        disagreementIds.add(q.id)
+      }
+    }
+  }
+
+  // ③ 組 AnswerKey 草稿
+  const questions: AnswerKeyQuestion[] = skeleton.map((q) => {
+    const solved = q.section.questionsInBooklet ? solvedById.get(q.id) : undefined
+    const category = String(solved?.questionCategory || q.section.questionCategory || 'fill_blank')
+    const base: AnswerKeyQuestion = {
+      id: q.id,
+      questionCategory: category as AnswerKeyQuestion['questionCategory'],
+      answer: String(solved?.answer ?? ''),
+      maxScore: q.section.perScore,
+      anchorHint: q.anchorHint
+    } as AnswerKeyQuestion
+    if (solved?.referenceAnswer) (base as { referenceAnswer?: string }).referenceAnswer = String(solved.referenceAnswer)
+    if (solved?.levelRubric && (category === 'word_problem' || category === 'grid_geometry')) {
+      ;(base as { levelRubric?: unknown }).levelRubric = solved.levelRubric
+    }
+    if (disagreementIds.has(q.id)) (base as { solveDisagreement?: boolean }).solveDisagreement = true
+    return base
+  })
+
+  const totalScore = questions.reduce((t, q) => t + (q.maxScore ?? 0), 0)
+  onProgress('解題完成，整理草稿…')
+  return normalizeAnswerKeyShortAnswerDimensions({ questions, totalScore }, opts?.domain)
 }

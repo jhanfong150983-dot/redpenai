@@ -9,7 +9,7 @@ import { db, generateId } from '@/lib/db'
 import type { AnswerKey, AnswerKeyTemplate } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
-import { extractAnswerKeyFromImages } from '@/lib/gemini'
+import { solveAnswerKeyFromBooklet, extractAnswerKeyFromImages } from '@/lib/gemini'
 import { runKpUpgradeInline } from '@/lib/parentReport'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { getSchoolBillingContext } from '@/lib/school-billing'
@@ -440,6 +440,14 @@ export default function AnswerBank(_props: AnswerBankProps) {
     const blobs = orderedPages.map((p) => p.blob)
     await startInkSession()
     try {
+      // 生成答案卷流程：沒有答案卷、只有題目卷 → AI 解題起草（answer_key.solve）
+      if (blobs.length === 0 && context.bookletBlobs?.length) {
+        const answerKey = await solveAnswerKeyFromBooklet(context.bookletBlobs, {
+          domain: context.domain || undefined,
+          onProgress: _onProgress,
+        })
+        return { answerKey, imageBlobs: [], notice: 'AI 解題為草稿，請逐題確認；標記「兩次解題不一致」的題請優先檢查。' }
+      }
       const answerKey = await extractAnswerKeyFromImages(blobs, {
         domain: context.domain || undefined,
         docType: context.docType,

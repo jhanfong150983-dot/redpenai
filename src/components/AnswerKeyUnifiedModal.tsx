@@ -1208,6 +1208,14 @@ export default function AnswerKeyUnifiedModal({
       // 2026-08-14（user 拍板）：純答案卷沒有題本一律不准解析。
       //   答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上；
       //   沒題本就只能瞎猜，應用題會被判成填空、級分制永遠不觸發，而且錯得無聲無息。
+      if (GENERATED_SHEET_STEP_ENABLED) {
+        // 生成流程：只需題本，AI 直接解題起草
+        return {
+          label: bookletPageItems.length === 0 ? '請先上傳題目卷' : '確認送出 AI 解題',
+          disabled: bookletPageItems.length === 0,
+          icon: <Check className="w-4 h-4" />,
+        }
+      }
       return {
         label: needsBooklet ? '請先上傳題本' : '確認送出解析',
         disabled: pageItems.length === 0 || needsBooklet,
@@ -1574,8 +1582,8 @@ export default function AnswerKeyUnifiedModal({
                   ) : (
                     /* ── Create mode: full upload + reorder ── */
                     <div className="flex flex-col gap-6">
-                      {/* ── 答案卷區塊（永遠顯示） ── */}
-                      <section className="rounded-xl border border-rose-200 bg-rose-50/30 p-4">
+                      {/* ── 答案卷區塊（生成流程不需要：AI 直接從題目卷解題） ── */}
+                      <section className={`rounded-xl border border-rose-200 bg-rose-50/30 p-4 ${GENERATED_SHEET_STEP_ENABLED ? 'hidden' : ''}`}>
                         <div className="flex items-baseline justify-between mb-3">
                           <div className="flex items-center gap-2">
                             <h3 className="text-sm font-semibold text-rose-900">📑 答案卷</h3>
@@ -1889,8 +1897,8 @@ export default function AnswerKeyUnifiedModal({
                                   </span>
                                 )}
                               </div>
-                              <div className={`text-[10px] truncate ${answerMissing ? 'text-red-600 font-semibold' : hasWarn ? 'text-orange-600' : 'text-gray-400'}`}>
-                                {answerMissing ? '❌ 缺少標準答案' : hasWarn ? (vocabWarn ? '⚠ 請核對注音' : '⚠ 多項填入') : CATEGORY_LABELS[cat]}
+                              <div className={`text-[10px] truncate ${answerMissing ? 'text-red-600 font-semibold' : q.solveDisagreement ? 'text-red-600 font-semibold' : hasWarn ? 'text-orange-600' : 'text-gray-400'}`}>
+                                {answerMissing ? '❌ 缺少標準答案' : q.solveDisagreement ? '⚠ 兩次解題不一致' : hasWarn ? (vocabWarn ? '⚠ 請核對注音' : '⚠ 多項填入') : CATEGORY_LABELS[cat]}
                               </div>
                             </div>
                           </button>
@@ -1973,10 +1981,25 @@ export default function AnswerKeyUnifiedModal({
                               <span className="w-20 px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-600 select-all">{selectedQuestion.id ?? ''}</span>
                             </div>
                             <div className="flex-1 flex flex-col gap-1">
-                              <span className="text-gray-500">題型 <span className="text-[10px] text-gray-400">(由 AI 自動分類)</span></span>
-                              <span className="w-full px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-700">
-                                {CATEGORY_LABELS[selectedCategory] ?? selectedCategory}
-                              </span>
+                              <span className="text-gray-500">題型 <span className="text-[10px] text-gray-400">{GENERATED_SHEET_STEP_ENABLED ? '(AI 起草，可修改)' : '(由 AI 自動分類)'}</span></span>
+                              {GENERATED_SHEET_STEP_ENABLED ? (
+                                <select
+                                  className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-700"
+                                  value={selectedCategory}
+                                  onChange={(e) => updateField(selectedIdx, 'questionCategory', e.target.value)}
+                                >
+                                  {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
+                                    <option key={value} value={value}>{label}</option>
+                                  ))}
+                                  {!(selectedCategory in CATEGORY_LABELS) && (
+                                    <option value={selectedCategory}>{selectedCategory}</option>
+                                  )}
+                                </select>
+                              ) : (
+                                <span className="w-full px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-700">
+                                  {CATEGORY_LABELS[selectedCategory] ?? selectedCategory}
+                                </span>
+                              )}
                             </div>
                             {scoringMode !== 'unscored' && (
                               <div className="flex flex-col gap-1">

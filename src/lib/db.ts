@@ -305,6 +305,8 @@ export interface AnswerKeyQuestion {
   // 由 answer_key.extract 萃取，用於輔助 classify 定位正確的答案格（不依賴座標）
   // 例如："表格中欄標題為「22」的格子"、"題幹「擲出來的點數和可能大於1嗎？」旁的括號"
   anchorHint?: string
+  // 生成答案卷：AI 解題兩次答案不一致（請老師優先人工確認）
+  solveDisagreement?: boolean
 
   // fill_blank 作答位置（由 answer_key.extract 標記，版面固定屬性）
   // 'front'=答案寫在題號左側獨立答案欄（如文意字彙）／'inline'=寫在句中空格
