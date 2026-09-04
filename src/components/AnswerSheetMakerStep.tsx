@@ -1,6 +1,6 @@
 // 2026-09-04 step④ 作答卷製作（生成答案卷單一流程的新步驟）。
 //   左＝參數控制（紙張、每大題欄數/格高/大格高、作圖題底圖框選）；右＝整頁即時預覽。
-//   排版由 answerSheetGenerator（RPGEN1）決定性產出；⛔ 預覽與最終 PDF 必須同一引擎。
+//   排版由 answerSheetGenerator（RPGEN2）決定性產出；⛔ 預覽與最終 PDF 必須同一引擎。
 //   v1 調整能力＝參數化（不做自由拖格——與單頁保證/排版決定性相衝，v2 再評估）。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -88,7 +88,7 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
   }, [questions])
 
   // 即時重排（決定性：同輸入同結果）
-  const result = useMemo<GenResult | { ok: false } | null>(() => {
+  const result = useMemo<ReturnType<typeof generateAnswerSheet> | null>(() => {
     if (!headerDataUri) return null
     const qs = questions.map((q) => (state.baseImages[q.id] ? { ...q, baseImage: state.baseImages[q.id] } : q))
     return generateAnswerSheet({
@@ -210,19 +210,25 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
         {headerError && <div className="text-sm text-red-600">標頭圖載入失敗，請重新整理後再試</div>}
         {!result && !headerError && <div className="text-sm text-gray-400 py-10 text-center">版面計算中…</div>}
         {result && !result.ok && (
-          <div className="border border-red-300 bg-red-50 text-red-700 rounded-lg p-4 text-sm">
-            這些題目在 {state.pageSize} 一頁裝不下（作答卷固定單面一頁）。請調小「大格高度」、增加每列格數，或改用 B4。
+          <div className="border-2 border-red-400 rounded-lg bg-red-50 p-3">
+            <div className="text-sm text-red-700 font-bold mb-2">
+              ⚠ 一頁裝不下（作答卷固定單面一頁）——請調小格子高度／大格高度、增加每列格數，或改用 B4。裝不下前無法儲存。
+            </div>
+            <div
+              className="bg-white shadow mx-auto opacity-70 [&>svg]:w-full [&>svg]:h-auto"
+              style={{ maxWidth: 560 }}
+              dangerouslySetInnerHTML={{ __html: result.previewSvg }}
+            />
+            <div className="text-[11px] text-red-500 mt-1 text-center">（僅顯示塞得下的部分——超出的題目不在畫面上）</div>
           </div>
         )}
         {result && result.ok && (
           <div className="border rounded-lg bg-gray-100 p-3">
-            <div className="text-[11px] text-gray-500 mb-2">
-              單面一頁預覽{(result as GenResult).densityLevel > 0 ? `（已自動增密至第 ${(result as GenResult).densityLevel} 級以塞進一頁）` : ''}
-            </div>
+            <div className="text-[11px] text-gray-500 mb-2">單面一頁預覽</div>
             <div
               className="bg-white shadow mx-auto [&>svg]:w-full [&>svg]:h-auto"
               style={{ maxWidth: 560 }}
-              dangerouslySetInnerHTML={{ __html: (result as GenResult).svg }}
+              dangerouslySetInnerHTML={{ __html: result.svg }}
             />
           </div>
         )}

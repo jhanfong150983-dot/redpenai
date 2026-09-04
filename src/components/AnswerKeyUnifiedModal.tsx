@@ -1157,7 +1157,6 @@ export default function AnswerKeyUnifiedModal({
               uvBasis: makerResult.layoutMeta.uvBasis,
               header: makerResult.layoutMeta.header,
               boxes: makerResult.boxes,
-              densityLevel: makerResult.densityLevel,
               sectionOverrides: makerState.sectionOverrides,
             }
           : undefined
@@ -1268,7 +1267,7 @@ export default function AnswerKeyUnifiedModal({
       '',
       `・紙張：${makerState.pageSize}（單面一頁）`,
       `・題數：${editingKey.questions.length} 題、總分 ${editingKey.questions.reduce((t, q) => t + (q.maxScore ?? 0), 0)} 分`,
-      `・作答格：${makerResult.boxes.length} 格${makerResult.densityLevel > 0 ? `（已自動增密塞進一頁）` : ''}`,
+      `・作答格：${makerResult.boxes.length} 格`,
       ...(baseCount > 0 ? [`・作圖底圖：${baseCount} 題已設定`] : []),
       '',
       '⚠ 儲存後版面即定版（作答格位置是批改辨識的依據），**無法再修改**。',
