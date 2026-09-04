@@ -6767,8 +6767,12 @@ ${idLines}
   ・要求解的題：只寫最終答案（數值或範圍，如 x>=7、無解）
   ・國字注音題：題目給注音要你寫國字 → 只寫那個國字；給國字要你寫注音 → 只寫注音（含調號）
   ・註釋題（解釋詞義）：用最精簡的釋義，可用頓號列多種寫法
+- maxScore：這一題在卷面上印的配分（如「(3分)」）；沒印就省略
 - referenceAnswer：作圖題/應用題的完整參考答案（含步驟）；其他題可省略
-- levelRubric：只有 word_problem 與 grid_geometry 要輸出——會考級分制評分規準：
+- vjRubric：只有 grid_geometry（作圖題）要輸出——視覺逐項判準：
+  {"itemLabels":["要畫的子項1","子項2"],"itemScores":[2,1],"condition":"學生每項該做什麼（一句話）","gradingDefinition":"什麼樣的作答算對（含⛔什麼不算；判準要具體到圖形特徵）"}
+  itemScores 依卷面配分拆（如「步驟1佔2分、步驟2佔1分」）；加總必須等於該題配分。
+- levelRubric：只有 word_problem（應用題）要輸出——會考級分制評分規準：
   {"levels":[{"level":3,"score":<滿分>,"criteria":"..."},{"level":2,...},{"level":1,...},{"level":0,"score":0,"criteria":"..."}],
    "levelRules":[{"level":3,"requireAll":["E1",...]},{"level":2,"requireAll":[...],"requireAny":[...]},{"level":1,"requireAny":[...]},{"level":0}],
    "requiredElements":[{"key":"E1","desc":"具體要素（寫出實際式子/數值/圖形特徵）＋⛔註明什麼不算給分"}],
@@ -6837,7 +6841,7 @@ export async function solveAnswerKeyFromBooklet(
   const solvable = skeleton.filter((q) => q.section.questionsInBooklet)
 
   // ② 解題 ×2（分歧標記——不穩定的題請老師優先看）
-  let solvedById = new Map<string, { questionCategory?: string; answer?: string; referenceAnswer?: string; levelRubric?: unknown }>()
+  let solvedById = new Map<string, { questionCategory?: string; answer?: string; maxScore?: number; referenceAnswer?: string; levelRubric?: unknown; vjRubric?: unknown }>()
   const disagreementIds = new Set<string>()
   if (solvable.length > 0) {
     onProgress(`AI 正在解 ${solvable.length} 題（跑兩次交叉比對）…`)
@@ -6848,7 +6852,7 @@ export async function solveAnswerKeyFromBooklet(
         [buildSolvePrompt(opts?.domain ?? '', bookletImages.length, idLines), ...imageParts],
         { routeKey: 'answer_key.solve' }
       )
-      const parsed = parseGeminiJsonText(text) as { answers?: Array<{ id: string; questionCategory?: string; answer?: string; referenceAnswer?: string; levelRubric?: unknown }> } | null
+      const parsed = parseGeminiJsonText(text) as { answers?: Array<{ id: string; questionCategory?: string; answer?: string; maxScore?: number; referenceAnswer?: string; levelRubric?: unknown; vjRubric?: unknown }> } | null
       return new Map((parsed?.answers ?? []).map((a) => [String(a.id), a]))
     }
     const [run1, run2] = await Promise.all([solveOnce(), solveOnce()])
@@ -6866,17 +6870,31 @@ export async function solveAnswerKeyFromBooklet(
   const questions: AnswerKeyQuestion[] = skeleton.map((q) => {
     const solved = q.section.questionsInBooklet ? solvedById.get(q.id) : undefined
     const category = String(solved?.questionCategory || q.section.questionCategory || 'fill_blank')
+    // 配分：優先用卷面印的（解題讀出），否則退回大題均分（老師可改）
+    const solvedScore = typeof solved?.maxScore === 'number' && solved.maxScore > 0 && solved.maxScore <= 100 ? solved.maxScore : undefined
     const base: AnswerKeyQuestion = {
       id: q.id,
       questionCategory: category as AnswerKeyQuestion['questionCategory'],
       answer: String(solved?.answer ?? ''),
-      maxScore: q.section.perScore,
+      maxScore: solvedScore ?? q.section.perScore,
       anchorHint: q.anchorHint,
       ...(q.bookletPageIndex != null ? { bookletPageIndex: q.bookletPageIndex } : {})
     } as AnswerKeyQuestion
     if (solved?.referenceAnswer) (base as { referenceAnswer?: string }).referenceAnswer = String(solved.referenceAnswer)
-    if (solved?.levelRubric && (category === 'word_problem' || category === 'grid_geometry')) {
+    // 評分方式契約（判分方法×題型對照）：word_problem＝級分制 levelRubric；grid_geometry＝VJ vjRubric
+    if (solved?.levelRubric && category === 'word_problem') {
       ;(base as { levelRubric?: unknown }).levelRubric = solved.levelRubric
+    }
+    if (solved?.vjRubric && category === 'grid_geometry') {
+      const vr = solved.vjRubric as { itemLabels?: unknown; itemScores?: unknown; condition?: unknown; gradingDefinition?: unknown }
+      if (Array.isArray(vr.itemLabels) && vr.itemLabels.length > 0) {
+        ;(base as { vjRubric?: unknown }).vjRubric = {
+          itemLabels: vr.itemLabels.map(String),
+          ...(Array.isArray(vr.itemScores) && vr.itemScores.length === vr.itemLabels.length ? { itemScores: vr.itemScores.map(Number) } : {}),
+          ...(vr.condition ? { condition: String(vr.condition) } : {}),
+          ...(vr.gradingDefinition ? { gradingDefinition: String(vr.gradingDefinition) } : {})
+        }
+      }
     }
     if (disagreementIds.has(q.id)) (base as { solveDisagreement?: boolean }).solveDisagreement = true
     return base
