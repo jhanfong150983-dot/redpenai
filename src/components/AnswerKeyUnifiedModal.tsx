@@ -16,7 +16,7 @@ import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
 import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
-import { ANSWER_SHEET_GEN_VERSION, type GenResult, type GeneratedSheetData } from '@/lib/answerSheetGenerator'
+import { ANSWER_SHEET_GEN_VERSION, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData } from '@/lib/answerSheetGenerator'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
@@ -179,6 +179,7 @@ export interface AnswerKeyUnifiedModalProps {
     /** 這次編輯是否重新解析過。重新解析＝產生新版本答案卷，不覆蓋原本那份 */
     reextracted?: boolean
     generatedSheet?: GeneratedSheetData
+    generatedSheetPdf?: Blob
   }) => Promise<void>
   // Edit mode data
   editMode?: boolean
@@ -1163,6 +1164,16 @@ export default function AnswerKeyUnifiedModal({
         }
       }
 
+      // step④ 定版：渲染 PDF（定版物＝實體檔案，含底圖；下載/重印直接拿檔不重算）
+      let generatedSheetPdf: Blob | undefined
+      if (GENERATED_SHEET_STEP_ENABLED && makerResult) {
+        try {
+          const png = await renderSheetPng(makerResult.svg, makerResult.layoutMeta.pageMm)
+          generatedSheetPdf = await buildSheetPdf(png, makerResult.layoutMeta.pageMm)
+        } catch (err) {
+          console.warn('[UnifiedModal] 作答卷 PDF 渲染失敗（存檔照常，之後可重新定版）:', err)
+        }
+      }
       // step④ 定版資料（旗標開啟且排版 ok 時才帶）
       const generatedSheet: GeneratedSheetData | undefined =
         GENERATED_SHEET_STEP_ENABLED && makerResult
@@ -1188,6 +1199,7 @@ export default function AnswerKeyUnifiedModal({
         grade: grade === '' ? undefined : grade,
         reextracted: didReextract,
         generatedSheet,
+        generatedSheetPdf,
       })
       if (!editMode) clearMetadataDraft() // 建立成功→草稿功成身退
     } finally {

@@ -16,7 +16,7 @@ import { getSchoolBillingContext } from '@/lib/school-billing'
 import { checkFolderNameUnique, domainRank, sortByDomainThenName } from '@/lib/utils'
 import AnswerKeyUnifiedModal from '@/components/AnswerKeyUnifiedModal'
 import InkConfirmModal from '@/components/InkConfirmModal'
-import { useConfirm } from '@/components/ConfirmModal'
+import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -65,6 +65,7 @@ function DomainBadge({ domain }: { domain: string }) {
 export default function AnswerBank(_props: AnswerBankProps) {
   // 2026-07-22 modal 統一：window.confirm → 共用 ConfirmModal
   const confirmModal = useConfirm()
+  const alertModal = useAlertModal()
   const [templates, setTemplates] = useState<AnswerKeyTemplate[]>([])
   const [usedTemplateIds, setUsedTemplateIds] = useState<Set<string>>(new Set())
   const [isLoading, setIsLoading] = useState(true)
@@ -516,6 +517,48 @@ export default function AnswerBank(_props: AnswerBankProps) {
   }
 
   // 上傳原始答案卷整頁圖到 Supabase Storage，再次開啟編輯器時用於還原預覽
+  // 生成作答卷定版 PDF → storage generated-sheets/<templateId>/sheet.pdf（下載 icon 直接拿檔）
+  const uploadGeneratedSheetPdf = async (templateId: string, pdf: Blob) => {
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader()
+        fr.onload = () => resolve(String(fr.result))
+        fr.onerror = () => reject(new Error('pdf read failed'))
+        fr.readAsDataURL(pdf)
+      })
+      const res = await fetch('/api/storage/download', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateId, imagesBase64: [base64], storagePrefix: 'generated-sheets' }),
+      })
+      if (!res.ok) { console.warn('⚠️ 作答卷 PDF 上傳失敗', await res.text()); return }
+      console.log('✅ 作答卷 PDF 已上傳')
+    } catch (err) {
+      console.warn('⚠️ 作答卷 PDF 上傳例外', err)
+    }
+  }
+
+  // 卡片下載作答卷：從 storage 拿定版 PDF（generated-sheets/<id>/sheet.pdf）
+  const handleDownloadGeneratedSheet = async (t: AnswerKeyTemplate) => {
+    try {
+      const res = await fetch(`/api/storage/download?templateId=${encodeURIComponent(t.id)}&prefix=generated-sheets`, { credentials: 'include' })
+      if (!res.ok) {
+        await alertModal('找不到這份答案卷的作答卷 PDF。可能是舊版定版資料——請重新 AI 解析並完成「作答卷製作」後再下載。')
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `作答卷_${t.name}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      await alertModal('下載失敗，請稍後再試。')
+    }
+  }
+
   const uploadAnswerSheetImages = async (templateId: string, blobs: Blob[]) => {
     if (!blobs.length) return
     try {
@@ -583,6 +626,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
     grade?: number
     reextracted?: boolean
     generatedSheet?: import('../lib/answerSheetGenerator').GeneratedSheetData
+    generatedSheetPdf?: Blob
   }) => {
     // 2026-08-14（user 拍板）：批改的最大原則是「兩位老師的答案卷必須完全一致」。
     //   重新解析＝內容變了＝**新版本**，所以另存為一份新答案卷（新 id、新分享碼、新血緣根），
@@ -608,6 +652,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         ...(answerKeyChanged ? { version: currentVersion + 1 } : {}),
       })
       if (answerKeyChanged) uploadAnswerCrops(editingTemplateId, answerKey)
+      if (metadata.generatedSheetPdf) uploadGeneratedSheetPdf(editingTemplateId, metadata.generatedSheetPdf)
       // 若這次有重新解析（imageBlobs 非空），就重新上傳整頁圖；否則保留 Storage 既有版本
       if (imageBlobs.length > 0) uploadAnswerSheetImages(editingTemplateId, imageBlobs)
       // 註：編輯模式不允許後補題本（避免「有的能補有的不能補」混亂的 UX）。
@@ -649,6 +694,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       }
       await db.answerKeyTemplates.add(template)
       uploadAnswerCrops(templateId, answerKey)
+      if (metadata.generatedSheetPdf) uploadGeneratedSheetPdf(templateId, metadata.generatedSheetPdf)
       uploadAnswerSheetImages(templateId, imageBlobs)
       if (metadata.answerSheetMode === 'answer_only' && metadata.questionBookletBlobs.length > 0) {
         uploadQuestionBookletImages(templateId, metadata.questionBookletBlobs)
@@ -849,6 +895,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
       </div>
       <div className="flex items-center gap-1.5 ml-3">
         {/* 答案卷存檔後即鎖定，這裡是「查看」而非編輯——用鉛筆會誤導 */}
+        {t.generatedSheet && (
+          <button type="button" onClick={() => void handleDownloadGeneratedSheet(t)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-green-300 hover:text-green-600" title="下載作答卷 PDF">
+            <Download className="h-4 w-4" />
+          </button>
+        )}
         <button type="button" onClick={() => handleEdit(t)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-blue-300 hover:text-blue-600" title="查看答案卷">
           <Eye className="h-4 w-4" />
         </button>
