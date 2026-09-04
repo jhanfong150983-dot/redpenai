@@ -1792,15 +1792,16 @@ export default function AnswerKeyUnifiedModal({
                    理由：答案卷是批改的判準，改了就得重新批改；而且多位老師共用時，
                    任一方偷偷改一格就會讓「同一份卷」名存實亡。要改＝重新解析成新版本。
                    用 fieldset disabled 一次鎖住底下所有輸入，避免逐個控制項漏掉。 */
-                <div className="flex h-full overflow-hidden relative">
+                <div className="flex flex-col h-full overflow-hidden">
                   {locked && (
-                    <div className="absolute top-0 inset-x-0 z-10 flex items-center gap-2 px-3 py-1.5 bg-slate-100 border-b border-slate-200 text-[11px] text-slate-600">
+                    <div className="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-slate-100 border-b border-slate-200 text-[11px] text-slate-600">
                       <Lock className="w-3 h-3 shrink-0" />
                       <span>
                         已儲存的答案卷不能修改題目。要調整請到上一步「重新 AI 解析」，會產生一份新的答案卷。
                       </span>
                     </div>
                   )}
+                  <div className="flex flex-1 overflow-hidden min-h-0">
                   {/* Question list sidebar */}
                   <div className="w-48 border-r border-gray-200 flex flex-col shrink-0 min-h-0">
                     <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-between shrink-0">
@@ -2343,6 +2344,7 @@ export default function AnswerKeyUnifiedModal({
                       onPageChange={setBookletViewPage}
                     />
                   )}
+                  </div>
                 </div>
               )}
 
