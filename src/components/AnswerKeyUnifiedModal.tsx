@@ -1277,8 +1277,7 @@ export default function AnswerKeyUnifiedModal({
     const ok = await confirmModal({
       tone: 'danger',
       title: '確定定版並儲存？',
-      message: lines.join('
-'),
+      message: lines.join('\n'),
       confirmLabel: '我了解，定版儲存',
     })
     if (!ok) return
