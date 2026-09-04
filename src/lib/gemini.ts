@@ -6878,6 +6878,7 @@ export async function solveAnswerKeyFromBooklet(
       answer: String(solved?.answer ?? ''),
       maxScore: solvedScore ?? q.section.perScore,
       anchorHint: q.anchorHint,
+      aiQuestionCategory: category,
       ...(q.bookletPageIndex != null ? { bookletPageIndex: q.bookletPageIndex } : {})
     } as AnswerKeyQuestion
     if (solved?.referenceAnswer) (base as { referenceAnswer?: string }).referenceAnswer = String(solved.referenceAnswer)

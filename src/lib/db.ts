@@ -309,6 +309,8 @@ export interface AnswerKeyQuestion {
   solveDisagreement?: boolean
   // 生成答案卷：這題所在大題從題目卷第幾頁開始（0-based；人工確認畫面自動翻頁）
   bookletPageIndex?: number
+  // 生成答案卷：AI 解題當下判定的題型（下拉標記「AI 判定」，老師改過可換回）
+  aiQuestionCategory?: string
 
   // fill_blank 作答位置（由 answer_key.extract 標記，版面固定屬性）
   // 'front'=答案寫在題號左側獨立答案欄（如文意字彙）／'inline'=寫在句中空格

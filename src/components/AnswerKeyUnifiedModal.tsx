@@ -145,6 +145,15 @@ const STEP_CONFIG: { key: UnifiedStep; label: string; shortLabel: string }[] = [
   ...(GENERATED_SHEET_STEP_ENABLED ? [{ key: 'sheet' as UnifiedStep, label: '作答卷製作', shortLabel: '④' }] : []),
 ]
 
+// 題型下拉的分組（老師視角的作答形式；成員名單來自 lib/db QuestionCategory）
+const CATEGORY_GROUPS: Array<{ label: string; items: string[] }> = [
+  { label: '選擇與勾選', items: ['single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many', 'single_check', 'multi_check', 'table_check', 'true_false'] },
+  { label: '填寫', items: ['fill_blank', 'multi_fill', 'fill_variants', 'table_cell', 'ordering', 'matching', 'mark_in_text', 'map_fill'] },
+  { label: '問答與計算', items: ['short_answer', 'calculation', 'word_problem'] },
+  { label: '繪圖與標記', items: ['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'] },
+  { label: '複合題', items: ['compound_circle_with_explain', 'compound_check_with_explain', 'compound_writein_with_explain', 'multi_check_other', 'compound_judge_with_correction', 'compound_judge_with_explain', 'compound_chain_table'] },
+]
+
 interface NormalizedBbox { x: number; y: number; w: number; h: number }
 
 export interface AnswerKeyUnifiedModalProps {
@@ -2001,11 +2010,18 @@ export default function AnswerKeyUnifiedModal({
                                   value={selectedCategory}
                                   onChange={(e) => updateField(selectedIdx, 'questionCategory', e.target.value)}
                                 >
-                                  {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
-                                    <option key={value} value={value}>{label}</option>
+                                  {CATEGORY_GROUPS.map((g) => (
+                                    <optgroup key={g.label} label={g.label}>
+                                      {g.items.filter((v) => v in CATEGORY_LABELS).map((value) => (
+                                        <option key={value} value={value}>
+                                          {CATEGORY_LABELS[value as keyof typeof CATEGORY_LABELS]}
+                                          {(selectedQuestion as { aiQuestionCategory?: string }).aiQuestionCategory === value ? '（AI 判定）' : ''}
+                                        </option>
+                                      ))}
+                                    </optgroup>
                                   ))}
-                                  {!(selectedCategory in CATEGORY_LABELS) && (
-                                    <option value={selectedCategory}>{selectedCategory}</option>
+                                  {!CATEGORY_GROUPS.some((g) => g.items.includes(selectedCategory)) && (
+                                    <option value={selectedCategory}>{CATEGORY_LABELS[selectedCategory as keyof typeof CATEGORY_LABELS] ?? selectedCategory}</option>
                                   )}
                                 </select>
                               ) : (
