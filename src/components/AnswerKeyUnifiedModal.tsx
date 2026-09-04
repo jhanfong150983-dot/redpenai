@@ -1321,7 +1321,7 @@ export default function AnswerKeyUnifiedModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-[960px] h-[640px] flex flex-col overflow-hidden relative">
+      <div className={`bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden relative ${GENERATED_SHEET_STEP_ENABLED ? 'w-[96vw] max-w-[1500px] h-[92vh]' : 'w-[960px] h-[640px]'}`}>
 
         {/* ── Main content: sidebar + content ── */}
         <div className="flex-1 flex overflow-hidden min-h-0">
@@ -1935,14 +1935,8 @@ export default function AnswerKeyUnifiedModal({
                   >
                     {selectedQuestion ? (
                       <>
-                        {/* Image preview／生成流程＝題本檢視器（老師不用翻紙本對題目） */}
-                        {GENERATED_SHEET_STEP_ENABLED && bookletPageItems.length > 0 ? (
-                          <BookletViewer
-                            pages={bookletPageItems.map((item) => bookletPages.find((pg) => pg.index === item.originalIndex)?.url ?? '').filter(Boolean)}
-                            page={bookletViewPage}
-                            onPageChange={setBookletViewPage}
-                          />
-                        ) : (
+                        {/* Image preview（生成流程：不顯示小縮圖，題本在右側大圖欄） */}
+                        {GENERATED_SHEET_STEP_ENABLED ? null : (
                         <div className="shrink-0 border-b border-gray-100 p-3 bg-gray-50">
                           {(manualCropUrl || selectedQuestion.cropImageUrl || selectedQuestion.cropImagePath) && !isDrawingBbox ? (
                             <div className="rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center h-36">
@@ -2340,6 +2334,15 @@ export default function AnswerKeyUnifiedModal({
                       </div>
                     )}
                   </fieldset>
+
+                  {/* 題本大圖欄（生成流程）：全高可讀、點題自動翻頁、可縮放 */}
+                  {GENERATED_SHEET_STEP_ENABLED && bookletPageItems.length > 0 && (
+                    <BookletColumn
+                      pages={bookletPageItems.map((item) => bookletPages.find((pg) => pg.index === item.originalIndex)?.url ?? '').filter(Boolean)}
+                      page={bookletViewPage}
+                      onPageChange={setBookletViewPage}
+                    />
+                  )}
                 </div>
               )}
 
@@ -2421,33 +2424,31 @@ export default function AnswerKeyUnifiedModal({
   )
 }
 
-// ── 題本檢視器（生成流程的人工確認用：翻頁＋點圖放大） ──────────────────────
-function BookletViewer({ pages, page, onPageChange }: { pages: string[]; page: number; onPageChange: (p: number) => void }) {
-  const [zoomed, setZoomed] = useState(false)
+// ── 題本大圖欄（生成流程的人工確認）：全高可讀、寬度縮放、垂直捲動 ──────────
+function BookletColumn({ pages, page, onPageChange }: { pages: string[]; page: number; onPageChange: (p: number) => void }) {
+  const [zoom, setZoom] = useState(1)
   const cur = Math.min(Math.max(0, page), pages.length - 1)
   if (!pages.length) return null
   return (
-    <div className="shrink-0 border-b border-gray-100 p-3 bg-gray-50">
-      <div className="rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center h-44 relative">
+    <div className="w-[38%] min-w-[360px] border-l border-gray-200 flex flex-col shrink-0 bg-gray-50">
+      <div className="flex items-center justify-center gap-2 px-2 py-1.5 border-b border-gray-200 text-xs text-gray-600 shrink-0">
+        <button type="button" onClick={() => onPageChange(Math.max(0, cur - 1))} disabled={cur === 0} className="px-2 py-0.5 rounded border bg-white disabled:opacity-30">‹ 上一頁</button>
+        <span className="tabular-nums font-medium">題本 {cur + 1} / {pages.length}</span>
+        <button type="button" onClick={() => onPageChange(Math.min(pages.length - 1, cur + 1))} disabled={cur === pages.length - 1} className="px-2 py-0.5 rounded border bg-white disabled:opacity-30">下一頁 ›</button>
+        <span className="mx-1 text-gray-300">｜</span>
+        <button type="button" onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))} disabled={zoom <= 1} className="px-2 py-0.5 rounded border bg-white disabled:opacity-30">−</button>
+        <span className="tabular-nums w-10 text-center">{Math.round(zoom * 100)}%</span>
+        <button type="button" onClick={() => setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2)))} disabled={zoom >= 3} className="px-2 py-0.5 rounded border bg-white disabled:opacity-30">＋</button>
+      </div>
+      <div className="flex-1 overflow-auto p-2">
         <img
           src={pages[cur]}
           alt={`題本第 ${cur + 1} 頁`}
-          className="max-w-full max-h-full object-contain cursor-zoom-in"
-          onClick={() => setZoomed(true)}
+          className="block shadow"
+          style={{ width: `${zoom * 100}%`, maxWidth: 'none' }}
           draggable={false}
         />
       </div>
-      <div className="flex items-center justify-center gap-3 mt-1.5 text-xs text-gray-600">
-        <button type="button" onClick={() => onPageChange(Math.max(0, cur - 1))} disabled={cur === 0} className="px-2 py-0.5 rounded border disabled:opacity-30">‹ 上一頁</button>
-        <span className="tabular-nums">題本 {cur + 1} / {pages.length}</span>
-        <button type="button" onClick={() => onPageChange(Math.min(pages.length - 1, cur + 1))} disabled={cur === pages.length - 1} className="px-2 py-0.5 rounded border disabled:opacity-30">下一頁 ›</button>
-        <span className="text-gray-400">點圖放大</span>
-      </div>
-      {zoomed && (
-        <div className="fixed inset-0 z-[130] bg-black/70 flex items-center justify-center p-6 cursor-zoom-out" onClick={() => setZoomed(false)}>
-          <img src={pages[cur]} alt={`題本第 ${cur + 1} 頁`} className="max-w-full max-h-full object-contain" draggable={false} />
-        </div>
-      )}
     </div>
   )
 }
