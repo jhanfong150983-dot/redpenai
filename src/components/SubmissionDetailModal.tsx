@@ -127,9 +127,10 @@ export default function SubmissionDetailModal({
               //   levelResult 沒帶 → isLevel 永遠 false → 級分制題退回文字框、羅列式不顯示。
               //   （同一個坑今天已經踩過三次：server detail 白名單、accessor 合併、systemConfidence）
               levelResult: (d as { levelResult?: unknown }).levelResult,
-              //   2026-09-03 rubric 判官逐維度結果（社會/自然開放式概念題）——同理，
-              //   漏帶就讀不到，而逐維度聚合正是導入這個判官的主要動機。
-              rubricDims: (d as { rubricDims?: unknown }).rubricDims,
+              //   2026-09-04 rubric 判官（社會/自然開放式概念題）：逐維度結果改走既有的
+              //   rubricScores 契約（accessor 同名欄位、answerStats 聚合直接吃），
+              //   這裡轉發它＋判官的 uncertain 標記。前一版自創的 rubricDims 已廢。
+              rubricScores: (d as { rubricScores?: unknown }).rubricScores,
               rubricUncertain: (d as { rubricUncertain?: unknown }).rubricUncertain,
               // 2026-07-13 系統信心（內部值、<70 題目列紅底）
               systemConfidence:
