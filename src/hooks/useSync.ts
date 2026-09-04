@@ -876,6 +876,7 @@ export function useSync(options: UseSyncOptions = {}) {
         answerSheetMode: t.answerSheetMode ?? undefined,
         answerSheetImagePaths: t.answerSheetImagePaths ?? undefined,
         questionBookletImagePaths: t.questionBookletImagePaths ?? undefined,
+        generatedSheet: t.generatedSheet ?? undefined,
         updatedAt: t.updatedAt
       }))
 
@@ -1592,6 +1593,7 @@ export function useSync(options: UseSyncOptions = {}) {
           answerSheetMode: t.answerSheetMode ?? t.answer_sheet_mode ?? undefined,
           answerSheetImagePaths: t.answerSheetImagePaths ?? t.answer_sheet_image_paths ?? undefined,
           questionBookletImagePaths: t.questionBookletImagePaths ?? t.question_booklet_image_paths ?? undefined,
+          generatedSheet: t.generatedSheet ?? t.generated_sheet ?? undefined,
           version: t.version ?? 1,
           updatedAt: cloudUpdatedAt,
         }

@@ -574,6 +574,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
     questionBookletBlobs: Blob[]
     grade?: number
     reextracted?: boolean
+    generatedSheet?: import('../lib/answerSheetGenerator').GeneratedSheetData
   }) => {
     // 2026-08-14（user 拍板）：批改的最大原則是「兩位老師的答案卷必須完全一致」。
     //   重新解析＝內容變了＝**新版本**，所以另存為一份新答案卷（新 id、新分享碼、新血緣根），
@@ -595,6 +596,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         docType: metadata.docType, answerSheetMode: metadata.answerSheetMode,
         folder: metadata.folder || undefined, updatedAt: now,
         ...(metadata.grade != null ? { grade: metadata.grade } : {}),
+        ...(metadata.generatedSheet ? { generatedSheet: metadata.generatedSheet } : {}),
         ...(answerKeyChanged ? { version: currentVersion + 1 } : {}),
       })
       if (answerKeyChanged) uploadAnswerCrops(editingTemplateId, answerKey)
@@ -633,6 +635,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         shareCode: 'AK-' + Math.random().toString(36).substring(2, 8).toUpperCase(),
         pageOrientations,
         schoolId: getSchoolBillingContext() ?? undefined,
+        generatedSheet: metadata.generatedSheet,
         version: 1,
         updatedAt: Date.now(),
       }

@@ -494,6 +494,8 @@ export interface AnswerKeyTemplate {
   // 用於再次開啟編輯器時還原預覽（bbox 標記、題目對應）
   answerSheetImagePaths?: string[]
   questionBookletImagePaths?: string[] // 題本圖 Supabase Storage 路徑（純答案卷模式）
+  // 生成作答卷定版資料（RPGEN1：bbox/錨點/紙張；批改裁切與重印的 SSoT）——見 answerSheetGenerator.ts
+  generatedSheet?: import('./answerSheetGenerator').GeneratedSheetData
   version?: number // 答案卷版本號（每次編輯內容時 +1）
   updatedAt?: number
 }

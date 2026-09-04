@@ -15,6 +15,8 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
+import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
+import { ANSWER_SHEET_GEN_VERSION, type GenResult, type GeneratedSheetData } from '@/lib/answerSheetGenerator'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
@@ -126,12 +128,21 @@ function clearMetadataDraft() {
   } catch { /* noop */ }
 }
 
-type UnifiedStep = 'metadata' | 'extract' | 'editing'
+type UnifiedStep = 'metadata' | 'extract' | 'editing' | 'sheet'
+
+// 2026-09-04 生成作答卷單一流程（A 案）：step④ 作答卷製作。
+// 預覽旗標：預設關閉（production 不受影響）；測試者在瀏覽器 console 執行
+//   localStorage.setItem('redpen-gen-sheet-preview', '1') 後重新整理即可開啟。
+// 接完 solve route（模組2）與收模式（模組1）後改為預設開啟。
+const GENERATED_SHEET_STEP_ENABLED = (() => {
+  try { return localStorage.getItem('redpen-gen-sheet-preview') === '1' } catch { return false }
+})()
 
 const STEP_CONFIG: { key: UnifiedStep; label: string; shortLabel: string }[] = [
   { key: 'metadata', label: '基本資料', shortLabel: '①' },
   { key: 'extract', label: 'AI 解析', shortLabel: '②' },
-  { key: 'editing', label: '題目編輯', shortLabel: '③' },
+  { key: 'editing', label: GENERATED_SHEET_STEP_ENABLED ? '人工確認' : '題目編輯', shortLabel: '③' },
+  ...(GENERATED_SHEET_STEP_ENABLED ? [{ key: 'sheet' as UnifiedStep, label: '作答卷製作', shortLabel: '④' }] : []),
 ]
 
 interface NormalizedBbox { x: number; y: number; w: number; h: number }
@@ -158,6 +169,7 @@ export interface AnswerKeyUnifiedModalProps {
     grade?: number
     /** 這次編輯是否重新解析過。重新解析＝產生新版本答案卷，不覆蓋原本那份 */
     reextracted?: boolean
+    generatedSheet?: GeneratedSheetData
   }) => Promise<void>
   // Edit mode data
   editMode?: boolean
@@ -207,6 +219,9 @@ export default function AnswerKeyUnifiedModal({
 
   // ── step state machine ────────────────────────────────────────────────────
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
+  // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
+  const [makerState, setMakerState] = useState<SheetMakerState>(EMPTY_SHEET_MAKER_STATE)
+  const [makerResult, setMakerResult] = useState<GenResult | null>(null)
   const [completedSteps, setCompletedSteps] = useState<Set<UnifiedStep>>(
     () => editMode ? new Set<UnifiedStep>(['metadata', 'extract', 'editing']) : new Set()
   )
@@ -1126,6 +1141,22 @@ export default function AnswerKeyUnifiedModal({
         }
       }
 
+      // step④ 定版資料（旗標開啟且排版 ok 時才帶）
+      const generatedSheet: GeneratedSheetData | undefined =
+        GENERATED_SHEET_STEP_ENABLED && makerResult
+          ? {
+              version: ANSWER_SHEET_GEN_VERSION,
+              pageSize: makerState.pageSize,
+              pageMm: makerResult.layoutMeta.pageMm,
+              anchorsMm: makerResult.layoutMeta.anchorsMm,
+              uvBasis: makerResult.layoutMeta.uvBasis,
+              header: makerResult.layoutMeta.header,
+              boxes: makerResult.boxes,
+              densityLevel: makerResult.densityLevel,
+              sectionOverrides: makerState.sectionOverrides,
+            }
+          : undefined
+
       await onSave(updatedKey, extractedImageBlobs, {
         title: title.trim(),
         domain: domainValue,
@@ -1135,6 +1166,7 @@ export default function AnswerKeyUnifiedModal({
         questionBookletBlobs: finalBookletBlobs,
         grade: grade === '' ? undefined : grade,
         reextracted: didReextract,
+        generatedSheet,
       })
       if (!editMode) clearMetadataDraft() // 建立成功→草稿功成身退
     } finally {
@@ -1178,6 +1210,17 @@ export default function AnswerKeyUnifiedModal({
         icon: <Check className="w-4 h-4" />,
       }
     }
+    if (activeStep === 'editing' && GENERATED_SHEET_STEP_ENABLED) {
+      return { label: '下一步：作答卷製作', disabled: !allComplete || !editingKey, icon: <ChevronRight className="w-4 h-4" /> }
+    }
+    if (activeStep === 'sheet') {
+      return {
+        label: isSaving ? '儲存中…' : '儲存答案卷',
+        disabled: !makerResult || isSaving || !editingKey,
+        loading: isSaving,
+        icon: <Check className="w-4 h-4" />,
+      }
+    }
     // editing
     return {
       label: isSaving ? '儲存中…' : '儲存答案卷',
@@ -1200,12 +1243,17 @@ export default function AnswerKeyUnifiedModal({
       void handleStartExtract()
       return
     }
+    if (activeStep === 'editing' && GENERATED_SHEET_STEP_ENABLED) {
+      setActiveStep('sheet')
+      return
+    }
     handleSaveClick()
   }
 
   const handleBack = () => {
     if (activeStep === 'extract') { setActiveStep('metadata'); return }
     if (activeStep === 'editing') { setActiveStep('extract'); return }
+    if (activeStep === 'sheet') { setActiveStep('editing'); return }
   }
 
   // ── render ────────────────────────────────────────────────────────────────
@@ -2209,6 +2257,24 @@ export default function AnswerKeyUnifiedModal({
               )}
 
               {/* Step 4 empty state when no editing key */}
+              {activeStep === 'sheet' && editingKey && (
+                <div className="flex-1 overflow-y-auto p-4">
+                  <AnswerSheetMakerStep
+                    title={title.trim() || '未命名'}
+                    questions={editingKey.questions.map((q) => ({
+                      id: q.id,
+                      questionCategory: q.questionCategory ?? 'fill_blank',
+                      maxScore: q.maxScore,
+                      anchorHint: (q as { anchorHint?: string }).anchorHint,
+                    }))}
+                    bookletImages={bookletPageItems.map((item) => bookletPages.find((p) => p.index === item.originalIndex)?.url ?? '').filter(Boolean)}
+                    state={makerState}
+                    onStateChange={setMakerState}
+                    onResult={setMakerResult}
+                  />
+                </div>
+              )}
+
               {activeStep === 'editing' && !editingKey && (
                 <div className="p-6 flex flex-col items-center justify-center h-full text-gray-400 text-sm">
                   請先完成 AI 解析
