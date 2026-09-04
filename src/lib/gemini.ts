@@ -6726,6 +6726,8 @@ interface SolveStructureSection {
   count: number
   questionsInBooklet: boolean
   questionCategory: string
+  /** 這個大題從題目卷第幾頁開始（1-based；人工確認畫面自動翻頁用） */
+  pageStart?: number
 }
 
 const SOLVE_TYPE_MENU =
@@ -6742,6 +6744,7 @@ function buildSolveStructurePrompt(pageCount: number): string {
 - count：題數——若題目不在題目卷上，就從「每題X分，共Y分」推算
 - questionsInBooklet：true/false——這個大題的題目本身是否印在題目卷上（false = 只有標題，需要請老師補標準答案）
 - questionCategory：從這個清單選一個——${SOLVE_TYPE_MENU}
+- pageStart：這個大題的題目（或標題）從題目卷第幾頁開始（1-based）
 
 注意：「每字1分」的大題若一題考多個字，題數以答案格數計。全卷總分應等於各大題 totalScore 加總，請自我檢查。
 
@@ -6827,7 +6830,8 @@ export async function solveAnswerKeyFromBooklet(
     Array.from({ length: Math.max(0, Math.min(200, sec.count | 0)) }, (_, n) => ({
       id: `1-${si + 1}-${n + 1}`,
       section: sec,
-      anchorHint: `位於『${sec.section}』第 ${n + 1} 格`
+      anchorHint: `位於『${sec.section}』第 ${n + 1} 格`,
+      bookletPageIndex: Number.isFinite(sec.pageStart) ? Math.max(0, (sec.pageStart as number) - 1) : undefined
     }))
   )
   const solvable = skeleton.filter((q) => q.section.questionsInBooklet)
@@ -6867,7 +6871,8 @@ export async function solveAnswerKeyFromBooklet(
       questionCategory: category as AnswerKeyQuestion['questionCategory'],
       answer: String(solved?.answer ?? ''),
       maxScore: q.section.perScore,
-      anchorHint: q.anchorHint
+      anchorHint: q.anchorHint,
+      ...(q.bookletPageIndex != null ? { bookletPageIndex: q.bookletPageIndex } : {})
     } as AnswerKeyQuestion
     if (solved?.referenceAnswer) (base as { referenceAnswer?: string }).referenceAnswer = String(solved.referenceAnswer)
     if (solved?.levelRubric && (category === 'word_problem' || category === 'grid_geometry')) {
