@@ -1252,6 +1252,36 @@ export default function AnswerKeyUnifiedModal({
       setActiveStep('sheet')
       return
     }
+    if (activeStep === 'sheet') {
+      void handleSheetSaveClick()
+      return
+    }
+    handleSaveClick()
+  }
+
+  // step④ 定版確認（user 拍板：存檔時給摘要＋警告不可更正，取代「未使用可重新製作」的複雜設計）
+  const handleSheetSaveClick = async () => {
+    if (!makerResult || !editingKey) return
+    const baseCount = Object.keys(makerState.baseImages).length
+    const lines = [
+      '作答卷即將定版：',
+      '',
+      `・紙張：${makerState.pageSize}（單面一頁）`,
+      `・題數：${editingKey.questions.length} 題、總分 ${editingKey.questions.reduce((t, q) => t + (q.maxScore ?? 0), 0)} 分`,
+      `・作答格：${makerResult.boxes.length} 格${makerResult.densityLevel > 0 ? `（已自動增密塞進一頁）` : ''}`,
+      ...(baseCount > 0 ? [`・作圖底圖：${baseCount} 題已設定`] : []),
+      '',
+      '⚠ 儲存後版面即定版（作答格位置是批改辨識的依據），**無法再修改**。',
+      '要換紙張、調格子或改底圖，只能重新建立一份答案卷。',
+    ]
+    const ok = await confirmModal({
+      tone: 'danger',
+      title: '確定定版並儲存？',
+      message: lines.join('
+'),
+      confirmLabel: '我了解，定版儲存',
+    })
+    if (!ok) return
     handleSaveClick()
   }
 
