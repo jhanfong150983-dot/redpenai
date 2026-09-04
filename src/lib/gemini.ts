@@ -6877,16 +6877,38 @@ export async function solveAnswerKeyFromBooklet(
   }
 
   // ③ 組 AnswerKey 草稿
+  // 配分保底：AI 沒讀到卷面配分時，大題總分做「整數分配」（10分3題→3,3,4，餘數給最後幾題），
+  // 不做小數均分（3.33 會讓總分變 99.99、也不符合老師慣例）。
+  const fallbackScoreByQid = new Map<string, number>()
+  {
+    const bySection = new Map<SolveStructureSection, string[]>()
+    for (const q of skeleton) {
+      if (!bySection.has(q.section)) bySection.set(q.section, [])
+      bySection.get(q.section)!.push(q.id)
+    }
+    for (const [sec, ids] of bySection) {
+      const total = Number(sec.totalScore) > 0 ? Number(sec.totalScore) : Number(sec.perScore) * ids.length
+      const n = ids.length
+      if (!(total > 0) || n === 0) continue
+      const base = Math.floor(total / n)
+      const remainder = total - base * n
+      ids.forEach((qid, i) => {
+        // 餘數平攤到最後 remainder 題（各 +1）；total 含小數時保留原 perScore 行為
+        const extra = Number.isInteger(total) ? (i >= n - remainder ? 1 : 0) : 0
+        fallbackScoreByQid.set(qid, Number.isInteger(total) ? base + extra : Number(sec.perScore))
+      })
+    }
+  }
   const questions: AnswerKeyQuestion[] = skeleton.map((q) => {
     const solved = q.section.questionsInBooklet ? solvedById.get(q.id) : undefined
     const category = String(solved?.questionCategory || q.section.questionCategory || 'fill_blank')
-    // 配分：優先用卷面印的（解題讀出），否則退回大題均分（老師可改）
+    // 配分：優先用卷面印的（解題讀出），否則退回大題總分整數分配（老師可改）
     const solvedScore = typeof solved?.maxScore === 'number' && solved.maxScore > 0 && solved.maxScore <= 100 ? solved.maxScore : undefined
     const base: AnswerKeyQuestion = {
       id: q.id,
       questionCategory: category as AnswerKeyQuestion['questionCategory'],
       answer: String(solved?.answer ?? ''),
-      maxScore: solvedScore ?? q.section.perScore,
+      maxScore: solvedScore ?? fallbackScoreByQid.get(q.id) ?? q.section.perScore,
       anchorHint: q.anchorHint,
       aiQuestionCategory: category,
       ...(q.bookletPageIndex != null ? { bookletPageIndex: q.bookletPageIndex } : {})
