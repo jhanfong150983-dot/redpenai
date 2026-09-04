@@ -2427,6 +2427,9 @@ export default function AnswerKeyUnifiedModal({
 // ── 題本大圖欄（生成流程的人工確認）：全高可讀、寬度縮放、垂直捲動 ──────────
 function BookletColumn({ pages, page, onPageChange }: { pages: string[]; page: number; onPageChange: (p: number) => void }) {
   const [zoom, setZoom] = useState(1)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
+  const [dragging, setDragging] = useState(false)
   const cur = Math.min(Math.max(0, page), pages.length - 1)
   if (!pages.length) return null
   return (
@@ -2440,11 +2443,30 @@ function BookletColumn({ pages, page, onPageChange }: { pages: string[]; page: n
         <span className="tabular-nums w-10 text-center">{Math.round(zoom * 100)}%</span>
         <button type="button" onClick={() => setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2)))} disabled={zoom >= 3} className="px-2 py-0.5 rounded border bg-white disabled:opacity-30">＋</button>
       </div>
-      <div className="flex-1 overflow-auto p-2">
+      <div
+        ref={scrollRef}
+        className={`flex-1 overflow-auto p-2 ${dragging ? 'cursor-grabbing select-none' : 'cursor-grab'}`}
+        onPointerDown={(e) => {
+          const el = scrollRef.current
+          if (!el) return
+          dragRef.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop }
+          setDragging(true)
+          ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+        }}
+        onPointerMove={(e) => {
+          const el = scrollRef.current
+          const d = dragRef.current
+          if (!el || !d) return
+          el.scrollLeft = d.left - (e.clientX - d.x)
+          el.scrollTop = d.top - (e.clientY - d.y)
+        }}
+        onPointerUp={() => { dragRef.current = null; setDragging(false) }}
+        onPointerCancel={() => { dragRef.current = null; setDragging(false) }}
+      >
         <img
           src={pages[cur]}
           alt={`題本第 ${cur + 1} 頁`}
-          className="block shadow"
+          className="block shadow pointer-events-none"
           style={{ width: `${zoom * 100}%`, maxWidth: 'none' }}
           draggable={false}
         />
