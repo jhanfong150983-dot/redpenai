@@ -1665,7 +1665,7 @@ export default function AnswerKeyUnifiedModal({
                           </div>
                           {/* 答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上。
                               沒題本＝只能瞎猜題型，而且會錯得無聲無息，所以直接擋住解析。 */}
-                          {needsBooklet && (
+                          {needsBooklet && !GENERATED_SHEET_STEP_ENABLED && (
                             <div className="mb-3 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5 leading-relaxed">
                               沒有題本就無法解析。答案卷上只有格子，AI 看不出哪幾題要求寫出計算過程，
                               會把應用題判成填空題，批改時學生只寫答案就能拿分。
@@ -1732,9 +1732,6 @@ export default function AnswerKeyUnifiedModal({
                             </DndContext>
                           )}
 
-                          <div className="mt-3 px-3 py-2 bg-amber-50 border-l-2 border-amber-400 rounded text-xs text-amber-800">
-                            💡 不上傳題本仍可批改與計分，但學生端只會收到「答案不正確，請仔細思考」這類通用引導，且無法產出領域診斷報告。
-                          </div>
                         </section>
                       )}
                     </div>
