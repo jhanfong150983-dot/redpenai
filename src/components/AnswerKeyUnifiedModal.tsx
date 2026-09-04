@@ -287,7 +287,10 @@ export default function AnswerKeyUnifiedModal({
   const [docType] = useState<'worksheet' | 'exam'>(initialDocType)
   const [folder] = useState(initialFolder)
   const [answerSheetMode, setAnswerSheetMode] = useState<'with_questions' | 'answer_only'>(
-    editMode ? initialAnswerSheetMode : (draft?.answerSheetMode ?? initialAnswerSheetMode)
+    // 生成作答卷單一流程（A 案）：新建一律答案卷模式（題本分開），不再選模式
+    GENERATED_SHEET_STEP_ENABLED && !editMode
+      ? 'answer_only'
+      : editMode ? initialAnswerSheetMode : (draft?.answerSheetMode ?? initialAnswerSheetMode)
   )
 
   // 草稿自動保存（只在建立模式）；全空就清掉
@@ -1459,6 +1462,8 @@ export default function AnswerKeyUnifiedModal({
                     </div>
                     {editMode ? (
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{answerSheetMode === 'with_questions' ? '一般模式（題目帶答案）' : '答案卷模式（題本分開）'}</p>
+                    ) : GENERATED_SHEET_STEP_ENABLED ? (
+                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-blue-50 rounded-lg border border-blue-200">答案卷模式（題本與作答卷分開）——單一流程，不需選擇</p>
                     ) : (
                       <AnswerSheetModeSelector
                         value={answerSheetMode}
