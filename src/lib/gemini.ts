@@ -6787,6 +6787,14 @@ ${idLines}
 {"answers":[{"id":"1-1-1","questionCategory":"fill_blank","answer":"..."}],"uncertain":"沒把握的題號；沒有就空字串"}`
 }
 
+// 分歧比對只對「答案是短值」的客觀題型做：描述型題（作圖/應用/計算/簡答）兩次措辭
+// 幾乎必不同→永遠標紅=假警報；它們的把關靠 rubric＋人工確認，不靠字串比對。
+const SOLVE_DISAGREEMENT_CATEGORIES = new Set([
+  'single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many',
+  'single_check', 'multi_check', 'table_check', 'true_false',
+  'fill_blank', 'multi_fill', 'fill_variants', 'table_cell', 'ordering', 'matching', 'mark_in_text', 'map_fill'
+])
+
 /** 解題答案正規化（分歧比對用；同段1c 沙盒） */
 function normalizeSolvedAnswer(s: unknown): string {
   return String(s ?? '')
@@ -6860,6 +6868,8 @@ export async function solveAnswerKeyFromBooklet(
     for (const q of solvable) {
       const a1 = run1.get(q.id)
       const a2 = run2.get(q.id)
+      const cat = String(a1?.questionCategory || q.section.questionCategory || '')
+      if (!SOLVE_DISAGREEMENT_CATEGORIES.has(cat)) continue
       if (!a1 || !a2 || normalizeSolvedAnswer(a1.answer) !== normalizeSolvedAnswer(a2.answer)) {
         disagreementIds.add(q.id)
       }
