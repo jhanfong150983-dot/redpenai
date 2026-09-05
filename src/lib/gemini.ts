@@ -7,6 +7,7 @@ import {
   type AnswerExtractionCorrection
 } from './db'
 import { normalizeLevelRubric, validateLevelRubric } from './levelRubric'
+import { mathAnswersEquivalent } from './mathEquivalence'
 import { blobToBase64 as blobToDataUrl, compressImageFile } from './imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from './blob-storage'
 import { dispatchInkBalance } from './ink-events'
@@ -6875,6 +6876,11 @@ export async function solveAnswerKeyFromBooklet(
       if (!SOLVE_DISAGREEMENT_CATEGORIES.has(cat)) continue
       if (!a1 || !a2) { disagreementIds.add(q.id); continue }
       if (normalizeSolvedAnswer(a1.answer) !== normalizeSolvedAnswer(a2.answer)) {
+        // code-first：線性式/數列的等價 code 可精確判定（mathEquivalence），
+        // true→不標紅、false→直接標紅（可信）、null→留給 AI 等價 call
+        const codeVerdict = mathAnswersEquivalent(String(a1.answer ?? ''), String(a2.answer ?? ''))
+        if (codeVerdict === true) continue
+        if (codeVerdict === false) { disagreementIds.add(q.id); continue }
         stringDiffPairs.push({ id: q.id, a1: String(a1.answer ?? ''), a2: String(a2.answer ?? '') })
       }
     }
