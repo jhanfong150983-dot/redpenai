@@ -1536,8 +1536,8 @@ export default function AnswerKeyUnifiedModal({
                     )}
                   </div>
 
-                  {/* 答案卷模式 — 卡片式選擇器 */}
-                  <div>
+                  {/* 答案卷模式 — 卡片式選擇器（生成流程整塊隱藏：模式固定、公版 Word 範本由生成作答卷取代） */}
+                  <div className={GENERATED_SHEET_STEP_ENABLED && !editMode ? 'hidden' : undefined}>
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <label className="block text-base font-semibold text-gray-800">答案卷模式</label>
                       {/* 2026-08-29 公版答案卷範本改「動態產生」：帶入校名/名稱/科目；名稱與領域必填才可下載 */}
@@ -1557,8 +1557,6 @@ export default function AnswerKeyUnifiedModal({
                     </div>
                     {editMode ? (
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{answerSheetMode === 'with_questions' ? '一般模式（題目帶答案）' : '答案卷模式（題本分開）'}</p>
-                    ) : GENERATED_SHEET_STEP_ENABLED ? (
-                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-blue-50 rounded-lg border border-blue-200">答案卷模式（題本與作答卷分開）——單一流程，不需選擇</p>
                     ) : (
                       <AnswerSheetModeSelector
                         value={answerSheetMode}
