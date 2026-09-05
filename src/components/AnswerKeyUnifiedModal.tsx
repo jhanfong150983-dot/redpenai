@@ -922,9 +922,10 @@ export default function AnswerKeyUnifiedModal({
           fr.readAsDataURL(blob)
         })
         if (cancelled) return
+        const ms = makerState ?? EMPTY_SHEET_MAKER_STATE
         const qs = editingKey.questions.map((q) => {
-          const bi = makerState.baseImages?.[q.id]
-          const ct = makerState.cellTexts?.[q.id]
+          const bi = ms.baseImages?.[q.id]
+          const ct = ms.cellTexts?.[q.id]
           return {
             id: q.id,
             questionCategory: String(q.questionCategory ?? 'fill_blank'),
@@ -936,13 +937,15 @@ export default function AnswerKeyUnifiedModal({
         })
         const r = generateAnswerSheet({
           title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '),
-          pageSize: makerState.pageSize,
+          pageSize: ms.pageSize ?? 'A4',
           questions: qs,
           headerDataUri,
-          sectionOverrides: makerState.sectionOverrides,
+          sectionOverrides: ms.sectionOverrides ?? {},
         })
-        if (!cancelled && r.ok) setMakerResult(r)
-      } catch { /* 重算失敗不阻斷，老師回③亦可 */ }
+        if (cancelled) return
+        if (r.ok) setMakerResult(r)
+        else console.warn('[GenSheet] 續作重算 fit_failed（回③調整版面）')
+      } catch (err) { console.warn('[GenSheet] 續作重算失敗:', err) }
     })()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1443,17 +1446,12 @@ export default function AnswerKeyUnifiedModal({
       if (goingBackFromEdit) {
         return { label: '下一步：題目編輯', disabled: false, icon: <ChevronRight className="w-4 h-4" /> }
       }
-      if (GENERATED_SHEET_STEP_ENABLED && !makerResult) {
-        return { label: '請先回「製作答案卷」載入版面', disabled: true }
-      }
-      // 2026-08-14（user 拍板）：純答案卷沒有題本一律不准解析。
-      //   答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上；
-      //   沒題本就只能瞎猜，應用題會被判成填空、級分制永遠不觸發，而且錯得無聲無息。
       if (GENERATED_SHEET_STEP_ENABLED) {
-        // 生成流程：只需題本，AI 直接解題起草
+        // ④＝上傳「手寫在作答卷上的參考答案」→ bbox 裁格讀取。需：已上傳答案卷圖(pageItems)＋版面(makerResult)
+        if (!makerResult) return { label: '版面載入中…', disabled: true, loading: true }
         return {
-          label: bookletPageItems.length === 0 ? '請先上傳題目卷' : '確認送出 AI 解題',
-          disabled: bookletPageItems.length === 0,
+          label: pageItems.length === 0 ? '請先上傳手寫參考答案卷' : '確認送出解析',
+          disabled: pageItems.length === 0,
           icon: <Check className="w-4 h-4" />,
         }
       }
