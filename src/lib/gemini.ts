@@ -7029,6 +7029,14 @@ export interface ReferenceCellInput {
   hint: string
 }
 
+/** 顯示符號正規化：<=→≦、>=→≧、*→×（老師上課慣用符號；不影響批改——批改端 <=/≤/≦ 全等價） */
+export function toDisplayMathSymbols(s: string): string {
+  return String(s ?? '')
+    .replace(/<=|≤/g, '≦')
+    .replace(/>=|≥/g, '≧')
+    .replace(/(\d)\s*\*\s*(\d|\()/g, '$1×$2')
+}
+
 export async function readReferenceAnswerCells(cells: ReferenceCellInput[]): Promise<Map<string, string>> {
   if (!cells.length) return new Map()
   const parts: GeminiRequestPart[] = [
@@ -7052,7 +7060,7 @@ export async function readReferenceAnswerCells(cells: ReferenceCellInput[]): Pro
     const cell = cells[r.i - 1]
     if (!cell) continue
     const t = String(r.text ?? '').trim()
-    out.set(cell.id, t === 'BLANK' ? '' : t)
+    out.set(cell.id, t === 'BLANK' ? '' : toDisplayMathSymbols(t))
   }
   return out
 }
