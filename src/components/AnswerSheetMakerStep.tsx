@@ -8,6 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import {
   generateAnswerSheet,
+  estimateTextWidthMm,
   type GenBaseImage,
   type GenCellText,
   type GenQuestion,
@@ -658,7 +659,15 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
                   onChange={(e) => onTextsChange(texts.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))}
                   onFocus={() => setSelected(i)}
                   className="bg-transparent outline-none"
-                  style={{ fontSize: sizeMm(t) * k * 0.92, width: Math.max(6, t.text.length + 2) + 'ch', color: '#444' }}
+                  style={{
+                    fontSize: sizeMm(t) * k * 0.92,
+                    // 寬度＝估算文字寬（同引擎公式）＋游標餘裕，上限＝格子右緣（列印端同樣位置壓縮，兩端一致）
+                    width: Math.min(
+                      Math.max(estimateTextWidthMm(t.text || '輸入文字', sizeMm(t)), 8) * k + 12,
+                      Math.max(4, cellWMm - (t.xMm ?? 0) - 0.5) * k
+                    ),
+                    color: '#444'
+                  }}
                 />
                 {selected === i && (
                   <div className="absolute -top-7 left-0 flex items-center gap-1 bg-white border rounded shadow px-1 py-0.5">

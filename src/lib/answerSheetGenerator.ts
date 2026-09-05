@@ -230,6 +230,15 @@ interface LayoutPage {
   boxes: GenBox[]
 }
 
+/** 文字寬度估算（mm）：CJK/全形≈字級、半形≈0.55×字級（編輯器與引擎共用同一公式，兩端一致） */
+export function estimateTextWidthMm(text: string, sizeMm: number): number {
+  let w = 0
+  for (const ch of text) {
+    w += /[⺀-鿿豈-﫿！-｠　-〿]/.test(ch) ? sizeMm : sizeMm * 0.55
+  }
+  return w
+}
+
 function esc(s: string): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
 }
@@ -265,6 +274,13 @@ function layoutPages(sections: Section[], g: PageGeom): LayoutPage[] {
         tx = x + t.xMm
         ty = yy + t.yMm + size
         anchor = 'start'
+        // 防溢出：估寬（CJK≈字級、ASCII≈0.55×字級），超過格子右緣就用 textLength 壓縮塞入
+        const estMm = estimateTextWidthMm(t.text, size)
+        const availMm = w - t.xMm - 1
+        if (estMm > availMm && availMm > 2) {
+          els.push(`<text x="${tx * DPMM}" y="${ty * DPMM}" font-size="${size * DPMM}" fill="#444" textLength="${availMm * DPMM}" lengthAdjust="spacingAndGlyphs">${esc(t.text)}</text>`)
+          continue
+        }
       } else {
         const pos = t.pos ?? 'tl'
         const pad = 1.5
