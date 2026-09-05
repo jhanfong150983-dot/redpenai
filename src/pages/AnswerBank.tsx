@@ -16,6 +16,8 @@ import { getSchoolBillingContext } from '@/lib/school-billing'
 import { checkFolderNameUnique, domainRank, sortByDomainThenName } from '@/lib/utils'
 import AnswerKeyUnifiedModal from '@/components/AnswerKeyUnifiedModal'
 import InkConfirmModal from '@/components/InkConfirmModal'
+import ReferenceAnswerModal, { type ReferenceReviewRow } from '@/components/ReferenceAnswerModal'
+import { detectVisualRubric } from '@/lib/gemini'
 import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -66,6 +68,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
   // 2026-07-22 modal 統一：window.confirm → 共用 ConfirmModal
   const confirmModal = useConfirm()
   const alertModal = useAlertModal()
+  // 環節⑤：上傳手寫參考答案（生成答案卷單一流程）
+  const [refTemplate, setRefTemplate] = useState<AnswerKeyTemplate | null>(null)
   const [templates, setTemplates] = useState<AnswerKeyTemplate[]>([])
   const [usedTemplateIds, setUsedTemplateIds] = useState<Set<string>>(new Set())
   const [isLoading, setIsLoading] = useState(true)
@@ -445,6 +449,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       if (blobs.length === 0 && context.bookletBlobs?.length) {
         const answerKey = await solveAnswerKeyFromBooklet(context.bookletBlobs, {
           domain: context.domain || undefined,
+          structureOnly: true, // 主路徑不解題：答案由老師手寫參考答案卷回讀（2026-09-05 拍板）
           onProgress: _onProgress,
         })
         return { answerKey, imageBlobs: [], notice: 'AI 解題為草稿，請逐題確認；標記「兩次解題不一致」的題請優先檢查。' }
@@ -557,6 +562,42 @@ export default function AnswerBank(_props: AnswerBankProps) {
     } catch {
       await alertModal('下載失敗，請稍後再試。')
     }
+  }
+
+  // 環節⑤寫回：轉錄答案填欄＋作圖 crop=正解圖（cropImageUrl→uploadAnswerCrops→cropImagePath，
+  // VJ 判官既有契約）＋作圖題以正解圖生 vjRubric（detectVisualRubric，grounded on 老師的圖）。
+  const handleReferenceConfirm = async (t: AnswerKeyTemplate, rows: ReferenceReviewRow[]) => {
+    const cur = await db.answerKeyTemplates.get(t.id)
+    if (!cur?.answerKey) throw new Error('找不到範本資料')
+    const byId = new Map(rows.map((r) => [r.id, r]))
+    let bookletBlobs: Blob[] = []
+    try {
+      bookletBlobs = await downloadAnswerSheetImages(t.id, 'question-booklets')
+    } catch { /* 題本抓不到就讓 A0 只看 crop */ }
+    const questions = await Promise.all(cur.answerKey.questions.map(async (q) => {
+      const r = byId.get(q.id)
+      if (!r) return q
+      if (r.isDrawing) {
+        const next = { ...q, cropImageUrl: r.cropDataUrl }
+        try {
+          const vr = await detectVisualRubric(r.cropDataUrl, String(q.questionCategory), String(q.referenceAnswer ?? ''), bookletBlobs)
+          if (vr) (next as { vjRubric?: unknown }).vjRubric = { ...vr }
+        } catch { /* rubric 生成失敗不擋答案寫入，老師可後補 */ }
+        return next
+      }
+      return { ...q, answer: r.text }
+    }))
+    const updatedKey = { ...cur.answerKey, questions }
+    await db.answerKeyTemplates.update(t.id, {
+      answerKey: updatedKey,
+      version: (cur.version ?? 1) + 1,
+      updatedAt: Date.now(),
+    })
+    uploadAnswerCrops(t.id, updatedKey)
+    requestSync()
+    setRefTemplate(null)
+    await loadData()
+    await alertModal('參考答案已寫入。作圖題的正解圖與評分規準已一併更新。')
   }
 
   const uploadAnswerSheetImages = async (templateId: string, blobs: Blob[]) => {
@@ -900,6 +941,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
             <Download className="h-4 w-4" />
           </button>
         )}
+        {t.generatedSheet && (
+          <button type="button" onClick={() => setRefTemplate(t)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-blue-300 hover:text-blue-600" title="上傳手寫參考答案">
+            <FileUp className="h-4 w-4" />
+          </button>
+        )}
         <button type="button" onClick={() => handleEdit(t)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-blue-300 hover:text-blue-600" title="查看答案卷">
           <Eye className="h-4 w-4" />
         </button>
@@ -1146,6 +1192,13 @@ export default function AnswerBank(_props: AnswerBankProps) {
       {/* 同步更新確認 Modal */}
 
       </div>
-    </div>
+          {refTemplate && (
+        <ReferenceAnswerModal
+          template={refTemplate}
+          onCancel={() => setRefTemplate(null)}
+          onConfirm={(rows) => handleReferenceConfirm(refTemplate, rows)}
+        />
+      )}
+</div>
   )
 }

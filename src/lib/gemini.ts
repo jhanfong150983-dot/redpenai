@@ -260,6 +260,7 @@ type GeminiRouteKey =
   | 'grading.locate'
   | 'answer_key.extract'
   | 'answer_key.solve'
+  | 'answer_key.read_reference'
   | 'answer_key.locate'
   | 'answer_key.reanalyze'
   | 'answer_key.tag_concepts'
@@ -5741,7 +5742,7 @@ async function detectLevelRubric(
   return best
 }
 
-async function detectVisualRubric(
+export async function detectVisualRubric(
   cropImageDataUrl: string,
   category: string,
   refText: string,
@@ -6814,6 +6815,8 @@ function normalizeSolvedAnswer(s: unknown): string {
 export interface SolveAnswerKeyOptions {
   domain?: string
   onProgress?: (msg: string) => void
+  /** 只做結構推斷（題型/題數/配分骨架、全卷缺答），不解題——主路徑：答案由老師手寫參考答案卷回讀 */
+  structureOnly?: boolean
 }
 
 export async function solveAnswerKeyFromBooklet(
@@ -6850,7 +6853,7 @@ export async function solveAnswerKeyFromBooklet(
       bookletPageIndex: Number.isFinite(sec.pageStart) ? Math.max(0, (sec.pageStart as number) - 1) : undefined
     }))
   )
-  const solvable = skeleton.filter((q) => q.section.questionsInBooklet)
+  const solvable = opts?.structureOnly ? [] : skeleton.filter((q) => q.section.questionsInBooklet)
 
   // ② 解題 ×2（分歧標記——不穩定的題請老師優先看）
   let solvedById = new Map<string, { questionCategory?: string; answer?: string; maxScore?: number; spatial3d?: boolean; referenceAnswer?: string; levelRubric?: unknown; vjRubric?: unknown }>()
@@ -6997,4 +7000,43 @@ ${stringDiffPairs.map((p) => `id=${p.id}｜答案一：${p.a1}｜答案二：${p
   const totalScore = questions.reduce((t, q) => t + (q.maxScore ?? 0), 0)
   onProgress('解題完成，整理草稿…')
   return normalizeAnswerKeyShortAnswerDimensions({ questions, totalScore }, opts?.domain)
+}
+
+
+// ═══ 生成答案卷：讀老師手寫參考答案（answer_key.read_reference）════════════
+//   輸入＝依定版 bbox 裁好的格圖（generatedSheetAlign），一次 call 合批轉錄。
+//   prompt 取自段4 端到端實測版（20 格全對）；空白格回 BLANK。
+export interface ReferenceCellInput {
+  id: string
+  dataUrl: string
+  /** 題型提示（影響轉錄格式：注音/代號/數學式） */
+  hint: string
+}
+
+export async function readReferenceAnswerCells(cells: ReferenceCellInput[]): Promise<Map<string, string>> {
+  if (!cells.length) return new Map()
+  const parts: GeminiRequestPart[] = [
+    `以下 ${cells.length} 張圖是老師手寫「參考答案卷」裁出的作答格。逐張轉錄手寫內容：
+・數學式：分數寫 a/b、不等號用 <= >=、乘號可省略
+・注音：含調號（如 ㄗㄜˋ）
+・選項代號：只寫字母
+・空白格回 BLANK
+只輸出 JSON：{"reads":[{"i":1,"text":"..."}]}`
+  ]
+  for (let i = 0; i < cells.length; i++) {
+    const m = cells[i].dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+    if (!m) continue
+    parts.push(`【${i + 1}】(${cells[i].hint})`)
+    parts.push({ inlineData: { mimeType: m[1], data: m[2] } })
+  }
+  const text = await generateGeminiText(currentModelName, parts, { routeKey: 'answer_key.read_reference' })
+  const parsed = parseGeminiJsonText(text) as { reads?: Array<{ i: number; text?: string }> } | null
+  const out = new Map<string, string>()
+  for (const r of parsed?.reads ?? []) {
+    const cell = cells[r.i - 1]
+    if (!cell) continue
+    const t = String(r.text ?? '').trim()
+    out.set(cell.id, t === 'BLANK' ? '' : t)
+  }
+  return out
 }
