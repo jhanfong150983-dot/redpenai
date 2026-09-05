@@ -447,14 +447,21 @@ export default function AnswerKeyUnifiedModal({
       if (imageCount > MAX_UPLOAD_IMAGES) {
         setFileError(`答案卷照片最多 ${MAX_UPLOAD_IMAGES} 張（PDF 不限頁數），目前選了 ${imageCount} 張`); return
       }
-      const compressed = await Promise.all(blobs.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
+      // 生成流程：作答卷恆為單面一頁 → 手寫參考答案卷只取第 1 頁
+      const limited = GENERATED_SHEET_STEP_ENABLED ? blobs.slice(0, 1) : blobs
+      if (GENERATED_SHEET_STEP_ENABLED && blobs.length > 1) {
+        setFileError('作答卷是單面一頁，已只取第 1 頁；若拍了多張請重選正確那張。')
+      }
+      const compressed = await Promise.all(limited.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
       // Clean up old URLs
       uploadedPages.forEach(p => URL.revokeObjectURL(p.url))
       const pages = compressed.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) }))
       setUploadedPages(pages)
       // Reset extraction and editing since we have new images
       resetFromStep('extract')
-      setEditingKey(null)
+      // ⛔ 生成流程不得清骨架：editingKey 是②結構推斷的題號/題型/配分（bbox 路徑的根基），
+      //    重傳手寫參考答案卷只是換圖，骨架必須保留。舊流程照舊清空（答案卷=解析來源）。
+      if (!GENERATED_SHEET_STEP_ENABLED) setEditingKey(null)
       setExtractedImageBlobs([])
     } catch (err) {
       setFileError(err instanceof Error ? err.message : '檔案處理失敗')
@@ -486,13 +493,20 @@ export default function AnswerKeyUnifiedModal({
       if (!newHasPdf && uploadedPages.length + newImageCount > MAX_UPLOAD_IMAGES) {
         setFileError(`答案卷照片最多 ${MAX_UPLOAD_IMAGES} 張（PDF 不限頁數），目前 ${uploadedPages.length} 張、又選了 ${newImageCount} 張`); return
       }
-      const compressed = await Promise.all(blobs.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
-      const startIdx = uploadedPages.length
-      const newPages = compressed.map((blob, i) => ({ index: startIdx + i, blob, url: URL.createObjectURL(blob) }))
-      setUploadedPages(prev => [...prev, ...newPages])
+      const limited = GENERATED_SHEET_STEP_ENABLED ? blobs.slice(0, 1) : blobs
+      const compressed = await Promise.all(limited.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
+      if (GENERATED_SHEET_STEP_ENABLED) {
+        // 生成流程：單面一頁 → 「新增」語意改成「替換」
+        uploadedPages.forEach(p => URL.revokeObjectURL(p.url))
+        setUploadedPages(compressed.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) })))
+      } else {
+        const startIdx = uploadedPages.length
+        const newPages = compressed.map((blob, i) => ({ index: startIdx + i, blob, url: URL.createObjectURL(blob) }))
+        setUploadedPages(prev => [...prev, ...newPages])
+      }
       // Reset downstream steps since pages changed
       resetFromStep('extract')
-      setEditingKey(null)
+      if (!GENERATED_SHEET_STEP_ENABLED) setEditingKey(null)
       setExtractedImageBlobs([])
     } catch (err) {
       setFileError(err instanceof Error ? err.message : '檔案處理失敗')
@@ -1765,7 +1779,7 @@ export default function AnswerKeyUnifiedModal({
                             <span className="text-sm font-medium">
                               {isProcessingFiles ? '處理中…' : '點擊上傳答案卷圖片或 PDF'}
                             </span>
-                            <span className="text-xs text-rose-400/80">照片最多 {MAX_UPLOAD_IMAGES} 張，PDF 不限頁數</span>
+                            <span className="text-xs text-rose-400/80">{GENERATED_SHEET_STEP_ENABLED ? '單面一頁：1 張照片或 1 頁 PDF（多頁只取第 1 頁）' : `照片最多 ${MAX_UPLOAD_IMAGES} 張，PDF 不限頁數`}</span>
                           </button>
                         ) : (
                           <div className="flex items-center justify-between mb-3">
