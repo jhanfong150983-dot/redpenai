@@ -16,7 +16,7 @@ import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
 import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
-import { ANSWER_SHEET_GEN_VERSION, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData } from '@/lib/answerSheetGenerator'
+import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData } from '@/lib/answerSheetGenerator'
 import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { db } from '@/lib/db'
@@ -904,6 +904,49 @@ export default function AnswerKeyUnifiedModal({
     if (!GENERATED_SHEET_STEP_ENABLED) return
     void detectSchoolName().then((n) => setSchoolName(n)).catch(() => {})
   }, [])
+
+  // 續作/直接跳④：makerResult 空但骨架＋版面狀態在 → 就地重算（版面決定性，免回③、免費）
+  useEffect(() => {
+    if (!GENERATED_SHEET_STEP_ENABLED || makerResult || !editingKey) return
+    if (activeStep !== 'sheet' && activeStep !== 'extract') return
+    let cancelled = false
+    void (async () => {
+      try {
+        const resp = await fetch('/templates/omr-header.png')
+        if (!resp.ok) return
+        const blob = await resp.blob()
+        const headerDataUri = await new Promise<string>((resolve, reject) => {
+          const fr = new FileReader()
+          fr.onload = () => resolve(String(fr.result))
+          fr.onerror = () => reject(new Error('header read failed'))
+          fr.readAsDataURL(blob)
+        })
+        if (cancelled) return
+        const qs = editingKey.questions.map((q) => {
+          const bi = makerState.baseImages?.[q.id]
+          const ct = makerState.cellTexts?.[q.id]
+          return {
+            id: q.id,
+            questionCategory: String(q.questionCategory ?? 'fill_blank'),
+            maxScore: q.maxScore,
+            anchorHint: (q as { anchorHint?: string }).anchorHint,
+            ...(bi ? { baseImage: bi } : {}),
+            ...(ct?.length ? { cellTexts: ct } : {}),
+          }
+        })
+        const r = generateAnswerSheet({
+          title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '),
+          pageSize: makerState.pageSize,
+          questions: qs,
+          headerDataUri,
+          sectionOverrides: makerState.sectionOverrides,
+        })
+        if (!cancelled && r.ok) setMakerResult(r)
+      } catch { /* 重算失敗不阻斷，老師回③亦可 */ }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStep, makerResult, editingKey, schoolName])
 
   // ── ③自動暫存（2026-09-05）：老師中途離開可續作，免重跑結構推斷 ──
   // 觸發：生成流程、建立模式、結構已出（editingKey）；debounce 1.5s 寫入 Dexie 單列草稿
