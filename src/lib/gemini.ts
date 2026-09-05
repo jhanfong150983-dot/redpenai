@@ -6781,6 +6781,8 @@ ${idLines}
 
 規則：
 1. 每題認真計算、驗算後再作答；依題本上的文章與題幹作答，不要憑課外記憶猜測。
+1a. 有些題目的條件組合起來可能「無解」。若驗算發現所有候選都不滿足條件，答案就誠實寫「無解」，
+    不要硬湊數字；但也不要輕率宣告——必須先窮舉/驗算過才能下此結論。
 2. 沒把握的題照樣作答，並在 uncertain 欄列出題號。
 3. ⛔ 只作答清單上的題，不可自行增加題目。
 4. 只輸出 JSON：
@@ -6950,7 +6952,11 @@ ${stringDiffPairs.map((p) => `id=${p.id}｜答案一：${p.a1}｜答案二：${p
         }
       }
     }
-    if (disagreementIds.has(q.id)) (base as { solveDisagreement?: boolean }).solveDisagreement = true
+    // 「無解」答案一律標紅強制人工確認：段1f 實測提示能救真無解題（1-1-4）但會誤傷（1-1-30 被
+    // 嚇成無解）——標紅讓兩種情況都被老師看到，修法才單調（救回不賠）。
+    if (disagreementIds.has(q.id) || /無解/.test(String(solved?.answer ?? ''))) {
+      ;(base as { solveDisagreement?: boolean }).solveDisagreement = true
+    }
     return base
   })
 
