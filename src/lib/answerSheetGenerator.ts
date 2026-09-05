@@ -53,6 +53,8 @@ export interface GenBaseImage {
   /** 底圖實體尺寸（mm，依題本 A4 比例換算） */
   wMm: number
   hMm: number
+  /** 底圖在格內的水平位置（預設 center） */
+  align?: 'left' | 'center' | 'right'
 }
 
 export interface GenQuestion {
@@ -321,8 +323,9 @@ function layoutPages(sections: Section[], g: PageGeom): LayoutPage[] {
             const sc = Math.min(availW / bi.wMm, availH / bi.hMm)
             const dw = bi.wMm * sc
             const dh = bi.hMm * sc
+            const bx = bi.align === 'left' ? x0 + 2 : bi.align === 'right' ? x0 + w - dw - 2 : x0 + (w - dw) / 2
             els.push(
-              `<image x="${(x0 + (w - dw) / 2) * DPMM}" y="${(by + 6 + (availH - dh) / 2) * DPMM}" width="${dw * DPMM}" height="${dh * DPMM}" href="${bi.dataUri}"/>`
+              `<image x="${bx * DPMM}" y="${(by + 6 + (availH - dh) / 2) * DPMM}" width="${dw * DPMM}" height="${dh * DPMM}" href="${bi.dataUri}"/>`
             )
           }
           addBox(q, x0, by + 5, w, h - 5, sec.grid ? 'grid' : 'essay')

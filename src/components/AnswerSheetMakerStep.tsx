@@ -285,6 +285,7 @@ interface CropModalProps {
 
 function BaseImageCropModal({ bookletImages, existing, onCancel, onDone }: CropModalProps) {
   const [pageIdx, setPageIdx] = useState(existing?.bookletPage ?? 0)
+  const [align, setAlign] = useState<'left' | 'center' | 'right'>(existing?.align ?? 'center')
   const [draft, setDraft] = useState<{ x: number; y: number; w: number; h: number } | null>(existing?.rect ?? null)
   const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -328,6 +329,7 @@ function BaseImageCropModal({ bookletImages, existing, onCancel, onDone }: CropM
       dataUri: canvas.toDataURL('image/png'),
       wMm: draft.w * 210,
       hMm: draft.h * 297,
+      align,
       bookletPage: pageIdx,
       rect: draft
     })
@@ -385,7 +387,21 @@ function BaseImageCropModal({ bookletImages, existing, onCancel, onDone }: CropM
           </div>
         </div>
         <div className="flex items-center justify-between px-4 py-3 border-t">
-          <button type="button" onClick={() => onDone(null)} className="text-sm text-red-600">清除底圖</button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => onDone(null)} className="text-sm text-red-600">清除底圖</button>
+            <span className="mx-1 text-gray-300">｜</span>
+            <span className="text-xs text-gray-500">格內位置</span>
+            {([['left', '靠左'], ['center', '置中'], ['right', '靠右']] as const).map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setAlign(v)}
+                className={`px-2 py-1 rounded border text-xs ${align === v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="flex gap-2">
             <button type="button" onClick={onCancel} className="px-3 py-1.5 rounded border text-sm">取消</button>
             <button
