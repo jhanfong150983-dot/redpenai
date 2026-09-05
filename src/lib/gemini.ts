@@ -6769,6 +6769,7 @@ ${idLines}
   ・國字注音題：題目給注音要你寫國字 → 只寫那個國字；給國字要你寫注音 → 只寫注音（含調號）
   ・註釋題（解釋詞義）：用最精簡的釋義，可用頓號列多種寫法
 - maxScore：這一題在卷面上印的配分（如「(3分)」）；沒印就省略
+- spatial3d：true 僅當題目涉及立體圖形／三視圖／展開圖／空間堆疊（這類題請特別小心驗算）；否則省略
 - referenceAnswer：作圖題/應用題的完整參考答案（含步驟）；其他題可省略
 - vjRubric：只有 grid_geometry（作圖題）要輸出——視覺逐項判準：
   {"itemLabels":["要畫的子項1","子項2"],"itemScores":[2,1],"condition":"學生每項該做什麼（一句話）","gradingDefinition":"什麼樣的作答算對（含⛔什麼不算；判準要具體到圖形特徵）"}
@@ -6852,7 +6853,8 @@ export async function solveAnswerKeyFromBooklet(
   const solvable = skeleton.filter((q) => q.section.questionsInBooklet)
 
   // ② 解題 ×2（分歧標記——不穩定的題請老師優先看）
-  let solvedById = new Map<string, { questionCategory?: string; answer?: string; maxScore?: number; referenceAnswer?: string; levelRubric?: unknown; vjRubric?: unknown }>()
+  let solvedById = new Map<string, { questionCategory?: string; answer?: string; maxScore?: number; spatial3d?: boolean; referenceAnswer?: string; levelRubric?: unknown; vjRubric?: unknown }>()
+  let run2ById: typeof solvedById = new Map()
   const disagreementIds = new Set<string>()
   if (solvable.length > 0) {
     onProgress(`AI 正在解 ${solvable.length} 題（跑兩次交叉比對）…`)
@@ -6863,11 +6865,12 @@ export async function solveAnswerKeyFromBooklet(
         [buildSolvePrompt(opts?.domain ?? '', bookletImages.length, idLines), ...imageParts],
         { routeKey: 'answer_key.solve' }
       )
-      const parsed = parseGeminiJsonText(text) as { answers?: Array<{ id: string; questionCategory?: string; answer?: string; maxScore?: number; referenceAnswer?: string; levelRubric?: unknown; vjRubric?: unknown }> } | null
+      const parsed = parseGeminiJsonText(text) as { answers?: Array<{ id: string; questionCategory?: string; answer?: string; maxScore?: number; spatial3d?: boolean; referenceAnswer?: string; levelRubric?: unknown; vjRubric?: unknown }> } | null
       return new Map((parsed?.answers ?? []).map((a) => [String(a.id), a]))
     }
     const [run1, run2] = await Promise.all([solveOnce(), solveOnce()])
     solvedById = run1
+    run2ById = run2
     const stringDiffPairs: Array<{ id: string; a1: string; a2: string }> = []
     for (const q of solvable) {
       const a1 = run1.get(q.id)
@@ -6958,11 +6961,36 @@ ${stringDiffPairs.map((p) => `id=${p.id}｜答案一：${p.a1}｜答案二：${p
         }
       }
     }
-    // 「無解」答案一律標紅強制人工確認：段1f 實測提示能救真無解題（1-1-4）但會誤傷（1-1-30 被
-    // 嚇成無解）——標紅讓兩種情況都被老師看到，修法才單調（救回不賠）。
-    if (disagreementIds.has(q.id) || /無解/.test(String(solved?.answer ?? ''))) {
-      ;(base as { solveDisagreement?: boolean }).solveDisagreement = true
+    // 標紅（強制人工優先確認）的四個來源——全部單調（只加標記不改答案）：
+    // ①兩輪答案真分歧 ②「無解」答案（段1f：提示救真無解但會誤傷→兩種都給老師看）
+    // ③空間題（立體/三視圖/堆疊＝這代模型穩定天花板，穩定錯不會自我暴露）
+    // ④rubric 結構問題：兩輪結構對不上（要素數/逐項配分/級距分數）、配分加總不符、該有 rubric 卻沒有
+    let needsReview = disagreementIds.has(q.id) || /無解/.test(String(solved?.answer ?? ''))
+    if (solved?.spatial3d === true) needsReview = true
+    const r2 = run2ById.get(q.id)
+    if (category === 'grid_geometry') {
+      const v1 = (base as { vjRubric?: { itemLabels?: unknown[]; itemScores?: number[] } }).vjRubric
+      const v2 = (r2?.vjRubric ?? null) as { itemLabels?: unknown[] } | null
+      if (!v1) needsReview = true
+      else {
+        if (Array.isArray(v1.itemScores) && v1.itemScores.length > 0) {
+          const sum = v1.itemScores.reduce((t, n) => t + (Number(n) || 0), 0)
+          if (base.maxScore != null && Math.abs(sum - base.maxScore) > 1e-9) needsReview = true
+        }
+        if (Array.isArray(v2?.itemLabels) && Array.isArray(v1.itemLabels) && v2!.itemLabels!.length !== v1.itemLabels.length) needsReview = true
+      }
     }
+    if (category === 'word_problem') {
+      const l1 = (base as { levelRubric?: { levels?: Array<{ score?: number }>; requiredElements?: unknown[] } }).levelRubric
+      const l2 = (r2?.levelRubric ?? null) as { requiredElements?: unknown[] } | null
+      if (!l1) needsReview = true
+      else {
+        const top = Array.isArray(l1.levels) ? Number(l1.levels[0]?.score) : NaN
+        if (base.maxScore != null && Number.isFinite(top) && Math.abs(top - base.maxScore) > 1e-9) needsReview = true
+        if (Array.isArray(l2?.requiredElements) && Array.isArray(l1.requiredElements) && l2!.requiredElements!.length !== l1.requiredElements.length) needsReview = true
+      }
+    }
+    if (needsReview) (base as { solveDisagreement?: boolean }).solveDisagreement = true
     return base
   })
 

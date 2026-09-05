@@ -1925,7 +1925,7 @@ export default function AnswerKeyUnifiedModal({
                                 )}
                               </div>
                               <div className={`text-[10px] truncate ${answerMissing ? 'text-red-600 font-semibold' : q.solveDisagreement ? 'text-red-600 font-semibold' : hasWarn ? 'text-orange-600' : 'text-gray-400'}`}>
-                                {answerMissing ? '❌ 缺少標準答案' : q.solveDisagreement ? '⚠ 兩次解題不一致' : hasWarn ? (vocabWarn ? '⚠ 請核對注音' : '⚠ 多項填入') : CATEGORY_LABELS[cat]}
+                                {answerMissing ? '❌ 缺少標準答案' : q.solveDisagreement ? '⚠ 請優先人工確認' : hasWarn ? (vocabWarn ? '⚠ 請核對注音' : '⚠ 多項填入') : CATEGORY_LABELS[cat]}
                               </div>
                             </div>
                           </button>
