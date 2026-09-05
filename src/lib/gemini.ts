@@ -6865,13 +6865,35 @@ export async function solveAnswerKeyFromBooklet(
     }
     const [run1, run2] = await Promise.all([solveOnce(), solveOnce()])
     solvedById = run1
+    const stringDiffPairs: Array<{ id: string; a1: string; a2: string }> = []
     for (const q of solvable) {
       const a1 = run1.get(q.id)
       const a2 = run2.get(q.id)
       const cat = String(a1?.questionCategory || q.section.questionCategory || '')
       if (!SOLVE_DISAGREEMENT_CATEGORIES.has(cat)) continue
-      if (!a1 || !a2 || normalizeSolvedAnswer(a1.answer) !== normalizeSolvedAnswer(a2.answer)) {
-        disagreementIds.add(q.id)
+      if (!a1 || !a2) { disagreementIds.add(q.id); continue }
+      if (normalizeSolvedAnswer(a1.answer) !== normalizeSolvedAnswer(a2.answer)) {
+        stringDiffPairs.push({ id: q.id, a1: String(a1.answer ?? ''), a2: String(a2.answer ?? '') })
+      }
+    }
+    // 字串不同 ≠ 真分歧：數學等價寫法（x-3 vs x-12+9、頓號 vs 逗號）先用便宜文字 call 自查，
+    // 等價→不標紅（採第一輪答案）；真不等價才標紅。只送不一致的題、無圖片，成本 ~NT$0.1/卷。
+    if (stringDiffPairs.length > 0) {
+      try {
+        const eqPrompt = `你是數學/國文老師。以下每組是同一題的兩個作答，判斷兩者是否等價（同一數學式的等價寫法/移項/未化簡 vs 化簡、分隔符差異、同義描述）。
+只輸出 JSON：{"verdicts":[{"id":"...","equivalent":true}]}
+
+${stringDiffPairs.map((p) => `id=${p.id}｜答案一：${p.a1}｜答案二：${p.a2}`).join('
+')}`
+        const eqText = await generateGeminiText(currentModelName, [{ text: eqPrompt }], { routeKey: 'answer_key.solve' })
+        const eq = parseGeminiJsonText(eqText) as { verdicts?: Array<{ id: string; equivalent?: boolean }> } | null
+        const eqById = new Map((eq?.verdicts ?? []).map((v) => [String(v.id), !!v.equivalent]))
+        for (const pDiff of stringDiffPairs) {
+          if (!eqById.get(pDiff.id)) disagreementIds.add(pDiff.id)
+        }
+      } catch {
+        // 等價自查失敗 → 保守全標紅（寧多看不漏看）
+        for (const pDiff of stringDiffPairs) disagreementIds.add(pDiff.id)
       }
     }
   }
