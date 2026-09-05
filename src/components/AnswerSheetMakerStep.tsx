@@ -172,6 +172,19 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
               {sec.hasBig && (
                 <>
                   <label className="block text-xs text-gray-500">
+                    每列格數
+                    <select
+                      value={ov.perRow ?? 0}
+                      onChange={(e) => setOverride(sec.key, { perRow: Number(e.target.value) || undefined })}
+                      className="mt-0.5 w-full border rounded px-2 py-1 text-sm"
+                    >
+                      <option value={0}>自動（作圖 2、計算 1）</option>
+                      {[1, 2, 3].map((c) => (
+                        <option key={c} value={c}>{c} 格</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-xs text-gray-500">
                     大格高度：{ov.bigH ?? 58} mm
                     <input
                       type="range"

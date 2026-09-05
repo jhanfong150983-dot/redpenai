@@ -1639,6 +1639,19 @@ export default function AnswerKeyUnifiedModal({
                   ) : (
                     /* ── Create mode: full upload + reorder ── */
                     <div className="flex flex-col gap-6">
+                      {GENERATED_SHEET_STEP_ENABLED && activeStep === 'extract' && (
+                        <div className="flex items-center justify-between gap-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                          <p className="text-xs text-blue-800">還沒列印作答卷？先下載列印、把標準答案手寫在卷上再上傳。</p>
+                          <button
+                            type="button"
+                            onClick={() => void handleDownloadDraftSheet()}
+                            disabled={!makerResult}
+                            className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 font-medium"
+                          >
+                            下載作答卷 PDF
+                          </button>
+                        </div>
+                      )}
                       {/* ── 答案卷區塊（生成流程＝上傳「手寫在作答卷上的參考答案」；②上傳題本步驟隱藏） ── */}
                       <section className={`rounded-xl border border-rose-200 bg-rose-50/30 p-4 ${activeStep === 'booklet' ? 'hidden' : ''}`}>
                         <div className="flex items-baseline justify-between mb-3">
@@ -1817,11 +1830,14 @@ export default function AnswerKeyUnifiedModal({
                 </div>
               )}
 
-              {/* Step 2 解析中 sub-state */}
-              {activeStep === 'extract' && isExtracting && (
+              {/* 解析/結構分析中 sub-state（extract 與 booklet 步驟共用） */}
+              {(activeStep === 'extract' || activeStep === 'booklet') && isExtracting && (
                 <div className="p-6 flex flex-col items-center justify-center h-full">
                   <Loader2 className="w-10 h-10 text-green-600 animate-spin mx-auto" />
                   <p className="mt-4 text-sm text-gray-600">{extractionMsg}</p>
+                  {activeStep === 'booklet' && (
+                    <p className="mt-2 text-xs text-gray-400">AI 正在分析大題、題數與配分（不解題），約需 10~30 秒</p>
+                  )}
                 </div>
               )}
 

@@ -77,6 +77,8 @@ export interface SectionOverride {
   cellSize?: 's' | 'm' | 'l'
   /** bigbox（作圖/計算）高度 mm */
   bigH?: number
+  /** bigbox 每列格數（作圖預設 2、計算預設 1） */
+  perRow?: number
 }
 
 export interface GenInput {
@@ -185,9 +187,9 @@ function buildSections(questions: GenQuestion[], overrides: Record<string, Secti
       const essayQs = qs.filter((q) => q.questionCategory === 'word_problem')
       const name = gridQs.length && essayQs.length ? '計算作圖題' : gridQs.length ? '作圖題' : '計算題'
       if (gridQs.length)
-        secs.push({ key, label: titled(name), kind: 'bigbox', qs: gridQs, cols: 0, ansH: ov.bigH ?? 58, perRow: 2, grid: true })
+        secs.push({ key, label: titled(name), kind: 'bigbox', qs: gridQs, cols: 0, ansH: ov.bigH ?? 58, perRow: ov.perRow ?? 2, grid: true })
       if (essayQs.length)
-        secs.push({ key, label: gridQs.length ? null : titled(name), kind: 'bigbox', qs: essayQs, cols: 0, ansH: ov.bigH ?? 44, perRow: 1 })
+        secs.push({ key, label: gridQs.length ? null : titled(name), kind: 'bigbox', qs: essayQs, cols: 0, ansH: ov.bigH ?? 44, perRow: ov.perRow ?? 1 })
     } else if (types.has('short_answer')) {
       secs.push({ key, label: titled('簡答題'), kind: 'wide', qs, cols: 2, ansH: 14 * sizeMul, stemInCell: true })
     } else if (qs.every((q) => CHOICE_TYPES.has(q.questionCategory))) {
