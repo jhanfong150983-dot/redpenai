@@ -124,6 +124,23 @@ function splitComparator(s: string): { lhs: string; rhs: string; cmp: Comparator
 
 const near = (p: number, q: number) => Math.abs(p - q) <= 1e-9 * Math.max(1, Math.abs(p), Math.abs(q))
 
+/** 複合不等式 L op1 M op2 R → 拆成兩條完整單不等式（方向須一致；反向鏈交給呼叫端交叉配對） */
+function splitChain(s: string): [string, string] | null {
+  const found: Array<{ i: number; cmp: Comparator }> = []
+  for (let i = 0; i < s.length; i++) {
+    for (const cmp of ['<=', '>=', '<', '>'] as Comparator[]) {
+      if (s.startsWith(cmp, i)) { found.push({ i, cmp }); i += cmp.length - 1; break }
+    }
+  }
+  if (found.length !== 2) return null
+  const lhs = s.slice(0, found[0].i)
+  const mid = s.slice(found[0].i + found[0].cmp.length, found[1].i)
+  const rhs = s.slice(found[1].i + found[1].cmp.length)
+  if (!lhs || !mid || !rhs) return null
+  if (found[0].cmp.startsWith('<') !== found[1].cmp.startsWith('<')) return null
+  return [`${lhs}${found[0].cmp}${mid}`, `${mid}${found[1].cmp}${rhs}`]
+}
+
 /**
  * 判定兩個數學答案是否等價。
  * @returns true/false＝可信判定；null＝code 判不動（呼叫端退 AI）
@@ -143,6 +160,20 @@ export function mathAnswersEquivalent(rawA: string, rawB: string): boolean | nul
     if (na.length && na.length === nb.length) return na.every((v, i) => near(v, nb[i]))
     return false
   }
+
+  // 複合不等式（a < x <= b）：拆成兩條各自比對（1-1-14 防禦性誤報的修法）
+  const chainA = splitChain(A)
+  const chainB = splitChain(B)
+  if (chainA && chainB) {
+    // 交叉配對：正向鏈與反向鏈（-7/3<x<=5 vs 5>=x>-7/3）拆出的兩條界限順序相反
+    const straight = [mathAnswersEquivalent(chainA[0], chainB[0]), mathAnswersEquivalent(chainA[1], chainB[1])]
+    if (straight[0] === true && straight[1] === true) return true
+    const crossed = [mathAnswersEquivalent(chainA[0], chainB[1]), mathAnswersEquivalent(chainA[1], chainB[0])]
+    if (crossed[0] === true && crossed[1] === true) return true
+    if ((straight[0] === false || straight[1] === false) && (crossed[0] === false || crossed[1] === false)) return false
+    return null
+  }
+  if (!!chainA !== !!chainB) return null
 
   const ca = splitComparator(A)
   const cb = splitComparator(B)
