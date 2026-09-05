@@ -6883,9 +6883,8 @@ export async function solveAnswerKeyFromBooklet(
         const eqPrompt = `你是數學/國文老師。以下每組是同一題的兩個作答，判斷兩者是否等價（同一數學式的等價寫法/移項/未化簡 vs 化簡、分隔符差異、同義描述）。
 只輸出 JSON：{"verdicts":[{"id":"...","equivalent":true}]}
 
-${stringDiffPairs.map((p) => `id=${p.id}｜答案一：${p.a1}｜答案二：${p.a2}`).join('
-')}`
-        const eqText = await generateGeminiText(currentModelName, [{ text: eqPrompt }], { routeKey: 'answer_key.solve' })
+${stringDiffPairs.map((p) => `id=${p.id}｜答案一：${p.a1}｜答案二：${p.a2}`).join('\n')}`
+        const eqText = await generateGeminiText(currentModelName, [eqPrompt], { routeKey: 'answer_key.solve' })
         const eq = parseGeminiJsonText(eqText) as { verdicts?: Array<{ id: string; equivalent?: boolean }> } | null
         const eqById = new Map((eq?.verdicts ?? []).map((v) => [String(v.id), !!v.equivalent]))
         for (const pDiff of stringDiffPairs) {
