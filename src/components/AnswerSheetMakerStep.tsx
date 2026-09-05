@@ -8,7 +8,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import {
   generateAnswerSheet,
-  estimateTextWidthMm,
   type GenBaseImage,
   type GenCellText,
   type GenQuestion,
@@ -46,6 +45,16 @@ function sectionKeyOf(id: string): string {
 }
 
 const BIG_KINDS = new Set(['grid_geometry', 'word_problem'])
+
+// 文字寬度「實測」（同字型同字級；估算式對空白/混排不準會造成編輯器與卷面不一致）
+const SHEET_FONT = '"Microsoft JhengHei", "Noto Sans TC", sans-serif'
+let _measureCtx: CanvasRenderingContext2D | null = null
+function measureTextPx(text: string, fontPx: number): number {
+  if (!_measureCtx) _measureCtx = document.createElement('canvas').getContext('2d')
+  if (!_measureCtx) return text.length * fontPx
+  _measureCtx.font = `${fontPx}px ${SHEET_FONT}`
+  return _measureCtx.measureText(text).width
+}
 
 export default function AnswerSheetMakerStep({ title, questions, bookletImages, state, onStateChange, onResult }: Props) {
   const [headerDataUri, setHeaderDataUri] = useState<string | null>(null)
@@ -660,11 +669,12 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
                   onFocus={() => setSelected(i)}
                   className="bg-transparent outline-none"
                   style={{
-                    fontFamily: 'Microsoft JhengHei, Noto Sans TC, sans-serif',
-                    fontSize: sizeMm(t) * k * 0.92,
-                    // 寬度＝估算文字寬（同引擎公式）＋游標餘裕，上限＝格子右緣（列印端同樣位置壓縮，兩端一致）
+                    fontFamily: SHEET_FONT,
+                    fontSize: sizeMm(t) * k,
+                    lineHeight: 1.1,
+                    // 寬度＝同字型同字級「實測」＋游標餘裕；上限＝格子右緣
                     width: Math.min(
-                      Math.max(estimateTextWidthMm(t.text || '輸入文字', sizeMm(t)), 8) * k + 12,
+                      Math.max(measureTextPx(t.text || '輸入文字', sizeMm(t) * k), 20) + 6,
                       Math.max(4, cellWMm - (t.xMm ?? 0) - 0.5) * k
                     ),
                     color: '#444'
