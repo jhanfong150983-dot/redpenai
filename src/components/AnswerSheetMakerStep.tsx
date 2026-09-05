@@ -79,11 +79,21 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(q)
     }
-    return [...map.entries()].map(([key, qs]) => {
+    return [...map.entries()].flatMap(([key, qs]) => {
       const hintName = qs.map((q) => (String(q.anchorHint ?? '').match(/『(.+?)』/) ?? [])[1]).find(Boolean)
       const isChoice = qs.every((q) => ['single_choice', 'multi_choice', 'true_false'].includes(q.questionCategory))
       const hasBig = qs.some((q) => BIG_KINDS.has(q.questionCategory))
-      return { key, qs, name: hintName ?? (hasBig ? '計算作圖題' : isChoice ? '選擇題' : '作答區'), isChoice, hasBig }
+      if (!hasBig) {
+        return [{ key, qs, name: hintName ?? (isChoice ? '選擇題' : '作答區'), isChoice, hasBig, bigDefault: 0 }]
+      }
+      // 作圖/計算拆成獨立控制卡（卷面仍同一個大題標題）；子鍵對應引擎的分開覆寫
+      const gridQs = qs.filter((q) => q.questionCategory === 'grid_geometry')
+      const essayQs = qs.filter((q) => !BIG_KINDS.has(q.questionCategory) ? false : q.questionCategory !== 'grid_geometry')
+      const base = hintName ?? '計算作圖題'
+      const cards = [] as Array<{ key: string; qs: GenQuestion[]; name: string; isChoice: boolean; hasBig: boolean; bigDefault: number }>
+      if (gridQs.length) cards.push({ key: `${key}:grid`, qs: gridQs, name: `${base}・作圖（${gridQs.length} 題）`, isChoice: false, hasBig: true, bigDefault: 58 })
+      if (essayQs.length) cards.push({ key: `${key}:essay`, qs: essayQs, name: `${base}・計算（${essayQs.length} 題）`, isChoice: false, hasBig: true, bigDefault: 44 })
+      return cards
     })
   }, [questions])
 
@@ -178,20 +188,20 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
                       onChange={(e) => setOverride(sec.key, { perRow: Number(e.target.value) || undefined })}
                       className="mt-0.5 w-full border rounded px-2 py-1 text-sm"
                     >
-                      <option value={0}>自動（作圖 2、計算 1）</option>
+                      <option value={0}>自動</option>
                       {[1, 2, 3].map((c) => (
                         <option key={c} value={c}>{c} 格</option>
                       ))}
                     </select>
                   </label>
                   <label className="block text-xs text-gray-500">
-                    大格高度：{ov.bigH ?? 58} mm
+                    大格高度：{ov.bigH ?? sec.bigDefault} mm
                     <input
                       type="range"
                       min={30}
                       max={90}
                       step={2}
-                      value={ov.bigH ?? 58}
+                      value={ov.bigH ?? sec.bigDefault}
                       onChange={(e) => setOverride(sec.key, { bigH: Number(e.target.value) })}
                       className="w-full"
                     />

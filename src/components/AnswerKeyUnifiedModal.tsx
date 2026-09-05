@@ -2377,16 +2377,8 @@ export default function AnswerKeyUnifiedModal({
               {/* Step 4 empty state when no editing key */}
               {activeStep === 'sheet' && editingKey && (
                 <div className="flex-1 overflow-y-auto p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-xs text-blue-800">調整版面後<b>下載列印</b>，把標準答案手寫在卷上（作圖題直接畫），下一步上傳讓 AI 讀取。</p>
-                    <button
-                      type="button"
-                      onClick={() => void handleDownloadDraftSheet()}
-                      disabled={!makerResult}
-                      className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 font-medium"
-                    >
-                      下載作答卷 PDF
-                    </button>
+                  <div className="mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-xs text-blue-800">調整好版面後按「下一步」——在 AI 解析步驟下載列印，把標準答案手寫在卷上（作圖題直接畫）再上傳。</p>
                   </div>
                   <AnswerSheetMakerStep
                     title={title.trim() || '未命名'}

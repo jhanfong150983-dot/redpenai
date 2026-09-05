@@ -186,10 +186,14 @@ function buildSections(questions: GenQuestion[], overrides: Record<string, Secti
       const gridQs = qs.filter((q) => q.questionCategory === 'grid_geometry')
       const essayQs = qs.filter((q) => q.questionCategory === 'word_problem')
       const name = gridQs.length && essayQs.length ? '計算作圖題' : gridQs.length ? '作圖題' : '計算題'
+      // 作圖/計算分開控制（2026-09-05 user：數學老師習慣兩者格子獨立調）——
+      // 卷面仍共用一個大題標題，參數用子鍵 `${key}:grid` / `${key}:essay` 各自覆寫
+      const gv = overrides[`${key}:grid`] ?? ov
+      const ev = overrides[`${key}:essay`] ?? ov
       if (gridQs.length)
-        secs.push({ key, label: titled(name), kind: 'bigbox', qs: gridQs, cols: 0, ansH: ov.bigH ?? 58, perRow: ov.perRow ?? 2, grid: true })
+        secs.push({ key, label: titled(name), kind: 'bigbox', qs: gridQs, cols: 0, ansH: gv.bigH ?? 58, perRow: gv.perRow ?? 2, grid: true })
       if (essayQs.length)
-        secs.push({ key, label: gridQs.length ? null : titled(name), kind: 'bigbox', qs: essayQs, cols: 0, ansH: ov.bigH ?? 44, perRow: ov.perRow ?? 1 })
+        secs.push({ key, label: gridQs.length ? null : titled(name), kind: 'bigbox', qs: essayQs, cols: 0, ansH: ev.bigH ?? 44, perRow: ev.perRow ?? 1 })
     } else if (types.has('short_answer')) {
       secs.push({ key, label: titled('簡答題'), kind: 'wide', qs, cols: 2, ansH: 14 * sizeMul, stemInCell: true })
     } else if (qs.every((q) => CHOICE_TYPES.has(q.questionCategory))) {
