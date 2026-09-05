@@ -19,6 +19,7 @@ import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } f
 import { ANSWER_SHEET_GEN_VERSION, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData } from '@/lib/answerSheetGenerator'
 import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
+import { db } from '@/lib/db'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
@@ -234,6 +235,7 @@ export default function AnswerKeyUnifiedModal({
   // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
   const [makerState, setMakerState] = useState<SheetMakerState>(EMPTY_SHEET_MAKER_STATE)
   const [makerResult, setMakerResult] = useState<GenResult | null>(null)
+
   const [completedSteps, setCompletedSteps] = useState<Set<UnifiedStep>>(
     () => editMode
       ? new Set<UnifiedStep>(GENERATED_SHEET_STEP_ENABLED
@@ -864,6 +866,73 @@ export default function AnswerKeyUnifiedModal({
 
   // ─�� Step 4: editing state ──────────��──────────────────────────────────────
   const [editingKey, setEditingKey] = useState<AnswerKey | null>(initialAnswerKey)
+
+  const [genDraftRestored, setGenDraftRestored] = useState(false)
+
+  // ── ③自動暫存（2026-09-05）：老師中途離開可續作，免重跑結構推斷 ──
+  // 觸發：生成流程、建立模式、結構已出（editingKey）；debounce 1.5s 寫入 Dexie 單列草稿
+  useEffect(() => {
+    if (!GENERATED_SHEET_STEP_ENABLED || editMode || !editingKey) return
+    if (!['booklet', 'sheet', 'extract'].includes(activeStep)) return
+    const timer = setTimeout(() => {
+      const blobs = bookletPageItems
+        .map((item) => bookletPages.find((p) => p.index === item.originalIndex)?.blob)
+        .filter((b): b is Blob => !!b)
+      void db.genSheetDrafts.put({
+        id: 'current',
+        savedAt: Date.now(),
+        metadata: { title, domain, grade: grade === '' ? undefined : grade, folder },
+        bookletBlobs: blobs,
+        answerKey: editingKey,
+        makerState,
+        activeStep,
+      }).catch((err) => console.warn('[GenDraft] 暫存失敗（不影響操作）:', err))
+    }, 1500)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingKey, makerState, activeStep, bookletPageItems])
+
+  // 開啟時偵測草稿 → 詢問續作（僅建立模式、一次）
+  useEffect(() => {
+    if (!GENERATED_SHEET_STEP_ENABLED || editMode || genDraftRestored) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const draft = await db.genSheetDrafts.get('current')
+        if (!draft || cancelled || !draft.answerKey) return
+        const ageMin = Math.round((Date.now() - draft.savedAt) / 60000)
+        const ok = await confirmModal({
+          title: '發現未完成的答案卷',
+          message: `「${draft.metadata.title || '未命名'}」（${ageMin < 60 ? `${ageMin} 分鐘前` : `${Math.round(ageMin / 60)} 小時前`}暫存）——要接續製作嗎？
+選「重新開始」會捨棄該草稿。`,
+          confirmLabel: '接續製作',
+          cancelLabel: '重新開始',
+        })
+        if (cancelled) return
+        setGenDraftRestored(true)
+        if (!ok) {
+          void db.genSheetDrafts.delete('current')
+          return
+        }
+        setTitle(draft.metadata.title)
+        setDomain(draft.metadata.domain)
+        if (draft.metadata.grade != null) setGrade(draft.metadata.grade)
+        const pages = draft.bookletBlobs.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) }))
+        setBookletPages(pages)
+        setEditingKey(draft.answerKey)
+        setMakerState((draft.makerState as SheetMakerState) ?? EMPTY_SHEET_MAKER_STATE)
+        markComplete('metadata')
+        markComplete('booklet')
+        if (draft.activeStep === 'extract') markComplete('sheet')
+        setActiveStep((draft.activeStep as UnifiedStep) || 'sheet')
+      } catch (err) {
+        console.warn('[GenDraft] 草稿讀取失敗:', err)
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const [selectedIdx, setSelectedIdx] = useState(0)
 
   // bbox drawing state
@@ -1255,6 +1324,7 @@ export default function AnswerKeyUnifiedModal({
         generatedSheetPdf,
       })
       if (!editMode) clearMetadataDraft() // 建立成功→草稿功成身退
+      if (GENERATED_SHEET_STEP_ENABLED && !editMode) void db.genSheetDrafts.delete('current').catch(() => {})
     } finally {
       setIsSaving(false)
     }

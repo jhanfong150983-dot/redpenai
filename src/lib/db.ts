@@ -847,6 +847,20 @@ export interface GradebookCustomScore {
 /**
  * Dexie DB 定義
  */
+/** 生成答案卷建卷草稿（單列 id='current'）：老師在②~④中途離開可續作，免重跑結構推斷 */
+export interface GenSheetDraft {
+  id: string
+  savedAt: number
+  metadata: { title: string; domain: string; grade?: number; folder: string }
+  /** 題本頁（已套旋轉排序的 blob） */
+  bookletBlobs: Blob[]
+  /** 結構推斷骨架（editingKey） */
+  answerKey: AnswerKey | null
+  /** step③ 版面狀態（pageSize/sectionOverrides/cellTexts/baseImages） */
+  makerState: unknown
+  activeStep: string
+}
+
 class RedPenDatabase extends Dexie {
   classrooms!: EntityTable<Classroom, 'id'>
   students!: EntityTable<Student, 'id'>
@@ -861,6 +875,7 @@ class RedPenDatabase extends Dexie {
   gradebookCustomColumns!: EntityTable<GradebookCustomColumn, 'id'>
   gradebookCustomScores!: EntityTable<GradebookCustomScore, 'id'>
   answerKeyTemplates!: EntityTable<AnswerKeyTemplate, 'id'>
+  genSheetDrafts!: EntityTable<GenSheetDraft, 'id'>
 
   constructor() {
     super('RedPenDB')
@@ -1279,6 +1294,11 @@ class RedPenDatabase extends Dexie {
     // version 13: 開放題錯誤特徵 AI 歸納快取（2026-07-16）
     this.version(13).stores({
       questionErrorFeaturesCache: '&cacheKey, assignmentId, updatedAt'
+    })
+
+    // 2026-09-05 生成答案卷建卷草稿（自動暫存；單列 current）
+    this.version(14).stores({
+      genSheetDrafts: 'id'
     })
 
     const setUpdatedAt = (value: unknown) => {
