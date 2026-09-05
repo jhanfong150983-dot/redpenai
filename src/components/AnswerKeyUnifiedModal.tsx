@@ -20,6 +20,7 @@ import { ANSWER_SHEET_GEN_VERSION, renderSheetPng, buildSheetPdf, type GenResult
 import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { db } from '@/lib/db'
+import { detectSchoolName } from '@/lib/answerSheetTemplate'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
@@ -898,6 +899,11 @@ export default function AnswerKeyUnifiedModal({
   const [editingKey, setEditingKey] = useState<AnswerKey | null>(initialAnswerKey)
 
   const [genDraftRestored, setGenDraftRestored] = useState(false)
+  const [schoolName, setSchoolName] = useState('')
+  useEffect(() => {
+    if (!GENERATED_SHEET_STEP_ENABLED) return
+    void detectSchoolName().then((n) => setSchoolName(n)).catch(() => {})
+  }, [])
 
   // ── ③自動暫存（2026-09-05）：老師中途離開可續作，免重跑結構推斷 ──
   // 觸發：生成流程、建立模式、結構已出（editingKey）；debounce 1.5s 寫入 Dexie 單列草稿
@@ -2482,7 +2488,7 @@ export default function AnswerKeyUnifiedModal({
                     <p className="text-xs text-blue-800">調整好版面後按「下一步」——在 AI 解析步驟下載列印，把標準答案手寫在卷上（作圖題直接畫）再上傳。</p>
                   </div>
                   <AnswerSheetMakerStep
-                    title={title.trim() || '未命名'}
+                    title={[schoolName, title.trim() || '未命名'].filter(Boolean).join(' ')}
                     questions={editingKey.questions.map((q) => ({
                       id: q.id,
                       questionCategory: q.questionCategory ?? 'fill_blank',
