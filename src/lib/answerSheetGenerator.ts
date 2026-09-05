@@ -37,7 +37,7 @@ function pageGeom(size: PageSize): PageGeom {
   const hw = HEADER_SIZE_MM.width * headerScale
   const hh = HEADER_SIZE_MM.height * headerScale
   // 標頭在標題（頂部）之下、內容之上（讓出四角給對齊方塊）
-  const header = { x: (pw - hw) / 2, y: 20, w: hw, h: hh }
+  const header = { x: (pw - hw) / 2, y: 30, w: hw, h: hh }
   // 四角錨點中心：紙緣 inset ＋ 半個方塊
   const c = PAGE_ANCHOR.inset + PAGE_ANCHOR.size / 2
   const anchorsMm: Array<[number, number]> = [
@@ -423,10 +423,11 @@ function assembleSvg(g: PageGeom, input: GenInput, els: string[]): string {
   ]
     .map(([x, yy]) => `<rect x="${x * DPMM}" y="${yy * DPMM}" width="${a.size * DPMM}" height="${a.size * DPMM}" fill="#000"/>`)
     .join('')
-  // 標題（避開左上角錨點：起點內縮到 a.inset+a.size+3）；撐滿紙寬扣兩側錨點區
-  const titleX = a.inset + a.size + 3
+  // 標題：置於角標框「之內」——頂部角標下方一行，左右內縮到角標內側，不與角標同列
+  const innerX = a.inset + a.size + 4       // 角標內緣＋留白
+  const titleBaseY = a.inset + a.size + 8   // 頂部角標下方
   const head =
-    `<text x="${titleX * DPMM}" y="${(a.inset + a.size - 1) * DPMM}" font-size="${5.2 * DPMM}" font-weight="bold" textLength="${(g.pw - 2 * titleX) * DPMM}" lengthAdjust="spacing">${esc(input.title)}｜作答卷</text>` +
+    `<text x="${innerX * DPMM}" y="${titleBaseY * DPMM}" font-size="${5.2 * DPMM}" font-weight="bold" textLength="${(g.pw - 2 * innerX) * DPMM}" lengthAdjust="spacing">${esc(input.title)}｜作答卷</text>` +
     `<image x="${g.header.x * DPMM}" y="${g.header.y * DPMM}" width="${g.header.w * DPMM}" height="${g.header.h * DPMM}" href="${input.headerDataUri}"/>`
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif">` +
