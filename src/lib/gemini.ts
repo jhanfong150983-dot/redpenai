@@ -7045,6 +7045,7 @@ export async function readReferenceAnswerCells(cells: ReferenceCellInput[]): Pro
 ・注音：含調號（如 ㄗㄜˋ）
 ・選項代號：只寫字母
 ・空白格回 BLANK
+・應用題/計算題有多行時，照原樣保留換行（text 內用 \n 分行）
 只輸出 JSON：{"reads":[{"i":1,"text":"..."}]}`
   ]
   for (let i = 0; i < cells.length; i++) {

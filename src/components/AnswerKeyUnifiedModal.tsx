@@ -158,6 +158,9 @@ const STEP_CONFIG: { key: UnifiedStep; label: string; shortLabel: string }[] = G
       { key: 'editing', label: '題目編輯', shortLabel: '③' },
     ]
 
+// 作答內容為圖（非文字）的題型：答案存正解圖/vjRubric，缺答檢查豁免文字判定
+const DRAWING_CATEGORIES = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'])
+
 interface NormalizedBbox { x: number; y: number; w: number; h: number }
 
 export interface AnswerKeyUnifiedModalProps {
@@ -2039,6 +2042,13 @@ export default function AnswerKeyUnifiedModal({
                               })
                               return !allFilled
                             }
+                            // 作圖五型：答案是圖（正解圖 cropImageUrl/cropImagePath 或 vjRubric），非文字→不算缺答
+                            if (DRAWING_CATEGORIES.has(String(q.questionCategory))) {
+                              const hasImg = !!(q as { cropImageUrl?: string; cropImagePath?: string; vjRubric?: unknown }).cropImageUrl
+                                || !!(q as { cropImagePath?: string }).cropImagePath
+                                || !!(q as { vjRubric?: unknown }).vjRubric
+                              return !hasImg
+                            }
                             const a = (q.answer ?? '').trim()
                             const r = (q.referenceAnswer ?? '').trim()
                             return (!a || PLACEHOLDER_ANSWERS.includes(a)) && (!r || PLACEHOLDER_ANSWERS.includes(r))
@@ -2085,7 +2095,13 @@ export default function AnswerKeyUnifiedModal({
                         })
                         // AI 漏填答案就警示（含 short_answer / word_problem / calculation —
                         // 這三類也必填 answer 或 referenceAnswer）
-                        const answerMissing = isTableCellQ
+                        const isDrawingQ = DRAWING_CATEGORIES.has(String(q.questionCategory))
+                        const drawingHasImg = !!(q as { cropImageUrl?: string }).cropImageUrl
+                          || !!(q as { cropImagePath?: string }).cropImagePath
+                          || !!(q as { vjRubric?: unknown }).vjRubric
+                        const answerMissing = isDrawingQ
+                          ? !drawingHasImg
+                          : isTableCellQ
                           ? !tableCellHasAnswer
                           : isTableCheckQ
                             ? !tableCheckHasAnswer
