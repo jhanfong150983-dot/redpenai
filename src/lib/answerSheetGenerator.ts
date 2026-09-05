@@ -53,8 +53,10 @@ export interface GenBaseImage {
   /** 底圖實體尺寸（mm，依題本 A4 比例換算） */
   wMm: number
   hMm: number
-  /** 底圖在格內的水平位置（預設 center） */
+  /** 底圖在格內的水平位置（預設 center；place 存在時忽略） */
   align?: 'left' | 'center' | 'right'
+  /** 自由放置（相對作答格左上，mm；Canva 式拖曳/縮放產生） */
+  place?: { xMm: number; yMm: number; wMm: number; hMm: number }
 }
 
 export interface GenQuestion {
@@ -78,8 +80,11 @@ export interface GenCellText {
   text: string
   /** 字級：s=2.6mm m=3.2mm l=4.2mm（預設 m） */
   size?: 's' | 'm' | 'l'
-  /** 九宮格位置（預設 tl 左上） */
+  /** 九宮格位置（預設 tl 左上；xMm/yMm 存在時忽略） */
   pos?: 'tl' | 'tc' | 'tr' | 'ml' | 'mc' | 'mr' | 'bl' | 'bc' | 'br'
+  /** 自由座標（相對作答格左上，mm；Canva 式拖曳產生） */
+  xMm?: number
+  yMm?: number
 }
 
 /** step④ 參數化調整：以大題鍵（id 去掉最後一段）覆寫版面參數 */
@@ -247,23 +252,39 @@ function layoutPages(sections: Section[], g: PageGeom): LayoutPage[] {
   const ensure = (h: number) => {
     if (y + h > PH - M) newPage()
   }
-  // 格內文字方塊（九宮格定位；跟著 addBox 一起畫，位置以「作答區」為基準）
-  const emitCellTexts = (q: GenQuestion, x: number, yy: number, w: number, h: number) => {
+  // 格內物件（跟著 addBox 一起畫，座標以「作答格」左上為基準）：
+  // 文字＝自由座標（xMm/yMm）優先、九宮格 preset 後備；底圖 place＝Canva 式自由放置（所有格型通用）
+  const emitCellExtras = (q: GenQuestion, x: number, yy: number, w: number, h: number) => {
     for (const t of q.cellTexts ?? []) {
       if (!t.text) continue
       const size = t.size === 's' ? 2.6 : t.size === 'l' ? 4.2 : 3.2
-      const pos = t.pos ?? 'tl'
-      const pad = 1.5
-      const tx = pos.endsWith('l') ? x + pad : pos.endsWith('c') ? x + w / 2 : x + w - pad
-      const ty = pos.startsWith('t') ? yy + pad + size : pos.startsWith('m') ? yy + h / 2 + size / 2 : yy + h - pad
-      const anchor = pos.endsWith('l') ? 'start' : pos.endsWith('c') ? 'middle' : 'end'
+      let tx: number
+      let ty: number
+      let anchor: string
+      if (t.xMm != null && t.yMm != null) {
+        tx = x + t.xMm
+        ty = yy + t.yMm + size
+        anchor = 'start'
+      } else {
+        const pos = t.pos ?? 'tl'
+        const pad = 1.5
+        tx = pos.endsWith('l') ? x + pad : pos.endsWith('c') ? x + w / 2 : x + w - pad
+        ty = pos.startsWith('t') ? yy + pad + size : pos.startsWith('m') ? yy + h / 2 + size / 2 : yy + h - pad
+        anchor = pos.endsWith('l') ? 'start' : pos.endsWith('c') ? 'middle' : 'end'
+      }
       els.push(`<text x="${tx * DPMM}" y="${ty * DPMM}" font-size="${size * DPMM}" fill="#444" text-anchor="${anchor}">${esc(t.text)}</text>`)
+    }
+    const bi = q.baseImage
+    if (bi?.place) {
+      els.push(
+        `<image x="${(x + bi.place.xMm) * DPMM}" y="${(yy + bi.place.yMm) * DPMM}" width="${bi.place.wMm * DPMM}" height="${bi.place.hMm * DPMM}" preserveAspectRatio="none" href="${bi.dataUri}"/>`
+      )
     }
   }
   // 預覽點擊層：透明 rect 蓋在每格上（data-qid 供 UI 點格開編輯視窗）；印刷不可見
   const overlayEls: string[] = []
   const addBox = (q: GenQuestion, x: number, yy: number, w: number, h: number, kind: GenBox['kind'], optionCount?: number) => {
-    emitCellTexts(q, x, yy, w, h)
+    emitCellExtras(q, x, yy, w, h)
     overlayEls.push(`<rect x="${x * DPMM}" y="${yy * DPMM}" width="${w * DPMM}" height="${h * DPMM}" fill="transparent" data-qid="${esc(q.id)}" style="cursor:pointer"/>`)
     boxes.push({
       id: q.id,
@@ -345,7 +366,7 @@ function layoutPages(sections: Section[], g: PageGeom): LayoutPage[] {
             for (let gx = x0 + 5; gx < x0 + w; gx += 5) line(gx, by + 6, gx, by + h, 0.1, '#ccc')
             for (let gy = by + 11; gy < by + h; gy += 5) line(x0, gy, x0 + w, gy, 0.1, '#ccc')
           }
-          if (q.baseImage) {
+          if (q.baseImage && !q.baseImage.place) {
             const bi = q.baseImage
             const availW = w - 4
             const availH = h - 8

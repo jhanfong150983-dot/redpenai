@@ -20,8 +20,8 @@ import {
 export interface SheetMakerState {
   pageSize: PageSize
   sectionOverrides: Record<string, SectionOverride>
-  /** 作圖/計算題底圖：題目 id → 底圖（含框選來源，供重新編輯） */
-  baseImages: Record<string, GenBaseImage & { bookletPage: number; rect: { x: number; y: number; w: number; h: number } }>
+  /** 底圖：題目 id → 底圖（框選來源欄位僅題本框選有；上傳 jpg/png 無） */
+  baseImages: Record<string, GenBaseImage & { bookletPage?: number; rect?: { x: number; y: number; w: number; h: number } }>
   /** 格內文字方塊：題目 id → 文字清單（點預覽格子編輯） */
   cellTexts: Record<string, GenCellText[]>
 }
@@ -257,22 +257,29 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
         )}
       </div>
 
-      {editCell && (
-        <CellEditModal
-          qid={editCell}
-          isBig={BIG_KINDS.has(String(questions.find((q) => q.id === editCell)?.questionCategory))}
-          texts={state.cellTexts?.[editCell] ?? []}
-          hasBaseImage={!!state.baseImages[editCell]}
-          onTextsChange={(texts) => onStateChange({ ...state, cellTexts: { ...state.cellTexts, [editCell]: texts } })}
-          onEditBaseImage={() => setCropTarget(editCell)}
-          onClearBaseImage={() => {
-            const next = { ...state.baseImages }
-            delete next[editCell]
-            onStateChange({ ...state, baseImages: next })
-          }}
-          onClose={() => setEditCell(null)}
-        />
-      )}
+      {editCell && result?.ok && (() => {
+        const box = (result as GenResult).boxes.find((b) => b.id === editCell)
+        if (!box) return null
+        return (
+          <CellEditModal
+            qid={editCell}
+            cellWMm={box.xyMm[2]}
+            cellHMm={box.xyMm[3]}
+            texts={state.cellTexts?.[editCell] ?? []}
+            baseImage={state.baseImages[editCell] ?? null}
+            hasBooklet={bookletImages.length > 0}
+            onTextsChange={(texts) => onStateChange({ ...state, cellTexts: { ...state.cellTexts, [editCell]: texts } })}
+            onBaseImageChange={(entry) => {
+              const next = { ...state.baseImages }
+              if (entry) next[editCell] = entry
+              else delete next[editCell]
+              onStateChange({ ...state, baseImages: next })
+            }}
+            onOpenCrop={() => setCropTarget(editCell)}
+            onClose={() => setEditCell(null)}
+          />
+        )
+      })()}
       {cropTarget && (
         <BaseImageCropModal
           bookletImages={bookletImages}
@@ -435,87 +442,252 @@ function BaseImageCropModal({ bookletImages, existing, onCancel, onDone }: CropM
   )
 }
 
-// ── 格編輯視窗：點預覽格子 → 對該格加文字方塊／管理底圖 ────────────────────
-function CellEditModal({ qid, isBig, texts, hasBaseImage, onTextsChange, onEditBaseImage, onClearBaseImage, onClose }: {
+// ── 格編輯視窗（Canva 式）：格子即畫布——文字方塊就地打字拖曳、底圖 8 點縮放拖移 ──
+type BaseImageEntry = GenBaseImage & { bookletPage?: number; rect?: { x: number; y: number; w: number; h: number } }
+
+function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, onTextsChange, onBaseImageChange, onOpenCrop, onClose }: {
   qid: string
-  isBig: boolean
+  cellWMm: number
+  cellHMm: number
   texts: GenCellText[]
-  hasBaseImage: boolean
+  baseImage: BaseImageEntry | null
+  hasBooklet: boolean
   onTextsChange: (texts: GenCellText[]) => void
-  onEditBaseImage: () => void
-  onClearBaseImage: () => void
+  onBaseImageChange: (entry: BaseImageEntry | null) => void
+  onOpenCrop: () => void
   onClose: () => void
 }) {
-  const POS_LABELS: Array<[NonNullable<GenCellText['pos']>, string]> = [
-    ['tl', '左上'], ['tc', '中上'], ['tr', '右上'],
-    ['ml', '左中'], ['mc', '正中'], ['mr', '右中'],
-    ['bl', '左下'], ['bc', '中下'], ['br', '右下']
-  ]
-  const update = (i: number, patch: Partial<GenCellText>) => {
-    onTextsChange(texts.map((t, k) => (k === i ? { ...t, ...patch } : t)))
+  // px/mm 縮放：畫布最大 680×420
+  const k = Math.min(680 / cellWMm, 420 / cellHMm, 10)
+  const [selected, setSelected] = useState<number | null>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{ kind: 'text' | 'img-move' | 'img-resize'; idx?: number; handle?: string; sx: number; sy: number; ox: number; oy: number; ow?: number; oh?: number } | null>(null)
+  const uploadRef = useRef<HTMLInputElement>(null)
+
+  const sizeMm = (t: GenCellText) => (t.size === 's' ? 2.6 : t.size === 'l' ? 4.2 : 3.2)
+
+  // 舊 preset 文字轉自由座標（開啟時一次）；底圖無 place 時補 fit place（與引擎舊 fit 對齊）
+  useEffect(() => {
+    let changed = false
+    const converted = texts.map((t) => {
+      if (t.xMm != null && t.yMm != null) return t
+      changed = true
+      const size = sizeMm(t)
+      const pos = t.pos ?? 'tl'
+      const pad = 1.5
+      const xMm = pos.endsWith('l') ? pad : pos.endsWith('c') ? cellWMm / 2 - 8 : cellWMm - pad - 16
+      const yMm = pos.startsWith('t') ? pad : pos.startsWith('m') ? cellHMm / 2 - size / 2 : cellHMm - pad - size
+      return { ...t, xMm: +xMm.toFixed(1), yMm: +Math.max(0, yMm).toFixed(1) }
+    })
+    if (changed) onTextsChange(converted)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    if (baseImage && !baseImage.place) {
+      const availW = cellWMm - 2
+      const availH = cellHMm - 2
+      const sc = Math.min(availW / baseImage.wMm, availH / baseImage.hMm, 1e9)
+      const wMm = +(baseImage.wMm * sc).toFixed(1)
+      const hMm = +(baseImage.hMm * sc).toFixed(1)
+      onBaseImageChange({ ...baseImage, place: { xMm: +((cellWMm - wMm) / 2).toFixed(1), yMm: +((cellHMm - hMm) / 2).toFixed(1), wMm, hMm } })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseImage?.dataUri])
+
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current
+    if (!d) return
+    const dxMm = (e.clientX - d.sx) / k
+    const dyMm = (e.clientY - d.sy) / k
+    if (d.kind === 'text' && d.idx != null) {
+      onTextsChange(texts.map((t, i) => (i === d.idx ? { ...t, xMm: +clamp(d.ox + dxMm, 0, cellWMm - 4).toFixed(1), yMm: +clamp(d.oy + dyMm, 0, cellHMm - 3).toFixed(1) } : t)))
+    } else if (baseImage?.place) {
+      const p = baseImage.place
+      if (d.kind === 'img-move') {
+        onBaseImageChange({ ...baseImage, place: { ...p, xMm: +clamp(d.ox + dxMm, -p.wMm + 4, cellWMm - 4).toFixed(1), yMm: +clamp(d.oy + dyMm, -p.hMm + 4, cellHMm - 4).toFixed(1) } })
+      } else if (d.kind === 'img-resize' && d.handle && d.ow != null && d.oh != null) {
+        let { xMm, yMm } = { xMm: d.ox, yMm: d.oy }
+        let wMm = d.ow
+        let hMm = d.oh
+        if (d.handle.includes('e')) wMm = d.ow + dxMm
+        if (d.handle.includes('s')) hMm = d.oh + dyMm
+        if (d.handle.includes('w')) { wMm = d.ow - dxMm; xMm = d.ox + dxMm }
+        if (d.handle.includes('n')) { hMm = d.oh - dyMm; yMm = d.oy + dyMm }
+        if (wMm < 4) { if (d.handle.includes('w')) xMm -= 4 - wMm; wMm = 4 }
+        if (hMm < 4) { if (d.handle.includes('n')) yMm -= 4 - hMm; hMm = 4 }
+        onBaseImageChange({ ...baseImage, place: { xMm: +xMm.toFixed(1), yMm: +yMm.toFixed(1), wMm: +wMm.toFixed(1), hMm: +hMm.toFixed(1) } })
+      }
+    }
   }
+  const endDrag = () => { dragRef.current = null }
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const dataUri = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader()
+      fr.onload = () => resolve(String(fr.result))
+      fr.onerror = () => reject(new Error('讀檔失敗'))
+      fr.readAsDataURL(file)
+    })
+    const img = new Image()
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('圖片載入失敗'))
+      img.src = dataUri
+    })
+    const wMm = cellWMm * 0.5
+    const hMm = wMm * (img.naturalHeight / Math.max(1, img.naturalWidth))
+    onBaseImageChange({
+      dataUri,
+      wMm: +wMm.toFixed(1),
+      hMm: +hMm.toFixed(1),
+      place: { xMm: +((cellWMm - wMm) / 2).toFixed(1), yMm: +Math.max(0, (cellHMm - hMm) / 2).toFixed(1), wMm: +wMm.toFixed(1), hMm: +hMm.toFixed(1) }
+    })
+  }
+
+  const HANDLES: Array<[string, string]> = [
+    ['nw', 'left-0 top-0 -translate-x-1/2 -translate-y-1/2 cursor-nwse-resize'],
+    ['n', 'left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 cursor-ns-resize'],
+    ['ne', 'right-0 top-0 translate-x-1/2 -translate-y-1/2 cursor-nesw-resize'],
+    ['e', 'right-0 top-1/2 translate-x-1/2 -translate-y-1/2 cursor-ew-resize'],
+    ['se', 'right-0 bottom-0 translate-x-1/2 translate-y-1/2 cursor-nwse-resize'],
+    ['s', 'left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-ns-resize'],
+    ['sw', 'left-0 bottom-0 -translate-x-1/2 translate-y-1/2 cursor-nesw-resize'],
+    ['w', 'left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize']
+  ]
+
   return (
     <div className="fixed inset-0 z-[130] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl max-w-md w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-4 py-3 border-b">
+      <div className="bg-white rounded-xl w-fit max-w-[95vw] max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b">
           <div className="font-bold text-sm">編輯格子 <span className="font-mono text-xs text-gray-500">{qid}</span></div>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
-        <div className="p-4 space-y-4 overflow-y-auto">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-gray-600">文字方塊</span>
-              <button
-                type="button"
-                onClick={() => onTextsChange([...texts, { text: '', size: 'm', pos: 'tl' }])}
-                className="text-xs px-2 py-1 rounded border text-blue-600 border-blue-300 hover:bg-blue-50"
-              >
-                ＋ 新增文字
+        <div className="flex gap-3 p-4 overflow-auto">
+          {/* 左：工具列 */}
+          <div className="w-36 shrink-0 space-y-2">
+            <button
+              type="button"
+              onClick={() => {
+                onTextsChange([...texts, { text: '', size: 'm', xMm: 2, yMm: 2 + texts.length * 5 }])
+                setSelected(texts.length)
+              }}
+              className="w-full text-xs px-2 py-1.5 rounded border text-blue-600 border-blue-300 hover:bg-blue-50 text-left"
+            >
+              ＋ 文字方塊
+            </button>
+            {hasBooklet && (
+              <button type="button" onClick={onOpenCrop} className="w-full text-xs px-2 py-1.5 rounded border text-blue-600 border-blue-300 hover:bg-blue-50 text-left">
+                ＋ 底圖（題本框選）
               </button>
-            </div>
-            {texts.length === 0 && <p className="text-xs text-gray-400">尚無文字。可加入提示（如「請寫出計算過程」）。</p>}
-            <div className="space-y-2">
-              {texts.map((t, i) => (
-                <div key={i} className="border rounded-lg p-2 space-y-1.5">
-                  <input
-                    value={t.text}
-                    onChange={(e) => update(i, { text: e.target.value })}
-                    placeholder="文字內容"
-                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+            )}
+            <button type="button" onClick={() => uploadRef.current?.click()} className="w-full text-xs px-2 py-1.5 rounded border text-blue-600 border-blue-300 hover:bg-blue-50 text-left">
+              ＋ 底圖（上傳 jpg/png）
+            </button>
+            <input ref={uploadRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => void handleUpload(e)} />
+            {baseImage && (
+              <button type="button" onClick={() => onBaseImageChange(null)} className="w-full text-xs px-2 py-1.5 rounded border text-red-500 border-red-200 hover:bg-red-50 text-left">
+                清除底圖
+              </button>
+            )}
+            <p className="text-[11px] text-gray-400 leading-relaxed pt-1">
+              文字：框內打字、拖框移動。<br />底圖：拖曳移動、拉 8 點縮放。<br />改動即時反映在整份預覽。
+            </p>
+          </div>
+
+          {/* 右：格子畫布（1:1 比例） */}
+          <div
+            ref={canvasRef}
+            className="relative bg-white border-2 border-gray-400 select-none"
+            style={{ width: cellWMm * k, height: cellHMm * k }}
+            onPointerMove={onPointerMove}
+            onPointerUp={endDrag}
+            onPointerLeave={endDrag}
+            onPointerDown={(e) => { if (e.target === canvasRef.current) setSelected(null) }}
+          >
+            {baseImage?.place && (
+              <div
+                className="absolute"
+                style={{ left: baseImage.place.xMm * k, top: baseImage.place.yMm * k, width: baseImage.place.wMm * k, height: baseImage.place.hMm * k }}
+              >
+                <img
+                  src={baseImage.dataUri}
+                  alt="底圖"
+                  draggable={false}
+                  className="w-full h-full cursor-move"
+                  style={{ objectFit: 'fill' }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation()
+                    setSelected(null)
+                    dragRef.current = { kind: 'img-move', sx: e.clientX, sy: e.clientY, ox: baseImage.place!.xMm, oy: baseImage.place!.yMm }
+                  }}
+                />
+                <div className="absolute inset-0 border border-blue-400 pointer-events-none" />
+                {HANDLES.map(([h, cls]) => (
+                  <div
+                    key={h}
+                    className={`absolute w-2.5 h-2.5 bg-white border border-blue-500 rounded-sm ${cls}`}
+                    onPointerDown={(e) => {
+                      e.stopPropagation()
+                      dragRef.current = { kind: 'img-resize', handle: h, sx: e.clientX, sy: e.clientY, ox: baseImage.place!.xMm, oy: baseImage.place!.yMm, ow: baseImage.place!.wMm, oh: baseImage.place!.hMm }
+                    }}
                   />
-                  <div className="flex items-center gap-2">
-                    <select value={t.size ?? 'm'} onChange={(e) => update(i, { size: e.target.value as GenCellText['size'] })} className="border rounded px-1.5 py-0.5 text-xs">
+                ))}
+              </div>
+            )}
+
+            {texts.map((t, i) => (
+              <div
+                key={i}
+                className={`absolute rounded-sm border ${selected === i ? 'border-blue-500' : 'border-dashed border-gray-300'} bg-white/60 cursor-move`}
+                style={{ left: (t.xMm ?? 0) * k, top: (t.yMm ?? 0) * k, padding: 2 }}
+                onPointerDown={(e) => {
+                  setSelected(i)
+                  if ((e.target as HTMLElement).tagName === 'INPUT') return
+                  e.stopPropagation()
+                  dragRef.current = { kind: 'text', idx: i, sx: e.clientX, sy: e.clientY, ox: t.xMm ?? 0, oy: t.yMm ?? 0 }
+                }}
+              >
+                <input
+                  value={t.text}
+                  placeholder="輸入文字"
+                  onChange={(e) => onTextsChange(texts.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))}
+                  onFocus={() => setSelected(i)}
+                  className="bg-transparent outline-none"
+                  style={{ fontSize: sizeMm(t) * k * 0.92, width: Math.max(6, t.text.length + 2) + 'ch', color: '#444' }}
+                />
+                {selected === i && (
+                  <div className="absolute -top-7 left-0 flex items-center gap-1 bg-white border rounded shadow px-1 py-0.5">
+                    <select
+                      value={t.size ?? 'm'}
+                      onChange={(e) => onTextsChange(texts.map((x, j) => (j === i ? { ...x, size: e.target.value as GenCellText['size'] } : x)))}
+                      className="text-xs border rounded px-0.5"
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
                       <option value="s">小</option>
                       <option value="m">中</option>
                       <option value="l">大</option>
                     </select>
-                    <select value={t.pos ?? 'tl'} onChange={(e) => update(i, { pos: e.target.value as GenCellText['pos'] })} className="border rounded px-1.5 py-0.5 text-xs">
-                      {POS_LABELS.map(([v, label]) => (
-                        <option key={v} value={v}>{label}</option>
-                      ))}
-                    </select>
-                    <button type="button" onClick={() => onTextsChange(texts.filter((_, k) => k !== i))} className="ml-auto text-xs text-red-500">刪除</button>
+                    <button
+                      type="button"
+                      className="text-xs text-red-500 px-1"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => { onTextsChange(texts.filter((_, j) => j !== i)); setSelected(null) }}
+                    >
+                      刪除
+                    </button>
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-          {isBig && (
-            <div>
-              <div className="text-xs font-bold text-gray-600 mb-2">底圖</div>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={onEditBaseImage} className="text-xs px-2 py-1 rounded border text-blue-600 border-blue-300 hover:bg-blue-50">
-                  {hasBaseImage ? '重新框選底圖' : '框選底圖'}
-                </button>
-                {hasBaseImage && (
-                  <button type="button" onClick={onClearBaseImage} className="text-xs px-2 py-1 rounded border text-red-500 border-red-200 hover:bg-red-50">清除底圖</button>
                 )}
               </div>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
-        <div className="px-4 py-3 border-t flex justify-end">
-          <button type="button" onClick={onClose} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm">完成</button>
+        <div className="px-4 py-2.5 border-t flex justify-end">
+          <button type="button" onClick={onClose} className="px-4 py-1.5 rounded bg-blue-600 text-white text-sm">完成</button>
         </div>
       </div>
     </div>
