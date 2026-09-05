@@ -5639,7 +5639,7 @@ export async function extractAnswerKeyFromImages(
  *   培英那張卷之所以每次都成功，是因為它只有 1 題應用題（負擔輕）。
  * → 改成逐題單獨呼叫（比照 vjRubric 的 A0），每次只處理一題。
  */
-async function detectLevelRubric(
+export async function detectLevelRubric(
   q: AnswerKeyQuestion,
   cropImageDataUrl: string,
   bookletImages: Blob[] = [],

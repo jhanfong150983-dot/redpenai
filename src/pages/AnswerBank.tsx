@@ -9,7 +9,9 @@ import { db, generateId } from '@/lib/db'
 import type { AnswerKey, AnswerKeyTemplate } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
-import { solveAnswerKeyFromBooklet, extractAnswerKeyFromImages } from '@/lib/gemini'
+import { solveAnswerKeyFromBooklet, extractAnswerKeyFromImages, readReferenceAnswerCells, detectVisualRubric, detectLevelRubric } from '@/lib/gemini'
+import { cropReferenceSheetCells } from '@/lib/generatedSheetAlign'
+import type { GeneratedSheetData } from '@/lib/answerSheetGenerator'
 import { runKpUpgradeInline } from '@/lib/parentReport'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
 import { getSchoolBillingContext } from '@/lib/school-billing'
@@ -432,6 +434,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
       docType: 'worksheet' | 'exam'
       answerSheetMode: 'with_questions' | 'answer_only'
       bookletBlobs?: Blob[]
+      /** 生成流程④：定版版面（有此值＝bbox 裁格讀取，不讓 AI 重新 locate） */
+      generatedLayout?: GeneratedSheetData
+      /** 生成流程④：②結構推斷的骨架（題號/題型/配分已定案，讀到的答案填進來） */
+      skeleton?: AnswerKey
     }
   ) => {
     // 2026-06-01: 擷取會花墨水 → 先跳同意框（promise-confirm，不同意則中止、不扣點）
@@ -450,6 +456,63 @@ export default function AnswerBank(_props: AnswerBankProps) {
         })
         return { answerKey, imageBlobs: [], notice: '已依題本分析出考卷結構（題型、題數、配分）。接著製作作答卷、列印後把標準答案手寫在卷上。' }
       }
+      // ── 生成流程④：定版 bbox 裁格讀取（2026-09-05 拍板）──
+      // 題號/題型/配分在②已定案且與③bbox 同源——AI 不再 locate，只逐格讀手寫；
+      // 每格 crop 順便當⑤截圖預覽與 VJ 正解圖；rubric 以老師的圖/字為本（構造上一致）。
+      if (context.generatedLayout && context.skeleton && blobs.length > 0) {
+        const layout = context.generatedLayout
+        const DRAWING = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'])
+        _onProgress('對齊定位方塊、依定版格位裁切…')
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const url = URL.createObjectURL(blobs[0])
+          const im = new Image()
+          im.onload = () => resolve(im)
+          im.onerror = () => reject(new Error('參考答案卷圖片載入失敗'))
+          im.src = url
+        })
+        const crops = cropReferenceSheetCells(img, layout)
+        const cropById = new Map(crops.map((c) => [c.id, c.dataUrl]))
+        const skeletonQs = context.skeleton.questions
+        const textCells = skeletonQs
+          .filter((q) => cropById.has(q.id) && !DRAWING.has(String(q.questionCategory)))
+          .map((q) => ({ id: q.id, dataUrl: cropById.get(q.id)!, hint: String(q.questionCategory) === 'word_problem' ? '手寫算式與答案（多行照抄）' : '手寫國字/注音/數值/數學式/選項代號' }))
+        _onProgress(`AI 逐格讀取手寫答案（${textCells.length} 格）…`)
+        const reads = await readReferenceAnswerCells(textCells)
+        _onProgress('產生評分規準（作圖/應用題）…')
+        const questions = [] as typeof skeletonQs
+        for (const q of skeletonQs) {
+          const crop = cropById.get(q.id)
+          const next = { ...q } as typeof q & { cropImageUrl?: string; vjRubric?: unknown }
+          if (crop) next.cropImageUrl = crop
+          const cat = String(q.questionCategory)
+          if (crop && DRAWING.has(cat)) {
+            try {
+              const vr = await detectVisualRubric(crop, cat, String(q.referenceAnswer ?? ''), context.bookletBlobs ?? [])
+              if (vr) next.vjRubric = { ...vr }
+            } catch { /* rubric 失敗不擋答案，老師可後補 */ }
+          } else if (crop) {
+            const read = reads.get(q.id)
+            if (read != null && read !== '') {
+              if (cat === 'word_problem') {
+                next.referenceAnswer = read
+                next.answer = read
+              } else {
+                next.answer = read
+              }
+            }
+            if (cat === 'word_problem') {
+              try {
+                const lr = await detectLevelRubric(next, crop, context.bookletBlobs ?? [])
+                if (lr) next.levelRubric = lr
+              } catch { /* 同上 */ }
+            }
+          }
+          questions.push(next)
+        }
+        const answerKey: AnswerKey = { ...context.skeleton, questions, totalScore: questions.reduce((t, q) => t + (q.maxScore ?? 0), 0) }
+        return { answerKey, imageBlobs: blobs, notice: '已依定版格位逐格讀取手寫答案；請逐題核對（每題附裁切截圖），作圖/應用題的評分規準已由您的正解自動產生。' }
+      }
+
       const answerKey = await extractAnswerKeyFromImages(blobs, {
         domain: context.domain || undefined,
         docType: context.docType,

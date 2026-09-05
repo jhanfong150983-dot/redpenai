@@ -842,6 +842,22 @@ export default function AnswerKeyUnifiedModal({
         docType,
         answerSheetMode,
         bookletBlobs: bookletBlobsForExtract,
+        // 生成流程：帶定版版面＋骨架 → AnswerBank 走 bbox 裁格讀取（AI 不重新 locate、題號不變）
+        ...(GENERATED_SHEET_STEP_ENABLED && makerResult && editingKey
+          ? {
+              generatedLayout: {
+                version: ANSWER_SHEET_GEN_VERSION,
+                pageSize: makerState.pageSize,
+                pageMm: makerResult.layoutMeta.pageMm,
+                anchorsMm: makerResult.layoutMeta.anchorsMm,
+                uvBasis: makerResult.layoutMeta.uvBasis,
+                header: makerResult.layoutMeta.header,
+                boxes: makerResult.boxes,
+                sectionOverrides: makerState.sectionOverrides,
+              },
+              skeleton: editingKey,
+            }
+          : {}),
       })
       setEditingKey(answerKey)
       setExtractedImageBlobs(blobs)
@@ -1363,6 +1379,9 @@ export default function AnswerKeyUnifiedModal({
       const goingBackFromEdit = completedSteps.has('extract') && editingKey
       if (goingBackFromEdit) {
         return { label: '下一步：題目編輯', disabled: false, icon: <ChevronRight className="w-4 h-4" /> }
+      }
+      if (GENERATED_SHEET_STEP_ENABLED && !makerResult) {
+        return { label: '請先回「製作答案卷」載入版面', disabled: true }
       }
       // 2026-08-14（user 拍板）：純答案卷沒有題本一律不准解析。
       //   答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上；
