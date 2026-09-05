@@ -17,6 +17,7 @@ import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
 import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
 import { ANSWER_SHEET_GEN_VERSION, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData } from '@/lib/answerSheetGenerator'
+import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
@@ -128,7 +129,7 @@ function clearMetadataDraft() {
   } catch { /* noop */ }
 }
 
-type UnifiedStep = 'metadata' | 'extract' | 'editing' | 'sheet'
+type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet'
 
 // 2026-09-04 生成作答卷單一流程（A 案）：step④ 作答卷製作。
 // 預覽旗標：預設關閉（production 不受影響）；測試者在瀏覽器 console 執行
@@ -138,21 +139,22 @@ const GENERATED_SHEET_STEP_ENABLED = (() => {
   try { return localStorage.getItem('redpen-gen-sheet-preview') === '1' } catch { return false }
 })()
 
-const STEP_CONFIG: { key: UnifiedStep; label: string; shortLabel: string }[] = [
-  { key: 'metadata', label: '基本資料', shortLabel: '①' },
-  { key: 'extract', label: 'AI 解析', shortLabel: '②' },
-  { key: 'editing', label: GENERATED_SHEET_STEP_ENABLED ? '人工確認' : '題目編輯', shortLabel: '③' },
-  ...(GENERATED_SHEET_STEP_ENABLED ? [{ key: 'sheet' as UnifiedStep, label: '作答卷製作', shortLabel: '④' }] : []),
-]
-
-// 題型下拉的分組（老師視角的作答形式；成員名單來自 lib/db QuestionCategory）
-const CATEGORY_GROUPS: Array<{ label: string; items: string[] }> = [
-  { label: '選擇與勾選', items: ['single_choice', 'multi_choice', 'circle_select_one', 'circle_select_many', 'single_check', 'multi_check', 'table_check', 'true_false'] },
-  { label: '填寫', items: ['fill_blank', 'multi_fill', 'fill_variants', 'table_cell', 'ordering', 'matching', 'mark_in_text', 'map_fill'] },
-  { label: '問答與計算', items: ['short_answer', 'calculation', 'word_problem'] },
-  { label: '繪圖與標記', items: ['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'] },
-  { label: '複合題', items: ['compound_circle_with_explain', 'compound_check_with_explain', 'compound_writein_with_explain', 'multi_check_other', 'compound_judge_with_correction', 'compound_judge_with_explain', 'compound_chain_table'] },
-]
+// 2026-09-05 五步重拼裝（user 拍板）：③製作答案卷提前到 AI 解析之前——
+// 老師把標準答案「手寫在下載的作答卷上」，④就是原版 extract（答案卷=手寫作答卷＋題本），
+// ⑤就是原版題目編輯（crop 預覽、題型唯讀）。所有模組都是舊的，只是重新拼裝。
+const STEP_CONFIG: { key: UnifiedStep; label: string; shortLabel: string }[] = GENERATED_SHEET_STEP_ENABLED
+  ? [
+      { key: 'metadata', label: '基本資料', shortLabel: '①' },
+      { key: 'booklet', label: '上傳題本', shortLabel: '②' },
+      { key: 'sheet', label: '製作答案卷', shortLabel: '③' },
+      { key: 'extract', label: 'AI 解析', shortLabel: '④' },
+      { key: 'editing', label: '人工檢核', shortLabel: '⑤' },
+    ]
+  : [
+      { key: 'metadata', label: '基本資料', shortLabel: '①' },
+      { key: 'extract', label: 'AI 解析', shortLabel: '②' },
+      { key: 'editing', label: '題目編輯', shortLabel: '③' },
+    ]
 
 interface NormalizedBbox { x: number; y: number; w: number; h: number }
 
@@ -229,13 +231,15 @@ export default function AnswerKeyUnifiedModal({
 
   // ── step state machine ────────────────────────────────────────────────────
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
-  // 人工確認：題本檢視器目前頁（生成流程；點題自動跳到該大題起始頁）
-  const [bookletViewPage, setBookletViewPage] = useState(0)
   // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
   const [makerState, setMakerState] = useState<SheetMakerState>(EMPTY_SHEET_MAKER_STATE)
   const [makerResult, setMakerResult] = useState<GenResult | null>(null)
   const [completedSteps, setCompletedSteps] = useState<Set<UnifiedStep>>(
-    () => editMode ? new Set<UnifiedStep>(['metadata', 'extract', 'editing']) : new Set()
+    () => editMode
+      ? new Set<UnifiedStep>(GENERATED_SHEET_STEP_ENABLED
+          ? ['metadata', 'booklet', 'sheet', 'extract', 'editing']
+          : ['metadata', 'extract', 'editing'])
+      : new Set()
   )
 
   const isStepUnlocked = useCallback((step: UnifiedStep): boolean => {
@@ -271,9 +275,7 @@ export default function AnswerKeyUnifiedModal({
   }, [])
 
   const allComplete = useMemo(() =>
-    // 「前置步驟完成」：step④（作答卷製作）不算——否則會變成「要先完成④才能進④」的死鎖；
-    // ④ 自己的完成條件是排版 ok（makerResult），在主按鈕 dispatcher 另行把關。
-    STEP_CONFIG.filter(s => s.key !== 'sheet').every(s => completedSteps.has(s.key)),
+    STEP_CONFIG.every(s => completedSteps.has(s.key)),
     [completedSteps]
   )
 
@@ -726,6 +728,60 @@ export default function AnswerKeyUnifiedModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editMode, initialBookletImages])
 
+  // step③：下載作答卷草稿 PDF（尚未存檔——直接由目前排版結果渲染）
+  const handleDownloadDraftSheet = async () => {
+    if (!makerResult) return
+    try {
+      const png = await renderSheetPng(makerResult.svg, makerResult.layoutMeta.pageMm)
+      const pdf = await buildSheetPdf(png, makerResult.layoutMeta.pageMm)
+      const url = URL.createObjectURL(pdf)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `作答卷_${title.trim() || '未命名'}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.warn('[UnifiedModal] 作答卷下載失敗:', err)
+    }
+  }
+
+  // step②→③：結構推斷（不解題）——題本 → 題型/題數/配分骨架，供排版引擎製作作答卷。
+  // 順便後端估價：骨架存檔時會帶 estimatedPointsPerSheet（見 doSave）。
+  const handleStartStructure = async () => {
+    if (isExtracting) return
+    setIsExtracting(true)
+    setExtractError(null)
+    setExtractionMsg('分析考卷結構（題型、題數、配分）…')
+    try {
+      let bookletBlobs: Blob[] = []
+      try {
+        const { rotateImageBlob } = await import('../lib/imageCompression')
+        bookletBlobs = await Promise.all(bookletPageItems.map(async (item) => {
+          const orig = bookletPages.find((p) => p.index === item.originalIndex)!
+          return item.rotation !== 0 ? await rotateImageBlob(orig.blob, item.rotation) : orig.blob
+        }))
+      } catch {
+        bookletBlobs = bookletPageItems.map((item) => bookletPages.find((p) => p.index === item.originalIndex)!.blob)
+      }
+      const effDomain = domain === '國語（測試中）' ? '國語' : domain
+      const { answerKey, notice: n } = await onExtract([], setExtractionMsg, {
+        domain: effDomain,
+        docType,
+        answerSheetMode: 'answer_only',
+        bookletBlobs,
+      })
+      setEditingKey(answerKey)
+      setNotice(n)
+      setSelectedIdx(0)
+      markComplete('booklet')
+      setActiveStep('sheet')
+    } catch (err) {
+      setExtractError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setIsExtracting(false)
+    }
+  }
+
   const handleStartExtract = async () => {
     setIsExtracting(true)
     setExtractError(null)
@@ -809,12 +865,6 @@ export default function AnswerKeyUnifiedModal({
   // ─�� Step 4: editing state ──────────��──────────────────────────────────────
   const [editingKey, setEditingKey] = useState<AnswerKey | null>(initialAnswerKey)
   const [selectedIdx, setSelectedIdx] = useState(0)
-  useEffect(() => {
-    if (!GENERATED_SHEET_STEP_ENABLED) return
-    const q = editingKey?.questions?.[selectedIdx] as { bookletPageIndex?: number } | undefined
-    if (q?.bookletPageIndex != null) setBookletViewPage(q.bookletPageIndex)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIdx])
 
   // bbox drawing state
   const [isDrawingBbox, setIsDrawingBbox] = useState(false)
@@ -1186,6 +1236,9 @@ export default function AnswerKeyUnifiedModal({
               header: makerResult.layoutMeta.header,
               boxes: makerResult.boxes,
               sectionOverrides: makerState.sectionOverrides,
+              // 2026-09-05（2b）：建卷當下估「批改一份要多少點」（菜單制公式、classSize 取 30 名目值）。
+              // 不顯示給老師，後端由 generated_sheet 讀取即可。
+              estimatedPointsPerSheet: computePointsPerSheet(updatedKey, 30, domainValue),
             }
           : undefined
 
@@ -1222,6 +1275,13 @@ export default function AnswerKeyUnifiedModal({
     if (activeStep === 'metadata') {
       return { label: '下一步', disabled: !editMode && !metadataValid, icon: <ChevronRight className="w-4 h-4" /> }
     }
+    if (activeStep === 'booklet') {
+      if (isExtracting) return { label: '結構分析中…', disabled: true, loading: true }
+      return { label: '下一步：製作答案卷', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
+    }
+    if (activeStep === 'sheet') {
+      return { label: '下一步：AI 解析', disabled: !makerResult || !editingKey, icon: <ChevronRight className="w-4 h-4" /> }
+    }
     if (activeStep === 'extract') {
       if (editMode) {
         return { label: '下一步：題目編輯', disabled: false, icon: <ChevronRight className="w-4 h-4" /> }
@@ -1251,17 +1311,6 @@ export default function AnswerKeyUnifiedModal({
         icon: <Check className="w-4 h-4" />,
       }
     }
-    if (activeStep === 'editing' && GENERATED_SHEET_STEP_ENABLED) {
-      return { label: '下一步：作答卷製作', disabled: !allComplete || !editingKey, icon: <ChevronRight className="w-4 h-4" /> }
-    }
-    if (activeStep === 'sheet') {
-      return {
-        label: isSaving ? '儲存中…' : '儲存答案卷',
-        disabled: !makerResult || isSaving || !editingKey,
-        loading: isSaving,
-        icon: <Check className="w-4 h-4" />,
-      }
-    }
     // editing
     return {
       label: isSaving ? '儲存中…' : '儲存答案卷',
@@ -1273,6 +1322,17 @@ export default function AnswerKeyUnifiedModal({
 
   const handlePrimaryAction = () => {
     if (activeStep === 'metadata') {
+      setActiveStep(GENERATED_SHEET_STEP_ENABLED ? 'booklet' : 'extract')
+      return
+    }
+    if (activeStep === 'booklet') {
+      if (isExtracting) return
+      if (completedSteps.has('booklet') && editingKey) { setActiveStep('sheet'); return }
+      void handleStartStructure()
+      return
+    }
+    if (activeStep === 'sheet') {
+      markComplete('sheet')
       setActiveStep('extract')
       return
     }
@@ -1284,46 +1344,14 @@ export default function AnswerKeyUnifiedModal({
       void handleStartExtract()
       return
     }
-    if (activeStep === 'editing' && GENERATED_SHEET_STEP_ENABLED) {
-      setActiveStep('sheet')
-      return
-    }
-    if (activeStep === 'sheet') {
-      void handleSheetSaveClick()
-      return
-    }
-    handleSaveClick()
-  }
-
-  // step④ 定版確認（user 拍板：存檔時給摘要＋警告不可更正，取代「未使用可重新製作」的複雜設計）
-  const handleSheetSaveClick = async () => {
-    if (!makerResult || !editingKey) return
-    const baseCount = Object.keys(makerState.baseImages).length
-    const lines = [
-      '作答卷即將定版：',
-      '',
-      `・紙張：${makerState.pageSize}（單面一頁）`,
-      `・題數：${editingKey.questions.length} 題、總分 ${editingKey.questions.reduce((t, q) => t + (q.maxScore ?? 0), 0)} 分`,
-      `・作答格：${makerResult.boxes.length} 格`,
-      ...(baseCount > 0 ? [`・作圖底圖：${baseCount} 題已設定`] : []),
-      '',
-      '⚠ 儲存後版面即定版（作答格位置是批改辨識的依據），**無法再修改**。',
-      '要換紙張、調格子或改底圖，只能重新建立一份答案卷。',
-    ]
-    const ok = await confirmModal({
-      tone: 'danger',
-      title: '確定定版並儲存？',
-      message: lines.join('\n'),
-      confirmLabel: '我了解，定版儲存',
-    })
-    if (!ok) return
     handleSaveClick()
   }
 
   const handleBack = () => {
-    if (activeStep === 'extract') { setActiveStep('metadata'); return }
+    if (activeStep === 'booklet') { setActiveStep('metadata'); return }
+    if (activeStep === 'sheet') { setActiveStep('booklet'); return }
+    if (activeStep === 'extract') { setActiveStep(GENERATED_SHEET_STEP_ENABLED ? 'sheet' : 'metadata'); return }
     if (activeStep === 'editing') { setActiveStep('extract'); return }
-    if (activeStep === 'sheet') { setActiveStep('editing'); return }
   }
 
   // ── render ────────────────────────────────────────────────────────────────
@@ -1547,9 +1575,9 @@ export default function AnswerKeyUnifiedModal({
               )}
 
               {/* ══ Step 2: AI 解析（合併原 上傳答案 + AI 解析） ══ */}
-              {activeStep === 'extract' && !isExtracting && (
+              {(activeStep === 'extract' || activeStep === 'booklet') && !isExtracting && (
                 <div className="p-4 flex flex-col h-full">
-                  {editMode ? (
+                  {editMode && activeStep === 'extract' ? (
                     /* ── Edit mode: read-only answer sheet + late booklet upload ── */
                     <>
                       <div className="mb-4 shrink-0 flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
@@ -1611,13 +1639,13 @@ export default function AnswerKeyUnifiedModal({
                   ) : (
                     /* ── Create mode: full upload + reorder ── */
                     <div className="flex flex-col gap-6">
-                      {/* ── 答案卷區塊（生成流程不需要：AI 直接從題目卷解題） ── */}
-                      <section className={`rounded-xl border border-rose-200 bg-rose-50/30 p-4 ${GENERATED_SHEET_STEP_ENABLED ? 'hidden' : ''}`}>
+                      {/* ── 答案卷區塊（生成流程＝上傳「手寫在作答卷上的參考答案」；②上傳題本步驟隱藏） ── */}
+                      <section className={`rounded-xl border border-rose-200 bg-rose-50/30 p-4 ${activeStep === 'booklet' ? 'hidden' : ''}`}>
                         <div className="flex items-baseline justify-between mb-3">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-semibold text-rose-900">📑 答案卷</h3>
+                            <h3 className="text-sm font-semibold text-rose-900">{GENERATED_SHEET_STEP_ENABLED ? '📑 手寫參考答案卷' : '📑 答案卷'}</h3>
                             <span className="text-[11px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-medium">必傳</span>
-                            <span className="text-xs text-gray-500">— 你自己寫好標準答案的版本</span>
+                            <span className="text-xs text-gray-500">{GENERATED_SHEET_STEP_ENABLED ? '— 標準答案手寫在上一步下載的作答卷上，拍照或掃描上傳' : '— 你自己寫好標準答案的版本'}</span>
                           </div>
                         </div>
                         <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />
@@ -1682,8 +1710,8 @@ export default function AnswerKeyUnifiedModal({
                         )}
                       </section>
 
-                      {/* ── 題本區塊（僅 answer_only 模式顯示） ── */}
-                      {answerSheetMode === 'answer_only' && (
+                      {/* ── 題本區塊：生成流程＝②上傳題本步驟；舊流程＝answer_only 模式與答案卷同頁 ── */}
+                      {(GENERATED_SHEET_STEP_ENABLED ? activeStep === 'booklet' : answerSheetMode === 'answer_only') && (
                         <section className="rounded-xl border border-blue-200 bg-blue-50/30 p-4">
                           <div className="flex items-baseline justify-between mb-3">
                             <div className="flex items-center gap-2">
@@ -1948,8 +1976,8 @@ export default function AnswerKeyUnifiedModal({
                   >
                     {selectedQuestion ? (
                       <>
-                        {/* Image preview（生成流程：不顯示小縮圖，題本在右側大圖欄） */}
-                        {GENERATED_SHEET_STEP_ENABLED ? null : (
+                        {/* Image preview（⑤人工檢核＝原版 crop 預覽；2026-09-05 拍板喚回） */}
+                        {(
                         <div className="shrink-0 border-b border-gray-100 p-3 bg-gray-50">
                           {(manualCropUrl || selectedQuestion.cropImageUrl || selectedQuestion.cropImagePath) && !isDrawingBbox ? (
                             <div className="rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center h-36">
@@ -2010,32 +2038,10 @@ export default function AnswerKeyUnifiedModal({
                               <span className="w-20 px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-600 select-all">{selectedQuestion.id ?? ''}</span>
                             </div>
                             <div className="flex-1 flex flex-col gap-1">
-                              <span className="text-gray-500">題型 <span className="text-[10px] text-gray-400">{GENERATED_SHEET_STEP_ENABLED ? '(AI 起草，可修改)' : '(由 AI 自動分類)'}</span></span>
-                              {GENERATED_SHEET_STEP_ENABLED ? (
-                                <select
-                                  className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-700"
-                                  value={selectedCategory}
-                                  onChange={(e) => updateField(selectedIdx, 'questionCategory', e.target.value)}
-                                >
-                                  {CATEGORY_GROUPS.map((g) => (
-                                    <optgroup key={g.label} label={g.label}>
-                                      {g.items.filter((v) => v in CATEGORY_LABELS).map((value) => (
-                                        <option key={value} value={value}>
-                                          {CATEGORY_LABELS[value as keyof typeof CATEGORY_LABELS]}
-                                          {(selectedQuestion as { aiQuestionCategory?: string }).aiQuestionCategory === value ? '（AI 判定）' : ''}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  ))}
-                                  {!CATEGORY_GROUPS.some((g) => g.items.includes(selectedCategory)) && (
-                                    <option value={selectedCategory}>{CATEGORY_LABELS[selectedCategory as keyof typeof CATEGORY_LABELS] ?? selectedCategory}</option>
-                                  )}
-                                </select>
-                              ) : (
-                                <span className="w-full px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-700">
-                                  {CATEGORY_LABELS[selectedCategory] ?? selectedCategory}
-                                </span>
-                              )}
+                              <span className="text-gray-500">題型 <span className="text-[10px] text-gray-400">(由 AI 自動分類)</span></span>
+                              <span className="w-full px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-700">
+                                {CATEGORY_LABELS[selectedCategory] ?? selectedCategory}
+                              </span>
                             </div>
                             {scoringMode !== 'unscored' && (
                               <div className="flex flex-col gap-1">
@@ -2348,14 +2354,6 @@ export default function AnswerKeyUnifiedModal({
                     )}
                   </fieldset>
 
-                  {/* 題本大圖欄（生成流程）：全高可讀、點題自動翻頁、可縮放 */}
-                  {GENERATED_SHEET_STEP_ENABLED && bookletPageItems.length > 0 && (
-                    <BookletColumn
-                      pages={bookletPageItems.map((item) => bookletPages.find((pg) => pg.index === item.originalIndex)?.url ?? '').filter(Boolean)}
-                      page={bookletViewPage}
-                      onPageChange={setBookletViewPage}
-                    />
-                  )}
                   </div>
                 </div>
               )}
@@ -2363,6 +2361,17 @@ export default function AnswerKeyUnifiedModal({
               {/* Step 4 empty state when no editing key */}
               {activeStep === 'sheet' && editingKey && (
                 <div className="flex-1 overflow-y-auto p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-xs text-blue-800">調整版面後<b>下載列印</b>，把標準答案手寫在卷上（作圖題直接畫），下一步上傳讓 AI 讀取。</p>
+                    <button
+                      type="button"
+                      onClick={() => void handleDownloadDraftSheet()}
+                      disabled={!makerResult}
+                      className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 font-medium"
+                    >
+                      下載作答卷 PDF
+                    </button>
+                  </div>
                   <AnswerSheetMakerStep
                     title={title.trim() || '未命名'}
                     questions={editingKey.questions.map((q) => ({
@@ -2433,57 +2442,6 @@ export default function AnswerKeyUnifiedModal({
             </div>
           </div>
         )}
-      </div>
-    </div>
-  )
-}
-
-// ── 題本大圖欄（生成流程的人工確認）：全高可讀、寬度縮放、垂直捲動 ──────────
-function BookletColumn({ pages, page, onPageChange }: { pages: string[]; page: number; onPageChange: (p: number) => void }) {
-  const [zoom, setZoom] = useState(1)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const dragRef = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
-  const [dragging, setDragging] = useState(false)
-  const cur = Math.min(Math.max(0, page), pages.length - 1)
-  if (!pages.length) return null
-  return (
-    <div className="w-[38%] min-w-[360px] border-l border-gray-200 flex flex-col shrink-0 bg-gray-50">
-      <div className="flex items-center justify-center gap-2 px-2 py-1.5 border-b border-gray-200 text-xs text-gray-600 shrink-0">
-        <button type="button" onClick={() => onPageChange(Math.max(0, cur - 1))} disabled={cur === 0} className="px-2 py-0.5 rounded border bg-white disabled:opacity-30">‹ 上一頁</button>
-        <span className="tabular-nums font-medium">題本 {cur + 1} / {pages.length}</span>
-        <button type="button" onClick={() => onPageChange(Math.min(pages.length - 1, cur + 1))} disabled={cur === pages.length - 1} className="px-2 py-0.5 rounded border bg-white disabled:opacity-30">下一頁 ›</button>
-        <span className="mx-1 text-gray-300">｜</span>
-        <button type="button" onClick={() => setZoom((z) => Math.max(1, +(z - 0.25).toFixed(2)))} disabled={zoom <= 1} className="px-2 py-0.5 rounded border bg-white disabled:opacity-30">−</button>
-        <span className="tabular-nums w-10 text-center">{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={() => setZoom((z) => Math.min(3, +(z + 0.25).toFixed(2)))} disabled={zoom >= 3} className="px-2 py-0.5 rounded border bg-white disabled:opacity-30">＋</button>
-      </div>
-      <div
-        ref={scrollRef}
-        className={`flex-1 overflow-auto p-2 ${dragging ? 'cursor-grabbing select-none' : 'cursor-grab'}`}
-        onPointerDown={(e) => {
-          const el = scrollRef.current
-          if (!el) return
-          dragRef.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop }
-          setDragging(true)
-          ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
-        }}
-        onPointerMove={(e) => {
-          const el = scrollRef.current
-          const d = dragRef.current
-          if (!el || !d) return
-          el.scrollLeft = d.left - (e.clientX - d.x)
-          el.scrollTop = d.top - (e.clientY - d.y)
-        }}
-        onPointerUp={() => { dragRef.current = null; setDragging(false) }}
-        onPointerCancel={() => { dragRef.current = null; setDragging(false) }}
-      >
-        <img
-          src={pages[cur]}
-          alt={`題本第 ${cur + 1} 頁`}
-          className="block shadow pointer-events-none"
-          style={{ width: `${zoom * 100}%`, maxWidth: 'none' }}
-          draggable={false}
-        />
       </div>
     </div>
   )

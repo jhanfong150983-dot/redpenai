@@ -123,6 +123,8 @@ export interface GeneratedSheetData {
   header: { x: number; y: number; w: number; h: number }
   boxes: GenBox[]
   sectionOverrides?: Record<string, SectionOverride>
+  /** 建卷當下估算的「批改一份」點數（菜單制公式、classSize=30 名目值；後端統計用，不顯示） */
+  estimatedPointsPerSheet?: number
 }
 
 export interface GenFail {
