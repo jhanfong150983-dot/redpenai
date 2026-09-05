@@ -2424,10 +2424,20 @@ export default function AnswerKeyUnifiedModal({
                           )}
                           {showRubric && (
                             <div className="space-y-2">
-                              <div className="flex items-start gap-2">
-                                <span className="text-gray-500 w-16 shrink-0 mt-1">參考答案</span>
-                                <textarea rows={2} className="flex-1 px-2 py-1 border border-gray-300 rounded" value={selectedQuestion.referenceAnswer ?? ''} onChange={(e) => updateField(selectedIdx, 'referenceAnswer', e.target.value)} />
-                              </div>
+                              {isVJ ? (
+                                // 作圖題：答案是圖，不需文字參考答案（以上方正解圖＋下方評判標準為準）
+                                <div className="flex items-start gap-2">
+                                  <span className="text-gray-500 w-16 shrink-0 mt-1">參考答案</span>
+                                  <div className="flex-1 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded text-xs text-gray-500">
+                                    作圖題以上方正解圖與下方評判標準為準，不需文字參考答案。
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-start gap-2">
+                                  <span className="text-gray-500 w-16 shrink-0 mt-1">參考答案</span>
+                                  <textarea rows={2} className="flex-1 px-2 py-1 border border-gray-300 rounded" value={selectedQuestion.referenceAnswer ?? ''} onChange={(e) => updateField(selectedIdx, 'referenceAnswer', e.target.value)} />
+                                </div>
+                              )}
                               {/* 評分方式：由題型自動決定、唯讀顯示（不可切換） */}
                               <div className="flex items-center gap-2">
                                 <span className="text-gray-500">評分方式：</span>
