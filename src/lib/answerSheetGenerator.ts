@@ -6,18 +6,19 @@
 //   2. 永遠單面一頁——裝不下不自動縮格（2026-09-04 user 拍板：自動增密=「放大格子預覽反而縮小」反直覺），
 //      回報 fit_failed＋首頁預覽，由 UI 紅框警告、鎖儲存，老師自己調參數。
 //   3. 改版面幾何必須升 ANSWER_SHEET_GEN_VERSION（bbox 是批改裁切的基準，同 RPOMR1 慣例）。
-//   頁面對齊錨點＝RPOMR1 標頭上緣兩角標＋頁底兩個 5mm 方塊；bbox 以 uvBasis 矩形正規化。
+//   頁面對齊錨點＝紙張四角各一個 6mm 實心方塊（RPGEN3：撐到最開、單應性最穩）；
+//   bbox 以四角錨點中心構成的矩形 uvBasis 正規化。標頭圖只作座號辨識、不再兼對齊。
 
 import { HEADER_SIZE_MM } from './answerSheetLayout'
 
-export const ANSWER_SHEET_GEN_VERSION = 'RPGEN2'
+export const ANSWER_SHEET_GEN_VERSION = 'RPGEN3'
 
 // ── 幾何（mm；直式；紙張可選——B4 是台灣定期考慣用尺寸）─────
 export type PageSize = 'A4' | 'B4'
 export const PAGE_SIZES_MM: Record<PageSize, [number, number]> = { A4: [210, 297], B4: [257, 364] }
 const M = 12
-/** 頁底對齊錨點（5mm 實心方塊、距紙緣 5mm） */
-const PAGE_ANCHOR = { size: 5, inset: 5 }
+/** 紙張四角對齊錨點（6mm 實心方塊、方塊外緣距紙緣 6mm；RPGEN3） */
+const PAGE_ANCHOR = { size: 6, inset: 6 }
 /** SVG 的 px/mm（300dpi） */
 const DPMM = 3508 / 297
 
@@ -35,14 +36,18 @@ function pageGeom(size: PageSize): PageGeom {
   const headerScale = pw / 210
   const hw = HEADER_SIZE_MM.width * headerScale
   const hh = HEADER_SIZE_MM.height * headerScale
-  const header = { x: (pw - hw) / 2, y: 15, w: hw, h: hh }
-  const uvBasis = { x0: PAGE_ANCHOR.inset, y0: PAGE_ANCHOR.inset, w: pw - 2 * PAGE_ANCHOR.inset, h: ph - 2 * PAGE_ANCHOR.inset }
+  // 標頭在標題（頂部）之下、內容之上（讓出四角給對齊方塊）
+  const header = { x: (pw - hw) / 2, y: 20, w: hw, h: hh }
+  // 四角錨點中心：紙緣 inset ＋ 半個方塊
+  const c = PAGE_ANCHOR.inset + PAGE_ANCHOR.size / 2
   const anchorsMm: Array<[number, number]> = [
-    [header.x + 2.5, header.y + 2.5],
-    [header.x + header.w - 2.5, header.y + 2.5],
-    [PAGE_ANCHOR.inset + 2.5, ph - PAGE_ANCHOR.inset - 2.5],
-    [pw - PAGE_ANCHOR.inset - 2.5, ph - PAGE_ANCHOR.inset - 2.5]
+    [c, c],                 // TL
+    [pw - c, c],            // TR
+    [c, ph - c],            // BL
+    [pw - c, ph - c]        // BR
   ]
+  // uvBasis＝四角錨點中心構成的矩形（bbox 相對此矩形正規化）
+  const uvBasis = { x0: c, y0: c, w: pw - 2 * c, h: ph - 2 * c }
   return { pw, ph, header, uvBasis, anchorsMm }
 }
 
@@ -409,15 +414,19 @@ function assembleSvg(g: PageGeom, input: GenInput, els: string[]): string {
   const W = Math.round(g.pw * DPMM)
   const H = Math.round(g.ph * DPMM)
   const a = PAGE_ANCHOR
+  // 紙張四角：TL/TR/BL/BR 各一個實心方塊（外緣距紙緣 inset）
   const anchors = [
+    [a.inset, a.inset],
+    [g.pw - a.inset - a.size, a.inset],
     [a.inset, g.ph - a.inset - a.size],
     [g.pw - a.inset - a.size, g.ph - a.inset - a.size]
   ]
     .map(([x, yy]) => `<rect x="${x * DPMM}" y="${yy * DPMM}" width="${a.size * DPMM}" height="${a.size * DPMM}" fill="#000"/>`)
     .join('')
-  // 標題＝最大字級、撐滿紙寬、字間等距（textLength + lengthAdjust=spacing）
+  // 標題（避開左上角錨點：起點內縮到 a.inset+a.size+3）；撐滿紙寬扣兩側錨點區
+  const titleX = a.inset + a.size + 3
   const head =
-    `<text x="${M * DPMM}" y="${11 * DPMM}" font-size="${5.6 * DPMM}" font-weight="bold" textLength="${(g.pw - 2 * M) * DPMM}" lengthAdjust="spacing">${esc(input.title)}｜作答卷</text>` +
+    `<text x="${titleX * DPMM}" y="${(a.inset + a.size - 1) * DPMM}" font-size="${5.2 * DPMM}" font-weight="bold" textLength="${(g.pw - 2 * titleX) * DPMM}" lengthAdjust="spacing">${esc(input.title)}｜作答卷</text>` +
     `<image x="${g.header.x * DPMM}" y="${g.header.y * DPMM}" width="${g.header.w * DPMM}" height="${g.header.h * DPMM}" href="${input.headerDataUri}"/>`
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif">` +

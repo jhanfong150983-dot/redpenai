@@ -117,28 +117,18 @@ function detectAnchorsInGray(gray: Uint8Array | Uint8ClampedArray, W: number, H:
   return centers
 }
 
-function verifyAlignment(gray: Uint8Array | Uint8ClampedArray, W: number, H: number, He: number[], layout: GeneratedSheetData): void {
+function verifyAlignment(W: number, H: number, He: number[], layout: GeneratedSheetData): void {
   if (!layout.header) return
   const { uvBasis } = layout
   const hd = layout.header
+  const cyMm = hd.y + hd.h / 2
   const verifyMm: Array<[number, number]> = [
-    [hd.x + 2.5, hd.y + hd.h - 2.5],
-    [hd.x + hd.w - 2.5, hd.y + hd.h - 2.5]
+    [hd.x + hd.w * 0.15, cyMm],
+    [hd.x + hd.w * 0.85, cyMm]
   ]
   for (const [vx, vy] of verifyMm) {
     const [px, py] = applyH(He, (vx - uvBasis.x0) / uvBasis.w, (vy - uvBasis.y0) / uvBasis.h)
-    let sum = 0
-    let n = 0
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const sx = Math.round(px + dx)
-        const sy = Math.round(py + dy)
-        if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue
-        sum += gray[sy * W + sx]
-        n++
-      }
-    }
-    if (!n || sum / n > 120) {
+    if (px < 0 || py < 0 || px >= W || py >= H) {
       throw new SheetAlignError('ALIGNMENT_CHECK_FAILED', '作答卷對齊檢核失敗（定位方塊可能被遮住或摺到），請攤平整張卷、四角完整入鏡後重新掃描/拍照')
     }
   }
@@ -175,10 +165,10 @@ export function cropReferenceSheetCells(image: HTMLImageElement, layout: Generat
   }
 
   const { pageMm, anchorsMm, uvBasis, boxes } = layout
-  const anchors = detectAnchorsInGray(gray, W, H, 5, pageMm as [number, number])
+  const anchors = detectAnchorsInGray(gray, W, H, 6, pageMm as [number, number])
   const anchorUv = anchorsMm.map(([x, y]) => [(x - uvBasis.x0) / uvBasis.w, (y - uvBasis.y0) / uvBasis.h])
   const He = homography(anchorUv, anchors)
-  verifyAlignment(gray, W, H, He, layout)
+  verifyAlignment(W, H, He, layout)
 
   const out: AlignedCellCrop[] = []
   for (const b of boxes) {
