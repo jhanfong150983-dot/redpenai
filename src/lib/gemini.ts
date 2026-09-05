@@ -6728,6 +6728,8 @@ interface SolveStructureSection {
   count: number
   questionsInBooklet: boolean
   questionCategory: string
+  /** 大題內混多種題型時的組成（依卷面順序；count 加總=大題題數）。作答卷排版據此分作圖/計算格 */
+  typeBreakdown?: Array<{ questionCategory: string; count: number }>
   /** 這個大題從題目卷第幾頁開始（1-based；人工確認畫面自動翻頁用） */
   pageStart?: number
 }
@@ -6745,7 +6747,10 @@ function buildSolveStructurePrompt(pageCount: number): string {
 - totalScore：該大題總分
 - count：題數——若題目不在題目卷上，就從「每題X分，共Y分」推算
 - questionsInBooklet：true/false——這個大題的題目本身是否印在題目卷上（false = 只有標題，需要請老師補標準答案）
-- questionCategory：從這個清單選一個——${SOLVE_TYPE_MENU}
+- questionCategory：這個大題的主要題型，從這個清單選一個——${SOLVE_TYPE_MENU}
+- typeBreakdown：⚠ 大題內若混多種題型（例如「計算作圖題」＝2 題作圖＋1 題計算），
+  必須依卷面順序列出組成：[{"questionCategory":"grid_geometry","count":2},{"questionCategory":"word_problem","count":1}]，
+  count 加總須等於大題題數；單一題型的大題可省略此欄
 - pageStart：這個大題的題目（或標題）從題目卷第幾頁開始（1-based）
 
 注意：「每字1分」的大題若一題考多個字，題數以答案格數計。全卷總分應等於各大題 totalScore 加總，請自我檢查。
@@ -6845,14 +6850,25 @@ export async function solveAnswerKeyFromBooklet(
   if (!sections.length) throw new Error('AI 無法辨識考卷結構，請確認題目卷影像清晰完整')
 
   // 題號骨架（id 慣例 1-<大題>-<序>；anchorHint 供大題標題與排版引擎使用）
-  const skeleton = sections.flatMap((sec, si) =>
-    Array.from({ length: Math.max(0, Math.min(200, sec.count | 0)) }, (_, n) => ({
-      id: `1-${si + 1}-${n + 1}`,
+  const skeleton = sections.flatMap((sec, si) => {
+    const n = Math.max(0, Math.min(200, sec.count | 0))
+    // 大題內混題型（如計算作圖題＝作圖×2＋計算×1）：依 typeBreakdown 逐題展開類別
+    const perQuestionCategory: string[] = []
+    if (Array.isArray(sec.typeBreakdown) && sec.typeBreakdown.length > 0) {
+      for (const part of sec.typeBreakdown) {
+        for (let i = 0; i < Math.max(0, part.count | 0) && perQuestionCategory.length < n; i++) {
+          perQuestionCategory.push(String(part.questionCategory))
+        }
+      }
+    }
+    return Array.from({ length: n }, (_, i) => ({
+      id: `1-${si + 1}-${i + 1}`,
       section: sec,
-      anchorHint: `位於『${sec.section}』第 ${n + 1} 格`,
+      categoryOverride: perQuestionCategory[i],
+      anchorHint: `位於『${sec.section}』第 ${i + 1} 格`,
       bookletPageIndex: Number.isFinite(sec.pageStart) ? Math.max(0, (sec.pageStart as number) - 1) : undefined
     }))
-  )
+  })
   const solvable = opts?.structureOnly ? [] : skeleton.filter((q) => q.section.questionsInBooklet)
 
   // ② 解題 ×2（分歧標記——不穩定的題請老師優先看）
@@ -6936,7 +6952,7 @@ ${stringDiffPairs.map((p) => `id=${p.id}｜答案一：${p.a1}｜答案二：${p
   }
   const questions: AnswerKeyQuestion[] = skeleton.map((q) => {
     const solved = q.section.questionsInBooklet ? solvedById.get(q.id) : undefined
-    const category = String(solved?.questionCategory || q.section.questionCategory || 'fill_blank')
+    const category = String(solved?.questionCategory || q.categoryOverride || q.section.questionCategory || 'fill_blank')
     // 配分：優先用卷面印的（解題讀出），否則退回大題總分整數分配（老師可改）
     const solvedScore = typeof solved?.maxScore === 'number' && solved.maxScore > 0 && solved.maxScore <= 100 ? solved.maxScore : undefined
     const base: AnswerKeyQuestion = {
