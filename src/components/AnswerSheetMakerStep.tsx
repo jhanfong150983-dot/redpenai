@@ -8,6 +8,7 @@ import { Crop, X } from 'lucide-react'
 import {
   generateAnswerSheet,
   type GenBaseImage,
+  type GenCellText,
   type GenQuestion,
   type GenResult,
   type PageSize,
@@ -20,9 +21,11 @@ export interface SheetMakerState {
   sectionOverrides: Record<string, SectionOverride>
   /** 作圖/計算題底圖：題目 id → 底圖（含框選來源，供重新編輯） */
   baseImages: Record<string, GenBaseImage & { bookletPage: number; rect: { x: number; y: number; w: number; h: number } }>
+  /** 格內文字方塊：題目 id → 文字清單（點預覽格子編輯） */
+  cellTexts: Record<string, GenCellText[]>
 }
 
-export const EMPTY_SHEET_MAKER_STATE: SheetMakerState = { pageSize: 'A4', sectionOverrides: {}, baseImages: {} }
+export const EMPTY_SHEET_MAKER_STATE: SheetMakerState = { pageSize: 'A4', sectionOverrides: {}, baseImages: {}, cellTexts: {} }
 
 interface Props {
   title: string
@@ -46,6 +49,7 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
   const [headerDataUri, setHeaderDataUri] = useState<string | null>(null)
   const [headerError, setHeaderError] = useState(false)
   const [cropTarget, setCropTarget] = useState<string | null>(null)
+  const [editCell, setEditCell] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -100,7 +104,11 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
   // 即時重排（決定性：同輸入同結果）
   const result = useMemo<ReturnType<typeof generateAnswerSheet> | null>(() => {
     if (!headerDataUri) return null
-    const qs = questions.map((q) => (state.baseImages[q.id] ? { ...q, baseImage: state.baseImages[q.id] } : q))
+    const qs = questions.map((q) => ({
+      ...q,
+      ...(state.baseImages[q.id] ? { baseImage: state.baseImages[q.id] } : {}),
+      ...(state.cellTexts?.[q.id]?.length ? { cellTexts: state.cellTexts[q.id] } : {})
+    }))
     return generateAnswerSheet({
       title,
       pageSize: state.pageSize,
@@ -251,12 +259,33 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
             <div
               className="bg-white shadow mx-auto [&>svg]:w-full [&>svg]:h-auto"
               style={{ maxWidth: 560 }}
+              onClick={(e) => {
+                const qid = (e.target as Element)?.getAttribute?.('data-qid')
+                if (qid) setEditCell(qid)
+              }}
               dangerouslySetInnerHTML={{ __html: result.svg }}
             />
+            <div className="text-[11px] text-gray-400 mt-1 text-center">點任一格可加入文字方塊／底圖</div>
           </div>
         )}
       </div>
 
+      {editCell && (
+        <CellEditModal
+          qid={editCell}
+          isBig={BIG_KINDS.has(String(questions.find((q) => q.id === editCell)?.questionCategory))}
+          texts={state.cellTexts?.[editCell] ?? []}
+          hasBaseImage={!!state.baseImages[editCell]}
+          onTextsChange={(texts) => onStateChange({ ...state, cellTexts: { ...state.cellTexts, [editCell]: texts } })}
+          onEditBaseImage={() => setCropTarget(editCell)}
+          onClearBaseImage={() => {
+            const next = { ...state.baseImages }
+            delete next[editCell]
+            onStateChange({ ...state, baseImages: next })
+          }}
+          onClose={() => setEditCell(null)}
+        />
+      )}
       {cropTarget && (
         <BaseImageCropModal
           bookletImages={bookletImages}
@@ -336,7 +365,7 @@ function BaseImageCropModal({ bookletImages, existing, onCancel, onDone }: CropM
   }
 
   return (
-    <div className="fixed inset-0 z-[120] bg-black/50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[140] bg-black/50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="font-bold text-sm">框選作答底圖（拖曳選取題本上的作答區圖形）</div>
@@ -413,6 +442,93 @@ function BaseImageCropModal({ bookletImages, existing, onCancel, onDone }: CropM
               使用此底圖
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 格編輯視窗：點預覽格子 → 對該格加文字方塊／管理底圖 ────────────────────
+function CellEditModal({ qid, isBig, texts, hasBaseImage, onTextsChange, onEditBaseImage, onClearBaseImage, onClose }: {
+  qid: string
+  isBig: boolean
+  texts: GenCellText[]
+  hasBaseImage: boolean
+  onTextsChange: (texts: GenCellText[]) => void
+  onEditBaseImage: () => void
+  onClearBaseImage: () => void
+  onClose: () => void
+}) {
+  const POS_LABELS: Array<[NonNullable<GenCellText['pos']>, string]> = [
+    ['tl', '左上'], ['tc', '中上'], ['tr', '右上'],
+    ['ml', '左中'], ['mc', '正中'], ['mr', '右中'],
+    ['bl', '左下'], ['bc', '中下'], ['br', '右下']
+  ]
+  const update = (i: number, patch: Partial<GenCellText>) => {
+    onTextsChange(texts.map((t, k) => (k === i ? { ...t, ...patch } : t)))
+  }
+  return (
+    <div className="fixed inset-0 z-[130] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl max-w-md w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <div className="font-bold text-sm">編輯格子 <span className="font-mono text-xs text-gray-500">{qid}</span></div>
+          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+        <div className="p-4 space-y-4 overflow-y-auto">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-gray-600">文字方塊</span>
+              <button
+                type="button"
+                onClick={() => onTextsChange([...texts, { text: '', size: 'm', pos: 'tl' }])}
+                className="text-xs px-2 py-1 rounded border text-blue-600 border-blue-300 hover:bg-blue-50"
+              >
+                ＋ 新增文字
+              </button>
+            </div>
+            {texts.length === 0 && <p className="text-xs text-gray-400">尚無文字。可加入提示（如「請寫出計算過程」）。</p>}
+            <div className="space-y-2">
+              {texts.map((t, i) => (
+                <div key={i} className="border rounded-lg p-2 space-y-1.5">
+                  <input
+                    value={t.text}
+                    onChange={(e) => update(i, { text: e.target.value })}
+                    placeholder="文字內容"
+                    className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                  />
+                  <div className="flex items-center gap-2">
+                    <select value={t.size ?? 'm'} onChange={(e) => update(i, { size: e.target.value as GenCellText['size'] })} className="border rounded px-1.5 py-0.5 text-xs">
+                      <option value="s">小</option>
+                      <option value="m">中</option>
+                      <option value="l">大</option>
+                    </select>
+                    <select value={t.pos ?? 'tl'} onChange={(e) => update(i, { pos: e.target.value as GenCellText['pos'] })} className="border rounded px-1.5 py-0.5 text-xs">
+                      {POS_LABELS.map(([v, label]) => (
+                        <option key={v} value={v}>{label}</option>
+                      ))}
+                    </select>
+                    <button type="button" onClick={() => onTextsChange(texts.filter((_, k) => k !== i))} className="ml-auto text-xs text-red-500">刪除</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {isBig && (
+            <div>
+              <div className="text-xs font-bold text-gray-600 mb-2">底圖</div>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={onEditBaseImage} className="text-xs px-2 py-1 rounded border text-blue-600 border-blue-300 hover:bg-blue-50">
+                  {hasBaseImage ? '重新框選底圖' : '框選底圖'}
+                </button>
+                {hasBaseImage && (
+                  <button type="button" onClick={onClearBaseImage} className="text-xs px-2 py-1 rounded border text-red-500 border-red-200 hover:bg-red-50">清除底圖</button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="px-4 py-3 border-t flex justify-end">
+          <button type="button" onClick={onClose} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm">完成</button>
         </div>
       </div>
     </div>

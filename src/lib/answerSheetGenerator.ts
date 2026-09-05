@@ -69,6 +69,17 @@ export interface GenQuestion {
   optionCount?: number
   /** 作圖題底圖 */
   baseImage?: GenBaseImage
+  /** 格內文字方塊（老師自加提示，如「請寫出計算過程」）；決定性渲染 */
+  cellTexts?: GenCellText[]
+}
+
+/** 格內文字方塊 */
+export interface GenCellText {
+  text: string
+  /** 字級：s=2.6mm m=3.2mm l=4.2mm（預設 m） */
+  size?: 's' | 'm' | 'l'
+  /** 九宮格位置（預設 tl 左上） */
+  pos?: 'tl' | 'tc' | 'tr' | 'ml' | 'mc' | 'mr' | 'bl' | 'bc' | 'br'
 }
 
 /** step④ 參數化調整：以大題鍵（id 去掉最後一段）覆寫版面參數 */
@@ -227,15 +238,33 @@ function layoutPages(sections: Section[], g: PageGeom): LayoutPage[] {
   let boxes: GenBox[] = []
   let y = g.header.y + g.header.h + 7
   const newPage = () => {
-    pages.push({ els, boxes })
+    pages.push({ els: [...els, ...overlayEls], boxes })
     els = []
+    overlayEls.length = 0
     boxes = []
     y = 24
   }
   const ensure = (h: number) => {
     if (y + h > PH - M) newPage()
   }
+  // 格內文字方塊（九宮格定位；跟著 addBox 一起畫，位置以「作答區」為基準）
+  const emitCellTexts = (q: GenQuestion, x: number, yy: number, w: number, h: number) => {
+    for (const t of q.cellTexts ?? []) {
+      if (!t.text) continue
+      const size = t.size === 's' ? 2.6 : t.size === 'l' ? 4.2 : 3.2
+      const pos = t.pos ?? 'tl'
+      const pad = 1.5
+      const tx = pos.endsWith('l') ? x + pad : pos.endsWith('c') ? x + w / 2 : x + w - pad
+      const ty = pos.startsWith('t') ? yy + pad + size : pos.startsWith('m') ? yy + h / 2 + size / 2 : yy + h - pad
+      const anchor = pos.endsWith('l') ? 'start' : pos.endsWith('c') ? 'middle' : 'end'
+      els.push(`<text x="${tx * DPMM}" y="${ty * DPMM}" font-size="${size * DPMM}" fill="#444" text-anchor="${anchor}">${esc(t.text)}</text>`)
+    }
+  }
+  // 預覽點擊層：透明 rect 蓋在每格上（data-qid 供 UI 點格開編輯視窗）；印刷不可見
+  const overlayEls: string[] = []
   const addBox = (q: GenQuestion, x: number, yy: number, w: number, h: number, kind: GenBox['kind'], optionCount?: number) => {
+    emitCellTexts(q, x, yy, w, h)
+    overlayEls.push(`<rect x="${x * DPMM}" y="${yy * DPMM}" width="${w * DPMM}" height="${h * DPMM}" fill="transparent" data-qid="${esc(q.id)}" style="cursor:pointer"/>`)
     boxes.push({
       id: q.id,
       type: q.questionCategory,
