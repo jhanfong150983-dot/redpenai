@@ -476,7 +476,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
         const textCells = skeletonQs
           .filter((q) => cropById.has(q.id) && !DRAWING.has(String(q.questionCategory)))
           .map((q) => ({ id: q.id, dataUrl: cropById.get(q.id)!, hint: String(q.questionCategory) === 'word_problem' ? '手寫算式與答案（多行照抄）' : '手寫國字/注音/數值/數學式/選項代號' }))
-        _onProgress(`AI 逐格讀取手寫答案（${textCells.length} 格）…`)
+        const drawCount = skeletonQs.filter((q) => cropById.has(q.id) && DRAWING.has(String(q.questionCategory))).length
+        _onProgress(`AI 讀取手寫答案（文字題 ${textCells.length} 格${drawCount ? `，作圖題 ${drawCount} 格另存正解圖` : ''}）…`)
         const reads = await readReferenceAnswerCells(textCells)
         _onProgress('產生評分規準（作圖/應用題）…')
         const questions = [] as typeof skeletonQs
