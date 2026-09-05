@@ -274,6 +274,17 @@ export default function AssignmentFormModal({
   const selectedAK = answerKeys.find((ak) => ak.id === selectedAnswerKeyId)
   const domain = selectedAK?.domain || initialDomain || ''
 
+  // 答案卷實際題型集合：規則面板按「這份卷真的有的題型」顯示，沒有的不出現（2026-09-06 user）
+  const questionTypes = useMemo(() => {
+    const qs = selectedAK?.answerKey?.questions as Array<{ questionCategory?: string }> | undefined
+    return new Set((qs ?? []).map((q) => String(q?.questionCategory ?? '')))
+  }, [selectedAK])
+  const has = (...cats: string[]) => cats.some((c) => questionTypes.has(c))
+  const hasMultiCheck = has('multi_check', 'multi_choice', 'circle_select_many', 'multi_check_other')
+  const hasWordProblem = has('word_problem')
+  // 單位錯誤只對「答案含單位」的題型有意義（應用題/計算/填空）——數學卷才顯示
+  const hasUnitRelevant = has('word_problem', 'calculation', 'fill_blank')
+
   // 從答案卷自動取得頁數和方向
   const akPageCount = useMemo(() => {
     const questions = selectedAK?.answerKey?.questions as Array<{ id?: string }> | undefined
@@ -761,8 +772,8 @@ export default function AssignmentFormModal({
                   </div>
                   )}
 
-                  {/* 2026-08-15 多選題計分（user 拍板 B 案）：原本 AI 自行「答對一個給一半」，
-                      答案卷裡沒有這條規則 → 不同批次可能給不同分。改成正式設定、老師改得動。 */}
+                  {/* 2026-08-15 多選題計分（user 拍板 B 案）；2026-09-06：答案卷沒有多選題就不顯示 */}
+                  {hasMultiCheck && (
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">多選題計分</label>
                     <p className="text-xs text-slate-500 mb-2">一律按比例扣分（每個扣 滿分÷正解數、下限 0），差別只在誤選要不要罰。</p>
@@ -792,6 +803,7 @@ export default function AssignmentFormModal({
                           : '只看選對幾個，多選不罰。正解 1,3（2 分）：只選 1 → 1 分、選 1,3,4 → 2 分（全選反而穩拿滿分）'}
                     </p>
                   </div>
+                  )}
 
                   {/* 領域專屬規則 */}
                   {domain === '數學' && (
@@ -826,7 +838,8 @@ export default function AssignmentFormModal({
                           ? '請選擇分數規則'
                           : settings.fractionRule === 'require_simplified' ? '2/4 判錯，必須寫 1/2' : '2/4 = 1/2 都算對'}
                       </p>
-                      {/* 2026-07-15 單位錯誤計分（user 拍板留給老師設定） */}
+                      {/* 2026-07-15 單位錯誤計分；2026-09-06：只在有含單位題型時顯示 */}
+                      {hasUnitRelevant && (
                       <div className="mt-4">
                         <label className="block text-sm font-semibold text-gray-800 mb-2">單位錯誤計分</label>
                         <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
@@ -887,7 +900,9 @@ export default function AssignmentFormModal({
                               : `數值對但單位錯或缺單位 → 該題扣 ${settings.unitErrorDeduction} 分；數值錯仍 0 分`}
                         </p>
                       </div>
-                      {/* 2026-07-16 應用題過程分（user 拍板：答案錯但過程對→AI 看手寫過程窄判定、依此給部分分） */}
+                      )}
+                      {/* 2026-07-16 應用題過程分；2026-09-06：只在有應用題時顯示 */}
+                      {hasWordProblem && (
                       <div className="mt-4">
                         <label className="block text-sm font-semibold text-gray-800 mb-2">應用題過程分</label>
                         <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
@@ -946,6 +961,7 @@ export default function AssignmentFormModal({
                             : `最終答案錯時 AI 會檢視手寫計算過程：列式與過程正確、僅最後算錯/抄錯 → ${settings.processCreditRule === 'half' ? '給該題一半分數' : `該題扣 ${settings.processCreditDeduction} 分`}；過程本身有錯仍 0 分`}
                         </p>
                       </div>
+                      )}
                     </div>
                   )}
 
