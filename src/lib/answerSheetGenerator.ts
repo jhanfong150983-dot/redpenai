@@ -278,7 +278,7 @@ function layoutPages(sections: Section[], g: PageGeom): LayoutPage[] {
         const estMm = estimateTextWidthMm(t.text, size)
         const availMm = w - t.xMm - 1
         if (estMm > availMm && availMm > 2) {
-          els.push(`<text x="${tx * DPMM}" y="${ty * DPMM}" font-size="${size * DPMM}" fill="#444" textLength="${availMm * DPMM}" lengthAdjust="spacingAndGlyphs">${esc(t.text)}</text>`)
+          els.push(`<text x="${tx * DPMM}" y="${ty * DPMM}" font-size="${size * DPMM}" fill="#444" textLength="${availMm * DPMM}" lengthAdjust="spacingAndGlyphs" xml:space="preserve">${esc(t.text)}</text>`)
           continue
         }
       } else {
@@ -288,7 +288,7 @@ function layoutPages(sections: Section[], g: PageGeom): LayoutPage[] {
         ty = pos.startsWith('t') ? yy + pad + size : pos.startsWith('m') ? yy + h / 2 + size / 2 : yy + h - pad
         anchor = pos.endsWith('l') ? 'start' : pos.endsWith('c') ? 'middle' : 'end'
       }
-      els.push(`<text x="${tx * DPMM}" y="${ty * DPMM}" font-size="${size * DPMM}" fill="#444" text-anchor="${anchor}">${esc(t.text)}</text>`)
+      els.push(`<text x="${tx * DPMM}" y="${ty * DPMM}" font-size="${size * DPMM}" fill="#444" text-anchor="${anchor}" xml:space="preserve">${esc(t.text)}</text>`)
     }
     const bi = q.baseImage
     if (bi?.place) {

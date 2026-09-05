@@ -459,7 +459,7 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
   onClose: () => void
 }) {
   // px/mm 縮放：畫布最大 680×420
-  const k = Math.min(680 / cellWMm, 420 / cellHMm, 10)
+  const k = Math.min(560 / cellWMm, 380 / cellHMm, 8)
   const [selected, setSelected] = useState<number | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ kind: 'text' | 'img-move' | 'img-resize'; idx?: number; handle?: string; sx: number; sy: number; ox: number; oy: number; ow?: number; oh?: number } | null>(null)
@@ -660,6 +660,7 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
                   onFocus={() => setSelected(i)}
                   className="bg-transparent outline-none"
                   style={{
+                    fontFamily: 'Microsoft JhengHei, Noto Sans TC, sans-serif',
                     fontSize: sizeMm(t) * k * 0.92,
                     // 寬度＝估算文字寬（同引擎公式）＋游標餘裕，上限＝格子右緣（列印端同樣位置壓縮，兩端一致）
                     width: Math.min(
