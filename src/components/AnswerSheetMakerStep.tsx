@@ -1,10 +1,11 @@
 // 2026-09-04 step④ 作答卷製作（生成答案卷單一流程的新步驟）。
-//   左＝參數控制（紙張、每大題欄數/格高/大格高、作圖題底圖框選）；右＝整頁即時預覽。
+//   分工：左＝版面參數（紙張、每列格數、格高）；右＝整頁即時預覽，點格開「格編輯視窗」
+//   （格內所有物件：文字方塊、底圖）——底圖入口統一在格編輯視窗。
 //   排版由 answerSheetGenerator（RPGEN2）決定性產出；⛔ 預覽與最終 PDF 必須同一引擎。
 //   v1 調整能力＝參數化（不做自由拖格——與單頁保證/排版決定性相衝，v2 再評估）。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Crop, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import {
   generateAnswerSheet,
   type GenBaseImage,
@@ -214,21 +215,7 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
                       className="w-full"
                     />
                   </label>
-                  <div className="space-y-1">
-                    {sec.qs.filter((q) => BIG_KINDS.has(q.questionCategory)).map((q) => (
-                      <div key={q.id} className="flex items-center justify-between text-xs">
-                        <span className="text-gray-600">{q.id}</span>
-                        <button
-                          type="button"
-                          onClick={() => setCropTarget(q.id)}
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border ${state.baseImages[q.id] ? 'text-green-700 border-green-300 bg-green-50' : 'text-gray-600'}`}
-                        >
-                          <Crop size={12} />
-                          {state.baseImages[q.id] ? '底圖已設' : '框選底圖'}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                  <p className="text-[11px] text-gray-400">底圖與格內文字：點右側預覽的格子編輯</p>
                 </>
               )}
             </div>
