@@ -6763,7 +6763,7 @@ single_check：□打勾一個
 multi_check：□打勾多個
 table_check：矩陣表逐列在多欄(Yes/No/頻率)勾一格；整表1題
 true_false：是非/判斷；寫○或✗
-fill_blank：填空/填充；填單一固定值(答案唯一)。⚠有字庫選填但答案唯一仍屬此、非fill_variants。⚠數學「填充題」只填數值答案、未要求列出算式→整個大題仍是 fill_blank，不可拆成 calculation/word_problem
+fill_blank：填空/填充/國字注音；填單一固定值(答案唯一)。國字注音(給注音寫國字或給國字寫注音，答案唯一)＝此型、非fill_variants(它有專屬字形判官批改)。⚠有字庫選填但答案唯一仍屬此、非fill_variants。⚠數學「填充題」只填數值答案、未要求列出算式→整個大題仍是 fill_blank，不可拆成 calculation/word_problem
 multi_fill：一題多空、填多值(順序無關)
 table_cell：規則表格內多格填值/計算(統計表算比率/平均)；整表1題
 matching：左右兩欄「連線」配對(一對一/一對多)
@@ -6771,7 +6771,7 @@ ordering：標順序1..N
 mark_in_text：在連續文章中圈出特定詞(無預列選項)
 
 〔B 標準答案+容多元〕
-fill_variants：造詞/近義詞/解釋單一詞語意思(注釋)/國字注音；答案非唯一、容多說法。⚠標題「注釋」「國字注音」「造詞」→一律此型(不是short_answer/fill_blank)
+fill_variants：造詞/近義詞/解釋單一詞語意思(注釋)；答案非唯一、容多說法。⚠標題「注釋」「造詞」→此型(不是short_answer)。⚠國字注音答案唯一→fill_blank，不在此
 map_fill：地圖多位置填地名/國名
 
 〔C Rubric給分〕
