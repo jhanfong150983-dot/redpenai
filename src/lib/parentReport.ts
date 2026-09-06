@@ -965,6 +965,8 @@ async function runKpUpgradeCore(
   if (!qs.length) throw new Error('此作業沒有題目')
   const ansList = qs.map((q) => `${q.id}：${resolveStdAnswer(q) || '(無)'}`).join('\n')
   const subj = subject || '學科'
+  // 2026-09-06 學制稱謂：高中分科(生物/化學等 grade>=10)prompt 別再自稱「國中老師」；未帶年級沿用國中。
+  const stageWord = grade == null ? '國中' : grade >= 10 ? '高中' : grade >= 7 ? '國中' : '國小'
   let subjectSpec = curatedSubjectSpec(subj.trim(), grade)
   if (!subjectSpec && grade) {
     const dyn = await fetchDynamicSpec(grade, subj.trim(), track)
@@ -972,7 +974,7 @@ async function runKpUpgradeCore(
   }
   const codeSpec = subjectSpec?.spec
   // ① tagging（餵題本圖）：有指標清單 → 三層版；否則 fallback 自由命名版
-  const tagPrompt = codeSpec ? `你是一位資深的台灣國中${subj}老師，同時是段考命題與課綱對齊專家。
+  const tagPrompt = codeSpec ? `你是一位資深的台灣${stageWord}${subj}老師，同時是段考命題與課綱對齊專家。
 附上一份${subj}科段考「題本」（含所有題目），與答案清單（題號＋標準答案）供對應。
 
 請分三層為每一題歸類：
@@ -1092,7 +1094,7 @@ ${ansList}
         const q = qById2.get(it.questionId)
         return `${it.questionId}｜答案：${(q ? resolveStdAnswer(q) : '') || '(無)'}${it.note ? '｜' + it.note : ''}`
       }).join('\n')
-      const nodePrompt = `你是台灣國中${subj}老師。以下這些題目都屬於課綱代碼「${code}」。
+      const nodePrompt = `你是台灣${stageWord}${subj}老師。以下這些題目都屬於課綱代碼「${code}」。
 請為每一題，從這個代碼底下的「知識節點」清單中選出「最貼切的一個」節點代碼：
 ${nodeMenu}
 
@@ -1126,7 +1128,7 @@ ${qLines}
   const allKps = [...new Set(items.flatMap((it) => it.knowledgePoints))]
   let kpTips: Record<string, string> = {}
   if (allKps.length) {
-    const tipPrompt = `你是一位資深、溫暖的台灣國中${subj}老師。以下是一份段考測到的知識點清單。
+    const tipPrompt = `你是一位資深、溫暖的台灣${stageWord}${subj}老師。以下是一份段考測到的知識點清單。
 請為每個知識點寫「一句」給家長、在家可以怎麼幫孩子的**具體**建議：要具體到能做的動作或提醒。不可空泛（「多練習」「多複習」不行）。用家長聽得懂、鼓勵的口吻，每則 30~50 字。
 知識點清單：
 ${allKps.map((k) => `- ${k}`).join('\n')}

@@ -19,17 +19,21 @@ import { SOCIAL_NODES } from './curriculumNodes.social'
 import { SCIENCE_NODES } from './curriculumNodes.science'
 import { PHYSCHEM_NODES } from './curriculumNodes.physchem'
 import { EARTHSCI_NODES } from './curriculumNodes.earthsci'
+import { HSBIO_NODES } from './curriculumNodes.hsbio'
+import { HSCHEM_NODES } from './curriculumNodes.hschem'
 export type { CurriculumNode, CurriculumCode } from './curriculumNodes.g7math'
 /** 國語精選節點（掛學習內容代碼；第二層用） */
 export { GUOYU_NODES } from './curriculumNodes.guoyu'
 /** 社會節點（國中地理/歷史/公民；小學不做二層） */
 export { SOCIAL_NODES } from './curriculumNodes.social'
-/** 自然節點（國中生物+國中理化+國中地科…；小學自然不做二層） */
+/** 自然節點（國中生物+國中理化+國中地科+高中生物/化學…；小學自然不做二層） */
 export { SCIENCE_NODES } from './curriculumNodes.science'
 export { PHYSCHEM_NODES } from './curriculumNodes.physchem'
 export { EARTHSCI_NODES } from './curriculumNodes.earthsci'
-/** 自然科第二層總池（生物+理化+地科，代碼不衝突） */
-export const ALL_SCIENCE_NODES = [...SCIENCE_NODES, ...PHYSCHEM_NODES, ...EARTHSCI_NODES]
+export { HSBIO_NODES } from './curriculumNodes.hsbio'
+export { HSCHEM_NODES } from './curriculumNodes.hschem'
+/** 自然科第二層總池（國中生物/理化/地科 + 高中生物/化學，代碼不衝突：國中無前綴、高中生物 B*、高中化學 C*） */
+export const ALL_SCIENCE_NODES = [...SCIENCE_NODES, ...PHYSCHEM_NODES, ...EARTHSCI_NODES, ...HSBIO_NODES, ...HSCHEM_NODES]
 
 export const ALL_MATH_NODES = [
   ...G4_MATH_NODES, ...G5_MATH_NODES, ...G6_MATH_NODES,
