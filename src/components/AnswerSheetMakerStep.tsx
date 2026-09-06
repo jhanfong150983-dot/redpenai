@@ -510,7 +510,7 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
   //   讓老師一鍵對齊、每格一致（文字用自由座標定位，對齊＝重算座標）。
   const alignText = (i: number, axis: 'h' | 'v', where: 'start' | 'center' | 'end') => {
     const t = texts[i]
-    const pad = 1.5
+    const pad = 0.8 // 靠邊邊距（貼緣、與新增預設一致；1.5mm 太遠）
     const fs = sizeMm(t) * k
     const wMm = (Math.max(measureTextPx(t.text || '輸入文字', fs), 20) + 12) / k // 方塊外寬(含 padding/border)換算 mm
     const hMm = sizeMm(t) * 1.1 + 6 / k
