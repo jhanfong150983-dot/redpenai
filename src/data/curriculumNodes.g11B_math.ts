@@ -6,9 +6,21 @@
 
 import type { CurriculumCode, CurriculumNode } from './curriculumNodes.g7math'
 
-export const G11B_MATH_UNITS = ['坐標幾何', '代數', '函數', '資料與不確定性', '空間與形狀'] as const
+export const G11B_MATH_UNITS = ['數與量', '坐標幾何', '代數', '函數', '資料與不確定性', '空間與形狀'] as const
 
 export const G11B_MATH_CURRICULUM: CurriculumCode[] = [
+  // ═══ 數與量 (N) ═══
+  { code: 'N-11B-1', unit: '數與量', title: '弧度量', nodes: [
+    { id: 'N-11B-1-S01', code: 'N-11B-1', name: '度度量六十進制', desc: '熟悉度度量的定義及六十進制表示法' },
+    { id: 'N-11B-1-S02', code: 'N-11B-1', name: '弧度定義換算特殊角', desc: '了解弧度量定義並換算弧度與度度量（特殊角）' },
+    { id: 'N-11B-1-S03', code: 'N-11B-1', name: '無理數π', desc: '認識並闡述無理數 π 的意義' },
+    { id: 'N-11B-1-S04', code: 'N-11B-1', name: '弧度度度換算一般角', desc: '操作弧度量與度度量的換算（一般角）' },
+    { id: 'N-11B-1-S05', code: 'N-11B-1', name: '弧長扇形公式', desc: '理解用弧度量計算弧長與扇形面積的公式' },
+    { id: 'N-11B-1-S06', code: 'N-11B-1', name: '弧長扇形應用', desc: '應用弧度量計算弧長與扇形面積' },
+    { id: 'N-11B-1-S07', code: 'N-11B-1', name: '弧度量統整', desc: '統整弧度量的相關概念' },
+    { id: 'N-11B-1-S08', code: 'N-11B-1', name: '弧度量綜合應用', desc: '綜合應用弧度量概念解決問題' },
+  ]},
+
   // ═══ 坐標幾何 (G) ═══
   { code: 'G-11B-1', unit: '坐標幾何', title: '平面向量', nodes: [
     { id: 'G-11B-1-S01', code: 'G-11B-1', name: '向量幾何意義', desc: '理解向量的幾何意義' },
