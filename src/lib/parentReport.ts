@@ -4,7 +4,7 @@
 //   永遠對應最新批改、重批不需重生；「為什麼錯」的解讀歸老師專業——AI 逐題診斷與評語草擬已移除。
 //   唯一留在此檔的 AI 呼叫＝知識點歸類（runKpUpgrade 系列；新卷建卷預跑、舊卷報告頁補跑）。
 //   PDF 產出沿用原 correctionNoticePdf 骨架（html2canvas→jsPDF、系統中文字型、每生一頁；該檔已於 2026-08-12 退役刪除）。
-import { G7_MATH_NODES } from '@/data/curriculumNodes.g7math'
+import { ALL_MATH_NODES } from '@/data/curriculumNodes'
 
 import { ensureInkSessionFresh } from '@/lib/ink-session'
 import { MASTERY_THRESHOLDS, capLevelDesc, CAP_LEVEL_DISCLAIMER } from '@/lib/cap-levels'
@@ -1053,8 +1053,8 @@ ${ansList}
   const isMath = /數學|數/.test(subj)
   if (isMath) {
     // 按第一層 code 分組（只處理表內有節點的 code）
-    const nodesByCode = new Map<string, typeof G7_MATH_NODES>()
-    for (const n of G7_MATH_NODES) {
+    const nodesByCode = new Map<string, typeof ALL_MATH_NODES>()
+    for (const n of ALL_MATH_NODES) {
       if (!nodesByCode.has(n.code)) nodesByCode.set(n.code, [])
       nodesByCode.get(n.code)!.push(n)
     }
