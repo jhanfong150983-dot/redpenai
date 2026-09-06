@@ -1083,7 +1083,14 @@ ${ansList}
       groups.get(it.code)!.push(it)
     }
     for (const [code, groupItems] of groups) {
-      const nodes = nodesByCode.get(code)!
+      let nodes = nodesByCode.get(code)!
+      // 高中分科必修/選修分層：node 有 stage tag 才依 grade 過濾(grade10→basic、>=11→advanced；
+      //   無 grade 或過濾後空→不過濾)。國中/國語/社會/數學節點無 stage、完全不受影響。
+      if (grade != null && nodes.some((n) => n.stage)) {
+        const want = grade >= 11 ? 'advanced' : 'basic'
+        const filtered = nodes.filter((n) => !n.stage || n.stage === want)
+        if (filtered.length) nodes = filtered
+      }
       // 單一節點的 code → 直接指派，不花 AI
       if (nodes.length === 1) {
         for (const it of groupItems) { it.nodeId = nodes[0].id; it.knowledgePoints = [nodes[0].name] }

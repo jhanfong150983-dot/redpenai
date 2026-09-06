@@ -11,6 +11,7 @@ export interface CurriculumNode {
   code: string      // A-7-8
   name: string      // 概念短名（雷達軸/報告用；自訂）
   desc: string      // 能力描述（改寫）
+  stage?: 'basic' | 'advanced' // 高中分科必修(basic)/選修(advanced)分層；其餘科目留空(不分層)
 }
 
 export interface CurriculumCode {
