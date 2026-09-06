@@ -1394,6 +1394,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                         hint={hasAnyKp
                           ? '這份作業可升級為「知識節點」分類，讓雷達與加強地圖更精準（一次性、全班共用）。'
                           : '這份作業還沒有知識點歸類（舊卷）——概念雷達會是空的。'}
+                        ctaLabel={hasAnyKp ? '升級為知識節點' : '補跑知識點歸類'}
                       />
                     )
                   })()}

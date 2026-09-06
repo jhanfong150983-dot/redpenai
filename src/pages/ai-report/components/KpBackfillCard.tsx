@@ -14,7 +14,7 @@ import { db } from '@/lib/db'
 type QLike = { id?: string; analysis?: unknown }
 
 export default function KpBackfillCard({
-  assignmentId, subject, questions, grade, requestInk, onSaved, hint,
+  assignmentId, subject, questions, grade, requestInk, onSaved, hint, ctaLabel = '補跑知識點歸類',
 }: {
   assignmentId: string
   subject: string
@@ -26,6 +26,8 @@ export default function KpBackfillCard({
   onSaved?: () => void
   /** 卡片說明文字（依情境不同：舊卷無 KP／有代碼待升級節點） */
   hint: string
+  /** 按鈕文字：舊卷「補跑知識點歸類」／已有 KP「升級為知識節點分類」 */
+  ctaLabel?: string
 }) {
   const [running, setRunning] = useState(false)
   const [msg, setMsg] = useState('')
@@ -91,10 +93,10 @@ export default function KpBackfillCard({
         <button
           onClick={onClick}
           disabled={running}
-          className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-300 bg-white px-2.5 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-          補跑知識點歸類
+          {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          {ctaLabel}
         </button>
       </div>
       {running && (
