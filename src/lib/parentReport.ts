@@ -902,7 +902,12 @@ const KP_RULES_GENERIC = `- 每題選「最能代表解題核心考點」的一�
 
 // 已沙盒驗證的固定清單（國語=第四學習階段全國中共用；數學清單限國一）
 function curatedSubjectSpec(subj: string, grade?: number): { spec: string; rules: string } | undefined {
-  if (subj === '國語' || subj === '國文' || subj === '國語文') return { spec: KP_CODE_SPEC_GUOYU, rules: KP_RULES_GUOYU }
+  // ⚠ 2026-09-06：KP_CODE_SPEC_GUOYU 是「第四學習階段(國中 IV)」代碼，只對國中有效。
+  //   原本不分年級一律吃國中 spec → 小學國語卷被錯歸國中代碼。改成僅 grade>=7 或未帶年級用寫死國中版；
+  //   小學國語(grade 1-6)落到 fetchDynamicSpec，DB concept_map 已有 chinese 1~6 年級(學習內容代碼 Aa-I-x…)。
+  //   國語不分軌、粒度到「學習內容代碼」即實用，故不做第二層細節節點(user 拍板)。
+  if ((subj === '國語' || subj === '國文' || subj === '國語文') && (grade === undefined || grade >= 7))
+    return { spec: KP_CODE_SPEC_GUOYU, rules: KP_RULES_GUOYU }
   if (subj === '數學' && (grade === undefined || grade === 7)) return { spec: KP_CODE_SPEC_MATH7, rules: KP_RULES_MATH }
   return undefined
 }
