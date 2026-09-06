@@ -176,6 +176,12 @@ interface Section {
 
 const CN_NUM = '一二三四五六七八九十'
 const CHOICE_TYPES = new Set(['single_choice', 'multi_choice', 'true_false'])
+// 步驟2（2026-09-07）：需承載「題目視覺」的型——就地圈選/連線/圈詞/繪圖/填圖。
+// 基本小格承載不了 → 一律用大框(bigbox)，老師編輯時加底圖或圖片（見權威表步驟2決策）。
+const BIGBOX_IMAGE_TYPES = new Set([
+  'circle_select_one', 'circle_select_many', 'matching', 'mark_in_text',
+  'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'map_fill',
+])
 
 function sectionKeyOf(id: string): string {
   const parts = String(id).split('-')
@@ -205,7 +211,10 @@ function buildSections(questions: GenQuestion[], overrides: Record<string, Secti
       return `${numbered}（共 ${qs.length} 題，共 ${sum} 分）`
     }
     const types = new Set(qs.map((q) => q.questionCategory))
-    if (types.has('grid_geometry') || types.has('word_problem')) {
+    if (qs.some((q) => BIGBOX_IMAGE_TYPES.has(q.questionCategory))) {
+      // 需承載題目視覺（圈選/連連看/圈詞/繪圖/填圖）→ 大框，老師編輯時加底圖／圖片
+      secs.push({ key, label: titled('作答區'), kind: 'bigbox', qs, cols: 0, ansH: ov.bigH ?? 50, perRow: ov.perRow ?? 1 })
+    } else if (types.has('grid_geometry') || types.has('word_problem')) {
       const gridQs = qs.filter((q) => q.questionCategory === 'grid_geometry')
       const essayQs = qs.filter((q) => q.questionCategory === 'word_problem')
       const name = gridQs.length && essayQs.length ? '計算作圖題' : gridQs.length ? '作圖題' : '計算題'
