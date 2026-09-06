@@ -1123,12 +1123,16 @@ ${qLines}
           const nid = pickByQ.get(it.questionId)
           const node = nid ? nodeById.get(nid) : undefined
           if (node) { it.nodeId = node.id; it.knowledgePoints = [node.name] }
-          // 選不到（NA/找不到）→ 保守：留第一層的 knowledgePoints 或空，不硬塞
+          // 選不到（NA/找不到）→ 不硬塞；下面統一清空自由命名
         }
       } catch (err) {
-        console.warn('[KP第二層] 節點歸類失敗（保留第一層結果）:', code, err)
+        console.warn('[KP第二層] 節點歸類失敗（該碼稍後清空自由命名）:', code, err)
       }
     }
+    // 2026-09-06 不用自由命名（一致性鐵律，user 拍板）：有節點系統的科目，NA/未對應到節點的題 →
+    //   knowledgePoints 清空（下鑽頁不出列、仍計入整體）。只有標準節點名（有 nodeId）才進 knowledgePoints。
+    //   英語等無節點系統的科目不在此 gate、維持第一層命名、不受影響。
+    for (const it of items) if (!it.nodeId) it.knowledgePoints = []
   }
 
   // ② kpTips（純文字、每知識點一句在家建議）

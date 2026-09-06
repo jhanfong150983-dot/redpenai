@@ -92,8 +92,11 @@ export default function ConceptDrillDown({ code, label, assignments, submissions
         if (!q.id) continue
         const qid = String(q.id)
         if (!a.conceptTags?.[qid]?.code && q.analysis?.code === code) tagQids.add(qid)
+        // 2026-09-06 不用自由命名：有節點表的 code 只認標準節點名(濾掉殘留的自由命名/NA)、無節點表(英語等)
+        //   維持第一層命名；都不再 fallback「未細分」。沒有標準知識點的題只計入「整體」、不出列。
         const kps = (q.analysis?.knowledgePoints ?? []).filter(Boolean)
-        kpsByQid.set(qid, kps.length ? kps : [q.analysis?.topic ? `${q.analysis.topic}（未細分）` : '未細分'])
+          .filter((k) => descByName.size === 0 || descByName.has(k))
+        kpsByQid.set(qid, kps)
       }
 
       for (const sub of submissions) {
@@ -108,7 +111,7 @@ export default function ConceptDrillDown({ code, label, assignments, submissions
           if (!(mx > 0)) continue
           const got = Math.max(0, Math.min(mx, num(d.score)))
           bump('__overall__', sub.studentId, got, mx, `${a.id}|${qid}`)
-          for (const kp of kpsByQid.get(qid) ?? ['未細分']) {
+          for (const kp of kpsByQid.get(qid) ?? []) {
             const key = `${a.id}|${kp}`
             nameByKey.set(key, kp)
             bump(key, sub.studentId, got, mx, `${a.id}|${qid}`)
@@ -151,7 +154,7 @@ export default function ConceptDrillDown({ code, label, assignments, submissions
       .sort((x, y) => (y.n ? y.byLevel.weak.length / y.n : 0) - (x.n ? x.byLevel.weak.length / x.n : 0))
 
     return [toRow('__overall__', overall, true), ...kpRows]
-  }, [assignments, submissions, stuById, code])
+  }, [assignments, submissions, stuById, code, descByName])
 
   return (
     <section className="card" style={{ padding: '1.25rem 1.5rem' }}>
