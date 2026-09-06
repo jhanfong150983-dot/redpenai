@@ -432,7 +432,7 @@ function assembleSvg(g: PageGeom, input: GenInput, els: string[]): string {
     `<text x="${innerX * DPMM}" y="${titleBaseY * DPMM}" font-size="${5.2 * DPMM}" font-weight="bold" textLength="${(g.pw - 2 * innerX) * DPMM}" lengthAdjust="spacing">${esc(input.title)}｜作答卷</text>` +
     `<image x="${g.header.x * DPMM}" y="${g.header.y * DPMM}" width="${g.header.w * DPMM}" height="${g.header.h * DPMM}" href="${input.headerDataUri}"/>`
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="Microsoft JhengHei, Noto Sans TC, sans-serif">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="DFKai-SB, BiauKai, 標楷體, TW-Kai, Noto Serif TC, serif">` +
     `<rect width="${W}" height="${H}" fill="#fff"/>${anchors}${head}${els.join('')}</svg>`
   )
 }

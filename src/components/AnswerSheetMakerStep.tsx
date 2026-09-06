@@ -47,7 +47,8 @@ function sectionKeyOf(id: string): string {
 const BIG_KINDS = new Set(['grid_geometry', 'word_problem'])
 
 // 文字寬度「實測」（同字型同字級；估算式對空白/混排不準會造成編輯器與卷面不一致）
-const SHEET_FONT = '"Microsoft JhengHei", "Noto Sans TC", sans-serif'
+// 2026-09-06 一律標楷體（文字方塊＋作答卷）：Windows=DFKai-SB/標楷體、mac=BiauKai、fallback Noto Serif TC
+const SHEET_FONT = '"DFKai-SB", "BiauKai", "標楷體", "TW-Kai", "Noto Serif TC", serif'
 let _measureCtx: CanvasRenderingContext2D | null = null
 function measureTextPx(text: string, fontPx: number): number {
   if (!_measureCtx) _measureCtx = document.createElement('canvas').getContext('2d')
