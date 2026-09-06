@@ -788,6 +788,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
                   ...q,
                   analysis: {
                     ...(it.code ? { code: it.code } : {}),
+                    ...((it as { nodeId?: string }).nodeId ? { nodeId: (it as { nodeId?: string }).nodeId } : {}),
                     topic: it.topic,
                     knowledgePoints: it.knowledgePoints,
                     ...(it.ability ? { ability: it.ability } : {}),

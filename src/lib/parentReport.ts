@@ -4,6 +4,8 @@
 //   永遠對應最新批改、重批不需重生；「為什麼錯」的解讀歸老師專業——AI 逐題診斷與評語草擬已移除。
 //   唯一留在此檔的 AI 呼叫＝知識點歸類（runKpUpgrade 系列；新卷建卷預跑、舊卷報告頁補跑）。
 //   PDF 產出沿用原 correctionNoticePdf 骨架（html2canvas→jsPDF、系統中文字型、每生一頁；該檔已於 2026-08-12 退役刪除）。
+import { G7_MATH_NODES } from '@/data/curriculumNodes.g7math'
+
 import { ensureInkSessionFresh } from '@/lib/ink-session'
 import { MASTERY_THRESHOLDS, capLevelDesc, CAP_LEVEL_DISCLAIMER } from '@/lib/cap-levels'
 
@@ -22,7 +24,7 @@ export type PRQuestion = {
   /** 多小題（合題）：正確答案在 parts[].answer、頂層 answer 為空 */
   parts?: Array<{ subId?: string; answer?: string }>
   /** 2026-07-19 試題分析（backfill 到 answer_key）：大主題 topic + 知識點 knowledgePoints */
-  analysis?: { topic?: string; knowledgePoints?: string[]; code?: string; ability?: string; cnaArea?: string; note?: string }
+  analysis?: { topic?: string; knowledgePoints?: string[]; code?: string; nodeId?: string; ability?: string; cnaArea?: string; note?: string }
 }
 
 // 標準答案取值：頂層 answer 為空時（多小題型）由 parts 組出（subId a/b/c → ①②③）。
@@ -832,7 +834,7 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
 //   2026-07-22 三層版（沙盒 5 輪實證）：課綱指標(固定候選)→白話主題(per-指標候選)→知識點(收斂規則)。
 //   有指標清單的科目走三層；其他科目 fallback 自由命名版。code 跨卷穩定、供未來趨勢聚合；
 //   知識點名稱輪間會變（實測跨輪 0 重合）→ 只服務單卷加強地圖、跨卷聚合一律用 code/topic 層。
-export type KpTagItem = { questionId: string; code?: string; topic: string; knowledgePoints: string[]; ability?: string; note?: string }
+export type KpTagItem = { questionId: string; code?: string; nodeId?: string; topic: string; knowledgePoints: string[]; ability?: string; note?: string }
 
 // 108 課綱國語文（第四學習階段）學習內容條文——2026-07-22 已對照 concept_map 表官方版逐字核對。
 // 格式：代碼｜主題短名（報告顯示「代碼＋短名」、user 拍板）｜官方條文（＋括號內為使用註記）
@@ -1044,6 +1046,68 @@ ${ansList}
       }
     }
   }
+  // ── 第二層（2026-09-06）：數學科 → 依第一層 code 選「知識節點」──────────────
+  //   收斂搜尋空間：每題只在「所選課綱代碼」底下的節點裡選一個（3~9 選 1）。
+  //   節點 name 當 knowledgePoints、node.id 存 nodeId；選不到保守留空（不污染標準節點）。
+  //   節點表＝自研 curriculumNodes（課綱代碼/ID 為事實識別碼、描述改寫）。目前僅七年級數學有表。
+  const isMath = /數學|數/.test(subj)
+  if (isMath) {
+    // 按第一層 code 分組（只處理表內有節點的 code）
+    const nodesByCode = new Map<string, typeof G7_MATH_NODES>()
+    for (const n of G7_MATH_NODES) {
+      if (!nodesByCode.has(n.code)) nodesByCode.set(n.code, [])
+      nodesByCode.get(n.code)!.push(n)
+    }
+    const qById2 = new Map(qs.map((q) => [String(q.id ?? ''), q]))
+    // 蒐集「有 code 且該 code 在表內」的題，按 code 分批送第二層
+    const groups = new Map<string, KpTagItem[]>()
+    for (const it of items) {
+      if (!it.code || !nodesByCode.has(it.code)) continue
+      if (!groups.has(it.code)) groups.set(it.code, [])
+      groups.get(it.code)!.push(it)
+    }
+    for (const [code, groupItems] of groups) {
+      const nodes = nodesByCode.get(code)!
+      // 單一節點的 code → 直接指派，不花 AI
+      if (nodes.length === 1) {
+        for (const it of groupItems) { it.nodeId = nodes[0].id; it.knowledgePoints = [nodes[0].name] }
+        continue
+      }
+      const nodeMenu = nodes.map((n) => `${n.id}｜${n.name}｜${n.desc}`).join('\n')
+      const qLines = groupItems.map((it) => {
+        const q = qById2.get(it.questionId)
+        return `${it.questionId}｜答案：${(q ? resolveStdAnswer(q) : '') || '(無)'}${it.note ? '｜' + it.note : ''}`
+      }).join('\n')
+      const nodePrompt = `你是台灣國中數學老師。以下這些題目都屬於課綱代碼「${code}」。
+請為每一題，從這個代碼底下的「知識節點」清單中選出「最貼切的一個」節點代碼：
+${nodeMenu}
+
+規則：
+- 每題只選一個節點代碼（上方清單第一欄的代碼，如 ${nodes[0].id}）。
+- 選最能代表「這題主要考點」的節點；不確定時選描述最接近的。
+- ⚠ 若真的沒有任何節點貼近這題，nodeId 填 "NA"（寧缺勿濫）。
+題目清單：
+${qLines}
+只輸出 JSON：{"picks":[{"questionId":"...","nodeId":"${nodes[0].id} 或 NA"}]}`
+      try {
+        const nodeText = await callTag(nodePrompt)
+        const nm = nodeText.match(/\{[\s\S]*\}/)
+        if (!nm) continue
+        const picks = (JSON.parse(nm[0]) as { picks?: Array<{ questionId?: string; nodeId?: string }> }).picks ?? []
+        const nodeById = new Map(nodes.map((n) => [n.id, n]))
+        const pickByQ = new Map(picks.map((p) => [String(p.questionId), String(p.nodeId ?? '')]))
+        for (const it of groupItems) {
+          const nid = pickByQ.get(it.questionId)
+          const node = nid ? nodeById.get(nid) : undefined
+          if (node) { it.nodeId = node.id; it.knowledgePoints = [node.name] }
+          // 選不到（NA/找不到）→ 保守：留第一層的 knowledgePoints 或空，不硬塞
+        }
+      } catch (err) {
+        console.warn('[KP第二層] 節點歸類失敗（保留第一層結果）:', code, err)
+      }
+    }
+  }
+
   // ② kpTips（純文字、每知識點一句在家建議）
   const allKps = [...new Set(items.flatMap((it) => it.knowledgePoints))]
   let kpTips: Record<string, string> = {}
