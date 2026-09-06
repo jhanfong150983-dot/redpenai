@@ -15,6 +15,7 @@ import ConceptMasteryTable from './ai-report/components/ConceptMasteryTable'
 import type { StudentMastery, ConceptEntry } from './ai-report/components/ConceptMasteryTable'
 import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
 import ConceptDrillDown from './ai-report/components/ConceptDrillDown'
+import KpBackfillCard from './ai-report/components/KpBackfillCard'
 import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
 
 // 跨班比較（exam-compare 端點的匿名彙總；classCount 之外無任何來源資訊）
@@ -1371,6 +1372,31 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               ) : (
                 // 摘要：班級雷達（點課綱代碼進細節）；跨班比較=切換疊圖（匿名、只在雷達上顯示）
                 <>
+                  {/* 2026-09-06 舊卷/未升級節點的作業 → 雷達旁直接補跑知識點歸類（原本只在家長報告頁）。
+                      條件：選了單一作業、有題目、還沒有第二層 nodeId；且該領域有節點層或整卷根本沒 KP。 */}
+                  {(() => {
+                    const kpQs = itemAnalysisQuestions
+                    if (!selectedAssignmentId || kpQs.length === 0) return null
+                    const domain = assignmentById.get(selectedAssignmentId)?.domain ?? ''
+                    const hasAnyKp = kpQs.some((q) => (q as { analysis?: { topic?: string } }).analysis?.topic)
+                    const hasAnyNode = kpQs.some((q) => (q as { analysis?: { nodeId?: string } }).analysis?.nodeId)
+                    const nodeApplicable = /數學|數|國語|國文|社會|地理|歷史|公民|自然|生物|理化|物理|化學|地球科學|地科/.test(domain)
+                    if (hasAnyNode || !(!hasAnyKp || nodeApplicable)) return null
+                    const kpGrade = (syncData?.classrooms.find((c) => c.id === selectedClassroomId) as { grade?: number } | undefined)?.grade
+                    return (
+                      <KpBackfillCard
+                        assignmentId={selectedAssignmentId}
+                        subject={domain}
+                        questions={kpQs as never}
+                        grade={kpGrade}
+                        requestInk={requestInk}
+                        onSaved={() => setKpReloadTick((t) => t + 1)}
+                        hint={hasAnyKp
+                          ? '這份作業可升級為「知識節點」分類，讓雷達與加強地圖更精準（一次性、全班共用）。'
+                          : '這份作業還沒有知識點歸類（舊卷）——概念雷達會是空的。'}
+                      />
+                    )
+                  })()}
                   {crossData && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
                       <CrossToggle on={crossOn} onToggle={() => setCrossOn((v) => !v)} classCount={crossData.classCount} />
