@@ -7,6 +7,7 @@
 // 聚合鐵律：KP 名稱只在單一作業內有效 → 同名 KP 跨卷不合併（各自成列）；「整體」走 code 層可跨卷。
 import { useMemo, useState } from 'react'
 import { MASTERY_THRESHOLDS } from '@/lib/cap-levels'
+import { ALL_KP_NODES } from '@/data/curriculumNodes'
 
 type AssignmentLike = {
   id: string
@@ -54,6 +55,13 @@ export default function ConceptDrillDown({ code, label, assignments, submissions
 
   const stuById = useMemo(() => new Map(students.map((s) => [s.id, s])), [students])
   const stuName = (s: StudentLike) => `${s.seatNumber != null ? `${s.seatNumber} ` : ''}${s.name ?? ''}`
+
+  // 2026-09-06 節點說明：知識點列的名字＝節點 name（存在 knowledgePoints）、desc 沒進 analysis，
+  //   用節點表反查（限定當前 code、避免跨代碼同名撞）補一行小字說明。舊卷自由命名對不上 → 不顯示。
+  const descByName = useMemo(
+    () => new Map(ALL_KP_NODES.filter((n) => n.code === code).map((n) => [n.name, n.desc])),
+    [code],
+  )
 
   const rows = useMemo<Row[]>(() => {
     // rowKey → 學生 → {got,max}；'__overall__' 為跨卷整體列（code 層可跨卷）、其餘 key=作業|KP（不跨卷合併）
@@ -176,10 +184,12 @@ export default function ConceptDrillDown({ code, label, assignments, submissions
         </div>
       )}
 
-      <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {rows.map((row) => (
+      <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {rows.map((row) => {
+        const desc = row.isOverall ? undefined : descByName.get(row.name)
+        return (
+        <div key={row.id} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <div
-            key={row.id}
             onMouseLeave={() => setHover((h) => (h?.rowId === row.id ? null : h))}
             style={{ display: 'flex', alignItems: 'center', gap: 10, position: 'relative' }}
           >
@@ -242,7 +252,11 @@ export default function ConceptDrillDown({ code, label, assignments, submissions
               )
             })()}
           </div>
-        ))}
+          {desc && (
+            <div style={{ marginLeft: 180, fontSize: 11, color: '#94a3b8', lineHeight: 1.5 }}>{desc}</div>
+          )}
+        </div>
+        )})}
       </div>
     </section>
   )

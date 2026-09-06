@@ -683,12 +683,14 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
       },
     })),
     [crossData])
-  // 下鑽頁的資料範圍與雷達一致（同一組 domain 過濾、取完整 assignment 物件拿 conceptTags/answerKey）
+  // 下鑽頁的資料範圍必須與雷達一致：2026-09-06 雷達改「選了單一作業就只算那份」(conceptMasteryData)，
+  //   但這裡漏跟改→下鑽頁把同領域其他作業也混進來(如選了 1 人 100% 的卷、卻冒出別份 n=32 待加強)。補上選定作業過濾。
   const conceptDrillAssignments = useMemo(() =>
-    classAssignments
-      .filter((a) => !selectedDomain || selectedDomain === '全部' || normalizeDomain(a.domain) === selectedDomain)
-      .map((a) => assignmentById.get(a.id) ?? a),
-    [classAssignments, selectedDomain, assignmentById])
+    (selectedAssignmentId
+      ? classAssignments.filter((a) => a.id === selectedAssignmentId)
+      : classAssignments.filter((a) => !selectedDomain || selectedDomain === '全部' || normalizeDomain(a.domain) === selectedDomain)
+    ).map((a) => assignmentById.get(a.id) ?? a),
+    [classAssignments, selectedDomain, selectedAssignmentId, assignmentById])
 
   const conceptMasteryData = useMemo(() => {
     // 2026-09-06 修：選了特定作業就只算那份（不管跨班開沒開）——否則同領域多份作業(含不同題目、
