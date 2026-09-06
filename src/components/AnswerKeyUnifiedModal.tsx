@@ -2444,12 +2444,17 @@ export default function AnswerKeyUnifiedModal({
                             </div>
                           )}
 
-                          {/* Bucket B: 參考答案 + 可接受答案 */}
+                          {/* Bucket B: 判準/參考答案 + 可接受答案 */}
                           {showAcceptableAnswers && (
                             <div className="space-y-2">
                               <div className="flex items-start gap-2">
-                                <span className="text-gray-500 w-16 shrink-0 mt-1">參考答案</span>
-                                <textarea rows={2} className="flex-1 px-2 py-1 border border-gray-300 rounded" value={selectedQuestion.referenceAnswer ?? ''} onChange={(e) => updateField(selectedIdx, 'referenceAnswer', e.target.value)} />
+                                <span className="text-gray-500 w-16 shrink-0 mt-1">{selectedCategory === 'fill_variants' ? '判準' : '參考答案'}</span>
+                                <div className="flex-1">
+                                  <textarea rows={2} className="w-full px-2 py-1 border border-gray-300 rounded" value={selectedQuestion.referenceAnswer ?? ''} onChange={(e) => updateField(selectedIdx, 'referenceAnswer', e.target.value)} placeholder={selectedCategory === 'fill_variants' ? '一句話描述「什麼樣算對」，例：凡含「明」的合法詞皆可（明天/光明…）' : ''} />
+                                  {selectedCategory === 'fill_variants' && (
+                                    <p className="mt-0.5 text-[11px] text-gray-400">改這一句判準即可，不必逐一列清單；AI 會用它判斷「可接受答案」以外的作答。</p>
+                                  )}
+                                </div>
                               </div>
                               <div>
                                 <div className="flex items-center justify-between mb-1">
