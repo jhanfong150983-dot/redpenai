@@ -1162,7 +1162,7 @@ async function tryKpFromTemplate(assignmentId: string, questions: PRQuestion[]):
     if (!tplId) return null
     const tpl = await db.answerKeyTemplates.get(tplId)
     const ak = tpl?.answerKey as {
-      questions?: Array<{ id?: string; analysis?: { code?: string; topic?: string; knowledgePoints?: string[]; ability?: string; note?: string } }>
+      questions?: Array<{ id?: string; analysis?: { code?: string; topic?: string; knowledgePoints?: string[]; nodeId?: string; ability?: string; note?: string } }>
       kpTips?: Record<string, string>
     } | undefined
     if (!ak?.questions?.length) return null
@@ -1173,6 +1173,7 @@ async function tryKpFromTemplate(assignmentId: string, questions: PRQuestion[]):
       items.push({
         questionId: String(q.id),
         ...(an.code ? { code: an.code } : {}),
+        ...(an.nodeId ? { nodeId: an.nodeId } : {}),
         topic: an.topic,
         knowledgePoints: Array.isArray(an.knowledgePoints) ? an.knowledgePoints : [],
         ...(an.ability ? { ability: an.ability } : {}),
@@ -1181,9 +1182,18 @@ async function tryKpFromTemplate(assignmentId: string, questions: PRQuestion[]):
     }
     const qids = new Set(questions.map((q) => String((q as { id?: unknown }).id ?? '')).filter(Boolean))
     if (!qids.size) return null
-    const covered = items.filter((it) => qids.has(it.questionId)).length
-    if (covered / qids.size < 0.8) return null
-    console.log(`[kp] 模板已有歸類(${covered}/${qids.size} 題)、免跑 AI 直接取用`)
+    const coveredItems = items.filter((it) => qids.has(it.questionId))
+    if (coveredItems.length / qids.size < 0.8) return null
+    // 2026-09-06 舊快取偵測：模板若是「第一層版」（有可掛節點的代碼、卻整份零 nodeId）→ 視為過期、
+    //   回 null 讓上層重跑補第二層。已升級的模板（至少一格有 nodeId）照常免費取用（NA 格無 nodeId 不算過期）。
+    const codesWithNodes = new Set([...ALL_MATH_NODES, ...GUOYU_NODES, ...SOCIAL_NODES, ...ALL_SCIENCE_NODES].map((n) => n.code))
+    const hasNodeLayerCode = coveredItems.some((it) => it.code && codesWithNodes.has(it.code))
+    const hasAnyNodeId = coveredItems.some((it) => it.nodeId)
+    if (hasNodeLayerCode && !hasAnyNodeId) {
+      console.log('[kp] 模板為第一層舊快取（有節點可掛卻零 nodeId）→ 重跑補第二層')
+      return null
+    }
+    console.log(`[kp] 模板已有歸類(${coveredItems.length}/${qids.size} 題)、免跑 AI 直接取用`)
     return { items, kpTips: ak.kpTips ?? {} }
   } catch { return null }
 }
