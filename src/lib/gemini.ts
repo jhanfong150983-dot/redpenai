@@ -6748,6 +6748,54 @@ interface SolveStructureSection {
 const SOLVE_TYPE_MENU =
   'single_choice(單選/配合)、fill_blank(填空/國字注音/列式)、short_answer(簡答/註釋)、true_false(是非)、multi_check(多選勾選)、word_problem(應用題，要求寫出計算過程)、grid_geometry(作圖題)'
 
+// 2026-09-07 Phase 1：題本題型分類統一到 db.ts 的 31 型（權威表：redpenai/docs/題型分類權威表_2026-09-07.md）。
+//   取代舊 7 型 SOLVE_TYPE_MENU；下游 typeBreakdown→questionCategory 不變（早已認得 31 型）。
+//   ⚠ 改分類行為→旗標預設關；跑驗證卷比對 OK 後才改 true 預設開。
+const QTYPE_MENU_V2 = `以下 31 型擇一（權威分類）。判型主準則（純題本＝非純題本共用）：大題標題 ＞ 題幹指示用詞 ＞ 選項結構；非純題本可再用印刷作答格式(括號/□/底線/工作區/答句/表格/圖)確認。判不出單/多 → single_choice。
+
+〔A 標準答案+精確比對〕
+single_choice：選擇/單選；≥2編號選項擇一，或「填代號完成配合」(成語填代號、共用代號庫填多格)
+multi_choice：多選/複選，選多個代號
+circle_select_one：題幹「圈出」、選項就地圈一個(非另寫代號)
+circle_select_many：題幹「圈出所有」，就地圈多個
+single_check：□打勾一個
+multi_check：□打勾多個
+table_check：矩陣表逐列在多欄(Yes/No/頻率)勾一格；整表1題
+true_false：是非/判斷；寫○或✗
+fill_blank：填空/填充；填單一固定值(答案唯一)。⚠有字庫選填但答案唯一仍屬此、非fill_variants
+multi_fill：一題多空、填多值(順序無關)
+table_cell：規則表格內多格填值/計算(統計表算比率/平均)；整表1題
+matching：左右兩欄「連線」配對(一對一/一對多)
+ordering：標順序1..N
+mark_in_text：在連續文章中圈出特定詞(無預列選項)
+
+〔B 標準答案+容多元〕
+fill_variants：造詞/近義詞/解釋單一詞語意思(注釋)/國字注音；答案非唯一、容多說法。⚠標題「注釋」「國字注音」「造詞」→一律此型(不是short_answer/fill_blank)
+map_fill：地圖多位置填地名/國名
+
+〔C Rubric給分〕
+short_answer：簡答/問答/申論；解釋現象或原因/舉例/論述、開放無單一正解。⚠「解釋單一詞語意思」不在此(→fill_variants)
+calculation：算出答案但無故事/人物(純算式，或只給值/邊長求面積等半情境)
+word_problem：含故事或人物的情境文字題，列式求解
+map_symbol：在地圖某位置畫符號(▲★●)
+grid_geometry：格線紙畫幾何圖形
+connect_dots：連指定點成圖
+diagram_draw：畫長條/圓餅等資料圖表(有數值)
+diagram_color：預印圖上塗色/描線/畫記(描柱高/對稱軸)
+
+〔D 複合題·題幹兩段要求、一起評分〕
+compound_circle_with_explain：圈印刷選項+寫理由
+compound_check_with_explain：□打勾+寫理由
+compound_writein_with_explain：寫代號/答案+寫理由
+multi_check_other：勾多個+開放「其他:__」
+compound_judge_with_correction：○/✗+改正錯的內容
+compound_judge_with_explain：對/不對+解釋為什麼
+compound_chain_table：多cell表格、格間連動依存(人物→事件→影響)`
+
+// Phase 1 旗標：驗證卷比對 OK 後改 true → 題本分類改用 31 型。預設關＝維持舊 7 型行為。
+const USE_QTYPE_MENU_V2 = false
+const ACTIVE_TYPE_MENU = USE_QTYPE_MENU_V2 ? QTYPE_MENU_V2 : SOLVE_TYPE_MENU
+
 function buildSolveStructurePrompt(pageCount: number): string {
   return `你是考卷系統的解析引擎。以下是一份考卷的「題目卷」共 ${pageCount} 頁。
 這種考卷有時是分離式：部分大題的題目印在另一張答案卷上，題目卷只有大題標題（例如「一、國字注音（每字1分，共10分，答案請書寫於答案卷）」）。
@@ -6758,7 +6806,7 @@ function buildSolveStructurePrompt(pageCount: number): string {
 - totalScore：該大題總分
 - count：題數——若題目不在題目卷上，就從「每題X分，共Y分」推算
 - questionsInBooklet：true/false——這個大題的題目本身是否印在題目卷上（false = 只有標題，需要請老師補標準答案）
-- questionCategory：這個大題的主要題型，從這個清單選一個——${SOLVE_TYPE_MENU}
+- questionCategory：這個大題的主要題型，從清單選一個——${ACTIVE_TYPE_MENU}
 - typeBreakdown：⚠ 大題內若混多種題型（例如「計算作圖題」＝2 題作圖＋1 題計算），
   必須依卷面順序列出組成：[{"questionCategory":"grid_geometry","count":2},{"questionCategory":"word_problem","count":1}]，
   count 加總須等於大題題數；單一題型的大題可省略此欄
@@ -6778,7 +6826,7 @@ ${idLines}
 
 每一題輸出：
 - id：照清單
-- questionCategory：從這個清單選一個——${SOLVE_TYPE_MENU}
+- questionCategory：從清單選一個——${ACTIVE_TYPE_MENU}
 - answer：標準答案
   ・選擇題：只寫選項代號；⚠ 依卷面實際選項作答——配合題選項可能是 A~J 不只 A~D
   ・要求「列出算式/不等式」的題：只寫式子（用 x 當未知數、<= >= 表示不等號），除非題目也要求解
