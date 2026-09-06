@@ -484,7 +484,8 @@ export interface AnswerKeyTemplate {
   id: string
   name: string
   domain?: string
-  grade?: number // 2026-08-29 年級（1–12）：課綱概念清單/KP 歸類的年段依據、classroom.grade 缺時的備援
+  grade?: number // 年級（1–12）：課綱概念清單/KP 歸類的年段依據。2026-09-06 起「答案卷年級優先於班級年級」——
+  //   符應「二年級寫一年級考卷」(課綱跟考卷走不跟學生走)；此欄無值(舊卷)才 fallback classroom.grade。
   // 2026-09-06 高中數學選修分軌：'A'=數甲/自然學術組、'B'=數乙/社會應用組。
   //   只在 domain='數學' 且 grade≥11 有意義；供 KP 第一層歸類過濾課綱代碼(避免兩軌共有概念亂選)。
   mathTrack?: 'A' | 'B'

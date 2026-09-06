@@ -1298,7 +1298,10 @@ export default function AssignmentSetup({
           : (answerSheetImages.length > 0 ? answerSheetImages.slice() : null)
         if (kpImages) {
           const kpClassroom = classrooms.find(c => c.id === selectedClassroomId)
-          runKpUpgradeInline(assignmentDomain || '學科', assignment.answerKey.questions as never, kpClassroom?.grade, kpImages)
+          // 2026-09-06 KP 年級依「答案卷(模板)」而非班級——符應「二年級寫一年級考卷」；模板無 grade(舊卷)才 fallback 班級
+          const kpTplId = (assignment as { answerKeyTemplateId?: string }).answerKeyTemplateId
+          const kpTplGrade = kpTplId ? (await db.answerKeyTemplates.get(kpTplId) as { grade?: number } | undefined)?.grade : undefined
+          runKpUpgradeInline(assignmentDomain || '學科', assignment.answerKey.questions as never, kpTplGrade ?? kpClassroom?.grade, kpImages)
             .then(async (r) => {
               const tagged = new Map(r.items.map((it) => [it.questionId, it]))
               const cur = await db.assignments.get(assignment.id)
@@ -1824,11 +1827,12 @@ export default function AssignmentSetup({
     // answer_only 模式：從 storage 下載題本給 AI 看題幹；with_questions 模式：用答案卷
     if (editingAnswerAssignment) {
       const classroom = classrooms.find(c => c.id === (editingClassroomId || editingAnswerAssignment.classroomId))
-      // 2026-08-29 B案:班級沒設年級時 fallback 到答案卷模板的年級（新增答案卷 modal 必填欄）
-      const fallbackTemplateGrade = !classroom?.grade && editingAnswerAssignment.answerKeyTemplateId
+      // 2026-09-06 翻轉優先序（user 拍板）：課綱年級依「答案卷(模板)」而非班級——符應「二年級寫一年級考卷」。
+      //   模板 grade 優先、模板無 grade(舊卷)才 fallback 班級 grade。（原為班級優先、模板僅備援）
+      const templateGrade = editingAnswerAssignment.answerKeyTemplateId
         ? (await db.answerKeyTemplates.get(editingAnswerAssignment.answerKeyTemplateId))?.grade
         : undefined
-      const effectiveGrade = classroom?.grade ?? fallbackTemplateGrade
+      const effectiveGrade = templateGrade ?? classroom?.grade
       if (effectiveGrade) {
         const assignmentId = editingAnswerAssignment.id
         const templateId = editingAnswerAssignment.answerKeyTemplateId

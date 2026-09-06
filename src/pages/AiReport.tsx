@@ -500,17 +500,23 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   const [itemAnalysisQuestions, setItemAnalysisQuestions] = useState<ItemAnalysisQuestion[]>([])
   const [itemAnalysisTemplateId, setItemAnalysisTemplateId] = useState('')
   const [itemAnalysisKpTips, setItemAnalysisKpTips] = useState<Record<string, string>>({})  // 2026-07-19 知識點在家建議（answer_key.kpTips）
+  // 2026-09-06 KP 年級依「答案卷(模板)」而非班級——才能符應「二年級寫一年級考卷」。模板無 grade(舊卷)才 fallback 班級。
+  const [itemAnalysisTemplateGrade, setItemAnalysisTemplateGrade] = useState<number | undefined>(undefined)
   const [kpReloadTick, setKpReloadTick] = useState(0)  // 2026-07-22 知識點歸類寫入後重載 questions（Dexie 已更新）
   useEffect(() => {
-    if (!selectedAssignmentId) { setItemAnalysisQuestions([]); setItemAnalysisTemplateId(''); setItemAnalysisKpTips({}); return }
+    if (!selectedAssignmentId) { setItemAnalysisQuestions([]); setItemAnalysisTemplateId(''); setItemAnalysisKpTips({}); setItemAnalysisTemplateGrade(undefined); return }
     db.assignments.get(selectedAssignmentId)
-      .then((a) => {
+      .then(async (a) => {
         const ak = a?.answerKey as { questions?: ItemAnalysisQuestion[]; kpTips?: Record<string, string> } | undefined
         setItemAnalysisQuestions(Array.isArray(ak?.questions) ? ak!.questions! : [])
         setItemAnalysisTemplateId(a?.answerKeyTemplateId ?? '')
         setItemAnalysisKpTips(ak?.kpTips && typeof ak.kpTips === 'object' ? ak.kpTips : {})
+        // KP 年級＝答案卷(模板) grade 優先；模板無 grade(舊卷) → undefined、由使用端 fallback 班級 grade
+        const tplId = a?.answerKeyTemplateId
+        const tpl = tplId ? await db.answerKeyTemplates.get(tplId) : undefined
+        setItemAnalysisTemplateGrade((tpl as { grade?: number } | undefined)?.grade)
       })
-      .catch(() => { setItemAnalysisQuestions([]); setItemAnalysisTemplateId(''); setItemAnalysisKpTips({}) })
+      .catch(() => { setItemAnalysisQuestions([]); setItemAnalysisTemplateId(''); setItemAnalysisKpTips({}); setItemAnalysisTemplateGrade(undefined) })
   }, [selectedAssignmentId, kpReloadTick])
 
   const itemAnalysisSubmissions = useMemo(
@@ -1301,7 +1307,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   fallbackTeacherName={reportBrand?.viewerName}
                   requestInk={requestInk}
                   onKpSaved={() => setKpReloadTick((t) => t + 1)}
-                  grade={(syncData?.classrooms.find((c) => c.id === selectedClassroomId) as { grade?: number } | undefined)?.grade}
+                  grade={itemAnalysisTemplateGrade ?? (syncData?.classrooms.find((c) => c.id === selectedClassroomId) as { grade?: number } | undefined)?.grade}
                 />
               ) : detailsLoading ? detailsLoadingCard : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
@@ -1384,7 +1390,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                     const hasAnyNode = kpQs.some((q) => (q as { analysis?: { nodeId?: string } }).analysis?.nodeId)
                     const nodeApplicable = /數學|數|國語|國文|社會|地理|歷史|公民|自然|生物|理化|物理|化學|地球科學|地科/.test(domain)
                     if (hasAnyNode || !(!hasAnyKp || nodeApplicable)) return null
-                    const kpGrade = (syncData?.classrooms.find((c) => c.id === selectedClassroomId) as { grade?: number } | undefined)?.grade
+                    const kpGrade = itemAnalysisTemplateGrade ?? (syncData?.classrooms.find((c) => c.id === selectedClassroomId) as { grade?: number } | undefined)?.grade
                     return (
                       <KpBackfillCard
                         assignmentId={selectedAssignmentId}
