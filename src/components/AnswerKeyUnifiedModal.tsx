@@ -53,6 +53,20 @@ function hasMultiFillQuestions(q: AnswerKeyQuestion): boolean {
   return getEffectiveCategory(q) === 'multi_fill'
 }
 
+/**
+ * 層級1 顯示子類：把「填空／答案比對家族」用「主類（子類）」呈現，讓老師一眼看懂 AI 判成哪一種。
+ * ⚠ 純顯示——底層 questionCategory 不變、批改路由不變、不新增題型、不需全庫回放。
+ * 子類靠現有訊號推：國字注音＝fill_blank(國語)+單字/注音答案（同 hasVocabFillWarning）。
+ * 選擇/勾選各自獨立桶、不塞進填空家族（避免老師誤會要用寫的）。
+ */
+function getDisplayTypeLabel(q: AnswerKeyQuestion, domain?: string): string {
+  const cat = getEffectiveCategory(q)
+  if (cat === 'fill_blank') return hasVocabFillWarning(q, domain) ? '填空題（國字注音）' : '填空題'
+  if (cat === 'multi_fill') return '填空題（多空）'
+  if (cat === 'fill_variants') return '填空題（多元）'
+  return CATEGORY_LABELS[cat] ?? cat
+}
+
 const rubricLabels = ['優秀', '良好', '尚可', '待努力'] as const
 
 // 2026-05-30: 視覺判斷題（用 vjRubric 逐項看圖判、不用 rubricsDimensions）
@@ -2126,7 +2140,6 @@ export default function AnswerKeyUnifiedModal({
                     </div>
                     <div className="flex-1 overflow-y-auto py-1">
                       {editingKey.questions.map((q, idx) => {
-                        const cat = getEffectiveCategory(q)
                         const vocabWarn = hasVocabFillWarning(q, effectiveDomain)
                         const multiFillWarn = hasMultiFillQuestions(q)
                         const PLACEHOLDER_ANSWERS = ['?', '？', '未知', 'unknown', 'N/A']
@@ -2192,7 +2205,7 @@ export default function AnswerKeyUnifiedModal({
                                 )}
                               </div>
                               <div className={`text-[10px] truncate ${answerMissing ? 'text-red-600 font-semibold' : q.solveDisagreement ? 'text-red-600 font-semibold' : hasWarn ? 'text-orange-600' : 'text-gray-400'}`}>
-                                {answerMissing ? '❌ 缺少標準答案' : q.solveDisagreement ? '⚠ 請優先人工確認' : hasWarn ? (vocabWarn ? '⚠ 請核對注音' : '⚠ 多項填入') : CATEGORY_LABELS[cat]}
+                                {answerMissing ? '❌ 缺少標準答案' : q.solveDisagreement ? '⚠ 請優先人工確認' : hasWarn ? (vocabWarn ? '⚠ 請核對注音' : '⚠ 多項填入') : getDisplayTypeLabel(q, effectiveDomain)}
                               </div>
                             </div>
                           </button>
@@ -2279,7 +2292,7 @@ export default function AnswerKeyUnifiedModal({
                             <div className="flex-1 flex flex-col gap-1">
                               <span className="text-gray-500">題型 <span className="text-[10px] text-gray-400">(由 AI 自動分類)</span></span>
                               <span className="w-full px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-700">
-                                {CATEGORY_LABELS[selectedCategory] ?? selectedCategory}
+                                {getDisplayTypeLabel(selectedQuestion, effectiveDomain)}
                               </span>
                             </div>
                             {scoringMode !== 'unscored' && (
