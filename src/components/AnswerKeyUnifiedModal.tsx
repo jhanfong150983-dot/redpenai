@@ -1269,7 +1269,7 @@ export default function AnswerKeyUnifiedModal({
   }
 
   // ── 級分制（數學應用題）：老師可改「每級幾分」「要素敘述」「容許瑕疵」 ──
-  // 判分方式不開放切換（系統依題型決定），所以這裡沒有任何「改用其他判分方式」的入口。
+  // 判分方式仍依題型自動決定；但 2026-09-07 Phase 3 起「題型」本身開放老師手動修正（見題型 select），改題型＝間接改判分方式。
   const patchLevelRubric = (idx: number, fn: (lr: LevelRubric) => LevelRubric) => {
     setEditingKey((prev) => {
       if (!prev) return prev
