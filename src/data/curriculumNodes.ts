@@ -10,9 +10,12 @@ import { G7_MATH_NODES } from './curriculumNodes.g7math'
 import { G8_MATH_NODES } from './curriculumNodes.g8math'
 import { G9_MATH_NODES } from './curriculumNodes.g9math'
 import { G10_MATH_NODES } from './curriculumNodes.g10math'
+import { G11A_MATH_NODES } from './curriculumNodes.g11A_math'
+import { G12A_MATH_NODES } from './curriculumNodes.g12A_math'
 export type { CurriculumNode, CurriculumCode } from './curriculumNodes.g7math'
 
 export const ALL_MATH_NODES = [
   ...G4_MATH_NODES, ...G5_MATH_NODES, ...G6_MATH_NODES,
   ...G7_MATH_NODES, ...G8_MATH_NODES, ...G9_MATH_NODES, ...G10_MATH_NODES,
+  ...G11A_MATH_NODES, ...G12A_MATH_NODES,
 ]
