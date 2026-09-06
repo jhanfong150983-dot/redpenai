@@ -5,6 +5,7 @@
 
 import { G7_MATH_NODES } from './curriculumNodes.g7math'
 import { G8_MATH_NODES } from './curriculumNodes.g8math'
+import { G9_MATH_NODES } from './curriculumNodes.g9math'
 export type { CurriculumNode, CurriculumCode } from './curriculumNodes.g7math'
 
-export const ALL_MATH_NODES = [...G7_MATH_NODES, ...G8_MATH_NODES]
+export const ALL_MATH_NODES = [...G7_MATH_NODES, ...G8_MATH_NODES, ...G9_MATH_NODES]
