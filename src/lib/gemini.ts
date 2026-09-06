@@ -6752,6 +6752,7 @@ const SOLVE_TYPE_MENU =
 //   取代舊 7 型 SOLVE_TYPE_MENU；下游 typeBreakdown→questionCategory 不變（早已認得 31 型）。
 //   ⚠ 改分類行為→旗標預設關；跑驗證卷比對 OK 後才改 true 預設開。
 const QTYPE_MENU_V2 = `以下 31 型擇一（權威分類）。判型主準則（純題本＝非純題本共用）：大題標題 ＞ 題幹指示用詞 ＞ 選項結構；非純題本可再用印刷作答格式(括號/□/底線/工作區/答句/表格/圖)確認。判不出單/多 → single_choice。
+⚠ 同一標題大題以「單一 questionCategory」為主，不要逐小題把「填充/選擇」細拆成 calc/word 等；只有卷面明顯混不同作答形式(如「計算作圖題」)才用 typeBreakdown。
 
 〔A 標準答案+精確比對〕
 single_choice：選擇/單選；≥2編號選項擇一，或「填代號完成配合」(成語填代號、共用代號庫填多格)
@@ -6762,7 +6763,7 @@ single_check：□打勾一個
 multi_check：□打勾多個
 table_check：矩陣表逐列在多欄(Yes/No/頻率)勾一格；整表1題
 true_false：是非/判斷；寫○或✗
-fill_blank：填空/填充；填單一固定值(答案唯一)。⚠有字庫選填但答案唯一仍屬此、非fill_variants
+fill_blank：填空/填充；填單一固定值(答案唯一)。⚠有字庫選填但答案唯一仍屬此、非fill_variants。⚠數學「填充題」只填數值答案、未要求列出算式→整個大題仍是 fill_blank，不可拆成 calculation/word_problem
 multi_fill：一題多空、填多值(順序無關)
 table_cell：規則表格內多格填值/計算(統計表算比率/平均)；整表1題
 matching：左右兩欄「連線」配對(一對一/一對多)
@@ -6778,9 +6779,9 @@ short_answer：簡答/問答/申論；解釋現象或原因/舉例/論述、開�
 calculation：算出答案但無故事/人物(純算式，或只給值/邊長求面積等半情境)
 word_problem：含故事或人物的情境文字題，列式求解
 map_symbol：在地圖某位置畫符號(▲★●)
-grid_geometry：格線紙畫幾何圖形
+grid_geometry：數學作圖題——畫幾何圖形/垂直線/對稱軸/柱高等。⚠標題「作圖」預設此型，非 diagram_draw
 connect_dots：連指定點成圖
-diagram_draw：畫長條/圓餅等資料圖表(有數值)
+diagram_draw：僅限畫「統計資料圖表」(長條圖/圓餅圖，有數值/比率)——非數學幾何作圖
 diagram_color：預印圖上塗色/描線/畫記(描柱高/對稱軸)
 
 〔D 複合題·題幹兩段要求、一起評分〕
@@ -6792,8 +6793,8 @@ compound_judge_with_correction：○/✗+改正錯的內容
 compound_judge_with_explain：對/不對+解釋為什麼
 compound_chain_table：多cell表格、格間連動依存(人物→事件→影響)`
 
-// Phase 1 旗標：驗證卷比對 OK 後改 true → 題本分類改用 31 型。預設關＝維持舊 7 型行為。
-const USE_QTYPE_MENU_V2 = false
+// Phase 1 旗標：驗證卷（國語+數學）比對通過 → 開。kill-switch：改回 false 即回舊 7 型。
+const USE_QTYPE_MENU_V2 = true
 const ACTIVE_TYPE_MENU = USE_QTYPE_MENU_V2 ? QTYPE_MENU_V2 : SOLVE_TYPE_MENU
 
 function buildSolveStructurePrompt(pageCount: number): string {
