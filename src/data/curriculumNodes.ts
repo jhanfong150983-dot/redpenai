@@ -3,10 +3,16 @@
 //   按 code 分組時天然分開，第一層選對代碼、第二層就落到對的年級節點。
 //   ⚠ 加新年級：建 curriculumNodes.gNmath.ts → 在此併入 ALL_MATH_NODES 即可。
 
+import { G4_MATH_NODES } from './curriculumNodes.g4math'
+import { G5_MATH_NODES } from './curriculumNodes.g5math'
 import { G6_MATH_NODES } from './curriculumNodes.g6math'
 import { G7_MATH_NODES } from './curriculumNodes.g7math'
 import { G8_MATH_NODES } from './curriculumNodes.g8math'
 import { G9_MATH_NODES } from './curriculumNodes.g9math'
+import { G10_MATH_NODES } from './curriculumNodes.g10math'
 export type { CurriculumNode, CurriculumCode } from './curriculumNodes.g7math'
 
-export const ALL_MATH_NODES = [...G6_MATH_NODES, ...G7_MATH_NODES, ...G8_MATH_NODES, ...G9_MATH_NODES]
+export const ALL_MATH_NODES = [
+  ...G4_MATH_NODES, ...G5_MATH_NODES, ...G6_MATH_NODES,
+  ...G7_MATH_NODES, ...G8_MATH_NODES, ...G9_MATH_NODES, ...G10_MATH_NODES,
+]
