@@ -604,7 +604,7 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
               onClick={() => {
                 // 2026-09-06 預設＝頂端細標題列（貼上緣、小字）：當題號/提示抬頭，下方整塊留給學生作答、不擠壓作答區。
                 //   要別的位置/字級再用對齊工具與字級選單細調。多個方塊沿頂端往右錯開、不往下吃作答空間。
-                onTextsChange([...texts, { text: '', size: 's', xMm: +(1.5 + texts.length * 2.5).toFixed(1), yMm: 0.8 }])
+                onTextsChange([...texts, { text: '', size: 's', xMm: +(0.8 + texts.length * 2.5).toFixed(1), yMm: 0.8 }])
                 setSelected(texts.length)
               }}
               className="w-full text-xs px-2 py-1.5 rounded border text-blue-600 border-blue-300 hover:bg-blue-50 text-left"
