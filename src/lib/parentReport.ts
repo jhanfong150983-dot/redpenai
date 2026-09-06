@@ -4,7 +4,7 @@
 //   永遠對應最新批改、重批不需重生；「為什麼錯」的解讀歸老師專業——AI 逐題診斷與評語草擬已移除。
 //   唯一留在此檔的 AI 呼叫＝知識點歸類（runKpUpgrade 系列；新卷建卷預跑、舊卷報告頁補跑）。
 //   PDF 產出沿用原 correctionNoticePdf 骨架（html2canvas→jsPDF、系統中文字型、每生一頁；該檔已於 2026-08-12 退役刪除）。
-import { ALL_MATH_NODES } from '@/data/curriculumNodes'
+import { ALL_MATH_NODES, GUOYU_NODES } from '@/data/curriculumNodes'
 
 import { ensureInkSessionFresh } from '@/lib/ink-session'
 import { MASTERY_THRESHOLDS, capLevelDesc, CAP_LEVEL_DISCLAIMER } from '@/lib/cap-levels'
@@ -1053,15 +1053,18 @@ ${ansList}
       }
     }
   }
-  // ── 第二層（2026-09-06）：數學科 → 依第一層 code 選「知識節點」──────────────
+  // ── 第二層（2026-09-06）：數學/國語 → 依第一層 code 選「知識節點」──────────────
   //   收斂搜尋空間：每題只在「所選課綱代碼」底下的節點裡選一個（3~9 選 1）。
   //   節點 name 當 knowledgePoints、node.id 存 nodeId；選不到保守留空（不污染標準節點）。
-  //   節點表＝自研 curriculumNodes（課綱代碼/ID 為事實識別碼、描述改寫）。目前僅七年級數學有表。
+  //   節點表＝自研 curriculumNodes（課綱代碼/ID 為事實識別碼、描述改寫）。
+  //   數學：全學制全軌；國語：精選版(詞義/標點/句型/修辭/推論、掛學習內容代碼、Ⅱ/Ⅲ/Ⅳ)。
   const isMath = /數學|數/.test(subj)
-  if (isMath) {
-    // 按第一層 code 分組（只處理表內有節點的 code）
-    const nodesByCode = new Map<string, typeof ALL_MATH_NODES>()
-    for (const n of ALL_MATH_NODES) {
+  const isGuoyu = /國語|國文/.test(subj)
+  if (isMath || isGuoyu) {
+    // 按第一層 code 分組（只處理表內有節點的 code）——數學/國語各用自己的節點池(代碼不衝突)
+    const pool = isMath ? ALL_MATH_NODES : GUOYU_NODES
+    const nodesByCode = new Map<string, typeof pool>()
+    for (const n of pool) {
       if (!nodesByCode.has(n.code)) nodesByCode.set(n.code, [])
       nodesByCode.get(n.code)!.push(n)
     }
@@ -1085,7 +1088,7 @@ ${ansList}
         const q = qById2.get(it.questionId)
         return `${it.questionId}｜答案：${(q ? resolveStdAnswer(q) : '') || '(無)'}${it.note ? '｜' + it.note : ''}`
       }).join('\n')
-      const nodePrompt = `你是台灣國中數學老師。以下這些題目都屬於課綱代碼「${code}」。
+      const nodePrompt = `你是台灣國中${subj}老師。以下這些題目都屬於課綱代碼「${code}」。
 請為每一題，從這個代碼底下的「知識節點」清單中選出「最貼切的一個」節點代碼：
 ${nodeMenu}
 

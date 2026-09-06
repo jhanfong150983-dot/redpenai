@@ -14,6 +14,7 @@ import { G11A_MATH_NODES } from './curriculumNodes.g11A_math'
 import { G11B_MATH_NODES } from './curriculumNodes.g11B_math'
 import { G12A_MATH_NODES } from './curriculumNodes.g12A_math'
 import { G12B_MATH_NODES } from './curriculumNodes.g12B_math'
+import { GUOYU_NODES } from './curriculumNodes.guoyu'
 export type { CurriculumNode, CurriculumCode } from './curriculumNodes.g7math'
 
 export const ALL_MATH_NODES = [
@@ -21,3 +22,9 @@ export const ALL_MATH_NODES = [
   ...G7_MATH_NODES, ...G8_MATH_NODES, ...G9_MATH_NODES, ...G10_MATH_NODES,
   ...G11A_MATH_NODES, ...G11B_MATH_NODES, ...G12A_MATH_NODES, ...G12B_MATH_NODES,
 ]
+
+/** 國語精選節點（掛學習內容代碼；第二層用） */
+export { GUOYU_NODES } from './curriculumNodes.guoyu'
+
+/** 第二層節點總池（數學＋國語，代碼不衝突→依代碼分組天然分開） */
+export const ALL_KP_NODES = [...ALL_MATH_NODES, ...GUOYU_NODES]
