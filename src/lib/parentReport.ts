@@ -909,9 +909,10 @@ function curatedSubjectSpec(subj: string, grade?: number): { spec: string; rules
 
 // 2026-07-22：concept_map 表有全科 7~9 年級課綱條文（3,376 筆）——沒有固定清單的科目/年級
 // 從 /api/data/concept-map 動態組清單（code｜label 當短名）；抓不到才 fallback 自由命名版。
-async function fetchDynamicSpec(grade: number, domain: string): Promise<string | null> {
+async function fetchDynamicSpec(grade: number, domain: string, track?: 'A' | 'B'): Promise<string | null> {
   try {
     const params = new URLSearchParams({ grade: String(grade), domain })
+    if (track && grade >= 11) params.set('track', track)
     const res = await fetch(`/api/data/concept-map?${params.toString()}`, { credentials: 'include' })
     if (!res.ok) return null
     const json = (await res.json().catch(() => null)) as { items?: Array<{ code?: string; label?: string; description?: string }> } | null
@@ -953,6 +954,7 @@ async function runKpUpgradeCore(
   grade: number | undefined,
   callTag: (prompt: string) => Promise<string>,
   callTips: (prompt: string) => Promise<string>,
+  track?: 'A' | 'B',
 ): Promise<KpUpgradeResult> {
   const qs = questions.filter((q) => String(q.id ?? '').trim())
   if (!qs.length) throw new Error('此作業沒有題目')
@@ -960,7 +962,7 @@ async function runKpUpgradeCore(
   const subj = subject || '學科'
   let subjectSpec = curatedSubjectSpec(subj.trim(), grade)
   if (!subjectSpec && grade) {
-    const dyn = await fetchDynamicSpec(grade, subj.trim())
+    const dyn = await fetchDynamicSpec(grade, subj.trim(), track)
     if (dyn) subjectSpec = { spec: dyn, rules: KP_RULES_GENERIC }
   }
   const codeSpec = subjectSpec?.spec
@@ -1166,11 +1168,12 @@ async function tryKpFromTemplate(assignmentId: string, questions: PRQuestion[]):
 }
 
 // 報告端入口:先查模板(免費)、沒有才跑 AI;之後 ③ kp-save 寫入 server(外科手術合併、owner 驗證)
-export async function runKpUpgrade(assignmentId: string, subject: string, questions: PRQuestion[], grade?: number): Promise<KpUpgradeResult> {
+export async function runKpUpgrade(assignmentId: string, subject: string, questions: PRQuestion[], grade?: number, track?: 'A' | 'B'): Promise<KpUpgradeResult> {
   const result = (await tryKpFromTemplate(assignmentId, questions)) ?? await runKpUpgradeCore(
     subject, questions, grade,
     (prompt) => callKpRoute(prompt, assignmentId, true),
     (prompt) => callKpRoute(prompt, assignmentId, false),
+    track,
   )
   const saveRes = await fetch('/api/report/kp-save', {
     method: 'POST',
@@ -1197,7 +1200,7 @@ function kpBlobToBase64(blob: Blob): Promise<string> {
     reader.readAsDataURL(blob)
   })
 }
-export async function runKpUpgradeInline(subject: string, questions: PRQuestion[], grade: number | undefined, images: Blob[]): Promise<KpUpgradeResult> {
+export async function runKpUpgradeInline(subject: string, questions: PRQuestion[], grade: number | undefined, images: Blob[], track?: 'A' | 'B'): Promise<KpUpgradeResult> {
   const imageParts = await Promise.all(images.map(async (img) => ({
     inlineData: { mimeType: img.type || 'image/jpeg', data: await kpBlobToBase64(img) },
   })))
@@ -1221,7 +1224,7 @@ export async function runKpUpgradeInline(subject: string, questions: PRQuestion[
       .map((pt) => (typeof pt?.text === 'string' ? pt.text : ''))
       .join('')
   }
-  return runKpUpgradeCore(subject, questions, grade, call(true), call(false))
+  return runKpUpgradeCore(subject, questions, grade, call(true), call(false), track)
 }
 
 // ── 本地儲存：報告抬頭設定（老師個人、偏好設定頁維護）＋ 老師編輯過的評語（依作業快取） ──

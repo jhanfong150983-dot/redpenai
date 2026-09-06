@@ -113,6 +113,7 @@ interface MetadataDraft {
   grade?: number
   subjectLabel?: string
   domain?: string
+  mathTrack?: 'A' | 'B'
   answerSheetMode?: 'with_questions' | 'answer_only'
 }
 function readMetadataDraft(): MetadataDraft | null {
@@ -183,6 +184,8 @@ export interface AnswerKeyUnifiedModalProps {
     questionBookletBlobs: Blob[]
     /** 2026-08-29 年級（1–12），存進模板供課綱/KP 使用；editMode 沿用既有值 */
     grade?: number
+    /** 2026-09-06 高中數學選修分軌：'A'=數甲、'B'=數乙；供 KP 第一層歸類過濾課綱代碼 */
+    mathTrack?: 'A' | 'B'
     /** 這次編輯是否重新解析過。重新解析＝產生新版本答案卷，不覆蓋原本那份 */
     reextracted?: boolean
     generatedSheet?: GeneratedSheetData
@@ -193,6 +196,7 @@ export interface AnswerKeyUnifiedModalProps {
   initialTitle?: string
   initialDomain?: string
   initialGrade?: number
+  initialMathTrack?: 'A' | 'B'
   initialDocType?: 'worksheet' | 'exam'
   initialFolder?: string
   initialAnswerSheetMode?: 'with_questions' | 'answer_only'
@@ -216,6 +220,7 @@ export default function AnswerKeyUnifiedModal({
   onClose,
   onExtract,
   onSave,
+  initialMathTrack,
   editMode = false,
   initialTitle = '',
   initialDomain = '',
@@ -295,6 +300,8 @@ export default function AnswerKeyUnifiedModal({
   //   grade/subjectLabel 只給 UI 與範本列印用；存檔一律存傘狀 domain（社會-歷史→社會），
   //   因為 server 批改管線寫死 domain === '社會'/'自然' 等分支，細科目直接存會掉出既有規則。
   const [grade, setGrade] = useState<number | ''>(initialGrade ?? draft?.grade ?? '')
+  // 2026-09-06 高中數學選修分軌（僅 domain='數學' 且 grade≥11 顯示/有意義）
+  const [mathTrack, setMathTrack] = useState<'A' | 'B' | ''>(initialMathTrack ?? draft?.mathTrack ?? '')
   const [subjectLabel, setSubjectLabel] = useState(() => {
     // 草稿的科目要仍在該年級的清單裡才還原（清單改版防呆）
     if (!draft?.subjectLabel || draft?.grade == null) return ''
@@ -329,16 +336,18 @@ export default function AnswerKeyUnifiedModal({
         grade: grade === '' ? undefined : grade,
         subjectLabel,
         domain,
+        mathTrack: mathTrack || undefined,
         answerSheetMode
       }
       localStorage.setItem(METADATA_DRAFT_KEY, JSON.stringify(payload))
     } catch { /* noop */ }
-  }, [editMode, title, grade, subjectLabel, domain, answerSheetMode])
+  }, [editMode, title, grade, subjectLabel, domain, mathTrack, answerSheetMode])
 
   const handleClearDraft = () => {
     clearMetadataDraft()
     setTitle('')
     setGrade('')
+    setMathTrack('')
     setSubjectLabel('')
     setDomain('')
     setAnswerSheetMode('with_questions')
@@ -966,7 +975,7 @@ export default function AnswerKeyUnifiedModal({
       void db.genSheetDrafts.put({
         id: 'current',
         savedAt: Date.now(),
-        metadata: { title, domain, grade: grade === '' ? undefined : grade, folder },
+        metadata: { title, domain, grade: grade === '' ? undefined : grade, mathTrack: mathTrack || undefined, folder },
         bookletBlobs: blobs,
         answerKey: editingKey,
         makerState,
@@ -1002,6 +1011,7 @@ export default function AnswerKeyUnifiedModal({
         setTitle(draft.metadata.title)
         setDomain(draft.metadata.domain)
         if (draft.metadata.grade != null) setGrade(draft.metadata.grade)
+        if ((draft.metadata as { mathTrack?: 'A' | 'B' }).mathTrack) setMathTrack((draft.metadata as { mathTrack?: 'A' | 'B' }).mathTrack!)
         const pages = draft.bookletBlobs.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) }))
         setBookletPages(pages)
         setEditingKey(draft.answerKey)
@@ -1404,6 +1414,7 @@ export default function AnswerKeyUnifiedModal({
         answerSheetMode,
         questionBookletBlobs: finalBookletBlobs,
         grade: grade === '' ? undefined : grade,
+        mathTrack: (domainValue === '數學' && grade !== '' && grade >= 11 && mathTrack) ? mathTrack : undefined,
         reextracted: didReextract,
         generatedSheet,
         generatedSheetPdf,
@@ -1688,6 +1699,38 @@ export default function AnswerKeyUnifiedModal({
                       </select>
                     )}
                   </div>
+
+                  {/* 2026-09-06 高中數學選修分軌：只在 數學 且 高二/高三 出現。
+                      A軌=數甲(自然/學術組)、B軌=數乙(社會/應用組)——供 KP 第一層歸類只選對軌代碼、雷達不裂軸。 */}
+                  {domain === '數學' && grade !== '' && grade >= 11 && (
+                    <div>
+                      <label className="block text-base font-semibold text-gray-800 mb-2">
+                        數學選修軌 <span className="text-xs font-normal text-slate-500">（高中選修，影響知識點歸類）</span>
+                      </label>
+                      <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
+                        {([
+                          ['A', '數甲（A軌）'],
+                          ['B', '數乙（B軌）'],
+                        ] as const).map(([val, label], i) => (
+                          <button
+                            key={val}
+                            type="button"
+                            onClick={() => setMathTrack((prev) => (prev === val ? '' : val))}
+                            className={`px-4 py-2 text-sm font-medium transition-colors ${i > 0 ? 'border-l border-gray-300' : ''} ${
+                              mathTrack === val ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">
+                        {mathTrack === 'A' ? '自然組取向（數甲）：完整向量、行列式、微積分等。'
+                          : mathTrack === 'B' ? '社會組取向（數乙）：矩陣資料表格、週期/成長模型等。'
+                          : '未選＝不分軌（歸類時兩軌代碼都可能被選；建議選定以免雷達裂軸）。'}
+                      </p>
+                    </div>
+                  )}
 
                   {/* 答案卷模式 — 卡片式選擇器（生成流程整塊隱藏：模式固定、公版 Word 範本由生成作答卷取代） */}
                   <div className={GENERATED_SHEET_STEP_ENABLED && !editMode ? 'hidden' : undefined}>

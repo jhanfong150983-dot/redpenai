@@ -107,6 +107,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const [editingTitle, setEditingTitle] = useState('')
   const [editingDomain, setEditingDomain] = useState('')
   const [editingGrade, setEditingGrade] = useState<number | undefined>(undefined)
+  const [editingMathTrack, setEditingMathTrack] = useState<'A' | 'B' | undefined>(undefined)
   const [editingDocType, setEditingDocType] = useState<'worksheet' | 'exam'>('worksheet')
   const [editingFolder, setEditingFolder] = useState('')
   const [editingAnswerSheetMode, setEditingAnswerSheetMode] = useState<'with_questions' | 'answer_only'>('with_questions')
@@ -689,6 +690,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
     folder: string; answerSheetMode: 'with_questions' | 'answer_only'
     questionBookletBlobs: Blob[]
     grade?: number
+    mathTrack?: 'A' | 'B'
     reextracted?: boolean
     generatedSheet?: import('../lib/answerSheetGenerator').GeneratedSheetData
     generatedSheetPdf?: Blob
@@ -713,6 +715,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         docType: metadata.docType, answerSheetMode: metadata.answerSheetMode,
         folder: metadata.folder || undefined, updatedAt: now,
         ...(metadata.grade != null ? { grade: metadata.grade } : {}),
+        ...(metadata.mathTrack ? { mathTrack: metadata.mathTrack } : {}),
         ...(metadata.generatedSheet ? { generatedSheet: metadata.generatedSheet } : {}),
         ...(answerKeyChanged ? { version: currentVersion + 1 } : {}),
       })
@@ -744,6 +747,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         name: displayTitle,
         domain: metadata.domain,
         grade: metadata.grade,
+        mathTrack: metadata.mathTrack,
         docType: metadata.docType,
         answerSheetMode: metadata.answerSheetMode,
         folder: metadata.folder || undefined,
@@ -775,7 +779,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
           : (imageBlobs.length > 0 ? imageBlobs.slice() : null)
         if (kpImages) {
           // 2026-08-29 帶年級：有年級才撈得到對的課綱清單（原本 undefined→數學硬吃七年級 spec、其他科走自由命名）
-          runKpUpgradeInline(metadata.domain || '學科', answerKey.questions as never, metadata.grade, kpImages)
+          runKpUpgradeInline(metadata.domain || '學科', answerKey.questions as never, metadata.grade, kpImages, metadata.mathTrack)
             .then(async (r) => {
               const tagged = new Map(r.items.map((it) => [it.questionId, it]))
               const cur = await db.answerKeyTemplates.get(templateId)
@@ -841,6 +845,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
     setEditingTitle(t.name)
     setEditingDomain(t.domain || '')
     setEditingGrade(t.grade)
+    setEditingMathTrack(t.mathTrack)
     setEditingDocType((t.docType as 'worksheet' | 'exam') || 'worksheet')
     setEditingFolder(t.folder || '')
     setEditingAnswerSheetMode((t.answerSheetMode as 'with_questions' | 'answer_only') || 'with_questions')
@@ -994,7 +999,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             <Plus className="w-4 h-4" />建立資料夾
           </Button>
           <Button type="button" variant="primary"
-            onClick={() => { setEditingTemplateId(null); setEditingAnswerKey(null); setEditingTitle(''); setEditingDomain(''); setEditingGrade(undefined); setEditingDocType('worksheet'); setEditingFolder(''); setEditingAnswerSheetMode('with_questions'); setEditingAnswerSheetImages([]); setShowUnifiedModal(true) }}
+            onClick={() => { setEditingTemplateId(null); setEditingAnswerKey(null); setEditingTitle(''); setEditingDomain(''); setEditingGrade(undefined); setEditingMathTrack(undefined); setEditingDocType('worksheet'); setEditingFolder(''); setEditingAnswerSheetMode('with_questions'); setEditingAnswerSheetImages([]); setShowUnifiedModal(true) }}
           >
             <Plus className="h-4 w-4" />新增答案卷
           </Button>
@@ -1029,7 +1034,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             <div className="py-12 text-center">
               <BookOpen className="mx-auto h-12 w-12 text-slate-300" />
               <p className="mt-4 text-sm font-medium text-slate-500">尚未建立任何答案卷</p>
-              <button type="button" onClick={() => { setEditingTemplateId(null); setEditingAnswerKey(null); setEditingTitle(''); setEditingDomain(''); setEditingGrade(undefined); setEditingDocType('worksheet'); setEditingFolder(''); setEditingAnswerSheetMode('with_questions'); setEditingAnswerSheetImages([]); setShowUnifiedModal(true) }}
+              <button type="button" onClick={() => { setEditingTemplateId(null); setEditingAnswerKey(null); setEditingTitle(''); setEditingDomain(''); setEditingGrade(undefined); setEditingMathTrack(undefined); setEditingDocType('worksheet'); setEditingFolder(''); setEditingAnswerSheetMode('with_questions'); setEditingAnswerSheetImages([]); setShowUnifiedModal(true) }}
                 className="mt-3 inline-flex items-center gap-2 rounded-lg border border-green-300 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-50">
                 <FileUp className="h-4 w-4" />上傳答案卷圖片
               </button>
@@ -1159,6 +1164,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
           initialTitle={editingTitle}
           initialDomain={editingDomain}
           initialGrade={editingGrade}
+          initialMathTrack={editingMathTrack}
           initialDocType={editingDocType}
           initialFolder={editingFolder}
           initialAnswerSheetMode={editingAnswerSheetMode}

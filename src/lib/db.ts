@@ -485,6 +485,9 @@ export interface AnswerKeyTemplate {
   name: string
   domain?: string
   grade?: number // 2026-08-29 年級（1–12）：課綱概念清單/KP 歸類的年段依據、classroom.grade 缺時的備援
+  // 2026-09-06 高中數學選修分軌：'A'=數甲/自然學術組、'B'=數乙/社會應用組。
+  //   只在 domain='數學' 且 grade≥11 有意義；供 KP 第一層歸類過濾課綱代碼(避免兩軌共有概念亂選)。
+  mathTrack?: 'A' | 'B'
   docType?: 'worksheet' | 'exam'
   answerSheetMode?: 'with_questions' | 'answer_only'
   folder?: string
@@ -851,7 +854,7 @@ export interface GradebookCustomScore {
 export interface GenSheetDraft {
   id: string
   savedAt: number
-  metadata: { title: string; domain: string; grade?: number; folder: string }
+  metadata: { title: string; domain: string; grade?: number; mathTrack?: 'A' | 'B'; folder: string }
   /** 題本頁（已套旋轉排序的 blob） */
   bookletBlobs: Blob[]
   /** 結構推斷骨架（editingKey） */
