@@ -5,7 +5,7 @@
 //   v1 調整能力＝參數化（不做自由拖格——與單頁保證/排版決定性相衝，v2 再評估）。
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X } from 'lucide-react'
+import { X, AlignLeft, AlignCenter, AlignRight, ArrowUpToLine, AlignVerticalJustifyCenter, ArrowDownToLine } from 'lucide-react'
 import {
   generateAnswerSheet,
   type GenBaseImage,
@@ -506,6 +506,25 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
 
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
+  // 2026-09-06 對齊工具：依文字方塊實測寬高，把 xMm/yMm snap 到格內對齊位置（水平左/中/右、垂直上/中/下）。
+  //   讓老師一鍵對齊、每格一致（文字用自由座標定位，對齊＝重算座標）。
+  const alignText = (i: number, axis: 'h' | 'v', where: 'start' | 'center' | 'end') => {
+    const t = texts[i]
+    const pad = 1.5
+    const fs = sizeMm(t) * k
+    const wMm = (Math.max(measureTextPx(t.text || '輸入文字', fs), 20) + 12) / k // 方塊外寬(含 padding/border)換算 mm
+    const hMm = sizeMm(t) * 1.1 + 6 / k
+    onTextsChange(texts.map((x, j) => {
+      if (j !== i) return x
+      if (axis === 'h') {
+        const xMm = where === 'start' ? pad : where === 'center' ? (cellWMm - wMm) / 2 : cellWMm - wMm - pad
+        return { ...x, xMm: +clamp(xMm, 0, cellWMm - 4).toFixed(1) }
+      }
+      const yMm = where === 'start' ? pad : where === 'center' ? (cellHMm - hMm) / 2 : cellHMm - hMm - pad
+      return { ...x, yMm: +clamp(yMm, 0, cellHMm - 3).toFixed(1) }
+    }))
+  }
+
   const onPointerMove = (e: React.PointerEvent) => {
     const d = dragRef.current
     if (!d) return
@@ -681,7 +700,7 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
                   }}
                 />
                 {selected === i && (
-                  <div className="absolute -top-7 left-0 flex items-center gap-1 bg-white border rounded shadow px-1 py-0.5">
+                  <div className="absolute -top-7 left-0 flex items-center gap-0.5 bg-white border rounded shadow px-1 py-0.5 whitespace-nowrap">
                     <select
                       value={t.size ?? 'm'}
                       onChange={(e) => onTextsChange(texts.map((x, j) => (j === i ? { ...x, size: e.target.value as GenCellText['size'] } : x)))}
@@ -692,6 +711,27 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
                       <option value="m">中</option>
                       <option value="l">大</option>
                     </select>
+                    <span className="mx-0.5 w-px h-4 bg-gray-200" />
+                    {/* 水平對齊 */}
+                    {([['start', AlignLeft, '水平置左'], ['center', AlignCenter, '水平置中'], ['end', AlignRight, '水平置右']] as const).map(([w, Icon, tip]) => (
+                      <button key={`h-${w}`} type="button" title={tip}
+                        className="p-0.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => alignText(i, 'h', w)}>
+                        <Icon className="w-3.5 h-3.5" />
+                      </button>
+                    ))}
+                    <span className="mx-0.5 w-px h-4 bg-gray-200" />
+                    {/* 垂直對齊 */}
+                    {([['start', ArrowUpToLine, '垂直置上'], ['center', AlignVerticalJustifyCenter, '垂直置中'], ['end', ArrowDownToLine, '垂直置下']] as const).map(([w, Icon, tip]) => (
+                      <button key={`v-${w}`} type="button" title={tip}
+                        className="p-0.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => alignText(i, 'v', w)}>
+                        <Icon className="w-3.5 h-3.5" />
+                      </button>
+                    ))}
+                    <span className="mx-0.5 w-px h-4 bg-gray-200" />
                     <button
                       type="button"
                       className="text-xs text-red-500 px-1"
