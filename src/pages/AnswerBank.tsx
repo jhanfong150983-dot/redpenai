@@ -908,6 +908,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
         <div className="flex items-center gap-1.5">
           {editingTitleId === t.id ? (
             <input autoFocus={shouldAutoFocusOnDesktop()} type="text" value={editingTitleValue}
+              draggable={false}
+              // 卡片在可拖曳的資料夾容器內：在輸入框拖曳選字時，瀏覽器會改拖最近的可拖曳祖先(資料夾)。
+              //   攔截 dragstart→preventDefault 取消拖曳、讓輸入框原生選字生效(卡片自身 draggable 已 false 不夠、要擋祖先)。
+              onDragStart={(e) => { e.preventDefault(); e.stopPropagation() }}
               onChange={(e) => setEditingTitleValue(e.target.value)}
               onBlur={() => void saveEditTitle(t.id)}
               onKeyDown={(e) => { if (e.key === 'Enter') void saveEditTitle(t.id); else if (e.key === 'Escape') setEditingTitleId(null) }}
