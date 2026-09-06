@@ -21,6 +21,8 @@ import { PHYSCHEM_NODES } from './curriculumNodes.physchem'
 import { EARTHSCI_NODES } from './curriculumNodes.earthsci'
 import { HSBIO_NODES } from './curriculumNodes.hsbio'
 import { HSCHEM_NODES } from './curriculumNodes.hschem'
+import { HSPHYS_NODES } from './curriculumNodes.hsphys'
+import { HSEARTH_NODES } from './curriculumNodes.hsearth'
 export type { CurriculumNode, CurriculumCode } from './curriculumNodes.g7math'
 /** 國語精選節點（掛學習內容代碼；第二層用） */
 export { GUOYU_NODES } from './curriculumNodes.guoyu'
@@ -32,8 +34,14 @@ export { PHYSCHEM_NODES } from './curriculumNodes.physchem'
 export { EARTHSCI_NODES } from './curriculumNodes.earthsci'
 export { HSBIO_NODES } from './curriculumNodes.hsbio'
 export { HSCHEM_NODES } from './curriculumNodes.hschem'
-/** 自然科第二層總池（國中生物/理化/地科 + 高中生物/化學，代碼不衝突：國中無前綴、高中生物 B*、高中化學 C*） */
-export const ALL_SCIENCE_NODES = [...SCIENCE_NODES, ...PHYSCHEM_NODES, ...EARTHSCI_NODES, ...HSBIO_NODES, ...HSCHEM_NODES]
+export { HSPHYS_NODES } from './curriculumNodes.hsphys'
+export { HSEARTH_NODES } from './curriculumNodes.hsearth'
+/** 自然科第二層總池（國中生物/理化/地科 + 高中生物/化學/物理/地科）。
+ *  代碼零交集：國中無前綴、高中生物 B*、化學 C*、物理 P*、地科 E*。 */
+export const ALL_SCIENCE_NODES = [
+  ...SCIENCE_NODES, ...PHYSCHEM_NODES, ...EARTHSCI_NODES,
+  ...HSBIO_NODES, ...HSCHEM_NODES, ...HSPHYS_NODES, ...HSEARTH_NODES,
+]
 
 export const ALL_MATH_NODES = [
   ...G4_MATH_NODES, ...G5_MATH_NODES, ...G6_MATH_NODES,
