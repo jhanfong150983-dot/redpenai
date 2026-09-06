@@ -468,8 +468,8 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
   onOpenCrop: () => void
   onClose: () => void
 }) {
-  // px/mm 縮放：畫布最大 680×420
-  const k = Math.min(560 / cellWMm, 380 / cellHMm, 8)
+  // px/mm 縮放：畫布上限放大（760×500、單格最多 11x），modal max-w-95vw/max-h-90vh 仍保護不爆版
+  const k = Math.min(760 / cellWMm, 500 / cellHMm, 11)
   const [selected, setSelected] = useState<number | null>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ kind: 'text' | 'img-move' | 'img-resize'; idx?: number; handle?: string; sx: number; sy: number; ox: number; oy: number; ow?: number; oh?: number } | null>(null)
