@@ -602,7 +602,9 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
             <button
               type="button"
               onClick={() => {
-                onTextsChange([...texts, { text: '', size: 'm', xMm: 2, yMm: 2 + texts.length * 5 }])
+                // 2026-09-06 預設置左上（大部分考卷格子＝左上一行字，要別的再用對齊工具細調）；
+                //   多個方塊時每個小幅下移避免完全重疊、仍可各自選取拖曳。
+                onTextsChange([...texts, { text: '', size: 'm', xMm: 1.5, yMm: +(1.5 + texts.length * 4).toFixed(1) }])
                 setSelected(texts.length)
               }}
               className="w-full text-xs px-2 py-1.5 rounded border text-blue-600 border-blue-300 hover:bg-blue-50 text-left"
