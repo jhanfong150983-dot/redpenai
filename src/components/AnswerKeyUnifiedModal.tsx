@@ -22,6 +22,7 @@ import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel }
 import { db } from '@/lib/db'
 import { detectSchoolName } from '@/lib/answerSheetTemplate'
 import { fetchBuildQuota, buildQuotaLine } from '@/lib/buildQuota'
+import { logQtypeOverrides } from '@/lib/qtypeLog'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
@@ -66,6 +67,16 @@ function getDisplayTypeLabel(q: AnswerKeyQuestion, domain?: string): string {
   if (cat === 'fill_variants') return '填空題（多元）'
   return CATEGORY_LABELS[cat] ?? cat
 }
+
+// Phase 3（2026-09-07）：老師可手動修正題型（原「判分方式唯讀」設計鬆綁）。全 31 型、依 Bucket 分組。
+const BUCKET_GROUP_LABELS: Record<string, string> = {
+  A: '標準答案·精確比對', B: '標準答案·容多元', C: 'Rubric 給分', D: '複合題',
+}
+const GROUPED_TYPE_OPTIONS = (['A', 'B', 'C', 'D'] as const).map((b) => ({
+  bucket: b,
+  label: BUCKET_GROUP_LABELS[b],
+  cats: (Object.keys(QUESTION_CATEGORY_TO_BUCKET) as QuestionCategory[]).filter((c) => QUESTION_CATEGORY_TO_BUCKET[c] === b),
+}))
 
 const rubricLabels = ['優秀', '良好', '尚可', '待努力'] as const
 
@@ -1128,6 +1139,18 @@ export default function AnswerKeyUnifiedModal({
     })
   }
 
+  // Phase 3：老師改題型。保留 aiQuestionCategory＝AI 原判（供 override log 偵測 AI 常判錯的型）。
+  const handleCategoryChange = (idx: number, newCat: QuestionCategory) => {
+    setEditingKey((prev) => {
+      if (!prev) return prev
+      return { ...prev, questions: prev.questions.map((q, i) => {
+        if (i !== idx) return q
+        const ai = q.aiQuestionCategory || q.questionCategory  // 首次修正時把 AI 原判釘住
+        return { ...q, questionCategory: newCat, aiQuestionCategory: ai }
+      }) }
+    })
+  }
+
   const removeQuestion = (idx: number) => {
     setEditingKey((prev) => {
       if (!prev) return prev
@@ -1444,6 +1467,7 @@ export default function AnswerKeyUnifiedModal({
         generatedSheet,
         generatedSheetPdf,
       })
+      void logQtypeOverrides(updatedKey, domainValue) // Phase 3：老師改過題型→記 override log（fire-and-forget）
       if (!editMode) clearMetadataDraft() // 建立成功→草稿功成身退
       if (GENERATED_SHEET_STEP_ENABLED && !editMode) void db.genSheetDrafts.delete('current').catch(() => {})
     } finally {
@@ -2290,10 +2314,18 @@ export default function AnswerKeyUnifiedModal({
                               <span className="w-20 px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-600 select-all">{selectedQuestion.id ?? ''}</span>
                             </div>
                             <div className="flex-1 flex flex-col gap-1">
-                              <span className="text-gray-500">題型 <span className="text-[10px] text-gray-400">(由 AI 自動分類)</span></span>
-                              <span className="w-full px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-700">
-                                {getDisplayTypeLabel(selectedQuestion, effectiveDomain)}
-                              </span>
+                              <span className="text-gray-500">題型 <span className="text-[10px] text-gray-400">(AI 自動分類，可手動修正)</span></span>
+                              <select
+                                className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-700"
+                                value={selectedCategory}
+                                onChange={(e) => handleCategoryChange(selectedIdx, e.target.value as QuestionCategory)}
+                              >
+                                {GROUPED_TYPE_OPTIONS.map((grp) => (
+                                  <optgroup key={grp.bucket} label={grp.label}>
+                                    {grp.cats.map((c) => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
+                                  </optgroup>
+                                ))}
+                              </select>
                             </div>
                             {scoringMode !== 'unscored' && (
                               <div className="flex flex-col gap-1">
