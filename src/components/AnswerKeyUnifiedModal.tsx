@@ -21,6 +21,7 @@ import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { db } from '@/lib/db'
 import { detectSchoolName } from '@/lib/answerSheetTemplate'
+import { fetchBuildQuota, buildQuotaLine } from '@/lib/buildQuota'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
@@ -238,6 +239,14 @@ export default function AnswerKeyUnifiedModal({
   // 2026-07-22 modal 統一：alert → 共用 ConfirmModal
   const alertModal = useAlertModal()
   const confirmModal = useConfirm()
+
+  // 建卷週次數上限：進 modal 抓一次，被動顯示在擷取步驟（免費但鎖次數，每週一重置）
+  const [buildQuotaHint, setBuildQuotaHint] = useState('')
+  useEffect(() => {
+    let alive = true
+    void fetchBuildQuota().then((q) => { if (alive) setBuildQuotaHint(buildQuotaLine(q)) })
+    return () => { alive = false }
+  }, [])
 
   // ── step state machine ────────────────────────────────────────────────────
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
@@ -733,6 +742,8 @@ export default function AnswerKeyUnifiedModal({
     if (reextractClassLabels.length > 0) {
       lines.push('', `目前這份正被 ${reextractClassLabels.length} 個班級作業使用，它們仍會繼續用舊版，不受影響。`)
     }
+    const quotaLine = buildQuotaLine(await fetchBuildQuota())
+    if (quotaLine) lines.push('', quotaLine)
 
     const ok = await confirmModal({
       tone: 'danger',
@@ -1833,6 +1844,11 @@ export default function AnswerKeyUnifiedModal({
                   ) : (
                     /* ── Create mode: full upload + reorder ── */
                     <div className="flex flex-col gap-6">
+                      {buildQuotaHint && (
+                        <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-600">
+                          {buildQuotaHint}
+                        </div>
+                      )}
                       {GENERATED_SHEET_STEP_ENABLED && activeStep === 'extract' && (
                         <div className="flex items-center justify-between gap-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
                           <p className="text-xs text-blue-800">還沒列印作答卷？先下載列印、把標準答案手寫在卷上再上傳。</p>

@@ -544,6 +544,10 @@ async function executeGeminiRequest(
 
     // 429：Rate Limited（可恢復）
     if (response.status === 429) {
+      // 建卷週次數上限（不可恢復，不重試）——直接把後端訊息呈現給老師
+      if (data?.error === 'build_quota_exceeded') {
+        throw new Error(data?.message || '本週建卷額度已用完，請下週一再試。')
+      }
       console.warn('⚠️ 429 Rate Limited，準備重試...')
       throw new RecoverableError(
         'API 請求過於頻繁，正在重試...',
