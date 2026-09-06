@@ -690,8 +690,10 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     [classAssignments, selectedDomain, assignmentById])
 
   const conceptMasteryData = useMemo(() => {
-    // 跨班比較開啟時：本班雷達縮到「選定作業」——疊圖比的是同一份考卷，跨卷混算會對不上全體線
-    const filteredAssignments = crossOn && crossData && selectedAssignmentId
+    // 2026-09-06 修：選了特定作業就只算那份（不管跨班開沒開）——否則同領域多份作業(含不同題目、
+    //   不同學生數)會被混算，一份 100 分的卷也會因混進別份而出現各概念高低不一的假雷達。
+    //   沒選特定作業(整體檢視)才按領域收全部。跨班比較同樣只比選定的那份考卷。
+    const filteredAssignments = selectedAssignmentId
       ? classAssignments.filter((a) => a.id === selectedAssignmentId)
       : classAssignments.filter((a) =>
           !selectedDomain || selectedDomain === '全部' || normalizeDomain(a.domain) === selectedDomain
