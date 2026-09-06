@@ -4,7 +4,7 @@
 //   永遠對應最新批改、重批不需重生；「為什麼錯」的解讀歸老師專業——AI 逐題診斷與評語草擬已移除。
 //   唯一留在此檔的 AI 呼叫＝知識點歸類（runKpUpgrade 系列；新卷建卷預跑、舊卷報告頁補跑）。
 //   PDF 產出沿用原 correctionNoticePdf 骨架（html2canvas→jsPDF、系統中文字型、每生一頁；該檔已於 2026-08-12 退役刪除）。
-import { ALL_MATH_NODES, GUOYU_NODES } from '@/data/curriculumNodes'
+import { ALL_MATH_NODES, GUOYU_NODES, SOCIAL_NODES } from '@/data/curriculumNodes'
 
 import { ensureInkSessionFresh } from '@/lib/ink-session'
 import { MASTERY_THRESHOLDS, capLevelDesc, CAP_LEVEL_DISCLAIMER } from '@/lib/cap-levels'
@@ -1060,9 +1060,11 @@ ${ansList}
   //   數學：全學制全軌；國語：精選版(詞義/標點/句型/修辭/推論、掛學習內容代碼、Ⅱ/Ⅲ/Ⅳ)。
   const isMath = /數學|數/.test(subj)
   const isGuoyu = /國語|國文/.test(subj)
-  if (isMath || isGuoyu) {
-    // 按第一層 code 分組（只處理表內有節點的 code）——數學/國語各用自己的節點池(代碼不衝突)
-    const pool = isMath ? ALL_MATH_NODES : GUOYU_NODES
+  //   社會：只國中(地/歷/公)有節點；小學社會代碼無節點表→第二層自動跳過(只走第一層，user 拍板)
+  const isSocial = /社會|地理|歷史|公民/.test(subj)
+  if (isMath || isGuoyu || isSocial) {
+    // 按第一層 code 分組（只處理表內有節點的 code）——各科各用自己的節點池(代碼不衝突)
+    const pool = isMath ? ALL_MATH_NODES : isGuoyu ? GUOYU_NODES : SOCIAL_NODES
     const nodesByCode = new Map<string, typeof pool>()
     for (const n of pool) {
       if (!nodesByCode.has(n.code)) nodesByCode.set(n.code, [])
