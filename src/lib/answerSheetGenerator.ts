@@ -362,11 +362,13 @@ function layoutPages(sections: Section[], g: PageGeom): LayoutPage[] {
         const band = sec.qs.slice(i, i + cols)
         ensure(cellH + 0.5)
         const by = y
+        const numW = 7.5 // 2026-09-06 號碼框寬（左側，仿選擇題號碼框；題號與作答分離、詞語由老師補在作答區頂端）
         band.forEach((q, k) => {
           const x0 = M + k * cellW
-          rect(x0, by, cellW, cellH)
-          text(x0 + 1.5, by + 3.8, `${q.num}. ${q.stem ?? ''}：`, 2.8, 'fill="#444"')
-          addBox(q, x0, by + 4.5, cellW, cellH - 4.5, 'wide')
+          rect(x0, by, cellW, cellH)                                    // 外框
+          line(x0 + numW, by, x0 + numW, by + cellH, 0.18)              // 號碼框分隔線
+          text(x0 + numW / 2, by + cellH / 2 + 1, String(q.num), 2.8, 'text-anchor="middle" fill="#444"') // 題號置中於號碼框
+          addBox(q, x0 + numW, by, cellW - numW, cellH, 'wide')         // 作答區＝號碼框右側整塊
         })
         y = by + cellH
       }
