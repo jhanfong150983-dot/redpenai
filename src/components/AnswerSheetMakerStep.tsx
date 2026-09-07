@@ -615,6 +615,28 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
     if (stroke) onRefDrawingChange([...refDrawing, stroke])
     setDrawTick((t) => t + 1)
   }
+  // 塗色＝點擊多邊形：逐點點擊放頂點，回到起點(紅點)閉合→塗滿範圍（滑鼠好控制）。
+  const fillPolyRef = useRef<Array<[number, number]>>([])
+  const fillCursorRef = useRef<[number, number] | null>(null)
+  const resetFill = () => { fillPolyRef.current = []; fillCursorRef.current = null }
+  const fillClick = (e: React.PointerEvent) => {
+    e.stopPropagation()
+    const p = toNorm(e)
+    const poly = fillPolyRef.current
+    const closeToStart = poly.length >= 3 && Math.hypot(p[0] - poly[0][0], p[1] - poly[0][1]) < 0.03
+    if (closeToStart) {
+      onRefDrawingChange([...refDrawing, { type: 'fill', pts: [...poly] }]) // 閉合塗滿
+      resetFill()
+    } else {
+      fillPolyRef.current = [...poly, p]
+    }
+    setDrawTick((t) => t + 1)
+  }
+  const fillMove = (e: React.PointerEvent) => {
+    if (!fillPolyRef.current.length) return
+    fillCursorRef.current = toNorm(e)
+    setDrawTick((t) => t + 1)
+  }
   // 一筆 RefStroke → React SVG（各形狀）。SX/SY：正規化 0~1 → 畫布 px。dashed=進行中預覽。
   const SX = (nx: number) => nx * cellWMm * k
   const SY = (ny: number) => ny * cellHMm * k
@@ -823,24 +845,24 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
                 <p className="text-[11px] text-amber-600 leading-relaxed mb-1.5">繪圖題可直接在右邊格子畫出正解，免印出手寫。只老師／批改看得到、學生版絕不含。</p>
                 <div className="grid grid-cols-3 gap-1 mb-1">
                   {([['line', '直線'], ['curve', '曲線'], ['ellipse', '圓'], ['rect', '矩形'], ['arrow', '箭頭'], ['fill', '塗色']] as Array<[DrawMode, string]>).map(([m, label]) => (
-                    <button key={m} type="button" onClick={() => setDrawMode(drawMode === m ? 'off' : m)}
+                    <button key={m} type="button" onClick={() => { resetFill(); setDrawMode(drawMode === m ? 'off' : m) }}
                       className={`text-xs px-1 py-1.5 rounded border ${drawMode === m ? 'bg-red-600 text-white border-red-600' : 'text-red-600 border-red-300 hover:bg-red-50'}`}>{label}</button>
                   ))}
                 </div>
                 <div className="flex gap-1">
                   <button type="button" disabled={!refDrawing.length} onClick={() => onRefDrawingChange(refDrawing.slice(0, -1))}
                     className="flex-1 text-xs px-2 py-1 rounded border text-gray-600 border-gray-300 hover:bg-gray-50 disabled:opacity-40">復原</button>
-                  <button type="button" disabled={!refDrawing.length} onClick={() => onRefDrawingChange([])}
+                  <button type="button" disabled={!refDrawing.length && !fillPolyRef.current.length} onClick={() => { resetFill(); onRefDrawingChange([]); setDrawTick((t) => t + 1) }}
                     className="flex-1 text-xs px-2 py-1 rounded border text-gray-600 border-gray-300 hover:bg-gray-50 disabled:opacity-40">清除</button>
                 </div>
                 {drawMode !== 'off' && (
                   <p className="text-[11px] text-red-500 mt-1">
                     {drawMode === 'curve' ? '在格子上按住拖曳＝自由曲線'
-                      : drawMode === 'fill' ? '按住拖曳描出一塊區域→放開＝紅色塗滿（塗色/畫記題）'
+                      : drawMode === 'fill' ? '逐點點擊放頂點沿邊界走一圈→點回起點（紅點）閉合＝紅色塗滿範圍'
                       : drawMode === 'line' ? '按住起點→拖到終點→放開＝直線'
                       : drawMode === 'arrow' ? '按住起點→拖到箭頭指向→放開＝箭頭'
                       : '按住拖曳出範圍→放開＝' + (drawMode === 'ellipse' ? '圓／橢圓' : '矩形')}
-                    （可畫多筆）
+                    {drawMode === 'fill' ? '' : '（可畫多筆）'}
                   </p>
                 )}
               </div>
@@ -852,10 +874,11 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
             ref={canvasRef}
             className="relative bg-white border-2 border-gray-400 select-none"
             style={{ width: cellWMm * k, height: cellHMm * k, cursor: drawMode !== 'off' ? 'crosshair' : undefined, touchAction: drawMode !== 'off' ? 'none' : undefined }}
-            onPointerMove={(e) => { if (drawMode !== 'off') moveStroke(e); else onPointerMove(e) }}
-            onPointerUp={() => { if (drawMode !== 'off') endStroke(); else endDrag() }}
-            onPointerLeave={() => { if (drawMode !== 'off') endStroke(); else endDrag() }}
+            onPointerMove={(e) => { if (drawMode === 'fill') fillMove(e); else if (drawMode !== 'off') moveStroke(e); else onPointerMove(e) }}
+            onPointerUp={() => { if (drawMode === 'fill') return; if (drawMode !== 'off') endStroke(); else endDrag() }}
+            onPointerLeave={() => { if (drawMode === 'fill') return; if (drawMode !== 'off') endStroke(); else endDrag() }}
             onPointerDown={(e) => {
+              if (drawMode === 'fill') { fillClick(e); return }
               if (drawMode !== 'off') { startStroke(e); return }
               if (e.target === canvasRef.current) setSelected(null)
             }}
@@ -970,6 +993,17 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
             <svg className="absolute inset-0 pointer-events-none" width={cellWMm * k} height={cellHMm * k}>
               {refDrawing.map((s, i) => drawEl(s, i))}
               {liveRef.current && (() => { const ls = strokeFromLive(drawMode, liveRef.current); return ls ? drawEl(ls, 'live', true) : null })()}
+              {drawMode === 'fill' && fillPolyRef.current.length > 0 && (() => {
+                const poly = fillPolyRef.current
+                const cur = fillCursorRef.current
+                const pathPts = [...poly, ...(cur ? [cur] : [])].map(([x, y]) => `${SX(x)},${SY(y)}`).join(' ')
+                return (
+                  <g>
+                    <polyline points={pathPts} fill="rgba(204,0,0,0.15)" stroke="#c00" strokeWidth={1.4} strokeDasharray="4 2" strokeLinejoin="round" />
+                    {poly.map((p, i) => <circle key={i} cx={SX(p[0])} cy={SY(p[1])} r={i === 0 ? 4 : 2.5} fill={i === 0 ? '#c00' : '#fff'} stroke="#c00" strokeWidth={1} />)}
+                  </g>
+                )
+              })()}
             </svg>
           </div>
         </div>
