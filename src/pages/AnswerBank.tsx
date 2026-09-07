@@ -464,6 +464,22 @@ export default function AnswerBank(_props: AnswerBankProps) {
       const refAnswers = context.refAnswers ?? {}
       const DRAW_TYPES = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'map_fill'])
       type VjR = { itemLabels: string[]; itemScores?: number[]; condition?: string; gradingDefinition?: string }
+      // 一律用生成的老師版作答卷(帶紅字)影像＋現成 boxes 幾何裁「每一格」→ 每題都有 crop（與上傳版一致）。
+      //   純 client 端(點陣化在 modal、這裡只載入裁切)、不花 AI。失敗不擋、退回無圖。
+      let cropById = new Map<string, string>()
+      if (context.teacherSheetImage && context.generatedLayout) {
+        try {
+          _onProgress('用生成的答案卷影像裁出各題作答區…')
+          const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const url = URL.createObjectURL(context.teacherSheetImage!)
+            const im = new Image()
+            im.onload = () => resolve(im)
+            im.onerror = () => reject(new Error('生成答案卷影像載入失敗'))
+            im.src = url
+          })
+          cropById = new Map(cropReferenceSheetCells(img, context.generatedLayout).map((c) => [c.id, c.dataUrl]))
+        } catch (err) { console.warn('[skipUpload] 裁格失敗（退回無圖）', err) }
+      }
       // 需 AI 生 rubric 的題：多元填空(判準)、應用題(級分)、作圖(看圖判準，正解圖=老師畫筆畫的、已烘進生成影像)。
       const rubricItems = skeleton.questions.filter((q) => {
         const cat = String(q.questionCategory)
@@ -490,19 +506,17 @@ export default function AnswerBank(_props: AnswerBankProps) {
           if (lr) next.levelRubric = lr
           const vj = vjMap.get(q.id)
           if (vj) next.vjRubric = vj
-          // 作圖格：把生成影像該格 crop（帶紅色正解）存進 cropImageUrl，供 VJ 批改比對正解圖
-          if (DRAW_TYPES.has(String(q.questionCategory))) {
-            const crop = cropMap.get(q.id)
-            if (crop) next.cropImageUrl = crop
-          }
+          // 每格都存生成影像該格 crop（帶紅字/正解）→ 人工檢核一律有截圖可核對；作圖題也供 VJ 比對正解圖
+          const crop = cropMap.get(q.id)
+          if (crop) next.cropImageUrl = crop
           return next
         })
       const mkKey = (qs: AnswerKey['questions']): AnswerKey => ({ ...skeleton, questions: qs, totalScore: qs.reduce((t, q) => t + (q.maxScore ?? 0), 0) })
 
       if (rubricItems.length === 0) {
-        // 純客觀 → 零 AI、免同意框、不扣墨水
+        // 純客觀 → 零 AI、免同意框、不扣墨水（但每格已裁生成影像 crop）
         _onProgress('用打字的參考答案直接建卷（免上傳、零 AI）…')
-        const questions = buildQuestions(new Map(), new Map<string, LevelRubric>(), new Map<string, VjR>(), new Map())
+        const questions = buildQuestions(new Map(), new Map<string, LevelRubric>(), new Map<string, VjR>(), cropById)
         const matched = questions.filter((q) => ((q as { answer?: string }).answer ?? '').trim()).length
         return { answerKey: mkKey(questions), imageBlobs: [], notice: `已用您打字的參考答案直接建卷（${matched}/${questions.length} 格有答案、零 AI 讀取）。請逐題核對。` }
       }
@@ -512,21 +526,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       if (!inkOk) throw new Error('已取消（未扣墨水）')
       await startInkSession()
       try {
-        // 用生成的老師版作答卷(帶紅字)影像＋現成 boxes 幾何裁出每格（跟上傳版同一支）
-        let cropById = new Map<string, string>()
-        if (context.teacherSheetImage && context.generatedLayout) {
-          try {
-            _onProgress('用生成的答案卷影像裁出各題作答區…')
-            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-              const url = URL.createObjectURL(context.teacherSheetImage!)
-              const im = new Image()
-              im.onload = () => resolve(im)
-              im.onerror = () => reject(new Error('生成答案卷影像載入失敗'))
-              im.src = url
-            })
-            cropById = new Map(cropReferenceSheetCells(img, context.generatedLayout).map((c) => [c.id, c.dataUrl]))
-          } catch (err) { console.warn('[skipUpload] 裁格失敗（word_problem 級分改退回無圖）', err) }
-        }
+        // cropById 已在最前面裁好（每格）；下面用它餵 rubric 生成器
         // ① 多元填空判準（一次 AI call：題本＋老師答案）
         const fvItems = rubricItems.filter((q) => String(q.questionCategory) === 'fill_variants')
           .map((q) => ({ id: q.id, answer: (refAnswers[q.id] ?? '').trim(), anchorHint: (q as { anchorHint?: string }).anchorHint, maxScore: q.maxScore }))

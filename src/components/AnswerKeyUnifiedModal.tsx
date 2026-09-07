@@ -938,10 +938,10 @@ export default function AnswerKeyUnifiedModal({
         }
       }
 
-      // 免上傳且含需 rubric 的題（多元填空/應用題）→ 點陣化「老師版作答卷(帶紅字)」當答案卷影像，
-      //   AnswerBank 用現成 boxes 幾何裁格、餵 rubric 生成器（統一上傳版與免上傳版的來源）。
+      // 免上傳 → 點陣化「老師版作答卷(帶紅字)」當答案卷影像。
+      //   一律做（不限有無 rubric）：AnswerBank 用現成 boxes 幾何裁「每一格」→ 每題都有 crop（一致）＋餵 rubric 生成器。
       let teacherSheetImage: Blob | undefined
-      if (pageItems.length === 0 && canSkipUpload && skipStatus?.hasRubric && teacherMakerResult) {
+      if (pageItems.length === 0 && canSkipUpload && teacherMakerResult) {
         setExtractionMsg('準備答案卷影像（生成的老師版）…')
         teacherSheetImage = (await rasterizeSheetSvg(teacherMakerResult.svg, teacherMakerResult.layoutMeta.pageMm)) ?? undefined
       }
