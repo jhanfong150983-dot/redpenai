@@ -248,7 +248,6 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
                       {!known && <option value="">{cur || '（未分類）'}</option>}
                       {SHEET_TYPE_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
                     </select>
-                    <span className="block text-[10px] text-amber-600 mt-0.5">AI 分類可能有誤，改對這裡會立刻重排版面</span>
                   </label>
                 )
               })()}
