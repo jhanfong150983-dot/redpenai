@@ -215,6 +215,62 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
 // ── 批次套用(一份卷可含多題編輯;鏡像 handleDetailScoreChange 全部規則)──────────
 export type BatchEditResult = { submissionId: string; ok: boolean; updated?: Submission; error?: string }
 
+/**
+ * 2026-09-07 Phase C：配分（maxScore）改動 → 純 code 等比重算分數，零 AI。
+ *   原理：score = f(判斷, maxScore) 對 maxScore 幾乎都是線性 → newScore = round1(oldScore/oldMax × newMax)
+ *   對線性型（binary/多選/多空/table_cell/逐維度rubric）精確；級分制近似（級分→分數大致等比）。
+ *   ⚠ 只縮放分數、保留判斷(isCorrect/rubricScores/levelResult…不動)、不標 scoreSource='manual'
+ *      （這是系統自動重算、非老師手改，之後 AI 重批仍可覆蓋）；不動 _aiOriginal。
+ * @param changesByQid qid → { oldMax, newMax }（只含 maxScore 真的變了的題）
+ */
+export async function rescaleSubmissionForMaxScoreChange(
+  submissionId: string,
+  changesByQid: Map<string, { oldMax: number; newMax: number }>
+): Promise<{ ok: boolean; changed: number }> {
+  try {
+    if (changesByQid.size === 0) return { ok: true, changed: 0 }
+    const submission = await db.submissions.get(submissionId)
+    const gr: any = submission?.gradingResult
+    const details: any[] = Array.isArray(gr?.details) ? gr.details : []
+    if (!details.length) return { ok: true, changed: 0 }
+    const round1 = (n: number) => parseFloat(n.toFixed(1))
+    let changed = 0
+    const newDetails = details.map((d: any) => {
+      const qid = String(d?.questionId ?? '').trim()
+      const chg = changesByQid.get(qid)
+      if (!chg) return d
+      const oldMax = Number(chg.oldMax)
+      const newMax = Number(chg.newMax)
+      if (!Number.isFinite(newMax)) return d
+      const oldScore = Number(d?.score ?? 0)
+      // 等比：舊 max>0 用比例；舊 max=0（未配分）→ 全對給新滿分、否則 0（依 isCorrect）
+      const newScore = Number.isFinite(oldMax) && oldMax > 0
+        ? round1(Math.max(0, Math.min(newMax, oldScore / oldMax * newMax)))
+        : (d?.isCorrect ? newMax : 0)
+      changed++
+      return { ...d, score: newScore, maxScore: newMax }
+    })
+    if (changed === 0) return { ok: true, changed: 0 }
+    const newTotal = round1(newDetails.reduce((s: number, d: any) => s + (Number.isFinite(Number(d.score)) ? Number(d.score) : 0), 0))
+    const now = Date.now()
+    const newGr: any = { ...(gr ?? {}), details: newDetails, totalScore: newTotal }
+    // score 端：若原本是 manual（老師手改過），維持 manual、只更新總分；否則更新 ai/score
+    const wasManual = submission?.scoreSource === 'manual'
+    await db.submissions.update(submissionId, {
+      score: newTotal,
+      ...(wasManual ? {} : { aiScore: newTotal }),
+      gradingResult: newGr, updatedAt: now,
+    })
+    await fetch('/api/data/save-grading', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ submissions: [{ id: submissionId, score: newTotal, ...(wasManual ? {} : { aiScore: newTotal }), gradingResult: newGr }], fromMaxScoreRescale: true }),
+    }).catch(() => {})
+    return { ok: true, changed }
+  } catch {
+    return { ok: false, changed: 0 }
+  }
+}
+
 export async function applyScoreEditsToSubmission(
   submissionId: string,
   editsByQid: Map<string, number>

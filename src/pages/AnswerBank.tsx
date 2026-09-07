@@ -8,6 +8,7 @@ import {
 import { db, generateId } from '@/lib/db'
 import type { AnswerKey, AnswerKeyTemplate } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
+import { rescaleSubmissionForMaxScoreChange } from '@/lib/answerStats'
 import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
 import { solveAnswerKeyFromBooklet, extractAnswerKeyFromImages, readReferenceAnswerCells, detectVisualRubric, detectLevelRubric } from '@/lib/gemini'
 import { cropReferenceSheetCells } from '@/lib/generatedSheetAlign'
@@ -701,11 +702,25 @@ export default function AnswerBank(_props: AnswerBankProps) {
     //   要跟對方保持一致，就把新的分享碼給對方；不給＝兩邊各走各的版本（血緣自然分開）。
     const saveAsNewVersion = !!editingTemplateId && !!metadata.reextracted
     if (editingTemplateId && !saveAsNewVersion) {
-      // 比對 answerKey 是否有實際變動
+      // 2026-09-07 Phase C：拆「內容變動(答案/題型/rubric…)」vs「只有配分(maxScore)變動」。
+      //   內容變動 → 需重批(version+1→'updated'橫幅)；只有配分變動 → 純 code 等比重算分數、不需重批。
       const original = await db.answerKeyTemplates.get(editingTemplateId)
-      const answerKeyChanged = !original?.answerKey
-        || JSON.stringify(original.answerKey.questions) !== JSON.stringify(answerKey.questions)
-        || original.answerKey.totalScore !== answerKey.totalScore
+      const stripMax = (key: string, val: unknown) => (key === 'maxScore' ? undefined : val)
+      // 內容變動＝questions（把所有 maxScore 欄位剝掉後）有差
+      const contentChanged = !original?.answerKey
+        || JSON.stringify(answerKey.questions, stripMax) !== JSON.stringify(original.answerKey.questions, stripMax)
+      // 配分變動（只在內容沒變時才收集→純重算）
+      const scoreChangesByQid = new Map<string, { oldMax: number; newMax: number }>()
+      if (!contentChanged && original?.answerKey) {
+        const origByQid = new Map(original.answerKey.questions.map((q) => [String(q.id), q]))
+        for (const q of answerKey.questions) {
+          const oq = origByQid.get(String(q.id))
+          if (!oq) continue
+          const oldMax = Number(oq.maxScore ?? 0), newMax = Number(q.maxScore ?? 0)
+          if (Number.isFinite(newMax) && oldMax !== newMax) scoreChangesByQid.set(String(q.id), { oldMax, newMax })
+        }
+      }
+      const answerKeyChanged = contentChanged
 
       // 更新 template，若 answerKey 有變動則遞增版本號
       const now = Date.now()
@@ -720,6 +735,20 @@ export default function AnswerBank(_props: AnswerBankProps) {
         ...(answerKeyChanged ? { version: currentVersion + 1 } : {}),
       })
       if (answerKeyChanged) uploadAnswerCrops(editingTemplateId, answerKey)
+      // Phase C：只有配分變動（內容沒變）→ 對引用此模板的作業之已批改卷純 code 等比重算分數（零 AI、不需重批）
+      if (!contentChanged && scoreChangesByQid.size > 0) {
+        void (async () => {
+          try {
+            const linked = (await db.assignments.toArray()).filter((a) => a.answerKeyTemplateId === editingTemplateId)
+            const asgIds = new Set(linked.map((a) => a.id))
+            const subs = (await db.submissions.toArray()).filter((s) => asgIds.has(s.assignmentId) && s.gradingResult)
+            let touched = 0
+            for (const s of subs) { const r = await rescaleSubmissionForMaxScoreChange(s.id, scoreChangesByQid); if (r.changed > 0) touched++ }
+            if (touched > 0) requestSync(true)
+            console.log(`[Phase C] 配分重算：${touched}/${subs.length} 份卷已更新（${scoreChangesByQid.size} 題配分變動）`)
+          } catch (e) { console.warn('[Phase C] 配分重算失敗:', e) }
+        })()
+      }
       if (metadata.generatedSheetPdf) uploadGeneratedSheetPdf(editingTemplateId, metadata.generatedSheetPdf)
       // 若這次有重新解析（imageBlobs 非空），就重新上傳整頁圖；否則保留 Storage 既有版本
       if (imageBlobs.length > 0) uploadAnswerSheetImages(editingTemplateId, imageBlobs)
