@@ -80,6 +80,13 @@ export interface GenQuestion {
   cellTexts?: GenCellText[]
   /** 2026-09-07 內建參考答案（紅字）；僅 withRefAnswers=true（老師版）才渲染，學生版不畫 */
   refAnswer?: string
+  /** 2026-09-07 內建正解圖（畫筆紅色筆畫，繪圖題用）；僅老師版渲染，學生版絕不畫 */
+  refDrawing?: RefStroke[]
+}
+
+/** 內建正解圖的一筆（畫筆）：點座標以「格子」正規化 0~1（隨格子縮放）。直線=2 點、曲線=多點 polyline。 */
+export interface RefStroke {
+  pts: Array<[number, number]>
 }
 
 /** 格內文字方塊 */
@@ -335,6 +342,16 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
       const lenAttr = (estMm > availMm && availMm > 2) ? ` textLength="${availMm * DPMM}" lengthAdjust="spacingAndGlyphs"` : ''
       const anchor = isCenter ? ' text-anchor="middle"' : ''
       els.push(`<text x="${rtx * DPMM}" y="${rty * DPMM}" font-size="${rsize * DPMM}" fill="#c00"${anchor}${lenAttr} xml:space="preserve">${esc(raw)}</text>`)
+    }
+    // 2026-09-07 內建正解圖（畫筆紅色筆畫，繪圖題）：點 0~1 正規化 → 映射到格內。
+    //   ⛔ 鐵律：只老師版(withRefAnswers)畫，學生版絕不畫。
+    if (withRefAnswers && q.refDrawing && q.refDrawing.length) {
+      const sw = 0.35 // mm 筆寬
+      for (const stroke of q.refDrawing) {
+        if (!stroke?.pts || stroke.pts.length < 2) continue
+        const pts = stroke.pts.map(([px, py]) => `${(x + px * w) * DPMM},${(yy + py * h) * DPMM}`).join(' ')
+        els.push(`<polyline points="${pts}" fill="none" stroke="#c00" stroke-width="${sw * DPMM}" stroke-linecap="round" stroke-linejoin="round"/>`)
+      }
     }
   }
   // 預覽點擊層：透明 rect 蓋在每格上（data-qid 供 UI 點格開編輯視窗）；印刷不可見

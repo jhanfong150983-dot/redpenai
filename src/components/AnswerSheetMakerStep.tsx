@@ -13,6 +13,7 @@ import {
   type GenQuestion,
   type GenResult,
   type PageSize,
+  type RefStroke,
   type SectionOverride
 } from '../lib/answerSheetGenerator'
 
@@ -26,9 +27,11 @@ export interface SheetMakerState {
   cellTexts: Record<string, GenCellText[]>
   /** 2026-09-07 內建參考答案：題目 id → 參考答案（紅字，只老師/批改看；學生版下載不含） */
   refAnswers?: Record<string, string>
+  /** 2026-09-07 內建正解圖（畫筆）：題目 id → 紅色筆畫（繪圖題用；只老師版，學生版絕不含） */
+  refDrawings?: Record<string, RefStroke[]>
 }
 
-export const EMPTY_SHEET_MAKER_STATE: SheetMakerState = { pageSize: 'A4', sectionOverrides: {}, baseImages: {}, cellTexts: {}, refAnswers: {} }
+export const EMPTY_SHEET_MAKER_STATE: SheetMakerState = { pageSize: 'A4', sectionOverrides: {}, baseImages: {}, cellTexts: {}, refAnswers: {}, refDrawings: {} }
 
 // 標頭圖 data URI 模組層快取：元件卸載/重掛載（來回步驟）時免重 fetch、避免預覽空白
 let cachedOmrHeader: string | null = null
@@ -150,13 +153,14 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
   // 預覽專用：帶紅字參考答案（老師看；不進 onResult、不落存檔）
   const previewResult = useMemo<ReturnType<typeof generateAnswerSheet> | null>(() => {
     if (!headerDataUri) return null
-    const hasRef = questions.some((q) => (state.refAnswers?.[q.id] ?? '').trim())
-    if (!hasRef) return result // 沒填參考答案 → 直接用 canonical（省一次生成）
+    const hasRef = questions.some((q) => (state.refAnswers?.[q.id] ?? '').trim() || (state.refDrawings?.[q.id]?.length ?? 0) > 0)
+    if (!hasRef) return result // 沒填參考答案/正解圖 → 直接用 canonical（省一次生成）
     const qs = questions.map((q) => ({
       ...q,
       ...(state.baseImages[q.id] ? { baseImage: state.baseImages[q.id] } : {}),
       ...(state.cellTexts?.[q.id]?.length ? { cellTexts: state.cellTexts[q.id] } : {}),
       ...(state.refAnswers?.[q.id] ? { refAnswer: state.refAnswers[q.id] } : {}),
+      ...(state.refDrawings?.[q.id]?.length ? { refDrawing: state.refDrawings[q.id] } : {}),
     }))
     return generateAnswerSheet({ title, pageSize: state.pageSize, questions: qs, headerDataUri, sectionOverrides: state.sectionOverrides, withRefAnswers: true })
   }, [title, questions, headerDataUri, state, result])
@@ -317,7 +321,14 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
             baseImage={state.baseImages[editCell] ?? null}
             hasBooklet={bookletImages.length > 0}
             refAnswer={state.refAnswers?.[editCell] ?? ''}
-            refAnswerHint={isDrawing ? '此題為繪圖／符號題，請印出後手寫參考答案' : undefined}
+            refAnswerHint={undefined}
+            isDrawing={isDrawing}
+            refDrawing={state.refDrawings?.[editCell] ?? []}
+            onRefDrawingChange={(strokes) => {
+              const next = { ...(state.refDrawings ?? {}) }
+              if (strokes.length) next[editCell] = strokes; else delete next[editCell]
+              onStateChange({ ...state, refDrawings: next })
+            }}
             onRefAnswerChange={(v) => {
               const next = { ...(state.refAnswers ?? {}) }
               if (v.trim()) next[editCell] = v; else delete next[editCell]
@@ -500,7 +511,7 @@ function BaseImageCropModal({ bookletImages, existing, onCancel, onDone }: CropM
 // ── 格編輯視窗（Canva 式）：格子即畫布——文字方塊就地打字拖曳、底圖 8 點縮放拖移 ──
 type BaseImageEntry = GenBaseImage & { bookletPage?: number; rect?: { x: number; y: number; w: number; h: number } }
 
-function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, refAnswer, refAnswerHint, onRefAnswerChange, onTextsChange, onBaseImageChange, onOpenCrop, onClose }: {
+function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, refAnswer, refAnswerHint, isDrawing, refDrawing, onRefDrawingChange, onRefAnswerChange, onTextsChange, onBaseImageChange, onOpenCrop, onClose }: {
   qid: string
   cellWMm: number
   cellHMm: number
@@ -509,6 +520,9 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
   hasBooklet: boolean
   refAnswer: string
   refAnswerHint?: string
+  isDrawing: boolean
+  refDrawing: RefStroke[]
+  onRefDrawingChange: (strokes: RefStroke[]) => void
   onRefAnswerChange: (v: string) => void
   onTextsChange: (texts: GenCellText[]) => void
   onBaseImageChange: (entry: BaseImageEntry | null) => void
@@ -521,6 +535,38 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
   const canvasRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ kind: 'text' | 'img-move' | 'img-resize'; idx?: number; handle?: string; sx: number; sy: number; ox: number; oy: number; ow?: number; oh?: number } | null>(null)
   const uploadRef = useRef<HTMLInputElement>(null)
+  // 畫筆（繪圖題正解圖，紅色、只老師版）：off=不畫、line=直線(按→拖→放)、curve=曲線(自由手繪)。
+  //   點座標存 0~1 正規化（隨格子縮放）。用 ref 存進行中筆畫、drawTick 觸發重繪避免 stale closure。
+  const [drawMode, setDrawMode] = useState<'off' | 'line' | 'curve'>('off')
+  const drawingRef = useRef(false)
+  const liveRef = useRef<Array<[number, number]> | null>(null)
+  const [, setDrawTick] = useState(0)
+  const toNorm = (e: React.PointerEvent): [number, number] => {
+    const rect = canvasRef.current!.getBoundingClientRect()
+    const nx = Math.min(1, Math.max(0, (e.clientX - rect.left) / (cellWMm * k)))
+    const ny = Math.min(1, Math.max(0, (e.clientY - rect.top) / (cellHMm * k)))
+    return [+nx.toFixed(4), +ny.toFixed(4)]
+  }
+  const startStroke = (e: React.PointerEvent) => {
+    e.stopPropagation()
+    drawingRef.current = true
+    liveRef.current = [toNorm(e)]
+    setDrawTick((t) => t + 1)
+  }
+  const moveStroke = (e: React.PointerEvent) => {
+    if (!drawingRef.current || !liveRef.current) return
+    const p = toNorm(e)
+    liveRef.current = drawMode === 'line' ? [liveRef.current[0], p] : [...liveRef.current, p]
+    setDrawTick((t) => t + 1)
+  }
+  const endStroke = () => {
+    if (!drawingRef.current) return
+    drawingRef.current = false
+    const s = liveRef.current
+    liveRef.current = null
+    if (s && s.length >= 2) onRefDrawingChange([...refDrawing, { pts: s }])
+    setDrawTick((t) => t + 1)
+  }
 
   const sizeMm = (t: GenCellText) => (t.size === 's' ? 2.6 : t.size === 'l' ? 4.2 : 3.2)
 
@@ -694,22 +740,45 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
                 </>
               )}
             </div>
+            {/* 2026-09-07 正解圖畫筆（繪圖題用；紅色、只老師版）*/}
+            {isDrawing && (
+              <div className="pt-2 mt-2 border-t">
+                <div className="text-xs font-semibold text-red-600 mb-1">正解圖（紅色畫筆）</div>
+                <p className="text-[11px] text-amber-600 leading-relaxed mb-1.5">繪圖題可直接在右邊格子畫出正解，免印出手寫。只老師／批改看得到、學生版絕不含。</p>
+                <div className="flex gap-1 mb-1">
+                  <button type="button" onClick={() => setDrawMode(drawMode === 'line' ? 'off' : 'line')}
+                    className={`flex-1 text-xs px-2 py-1.5 rounded border ${drawMode === 'line' ? 'bg-red-600 text-white border-red-600' : 'text-red-600 border-red-300 hover:bg-red-50'}`}>直線</button>
+                  <button type="button" onClick={() => setDrawMode(drawMode === 'curve' ? 'off' : 'curve')}
+                    className={`flex-1 text-xs px-2 py-1.5 rounded border ${drawMode === 'curve' ? 'bg-red-600 text-white border-red-600' : 'text-red-600 border-red-300 hover:bg-red-50'}`}>曲線</button>
+                </div>
+                <div className="flex gap-1">
+                  <button type="button" disabled={!refDrawing.length} onClick={() => onRefDrawingChange(refDrawing.slice(0, -1))}
+                    className="flex-1 text-xs px-2 py-1 rounded border text-gray-600 border-gray-300 hover:bg-gray-50 disabled:opacity-40">復原</button>
+                  <button type="button" disabled={!refDrawing.length} onClick={() => onRefDrawingChange([])}
+                    className="flex-1 text-xs px-2 py-1 rounded border text-gray-600 border-gray-300 hover:bg-gray-50 disabled:opacity-40">清除</button>
+                </div>
+                {drawMode !== 'off' && <p className="text-[11px] text-red-500 mt-1">{drawMode === 'line' ? '在格子上按住起點→拖到終點→放開＝一條直線' : '在格子上按住拖曳＝自由曲線'}（可畫多筆）</p>}
+              </div>
+            )}
           </div>
 
           {/* 右：格子畫布（1:1 比例） */}
           <div
             ref={canvasRef}
             className="relative bg-white border-2 border-gray-400 select-none"
-            style={{ width: cellWMm * k, height: cellHMm * k }}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerLeave={endDrag}
-            onPointerDown={(e) => { if (e.target === canvasRef.current) setSelected(null) }}
+            style={{ width: cellWMm * k, height: cellHMm * k, cursor: drawMode !== 'off' ? 'crosshair' : undefined, touchAction: drawMode !== 'off' ? 'none' : undefined }}
+            onPointerMove={(e) => { if (drawMode !== 'off') moveStroke(e); else onPointerMove(e) }}
+            onPointerUp={() => { if (drawMode !== 'off') endStroke(); else endDrag() }}
+            onPointerLeave={() => { if (drawMode !== 'off') endStroke(); else endDrag() }}
+            onPointerDown={(e) => {
+              if (drawMode !== 'off') { startStroke(e); return }
+              if (e.target === canvasRef.current) setSelected(null)
+            }}
           >
             {baseImage?.place && (
               <div
                 className="absolute"
-                style={{ left: baseImage.place.xMm * k, top: baseImage.place.yMm * k, width: baseImage.place.wMm * k, height: baseImage.place.hMm * k }}
+                style={{ left: baseImage.place.xMm * k, top: baseImage.place.yMm * k, width: baseImage.place.wMm * k, height: baseImage.place.hMm * k, pointerEvents: drawMode !== 'off' ? 'none' : undefined }}
               >
                 <img
                   src={baseImage.dataUri}
@@ -741,7 +810,7 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
               <div
                 key={i}
                 className={`absolute rounded-sm border ${selected === i ? 'border-blue-500' : 'border-dashed border-gray-300'} bg-white/60 cursor-move`}
-                style={{ left: (t.xMm ?? 0) * k, top: (t.yMm ?? 0) * k, padding: 2 }}
+                style={{ left: (t.xMm ?? 0) * k, top: (t.yMm ?? 0) * k, padding: 2, pointerEvents: drawMode !== 'off' ? 'none' : undefined }}
                 onPointerDown={(e) => {
                   setSelected(i)
                   if ((e.target as HTMLElement).tagName === 'INPUT') return
@@ -812,6 +881,15 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
                 )}
               </div>
             ))}
+            {/* 正解圖紅色筆畫（畫筆）：已存的實線＋進行中虛線；pointer-events-none 讓 canvas 收畫筆事件 */}
+            <svg className="absolute inset-0 pointer-events-none" width={cellWMm * k} height={cellHMm * k}>
+              {refDrawing.map((s, i) => (
+                <polyline key={i} points={s.pts.map(([px, py]) => `${px * cellWMm * k},${py * cellHMm * k}`).join(' ')} fill="none" stroke="#c00" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
+              ))}
+              {liveRef.current && liveRef.current.length >= 2 && (
+                <polyline points={liveRef.current.map(([px, py]) => `${px * cellWMm * k},${py * cellHMm * k}`).join(' ')} fill="none" stroke="#c00" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="5 3" />
+              )}
+            </svg>
           </div>
         </div>
         <div className="px-4 py-2.5 border-t flex justify-end">

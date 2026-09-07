@@ -1007,15 +1007,19 @@ export default function AnswerKeyUnifiedModal({
     if (boxes.length === 0) return null
     // 只有「作圖/繪圖類」一定要上傳（答案是圖、沒法打字）。應用題(word_problem)現在可免上傳：
     //   用生成的老師版作答卷(帶紅字)當答案卷影像、裁格餵 detectLevelRubric 生級分制。
-    const NEEDS_IMAGE = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'])
+    const DRAW_TYPES = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'])
     // 需 AI 生 rubric 的題（免上傳時會用生成影像＋題本跑一次 AI）
     const RUBRIC_TYPES = new Set(['fill_variants', 'word_problem'])
     const refAnswers = makerState.refAnswers ?? {}
-    const hasImageType = boxes.some((b) => NEEDS_IMAGE.has(String(b.type)))
-    const hasRubric = boxes.some((b) => RUBRIC_TYPES.has(String(b.type)))
-    const unfilled = boxes.filter((b) => !NEEDS_IMAGE.has(String(b.type)) && !(refAnswers[b.id] ?? '').trim()).length
+    const refDrawings = makerState.refDrawings ?? {}
+    // 作圖格：老師用畫筆畫了正解圖(refDrawing)就算滿足、可免上傳；沒畫才必上傳
+    const drawUnsatisfied = boxes.some((b) => DRAW_TYPES.has(String(b.type)) && !(refDrawings[b.id]?.length))
+    const hasImageType = drawUnsatisfied
+    // 有 rubric 題 或 有畫正解圖的作圖格 → 免上傳時要跑 AI（判準/級分/看圖判準）
+    const hasRubric = boxes.some((b) => RUBRIC_TYPES.has(String(b.type)) || (DRAW_TYPES.has(String(b.type)) && (refDrawings[b.id]?.length ?? 0) > 0))
+    const unfilled = boxes.filter((b) => !DRAW_TYPES.has(String(b.type)) && !(refAnswers[b.id] ?? '').trim()).length
     return { hasImageType, hasRubric, unfilled, total: boxes.length }
-  }, [makerResult, makerState.refAnswers])
+  }, [makerResult, makerState.refAnswers, makerState.refDrawings])
   const canSkipUpload = !!skipStatus && !skipStatus.hasImageType && skipStatus.unfilled === 0
 
   const [genDraftRestored, setGenDraftRestored] = useState(false)
@@ -2012,7 +2016,7 @@ export default function AnswerKeyUnifiedModal({
                         )}
                         {pageItems.length === 0 && skipStatus?.hasImageType && (
                           <div className="mb-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
-                            <p className="text-xs text-slate-600">本卷有作圖／繪圖題（答案是圖、沒法打字）→ 一定要上傳手寫卷；其餘打過字的格仍會直接採用、不重讀。</p>
+                            <p className="text-xs text-slate-600">本卷有作圖／繪圖題還沒給正解 → 可在「製作作答卷」點該格、用<span className="font-semibold">紅色畫筆</span>畫出正解（就能免上傳）；或維持上傳手寫卷。其餘打過字的格仍直接採用。</p>
                           </div>
                         )}
                         <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />

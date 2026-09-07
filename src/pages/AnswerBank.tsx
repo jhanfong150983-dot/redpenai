@@ -462,19 +462,24 @@ export default function AnswerBank(_props: AnswerBankProps) {
     if (context.skipUpload && context.generatedLayout && context.skeleton) {
       const skeleton = context.skeleton
       const refAnswers = context.refAnswers ?? {}
-      // 需 AI 生 rubric 的題：多元填空(判準)、應用題(級分制)。作圖類不在此列（沒法打字、要上傳）。
+      const DRAW_TYPES = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'])
+      type VjR = { itemLabels: string[]; itemScores?: number[]; condition?: string; gradingDefinition?: string }
+      // 需 AI 生 rubric 的題：多元填空(判準)、應用題(級分)、作圖(看圖判準，正解圖=老師畫筆畫的、已烘進生成影像)。
       const rubricItems = skeleton.questions.filter((q) => {
         const cat = String(q.questionCategory)
-        return (cat === 'fill_variants' || cat === 'word_problem') && (refAnswers[q.id] ?? '').trim()
+        if (cat === 'fill_variants' || cat === 'word_problem') return !!(refAnswers[q.id] ?? '').trim()
+        return DRAW_TYPES.has(cat) // 作圖格：正解圖在生成影像上，用 crop 判準（免上傳到這步代表已畫）
       })
-      // 逐題：頂層 answer=打的字；併入 rubric（fill_variants 判準/可接受答案；word_problem levelRubric）
+      // 逐題：頂層 answer=打的字；併入 rubric（判準/可接受答案/級分/看圖 vjRubric＋作圖 cropImageUrl）
       const buildQuestions = (
         criteriaMap: Map<string, { referenceAnswer: string; acceptableAnswers: string[] }>,
         levelMap: Map<string, LevelRubric>,
+        vjMap: Map<string, VjR>,
+        cropMap: Map<string, string>,
       ) =>
         skeleton.questions.map((q) => {
           const typed = (refAnswers[q.id] ?? '').trim()
-          const next = { ...q } as typeof q & { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[]; levelRubric?: LevelRubric }
+          const next = { ...q } as typeof q & { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[]; levelRubric?: LevelRubric; vjRubric?: VjR; cropImageUrl?: string }
           if (typed) next.answer = typed
           const cr = criteriaMap.get(q.id)
           if (cr) {
@@ -483,6 +488,13 @@ export default function AnswerBank(_props: AnswerBankProps) {
           }
           const lr = levelMap.get(q.id)
           if (lr) next.levelRubric = lr
+          const vj = vjMap.get(q.id)
+          if (vj) next.vjRubric = vj
+          // 作圖格：把生成影像該格 crop（帶紅色正解）存進 cropImageUrl，供 VJ 批改比對正解圖
+          if (DRAW_TYPES.has(String(q.questionCategory))) {
+            const crop = cropMap.get(q.id)
+            if (crop) next.cropImageUrl = crop
+          }
           return next
         })
       const mkKey = (qs: AnswerKey['questions']): AnswerKey => ({ ...skeleton, questions: qs, totalScore: qs.reduce((t, q) => t + (q.maxScore ?? 0), 0) })
@@ -490,7 +502,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       if (rubricItems.length === 0) {
         // 純客觀 → 零 AI、免同意框、不扣墨水
         _onProgress('用打字的參考答案直接建卷（免上傳、零 AI）…')
-        const questions = buildQuestions(new Map(), new Map<string, LevelRubric>())
+        const questions = buildQuestions(new Map(), new Map<string, LevelRubric>(), new Map<string, VjR>(), new Map())
         const matched = questions.filter((q) => ((q as { answer?: string }).answer ?? '').trim()).length
         return { answerKey: mkKey(questions), imageBlobs: [], notice: `已用您打字的參考答案直接建卷（${matched}/${questions.length} 格有答案、零 AI 讀取）。請逐題核對。` }
       }
@@ -533,8 +545,20 @@ export default function AnswerBank(_props: AnswerBankProps) {
             if (lr) levelMap.set(q.id, lr)
           } catch (err) { console.warn(`[skipUpload] word_problem ${q.id} 級分生成失敗`, err) }
         }
-        const questions = buildQuestions(criteriaMap, levelMap)
-        const gen = criteriaMap.size + levelMap.size
+        // ③ 作圖題看圖判準（逐題：該格 crop 有老師畫筆紅色正解＋題本 → detectVisualRubric）
+        const vjMap = new Map<string, VjR>()
+        const drawItems = rubricItems.filter((q) => DRAW_TYPES.has(String(q.questionCategory)))
+        for (const q of drawItems) {
+          const crop = cropById.get(q.id)
+          if (!crop) continue
+          _onProgress(`AI 為繪圖題 ${q.id} 生成看圖判準…`)
+          try {
+            const vr = await detectVisualRubric(crop, String(q.questionCategory), String((q as { referenceAnswer?: string }).referenceAnswer ?? refAnswers[q.id] ?? ''), context.bookletBlobs ?? [])
+            if (vr) vjMap.set(q.id, { ...vr })
+          } catch (err) { console.warn(`[skipUpload] 繪圖 ${q.id} VJ 判準失敗`, err) }
+        }
+        const questions = buildQuestions(criteriaMap, levelMap, vjMap, cropById)
+        const gen = criteriaMap.size + levelMap.size + vjMap.size
         return { answerKey: mkKey(questions), imageBlobs: [], notice: `已用您打字的參考答案建卷；其中 ${rubricItems.length} 題由 AI 依題本＋生成的答案卷生成評分規準${gen < rubricItems.length ? `（${gen} 題成功、其餘請手填）` : ''}，請逐題核對。` }
       } finally { closeInkSession() }
     }
