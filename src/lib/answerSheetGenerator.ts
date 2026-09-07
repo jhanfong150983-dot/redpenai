@@ -469,7 +469,8 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
       }
       y += 3.5
     } else {
-      const perRow = sec.perRow ?? 1
+      // 題數少於每列格數時收斂 → 單列大框撐滿頁寬（例：作圖每列2、但只有1題→整頁寬）
+      const perRow = Math.max(1, Math.min(sec.perRow ?? 1, sec.qs.length))
       const w = (PW - 2 * M - (perRow - 1) * 3) / perRow
       for (let i = 0; i < sec.qs.length; i += perRow) {
         const band = sec.qs.slice(i, i + perRow)
