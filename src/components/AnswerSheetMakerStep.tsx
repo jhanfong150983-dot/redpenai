@@ -30,6 +30,9 @@ export interface SheetMakerState {
 
 export const EMPTY_SHEET_MAKER_STATE: SheetMakerState = { pageSize: 'A4', sectionOverrides: {}, baseImages: {}, cellTexts: {}, refAnswers: {} }
 
+// 標頭圖 data URI 模組層快取：元件卸載/重掛載（來回步驟）時免重 fetch、避免預覽空白
+let cachedOmrHeader: string | null = null
+
 interface Props {
   title: string
   questions: GenQuestion[]
@@ -62,12 +65,16 @@ function measureTextPx(text: string, fontPx: number): number {
 }
 
 export default function AnswerSheetMakerStep({ title, questions, bookletImages, state, onStateChange, onResult, onTeacherResult }: Props) {
-  const [headerDataUri, setHeaderDataUri] = useState<string | null>(null)
+  // 2026-09-07 標頭圖快取在模組層：離開製作作答卷再回來時元件會卸載/重掛載，
+  //   若每次都重 fetch，headerDataUri 歸 null 期間 result=null → 預覽空白（user 回報「回上一步空白」）。
+  //   快取後重掛載直接用、result 立刻算出、不空白。
+  const [headerDataUri, setHeaderDataUri] = useState<string | null>(cachedOmrHeader)
   const [headerError, setHeaderError] = useState(false)
   const [cropTarget, setCropTarget] = useState<string | null>(null)
   const [editCell, setEditCell] = useState<string | null>(null)
 
   useEffect(() => {
+    if (headerDataUri) return // 已有（模組快取）→ 免重 fetch
     let cancelled = false
     fetch('/templates/omr-header.png')
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('header fetch failed'))))
@@ -81,6 +88,7 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
           })
       )
       .then((uri) => {
+        cachedOmrHeader = uri // 存模組快取，之後重掛載直接用
         if (!cancelled) setHeaderDataUri(uri)
       })
       .catch(() => {
