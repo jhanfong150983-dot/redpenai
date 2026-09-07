@@ -1547,7 +1547,10 @@ export default function AnswerKeyUnifiedModal({
     }
     if (activeStep === 'booklet') {
       if (isExtracting) return
-      if (completedSteps.has('booklet') && editingKey) { setActiveStep('sheet'); return }
+      // 2026-09-07：只要結構已推斷（editingKey/骨架在）就直接導航、絕不重跑結構推斷 AI。
+      //   原本還檢查 completedSteps.has('booklet')，但返回過程若該旗標被 resetFromStep 清掉，
+      //   就會誤重跑、白花一次建卷次數（user 回報）。skeleton 在＝結構已完成，不需再 call AI。
+      if (editingKey) { markComplete('booklet'); setActiveStep('sheet'); return }
       void handleStartStructure()
       return
     }
