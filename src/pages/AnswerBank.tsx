@@ -106,6 +106,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const [showUnifiedModal, setShowUnifiedModal] = useState(false)
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null)
   const [editingAnswerKey, setEditingAnswerKey] = useState<AnswerKey | null>(null)
+  const [editingGeneratedSheet, setEditingGeneratedSheet] = useState<import('../lib/answerSheetGenerator').GeneratedSheetData | undefined>(undefined)
   const [editingTitle, setEditingTitle] = useState('')
   const [editingDomain, setEditingDomain] = useState('')
   const [editingGrade, setEditingGrade] = useState<number | undefined>(undefined)
@@ -997,6 +998,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
     setReextractImpact(null)
     void loadReextractImpact(t.id)
     setEditingAnswerKey(t.answerKey)
+    setEditingGeneratedSheet(t.generatedSheet)
     setEditingTitle(t.name)
     setEditingDomain(t.domain || '')
     setEditingGrade(t.grade)
@@ -1158,7 +1160,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             <Plus className="w-4 h-4" />建立資料夾
           </Button>
           <Button type="button" variant="primary"
-            onClick={() => { setEditingTemplateId(null); setEditingAnswerKey(null); setEditingTitle(''); setEditingDomain(''); setEditingGrade(undefined); setEditingMathTrack(undefined); setEditingDocType('worksheet'); setEditingFolder(''); setEditingAnswerSheetMode('with_questions'); setEditingAnswerSheetImages([]); setShowUnifiedModal(true) }}
+            onClick={() => { setEditingTemplateId(null); setEditingAnswerKey(null); setEditingGeneratedSheet(undefined); setEditingTitle(''); setEditingDomain(''); setEditingGrade(undefined); setEditingMathTrack(undefined); setEditingDocType('worksheet'); setEditingFolder(''); setEditingAnswerSheetMode('with_questions'); setEditingAnswerSheetImages([]); setShowUnifiedModal(true) }}
           >
             <Plus className="h-4 w-4" />新增答案卷
           </Button>
@@ -1193,7 +1195,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             <div className="py-12 text-center">
               <BookOpen className="mx-auto h-12 w-12 text-slate-300" />
               <p className="mt-4 text-sm font-medium text-slate-500">尚未建立任何答案卷</p>
-              <button type="button" onClick={() => { setEditingTemplateId(null); setEditingAnswerKey(null); setEditingTitle(''); setEditingDomain(''); setEditingGrade(undefined); setEditingMathTrack(undefined); setEditingDocType('worksheet'); setEditingFolder(''); setEditingAnswerSheetMode('with_questions'); setEditingAnswerSheetImages([]); setShowUnifiedModal(true) }}
+              <button type="button" onClick={() => { setEditingTemplateId(null); setEditingAnswerKey(null); setEditingGeneratedSheet(undefined); setEditingTitle(''); setEditingDomain(''); setEditingGrade(undefined); setEditingMathTrack(undefined); setEditingDocType('worksheet'); setEditingFolder(''); setEditingAnswerSheetMode('with_questions'); setEditingAnswerSheetImages([]); setShowUnifiedModal(true) }}
                 className="mt-3 inline-flex items-center gap-2 rounded-lg border border-green-300 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-50">
                 <FileUp className="h-4 w-4" />上傳答案卷圖片
               </button>
@@ -1331,6 +1333,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
           initialAnswerSheetImages={editingAnswerSheetImages}
           reextractClassLabels={reextractImpact?.classLabels ?? []}
           initialBookletImages={editingBookletImages}
+          initialGeneratedSheet={editingGeneratedSheet}
           hasGradedSubmissions={reextractImpact?.hasGraded ?? false}
           domainOptions={domainOptions}
         />

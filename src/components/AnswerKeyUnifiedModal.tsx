@@ -235,6 +235,8 @@ export interface AnswerKeyUnifiedModalProps {
   reextractClassLabels?: string[]
   /** 純答案卷模式的題本圖（從 Storage 還原）。重新解析時要一起送，AI 沒題目就寫不出評分規準 */
   initialBookletImages?: Blob[]
+  /** 已存的生成作答卷版面（GeneratedSheetData）。編輯模式重建作答區截圖用（免上傳卷缺 crop 時補圖） */
+  initialGeneratedSheet?: GeneratedSheetData
   // Options
   /** @deprecated 2026-08-29 領域改由年級決定（domainByGrade.ts），此 prop 不再使用 */
   domainOptions?: string[]
@@ -270,6 +272,18 @@ async function rasterizeSheetSvg(svg: string, pageMm: [number, number]): Promise
   }
 }
 
+// 抓 OMR 標頭圖 → data URI（重建老師版作答卷影像時要）
+async function fetchOmrHeaderDataUri(): Promise<string | null> {
+  try {
+    const r = await fetch('/templates/omr-header.png')
+    if (!r.ok) return null
+    const blob = await r.blob()
+    return await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader(); fr.onload = () => resolve(String(fr.result)); fr.onerror = () => reject(new Error('x')); fr.readAsDataURL(blob)
+    })
+  } catch { return null }
+}
+
 // ─── main component ─────────────────────────────────────────────────────────
 
 export default function AnswerKeyUnifiedModal({
@@ -291,6 +305,7 @@ export default function AnswerKeyUnifiedModal({
   hasGradedSubmissions = false,
   reextractClassLabels = [],
   initialBookletImages = [],
+  initialGeneratedSheet = undefined,
 }: AnswerKeyUnifiedModalProps) {
   // 2026-07-22 modal 統一：alert → 共用 ConfirmModal
   const alertModal = useAlertModal()
@@ -1490,36 +1505,48 @@ export default function AnswerKeyUnifiedModal({
         ...editingKey,
         totalScore: editingKey.questions.reduce((s, q) => s + (q.maxScore ?? 0), 0),
       }
-      // 存檔前補「作答區截圖」：免上傳建的卷可能缺 crop → 用生成的老師版影像(帶紅字)裁每格。
-      //   client 端、免 AI；本 session 有經過製作作答卷才有 teacherMakerResult/makerResult。失敗不擋存檔。
-      if (GENERATED_SHEET_STEP_ENABLED && teacherMakerResult && makerResult) {
-        const needCrop = updatedKey.questions.some((q) => !(q as { cropImageUrl?: string; cropImagePath?: string }).cropImageUrl && !(q as { cropImagePath?: string }).cropImagePath)
+      // 存檔前補「作答區截圖」：免上傳建的卷可能缺 crop → 用老師版作答卷影像(帶紅字)裁每格（client 端、免 AI）。
+      //   來源①本 session 的 teacherMakerResult（剛做過作答卷）；②編輯模式重開→用已存版面 initialGeneratedSheet
+      //   ＋題目答案(當紅字)重建。作圖題的手繪正解(refDrawing)未持久化，重建版無法還原→那類仍缺，其餘都補。失敗不擋存檔。
+      if (GENERATED_SHEET_STEP_ENABLED) {
+        const needCrop = updatedKey.questions.some((q) => !(q as { cropImageUrl?: string }).cropImageUrl && !(q as { cropImagePath?: string }).cropImagePath)
         if (needCrop) {
           try {
             setExtractError(null)
-            const blob = await rasterizeSheetSvg(teacherMakerResult.svg, teacherMakerResult.layoutMeta.pageMm)
-            if (blob) {
-              const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-                const im = new Image(); im.onload = () => resolve(im); im.onerror = () => reject(new Error('影像載入失敗')); im.src = URL.createObjectURL(blob)
-              })
-              const layout: GeneratedSheetData = {
-                version: ANSWER_SHEET_GEN_VERSION,
-                pageSize: makerState.pageSize,
-                pageMm: makerResult.layoutMeta.pageMm,
-                anchorsMm: makerResult.layoutMeta.anchorsMm,
-                uvBasis: makerResult.layoutMeta.uvBasis,
-                header: makerResult.layoutMeta.header,
-                boxes: makerResult.boxes,
-                sectionOverrides: makerState.sectionOverrides,
+            let svg: string | null = null
+            let pageMm: [number, number] | null = null
+            let layout: GeneratedSheetData | null = null
+            if (teacherMakerResult && makerResult) {
+              svg = teacherMakerResult.svg
+              pageMm = teacherMakerResult.layoutMeta.pageMm
+              layout = { version: ANSWER_SHEET_GEN_VERSION, pageSize: makerState.pageSize, pageMm, anchorsMm: makerResult.layoutMeta.anchorsMm, uvBasis: makerResult.layoutMeta.uvBasis, header: makerResult.layoutMeta.header, boxes: makerResult.boxes, sectionOverrides: makerState.sectionOverrides }
+            } else if (initialGeneratedSheet) {
+              const header = await fetchOmrHeaderDataUri()
+              if (header) {
+                const qs = updatedKey.questions.map((q) => ({ id: q.id, questionCategory: q.questionCategory ?? 'fill_blank', maxScore: q.maxScore, refAnswer: (q as { answer?: string }).answer, anchorHint: (q as { anchorHint?: string }).anchorHint }))
+                const gen = generateAnswerSheet({ title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '), pageSize: initialGeneratedSheet.pageSize, questions: qs, headerDataUri: header, sectionOverrides: initialGeneratedSheet.sectionOverrides, withRefAnswers: true })
+                if (gen.ok) {
+                  svg = gen.svg
+                  pageMm = gen.layoutMeta.pageMm
+                  layout = { version: ANSWER_SHEET_GEN_VERSION, pageSize: initialGeneratedSheet.pageSize, pageMm, anchorsMm: gen.layoutMeta.anchorsMm, uvBasis: gen.layoutMeta.uvBasis, header: gen.layoutMeta.header, boxes: gen.boxes, sectionOverrides: initialGeneratedSheet.sectionOverrides }
+                }
               }
-              const cropMap = new Map(cropReferenceSheetCells(img, layout).map((c) => [c.id, c.dataUrl]))
-              updatedKey.questions = updatedKey.questions.map((q) => {
-                const has = !!(q as { cropImageUrl?: string }).cropImageUrl || !!(q as { cropImagePath?: string }).cropImagePath
-                const crop = cropMap.get(q.id)
-                return (!has && crop) ? { ...q, cropImageUrl: crop } : q
-              })
-              console.warn('[crop backfill] 補上', cropMap.size, '格截圖')
-            } else console.warn('[crop backfill] 點陣化失敗、無截圖')
+            }
+            if (svg && pageMm && layout) {
+              const blob = await rasterizeSheetSvg(svg, pageMm)
+              if (blob) {
+                const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                  const im = new Image(); im.onload = () => resolve(im); im.onerror = () => reject(new Error('影像載入失敗')); im.src = URL.createObjectURL(blob)
+                })
+                const cropMap = new Map(cropReferenceSheetCells(img, layout).map((c) => [c.id, c.dataUrl]))
+                updatedKey.questions = updatedKey.questions.map((q) => {
+                  const has = !!(q as { cropImageUrl?: string }).cropImageUrl || !!(q as { cropImagePath?: string }).cropImagePath
+                  const crop = cropMap.get(q.id)
+                  return (!has && crop) ? { ...q, cropImageUrl: crop } : q
+                })
+                console.warn('[crop backfill] 補上', cropMap.size, '格截圖（來源：', teacherMakerResult ? 'session' : '重建', '）')
+              } else console.warn('[crop backfill] 點陣化失敗、無截圖')
+            } else console.warn('[crop backfill] 無可用版面來源（teacherMakerResult/initialGeneratedSheet 皆無）')
           } catch (err) { console.warn('[crop backfill] 失敗（存檔續行、無截圖）:', (err as Error)?.message || err) }
         }
       }
