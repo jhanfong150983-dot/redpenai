@@ -44,6 +44,8 @@ interface Props {
   onResult?: (result: GenResult | null) => void
   /** 老師版（帶紅字參考答案）result；供「AI 解析」那步下載列印手寫。學生版走 onResult。 */
   onTeacherResult?: (result: GenResult | null) => void
+  /** 版面能否放進單面一頁：ok=放得下、overflow=塞不下(需換B4/調小)、pending=計算中。供父層按鈕明確說明為何不能繼續。 */
+  onFitStatus?: (status: 'ok' | 'overflow' | 'pending') => void
 }
 
 function sectionKeyOf(id: string): string {
@@ -64,7 +66,7 @@ function measureTextPx(text: string, fontPx: number): number {
   return _measureCtx.measureText(text).width
 }
 
-export default function AnswerSheetMakerStep({ title, questions, bookletImages, state, onStateChange, onResult, onTeacherResult }: Props) {
+export default function AnswerSheetMakerStep({ title, questions, bookletImages, state, onStateChange, onResult, onTeacherResult, onFitStatus }: Props) {
   // 2026-09-07 標頭圖快取在模組層：離開製作作答卷再回來時元件會卸載/重掛載，
   //   若每次都重 fetch，headerDataUri 歸 null 期間 result=null → 預覽空白（user 回報「回上一步空白」）。
   //   快取後重掛載直接用、result 立刻算出、不空白。
@@ -163,6 +165,8 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
     onResult?.(result && result.ok ? (result as GenResult) : null)
     // 老師版（帶紅字參考答案）回傳給父層供「AI 解析」那步下載列印手寫用；學生版仍走 onResult
     onTeacherResult?.(previewResult && previewResult.ok ? (previewResult as GenResult) : null)
+    // 版面適配狀態：result 尚未算出=pending；算出但 ok=false=塞不下(overflow)；ok=放得下
+    onFitStatus?.(!result ? 'pending' : result.ok ? 'ok' : 'overflow')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, previewResult])
 

@@ -279,6 +279,7 @@ export default function AnswerKeyUnifiedModal({
   const [makerState, setMakerState] = useState<SheetMakerState>(EMPTY_SHEET_MAKER_STATE)
   const [makerResult, setMakerResult] = useState<GenResult | null>(null)
   const [teacherMakerResult, setTeacherMakerResult] = useState<GenResult | null>(null) // 老師版(帶紅字)、供AI解析下載
+  const [makerFitStatus, setMakerFitStatus] = useState<'ok' | 'overflow' | 'pending'>('pending') // 版面是否放得下單面一頁
 
   const [completedSteps, setCompletedSteps] = useState<Set<UnifiedStep>>(
     () => editMode
@@ -1533,6 +1534,10 @@ export default function AnswerKeyUnifiedModal({
       return { label: '下一步：製作作答卷', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
     }
     if (activeStep === 'sheet') {
+      // 版面塞不下單面一頁（overflow）→ 明確擋住並說明，不讓老師在失效版面上繼續
+      if (makerFitStatus === 'overflow') {
+        return { label: '版面塞不下一頁：請換 B4 或調小格子', disabled: true, icon: <ChevronRight className="w-4 h-4" /> }
+      }
       return { label: '下一步：AI 解析', disabled: !makerResult || !editingKey, icon: <ChevronRight className="w-4 h-4" /> }
     }
     if (activeStep === 'extract') {
@@ -2741,6 +2746,7 @@ export default function AnswerKeyUnifiedModal({
                     onStateChange={setMakerState}
                     onResult={setMakerResult}
                     onTeacherResult={setTeacherMakerResult}
+                    onFitStatus={setMakerFitStatus}
                   />
                 </div>
               )}
