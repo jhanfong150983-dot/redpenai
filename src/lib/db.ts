@@ -858,8 +858,10 @@ export interface GenSheetDraft {
   metadata: { title: string; domain: string; grade?: number; mathTrack?: 'A' | 'B'; folder: string }
   /** 題本頁（已套旋轉排序的 blob） */
   bookletBlobs: Blob[]
-  /** 結構推斷骨架（editingKey） */
+  /** 結構推斷骨架，AI 解析後為含答案的 editingKey */
   answerKey: AnswerKey | null
+  /** AI 解析後的參考答案卷頁圖（供 editing 步驟預覽；解析前為空） */
+  extractedImageBlobs?: Blob[]
   /** step③ 版面狀態（pageSize/sectionOverrides/cellTexts/baseImages） */
   makerState: unknown
   activeStep: string

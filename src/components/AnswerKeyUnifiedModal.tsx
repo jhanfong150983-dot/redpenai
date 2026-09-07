@@ -1003,7 +1003,9 @@ export default function AnswerKeyUnifiedModal({
   // 觸發：生成流程、建立模式、結構已出（editingKey）；debounce 1.5s 寫入 Dexie 單列草稿
   useEffect(() => {
     if (!GENERATED_SHEET_STEP_ENABLED || editMode || !editingKey) return
-    if (!['booklet', 'sheet', 'extract'].includes(activeStep)) return
+    // 2026-09-07 加入 'editing'：AI 解析成功後會自動跳 editing，若不納入則解析結果（含答案）永遠不入草稿，
+    //   離開續作只能重解析（還多扣一次建卷額度）。
+    if (!['booklet', 'sheet', 'extract', 'editing'].includes(activeStep)) return
     const timer = setTimeout(() => {
       const blobs = bookletPageItems
         .map((item) => bookletPages.find((p) => p.index === item.originalIndex)?.blob)
@@ -1014,13 +1016,14 @@ export default function AnswerKeyUnifiedModal({
         metadata: { title, domain, grade: grade === '' ? undefined : grade, mathTrack: mathTrack || undefined, folder },
         bookletBlobs: blobs,
         answerKey: editingKey,
+        extractedImageBlobs: extractedImageBlobs.length ? [...extractedImageBlobs] : undefined,
         makerState,
         activeStep,
       }).catch((err) => console.warn('[GenDraft] 暫存失敗（不影響操作）:', err))
     }, 1500)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingKey, makerState, activeStep, bookletPageItems])
+  }, [editingKey, makerState, activeStep, bookletPageItems, extractedImageBlobs])
 
   // 開啟時偵測草稿 → 詢問續作（僅建立模式、一次）
   useEffect(() => {
@@ -1051,10 +1054,18 @@ export default function AnswerKeyUnifiedModal({
         const pages = draft.bookletBlobs.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) }))
         setBookletPages(pages)
         setEditingKey(draft.answerKey)
+        if (Array.isArray(draft.extractedImageBlobs) && draft.extractedImageBlobs.length) {
+          skipPageResetRef.current = true
+          const corrected = draft.extractedImageBlobs.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) }))
+          setExtractedImageBlobs(draft.extractedImageBlobs)
+          setUploadedPages(corrected)
+        }
         setMakerState((draft.makerState as SheetMakerState) ?? EMPTY_SHEET_MAKER_STATE)
         markComplete('metadata')
         markComplete('booklet')
-        if (draft.activeStep === 'extract') markComplete('sheet')
+        // 續作到 AI 解析後的 editing：把中間步驟一併標記完成，才不會被步驟機擋回去重解析
+        if (draft.activeStep === 'extract' || draft.activeStep === 'editing') markComplete('sheet')
+        if (draft.activeStep === 'editing') { markComplete('extract'); markComplete('editing') }
         setActiveStep((draft.activeStep as UnifiedStep) || 'sheet')
       } catch (err) {
         console.warn('[GenDraft] 草稿讀取失敗:', err)
