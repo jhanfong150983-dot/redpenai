@@ -49,7 +49,24 @@ interface Props {
   onTeacherResult?: (result: GenResult | null) => void
   /** 版面能否放進單面一頁：ok=放得下、overflow=塞不下(需換B4/調小)、pending=計算中。供父層按鈕明確說明為何不能繼續。 */
   onFitStatus?: (status: 'ok' | 'overflow' | 'pending') => void
+  /** 製作作答卷時就地改題型（AI 分類錯→老師選對，立刻重排版面，不必等人工檢核）。qids=該大題所有題號 */
+  onQuestionCategoryChange?: (qids: string[], category: string) => void
 }
+
+// 製作作答卷可就地切換的題型（涵蓋版型差異大的類別；細分留人工檢核）
+const SHEET_TYPE_OPTIONS: Array<[string, string]> = [
+  ['single_choice', '選擇題（寫代號）'],
+  ['true_false', '是非題'],
+  ['fill_blank', '填空題'],
+  ['short_answer', '簡答題'],
+  ['fill_variants', '多元填空／注釋'],
+  ['word_problem', '應用題（大框）'],
+  ['grid_geometry', '作圖題'],
+  ['circle_select_one', '圈選題'],
+  ['mark_in_text', '圈詞題'],
+  ['connect_dots', '連連看'],
+  ['map_fill', '塗色／填圖'],
+]
 
 function sectionKeyOf(id: string): string {
   const parts = String(id).split('-')
@@ -71,7 +88,7 @@ function measureTextPx(text: string, fontPx: number): number {
   return _measureCtx.measureText(text).width
 }
 
-export default function AnswerSheetMakerStep({ title, questions, bookletImages, state, onStateChange, onResult, onTeacherResult, onFitStatus }: Props) {
+export default function AnswerSheetMakerStep({ title, questions, bookletImages, state, onStateChange, onResult, onTeacherResult, onFitStatus, onQuestionCategoryChange }: Props) {
   // 2026-09-07 標頭圖快取在模組層：離開製作作答卷再回來時元件會卸載/重掛載，
   //   若每次都重 fetch，headerDataUri 歸 null 期間 result=null → 預覽空白（user 回報「回上一步空白」）。
   //   快取後重掛載直接用、result 立刻算出、不空白。
@@ -215,6 +232,26 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
             <div key={sec.key} className="border rounded-lg p-3 space-y-2">
               <div className="text-sm font-bold">{sec.name}</div>
               <div className="text-[11px] text-gray-400">{sec.qs.length} 題</div>
+              {/* 就地改題型（AI 分類錯→老師選對，立刻重排）*/}
+              {onQuestionCategoryChange && (() => {
+                const cats = sec.qs.map((q) => q.questionCategory)
+                const cur = cats[0] ?? ''
+                const known = SHEET_TYPE_OPTIONS.some(([v]) => v === cur)
+                return (
+                  <label className="block text-xs text-gray-500">
+                    題型{cats.some((c) => c !== cur) ? '（本區不一致，改此會統一）' : ''}
+                    <select
+                      value={known ? cur : ''}
+                      onChange={(e) => e.target.value && onQuestionCategoryChange(sec.qs.map((q) => q.id), e.target.value)}
+                      className="mt-0.5 w-full border rounded px-2 py-1 text-sm"
+                    >
+                      {!known && <option value="">{cur || '（未分類）'}</option>}
+                      {SHEET_TYPE_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                    </select>
+                    <span className="block text-[10px] text-amber-600 mt-0.5">AI 分類可能有誤，改對這裡會立刻重排版面</span>
+                  </label>
+                )
+              })()}
               {!sec.hasBig && (
                 <>
                   {(() => { const isWide = sec.qs.some((q) => ['short_answer', 'fill_variants'].includes(q.questionCategory)); return (

@@ -2853,6 +2853,7 @@ export default function AnswerKeyUnifiedModal({
                     onResult={setMakerResult}
                     onTeacherResult={setTeacherMakerResult}
                     onFitStatus={setMakerFitStatus}
+                    onQuestionCategoryChange={(qids, category) => setEditingKey((prev) => prev ? { ...prev, questions: prev.questions.map((q) => qids.includes(q.id) ? { ...q, questionCategory: category as typeof q.questionCategory } : q) } : prev)}
                   />
                 </div>
               )}
