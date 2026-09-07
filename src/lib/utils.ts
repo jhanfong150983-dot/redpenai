@@ -13,7 +13,7 @@ export function cn(...inputs: ClassValue[]) {
 
 /**
  * 領域排序：國語、數學、社會、自然、英語、其他
- * 共用於 AnswerBank、AssignmentList 等所有需顯示答案卷 / 作業排序的地方
+ * 共用於 AnswerBank、AssignmentList 等所有需顯示答案卷 / 考卷排序的地方
  */
 export const DOMAIN_SORT_ORDER = ['國語', '數學', '社會', '自然', '英語', '其他']
 export const domainRank = (d?: string): number => {
@@ -87,7 +87,7 @@ export function getSubmissionImageUrl(submission?: {
   thumbnailUrl?: string
 } | null, useThumbnail = false): string | null {
   if (!submission) {
-    // 正常情況：某些學生可能沒有提交作業
+    // 正常情況：某些學生可能沒有提交考卷
     return null
   }
 
@@ -203,8 +203,8 @@ export function getSubmissionImageUrl(submission?: {
 /**
  * 檢查資料夾名稱是否已被使用（跨類型唯一性）
  * 規則：
- * - 同類型（班級 vs 班級，或作業 vs 作業）可以共用資料夾名稱
- * - 跨類型（班級 vs 作業）不能使用相同的資料夾名稱
+ * - 同類型（班級 vs 班級，或考卷 vs 考卷）可以共用資料夾名稱
+ * - 跨類型（班級 vs 考卷）不能使用相同的資料夾名稱
  * @param folderName - 要檢查的資料夾名稱
  * @param type - 'classroom' 或 'assignment'
  * @returns Promise<{ isUnique: boolean; usedBy?: string }>
@@ -249,7 +249,7 @@ export async function checkFolderNameUnique(
     if (conflictAssignment) {
       return {
         isUnique: false,
-        usedBy: `作業「${conflictAssignment.title}」`
+        usedBy: `考卷「${conflictAssignment.title}」`
       }
     }
     const conflictEmpty = await db.folders
@@ -259,7 +259,7 @@ export async function checkFolderNameUnique(
     if (conflictEmpty) {
       return {
         isUnique: false,
-        usedBy: `作業資料夾「${trimmedName}」`
+        usedBy: `考卷資料夾「${trimmedName}」`
       }
     }
   }

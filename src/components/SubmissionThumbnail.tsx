@@ -124,7 +124,7 @@ function SubmissionThumbnailInner({ submission }: {
       {imageUrl && (
         <img
           src={imageUrl}
-          alt="作業縮圖"
+          alt="考卷縮圖"
           className="w-full h-full object-cover relative"
           loading="lazy"
           decoding="async"

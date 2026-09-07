@@ -1013,7 +1013,7 @@ export default function AnswerKeyWizardModal({
                   <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
                   <h3 className="font-semibold text-gray-900 text-sm">注意</h3>
                 </div>
-                <p className="text-xs text-gray-600 mb-4">修改標準答案不會自動重新批改已批改的作業，請手動重新批改需要更正的作業。</p>
+                <p className="text-xs text-gray-600 mb-4">修改標準答案不會自動重新批改已批改的考卷，請手動重新批改需要更正的考卷。</p>
                 <div className="flex justify-end gap-2">
                   <Button type="button" variant="outline" onClick={() => setOverlay(null)}>取消</Button>
                   <Button type="button" variant="primary" onClick={() => void doSave()}>確認儲存</Button>

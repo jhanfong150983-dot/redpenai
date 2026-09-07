@@ -79,7 +79,7 @@ export default function AssignmentImportSelect({
           db.classrooms.toArray(),
           db.folders.where('type').equals('assignment').toArray()
         ])
-        // 2026-08-01 學校考卷（行政端）不進教師介面——班級與作業都要濾
+        // 2026-08-01 學校考卷（行政端）不進教師介面——班級與考卷都要濾
         const schoolClassIds = schoolExamClassroomIds(allClassroomData)
         const classroomData = sortClassroomsByName(
           withoutArchivedClassrooms(withoutSchoolExamClassrooms(allClassroomData))
@@ -142,7 +142,7 @@ export default function AssignmentImportSelect({
       <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-indigo-600 mx-auto mb-4 animate-spin" />
-          <p className="text-gray-600">載入作業列表中…</p>
+          <p className="text-gray-600">載入考卷列表中…</p>
         </div>
       </div>
     )
@@ -165,7 +165,7 @@ export default function AssignmentImportSelect({
         {/* 標題 */}
         <div className={`${embedded ? 'mb-4 border-b border-slate-200 pb-3' : 'bg-white rounded-xl border border-slate-200 p-6 mb-6'}`}>
           <div className="flex items-center justify-between gap-3">
-            <h1 className="text-2xl font-semibold text-gray-900">作業匯入</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">考卷匯入</h1>
           </div>
         </div>
 
@@ -212,22 +212,22 @@ export default function AssignmentImportSelect({
           </div>
         )}
 
-        {/* 作業列表 */}
+        {/* 考卷列表 */}
         {assignments.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              尚未建立任何作業。先到「答案卷」建立答案，再回來建立作業。
+              尚未建立任何考卷。先到「答案卷」建立答案，再回來建立考卷。
             </h3>
             <p className="text-gray-600 mb-4">
-              請先到「作業管理」建立作業與標準答案，再回到這裡匯入作業。
+              請先到「考卷管理」建立考卷與標準答案，再回到這裡匯入考卷。
             </p>
           </div>
         ) : filteredAssignments.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              此資料夾中沒有作業
+              此資料夾中沒有考卷
             </h3>
             <p className="text-gray-600 mb-4">
               請選擇其他班級或資料夾。
@@ -262,7 +262,7 @@ export default function AssignmentImportSelect({
                       className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
                     >
                       <Upload className="h-4 w-4" />
-                      <span className="text-center leading-tight">匯入作業</span>
+                      <span className="text-center leading-tight">匯入考卷</span>
                     </button>
                   </div>
                 </div>

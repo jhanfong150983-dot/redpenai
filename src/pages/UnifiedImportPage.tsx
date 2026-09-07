@@ -354,7 +354,7 @@ export default function UnifiedImportPage({
     setError(null)
     try {
       const assignmentData = await db.assignments.get(assignmentId)
-      if (!assignmentData) throw new Error('找不到這份作業')
+      if (!assignmentData) throw new Error('找不到這份考卷')
       setAssignment(assignmentData)
 
       const studentsData = await db.students
@@ -475,8 +475,8 @@ export default function UnifiedImportPage({
                 return loadData()
               })
               .catch((err) => {
-                console.error('儲存作業失敗:', err)
-                void alertModal(err instanceof Error ? err.message : '儲存作業失敗')
+                console.error('儲存考卷失敗:', err)
+                void alertModal(err instanceof Error ? err.message : '儲存考卷失敗')
               })
               .finally(() => setSavingStudentId(null))
           }
@@ -872,7 +872,7 @@ export default function UnifiedImportPage({
         }
 
         if (successCount > 0) {
-          void alertModal(`已成功匯入 ${successCount} 份作業`)
+          void alertModal(`已成功匯入 ${successCount} 份考卷`)
           requestSync(true)
           await loadData()
         }
@@ -976,9 +976,9 @@ export default function UnifiedImportPage({
 
       const confirmed = await confirmModal({
         tone: 'warning',
-        title: `退回 ${student.seatNumber} 號 ${student.name} 的學生上傳作業？`,
+        title: `退回 ${student.seatNumber} 號 ${student.name} 的學生上傳考卷？`,
         message: '退回後將解除鎖定，學生需重新上傳。',
-        confirmLabel: '退回作業',
+        confirmLabel: '退回考卷',
       })
       if (!confirmed) return
 
@@ -1000,9 +1000,9 @@ export default function UnifiedImportPage({
 
         closePreview()
         await loadData()
-        void alertModal('已退回該學生作業，學生可重新上傳。')
+        void alertModal('已退回該學生考卷，學生可重新上傳。')
       } catch (error) {
-        console.error('退回學生作業失敗:', error)
+        console.error('退回學生考卷失敗:', error)
         void alertModal(error instanceof Error ? error.message : '退回失敗，請稍後再試')
       } finally {
         setIsRejecting(false)
@@ -1011,7 +1011,7 @@ export default function UnifiedImportPage({
     [submissionMap, closePreview, loadData],
   )
 
-  // ── Delete submission (清空作業) ──────────────────────────────────────────
+  // ── Delete submission (清空考卷) ──────────────────────────────────────────
 
   const [isDeleting, setIsDeleting] = useState(false)
 
@@ -1023,7 +1023,7 @@ export default function UnifiedImportPage({
 
       const confirmed = await confirmModal({
         tone: 'danger',
-        title: `刪除 ${student.seatNumber} 號 ${student.name} 的作業？`,
+        title: `刪除 ${student.seatNumber} 號 ${student.name} 的考卷？`,
         message: '刪除後無法復原。',
         confirmLabel: '刪除',
       })
@@ -1042,7 +1042,7 @@ export default function UnifiedImportPage({
         closePreview()
         await loadData()
       } catch (error) {
-        console.error('刪除作業失敗:', error)
+        console.error('刪除考卷失敗:', error)
         void alertModal(error instanceof Error ? error.message : '刪除失敗')
       } finally {
         setIsDeleting(false)
@@ -1144,7 +1144,7 @@ export default function UnifiedImportPage({
             )}
             <div>
               <h1 className="text-lg font-semibold text-gray-900">
-                匯入作業
+                匯入考卷
               </h1>
               {assignment && (
                 <p className="text-sm text-slate-500">
@@ -1414,7 +1414,7 @@ export default function UnifiedImportPage({
                 >
                   <img
                     src={previewUrl}
-                    alt="作業預覽"
+                    alt="考卷預覽"
                     className="object-contain rounded-lg shadow transition-transform"
                     style={{
                       transform: `scale(${previewZoom})`,
@@ -1521,7 +1521,7 @@ export default function UnifiedImportPage({
                   </>
                 )}
               </div>
-              {/* 刪除作業 */}
+              {/* 刪除考卷 */}
               <div className="flex items-center justify-center">
                 <button
                   type="button"
@@ -1534,7 +1534,7 @@ export default function UnifiedImportPage({
                   ) : (
                     <Trash2 className="w-4 h-4" />
                   )}
-                  刪除作業
+                  刪除考卷
                 </button>
               </div>
             </div>
@@ -1634,9 +1634,9 @@ export default function UnifiedImportPage({
       <DangerConfirmModal
         open={!!overwriteWarn}
         severity="high"
-        title={`此次匯入將覆蓋 ${overwriteWarn?.count ?? 0} 位學生的既有作業`}
+        title={`此次匯入將覆蓋 ${overwriteWarn?.count ?? 0} 位學生的既有考卷`}
         clears={[
-          `${overwriteWarn?.count ?? 0} 位學生原本的作業影像`,
+          `${overwriteWarn?.count ?? 0} 位學生原本的考卷影像`,
           ...((overwriteWarn?.gradedCount ?? 0) > 0
             ? [
                 `${overwriteWarn?.gradedCount} 份批改結果（分數與批改明細、需重新批改）`,

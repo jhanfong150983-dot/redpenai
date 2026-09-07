@@ -30,7 +30,7 @@ export async function checkPendingSubmissions() {
   pending.forEach((submission, index) => {
     console.log(`\n記錄 ${index + 1}:`)
     console.log('  ID:', submission.id)
-    console.log('  作業 ID:', submission.assignmentId)
+    console.log('  考卷 ID:', submission.assignmentId)
     console.log('  學生 ID:', submission.studentId)
     console.log('  狀態:', submission.status)
     console.log('  有圖片:', !!submission.imageBlob)
@@ -184,22 +184,22 @@ export async function clearPendingSubmissions() {
 }
 
 /**
- * 檢查所有作業和提交記錄的對應關係
+ * 檢查所有考卷和提交記錄的對應關係
  */
 export async function checkAssignmentSubmissions() {
-  console.log('🔍 檢查所有作業和提交記錄...\n')
+  console.log('🔍 檢查所有考卷和提交記錄...\n')
 
-  // 載入所有作業
+  // 載入所有考卷
   const assignments = await db.assignments.toArray()
-  console.log(`📚 找到 ${assignments.length} 個作業:\n`)
+  console.log(`📚 找到 ${assignments.length} 個考卷:\n`)
 
   for (const assignment of assignments) {
     const classroom = await db.classrooms.get(assignment.classroomId)
-    console.log(`📖 作業: ${assignment.title}`)
+    console.log(`📖 考卷: ${assignment.title}`)
     console.log(`  - ID: ${assignment.id}`)
     console.log(`  - 班級: ${classroom?.name || '未知'}`)
 
-    // 查找該作業的提交記錄
+    // 查找該考卷的提交記錄
     const submissions = await db.submissions
       .where('assignmentId')
       .equals(assignment.id)
@@ -215,16 +215,16 @@ export async function checkAssignmentSubmissions() {
     console.log('')
   }
 
-  // 檢查是否有孤立的提交記錄（不屬於任何作業）
+  // 檢查是否有孤立的提交記錄（不屬於任何考卷）
   const allSubmissions = await db.submissions.toArray()
   const orphanedSubmissions = allSubmissions.filter(sub =>
     !assignments.some(a => a.id === sub.assignmentId)
   )
 
   if (orphanedSubmissions.length > 0) {
-    console.log(`⚠️ 發現 ${orphanedSubmissions.length} 條孤立的提交記錄（作業已刪除）:`)
+    console.log(`⚠️ 發現 ${orphanedSubmissions.length} 條孤立的提交記錄（考卷已刪除）:`)
     orphanedSubmissions.forEach(sub => {
-      console.log(`  - ID: ${sub.id}, 作業 ID: ${sub.assignmentId}, 狀態: ${sub.status}`)
+      console.log(`  - ID: ${sub.id}, 考卷 ID: ${sub.assignmentId}, 狀態: ${sub.status}`)
     })
   }
 
@@ -265,9 +265,9 @@ export async function checkDatabaseStatus() {
   }
   console.log('')
 
-  // 檢查作業
+  // 檢查考卷
   const assignments = await db.assignments.toArray()
-  console.log(`📝 作業 (${assignments.length})`)
+  console.log(`📝 考卷 (${assignments.length})`)
   assignments.forEach((a, i) => {
     const classroom = classrooms.find(c => c.id === a.classroomId)
     console.log(`  ${i + 1}. ${a.title} (ID: ${a.id})`)
@@ -282,11 +282,11 @@ export async function checkDatabaseStatus() {
   if (submissions.length === 0) {
     console.log('  ⚠️ 沒有任何提交記錄！')
     console.log('  可能原因：')
-    console.log('    1. 還沒有使用「作業掃描器」上傳作業')
-    console.log('    2. 上傳時選擇的作業或班級不正確')
+    console.log('    1. 還沒有使用「考卷掃描器」上傳考卷')
+    console.log('    2. 上傳時選擇的考卷或班級不正確')
     console.log('    3. 數據在同步後被意外刪除')
   } else {
-    // 按作業分組
+    // 按考卷分組
     const byAssignment = submissions.reduce((acc, s) => {
       if (!acc[s.assignmentId]) acc[s.assignmentId] = []
       acc[s.assignmentId].push(s)
@@ -295,7 +295,7 @@ export async function checkDatabaseStatus() {
 
     Object.entries(byAssignment).forEach(([assignmentId, subList]) => {
       const assignment = assignments.find(a => a.id === assignmentId)
-      console.log(`  - ${assignment?.title || `未知作業 (${assignmentId})`}: ${subList.length} 份`)
+      console.log(`  - ${assignment?.title || `未知考卷 (${assignmentId})`}: ${subList.length} 份`)
       subList.forEach((sub, i) => {
         const student = students.find(s => s.id === sub.studentId)
         console.log(`    ${i + 1}. ${student?.name || '未知學生'} - 狀態: ${sub.status}, 有圖片: ${!!sub.imageBlob}`)

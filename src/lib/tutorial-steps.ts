@@ -143,12 +143,12 @@ const classroomFlow: TutorialFlow = {
 
 const assignmentFlow: TutorialFlow = {
   id: 'assignment',
-  name: '作業管理教學',
+  name: '考卷管理教學',
   steps: [
     {
       id: 'welcome',
-      title: '歡迎使用作業管理',
-      content: '這裡可以為班級建立作業、設定標準答案、管理作業分類。讓我們開始導覽！',
+      title: '歡迎使用考卷管理',
+      content: '這裡可以為班級建立考卷、設定標準答案、管理考卷分類。讓我們開始導覽！',
       targetSelector: 'body',
       position: 'center',
       highlightElement: false
@@ -158,27 +158,27 @@ const assignmentFlow: TutorialFlow = {
     {
       id: 'select-classroom',
       title: '選擇班級',
-      content: '首先選擇要管理作業的班級。每個班級都有獨立的作業列表和資料夾。',
+      content: '首先選擇要管理考卷的班級。每個班級都有獨立的考卷列表和資料夾。',
       targetSelector: '[data-tutorial="select-classroom"]',
       position: 'bottom',
       highlightElement: true
     },
 
-    // 2) 新增作業按鈕
+    // 2) 新增考卷按鈕
     {
       id: 'create-assignment',
-      title: '新增作業',
-      content: '點擊「新增作業」按鈕可以建立新作業。',
+      title: '新增考卷',
+      content: '點擊「新增考卷」按鈕可以建立新考卷。',
       targetSelector: '[data-tutorial="create-assignment"]',
       position: 'top',
       highlightElement: true
     },
 
-    // 3) 新增作業 modal（外框）
+    // 3) 新增考卷 modal（外框）
     {
       id: 'create-assignment-modal',
-      title: '新增作業視窗',
-      content: '這裡會跳出新增作業視窗，接著我們依序填寫作業資訊與上傳標準答案。',
+      title: '新增考卷視窗',
+      content: '這裡會跳出新增考卷視窗，接著我們依序填寫考卷資訊與上傳標準答案。',
       targetSelector: '[data-tutorial="create-assignment-modal"]',
       position: 'center',
       highlightElement: true
@@ -188,27 +188,27 @@ const assignmentFlow: TutorialFlow = {
     {
       id: 'assignment-classroom',
       title: '指派班級',
-      content: '選擇這份作業屬於哪一個班級。',
+      content: '選擇這份考卷屬於哪一個班級。',
       targetSelector: '[data-tutorial="assignment-classroom"]',
       position: 'bottom',
       highlightElement: true
     },
 
-    // 3-2) 作業標題
+    // 3-2) 考卷標題
     {
       id: 'assignment-title',
-      title: '作業標題',
-      content: '輸入作業名稱，例如「數學作業第 1 份」。',
+      title: '考卷標題',
+      content: '輸入考卷名稱，例如「數學考卷第 1 份」。',
       targetSelector: '[data-tutorial="assignment-title"]',
       position: 'bottom',
       highlightElement: true
     },
 
-    // 3-3) 作業領域
+    // 3-3) 考卷領域
     {
       id: 'assignment-domain',
-      title: '作業領域',
-      content: '選擇作業科目/領域，AI 解析答案時會參考此資訊。',
+      title: '考卷領域',
+      content: '選擇考卷科目/領域，AI 解析答案時會參考此資訊。',
       targetSelector: '[data-tutorial="assignment-domain"]',
       position: 'bottom',
       highlightElement: true
@@ -254,11 +254,11 @@ const assignmentFlow: TutorialFlow = {
       highlightElement: true
     },
 
-    // 3-9) 建立作業
+    // 3-9) 建立考卷
     {
       id: 'assignment-submit',
-      title: '建立作業',
-      content: '確認資料無誤後點擊建立，作業就會加入列表。',
+      title: '建立考卷',
+      content: '確認資料無誤後點擊建立，考卷就會加入列表。',
       targetSelector: '[data-tutorial="assignment-submit"]',
       position: 'top',
       highlightElement: true
@@ -267,8 +267,8 @@ const assignmentFlow: TutorialFlow = {
     // 4) 新建資料夾
     {
       id: 'create-folder',
-      title: '建立作業資料夾',
-      content: '點擊「新建資料夾」建立分類，例如：段考、小考、作業等。',
+      title: '建立考卷資料夾',
+      content: '點擊「新建資料夾」建立分類，例如：段考、小考、考卷等。',
       targetSelector: '[data-tutorial="create-folder"]',
       position: 'bottom',
       highlightElement: true
@@ -278,7 +278,7 @@ const assignmentFlow: TutorialFlow = {
     {
       id: 'drag-drop',
       title: '拖曳分類',
-      content: '拖曳左側作業卡片到右側資料夾中完成分類，也可以拖曳到「全部」取消分類。',
+      content: '拖曳左側考卷卡片到右側資料夾中完成分類，也可以拖曳到「全部」取消分類。',
       targetSelector: '[data-tutorial-card="first-assignment-card"]',
       position: 'bottom',
       highlightElement: false,
@@ -293,7 +293,7 @@ const assignmentFlow: TutorialFlow = {
     {
       id: 'sort-and-folder',
       title: '排序與分類',
-      content: '使用排序選單可以調整作業與資料夾的順序。',
+      content: '使用排序選單可以調整考卷與資料夾的順序。',
       targetSelector: 'select[aria-label="排序方式"]',
       position: 'bottom',
       highlightElement: true
@@ -302,8 +302,8 @@ const assignmentFlow: TutorialFlow = {
     // 7) 編輯標題（鎖第一張卡）
     {
       id: 'edit-assignment',
-      title: '修改作業標題',
-      content: '點擊筆圖標可以修改作業名稱。',
+      title: '修改考卷標題',
+      content: '點擊筆圖標可以修改考卷名稱。',
       targetSelector:
         '[data-tutorial-card="first-assignment-card"] button[title="修改標題"]',
       position: 'bottom',
@@ -314,31 +314,31 @@ const assignmentFlow: TutorialFlow = {
     {
       id: 'answer-key',
       title: '編輯標準答案',
-      content: '點擊書本圖標可編輯作業標準答案與設定。',
+      content: '點擊書本圖標可編輯考卷標準答案與設定。',
       targetSelector:
         '[data-tutorial-card="first-assignment-card"] button[title="編輯標準答案"]',
       position: 'left',
       highlightElement: true
     },
 
-    // 9) 複製作業
+    // 9) 複製考卷
     {
       id: 'copy-assignment',
-      title: '複製作業',
-      content: '點擊複製圖標可以將作業複製到其他班級。',
+      title: '複製考卷',
+      content: '點擊複製圖標可以將考卷複製到其他班級。',
       targetSelector:
-        '[data-tutorial-card="first-assignment-card"] button[title="複製作業到其他班級"]',
+        '[data-tutorial-card="first-assignment-card"] button[title="複製考卷到其他班級"]',
       position: 'left',
       highlightElement: true
     },
 
-    // 10) 刪除作業
+    // 10) 刪除考卷
     {
       id: 'delete-assignment',
-      title: '刪除作業',
-      content: '點擊垃圾桶圖標可以刪除作業（注意：刪除後無法恢復）。',
+      title: '刪除考卷',
+      content: '點擊垃圾桶圖標可以刪除考卷（注意：刪除後無法恢復）。',
       targetSelector:
-        '[data-tutorial-card="first-assignment-card"] button[title="刪除作業"]',
+        '[data-tutorial-card="first-assignment-card"] button[title="刪除考卷"]',
       position: 'bottom',
       highlightElement: true
     },
@@ -346,7 +346,7 @@ const assignmentFlow: TutorialFlow = {
     {
       id: 'complete',
       title: '完成！',
-      content: '您已經了解作業管理的功能了！接下來可以建立作業、匯入學生作業並使用 AI 批改。',
+      content: '您已經了解考卷管理的功能了！接下來可以建立考卷、匯入學生考卷並使用 AI 批改。',
       targetSelector: 'body',
       position: 'center',
       highlightElement: false

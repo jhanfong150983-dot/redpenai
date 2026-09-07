@@ -123,7 +123,7 @@ export async function generateAnswerSheetTemplateDocx(inputs: TemplateInputs): P
           }),
           new Paragraph({
             spacing: { after: 240 },
-            children: [new TextRun({ text: '4. 考後掃描或拍照，在 RedPen 匯入作業時使用「座號辨識模式」，系統會自動依劃卡座號對應學生，不需依號碼排序。', size: 20, color: GRAY })]
+            children: [new TextRun({ text: '4. 考後掃描或拍照，在 RedPen 匯入考卷時使用「座號辨識模式」，系統會自動依劃卡座號對應學生，不需依號碼排序。', size: 20, color: GRAY })]
           }),
           new Paragraph({ children: [new TextRun({ text: '' })] })
         ]

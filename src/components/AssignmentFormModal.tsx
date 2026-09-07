@@ -102,9 +102,9 @@ interface AssignmentFormModalProps {
 }
 
 // ── 2026-09-03 user 拍板：暫時關閉兩個設定區塊 ────────────────────────────────
-//   學生繳交作業（含學生自助 AI 批改）：功能暫停，UI 整塊隱藏。
+//   學生繳交考卷（含學生自助 AI 批改）：功能暫停，UI 整塊隱藏。
 //     ⚠ 隱藏的同時必須把預設值改成 false——原本 studentUploadEnabled 預設 true，
-//       只藏 UI 會變成「每張新作業都靜默開啟學生繳交」。
+//       只藏 UI 會變成「每張新考卷都靜默開啟學生繳交」。
 //   問答題嚴謹度：實際使用後發現用不到，UI 移除、一律以 'standard' 建立。
 //     ⚠ strictness 仍是 accessor prompt 的輸入（GRADING STRICTNESS: …），
 //       不可留 null，否則判分基準會變成未定義。
@@ -216,7 +216,7 @@ export default function AssignmentFormModal({
   const [title, setTitle] = useState(initialTitle)
   const [folder, setFolder] = useState(initialFolder)
   const [selectedAnswerKeyId, setSelectedAnswerKeyId] = useState('')
-  // 編輯模式：initialSettings 帶入既有作業的值（非 null）→ 全欄位都已選妥
+  // 編輯模式：initialSettings 帶入既有考卷的值（非 null）→ 全欄位都已選妥
   // 新增模式：initialSettings undefined → 必填欄位 null，等老師選
   const [settings, setSettings] = useState<FormSettings>({
     strictness: initialSettings?.strictness ?? (STRICTNESS_UI_ENABLED ? null : STRICTNESS_WHEN_HIDDEN),
@@ -241,7 +241,7 @@ export default function AssignmentFormModal({
   )
 
   // 2026-06-19: 本 Modal 常駐（!open 時 return null、不卸載），useState 初始值只在首次掛載生效。
-  //   重開時會殘留上一次的輸入（例如剛建完 402 作業、立刻開 403 會看到 402 的最後一步/標題）。
+  //   重開時會殘留上一次的輸入（例如剛建完 402 考卷、立刻開 403 會看到 402 的最後一步/標題）。
   //   →「open 轉 true」時，把所有表單狀態重設為當前 props 的初始值（與上方 useState 初始化一致）。
   //   只依賴 [open]，避免 initialSettings 等物件每次 render 換 identity 造成編輯途中被重設。
   useEffect(() => {
@@ -395,7 +395,7 @@ export default function AssignmentFormModal({
         return { label: '下一步', disabled: !canSubmit, icon: <ChevronRight className="w-4 h-4" /> }
       }
       return {
-        label: isSubmitting ? '處理中…' : isCreate ? '建立作業' : '儲存設定',
+        label: isSubmitting ? '處理中…' : isCreate ? '建立考卷' : '儲存設定',
         disabled: !canSubmit || isSubmitting,
         loading: isSubmitting,
         icon: <Check className="w-4 h-4" />,
@@ -436,7 +436,7 @@ export default function AssignmentFormModal({
           <div className="w-52 bg-gray-50 border-r border-gray-200 flex flex-col shrink-0">
             <div className="px-4 py-4 border-b border-gray-200">
               <h2 className="text-base font-semibold text-gray-900">
-                {mode === 'create' ? '新增作業' : '作業設定'}
+                {mode === 'create' ? '新增考卷' : '考卷設定'}
               </h2>
               {mode === 'edit' && editAssignmentTitle && (
                 <p className="text-xs text-gray-500 mt-0.5 truncate">{editAssignmentTitle}</p>
@@ -480,7 +480,7 @@ export default function AssignmentFormModal({
                   className="w-full flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 transition-colors"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  刪除作業
+                  刪除考卷
                 </button>
               )}
               <button
@@ -500,10 +500,10 @@ export default function AssignmentFormModal({
               {/* ══ Step 1: 基本資料 ══ */}
               {activeStep === 'basic' && (
                 <div className="p-6 pb-8 space-y-8 max-w-lg">
-                  {/* 作業標題 */}
+                  {/* 考卷標題 */}
                   <div>
                     <label className="block text-base font-semibold text-gray-800 mb-2">
-                      {titleLabel ?? '作業標題'} <span className="text-red-500">*</span>
+                      {titleLabel ?? '考卷標題'} <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -515,10 +515,10 @@ export default function AssignmentFormModal({
                     />
                   </div>
 
-                  {/* 學生繳交作業 — segmented control(行政端考卷模式整塊隱藏) */}
+                  {/* 學生繳交考卷 — segmented control(行政端考卷模式整塊隱藏) */}
                   {STUDENT_SUBMIT_UI_ENABLED && !hideStudentOptions && (
                   <div>
-                    <label className="block text-base font-semibold text-gray-800 mb-2">學生繳交作業</label>
+                    <label className="block text-base font-semibold text-gray-800 mb-2">學生繳交考卷</label>
                     <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
                       <button
                         type="button"
@@ -544,7 +544,7 @@ export default function AssignmentFormModal({
                       </button>
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
-                      {studentUploadEnabled ? '學生可拍照上傳作業' : '老師自行上傳批改'}
+                      {studentUploadEnabled ? '學生可拍照上傳考卷' : '老師自行上傳批改'}
                     </p>
                     {/* 拍攝規則提示 */}
                     {studentUploadEnabled && selectedAK && (
@@ -607,7 +607,7 @@ export default function AssignmentFormModal({
                   )}
 
                   {!title.trim() && (
-                    <p className="text-xs text-amber-600">請填寫{titleLabel ?? '作業標題'}以繼續</p>
+                    <p className="text-xs text-amber-600">請填寫{titleLabel ?? '考卷標題'}以繼續</p>
                   )}
                 </div>
               )}

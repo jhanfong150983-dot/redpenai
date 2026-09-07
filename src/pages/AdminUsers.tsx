@@ -463,7 +463,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                       <GraduationCap className="w-3.5 h-3.5 text-green-600" />
                       <span className="font-semibold text-gray-900">{user.studentCount}</span>
                     </span>
-                    <span className="hidden md:inline-flex items-center justify-end gap-1 text-xs text-gray-600 tabular-nums" title="作業數">
+                    <span className="hidden md:inline-flex items-center justify-end gap-1 text-xs text-gray-600 tabular-nums" title="考卷數">
                       <FileText className="w-3.5 h-3.5 text-purple-600" />
                       <span className="font-semibold text-gray-900">{user.assignmentCount}</span>
                     </span>
@@ -516,7 +516,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                     <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
                       <span className="inline-flex items-center gap-1"><UsersIcon className="w-3 h-3 text-blue-600" />班級 {user.classroomCount}</span>
                       <span className="inline-flex items-center gap-1"><GraduationCap className="w-3 h-3 text-green-600" />學生 {user.studentCount}</span>
-                      <span className="inline-flex items-center gap-1"><FileText className="w-3 h-3 text-purple-600" />作業 {user.assignmentCount}</span>
+                      <span className="inline-flex items-center gap-1"><FileText className="w-3 h-3 text-purple-600" />考卷 {user.assignmentCount}</span>
                       <span className="inline-flex items-center gap-1"><CheckCircle2 className="w-3 h-3 text-emerald-600" />批改 {user.gradedCount}/{user.submissionCount}</span>
                       <span className="inline-flex items-center gap-1 col-span-2"><Droplet className="w-3 h-3 text-blue-600" />墨水 {user.inkBalance ?? 0} 滴（近 30 日用 {user.totalInkUsed}）</span>
                     </div>
@@ -681,7 +681,7 @@ export default function AdminUsers({ onNavigateToDetail }: AdminUsersProps) {
                   <div className="mt-2 text-[11px] text-gray-500 leading-relaxed">
                     訊號：
                     {editingUser.roleSignals.ownsClassroom && <span className="inline-block mr-2">建過班級</span>}
-                    {editingUser.roleSignals.ownsAssignment && <span className="inline-block mr-2">建過作業</span>}
+                    {editingUser.roleSignals.ownsAssignment && <span className="inline-block mr-2">建過考卷</span>}
                     {editingUser.roleSignals.hasTeacherPref && <span className="inline-block mr-2">有教師設定</span>}
                     {editingUser.roleSignals.importedStudents && <span className="inline-block mr-2">匯入過學生</span>}
                     {editingUser.roleSignals.syncedCampus && <span className="inline-block mr-2">同步過 1Campus</span>}

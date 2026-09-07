@@ -109,7 +109,7 @@ export default function CameraGuideOverlay({
           <div className="absolute inset-0 flex items-center justify-center">
             <span className="text-3xl font-bold text-white/20 text-center leading-snug select-none"
               style={{ textShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>
-              請將作業<br />對齊框線
+              請將考卷<br />對齊框線
             </span>
           </div>
         </div>

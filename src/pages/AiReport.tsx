@@ -236,8 +236,8 @@ function getAssignmentTitle(assignment: SyncAssignment) {
   const title = assignment.title?.trim()
   if (title) return title
   const domain = assignment.domain?.trim()
-  if (domain) return `${domain}作業`
-  return '未命名作業'
+  if (domain) return `${domain}考卷`
+  return '未命名考卷'
 }
 
 function parseGradingResult(raw: unknown): GradingResult | null {
@@ -405,7 +405,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           fetch('/api/data/report', { credentials: 'include' })
         ])
         if (!syncResponse.ok) {
-          throw new Error('無法取得作業資料，請重新整理')
+          throw new Error('無法取得考卷資料，請重新整理')
         }
         if (!reportResponse.ok) {
           throw new Error('無法取得報告資料，請重新整理')
@@ -416,10 +416,10 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
         ])) as [SyncPayload, ReportPayload]
         if (isActive) {
           // 2026-08-11(user 抓到):行政端「學校考卷」班級鏡像(folder='學校考卷'、雙身分帳號 66 班)
-          //   漏進學情報告的班級下拉——sync payload 在此源頭過濾,班級/作業/學生一次擋掉
-          //   (同一判定模組 school-exam.ts;首頁/作業列表/匯入 2026-08-01 已堵、本頁漏網)。
+          //   漏進學情報告的班級下拉——sync payload 在此源頭過濾,班級/考卷/學生一次擋掉
+          //   (同一判定模組 school-exam.ts;首頁/考卷列表/匯入 2026-08-01 已堵、本頁漏網)。
           const schoolCrIds = schoolExamClassroomIds(data.classrooms ?? [])
-          // 2026-08-29 班級歸檔：主介面只看 active、歷史資料頁只看 archived（作業/學生跟著班級走）
+          // 2026-08-29 班級歸檔：主介面只看 active、歷史資料頁只看 archived（考卷/學生跟著班級走）
           const scopedClassrooms =
             classroomScope === 'archived'
               ? onlyArchivedClassrooms(withoutSchoolExamClassrooms(data.classrooms ?? []))
@@ -496,7 +496,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     [syncData]
   )
 
-  // 2026-07-16 試題分析（純程式、user 拍板第一波）：選定作業的 answerKey 題目清單（Dexie）
+  // 2026-07-16 試題分析（純程式、user 拍板第一波）：選定考卷的 answerKey 題目清單（Dexie）
   const [itemAnalysisQuestions, setItemAnalysisQuestions] = useState<ItemAnalysisQuestion[]>([])
   const [itemAnalysisTemplateId, setItemAnalysisTemplateId] = useState('')
   const [itemAnalysisKpTips, setItemAnalysisKpTips] = useState<Record<string, string>>({})  // 2026-07-19 知識點在家建議（answer_key.kpTips）
@@ -648,7 +648,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
 
   // ── 2026-08-11 跨班比較（user 拍板：切換模式、匿名）──────────────────────────
   //   同卷全體＝答案卷血緣家族（分享碼複製品）＋同校閘的「匿名彙總」：只有總班數，
-  //   無任何班級/作業名稱（無法推論資料來源）。三個視圖共用同一份資料：
+  //   無任何班級/考卷名稱（無法推論資料來源）。三個視圖共用同一份資料：
   //   概念雷達疊圖、試題分析全體答對率欄、樣態分析全體分布。
   const [crossOn, setCrossOn] = useState(false)
   const [crossData, setCrossData] = useState<CrossCompare | null>(null)
@@ -689,8 +689,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
       },
     })),
     [crossData])
-  // 下鑽頁的資料範圍必須與雷達一致：2026-09-06 雷達改「選了單一作業就只算那份」(conceptMasteryData)，
-  //   但這裡漏跟改→下鑽頁把同領域其他作業也混進來(如選了 1 人 100% 的卷、卻冒出別份 n=32 待加強)。補上選定作業過濾。
+  // 下鑽頁的資料範圍必須與雷達一致：2026-09-06 雷達改「選了單一考卷就只算那份」(conceptMasteryData)，
+  //   但這裡漏跟改→下鑽頁把同領域其他考卷也混進來(如選了 1 人 100% 的卷、卻冒出別份 n=32 待加強)。補上選定考卷過濾。
   const conceptDrillAssignments = useMemo(() =>
     (selectedAssignmentId
       ? classAssignments.filter((a) => a.id === selectedAssignmentId)
@@ -699,9 +699,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     [classAssignments, selectedDomain, selectedAssignmentId, assignmentById])
 
   const conceptMasteryData = useMemo(() => {
-    // 2026-09-06 修：選了特定作業就只算那份（不管跨班開沒開）——否則同領域多份作業(含不同題目、
+    // 2026-09-06 修：選了特定考卷就只算那份（不管跨班開沒開）——否則同領域多份考卷(含不同題目、
     //   不同學生數)會被混算，一份 100 分的卷也會因混進別份而出現各概念高低不一的假雷達。
-    //   沒選特定作業(整體檢視)才按領域收全部。跨班比較同樣只比選定的那份考卷。
+    //   沒選特定考卷(整體檢視)才按領域收全部。跨班比較同樣只比選定的那份考卷。
     const filteredAssignments = selectedAssignmentId
       ? classAssignments.filter((a) => a.id === selectedAssignmentId)
       : classAssignments.filter((a) =>
@@ -710,7 +710,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     const filteredIds = new Set(filteredAssignments.map((a) => a.id))
 
     // Build per-assignment map: questionId → {code, label}
-    // 舊制=conceptTags（作業設定直傳路徑產生、帶完整課綱條文 label）；
+    // 舊制=conceptTags（考卷設定直傳路徑產生、帶完整課綱條文 label）；
     // 2026-08-11 新制 fallback=answerKey analysis.code（KP 建卷/建模板預跑產生）——
     //   模板流程（考卷）沒有 conceptTags，沒這條 fallback 雷達整片空。label 用 topic 白話短名。
     type QConceptMap = Map<string, { code: string; label: string }>
@@ -850,7 +850,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     items.sort((a, b) => b.lastActivity - a.lastActivity)
     return items.map((item, index) => ({
       ...item,
-      shortLabel: `作業 ${String.fromCharCode(65 + index)}`
+      shortLabel: `考卷 ${String.fromCharCode(65 + index)}`
     }))
   }, [classAssignments, classFilteredSubmissions, syncData])
 
@@ -1025,7 +1025,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
             <div>
               <div className="eyebrow">{pageEyebrow}</div>
               <h1>資料載入中</h1>
-              <p className="subtitle">正在取得最新作業資料。</p>
+              <p className="subtitle">正在取得最新考卷資料。</p>
             </div>
           </header>
           <section className="card">請稍候…</section>
@@ -1071,7 +1071,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               {pageTitleText}
             </h1>
             <p className="subtitle">
-              資料區間：{summaryRange} · 作業 {assignmentMeta.length} 份 · 批改{' '}
+              資料區間：{summaryRange} · 考卷 {assignmentMeta.length} 份 · 批改{' '}
               {classFilteredSubmissions.length} 份（含 {totalAiFailures} 筆系統錯誤）
             </p>
           </div>
@@ -1145,7 +1145,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
             </label>
             {(activeTab === 'class' || activeTab === 'overview' || activeTab === 'items' || activeTab === 'patterns' || activeTab === 'parent' || activeTab === 'student') && (
               <label>
-                作業
+                考卷
                 <select
                   value={selectedAssignmentId}
                   title={selectedAssignmentLabel || undefined}
@@ -1181,7 +1181,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
             </section>
           )}
 
-          {/* 2026-07-16 考試總覽（原作業總覽）：純程式即時、零墨水。
+          {/* 2026-07-16 考試總覽（原考卷總覽）：純程式即時、零墨水。
               2026-08-12 user 拍板:檢討單下載從訂正頁移植到這裡（檢討課情境的第一步） */}
           {activeTab === 'overview' && (
             <section>
@@ -1217,8 +1217,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               ) : detailsLoading ? detailsLoadingCard : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   {itemAnalysisSubmissions.length < 3
-                    ? '此作業已批改的卷數不足 3 份，暫無法統計。'
-                    : '請先選擇一份有答案卷的作業。'}
+                    ? '此考卷已批改的卷數不足 3 份，暫無法統計。'
+                    : '請先選擇一份有答案卷的考卷。'}
                 </section>
               )}
             </section>
@@ -1250,8 +1250,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               ) : detailsLoading ? detailsLoadingCard : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   {itemAnalysisSubmissions.length < 3
-                    ? '此作業已批改的卷數不足 3 份，暫無法進行試題分析。'
-                    : '請先選擇一份有答案卷的作業。'}
+                    ? '此考卷已批改的卷數不足 3 份，暫無法進行試題分析。'
+                    : '請先選擇一份有答案卷的考卷。'}
                 </section>
               )}
             </section>
@@ -1277,7 +1277,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 </>
               ) : detailsLoading ? detailsLoadingCard : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
-                  請先選擇一份已批改的作業。
+                  請先選擇一份已批改的考卷。
                 </section>
               )}
             </section>
@@ -1312,8 +1312,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               ) : detailsLoading ? detailsLoadingCard : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
                   {itemAnalysisSubmissions.length < 3
-                    ? '此作業已批改的卷數不足 3 份，暫無法產生家長報告。'
-                    : '請先選擇一份有答案卷的作業。'}
+                    ? '此考卷已批改的卷數不足 3 份，暫無法產生家長報告。'
+                    : '請先選擇一份有答案卷的考卷。'}
                 </section>
               )}
             </section>
@@ -1352,7 +1352,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   </div>
                   <DomainDiagnosisView
                     cards={domainDiagnosisCards}
-                    emptyState="此班級尚無作業可分析。"
+                    emptyState="此班級尚無考卷可分析。"
                   />
                 </>
               )}
@@ -1380,8 +1380,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               ) : (
                 // 摘要：班級雷達（點課綱代碼進細節）；跨班比較=切換疊圖（匿名、只在雷達上顯示）
                 <>
-                  {/* 2026-09-06 舊卷/未升級節點的作業 → 雷達旁直接補跑知識點歸類（原本只在家長報告頁）。
-                      條件：選了單一作業、有題目、還沒有第二層 nodeId；且該領域有節點層或整卷根本沒 KP。 */}
+                  {/* 2026-09-06 舊卷/未升級節點的考卷 → 雷達旁直接補跑知識點歸類（原本只在家長報告頁）。
+                      條件：選了單一考卷、有題目、還沒有第二層 nodeId；且該領域有節點層或整卷根本沒 KP。 */}
                   {(() => {
                     const kpQs = itemAnalysisQuestions
                     if (!selectedAssignmentId || kpQs.length === 0) return null
@@ -1400,8 +1400,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                         requestInk={requestInk}
                         onSaved={() => setKpReloadTick((t) => t + 1)}
                         hint={hasAnyKp
-                          ? '這份作業可升級為「知識節點」分類，讓雷達與加強地圖更精準（一次性、全班共用）。'
-                          : '這份作業還沒有知識點歸類（舊卷）——概念雷達會是空的。'}
+                          ? '這份考卷可升級為「知識節點」分類，讓雷達與加強地圖更精準（一次性、全班共用）。'
+                          : '這份考卷還沒有知識點歸類（舊卷）——概念雷達會是空的。'}
                         ctaLabel={hasAnyKp ? '升級為知識節點' : '補跑知識點歸類'}
                       />
                     )
@@ -1411,7 +1411,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                       <CrossToggle on={crossOn} onToggle={() => setCrossOn((v) => !v)} classCount={crossData.classCount} />
                       {crossOn && (
                         <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
-                          比較範圍＝選定作業・同卷 {crossData.classCount} 班匿名彙總（不顯示班級來源）
+                          比較範圍＝選定考卷・同卷 {crossData.classCount} 班匿名彙總（不顯示班級來源）
                         </span>
                       )}
                     </div>

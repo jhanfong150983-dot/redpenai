@@ -728,7 +728,7 @@ export function useSync(options: UseSyncOptions = {}) {
         updatedAt: s.updatedAt
       }))
 
-    // assignments 全送（數量少、payload 小），避免因 lastSync 時間差導致新建作業被跳過
+    // assignments 全送（數量少、payload 小），避免因 lastSync 時間差導致新建考卷被跳過
     const assignmentPayload = assignments
       .filter((a) => a?.id && a?.classroomId && !deletedAssignmentIds.has(a.id))
       .map((a) => ({
@@ -763,7 +763,7 @@ export function useSync(options: UseSyncOptions = {}) {
         updatedAt: a.updatedAt
       }))
 
-    console.log(`📤 [Sync Push] 準備上傳 ${assignmentPayload.length} 個作業:`, assignmentPayload.map(a => ({ id: a.id, title: a.title, hasAnswerKey: !!a.answerKey })))
+    console.log(`📤 [Sync Push] 準備上傳 ${assignmentPayload.length} 個考卷:`, assignmentPayload.map(a => ({ id: a.id, title: a.title, hasAnswerKey: !!a.answerKey })))
 
     // submissions push: 只送結構性 metadata（不送批改資料）
     // 批改分數/結果由 save-grading API 直接寫入 Supabase，不經過 sync
@@ -962,7 +962,7 @@ export function useSync(options: UseSyncOptions = {}) {
       : []
     const deleted = data?.deleted && typeof data.deleted === 'object' ? data.deleted : {}
     
-    console.log(`📥 [Sync Pull] 從雲端拉取 ${assignments.length} 個作業:`, assignments.map((a: any) => ({ id: a.id, title: a.title, hasAnswerKey: !!a.answerKey })))
+    console.log(`📥 [Sync Pull] 從雲端拉取 ${assignments.length} 個考卷:`, assignments.map((a: any) => ({ id: a.id, title: a.title, hasAnswerKey: !!a.answerKey })))
 
     const collectDeletedIds = (items: unknown) =>
       Array.isArray(items)
@@ -1647,7 +1647,7 @@ export function useSync(options: UseSyncOptions = {}) {
       await db.gradebookCustomScores.where('studentId').anyOf(deletedStudentIds).delete()
     }
     if (deletedAssignmentIds.length > 0) {
-      // 級聯清理作業的 submissions
+      // 級聯清理考卷的 submissions
       const assignmentOrphanSubs = await db.submissions.where('assignmentId').anyOf(deletedAssignmentIds).toArray()
       if (assignmentOrphanSubs.length > 0) {
         await db.answerExtractionCorrections.where('submissionId').anyOf(assignmentOrphanSubs.map(s => s.id)).delete()

@@ -3,7 +3,7 @@
 //   本檔保留未接線——若日後小考要「每生一份預印姓名」模式可直接接回。
 // 2026-08-29 座號答案卷產生器（QR 對號匯入的前半段）：
 //   老師用公版 Word 範本（public/templates/redpen-answer-sheet-template.docx）編好考卷、匯出 PDF，
-//   在匯入作業頁選取該空白 PDF → 本模組用 pdf-lib 逐生逐頁蓋「座號＋姓名＋QR」產出整批列印檔。
+//   在匯入考卷頁選取該空白 PDF → 本模組用 pdf-lib 逐生逐頁蓋「座號＋姓名＋QR」產出整批列印檔。
 //   ⛔ 不可拿系統已存的 answerSheetImagePaths 當底圖——那是「填好標準答案」的卷，印給學生=發答案。
 //   直接蓋在老師的原始 PDF 上也保留向量列印品質。純 code、零 AI。
 import { PDFDocument, rgb } from 'pdf-lib'

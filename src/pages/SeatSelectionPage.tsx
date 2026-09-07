@@ -113,7 +113,7 @@ export default function SeatSelectionPage({
         })
       } catch (error) {
         if (cancelled || controller.signal.aborted) return
-        console.error('載入學生作業預覽失敗:', error)
+        console.error('載入學生考卷預覽失敗:', error)
         setPreviewObjectUrl(null)
         setPreviewLoadError(error instanceof Error ? error.message : '預覽載入失敗')
       } finally {
@@ -202,10 +202,10 @@ export default function SeatSelectionPage({
           }`}
         >
           <h1 className="text-xl font-bold text-gray-900 mb-2">
-            作業拍攝名單
+            考卷拍攝名單
           </h1>
           <p className="text-sm text-gray-600">
-            點擊座號開始拍攝，每位學生需拍攝 {pagesPerStudent} 張；顏色表示該學生目前作業來源。
+            點擊座號開始拍攝，每位學生需拍攝 {pagesPerStudent} 張；顏色表示該學生目前考卷來源。
           </p>
           <div className="mt-3 flex items-center gap-4 text-sm">
             <div className="flex items-center gap-2">
@@ -330,11 +330,11 @@ export default function SeatSelectionPage({
             </button>
             <div className="border-b border-slate-200 px-4 py-3 pr-14">
               <p className="text-sm font-semibold text-slate-900">
-                學生作業預覽：{previewStudent.seatNumber} 號 · {previewStudent.name}
+                學生考卷預覽：{previewStudent.seatNumber} 號 · {previewStudent.name}
               </p>
               {CORRECTION_BLOCKING_STATUSES.has(correctionStatusByStudent[previewStudent.id] ?? '') ? (
                 <p className="mt-1 text-xs text-amber-600">
-                  ⚠️ 此學生正在訂正中，無法退回照片。請先至作業訂正看板結束訂正後再操作。
+                  ⚠️ 此學生正在訂正中，無法退回照片。請先至考卷訂正看板結束訂正後再操作。
                 </p>
               ) : (
                 <p className="mt-1 text-xs text-slate-500">
@@ -351,7 +351,7 @@ export default function SeatSelectionPage({
               ) : previewObjectUrl ? (
                 <img
                   src={previewObjectUrl}
-                  alt={`${previewStudent.name} 作業預覽`}
+                  alt={`${previewStudent.name} 考卷預覽`}
                   className="max-h-[70vh] w-auto max-w-full rounded-md border border-slate-200 bg-white object-contain"
                 />
               ) : (

@@ -90,7 +90,7 @@ export default function SchoolParentReportPanel({
       // 逐題診斷/錯題卡片要吃 gradingResult,先補齊(sync 已不帶大 JSONB)
       await ensureAssignmentDetails([c.assignmentId])
       const assignment = await db.assignments.get(c.assignmentId)
-      if (!assignment) throw new Error('找不到這個班級的作業資料,請先回考卷列表重新進入')
+      if (!assignment) throw new Error('找不到這個班級的考卷資料,請先回考卷列表重新進入')
       const ak = assignment.answerKey as
         | { questions?: ItemAnalysisQuestion[]; kpTips?: Record<string, string> }
         | undefined

@@ -319,7 +319,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
   }
 
   const handleUnlock = async (assignment: AssignmentTagState) => {
-    const ok = window.confirm('解除鎖定後，未來作業更新將允許 AI 重新聚合。')
+    const ok = window.confirm('解除鎖定後，未來考卷更新將允許 AI 重新聚合。')
     if (!ok) return
 
     setRunningAssignmentId(assignment.assignment_id)
@@ -402,7 +402,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">標籤字典管理</h1>
                 <p className="text-sm text-gray-600">
-                  主管理標籤字典、作業聚合與人工覆蓋
+                  主管理標籤字典、考卷聚合與人工覆蓋
                 </p>
               </div>
             </div>
@@ -419,7 +419,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="搜尋作業名稱 / ID / 老師 ID"
+                placeholder="搜尋考卷名稱 / ID / 老師 ID"
                 className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
               />
             </div>
@@ -499,7 +499,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                           </span>
                         </div>
                         <div className="text-xs text-gray-500 mt-1">
-                          使用 {tag.usage_count ?? 0} 份作業 / 合計{' '}
+                          使用 {tag.usage_count ?? 0} 份考卷 / 合計{' '}
                           {tag.total_count ?? 0} 人次
                         </div>
                         {tag.merged_to_label && (
@@ -527,14 +527,14 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
 
             <div className="bg-white rounded-2xl shadow p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">作業標籤</h2>
+                <h2 className="text-lg font-semibold text-gray-900">考卷標籤</h2>
                 <span className="text-xs text-gray-500">
-                  共 {filteredAssignments.length} 份作業
+                  共 {filteredAssignments.length} 份考卷
                 </span>
               </div>
 
               {filteredAssignments.length === 0 ? (
-                <div className="text-sm text-gray-500">沒有符合條件的作業</div>
+                <div className="text-sm text-gray-500">沒有符合條件的考卷</div>
               ) : (
                 <div className="space-y-4">
                   {filteredAssignments.map((assignment) => {
@@ -554,7 +554,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                           <div className="space-y-1">
                             <div className="text-sm font-semibold text-gray-900">
-                              {assignment.title || '未命名作業'}
+                              {assignment.title || '未命名考卷'}
                             </div>
                             <div className="text-xs text-gray-500">
                               {assignment.domain || '未分類'} ・{' '}
@@ -806,7 +806,7 @@ export default function AdminTags({ onBack }: AdminTagsProps) {
                   onChange={(e) => setOverrideLocked(e.target.checked)}
                   disabled={overrideSaving}
                 />
-                鎖定此作業（AI 不會覆蓋）
+                鎖定此考卷（AI 不會覆蓋）
               </label>
             </div>
 

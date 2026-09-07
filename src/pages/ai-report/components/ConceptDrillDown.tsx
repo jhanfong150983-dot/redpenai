@@ -1,10 +1,10 @@
 // ═══ 概念雷達下鑽頁（2026-08-11 user 拍板：摘要→細節）═════════════════════════
 // 老師點雷達上的 108 課綱指標 → 進到這頁：該指標下「知識點 × 三階段（精熟/基礎/待加強）」
 // 的學生比例（100% 堆疊長條圖），滑鼠移到色塊看是哪些學生。
-// 2026-08-11 user 二修：副標=指標描述（拔操作說明）、不顯示作業名稱、
+// 2026-08-11 user 二修：副標=指標描述（拔操作說明）、不顯示考卷名稱、
 //   全部列統一用 KP 門檻（0.8/0.5）——同一批題目「整體」與知識點列的長條才會一致
 //   （先前整體用主題門檻 0.6 下限，50% 的學生兩列被分到不同階段、圖對不上）。
-// 聚合鐵律：KP 名稱只在單一作業內有效 → 同名 KP 跨卷不合併（各自成列）；「整體」走 code 層可跨卷。
+// 聚合鐵律：KP 名稱只在單一考卷內有效 → 同名 KP 跨卷不合併（各自成列）；「整體」走 code 層可跨卷。
 import { useMemo, useState } from 'react'
 import { MASTERY_THRESHOLDS } from '@/lib/cap-levels'
 import { ALL_KP_NODES } from '@/data/curriculumNodes'
@@ -64,7 +64,7 @@ export default function ConceptDrillDown({ code, label, assignments, submissions
   )
 
   const rows = useMemo<Row[]>(() => {
-    // rowKey → 學生 → {got,max}；'__overall__' 為跨卷整體列（code 層可跨卷）、其餘 key=作業|KP（不跨卷合併）
+    // rowKey → 學生 → {got,max}；'__overall__' 為跨卷整體列（code 層可跨卷）、其餘 key=考卷|KP（不跨卷合併）
     const acc = new Map<string, Map<string, { got: number; max: number }>>()
     const nameByKey = new Map<string, string>()
     const qCountByKey = new Map<string, Set<string>>()
@@ -183,7 +183,7 @@ export default function ConceptDrillDown({ code, label, assignments, submissions
 
       {rows.length === 0 && (
         <div style={{ fontSize: 13, color: '#64748b', marginTop: 16 }}>
-          這個課綱指標下還沒有可統計的批改紀錄（可能作業未標知識點，或題目未歸到此指標）。
+          這個課綱指標下還沒有可統計的批改紀錄（可能考卷未標知識點，或題目未歸到此指標）。
         </div>
       )}
 

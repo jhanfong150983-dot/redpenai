@@ -141,13 +141,13 @@ export async function validatePhotos(pages: PageInput[]): Promise<ValidationResu
         if (effectiveWidth < MIN_EFFECTIVE_WIDTH_BLOCK) {
           errors.push({
             type: 'low_resolution',
-            message: '作業在照片裡太模糊了。先試試把手機更靠近作業、讓紙張填滿畫面再拍一次。如果還是不行，可能要換新一點的手機或請老師幫你上傳。',
+            message: '考卷在照片裡太模糊了。先試試把手機更靠近考卷、讓紙張填滿畫面再拍一次。如果還是不行，可能要換新一點的手機或請老師幫你上傳。',
             effectiveWidth,
           })
         } else if (effectiveWidth < MIN_EFFECTIVE_WIDTH_WARN) {
           warnings.push({
             type: 'low_resolution_warn',
-            message: '照片有點不夠清楚、批改可能會看錯字。建議手機靠近作業重拍一次比較準（不重拍也能送出）。',
+            message: '照片有點不夠清楚、批改可能會看錯字。建議手機靠近考卷重拍一次比較準（不重拍也能送出）。',
             effectiveWidth,
           })
         }
@@ -160,7 +160,7 @@ export async function validatePhotos(pages: PageInput[]): Promise<ValidationResu
         if (sharpnessP95 !== null && sharpnessP95 < MIN_SHARPNESS_P95) {
           errors.push({
             type: 'low_sharpness',
-            message: '照片對焦沒對到、看起來糊糊的（老師批改時會認不出字）。請點一下螢幕上的作業讓相機對焦清楚、再拍一次。平板比手機難對焦、可以拿穩一點、距離保持在能看清楚字的位置。',
+            message: '照片對焦沒對到、看起來糊糊的（老師批改時會認不出字）。請點一下螢幕上的考卷讓相機對焦清楚、再拍一次。平板比手機難對焦、可以拿穩一點、距離保持在能看清楚字的位置。',
             sharpnessP95,
           })
         }
@@ -244,7 +244,7 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
   if (isCroppedByCamera(corners)) {
     errors.push({
       type: 'cropped_by_camera',
-      message: '作業有一邊跑出畫面外。請把手機拿遠一點，看到整張作業紙都進畫面，再重新拍一次。',
+      message: '考卷有一邊跑出畫面外。請把手機拿遠一點，看到整張考卷紙都進畫面，再重新拍一次。',
     })
   }
 
@@ -252,7 +252,7 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
   if (!cornersInFrame(corners)) {
     errors.push({
       type: 'out_of_frame',
-      message: '作業沒有對齊框線。請把作業紙的 4 個角對準畫面上的虛線框，再按拍照。',
+      message: '考卷沒有對齊框線。請把考卷紙的 4 個角對準畫面上的虛線框，再按拍照。',
     })
   }
 
@@ -261,7 +261,7 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
   if (areaRatio < MIN_PAPER_AREA_RATIO) {
     errors.push({
       type: 'too_small',
-      message: '作業離鏡頭太遠了。請把手機靠近作業、讓紙張填滿框線，再重拍。',
+      message: '考卷離鏡頭太遠了。請把手機靠近考卷、讓紙張填滿框線，再重拍。',
       paperAreaRatio: areaRatio,
     })
   }
@@ -274,7 +274,7 @@ async function processPageRaw(page: PageInput, index: number): Promise<RawPageRe
 /**
  * 把 detectDocumentCorners 的失敗 reason 對映成學生看得懂的錯誤訊息。
  *
- * 重點：HTTP 402（額度不足）絕對不能誤報成「找不到作業紙張的邊」，否則學生會
+ * 重點：HTTP 402（額度不足）絕對不能誤報成「找不到考卷紙張的邊」，否則學生會
  * 不停重拍永遠不會過。這個函數就是為了根治那條 UX bug 拆出來的。
  */
 function buildDetectFailureError(reason: DetectCornersFailReason | undefined): ValidationError {
@@ -295,7 +295,7 @@ function buildDetectFailureError(reason: DetectCornersFailReason | undefined): V
     default:
       return {
         type: 'no_corners',
-        message: '找不到作業紙張的邊。請把作業攤平放在乾淨的桌面上，移到光線比較亮的地方再拍一次。',
+        message: '找不到考卷紙張的邊。請把考卷攤平放在乾淨的桌面上，移到光線比較亮的地方再拍一次。',
       }
   }
 }

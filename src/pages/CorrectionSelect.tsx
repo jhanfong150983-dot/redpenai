@@ -47,7 +47,7 @@ export default function CorrectionSelect({
     return allFolders.sort()
   }, [classAssignments, emptyFolders])
 
-  // 根據選擇的資料夾篩選作業
+  // 根據選擇的資料夾篩選考卷
   const filteredAssignments = useMemo(() => {
     if (!selectedClassroomId) return classAssignments
     return classAssignments.filter((a) => {
@@ -102,7 +102,7 @@ export default function CorrectionSelect({
       <div className={embedded ? 'flex items-center justify-center py-16' : 'min-h-screen bg-white flex items-center justify-center'}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-indigo-600 mx-auto mb-4 animate-spin" />
-          <p className="text-gray-600">載入作業列表中…</p>
+          <p className="text-gray-600">載入考卷列表中…</p>
         </div>
       </div>
     )
@@ -129,7 +129,7 @@ export default function CorrectionSelect({
             <div>
               <h1 className="text-2xl font-bold text-gray-900">訂正管理</h1>
               <p className="text-sm text-gray-600">
-                選擇一次作業，進入訂正管理儀表板。
+                選擇一次考卷，進入訂正管理儀表板。
               </p>
             </div>
           </div>
@@ -182,7 +182,7 @@ export default function CorrectionSelect({
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              此資料夾中沒有作業
+              此資料夾中沒有考卷
             </h3>
             <p className="text-gray-600">
               請選擇其他班級或資料夾。
@@ -192,10 +192,10 @@ export default function CorrectionSelect({
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              尚未建立任何作業
+              尚未建立任何考卷
             </h3>
             <p className="text-gray-600">
-              請先到「作業管理」建立作業，再回到這裡管理訂正。
+              請先到「考卷管理」建立考卷，再回到這裡管理訂正。
             </p>
           </div>
         ) : (

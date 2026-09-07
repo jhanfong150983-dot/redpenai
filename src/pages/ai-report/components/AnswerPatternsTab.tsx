@@ -106,7 +106,7 @@ export default function AnswerPatternsTab({ questions, submissions, students, cr
 
   const [idx, setIdx] = useState(0)
   if (!stats.length) {
-    return <section className="card" style={{ color: '#64748b', fontSize: 13 }}>此作業還沒有可統計的批改資料。</section>
+    return <section className="card" style={{ color: '#64748b', fontSize: 13 }}>此考卷還沒有可統計的批改資料。</section>
   }
   const own = stats[Math.min(idx, stats.length - 1)]
   // 跨班比較開啟＝整個視角換成同卷全體（匿名彙總）；題號導覽/配分沿用本班結構

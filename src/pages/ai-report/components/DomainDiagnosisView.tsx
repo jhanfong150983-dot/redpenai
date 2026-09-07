@@ -36,7 +36,7 @@ export default function DomainDiagnosisView({
               <div>
                 <h3>{plan.domainName}</h3>
                 <p className="subtitle">
-                  作業 {plan.windowInfo.assignmentCount} 份 · 樣本{' '}
+                  考卷 {plan.windowInfo.assignmentCount} 份 · 樣本{' '}
                   {plan.windowInfo.sampleCountTotal} · {riskLabel}
                 </p>
               </div>

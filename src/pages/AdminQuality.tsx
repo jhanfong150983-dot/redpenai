@@ -1,8 +1,8 @@
 // ═══ 批改品質 v2(2026-08-10 全面重寫、0 人工審查版)═══════════════════════════════
 //   取代舊「人工審查品質」頁(stage_log/needsReview 時代、量的東西已不存在)。
 //   A/B/C 模型(user 拍板):
-//     A=單輪健康度:每份作業環節燈號 classify → read(VJ) → accessor,一眼看達標/哪個環節出問題
-//     B=跨輪一致性:作業有 ≥2 輪快照自動顯示,逐類別翻盤率 vs L3 門檻(選擇99.9/判官99.5/手寫唯一99)
+//     A=單輪健康度:每份考卷環節燈號 classify → read(VJ) → accessor,一眼看達標/哪個環節出問題
+//     B=跨輪一致性:考卷有 ≥2 輪快照自動顯示,逐類別翻盤率 vs L3 門檻(選擇99.9/判官99.5/手寫唯一99)
 //     C=不一致格附 crop 眼球裁決 → grading_run_verdicts 累積誤殺/放水統計(L4 資料來源)
 //   資料來源=grading_run_history(每 AI 輪逐格快照;server 端 save-grading 自動寫入)。
 import { useEffect, useState, useCallback } from 'react'
@@ -261,7 +261,7 @@ export default function AdminQuality() {
         <div className="border border-gray-200 rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-gray-500 text-xs">
-              <tr><th className="text-left px-3 py-2">作業</th><th className="text-left px-3 py-2">班級</th><th className="px-2 py-2">科目</th><th className="px-2 py-2">卷數</th><th className="px-2 py-2">輪數</th><th className="px-2 py-2">快照</th><th className="text-left px-3 py-2">最後批改</th></tr>
+              <tr><th className="text-left px-3 py-2">考卷</th><th className="text-left px-3 py-2">班級</th><th className="px-2 py-2">科目</th><th className="px-2 py-2">卷數</th><th className="px-2 py-2">輪數</th><th className="px-2 py-2">快照</th><th className="text-left px-3 py-2">最後批改</th></tr>
             </thead>
             <tbody>
               {assignments.map((a) => (
@@ -277,7 +277,7 @@ export default function AdminQuality() {
                   <td className="px-3 py-2 text-gray-500">{fmtTime(a.lastGradedAt)}</td>
                 </tr>
               ))}
-              {!assignments.length && !listLoading && <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 text-sm">還沒有批改輪快照 — 批改任何作業後就會出現</td></tr>}
+              {!assignments.length && !listLoading && <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-400 text-sm">還沒有批改輪快照 — 批改任何考卷後就會出現</td></tr>}
             </tbody>
           </table>
         </div>
@@ -288,7 +288,7 @@ export default function AdminQuality() {
   // ── 詳情視圖 ──
   const h = detail && !detail.empty ? detail.health : null
   const flips = detail?.crossRun?.flippedCells.filter((f) => !onlySameConfig || f.sameConfig) ?? []
-  // 2026-08-15 user：同一份作業重批多次時，各輪對的不一致格全攤在同一個格線裡，
+  // 2026-08-15 user：同一份考卷重批多次時，各輪對的不一致格全攤在同一個格線裡，
   //   看不出「該拿哪兩輪來比」。依輪對(a.gradedAt|b.gradedAt)分區塊、新的比對排前面。
   //   flips 每次 render 都是新陣列 → 不用 useMemo（也避開早退後加 hook 的順序問題）。
   //   ⚠ 一次重批全班＝每份卷各有自己的 graded_at（35 份跨約 3.5 分鐘），拿精確時間戳配對
@@ -336,7 +336,7 @@ export default function AdminQuality() {
       </button>
       {error && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{error}</div>}
       {detailLoading && <div className="text-sm text-gray-400">載入中…</div>}
-      {detail?.empty && <div className="text-sm text-gray-400">這份作業還沒有快照</div>}
+      {detail?.empty && <div className="text-sm text-gray-400">這份考卷還沒有快照</div>}
       {detail && !detail.empty && h && (
         <>
           {/* A 層:總燈 + 環節燈 */}

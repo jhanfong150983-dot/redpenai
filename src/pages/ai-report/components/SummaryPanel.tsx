@@ -22,7 +22,7 @@ export default function SummaryPanel({
         <div className="summary-loading">摘要生成中，請稍候…</div>
       ) : null}
       <div className="summary-section">
-        <div className="summary-section-title">一、本次作業主要卡關概念</div>
+        <div className="summary-section-title">一、本次考卷主要卡關概念</div>
         {tags.length ? (
           <div className="summary-lines">
             {tags.map((label) => (

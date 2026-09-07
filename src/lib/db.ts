@@ -279,7 +279,7 @@ export interface AnswerKeyQuestion {
 
   // 答案卷上此題的參考位置（歸一化 [0,1] bbox）
   // 用於 Reference-guided Classify：提示 AI 學生答案大約在哪個位置
-  // 對地圖填圖等無題號的空間配置型作業特別重要
+  // 對地圖填圖等無題號的空間配置型考卷特別重要
   referenceBbox?: { x: number; y: number; w: number; h: number }
 
   // AI 擷取答案時自動偵測的答案區塊位置（歸一化 [0,1] bbox）
@@ -389,7 +389,7 @@ export interface AnswerKey {
   questions: AnswerKeyQuestion[]
   totalScore: number
   strictness?: 'strict' | 'standard' | 'lenient'
-  // 2026-07-15 單位錯誤計分（作業層級、user 拍板）：zero=全有全無(預設)、half=給一半、deduct=扣固定分
+  // 2026-07-15 單位錯誤計分（考卷層級、user 拍板）：zero=全有全無(預設)、half=給一半、deduct=扣固定分
   unitErrorRule?: 'zero' | 'half' | 'deduct'
   unitErrorDeduction?: number  // deduct 模式的扣分數（下限 0 分）
   // 2026-07-16 應用題過程分（user 拍板）：答案錯但過程正確到最後一步 → none=不給分(預設)/half/deduct
@@ -399,7 +399,7 @@ export interface AnswerKey {
   scoreMode?: 'ai_auto' | 'fixed_per_question' | 'fixed_total' | 'fixed_both'
   fixedPerScore?: number  // 每題固定分（scoreMode=fixed_per_question 或 fixed_both 時）
   fixedTotal?: number     // 固定總分（scoreMode=fixed_total 或 fixed_both 時）
-  // 2026-08-15 多選題計分（作業層級、user 拍板）：把「部分給分」從 AI 自行加碼改成正式設定。
+  // 2026-08-15 多選題計分（考卷層級、user 拍板）：把「部分給分」從 AI 自行加碼改成正式設定。
   //   deduct=每錯一個扣「一個選項的配分」(滿分÷正解數；預設；漏選與誤選同權、下限 0；
   //          指定 multiCheckDeduction 則改扣該固定分數)、
   //   all_or_nothing=全對才給分、partial=滿分×選對數/正解數(誤選不倒扣)、
@@ -446,7 +446,7 @@ export interface Student {
 }
 
 /**
- * 作業
+ * 考卷
  */
 export interface Assignment {
   id: string
@@ -454,11 +454,11 @@ export interface Assignment {
   title: string
   totalPages: number
   domain?: string // 國語、數學、社會、自然、英語、其他
-  folder?: string // 資料夾分類（例如：段考、小考、作業）
-  gradeWeightPercent?: number // 成績統計權重（百分比格式，作業+自訂欄位總和需為 100）
+  folder?: string // 資料夾分類（例如：段考、小考、考卷）
+  gradeWeightPercent?: number // 成績統計權重（百分比格式，考卷+自訂欄位總和需為 100）
 
   scoringMode?: 'scored' | 'unscored' // 不計分：批改只顯示✓✗△，不納入成績統計
-  docType?: 'worksheet' | 'exam' // 作業形式：習作 / 考卷（影響答案卷排序策略）
+  docType?: 'worksheet' | 'exam' // 考卷形式：習作 / 考卷（影響答案卷排序策略）
   answerSheetMode?: 'with_questions' | 'answer_only' // 答案卷模式：帶題目 / 純答案卷（題目在另一本題本）
   answerKey?: AnswerKey // 向後兼容：舊資料直接存答案卷
   answerKeyTemplateId?: string // 新架構：引用獨立的答案卷模板
@@ -468,7 +468,7 @@ export interface Assignment {
   answerSheetImagePaths?: string[]
   // 題本圖 Supabase Storage 路徑，question-booklets/{id}/page-{i}.webp（純答案卷模式下，老師上傳的題本）
   questionBookletImagePaths?: string[]
-  // 是否開放學生上傳作業
+  // 是否開放學生上傳考卷
   studentUploadEnabled?: boolean
   // 是否開放學生自助 AI 批改（預設關閉，老師主動打開才生效）
   allowStudentAiGrading?: boolean
@@ -478,7 +478,7 @@ export interface Assignment {
 }
 
 /**
- * 答案卷模板（獨立於班級作業，可跨班共用）
+ * 答案卷模板（獨立於班級考卷，可跨班共用）
  */
 export interface AnswerKeyTemplate {
   id: string
@@ -972,7 +972,7 @@ class RedPenDatabase extends Dexie {
           }
           // 清除舊的 localStorage 資料
           localStorage.removeItem('assignment-empty-folders')
-          debugLog('✅ 已遷移作業資料夾:', assignmentFolders.length)
+          debugLog('✅ 已遷移考卷資料夾:', assignmentFolders.length)
         }
 
         debugLog('✅ 資料庫升級完成')
@@ -1289,7 +1289,7 @@ class RedPenDatabase extends Dexie {
       await tx.table('answerKeyTemplates').toCollection().modify(t => {
         if (!t.version) t.version = 1
       })
-      // 所有既有作業設定 boundAnswerKeyVersion = 1（有 templateId 的）
+      // 所有既有考卷設定 boundAnswerKeyVersion = 1（有 templateId 的）
       await tx.table('assignments').toCollection().modify(a => {
         if (a.answerKeyTemplateId && !a.boundAnswerKeyVersion) {
           a.boundAnswerKeyVersion = 1
@@ -1424,7 +1424,7 @@ export async function resolveAnswerKey(assignment: Assignment): Promise<AnswerKe
 }
 
 /**
- * 檢查作業的答案卷版本狀態：
+ * 檢查考卷的答案卷版本狀態：
  * - 'normal': 答案卷正常（或無 templateId 的舊資料）
  * - 'updated': 答案卷已更新（版本不同）
  * - 'deleted': 答案卷已被刪除

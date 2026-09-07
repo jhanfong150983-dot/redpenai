@@ -1,6 +1,6 @@
 // 2026-08-29 座號辨識匯入確認畫面（第 3 期）：
 //   劃卡辨識結果 → 「頁 → 座號 → 學生」對照，老師必過目才寫入（配錯學生是最嚴重的錯）。
-//   紅=需處理（認不出/座號不在名冊）、琥珀=頁數與作業設定不符；每頁可改指定座號或略過。
+//   紅=需處理（認不出/座號不在名冊）、琥珀=頁數與考卷設定不符；每頁可改指定座號或略過。
 //   輸出型別對齊 PdfImportPreviewResult，直接重用既有覆蓋確認＋儲存管線。
 import { useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle, X } from 'lucide-react'
@@ -131,7 +131,7 @@ export default function OmrImportConfirmDialog({
                   className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
                     ok ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'
                   }`}
-                  title={ok ? undefined : `頁數 ${count}，與作業設定的每生 ${pagesPerStudent} 頁不同`}
+                  title={ok ? undefined : `頁數 ${count}，與考卷設定的每生 ${pagesPerStudent} 頁不同`}
                 >
                   {ok ? <CheckCircle className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
                   {String(seat).padStart(2, '0')} {stu?.name ?? '不在名冊'}（{count} 頁）

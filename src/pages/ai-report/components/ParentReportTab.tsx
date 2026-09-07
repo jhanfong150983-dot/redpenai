@@ -200,7 +200,7 @@ export function ParentReportTab({
   const exitMulti = () => { setMultiSelect(false); setSelected(new Set()) }
 
   if (!reports.length) {
-    return <section className="card" style={{ color: '#64748b', fontSize: 13 }}>此作業已批改的卷數不足，暫無法產生家長報告。</section>
+    return <section className="card" style={{ color: '#64748b', fontSize: 13 }}>此考卷已批改的卷數不足，暫無法產生家長報告。</section>
   }
 
   return (
@@ -227,7 +227,7 @@ export function ParentReportTab({
       {/* 舊卷沒有知識點歸類 → 報告缺「加強地圖」，提供一次性補跑（新卷建卷時已自動歸類） */}
       {!hasKp && (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">
-          <span>這份作業還沒有知識點歸類（舊卷）——報告會缺「知識點加強地圖」。新建答案卷會自動歸類。</span>
+          <span>這份考卷還沒有知識點歸類（舊卷）——報告會缺「知識點加強地圖」。新建答案卷會自動歸類。</span>
           <button
             onClick={runKpBackfill} disabled={busy}
             className="flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"

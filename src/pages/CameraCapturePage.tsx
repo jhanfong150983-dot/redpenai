@@ -15,7 +15,7 @@ interface CameraCapturePageProps {
   requiredOrientation?: 'portrait' | 'landscape'
   /** 老師端：拍照當下立刻依 CAMERA_FRAME 引導框比例裁切（學生端走 AI 偵測，不需要） */
   applyFrameCrop?: boolean
-  /** 拍照說明書版本：'upload' 整份作業（預設）；'correction' 學生訂正一次一題 */
+  /** 拍照說明書版本：'upload' 整份考卷（預設）；'correction' 學生訂正一次一題 */
   guideMode?: 'upload' | 'correction'
   onCaptureComplete: (imageBlob: Blob) => void
   onBack: () => void
@@ -228,7 +228,7 @@ export default function CameraCapturePage({
                 座號 {seatNumber}　{name}
               </p>
               <p className="text-sm text-slate-400 mb-6">
-                系統會開啟角度輔助，幫助你拍出清晰的作業照片。
+                系統會開啟角度輔助，幫助你拍出清晰的考卷照片。
               </p>
               <button
                 type="button"
@@ -294,7 +294,7 @@ export default function CameraCapturePage({
           <p className="mt-2 text-sm text-slate-300">
             {cameraError === 'notfound'
               ? '這台裝置可能沒有相機，或相機正被其他程式使用中。'
-              : '請允許瀏覽器使用相機，才能拍照上傳作業。'}
+              : '請允許瀏覽器使用相機，才能拍照上傳考卷。'}
           </p>
 
           {/* 重試後仍失敗的額外提示 */}

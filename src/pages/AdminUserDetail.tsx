@@ -152,7 +152,7 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
     if (!reason) return '-'
     const translations: Record<string, string> = {
       'purchase': '購買套餐',
-      'grading': '批改作業',
+      'grading': '批改考卷',
       'admin_adjustment': '管理員調整',
       'refund': '退款'
     }
@@ -195,7 +195,7 @@ export default function AdminUserDetail({ userId, onBack }: AdminUserDetailProps
 
   const tabs = [
     { id: 'classrooms' as TabType, label: '班級管理', icon: Users, count: detail.classrooms.length },
-    { id: 'assignments' as TabType, label: '作業清單', icon: FileText, count: detail.assignments.length },
+    { id: 'assignments' as TabType, label: '考卷清單', icon: FileText, count: detail.assignments.length },
     { id: 'ink' as TabType, label: '墨水紀錄', icon: Droplet, count: detail.inkLedger.length }
   ]
 
@@ -457,13 +457,13 @@ function ClassroomsList({ classrooms, formatDate }: { classrooms: ClassroomData[
   )
 }
 
-// 子元件：作業清單
+// 子元件：考卷清單
 function AssignmentsList({ assignments, formatDate }: { assignments: AssignmentData[]; formatDate: (date?: string) => string }) {
   if (assignments.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
         <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-        <p>暫無作業</p>
+        <p>暫無考卷</p>
       </div>
     )
   }
@@ -473,7 +473,7 @@ function AssignmentsList({ assignments, formatDate }: { assignments: AssignmentD
       <table className="w-full">
         <thead>
           <tr className="border-b border-gray-200">
-            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">作業名稱</th>
+            <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">考卷名稱</th>
             <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">繳交數</th>
             <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">已批改</th>
             <th className="text-left py-3 px-4 text-sm font-semibold text-gray-700">進度</th>

@@ -784,7 +784,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                     view === 'mine' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
-                  我的作業
+                  我的考卷
                 </button>
                 <button
                   type="button"
@@ -887,7 +887,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
           <div className={`grid ${embedded ? 'flex-1 min-h-0' : ''}`}>
           <div className="w-full overflow-auto">
             {/*
-              Header: 4 sticky rows (作業名稱 / 占比 / 平均 / 中位)
+              Header: 4 sticky rows (考卷名稱 / 占比 / 平均 / 中位)
               Heights: row1=h-9(36px), row2=h-9(36px), row3=h-7(28px), row4=h-7(28px)
               Sticky top offsets: 0 / 36px / 72px / 100px
               Left sticky: single merged 學生 column — no gap between two sticky cols
@@ -904,7 +904,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                 <col style={{ width: '7.5rem' }} />
               </colgroup>
               <thead>
-                {/* ── Row 1: 作業名稱 ── */}
+                {/* ── Row 1: 考卷名稱 ── */}
                 <tr>
                   <th className="sticky left-0 top-0 z-[100] bg-gray-50 p-0 border-r-2 border-b border-gray-200">
                     <div className="h-9 flex items-center px-3 text-xs text-gray-400 font-normal">學生</div>
@@ -1121,7 +1121,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                 {rows.length === 0 && (
                   <tr>
                     <td colSpan={totalCols} className="px-3 py-6 text-center text-gray-500">
-                      尚無學生或作業資料。
+                      尚無學生或考卷資料。
                     </td>
                   </tr>
                 )}

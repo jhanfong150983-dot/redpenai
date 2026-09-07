@@ -160,7 +160,7 @@ export default function AssignmentList({
     return [...listed, ...missing]
   }, [folderOrder, usedFolders])
 
-  // 套用老師自訂的作業排序
+  // 套用老師自訂的考卷排序
   const orderedClassAssignments = useMemo(() => {
     const byId = new Map(classAssignments.map((a) => [a.id, a]))
     const listed = assignmentOrder
@@ -201,7 +201,7 @@ export default function AssignmentList({
   const [isSavingAnswerKey, setIsSavingAnswerKey] = useState(false)
   const [answerKeyError, setAnswerKeyError] = useState<string | null>(null)
 
-  // ── 新增作業 Modal ──────────────────────────────────────────────────────
+  // ── 新增考卷 Modal ──────────────────────────────────────────────────────
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [createTitle, setCreateTitle] = useState('')
   const [createAnswerKeyFolder, setCreateAnswerKeyFolder] = useState('')
@@ -237,7 +237,7 @@ export default function AssignmentList({
           const ok = await confirmModal({
             tone: 'warning',
             title: '更換答案卷',
-            message: `此作業已有 ${gradedCount} 份批改結果。更換後，這些成績會先保留，批改頁會顯示「答案卷內容已變更，請重新批改」——由你決定何時用新答案卷重批（不會自動清除舊成績）。`,
+            message: `此考卷已有 ${gradedCount} 份批改結果。更換後，這些成績會先保留，批改頁會顯示「答案卷內容已變更，請重新批改」——由你決定何時用新答案卷重批（不會自動清除舊成績）。`,
             confirmLabel: '更換答案卷',
           })
           if (!ok) { setIsSavingSettings(false); return }
@@ -345,7 +345,7 @@ export default function AssignmentList({
     const items = allTemplates
       .filter((t) => crossClassTemplates.has(t.id))
       .map((t) => {
-        // 算 distinct 班級數（同班多份作業只算 1 班）、不要算作業數
+        // 算 distinct 班級數（同班多份考卷只算 1 班）、不要算考卷數
         const assignmentsUsingTemplate = crossClassTemplates.get(t.id) ?? []
         const distinctClassroomIds = new Set(assignmentsUsingTemplate.map((a) => a.classroomId))
         return {
@@ -633,7 +633,7 @@ export default function AssignmentList({
     finally { setIsSavingSettings(false) }
   }
 
-  // 建立作業（舊版 handler，保留給 AssignmentSetup 使用）
+  // 建立考卷（舊版 handler，保留給 AssignmentSetup 使用）
   const handleCreateAssignment = async () => {
     if (!createTitle.trim() || !selectedClassroomId) return
     setIsCreating(true)
@@ -669,7 +669,7 @@ export default function AssignmentList({
         answerKey,
         answerKeyTemplateId: selectedAnswerKey?.id || undefined,
         boundAnswerKeyVersion: selectedAnswerKey?.version ?? 1,
-        // 從模板繼承答案卷模式與作業形式（影響 grading pipeline 分支）
+        // 從模板繼承答案卷模式與考卷形式（影響 grading pipeline 分支）
         answerSheetMode: selectedAnswerKey?.answerSheetMode,
         docType: selectedAnswerKey?.docType,
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
@@ -701,7 +701,7 @@ export default function AssignmentList({
       })))
       setShowCreateModal(false)
     } catch (err) {
-      console.error('建立作業失敗', err)
+      console.error('建立考卷失敗', err)
     } finally {
       setIsCreating(false)
     }
@@ -822,7 +822,7 @@ export default function AssignmentList({
           db.folders.where('type').equals('assignment').toArray(),
           db.submissions.toArray()
         ])
-        // 2026-08-01 學校考卷（行政端）不進教師介面——班級與作業都要濾（作業漏濾會以「未知班級」顯示）
+        // 2026-08-01 學校考卷（行政端）不進教師介面——班級與考卷都要濾（考卷漏濾會以「未知班級」顯示）
         const schoolClassIds = schoolExamClassroomIds(allClassroomData)
         const classroomData = sortClassroomsByName(
           withoutArchivedClassrooms(withoutSchoolExamClassrooms(allClassroomData))
@@ -873,7 +873,7 @@ export default function AssignmentList({
         setAssignmentFolders(folderData)
         setAssignments(assignmentsWithClassroom)
       } catch (error) {
-        console.error('載入作業列表失敗:', error)
+        console.error('載入考卷列表失敗:', error)
       } finally {
         setIsLoading(false)
       }
@@ -906,7 +906,7 @@ export default function AssignmentList({
     onFolderChange(selectedFolder)
   }, [onFolderChange, selectedFolder])
 
-  // 換班級時，從 localStorage 載入該班級的作業順序
+  // 換班級時，從 localStorage 載入該班級的考卷順序
   useEffect(() => {
     if (!selectedClassroomId) {
       setAssignmentOrder([])
@@ -978,7 +978,7 @@ export default function AssignmentList({
   }, [orderedFolders])
 
   // 進頁面時所有資料夾預設闔起來（expandedFolders 初始為 []）；
-  // 老師點開、或拖曳作業到資料夾時才會自動展開那一個。
+  // 老師點開、或拖曳考卷到資料夾時才會自動展開那一個。
 
   const toggleFolderExpanded = (folder: string) => {
     setExpandedFolders((prev) =>
@@ -1101,7 +1101,7 @@ export default function AssignmentList({
         setSelectedFolder('__uncategorized__')
       }
     } catch (error) {
-      console.error('調整作業順序失敗:', error)
+      console.error('調整考卷順序失敗:', error)
     } finally {
       setDraggedAssignmentId(null)
       setDropTargetFolder(null)
@@ -1167,7 +1167,7 @@ export default function AssignmentList({
       return
     }
     try {
-      // 1) 更新所有歸到此資料夾的作業
+      // 1) 更新所有歸到此資料夾的考卷
       const affected = assignments.filter((a) => a.folder === oldName)
       for (const a of affected) {
         await db.assignments.update(a.id, { folder: newName })
@@ -1210,20 +1210,20 @@ export default function AssignmentList({
       const ok = await confirmModal({
         tone: 'warning',
         title: `刪除資料夾「${folder}」？`,
-        message: `資料夾內有 ${inFolder.length} 份作業，刪除後這些作業會回到「未分類」。`,
+        message: `資料夾內有 ${inFolder.length} 份考卷，刪除後這些考卷會回到「未分類」。`,
         confirmLabel: '刪除資料夾',
       })
       if (!ok) return
     } else {
       const ok = await confirmModal({
         title: `刪除資料夾「${folder}」？`,
-        message: '此資料夾目前沒有作業。',
+        message: '此資料夾目前沒有考卷。',
         confirmLabel: '刪除資料夾',
       })
       if (!ok) return
     }
     try {
-      // 把作業的 folder 清空
+      // 把考卷的 folder 清空
       for (const a of inFolder) {
         await db.assignments.update(a.id, { folder: undefined })
       }
@@ -1255,7 +1255,7 @@ export default function AssignmentList({
       <div className={`${embedded ? 'min-h-[280px]' : 'min-h-screen'} bg-white flex items-center justify-center`}>
         <div className="text-center">
           <Loader className="w-12 h-12 text-purple-600 mx-auto mb-4 animate-spin" />
-          <p className="text-gray-600">載入作業列表中…</p>
+          <p className="text-gray-600">載入考卷列表中…</p>
         </div>
       </div>
     )
@@ -1332,7 +1332,7 @@ export default function AssignmentList({
                 className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
               >
                 <Upload className="h-4 w-4" />
-                <span className="text-center leading-tight">匯入作業</span>
+                <span className="text-center leading-tight">匯入考卷</span>
               </button>
 
               <span className="px-1 text-slate-300">›</span>
@@ -1364,7 +1364,7 @@ export default function AssignmentList({
                 }`}
               >
                 <ClipboardCheck className="h-4 w-4" />
-                <span className="text-center leading-tight">訂正作業</span>
+                <span className="text-center leading-tight">訂正考卷</span>
               </button>
             </div>
           </div>
@@ -1390,7 +1390,7 @@ export default function AssignmentList({
         {/* 標題 */}
         <div className={`${embedded ? 'mb-4 border-b border-slate-200 pb-3' : 'bg-white rounded-xl border border-slate-200 p-6 mb-6'}`}>
           <div className="flex items-center justify-between gap-3">
-            <h1 className="text-2xl font-semibold text-gray-900">作業批改</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">考卷批改</h1>
             {viewMode === 'class' && selectedClassroomId && (
               <div className="flex items-center gap-2">
                 <button
@@ -1422,7 +1422,7 @@ export default function AssignmentList({
                   className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-green-700 active:scale-95"
                 >
                   <Plus className="h-4 w-4" />
-                  新增作業
+                  新增考卷
                 </button>
               </div>
             )}
@@ -1515,7 +1515,7 @@ export default function AssignmentList({
                     // 批次批改是花墨水動作 → tone: 'ink'（琥珀「消耗墨水」橫幅、與 InkConfirmModal 同款）
                     if (!(await confirmModal({
                       tone: 'ink',
-                      message: `即將批次批改 ${ids.length} 個班級，共 ${total} 份作業。確定開始？`,
+                      message: `即將批次批改 ${ids.length} 個班級，共 ${total} 份考卷。確定開始？`,
                       confirmLabel: '開始批改',
                     }))) return
                     onStartBatchGrading?.(ids)
@@ -1537,7 +1537,7 @@ export default function AssignmentList({
               <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
                 <Layers className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">尚無跨班級答案卷</h3>
-                <p className="text-gray-600">請先在「建立答案」建立答案卷，並在班級模式下建立使用該答案卷的作業。</p>
+                <p className="text-gray-600">請先在「建立答案」建立答案卷，並在班級模式下建立使用該答案卷的考卷。</p>
               </div>
             ) : crossClassAssignments.length === 0 ? (
               <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
@@ -1592,7 +1592,7 @@ export default function AssignmentList({
                               className="inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50"
                             >
                               <Upload className="h-4 w-4" />
-                              <span className="text-center leading-tight">匯入作業</span>
+                              <span className="text-center leading-tight">匯入考卷</span>
                             </button>
 
                             <span className="px-1 text-slate-300">›</span>
@@ -1624,7 +1624,7 @@ export default function AssignmentList({
                               }`}
                             >
                               <ClipboardCheck className="h-4 w-4" />
-                              <span className="text-center leading-tight">訂正作業</span>
+                              <span className="text-center leading-tight">訂正考卷</span>
                             </button>
                           </div>
                         </div>
@@ -1637,15 +1637,15 @@ export default function AssignmentList({
           </div>
         )}
 
-        {/* 班級模式：作業列表（資料夾分組） */}
+        {/* 班級模式：考卷列表（資料夾分組） */}
         {viewMode === 'class' && (assignments.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
             <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              尚未建立任何作業
+              尚未建立任何考卷
             </h3>
             <p className="text-gray-600 mb-6">
-              點右上「新增作業」建立作業與標準答案，再開始 AI 批改。
+              點右上「新增考卷」建立考卷與標準答案，再開始 AI 批改。
             </p>
           </div>
         ) : (
@@ -1780,7 +1780,7 @@ export default function AssignmentList({
                             <div className="border-t border-gray-100 px-3 py-3 bg-gray-50/40">
                               {folderAssignments.length === 0 ? (
                                 <p className="text-sm text-gray-500 px-1">
-                                  此資料夾沒有作業（拖曳作業卡片到此處）。
+                                  此資料夾沒有考卷（拖曳考卷卡片到此處）。
                                 </p>
                               ) : (
                                 <div className="space-y-2">
@@ -1807,7 +1807,7 @@ export default function AssignmentList({
                   }`}
                 >
                   {uncategorizedAssignments.length === 0 ? (
-                    <p className="text-sm text-gray-500 px-1">未分類區尚無作業（拖曳作業卡片到此處可以取消分類）。</p>
+                    <p className="text-sm text-gray-500 px-1">未分類區尚無考卷（拖曳考卷卡片到此處可以取消分類）。</p>
                   ) : (
                     <div className="space-y-2">
                       {uncategorizedAssignments.map((a) => renderAssignmentCard(a))}
@@ -2064,7 +2064,7 @@ export default function AssignmentList({
           </div>
         </div>
       )}
-      {/* 新增作業 Modal（統一元件） */}
+      {/* 新增考卷 Modal（統一元件） */}
       <AssignmentFormModal
         mode="create"
         open={showCreateModal}
@@ -2096,7 +2096,7 @@ export default function AssignmentList({
               id: generateId(), classroomId: selectedClassroomId, title: data.title.trim(),
               totalPages: akTemplate ? Math.max(1, ...((akTemplate.answerKey?.questions as Array<{id?:string}>) || []).map(q => parseInt(String(q?.id || '1').split('-')[0], 10) || 1)) : 1,
               domain, answerKey, answerKeyTemplateId: akTemplate?.id || undefined, boundAnswerKeyVersion: akTemplate?.version ?? 1,
-              // 從模板繼承答案卷模式與作業形式（影響 grading pipeline 分支）
+              // 從模板繼承答案卷模式與考卷形式（影響 grading pipeline 分支）
               answerSheetMode: akTemplate?.answerSheetMode,
               docType: akTemplate?.docType,
               scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
@@ -2124,7 +2124,7 @@ export default function AssignmentList({
             const classMap = new Map(classrooms.map((c) => [c.id, c]))
             setAssignments(dbData.map((a) => ({ ...a, classroom: classMap.get(a.classroomId), uploadedCount: subCountMap.get(a.id)?.uploaded ?? 0, gradedCount: subCountMap.get(a.id)?.graded ?? 0 })))
             setShowCreateModal(false)
-          } catch (err) { console.error('建立作業失敗', err) }
+          } catch (err) { console.error('建立考卷失敗', err) }
           finally { setIsCreating(false) }
         }}
         isSubmitting={isCreating}
@@ -2148,14 +2148,14 @@ export default function AssignmentList({
             const gradedCount = settingsAssignment.gradedCount ?? 0
             const uploadedCount = settingsAssignment.uploadedCount ?? 0
             const parts = []
-            if (uploadedCount > 0) parts.push(`${uploadedCount} 份已上傳的作業`)
+            if (uploadedCount > 0) parts.push(`${uploadedCount} 份已上傳的考卷`)
             if (gradedCount > 0) parts.push(`${gradedCount} 份批改結果`)
-            const detail = parts.length > 0 ? `\n\n此作業包含 ${parts.join('、')}，刪除後無法復原。` : ''
+            const detail = parts.length > 0 ? `\n\n此考卷包含 ${parts.join('、')}，刪除後無法復原。` : ''
             if (!(await confirmModal({
               tone: 'danger',
               title: `刪除「${settingsAssignment.title}」？`,
               message: detail ? detail.trim() : '刪除後無法復原。',
-              confirmLabel: '刪除作業',
+              confirmLabel: '刪除考卷',
             }))) return
             try {
               const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
@@ -2180,7 +2180,7 @@ export default function AssignmentList({
               }
               const classMap = new Map(classrooms.map((c) => [c.id, c]))
               setAssignments(dbData.map((a) => ({ ...a, classroom: classMap.get(a.classroomId), uploadedCount: subCountMap.get(a.id)?.uploaded ?? 0, gradedCount: subCountMap.get(a.id)?.graded ?? 0 })))
-            } catch (err) { console.error('刪除作業失敗', err) }
+            } catch (err) { console.error('刪除考卷失敗', err) }
           }}
           isSubmitting={isSavingSettings}
           editAssignmentTitle={settingsAssignment.title}
@@ -2227,7 +2227,7 @@ export default function AssignmentList({
         clears={['分數', '批改結果', '訂正紀錄', '申訴紀錄']}
         keeps={['學生作答/訂正照片']}
         affectedNoun="份批改"
-        affected={changeAnswerKeyConfirm ? [{ id: 'count', label: `此作業已有 ${changeAnswerKeyConfirm.gradedCount} 份批改結果`, meta: '全部失效' }] : []}
+        affected={changeAnswerKeyConfirm ? [{ id: 'count', label: `此考卷已有 ${changeAnswerKeyConfirm.gradedCount} 份批改結果`, meta: '全部失效' }] : []}
         acknowledgeText="我了解更換答案卷會一併清除所有訂正/申訴紀錄（含「已完成訂正」），且無法復原。"
         confirmLabel="仍要更換"
         cancelLabel="取消"
@@ -2293,7 +2293,7 @@ export default function AssignmentList({
                       }
                     }
                   }}
-                  placeholder="例如：段考、小考、作業"
+                  placeholder="例如：段考、小考、考卷"
                   className={`w-full px-3 py-2 border ${
                     newFolderError ? 'border-red-300' : 'border-gray-300'
                   } rounded-lg text-sm focus:outline-none focus:ring-2 ${
@@ -2313,7 +2313,7 @@ export default function AssignmentList({
 
               <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                 <p className="text-xs text-gray-700">
-                  建立資料夾後，可將作業卡片拖曳到資料夾中進行分類。
+                  建立資料夾後，可將考卷卡片拖曳到資料夾中進行分類。
                 </p>
               </div>
             </div>

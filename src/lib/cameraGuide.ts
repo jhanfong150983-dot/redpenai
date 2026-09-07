@@ -62,7 +62,7 @@ export const DUPLICATE_HASH_THRESHOLD = 12
 //
 // 2026-05-26 改 native camera 後失去引導框「告訴學生靠近一點」的視覺提示、
 // BLOCK 改 500（對應註解對照表的「拍遠了/拍超遠」邊界）、避免 AI 收到
-// 像素過低的作業批不準。WARN 仍 700 不動、500-700 顯黃色警告允許送出。
+// 像素過低的考卷批不準。WARN 仍 700 不動、500-700 顯黃色警告允許送出。
 export const MIN_EFFECTIVE_WIDTH_BLOCK = 500   // 拍超遠擋下
 export const MIN_EFFECTIVE_WIDTH_WARN = 700    // 對齊不佳才警告
 

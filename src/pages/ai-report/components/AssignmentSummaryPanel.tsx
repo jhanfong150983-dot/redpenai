@@ -88,7 +88,7 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry, isStale
   if (!data) {
     return (
       <div className="card" style={{ padding: '1.5rem', fontSize: '0.875rem' }}>
-        <div style={{ color: 'var(--muted)', marginBottom: onRetry ? '0.75rem' : 0 }}>尚未生成作業診斷性快報</div>
+        <div style={{ color: 'var(--muted)', marginBottom: onRetry ? '0.75rem' : 0 }}>尚未生成考卷診斷性快報</div>
         {onRetry && <RetryButton onRetry={onRetry} label='生成報告' />}
       </div>
     )
@@ -176,7 +176,7 @@ export default function AssignmentSummaryPanel({ data, loading, onRetry, isStale
             全班錯誤摘要
           </span>
           <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-            {data.sample_count} 份作業
+            {data.sample_count} 份考卷
           </span>
           {/* 隨時可手動重新生成、用於更換 prompt / 模型 / 上傳新題本後重跑 */}
           {onRetry && !isStale && (

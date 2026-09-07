@@ -1,5 +1,5 @@
 // 家長學習報告（2026-07-18 B2B MVP → 2026-08-11 退回無 AI 版、皆 user 拍板）：
-//   老師選一份作業 → 全班家長報告 PDF、打包 zip。一份作業＝一份報告（不跨科合併）。
+//   老師選一份考卷 → 全班家長報告 PDF、打包 zip。一份考卷＝一份報告（不跨科合併）。
 //   報告＝純程式確定性產物（成績/落點/題型/知識點加強地圖/錯題裁圖＋正解＋班級狀況），
 //   永遠對應最新批改、重批不需重生；「為什麼錯」的解讀歸老師專業——AI 逐題診斷與評語草擬已移除。
 //   唯一留在此檔的 AI 呼叫＝知識點歸類（runKpUpgrade 系列；新卷建卷預跑、舊卷報告頁補跑）。
@@ -459,7 +459,7 @@ export async function fetchQuestionCrops(
 const PARENT_CACHE_ENDPOINT = '/api/report/parent-cache'
 export type CachedReport = { diagnosis: Record<string, DiagnosisItem>; comment: string; stale: boolean }
 
-/** 載入某作業已快取的舊評語；回 Map<studentId, CachedReport>（diagnosis/stale 僅為相容保留）。 */
+/** 載入某考卷已快取的舊評語；回 Map<studentId, CachedReport>（diagnosis/stale 僅為相容保留）。 */
 export async function loadParentReportCache(assignmentId: string): Promise<Map<string, CachedReport>> {
   const out = new Map<string, CachedReport>()
   if (!assignmentId) return out
@@ -962,7 +962,7 @@ async function runKpUpgradeCore(
   track?: 'A' | 'B',
 ): Promise<KpUpgradeResult> {
   const qs = questions.filter((q) => String(q.id ?? '').trim())
-  if (!qs.length) throw new Error('此作業沒有題目')
+  if (!qs.length) throw new Error('此考卷沒有題目')
   const ansList = qs.map((q) => `${q.id}：${resolveStdAnswer(q) || '(無)'}`).join('\n')
   const subj = subject || '學科'
   // 2026-09-06 學制稱謂：高中分科(生物/化學等 grade>=10)prompt 別再自稱「國中老師」；未帶年級沿用國中。
@@ -1262,7 +1262,7 @@ export async function runKpUpgradeInline(subject: string, questions: PRQuestion[
   return runKpUpgradeCore(subject, questions, grade, call(true), call(false), track)
 }
 
-// ── 本地儲存：報告抬頭設定（老師個人、偏好設定頁維護）＋ 老師編輯過的評語（依作業快取） ──
+// ── 本地儲存：報告抬頭設定（老師個人、偏好設定頁維護）＋ 老師編輯過的評語（依考卷快取） ──
 const HEADER_STORE_KEY = 'parentReport.header.v1'
 export type ReportHeaderSettings = { schoolName: string; crestDataUrl?: string; teacherName?: string }
 export function loadReportHeaderSettings(): ReportHeaderSettings {

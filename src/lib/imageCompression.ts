@@ -9,7 +9,7 @@ import { getDefaultImageFormat } from './pdfToImage'
 /**
  * 圖片/照片上傳張數上限（共用）。
  *
- * 為什麼是 4：學生卷與老師作業匯入會把多頁「合併成一張圖、塞進同一個 JSON 請求」上傳，
+ * 為什麼是 4：學生卷與老師考卷匯入會把多頁「合併成一張圖、塞進同一個 JSON 請求」上傳，
  * 受 Vercel serverless body 4.5MB 上限約束（base64 會再膨脹 ~1.33 倍）。實測 4 頁在
  * compressToTargetBytes 保證壓縮下可穩定收進上限且畫質足夠；超過 4 頁風險升高。
  * 答案卷頁數 = 學生需上傳頁數（totalPages），故答案卷上傳同樣套此上限。

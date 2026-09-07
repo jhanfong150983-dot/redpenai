@@ -11,7 +11,7 @@ import type { Submission } from '@/lib/db'
  * 快取失效規則:`detailsFetchedAt < updatedAt` 就重抓。
  *   server 端任何一次重批/改分都會動 updated_at,所以不會拿到過期的逐題資料。
  *
- * ⚠ 不要在「列表類」畫面呼叫這個(作業列表、成績簿、首頁總覽)——那些只需要分數與狀態,
+ * ⚠ 不要在「列表類」畫面呼叫這個(考卷列表、成績簿、首頁總覽)——那些只需要分數與狀態,
  *   輕量欄位就夠了。呼叫它等於把瘦身的效果吐回去。
  */
 
@@ -68,7 +68,7 @@ async function fetchDetails(payload: Record<string, string[]>): Promise<DetailRo
 }
 
 /**
- * 補齊這些作業底下所有卷的逐題資料。已補齊且未過期的不會重抓。
+ * 補齊這些考卷底下所有卷的逐題資料。已補齊且未過期的不會重抓。
  * @returns 實際補了幾筆(0 = 全部都已是最新,沒發出請求)
  */
 export async function ensureAssignmentDetails(assignmentIds: string[]): Promise<number> {
@@ -76,7 +76,7 @@ export async function ensureAssignmentDetails(assignmentIds: string[]): Promise<
   if (ids.length === 0) return 0
 
   const local = await db.submissions.where('assignmentId').anyOf(ids).toArray()
-  // 整份作業都沒有任何卷 → 可能是本機還沒同步到,仍要打一次(server 有就會帶回來)
+  // 整份考卷都沒有任何卷 → 可能是本機還沒同步到,仍要打一次(server 有就會帶回來)
   const staleAssignmentIds = new Set<string>(
     ids.filter((aid) => {
       const subs = local.filter((s) => s.assignmentId === aid)

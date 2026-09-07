@@ -1151,7 +1151,7 @@ function App() {
               <p>
                 <span className="font-semibold">一、服務內容</span>
                 <br />
-                本平台提供 AI 作業批改與相關教學管理功能，並採點數制扣抵服務費用。
+                本平台提供 AI 考卷批改與相關教學管理功能，並採點數制扣抵服務費用。
               </p>
               <p>
                 <span className="font-semibold">二、數位內容與七日鑑賞期</span>
@@ -1214,7 +1214,7 @@ function App() {
               <p>
                 <span className="font-semibold">一、蒐集資訊</span>
                 <br />
-                我們可能蒐集使用者帳號資訊（Email、姓名）、作業內容（文字或影像）、
+                我們可能蒐集使用者帳號資訊（Email、姓名）、考卷內容（文字或影像）、
                 批改結果、操作紀錄與必要的技術資訊（如瀏覽器與裝置資訊）。
                 <br />
                 付款資訊由第三方金流（綠界）處理，本平台不儲存信用卡資料。
@@ -1227,7 +1227,7 @@ function App() {
               <p>
                 <span className="font-semibold">三、第三方服務</span>
                 <br />
-                作業內容會傳送至 Google Gemini API 進行運算，我們不會另行將資料
+                考卷內容會傳送至 Google Gemini API 進行運算，我們不會另行將資料
                 用於其他商業用途。是否用於模型訓練以 Google API 條款為準。
               </p>
               <p>
@@ -1324,9 +1324,9 @@ function App() {
         db.students.toArray(),
         db.submissions.toArray()
       ])
-      // 學校考卷（行政端）不進教師介面:班級與作業都要濾,否則作業會以「未知班級」漏出來
+      // 學校考卷（行政端）不進教師介面:班級與考卷都要濾,否則考卷會以「未知班級」漏出來
       const schoolClassIds = schoolExamClassroomIds(allClassrooms)
-      // 2026-08-29 已封存班級退出總覽統計（連同其作業）
+      // 2026-08-29 已封存班級退出總覽統計（連同其考卷）
       const classrooms = withoutArchivedClassrooms(withoutSchoolExamClassrooms(allClassrooms))
       const activeClassIds = new Set(classrooms.map((c) => c.id))
       const assignments = withoutSchoolExamAssignments(allAssignments, schoolClassIds).filter((a) =>
@@ -1511,7 +1511,7 @@ function App() {
 
           return {
             id: assignment.id,
-            title: assignment.title || '未命名作業',
+            title: assignment.title || '未命名考卷',
             classroomId: assignment.classroomId,
             classroomName:
               classroomMap.get(assignment.classroomId)?.name ?? '未知班級',
@@ -1553,7 +1553,7 @@ function App() {
           attentionItems.push({
             id: `${assignment.id}|${student.id}`,
             assignmentId: assignment.id,
-            assignmentTitle: assignment.title || '未命名作業',
+            assignmentTitle: assignment.title || '未命名考卷',
             classroomName,
             studentId: student.id,
             studentName: student.name || '',
@@ -1600,7 +1600,7 @@ function App() {
       setHomeAttentionItems(attentionItems)
       homeOverviewHasLoadedRef.current = true
     } catch (error) {
-      console.error('載入作業總覽失敗', error)
+      console.error('載入考卷總覽失敗', error)
     } finally {
       setHomeOverviewLoading(false)
       homeOverviewInFlightRef.current = false
@@ -2121,7 +2121,7 @@ function App() {
       items: [
         {
           key: 'overview',
-          label: '作業總覽',
+          label: '考卷總覽',
           description: '查看待辦與批改進度',
           icon: LayoutDashboard,
           onClick: openOverview
@@ -2135,15 +2135,15 @@ function App() {
         },
         // {
         //   key: 'assignment-setup',
-        //   label: '作業建立',
-        //   description: '建立作業題目與答案卷',
+        //   label: '考卷建立',
+        //   description: '建立考卷題目與答案卷',
         //   icon: FilePlus2,
         //   onClick: openAssignmentSetup
         // },
         {
           key: 'grading-flow',
-          label: '作業批改',
-          description: '蒐集作業、AI 批改與訂正流程',
+          label: '考卷批改',
+          description: '蒐集考卷、AI 批改與訂正流程',
           icon: Sparkles,
           onClick: openGrading
         }
@@ -2753,7 +2753,7 @@ function App() {
                 <>
                   <section>
                     <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
-                      <h1 className="text-2xl font-semibold text-gray-900">作業總覽</h1>
+                      <h1 className="text-2xl font-semibold text-gray-900">考卷總覽</h1>
                       <button
                         type="button"
                         onClick={() => void loadHomeOverview()}
@@ -2765,7 +2765,7 @@ function App() {
 
                     <div className="mt-4 grid gap-0 sm:grid-cols-2 xl:grid-cols-4">
                       <div className="px-2 py-3 xl:border-r xl:border-slate-200">
-                        <p className="text-[11px] text-slate-500">總作業數</p>
+                        <p className="text-[11px] text-slate-500">總考卷數</p>
                         {homeOverviewLoading ? (
                           <div className="mt-2 h-9 w-16 animate-pulse rounded bg-slate-100" />
                         ) : (
@@ -2775,7 +2775,7 @@ function App() {
                         )}
                       </div>
                       <div className="px-2 py-3 xl:border-r xl:border-slate-200">
-                        <p className="text-[11px] text-slate-500">待匯入作業</p>
+                        <p className="text-[11px] text-slate-500">待匯入考卷</p>
                         {homeOverviewLoading ? (
                           <div className="mt-2 h-9 w-16 animate-pulse rounded bg-slate-100" />
                         ) : (
@@ -2866,7 +2866,7 @@ function App() {
                   <div className="mt-5">
                     <section className="pt-2">
                       <div className="mb-2 flex items-center justify-between">
-                        <h3 className="text-base font-semibold text-slate-900">待辦作業</h3>
+                        <h3 className="text-base font-semibold text-slate-900">待辦考卷</h3>
                         <span className="text-xs text-slate-500">依狀態優先排序</span>
                       </div>
 
@@ -2881,13 +2881,13 @@ function App() {
                         </div>
                       ) : todoOverviewItems.length === 0 ? (
                         <div className="bg-slate-50/60 px-4 py-8 text-center">
-                          <p className="text-sm text-slate-600">目前沒有待辦作業。點上方「作業批改」建立第一份作業。</p>
+                          <p className="text-sm text-slate-600">目前沒有待辦考卷。點上方「考卷批改」建立第一份考卷。</p>
                           <button
                             type="button"
                             onClick={openGrading}
                             className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-400 hover:text-slate-900"
                           >
-                            前往作業批改
+                            前往考卷批改
                           </button>
                         </div>
                       ) : (

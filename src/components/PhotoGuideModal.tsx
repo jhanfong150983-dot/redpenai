@@ -4,7 +4,7 @@ import { X } from 'lucide-react'
 interface PhotoGuideModalProps {
   open: boolean
   onClose: () => void
-  /** 'upload' = 整份作業（預設）；'correction' = 學生訂正單題拍照 */
+  /** 'upload' = 整份考卷（預設）；'correction' = 學生訂正單題拍照 */
   guideMode?: 'upload' | 'correction'
 }
 
@@ -108,7 +108,7 @@ function DesktopLayout({ onClose }: { onClose: () => void }) {
   return (
     <>
       <div className="pg-header">
-        <h1>📸 拍作業說明書 — 怎麼拍才不會被擋</h1>
+        <h1>📸 拍考卷說明書 — 怎麼拍才不會被擋</h1>
         <button className="pg-close" onClick={onClose} aria-label="關閉">
           <X className="w-5 h-5" />
         </button>
@@ -126,8 +126,8 @@ function DesktopLayout({ onClose }: { onClose: () => void }) {
         <div className="pg-col pg-col-wrong">
           <h2>❌ 這幾種會被擋</h2>
           <div className="pg-ng-grid">
-            <NgCard n={1} title="太遠" variant="ng-far" why="紙張在畫面中太小、桌面背景太多" fix="手機<strong>靠近作業</strong>、讓紙張填滿虛線框" />
-            <NgCard n={2} title="出框" variant="ng-out" why="紙張一邊跑出畫面外、AI 看不到完整作業" fix="手機<strong>拿遠一點</strong>、整張紙都進畫面" />
+            <NgCard n={1} title="太遠" variant="ng-far" why="紙張在畫面中太小、桌面背景太多" fix="手機<strong>靠近考卷</strong>、讓紙張填滿虛線框" />
+            <NgCard n={2} title="出框" variant="ng-out" why="紙張一邊跑出畫面外、AI 看不到完整考卷" fix="手機<strong>拿遠一點</strong>、整張紙都進畫面" />
             <NgCard n={3} title="歪斜" variant="ng-tilt" why="紙張沒對齊虛線框、超出引導框邊界" fix="紙張<strong>4 角對準</strong>畫面虛線框" />
             <NgCard n={4} title="模糊" variant="ng-blur" why="字看不清楚、AI 無法辨識內容" fix="手機<strong>拿穩</strong>、靠近後再按拍照" />
           </div>
@@ -142,7 +142,7 @@ function MobileLayout({ onClose }: { onClose: () => void }) {
   return (
     <>
       <div className="pg-header pg-header-mobile">
-        <h1>📸 拍作業說明書</h1>
+        <h1>📸 拍考卷說明書</h1>
         <button className="pg-close" onClick={onClose} aria-label="關閉">
           <X className="w-5 h-5" />
         </button>
@@ -157,8 +157,8 @@ function MobileLayout({ onClose }: { onClose: () => void }) {
 
         <h2 className="pg-section-h pg-section-wrong">❌ 這幾種會被擋</h2>
         <div className="pg-ng-list">
-          <NgCard mobile n={1} title="太遠" variant="ng-far" why="紙張在畫面中太小、桌面背景太多" fix="手機<strong>靠近作業</strong>、讓紙張填滿虛線框" />
-          <NgCard mobile n={2} title="出框" variant="ng-out" why="紙張一邊跑出畫面外、AI 看不到完整作業" fix="手機<strong>拿遠一點</strong>、整張紙都進畫面" />
+          <NgCard mobile n={1} title="太遠" variant="ng-far" why="紙張在畫面中太小、桌面背景太多" fix="手機<strong>靠近考卷</strong>、讓紙張填滿虛線框" />
+          <NgCard mobile n={2} title="出框" variant="ng-out" why="紙張一邊跑出畫面外、AI 看不到完整考卷" fix="手機<strong>拿遠一點</strong>、整張紙都進畫面" />
           <NgCard mobile n={3} title="歪斜" variant="ng-tilt" why="紙張沒對齊虛線框、超出引導框邊界" fix="紙張<strong>4 角對準</strong>畫面虛線框" />
           <NgCard mobile n={4} title="模糊" variant="ng-blur" why="字看不清楚、AI 無法辨識內容" fix="手機<strong>拿穩</strong>、靠近後再按拍照" />
         </div>

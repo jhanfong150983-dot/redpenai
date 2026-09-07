@@ -297,7 +297,7 @@ export default function CorrectionManagement({
       } else if (isTargeted) {
         setMessage(`已收回 ${recalledCount} 位學生的訂正。`)
       } else {
-        setMessage('已停止本次作業訂正。')
+        setMessage('已停止本次考卷訂正。')
       }
 
       setSelectedStudentIds([])
@@ -580,14 +580,14 @@ export default function CorrectionManagement({
             className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
-            返回作業批改
+            返回考卷批改
           </button>
         )}
 
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold text-gray-900">
-              {dashboard?.assignmentTitle || '未命名作業'}
+              {dashboard?.assignmentTitle || '未命名考卷'}
             </h1>
           </div>
 
@@ -667,7 +667,7 @@ export default function CorrectionManagement({
             ) : (
               <div className="flex items-center gap-2 text-slate-700">
                 <AlertTriangle className="h-4 w-4" />
-                訂正尚未派發；學生端暫不會看到待訂正作業。
+                訂正尚未派發；學生端暫不會看到待訂正考卷。
               </div>
             )}
           </div>
@@ -831,7 +831,7 @@ export default function CorrectionManagement({
         </div>
 
         <div className="mt-3 text-xs text-slate-500">
-          派發規則：此作業中「有錯題」的學生會在派發後進入訂正；教師停止後，學生端會暫停訂正入口。
+          派發規則：此考卷中「有錯題」的學生會在派發後進入訂正；教師停止後，學生端會暫停訂正入口。
         </div>
       </div>
 

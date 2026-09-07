@@ -7,7 +7,7 @@ import Button from '@/components/ui/Button'
  *
  * 用法（promise 風格、不用各頁自己管 state）：
  *   const confirm = useConfirm()
- *   if (!(await confirm({ title: '刪除作業', message: '…', tone: 'danger' }))) return
+ *   if (!(await confirm({ title: '刪除考卷', message: '…', tone: 'danger' }))) return
  *
  *   const alertModal = useAlertModal()
  *   await alertModal('批改嚴格度已變更…')

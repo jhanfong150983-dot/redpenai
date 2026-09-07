@@ -168,14 +168,14 @@ const GENERATED_SHEET_STEP_ENABLED = (() => {
   try { return localStorage.getItem('redpen-gen-sheet-preview') === '1' } catch { return false }
 })()
 
-// 2026-09-05 五步重拼裝（user 拍板）：③製作答案卷提前到 AI 解析之前——
+// 2026-09-05 五步重拼裝（user 拍板）：③製作作答卷提前到 AI 解析之前——
 // 老師把標準答案「手寫在下載的作答卷上」，④就是原版 extract（答案卷=手寫作答卷＋題本），
 // ⑤就是原版題目編輯（crop 預覽、題型唯讀）。所有模組都是舊的，只是重新拼裝。
 const STEP_CONFIG: { key: UnifiedStep; label: string; shortLabel: string }[] = GENERATED_SHEET_STEP_ENABLED
   ? [
       { key: 'metadata', label: '基本資料', shortLabel: '①' },
       { key: 'booklet', label: '上傳題本', shortLabel: '②' },
-      { key: 'sheet', label: '製作答案卷', shortLabel: '③' },
+      { key: 'sheet', label: '製作作答卷', shortLabel: '③' },
       { key: 'extract', label: 'AI 解析', shortLabel: '④' },
       { key: 'editing', label: '人工檢核', shortLabel: '⑤' },
     ]
@@ -230,7 +230,7 @@ export interface AnswerKeyUnifiedModalProps {
   initialAnswerSheetImages?: Blob[]
   scoringMode?: 'scored' | 'unscored'
   hasGradedSubmissions?: boolean
-  /** 編輯模式重新解析時，會被連帶更新的班級作業（伺服器端會反向同步）。空陣列＝沒有班級引用 */
+  /** 編輯模式重新解析時，會被連帶更新的班級考卷（伺服器端會反向同步）。空陣列＝沒有班級引用 */
   reextractClassLabels?: string[]
   /** 純答案卷模式的題本圖（從 Storage 還原）。重新解析時要一起送，AI 沒題目就寫不出評分規準 */
   initialBookletImages?: Blob[]
@@ -727,7 +727,7 @@ export default function AnswerKeyUnifiedModal({
   const [didReextract, setDidReextract] = useState(false)
   // 已存檔的答案卷唯讀；重新解析出來的新內容還沒存檔，所以解鎖讓老師確認後再存
   // 2026-09-07 主動權還給老師：已存答案卷改為可直接編輯（原「存檔=定版唯讀」設計退場）。
-  //   改動後由版本機制(AnswerBank version+1)標記引用作業「需重新批改」，舊成績保留、老師主動重批。
+  //   改動後由版本機制(AnswerBank version+1)標記引用考卷「需重新批改」，舊成績保留、老師主動重批。
   //   locked 保留但恆 false（詳情面板永遠可編輯）；答案卷「圖片」仍唯讀（另條路徑、不受此影響）。
   const locked = false
   // 純答案卷模式：題本是判題型的唯一依據，缺了就不給解析
@@ -765,11 +765,11 @@ export default function AnswerKeyUnifiedModal({
       '目前這份**不會被更動**——題目、批改結果、分享碼都保持原樣。',
       '',
       '新答案卷是獨立的一份：',
-      '・要用它批改，需到班級作業裡改用新答案卷（會重新批改）',
+      '・要用它批改，需到班級考卷裡改用新答案卷（會重新批改）',
       '・要和其他老師一致，把新的分享碼給對方',
     ]
     if (reextractClassLabels.length > 0) {
-      lines.push('', `目前這份正被 ${reextractClassLabels.length} 個班級作業使用，它們仍會繼續用舊版，不受影響。`)
+      lines.push('', `目前這份正被 ${reextractClassLabels.length} 個班級考卷使用，它們仍會繼續用舊版，不受影響。`)
     }
     const quotaLine = buildQuotaLine(await fetchBuildQuota())
     if (quotaLine) lines.push('', quotaLine)
@@ -1387,7 +1387,7 @@ export default function AnswerKeyUnifiedModal({
         const ok = await confirmModal({
           tone: 'warning',
           title: '確認儲存答案卷',
-          message: '請先確認題號、答案、配分都正確。存檔後仍可再修改（若已被批改，改動會標記那些作業需重新批改，舊成績會保留）。',
+          message: '請先確認題號、答案、配分都正確。存檔後仍可再修改（若已被批改，改動會標記那些考卷需重新批改，舊成績會保留）。',
           confirmLabel: '確認儲存',
         })
         if (ok) void doSave()
@@ -1505,7 +1505,7 @@ export default function AnswerKeyUnifiedModal({
     }
     if (activeStep === 'booklet') {
       if (isExtracting) return { label: '結構分析中…', disabled: true, loading: true }
-      return { label: '下一步：製作答案卷', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
+      return { label: '下一步：製作作答卷', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
     }
     if (activeStep === 'sheet') {
       return { label: '下一步：AI 解析', disabled: !makerResult || !editingKey, icon: <ChevronRight className="w-4 h-4" /> }
@@ -2743,7 +2743,7 @@ export default function AnswerKeyUnifiedModal({
                 <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
                 <h3 className="font-semibold text-gray-900 text-sm">注意</h3>
               </div>
-              <p className="text-xs text-gray-600 mb-4">修改標準答案不會自動重新批改已批改的作業，請手動重新批改需要更正的作業。</p>
+              <p className="text-xs text-gray-600 mb-4">修改標準答案不會自動重新批改已批改的考卷，請手動重新批改需要更正的考卷。</p>
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setConfirmOverlay(null)}>取消</Button>
                 <Button type="button" variant="primary" onClick={() => void doSave()}>確認儲存</Button>

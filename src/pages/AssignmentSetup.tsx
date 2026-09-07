@@ -199,7 +199,7 @@ export default function AssignmentSetup({
   const [error, setError] = useState<string | null>(null)
   const isInkNegative = typeof inkBalance === 'number' && inkBalance < 0
   const canCreateAssignment = !isInkNegative
-  const createBlockedMessage = '餘額不足，請先補充墨水後再新增作業。是否前往補充墨水？'
+  const createBlockedMessage = '餘額不足，請先補充墨水後再新增考卷。是否前往補充墨水？'
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create')
@@ -218,7 +218,7 @@ export default function AssignmentSetup({
     }
   }, [])
 
-  // 複製作業
+  // 複製考卷
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false)
   const [sourceAssignment, setSourceAssignment] = useState<Assignment | null>(null)
   const [targetClassroomId, setTargetClassroomId] = useState('')
@@ -348,7 +348,7 @@ export default function AssignmentSetup({
 
 
 
-  // ✅ 新增作業 modal：完全由 tutorial stepId 決定開/關（避免殘留、狂按下一步卡住）
+  // ✅ 新增考卷 modal：完全由 tutorial stepId 決定開/關（避免殘留、狂按下一步卡住）
   useEffect(() => {
     const stepId = tutorial.flow?.steps?.[tutorial.currentStep]?.id
 
@@ -410,11 +410,11 @@ export default function AssignmentSetup({
         // 載入空資料夾（assignment 類型）
         const emptyAssignmentFolders = folders
           .map(f => f.name)
-        console.log('📁 載入作業空資料夾:', emptyAssignmentFolders)
+        console.log('📁 載入考卷空資料夾:', emptyAssignmentFolders)
         setEmptyFolders(emptyAssignmentFolders)
       } catch (err) {
-        console.error('載入作業失敗', err)
-        setError('載入作業失敗，請稍後再試')
+        console.error('載入考卷失敗', err)
+        setError('載入考卷失敗，請稍後再試')
       } finally {
         setIsAssignmentsLoading(false)
       }
@@ -458,7 +458,7 @@ export default function AssignmentSetup({
     }
   }, [])
 
-  // 計算該班級已使用的作業資料夾（包含空資料夾）
+  // 計算該班級已使用的考卷資料夾（包含空資料夾）
   const usedFolders = useMemo(() => {
     const folders = assignments
       .map((a) => a.folder)
@@ -601,14 +601,14 @@ export default function AssignmentSetup({
 
     // Section 1: 基本設定
     if (!assignmentTitle.trim()) {
-      missing.push('作業標題')
+      missing.push('考卷標題')
     }
     if (!selectedClassroomId) {
       missing.push('班級')
     }
     // Section 2: 匯入答案
     if (!assignmentDomain) {
-      missing.push('作業領域')
+      missing.push('考卷領域')
     }
     if (!answerKey) {
       missing.push('標準答案')
@@ -1170,7 +1170,7 @@ export default function AssignmentSetup({
     }
     const duplicateIds = collectDuplicateQuestionIds(answerKey)
     if (duplicateIds.length > 0) {
-      setError(`題號不可重複：${formatDuplicateQuestionIds(duplicateIds)}。請先調整後再建立作業。`)
+      setError(`題號不可重複：${formatDuplicateQuestionIds(duplicateIds)}。請先調整後再建立考卷。`)
       return
     }
 
@@ -1243,7 +1243,7 @@ export default function AssignmentSetup({
       resetForm()
       setIsCreateModalOpen(false)
     } catch (err) {
-      console.error('編輯作業失敗', err)
+      console.error('編輯考卷失敗', err)
       setError('儲存失敗，請稍後再試')
     } finally {
       setIsSubmitting(false)
@@ -1259,7 +1259,7 @@ export default function AssignmentSetup({
         title: assignmentTitle.trim(),
         totalPages,
         domain: assignmentDomain!,
-        folder: undefined,  // 新作業預設為全部
+        folder: undefined,  // 新考卷預設為全部
         gradeWeightPercent: 0,
         scoringMode: createScoringMode === 'unscored' ? 'unscored' : undefined,
         docType: createAnswerDocType,
@@ -1338,8 +1338,8 @@ export default function AssignmentSetup({
       resetForm()
       setIsCreateModalOpen(false)
     } catch (err) {
-      console.error('建立作業失敗', err)
-      setError('建立作業失敗，請稍後再試')
+      console.error('建立考卷失敗', err)
+      setError('建立考卷失敗，請稍後再試')
     } finally {
       setIsSubmitting(false)
     }
@@ -2009,7 +2009,7 @@ export default function AssignmentSetup({
       )
       requestSync()
     } catch (err) {
-      console.error('更新作業標題失敗', err)
+      console.error('更新考卷標題失敗', err)
     } finally {
       setEditingId(null)
       setEditingTitle('')
@@ -2019,9 +2019,9 @@ export default function AssignmentSetup({
   const handleDelete = async (id: string) => {
     const ok = await confirmModal({
       tone: 'danger',
-      title: '刪除這份作業？',
+      title: '刪除這份考卷？',
       message: '相關學生繳交也會一併移除，刪除後無法復原。',
-      confirmLabel: '刪除作業',
+      confirmLabel: '刪除考卷',
     })
     if (!ok) return
     try {
@@ -2042,7 +2042,7 @@ export default function AssignmentSetup({
       setAssignmentOrder((prev) => prev.filter((item) => item !== id))
       requestSync()
     } catch (err) {
-      console.error('刪除作業失敗', err)
+      console.error('刪除考卷失敗', err)
     }
   }
 
@@ -2080,7 +2080,7 @@ export default function AssignmentSetup({
     const newFolder = targetFolder === '__uncategorized__' ? undefined : targetFolder
 
     try {
-      // 更新作業的資料夾欄位
+      // 更新考卷的資料夾欄位
       await db.assignments.update(draggedAssignmentId, { folder: newFolder })
 
       // 更新本地狀態
@@ -2172,8 +2172,8 @@ export default function AssignmentSetup({
         setSelectedFolder('__uncategorized__')
       }
     } catch (error) {
-      console.error('調整作業順序失敗:', error)
-      setError('調整作業順序失敗，請重新整理後再試')
+      console.error('調整考卷順序失敗:', error)
+      setError('調整考卷順序失敗，請重新整理後再試')
     } finally {
       setDraggedAssignmentId(null)
       setDropTargetFolder(null)
@@ -2226,7 +2226,7 @@ export default function AssignmentSetup({
         })
       }
 
-      // 2. 更新所有使用此資料夾的作業
+      // 2. 更新所有使用此資料夾的考卷
       const assignmentsInFolder = assignments
         .filter((a) => a.folder === oldName)
         .map((a) => a.id)
@@ -2287,8 +2287,8 @@ export default function AssignmentSetup({
       tone: count > 0 ? 'warning' : 'neutral',
       title: `刪除資料夾「${folderName}」？`,
       message: count > 0
-        ? `資料夾內有 ${count} 個作業，刪除後這些作業會變成「全部」。`
-        : '此資料夾目前沒有作業。',
+        ? `資料夾內有 ${count} 個考卷，刪除後這些考卷會變成「全部」。`
+        : '此資料夾目前沒有考卷。',
       confirmLabel: '刪除資料夾',
     })
     if (!ok) return
@@ -2297,7 +2297,7 @@ export default function AssignmentSetup({
     setError(null)
 
     try {
-      // 1. 將該資料夾下所有作業的 folder 欄位設為 undefined
+      // 1. 將該資料夾下所有考卷的 folder 欄位設為 undefined
       const assignmentsInFolder = assignments
         .filter((a) => a.folder === folderName)
         .map((a) => a.id)
@@ -2352,7 +2352,7 @@ export default function AssignmentSetup({
     }
   }
 
-  // 複製作業處理函數
+  // 複製考卷處理函數
   const handleCopyAssignment = async () => {
     if (!canCreateAssignment) {
       handleRequireInkTopUp()
@@ -2389,7 +2389,7 @@ export default function AssignmentSetup({
         domain: sourceAssignment.domain,
         folder: sourceAssignment.folder,
         gradeWeightPercent: sourceAssignment.gradeWeightPercent ?? 0,
-        // 從來源作業繼承答案卷模式、作業形式與綁定模板（影響 grading pipeline 分支）
+        // 從來源考卷繼承答案卷模式、考卷形式與綁定模板（影響 grading pipeline 分支）
         answerSheetMode: sourceAssignment.answerSheetMode,
         docType: sourceAssignment.docType,
         answerKeyTemplateId: sourceAssignment.answerKeyTemplateId,
@@ -2416,8 +2416,8 @@ export default function AssignmentSetup({
       setIsCopyModalOpen(false)
       resetCopyForm()
     } catch (error) {
-      console.error('複製作業失敗', error)
-      setError(error instanceof Error ? error.message : '複製作業失敗')
+      console.error('複製考卷失敗', error)
+      setError(error instanceof Error ? error.message : '複製考卷失敗')
     } finally {
       setIsSubmitting(false)
     }
@@ -2649,7 +2649,7 @@ export default function AssignmentSetup({
             setIsCopyModalOpen(true)
           }}
           className="p-1.5 rounded-full bg-white border border-gray-200 text-green-600 hover:bg-green-50"
-          title="複製作業到其他班級"
+          title="複製考卷到其他班級"
         >
           <Copy className="w-4 h-4" />
         </button>
@@ -2657,7 +2657,7 @@ export default function AssignmentSetup({
           type="button"
           onClick={() => void handleDelete(assignment.id)}
           className="p-1.5 rounded-full bg-white border border-gray-200 text-red-600 hover:bg-red-50"
-          title="刪除作業"
+          title="刪除考卷"
         >
           <Trash2 className="w-4 h-4" />
         </button>
@@ -2676,7 +2676,7 @@ export default function AssignmentSetup({
       return
     }
     if (!editingDomain) {
-      setEditAnswerKeyError('請選擇作業領域')
+      setEditAnswerKeyError('請選擇考卷領域')
       return
     }
     const duplicateIds = collectDuplicateQuestionIds(editingAnswerKey)
@@ -2687,7 +2687,7 @@ export default function AssignmentSetup({
 
     try {
       setIsSavingAnswerKey(true)
-      console.log(`💾 [答案解析] 嘗試更新作業: ${editingAnswerAssignment.id}`)
+      console.log(`💾 [答案解析] 嘗試更新考卷: ${editingAnswerAssignment.id}`)
       console.log(`📝 [答案解析] 答案內容:`, editingAnswerKey)
       
       const now = Date.now()
@@ -2828,7 +2828,7 @@ export default function AssignmentSetup({
           data-tutorial="assignment-page"
         >
           <div className="flex items-center justify-between gap-3">
-            <h1 className="text-2xl font-semibold text-gray-900">作業建立</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">考卷建立</h1>
             <button
               type="button"
               onClick={() => tutorial.restart()}
@@ -2840,7 +2840,7 @@ export default function AssignmentSetup({
           </div>
           {isInkNegative && (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-              目前墨水為負值，新增或複製作業時會提示補墨水。
+              目前墨水為負值，新增或複製考卷時會提示補墨水。
             </div>
           )}
         </div>
@@ -2858,7 +2858,7 @@ export default function AssignmentSetup({
               尚未建立任何班級
             </h3>
             <p className="text-gray-600 mb-6">
-              請先到「班級管理」建立班級後，再回來新增作業。
+              請先到「班級管理」建立班級後，再回來新增考卷。
             </p>
             {onBack && !embedded && (
               <button
@@ -2907,7 +2907,7 @@ export default function AssignmentSetup({
                   className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-green-600 bg-green-600 text-white hover:bg-green-700"
                 >
                   <Plus className="w-4 h-4" />
-                  建立作業
+                  建立考卷
                 </button>
               </div>
             </div>
@@ -2924,7 +2924,7 @@ export default function AssignmentSetup({
                     }`}
                   >
                     {uncategorizedAssignments.length === 0 && !isAssignmentsLoading ? (
-                      <p className="text-sm text-gray-500 px-1">尚無作業。</p>
+                      <p className="text-sm text-gray-500 px-1">尚無考卷。</p>
                     ) : (
                       <div className="space-y-2">
                         {uncategorizedAssignments.map((assignment, index) =>
@@ -3073,7 +3073,7 @@ export default function AssignmentSetup({
                             <div className="border-t border-gray-100 px-3 py-3 bg-gray-50/40">
                               {folderAssignments.length === 0 ? (
                                 <p className="text-sm text-gray-500 px-1">
-                                  此資料夾沒有作業。
+                                  此資料夾沒有考卷。
                                 </p>
                               ) : (
                                 <div className="space-y-2">
@@ -3110,9 +3110,9 @@ export default function AssignmentSetup({
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-green-700">
                   Assignment Builder
                 </p>
-                <h2 className="mt-1 text-xl font-semibold text-slate-900">{modalMode === 'edit' ? '編輯作業設定' : '新增作業'}</h2>
+                <h2 className="mt-1 text-xl font-semibold text-slate-900">{modalMode === 'edit' ? '編輯考卷設定' : '新增考卷'}</h2>
                 <p className="mt-1 text-sm text-slate-600">
-                  指派班級並建立作業，再用 AI 解析與編修標準答案。
+                  指派班級並建立考卷，再用 AI 解析與編修標準答案。
                 </p>
               </div>
               <button
@@ -3141,11 +3141,11 @@ export default function AssignmentSetup({
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                       <h3 className="text-sm font-semibold text-slate-800">建立進度</h3>
                       <p className="mt-1 text-xs text-slate-500">
-                        完成全部必填欄位後即可建立作業。
+                        完成全部必填欄位後即可建立考卷。
                       </p>
                       <div className="mt-3 space-y-2 text-xs">
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-600">作業標題</span>
+                          <span className="text-slate-600">考卷標題</span>
                           <span className={`rounded-full px-2 py-0.5 font-medium ${assignmentTitle.trim() ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}>
                             {assignmentTitle.trim() ? '完成' : '待填'}
                           </span>
@@ -3157,7 +3157,7 @@ export default function AssignmentSetup({
                           </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-slate-600">作業領域</span>
+                          <span className="text-slate-600">考卷領域</span>
                           <span className={`rounded-full px-2 py-0.5 font-medium ${assignmentDomain ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}>
                             {assignmentDomain ? '完成' : '待填'}
                           </span>
@@ -3202,13 +3202,13 @@ export default function AssignmentSetup({
                       <div className="mb-4 flex items-center justify-between">
                         <div>
                           <h3 className="text-base font-semibold text-slate-900">基本設定</h3>
-                          <p className="text-xs text-slate-500">作業名稱與指派班級</p>
+                          <p className="text-xs text-slate-500">考卷名稱與指派班級</p>
                         </div>
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">1</span>
                       </div>
                       <div className="space-y-4">
                 <div>
-                  <label htmlFor="assignmentTitle" className="block text-sm font-medium text-gray-700 mb-2">作業標題</label>
+                  <label htmlFor="assignmentTitle" className="block text-sm font-medium text-gray-700 mb-2">考卷標題</label>
                   <input
                     id="assignmentTitle"
                     data-tutorial="assignment-title"
@@ -3242,7 +3242,7 @@ export default function AssignmentSetup({
                       <div className="mb-4 flex items-center justify-between">
                         <div>
                           <h3 className="text-base font-semibold text-slate-900">匯入答案</h3>
-                          <p className="text-xs text-slate-500">選擇領域與作業形式，再上傳標準答案</p>
+                          <p className="text-xs text-slate-500">選擇領域與考卷形式，再上傳標準答案</p>
                         </div>
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">2</span>
                       </div>
@@ -3614,7 +3614,7 @@ export default function AssignmentSetup({
                       缺少：{getMissingFields.join('、')}
                     </p>
                   ) : (
-                    <p className="text-xs text-green-600">所有必填欄位已完成，可建立作業。</p>
+                    <p className="text-xs text-green-600">所有必填欄位已完成，可建立考卷。</p>
                   )}
                   <div className="flex items-center gap-3">
                   <Button
@@ -3633,7 +3633,7 @@ export default function AssignmentSetup({
                     data-tutorial="assignment-submit"
                     disabled={isSubmitting || getMissingFields.length > 0}
                   >
-                    {isSubmitting ? (modalMode === 'edit' ? '儲存中…' : '建立中…') : (modalMode === 'edit' ? '儲存變更' : '建立作業')}
+                    {isSubmitting ? (modalMode === 'edit' ? '儲存中…' : '建立中…') : (modalMode === 'edit' ? '儲存變更' : '建立考卷')}
                   </Button>
                 </div>
                 </div>
@@ -3692,7 +3692,7 @@ export default function AssignmentSetup({
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  作業領域
+                  考卷領域
                 </label>
                 <select
                   value={editingDomain}
@@ -3867,7 +3867,7 @@ export default function AssignmentSetup({
         </div>
       )}
 
-      {/* 複製作業對話框 */}
+      {/* 複製考卷對話框 */}
       {isCopyModalOpen && sourceAssignment && (
         <div
           className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
@@ -3879,7 +3879,7 @@ export default function AssignmentSetup({
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <h2 className="text-base font-semibold text-gray-900">
-                複製作業
+                複製考卷
               </h2>
               <button
                 type="button"
@@ -3892,7 +3892,7 @@ export default function AssignmentSetup({
 
             <div className="px-5 py-4 space-y-4">
               <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-xs text-gray-600">來源作業</p>
+                <p className="text-xs text-gray-600">來源考卷</p>
                 <p className="text-sm font-semibold text-gray-900">
                   {sourceAssignment.title}
                 </p>
@@ -3923,7 +3923,7 @@ export default function AssignmentSetup({
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  新作業標題（可選）
+                  新考卷標題（可選）
                 </label>
                 <input
                   type="text"
@@ -3940,7 +3940,7 @@ export default function AssignmentSetup({
               <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
                 <p className="text-xs text-gray-600 mb-1">將複製以下內容：</p>
                 <ul className="text-xs text-gray-700 space-y-0.5">
-                  <li>✓ 作業標題{newAssignmentTitle ? '（已修改）' : ''}</li>
+                  <li>✓ 考卷標題{newAssignmentTitle ? '（已修改）' : ''}</li>
                   <li>✓ 每生頁數：{sourceAssignment.totalPages} 頁</li>
                   <li>✓ 科目：{sourceAssignment.domain || '未設定'}</li>
                   <li>✓ 資料夾：{sourceAssignment.folder || '無'}</li>
@@ -4037,7 +4037,7 @@ export default function AssignmentSetup({
                       }
                     }
                   }}
-                  placeholder="例如：段考、小考、作業"
+                  placeholder="例如：段考、小考、考卷"
                   className={`w-full px-3 py-2 border ${
                     newFolderError ? 'border-red-300' : 'border-gray-300'
                   } rounded-lg text-sm focus:outline-none focus:ring-2 ${
@@ -4059,7 +4059,7 @@ export default function AssignmentSetup({
 
               <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
                 <p className="text-xs text-gray-700">
-                  建立資料夾後，可將作業卡片拖曳到資料夾中進行分類。
+                  建立資料夾後，可將考卷卡片拖曳到資料夾中進行分類。
                 </p>
               </div>
             </div>
@@ -4090,7 +4090,7 @@ export default function AssignmentSetup({
         </div>
       )}
 
-      {/* 建立作業：標準答案 Wizard（頁面排序 → AI 解析 → 結果確認） */}
+      {/* 建立考卷：標準答案 Wizard（頁面排序 → AI 解析 → 結果確認） */}
       {showCreateWizard && createWizardPages.length > 0 && (
         <AnswerKeyWizardModal
           initialPages={createWizardPages}
@@ -4111,7 +4111,7 @@ export default function AssignmentSetup({
         />
       )}
 
-      {/* 編輯作業：標準答案 Wizard（重新上傳檔案時） */}
+      {/* 編輯考卷：標準答案 Wizard（重新上傳檔案時） */}
       {showEditWizard && editWizardPages.length > 0 && (
         <AnswerKeyWizardModal
           initialPages={editWizardPages}
@@ -4132,7 +4132,7 @@ export default function AssignmentSetup({
         />
       )}
 
-      {/* 建立作業：「編輯正確答案」按鈕開啟 Wizard（results 步驟） */}
+      {/* 建立考卷：「編輯正確答案」按鈕開啟 Wizard（results 步驟） */}
       {showAnswerKeyEditWizard && answerKey && (
         <AnswerKeyWizardModal
           initialPages={[]}
@@ -4148,7 +4148,7 @@ export default function AssignmentSetup({
         />
       )}
 
-      {/* 編輯作業：「編輯正確答案」按鈕開啟 Wizard（results 步驟） */}
+      {/* 編輯考卷：「編輯正確答案」按鈕開啟 Wizard（results 步驟） */}
       {showEditAnswerKeyWizard && editingAnswerKey && (
         <AnswerKeyWizardModal
           initialPages={[]}

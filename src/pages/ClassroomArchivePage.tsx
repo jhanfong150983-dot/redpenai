@@ -197,7 +197,7 @@ export default function ClassroomArchivePage({ onBack, embedded = false }: Class
                         <div className="min-w-0 flex-1">
                           <p className="truncate font-medium text-gray-900">{c.name}</p>
                           <p className="text-xs text-gray-500">
-                            {stats ? `${stats.studentCount} 位學生 · ${stats.assignmentCount} 份作業` : ''}
+                            {stats ? `${stats.studentCount} 位學生 · ${stats.assignmentCount} 份考卷` : ''}
                           </p>
                         </div>
                         <button

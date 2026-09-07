@@ -6,7 +6,7 @@ import { buildApiUrl } from '@/lib/api-base'
 import { requestSync } from '@/lib/sync-events'
 import { isImageJudgedAnswer } from '@/lib/parentReport'
 
-// 2026-08-01 改分入口收斂(user 拍板):批改頁的作業卡片 modal 抽成共用元件——
+// 2026-08-01 改分入口收斂(user 拍板):批改頁的考卷卡片 modal 抽成共用元件——
 //   成績簿改唯讀、點分數開同一個 modal → 全系統只有一個地方能改分、一個地方顯示。
 //   本檔是「純搬移」:JSX 與 handler 由 GradingPage 原樣移入、行為不變;
 //   差別只在對 parent 的 state 更新統一改走 onUpdated(latestSubmission) callback。
@@ -598,7 +598,7 @@ export default function SubmissionDetailModal({
                 return imageUrl ? (
                   <div className="min-w-full relative">
                     <p className="text-xs text-gray-500 mb-2">
-                      可上下滑動查看完整作業
+                      可上下滑動查看完整考卷
                     </p>
                     <div
                       className="relative w-full cursor-crosshair select-none"
@@ -607,7 +607,7 @@ export default function SubmissionDetailModal({
                     >
                       <img
                         src={imageUrl}
-                        alt="作業大圖"
+                        alt="考卷大圖"
                         className="w-full h-auto shadow-lg"
                         draggable={false}
                       />
@@ -962,7 +962,7 @@ export default function SubmissionDetailModal({
                                   })}
                                 </div>
                                 {!readOnly && (
-                                  <p className="text-[10px] text-gray-400">改了會退回待批改、按【批改作業】重新判分。</p>
+                                  <p className="text-[10px] text-gray-400">改了會退回待批改、按【批改考卷】重新判分。</p>
                                 )}
                               </div>
                             ) : (
@@ -997,7 +997,7 @@ export default function SubmissionDetailModal({
                                   ? '填圖題由 AI 直接看 crop 圖視覺評分、學生筆跡跟標準答案的比對請看下方「理由」欄'
                                   : isImageJudged
                                     ? '這格由圖像辨識（字形/筆畫視覺覆核）判定：讀出的字剛好＝標準答案但實際筆畫有誤，故不顯示轉錄文字。錯在哪請看下方「理由」欄、對照左側作答圖。'
-                                    : '編輯後 1 秒自動儲存。已批改卷子改答案會自動退回待批改、按【批改作業】重評。'}
+                                    : '編輯後 1 秒自動儲存。已批改卷子改答案會自動退回待批改、按【批改考卷】重評。'}
                               />
                             </div>
                             )}

@@ -514,7 +514,7 @@ function StudentGradingFlow({
 
   const start = useCallback(async () => {
     const submissionId = item.latestSubmissionId
-    if (!submissionId) { fail('找不到已上傳的作業，請先上傳'); return }
+    if (!submissionId) { fail('找不到已上傳的考卷，請先上傳'); return }
     try {
       // 1) begin：先批先贏鎖 + 次數硬擋 + 佔 attempt + 並發節流 + 回批改 context
       const beginResp = await fetch('/api/data/student-ai-grading-begin', {
@@ -654,7 +654,7 @@ function StudentGradingFlow({
 export default function StudentPortal({ onCaptureModeChange }: StudentPortalProps) {
   const [tab, setTab] = useState<StudentTab>('overview')
   const [isLoading, setIsLoading] = useState(false)
-  // 2026-06-02 學生自助 AI 批改：批改中的作業 + 墨水確認 modal 目標
+  // 2026-06-02 學生自助 AI 批改：批改中的考卷 + 墨水確認 modal 目標
   const [aiGradingItem, setAiGradingItem] = useState<StudentAssignmentItem | null>(null)
   const [aiGradeConfirmItem, setAiGradeConfirmItem] = useState<StudentAssignmentItem | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -775,7 +775,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           }
           return firstCorrection?.id || ''
         })
-        // 初次載入：若有待訂正作業，自動切換至訂正 tab
+        // 初次載入：若有待訂正考卷，自動切換至訂正 tab
         if (!silent && !initialTabSetRef.current) {
           initialTabSetRef.current = true
           if (firstCorrection) {
@@ -1132,7 +1132,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         ? uploadAssignments.find((item) => item.id === assignmentId)
         : currentCorrectionAssignment
     if (!targetAssignment) {
-      setError('請先選擇作業')
+      setError('請先選擇考卷')
       return
     }
     setError(null)
@@ -1284,7 +1284,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       targetAssignment || (mode === 'correction' ? currentCorrectionAssignment : null)
     const files = targetFiles.length ? targetFiles : selectedFiles
     if (!assignment) {
-      setError('請先選擇作業')
+      setError('請先選擇考卷')
       return
     }
 
@@ -1301,12 +1301,12 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       }
     } else {
       if (!files.length) {
-        setError('請先選擇作業照片')
+        setError('請先選擇考卷照片')
         return
       }
       const requiredPages = Math.max(1, assignment.totalPages || 1)
       if (files.length !== requiredPages) {
-        setError(`此作業需上傳 ${requiredPages} 頁，目前為 ${files.length} 頁`)
+        setError(`此考卷需上傳 ${requiredPages} 頁，目前為 ${files.length} 頁`)
         return
       }
       // 方向檢查已下沉到 photoValidation.ts checkOrientation()、隨 validatePhotos 一起跑、
@@ -1316,7 +1316,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       const draftSignature = buildDraftSignature(files)
       const validated = validatedDrafts[assignment.id]
       if (!validated || validated.draftSignature !== draftSignature) {
-        setError('請先點擊「預覽作業」並完成檢查後再送出')
+        setError('請先點擊「預覽考卷」並完成檢查後再送出')
         return
       }
       if (!validated.pages.every((p) => p.result.ok)) {
@@ -1467,9 +1467,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       if (!response.ok) {
         if (response.status === 409) {
           const code = data?.code
-          // 伺服器已接收過這份作業（例如：網路斷線後重送）→ 視為成功，刷新狀態
+          // 伺服器已接收過這份考卷（例如：網路斷線後重送）→ 視為成功，刷新狀態
           if (code === 'UPLOAD_LOCKED') {
-            setMessage('你的作業已成功上傳，等待老師批改。（先前可能已送出，請確認狀態）')
+            setMessage('你的考卷已成功上傳，等待老師批改。（先前可能已送出，請確認狀態）')
             await loadOverview(selectedClassroomKey)
             return
           }
@@ -1486,7 +1486,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       }
 
       if (mode === 'upload') {
-        setMessage('作業已送出，請等待老師批改。')
+        setMessage('考卷已送出，請等待老師批改。')
       } else {
         const correctionResult =
           data?.correctionResult && typeof data.correctionResult === 'object'
@@ -1499,7 +1499,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           setMessage('🎉 老師重新批改後，你這份已經全部答對，不需要訂正了！')
         } else if (correctionResult?.correctionResolved === 'items_changed') {
           // 老師重批後訂正題目變了 → 已自動刷新成最新題目，請依最新題目訂正
-          setMessage('老師重新批改了這份作業，訂正題目已更新，請依最新題目重新訂正。')
+          setMessage('老師重新批改了這份考卷，訂正題目已更新，請依最新題目重新訂正。')
         } else if (correctionResult?.allDisputed) {
           setMessage('所有題目已申訴，等待老師審閱。')
         } else if (correctionResult?.passed) {
@@ -1507,7 +1507,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         } else if (correctionResult?.wrongCount > 0) {
           setMessage(`仍有 ${correctionResult.wrongCount} 題需訂正，請再次檢查。`)
         } else {
-          setMessage('訂正作業已送出，AI 批改完成。')
+          setMessage('訂正考卷已送出，AI 批改完成。')
         }
         // 重新載入 overview 以更新狀態（同步批改已完成，不需輪詢）
         void loadOverview(selectedClassroomKey, { silent: true })
@@ -1546,9 +1546,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
   }
 
   const navItems: Array<{ key: StudentTab; label: string; icon: typeof LayoutDashboard }> = [
-    { key: 'overview', label: '作業總覽', icon: LayoutDashboard },
-    { key: 'upload', label: '作業繳交', icon: Upload },
-    { key: 'correction', label: '作業訂正', icon: RotateCcw }
+    { key: 'overview', label: '考卷總覽', icon: LayoutDashboard },
+    { key: 'upload', label: '考卷繳交', icon: Upload },
+    { key: 'correction', label: '考卷訂正', icon: RotateCcw }
   ]
 
   return (
@@ -1603,7 +1603,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       <section className="bg-white px-4 py-4 md:px-6 md:py-5">
         <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
           <div>
-            <h1 className="text-xl font-semibold text-slate-900">學生作業中心</h1>
+            <h1 className="text-xl font-semibold text-slate-900">學生考卷中心</h1>
           </div>
           <button
             type="button"
@@ -1620,7 +1620,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
 
         {overview && !overview.preferences.studentPortalEnabled && (
           <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            教師目前已暫停學生端作業繳交功能，請聯繫老師確認開放時間。
+            教師目前已暫停學生端考卷繳交功能，請聯繫老師確認開放時間。
           </div>
         )}
 
@@ -1641,19 +1641,19 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           <div className="space-y-5">
             <div className="grid gap-0 sm:grid-cols-2 xl:grid-cols-4">
               <div className="px-2 py-3 xl:border-r xl:border-slate-200">
-                <p className="text-[11px] text-slate-400">我的作業數</p>
+                <p className="text-[11px] text-slate-400">我的考卷數</p>
                 <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
                   {overviewSummary.total}
                 </p>
               </div>
               <div className="px-2 py-3 xl:border-r xl:border-slate-200">
-                <p className="text-[11px] text-slate-400">可繳交作業</p>
+                <p className="text-[11px] text-slate-400">可繳交考卷</p>
                 <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
                   {overviewSummary.canUploadCount}
                 </p>
               </div>
               <div className="px-2 py-3 xl:border-r xl:border-slate-200">
-                <p className="text-[11px] text-slate-400">待訂正作業</p>
+                <p className="text-[11px] text-slate-400">待訂正考卷</p>
                 <p className="mt-1 text-3xl font-bold tracking-tight text-sky-700 md:text-4xl">
                   {overviewSummary.correctionCount}
                 </p>
@@ -1669,14 +1669,14 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
             {activeAssignments.length === 0 ? (
               <div className="bg-slate-50/60 px-4 py-8 text-center">
                 <p className="text-sm text-slate-600">
-                  所有作業都已完成，目前沒有待處理的項目 🎉
+                  所有考卷都已完成，目前沒有待處理的項目 🎉
                 </p>
               </div>
             ) : (
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-base font-semibold text-slate-900">待處理作業</h3>
-                  <span className="text-xs text-slate-500">已完成的作業不會顯示在此</span>
+                  <h3 className="text-base font-semibold text-slate-900">待處理考卷</h3>
+                  <span className="text-xs text-slate-500">已完成的考卷不會顯示在此</span>
                 </div>
                 <div className="divide-y divide-slate-200/80">
                   {activeAssignments.map((item) => {
@@ -1738,7 +1738,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
           <div className="space-y-4">
             {uploadAssignments.length === 0 && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
-                目前沒有可繳交的作業。
+                目前沒有可繳交的考卷。
               </div>
             )}
 
@@ -1754,7 +1754,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                       className="w-full rounded-xl border border-slate-200 bg-white px-4 py-4 text-left"
                     >
                       <h3 className="mb-1 truncate text-base font-semibold text-gray-900">{item.title}</h3>
-                      <p className="text-sm text-gray-500">此作業由老師上傳批改，不需自行拍照。</p>
+                      <p className="text-sm text-gray-500">此考卷由老師上傳批改，不需自行拍照。</p>
                     </article>
                   )
                 }
@@ -1814,18 +1814,18 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         )}
                         {isLocked && (
                           <p className="mt-1 text-xs text-rose-600">
-                            {item.uploadLockedReason || '作業已鎖定，請聯繫老師解除後再上傳'}
+                            {item.uploadLockedReason || '考卷已鎖定，請聯繫老師解除後再上傳'}
                           </p>
                         )}
                         {!isLocked && draftFiles.length === requiredPages && !isCurrentDraftValidated && (
                           <p className="mt-1 text-xs text-amber-700">
-                            請先按「預覽作業」並完成檢查，才能送出。
+                            請先按「預覽考卷」並完成檢查，才能送出。
                           </p>
                         )}
                         {validationFailed && (
                           <p className="mt-1 inline-flex items-center gap-1 text-xs text-rose-600">
                             <AlertTriangle className="h-3 w-3" />
-                            照片檢查未通過，請按「預覽作業」查看並重拍有問題的頁面。
+                            照片檢查未通過，請按「預覽考卷」查看並重拍有問題的頁面。
                           </p>
                         )}
                         {validationOk && (
@@ -1866,7 +1866,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                             }`}
                           >
                             <Eye className="h-4 w-4" />
-                            <span className="text-center leading-tight">預覽作業</span>
+                            <span className="text-center leading-tight">預覽考卷</span>
                           </button>
 
                           <span className="px-1 text-slate-300">›</span>
@@ -1886,7 +1886,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                             ) : (
                               <Send className="h-4 w-4" />
                             )}
-                            <span className="text-center leading-tight">送出作業</span>
+                            <span className="text-center leading-tight">送出考卷</span>
                           </button>
 
                           <span className="px-1 text-slate-300">›</span>
@@ -1896,7 +1896,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                             type="button"
                             onClick={() => aiCanGrade && setAiGradeConfirmItem(item)}
                             disabled={!aiCanGrade || isSubmitting}
-                            title={aiCanGrade ? '用 AI 批改我的作業' : aiLockReason}
+                            title={aiCanGrade ? '用 AI 批改我的考卷' : aiLockReason}
                             className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
                               aiCanGrade && !isSubmitting
                                 ? 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
@@ -1927,7 +1927,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         {!isLoading && tab === 'correction' && (
           <div className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">選擇需訂正作業</label>
+              <label className="mb-1 block text-sm font-medium text-slate-700">選擇需訂正考卷</label>
               <select
                 value={correctionAssignmentId}
                 onChange={(event) => {
@@ -1940,7 +1940,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 disabled={isSubmitting}
                 className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500"
               >
-                <option value="">請選擇作業</option>
+                <option value="">請選擇考卷</option>
                 {correctionAssignments.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.classroomName ? `[${item.classroomName}] ` : ''}{item.title}
@@ -1951,7 +1951,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
 
             {correctionAssignments.length === 0 && (
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
-                目前沒有待訂正作業。
+                目前沒有待訂正考卷。
               </div>
             )}
 
@@ -2308,12 +2308,12 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               <Loader2 className="h-5 w-5 animate-spin text-sky-700" />
             </div>
             <p className="text-base font-semibold text-slate-900">
-              {submittingMode === 'correction' ? '訂正上傳中' : '作業送出中'}
+              {submittingMode === 'correction' ? '訂正上傳中' : '考卷送出中'}
             </p>
             <p className="mt-1 text-sm text-slate-600">
               {submittingMode === 'correction'
                 ? '正在上傳照片，上傳完成後 AI 將自動排隊批改。'
-                : '請勿離開此頁，系統正在送出本次作業。'}
+                : '請勿離開此頁，系統正在送出本次考卷。'}
             </p>
           </div>
         </div>
@@ -2358,7 +2358,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               </button>
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 pr-14">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">作業預覽</p>
+                  <p className="text-sm font-semibold text-slate-900">考卷預覽</p>
                   <p className="mt-0.5 text-xs text-slate-500">請確認每頁照片正確</p>
                 </div>
                 <span className="text-xs text-slate-500">
@@ -2389,7 +2389,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 )}
                 <img
                   src={previewUrls[currentIdx]}
-                  alt={`作業預覽第 ${currentIdx + 1} 頁`}
+                  alt={`考卷預覽第 ${currentIdx + 1} 頁`}
                   className="max-h-[45vh] w-auto max-w-full object-contain"
                 />
                 {currentIdx < previewFiles.length - 1 && (

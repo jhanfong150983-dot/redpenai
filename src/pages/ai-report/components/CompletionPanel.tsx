@@ -10,7 +10,7 @@ export default function CompletionPanel({ summary }: CompletionPanelProps) {
   if (!summary.hasData) {
     return (
       <section className="card completion-card">
-        <h3>作業完成度</h3>
+        <h3>考卷完成度</h3>
         <p className="subtitle">{summary.message}</p>
       </section>
     )
@@ -18,7 +18,7 @@ export default function CompletionPanel({ summary }: CompletionPanelProps) {
 
   return (
     <section className="card completion-card">
-      <h3>作業完成度</h3>
+      <h3>考卷完成度</h3>
       <div className="completion-grid">
         <div>
           <div className="stat-label">空白率</div>

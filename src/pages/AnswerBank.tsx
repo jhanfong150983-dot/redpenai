@@ -154,7 +154,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         totalScore: t.totalScore,
         shareCode: t.shareCode,
         // 2026-05-28: 補 page_orientations + answer_sheet_mode（之前沒抄、會導致 server smart
-        // pageBreaks fallback 拿不到 orientations、直/橫拍混合作業切點對半切錯）
+        // pageBreaks fallback 拿不到 orientations、直/橫拍混合考卷切點對半切錯）
         pageOrientations: t.pageOrientations ?? undefined,
         answerSheetMode: t.answerSheetMode ?? undefined,
         schoolId: t.schoolId ?? undefined,
@@ -204,7 +204,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       setTemplates(allTemplates)
       const folderNames = allFolders.map((f) => f.name)
       setEmptyFolders(folderNames)
-      // 計算實際被作業引用的 templateId
+      // 計算實際被考卷引用的 templateId
       const used = new Set<string>()
       for (const a of allAssignments) {
         if (a.answerKeyTemplateId) used.add(a.answerKeyTemplateId)
@@ -748,7 +748,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         ...(answerKeyChanged ? { version: currentVersion + 1 } : {}),
       })
       if (answerKeyChanged) uploadAnswerCrops(editingTemplateId, answerKey)
-      // Phase C：只有配分變動（內容沒變）→ 對引用此模板的作業之已批改卷純 code 等比重算分數（零 AI、不需重批）
+      // Phase C：只有配分變動（內容沒變）→ 對引用此模板的考卷之已批改卷純 code 等比重算分數（零 AI、不需重批）
       if (!contentChanged && scoreChangesByQid.size > 0) {
         void (async () => {
           try {
@@ -857,7 +857,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   // ── Edit / Delete ──────────────────────────────────────────────────────────
 
-  // 重新 AI 解析會覆蓋整份題目、並經 server 反向同步進所有引用此模板的班級作業。
+  // 重新 AI 解析會覆蓋整份題目、並經 server 反向同步進所有引用此模板的班級考卷。
   // 先算出影響範圍（班級名單＋是否已批改），交給 modal 在確認框裡如實列出。
   const loadReextractImpact = async (templateId: string) => {
     const allAssignments = await db.assignments.toArray()
@@ -908,7 +908,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
   const handleDelete = async (id: string) => {
     const t = templates.find((x) => x.id === id)
     if (!t) return
-    // 檢查是否有班級作業引用此答案卷
+    // 檢查是否有班級考卷引用此答案卷
     const allAssignments = await db.assignments.toArray()
     const linked = allAssignments.filter((a) => a.answerKeyTemplateId === id)
     if (linked.length > 0) {
@@ -920,7 +920,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       if (!(await confirmModal({
         tone: 'danger',
         title: `刪除「${t.name}」？`,
-        message: `以下班級作業將無法繼續批改，直到重新選擇答案卷：\n${lines.join('\n')}\n\n已批改的成績不會被刪除。`,
+        message: `以下班級考卷將無法繼續批改，直到重新選擇答案卷：\n${lines.join('\n')}\n\n已批改的成績不會被刪除。`,
         confirmLabel: '刪除答案卷',
       }))) return
     }
@@ -970,7 +970,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
           {!usedTemplateIds.has(t.id) && (
             <span
               className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 border border-orange-200"
-              title="沒有任何班級作業引用這份答案卷"
+              title="沒有任何班級考卷引用這份答案卷"
             >
               未使用
             </span>
@@ -1185,7 +1185,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             </div>
             <div className="px-6 py-4">
               <input type="text" value={newFolderName} onChange={(e) => { setNewFolderName(e.target.value); setNewFolderError('') }}
-                placeholder="例如：段考、小考、作業" autoFocus={shouldAutoFocusOnDesktop()}
+                placeholder="例如：段考、小考、考卷" autoFocus={shouldAutoFocusOnDesktop()}
                 onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateFolder() }}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100" />
               {newFolderError && <p className="mt-1 text-xs text-red-600">{newFolderError}</p>}

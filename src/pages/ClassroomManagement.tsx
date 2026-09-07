@@ -755,7 +755,7 @@ export default function ClassroomManagement({ onBack, embedded = false, onOpenAr
     const ok = await confirmModal({
       tone: 'danger',
       title: `刪除班級「${target.classroom.name}」？`,
-      message: '刪除此班級將一併刪除班級下的學生、作業與繳交紀錄，刪除後無法復原。',
+      message: '刪除此班級將一併刪除班級下的學生、考卷與繳交紀錄，刪除後無法復原。',
       confirmLabel: '刪除班級',
     })
     if (!ok) return
@@ -1099,7 +1099,7 @@ export default function ClassroomManagement({ onBack, embedded = false, onOpenAr
     const ok = await confirmModal({
       tone: 'warning',
       title: `將「${item.classroom.name}」存入歷史資料？`,
-      message: `此班有 ${item.studentCount} 位學生、${item.assignmentCount} 份作業。封存後不再出現在主畫面（唯讀），可到「歷史資料」頁查詢或恢復。`,
+      message: `此班有 ${item.studentCount} 位學生、${item.assignmentCount} 份考卷。封存後不再出現在主畫面（唯讀），可到「歷史資料」頁查詢或恢復。`,
       confirmLabel: '存入歷史資料',
     })
     if (!ok) return
@@ -1217,7 +1217,7 @@ export default function ClassroomManagement({ onBack, embedded = false, onOpenAr
             )}
           </div>
           <p className="mt-0.5 text-xs text-gray-500">
-            {item.studentCount} 位學生 · {item.assignmentCount} 份作業
+            {item.studentCount} 位學生 · {item.assignmentCount} 份考卷
             {item.classroom.grade ? (
               <span className="ml-1.5 inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
                 {item.classroom.grade <= 6 ? `國小${item.classroom.grade}年` : item.classroom.grade <= 9 ? `國中${item.classroom.grade - 6}年` : `高中${item.classroom.grade - 9}年`}

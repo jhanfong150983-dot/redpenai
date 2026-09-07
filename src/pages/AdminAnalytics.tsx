@@ -103,7 +103,7 @@ type UnitEconRow = {
 
 // 四模式 modeKey → 人話標籤（answerSheetMode × submissionSource、見 server gradingModeKey）
 const MODE_LABELS: Record<string, string> = {
-  wq_photo: '一般＋照片（書本作業）',
+  wq_photo: '一般＋照片（書本考卷）',
   wq_pdf: '一般＋PDF（考卷/學習單）',
   ao_photo: '答案卷＋照片（小考）',
   ao_pdf: '答案卷＋PDF（大考）',
@@ -348,7 +348,7 @@ function StudentTab({ d }: { d: StudentDashboard }) {
         </SectionCard>
         <SectionCard title="繳交峰值時段（台灣時間）" icon={<BarChart3 className="w-4 h-4 text-orange-500" />}>
           <BarChart24h data={d.submissionByHour} />
-          <p className="text-xs text-gray-400 mt-1">顯示全期學生繳交作業的時段分佈，有助安排批改時間</p>
+          <p className="text-xs text-gray-400 mt-1">顯示全期學生繳交考卷的時段分佈，有助安排批改時間</p>
         </SectionCard>
       </div>
 
@@ -919,13 +919,13 @@ function TokenTab() {
             </SectionCard>
           </div>
 
-          {/* 2026-05-23: 按作業拆解 top 20、拆批改/報告/訂正 */}
-          <SectionCard title="按作業拆解（Top 20）" icon={<BookOpen className="w-4 h-4 text-orange-500" />}>
+          {/* 2026-05-23: 按考卷拆解 top 20、拆批改/報告/訂正 */}
+          <SectionCard title="按考卷拆解（Top 20）" icon={<BookOpen className="w-4 h-4 text-orange-500" />}>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-gray-500 border-b border-gray-200">
-                    <th className="px-2 py-2">作業名稱</th>
+                    <th className="px-2 py-2">考卷名稱</th>
                     <th className="px-2 py-2">老師</th>
                     <th className="px-2 py-2">科目</th>
                     <th className="px-2 py-2 text-right">提交</th>
@@ -973,7 +973,7 @@ function TokenTab() {
               </table>
             </div>
             <div className="text-xs text-gray-400 mt-2">
-              批改 / 報告 / 訂正 三類成本分開計、括號內為 AI 呼叫次數。同一份作業多次重生報告會在這段時間內累積。
+              批改 / 報告 / 訂正 三類成本分開計、括號內為 AI 呼叫次數。同一份考卷多次重生報告會在這段時間內累積。
               單份批改＝批改成本 ÷ 該區間有用量的提交份數；同一份卷重批會墊高單份數字。
             </div>
           </SectionCard>
@@ -1004,7 +1004,7 @@ function TokenTab() {
               <div className="text-xs text-gray-400 mt-2">
                 <b>單次中位</b>＝批改一輪的典型成本（同卷 call 間隔超過 30 分鐘視為新一輪、不足 5 call 的微小輪不計）——回答「批改一份多少錢」看這個。
                 <b>累積中位</b>＝該卷在區間內所有輪次加總；<b>輪/份</b>＝平均每份被批了幾輪（重批倍率）。
-                模式＝作業型態（一般/答案卷）× 上傳來源（照片/PDF）。份數少的分組參考價值低。
+                模式＝考卷型態（一般/答案卷）× 上傳來源（照片/PDF）。份數少的分組參考價值低。
               </div>
             </SectionCard>
           )}

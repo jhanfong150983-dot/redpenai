@@ -69,7 +69,7 @@ const GRADING_MESSAGES = [
   '今天喝咖啡了嗎？交給我改就好 ☕',
   '你先去休息，我來改就好 😊',
   '你看我做什麼？趕快去休息 👀',
-  '改作業的事，就交給專業的來 💪',
+  '改考卷的事，就交給專業的來 💪',
   '老師辛苦了，喝杯水休息一下 💧',
   '批改中… 你可以先滑個手機 📱',
   '放心，我會認真改的 ✨',
@@ -231,14 +231,14 @@ export function questionNeedsConfirm(arbiterStatus?: string, _finalAnswer?: stri
 // 2026-08-08 舊資料 legacy fallback 修正 ────────────────────────────────────────
 //   `arbiterResult` 從來沒有被持久化進 grading_result.details（存檔時就被剝掉），所以任何從
 //   Dexie/同步資料重開的複核判定，走的都是 `consistencyStatus !== 'stable'` 這條 legacy fallback。
-//   而 consistencyStatus 在部分資料上是**被捏造的**：實測全庫 75 個作業裡有 19 個存在「整份卷
+//   而 consistencyStatus 在部分資料上是**被捏造的**：實測全庫 75 個考卷裡有 19 個存在「整份卷
 //   每一格都 unstable」（培英國中數學 31/32 份、自然考卷測試 29/29、社會期中考 28/29、B班國語
 //   25/25…），而那些卷的兩讀其實大多一致（B班 250 格 short_answer 有 238 格相同）。
 //   後果：開啟這些卷時整份 60 題全被判「待審查／待學生確認」。
 //   （已知會寫出整片 unstable 的地方：useSync 反建 details 時 arbiterResult 缺失就一律填 unstable，
-//     已於同一批修掉；但沒有證據證明那 19 個作業全是它寫的 → 消費端也要自己站得住。）
+//     已於同一批修掉；但沒有證據證明那 19 個考卷全是它寫的 → 消費端也要自己站得住。）
 //   修法必須「單調」：只能**取消**標記、絕不新增。
-//   ⛔ 第一版寫成「沒有 arbiterResult 就直接比兩讀值」→ 全庫回歸實測**46 個作業的待審查數暴增**
+//   ⛔ 第一版寫成「沒有 arbiterResult 就直接比兩讀值」→ 全庫回歸實測**46 個考卷的待審查數暴增**
 //     （數練u5 p41-42 從 26 → 124、數練U5 p39-40 從 22 → 135…）。原因：server 的
 //     computeConsistencyStatus 對型別各有專屬比法——calculation/word_problem **只比最終答案、
 //     忽略計算過程排版**、fill_blank 比 partValues、還有 true_false/table_cell/diagram 正規化與
@@ -840,7 +840,7 @@ function _pct(arr: number[], p: number): number {
 
 // 2026-07-02 PDF classify 統一框「跨次持久化」([[project_pdf_bbox_wh_p90]] 延伸):
 //   同印刷版面 PDF 很穩定→抽 18 份算好的統一框範本存進 assignment.pdf_classify_template、
-//   之後同一作業的所有批改直接套範本、完全跳過 classify(省一半 API)。
+//   之後同一考卷的所有批改直接套範本、完全跳過 classify(省一半 API)。
 //   ⚠ 只給 PDF/teacher_scan 用；照片路徑完全不碰。全程 fail-safe(任何錯就退回正常 classify)。
 //   失效保護:存 qids+totalPages,答案卷題目集或頁數變了就作廢重新抽樣。
 //   2026-08-01 加 sampleCount/samplePapers([[classify-sample-k-experiment]]):模板要記「幾份樣本算出來的」,
@@ -1296,7 +1296,7 @@ function GradingPipelineOverlay({
           {stopRequested ? '正在停止…' : '停止批改'}
         </button>
         {stopRequested && (
-          <p style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '-1rem' }}>將在完成當前作業後停止</p>
+          <p style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '-1rem' }}>將在完成當前考卷後停止</p>
         )}
       </div>
       {/* CSS keyframe for spin */}
@@ -1509,7 +1509,7 @@ export default function GradingPage({
   // 2026-07-22 modal 統一：window.confirm/alert → 共用 ConfirmModal（alertModal 不 await = 非阻塞提示）
   const confirmModal = useConfirm()
   const alertModal = useAlertModal()
-  // 2026-06-19: 跨班「頁內新增班級」。base＝進頁時的作業集合(單班=[assignmentId] 或 prop 傳入的批次)，
+  // 2026-06-19: 跨班「頁內新增班級」。base＝進頁時的考卷集合(單班=[assignmentId] 或 prop 傳入的批次)，
   //   addedAssignmentIds＝老師在批改頁按「＋新增班級」加進來的同答案卷其他班；合併 >1 即進 batch(跨班分組)模式。
   const [addedAssignmentIds, setAddedAssignmentIds] = useState<string[]>([])
   // 2026-08-01: 以「值」為依據算 identity——parent 若每次 render 現做 batchAssignmentIds 陣列
@@ -1715,7 +1715,7 @@ export default function GradingPage({
   //   arbitrated_agree，沒有格子留在 needs_review → 續審的偵測條件（submissionPendingReview /
   //   arbiterDecisions 含 needs_review 且缺 final_answer）永遠不成立、banner 不會出現。
   //   實測（2026-08-08 全庫 904 份有 phase_a_state 的卷）：會被續審抓到的只有 40 份，
-  //   全部是 2026-06-02 或更早的舊卷，其中 3 個作業從未完成 Phase B＝廢棄測試資料；
+  //   全部是 2026-06-02 或更早的舊卷，其中 3 個考卷從未完成 Phase B＝廢棄測試資料；
   //   鏈上線（2026-07-11）之後批改的卷一份都沒有。user 拍板移除（要用直接重批）。
   //   ⚠ 代價：ESCALATION_CHAIN=0 / ZERO_REVIEW_TAIL=0 這兩個 kill switch 變成單向——
   //     關掉後會留下 needs_review 格而沒有介面處理（會落到 zero-review-tail 之外）。
@@ -1803,7 +1803,7 @@ export default function GradingPage({
     }
   }, [stageAggregates])
 
-  // 2026-05-17: 「批改作業」按鈕變身規則
+  // 2026-05-17: 「批改考卷」按鈕變身規則
   // 🚫 block + modal：有 未擷取 / 擷取失敗 卡片（必須先截取）
   // 🚫 block + modal：有 待複核（必須先補答）
   // 🟢 primary：有 待批改（happy path）
@@ -1901,7 +1901,7 @@ export default function GradingPage({
     setCompletedReviewCount(0)
 
     // 多選題依年級分流：高中（10-12）走大考中心固定扣 2 分；國小國中或抓不到 grade → 'k9'（現行公式）
-    // 一份作業對應一個 classroom，整批共用 gradeBand
+    // 一份考卷對應一個 classroom，整批共用 gradeBand
     const phaseBClassroom = assignment?.classroomId
       ? await db.classrooms.get(assignment.classroomId)
       : null
@@ -1938,8 +1938,8 @@ export default function GradingPage({
           const studentLabel = failedStudent
             ? `${failedStudent.seatNumber}號 ${failedStudent.name}`
             : failedEntry
-              ? `作業 ${failedEntry.submissionId.slice(0, 8)}`
-              : `第 ${_i + 1} 份作業`
+              ? `考卷 ${failedEntry.submissionId.slice(0, 8)}`
+              : `第 ${_i + 1} 份考卷`
           const rawMessage = !err && stopRequestedRef.current
             ? '已略過（手動停止）'
             : getBatchFailureMessage(err)
@@ -1953,7 +1953,7 @@ export default function GradingPage({
         if (student) setCurrentGradingStudent(`${student.seatNumber}號 ${student.name}`)
 
         // 嵌入 concept code：批改完成當下凍結，與答案鍵未來的改動脫鉤
-        // 2026-08-11 新制 fallback：模板流程沒有 conceptTags（舊制、只在作業設定直傳路徑產生），
+        // 2026-08-11 新制 fallback：模板流程沒有 conceptTags（舊制、只在考卷設定直傳路徑產生），
         //   但 KP 歸類（建卷/建模板預跑）已把課綱代碼寫在 answerKey analysis.code——沒 tag 就用它凍結
         //   （label 用 topic 白話短名）。優先序：conceptTags（舊制、帶完整條文）> analysis.code（新制）。
         const conceptTags = assignment?.conceptTags
@@ -2382,7 +2382,7 @@ export default function GradingPage({
         tone: 'warning',
         title: `退回 ${studentIds.length} 位學生的訂正？`,
         message:
-          '學生已輸入的訂正內容會保留，但派發狀態歸零，老師可重新批改原作業。\n' +
+          '學生已輸入的訂正內容會保留，但派發狀態歸零，老師可重新批改原考卷。\n' +
           '若學生正在訂正頁面、需重新整理才會看到狀態變更。',
         confirmLabel: '退回訂正',
       })
@@ -2419,7 +2419,7 @@ export default function GradingPage({
 
         if (recalledCount === 0 && blocked.length > 0) {
           // 全員無法退回、modal 保持開、顯示具體錯誤
-          throw new Error(`無法退回：${blockedNames} 的訂正稿正在 AI 重批中、請等批改完成或到「作業訂正看板」處理`)
+          throw new Error(`無法退回：${blockedNames} 的訂正稿正在 AI 重批中、請等批改完成或到「考卷訂正看板」處理`)
         }
         if (recalledCount > 0 && blocked.length > 0) {
           // 部分成功、保留 modal 顯示哪些沒退回
@@ -2454,7 +2454,7 @@ export default function GradingPage({
       if (cachedBlockedStudents.length > 0) {
         openCorrectionGuardModal(
           '目前無法批改',
-          '偵測到訂正中的學生。為避免覆蓋學生端訂正內容，請先到「作業訂正看板」停止訂正後再批改。',
+          '偵測到訂正中的學生。為避免覆蓋學生端訂正內容，請先到「考卷訂正看板」停止訂正後再批改。',
           cachedBlockedStudents
         )
         return false
@@ -2471,7 +2471,7 @@ export default function GradingPage({
         if (blockedStudents.length > 0) {
           openCorrectionGuardModal(
             '目前無法批改',
-            '偵測到訂正中的學生。為避免覆蓋學生端訂正內容，請先到「作業訂正看板」停止訂正後再批改。',
+            '偵測到訂正中的學生。為避免覆蓋學生端訂正內容，請先到「考卷訂正看板」停止訂正後再批改。',
             blockedStudents
           )
           return false
@@ -2481,7 +2481,7 @@ export default function GradingPage({
         console.warn('⚠️ 檢查訂正狀態失敗:', error)
         openCorrectionGuardModal(
           '無法確認訂正狀態',
-          '系統暫時無法確認是否仍有學生在訂正中，請稍後再試，或先到「作業訂正看板」確認後再批改。'
+          '系統暫時無法確認是否仍有學生在訂正中，請稍後再試，或先到「考卷訂正看板」確認後再批改。'
         )
         return false
       } finally {
@@ -2504,7 +2504,7 @@ export default function GradingPage({
       // 載入所有 assignments
       const allAssignmentsData = await Promise.all(allAssignmentIds.map((id) => db.assignments.get(id)))
       const validAssignments = allAssignmentsData.filter((a): a is Assignment => !!a)
-      if (validAssignments.length === 0) throw new Error('找不到作業')
+      if (validAssignments.length === 0) throw new Error('找不到考卷')
 
       // 主 assignment（用於 answerKey）
       const assignmentData = validAssignments[0]
@@ -2585,7 +2585,7 @@ export default function GradingPage({
 
       for (const sub of submissionsData) {
         // 診斷 Blob 狀態
-        console.log(`📊 載入作業 ${sub.id}:`, {
+        console.log(`📊 載入考卷 ${sub.id}:`, {
           studentId: sub.studentId,
           status: sub.status,
           hasBlob: !!sub.imageBlob,
@@ -2598,7 +2598,7 @@ export default function GradingPage({
         // 修復 Blob：如果 Blob 存在但沒有 type 或大小為 0，嘗試修復
         if (sub.imageBlob) {
           if (sub.imageBlob.size === 0 || !sub.imageBlob.type) {
-            console.warn(`⚠️ 作業 ${sub.id} 的 Blob 有問題 (size=${sub.imageBlob.size}, type="${sub.imageBlob.type}")`)
+            console.warn(`⚠️ 考卷 ${sub.id} 的 Blob 有問題 (size=${sub.imageBlob.size}, type="${sub.imageBlob.type}")`)
 
             // 嘗試從 Base64 重建 Blob
             if (sub.imageBase64) {
@@ -2617,7 +2617,7 @@ export default function GradingPage({
             }
           } else if (sub.imageBlob.type === '') {
             // 如果只是 type 為空字串，嘗試修復
-            console.log(`🔧 修復作業 ${sub.id} 的 Blob type`)
+            console.log(`🔧 修復考卷 ${sub.id} 的 Blob type`)
             sub.imageBlob = new Blob([sub.imageBlob], { type: 'image/jpeg' })
           }
         }
@@ -2762,7 +2762,7 @@ export default function GradingPage({
   }, [syncAndReload])
 
   // 2026-06-19: 偵測「同一張答案卷模板、尚未納入」的其他班級，供批改頁「＋新增班級」下拉使用。
-  //   answerKeyTemplateId 無 Dexie 索引→toArray 後 filter(作業表小、AssignmentList 也這樣做)。
+  //   answerKeyTemplateId 無 Dexie 索引→toArray 後 filter(考卷表小、AssignmentList 也這樣做)。
   useEffect(() => {
     let cancelled = false
     const tplId = assignment?.answerKeyTemplateId
@@ -2951,7 +2951,7 @@ export default function GradingPage({
   const handleDeleteSubmission = async (submission: Submission, student: Student) => {
     if (!(await confirmModal({
       tone: 'danger',
-      title: `刪除 ${student.seatNumber} 號 ${student.name} 的作業？`,
+      title: `刪除 ${student.seatNumber} 號 ${student.name} 的考卷？`,
       message: '此操作無法復原。',
       confirmLabel: '刪除',
     }))) {
@@ -2980,7 +2980,7 @@ export default function GradingPage({
         return next
       })
 
-      // 如果刪除的是當前選中的作業，清除選中狀態
+      // 如果刪除的是當前選中的考卷，清除選中狀態
       if (selectedSubmission?.submission.id === submission.id) {
         setSelectedSubmission(null)
       }
@@ -2988,10 +2988,10 @@ export default function GradingPage({
       // 觸發同步
       requestSync()
 
-      console.log(`✅ 已刪除 ${student.name} 的作業`)
+      console.log(`✅ 已刪除 ${student.name} 的考卷`)
     } catch (error) {
-      console.error('刪除作業失敗:', error)
-      void alertModal('刪除作業失敗，請稍後再試')
+      console.error('刪除考卷失敗:', error)
+      void alertModal('刪除考卷失敗，請稍後再試')
     }
   }
 
@@ -3035,8 +3035,8 @@ export default function GradingPage({
 
   // 2026-05-17: Phase A / Phase B 分離設計
   // - 重新截取（Phase A only）警告 modal：列出會清空哪幾份卡片的批改紀錄
-  // - 批改作業 block modal: 需先截取 / 需先補答
-  // - 批改作業 warning modal: 會覆寫已批改的分數
+  // - 批改考卷 block modal: 需先截取 / 需先補答
+  // - 批改考卷 warning modal: 會覆寫已批改的分數
   const [recaptureConfirm, setRecaptureConfirm] = useState<{
     submissions: Submission[]
     cleared: Submission[]  // 會被清空批改紀錄的
@@ -3103,7 +3103,7 @@ export default function GradingPage({
     if (recaptureButtonState.variant === 'disabled') return
     const { inScope, stageMap } = stageAggregates
     if (inScope.length === 0) {
-      void alertModal('沒有可截取的作業')
+      void alertModal('沒有可截取的考卷')
       return
     }
     // 2026-05-28: Q1 — 先擋 correction_passed（終點、不可重跑）
@@ -3217,7 +3217,7 @@ export default function GradingPage({
       if (!tpl?.answerKey?.questions?.length) return baseAnswerKey
       const stale = JSON.stringify(baseAnswerKey.questions ?? [])
         !== JSON.stringify(tpl.answerKey.questions)
-      if (stale) console.log('[grading] 作業的答案卷副本落後模板、改用模板版本')
+      if (stale) console.log('[grading] 考卷的答案卷副本落後模板、改用模板版本')
       return tpl.answerKey
     })()
     // 2026-05-18: 收集成功的 Phase A 結果、跑完判斷有沒有 needs_review、有就帶老師進審查頁
@@ -3315,7 +3315,7 @@ export default function GradingPage({
     let pdfBoxApplied = false
     // 目前答案卷的題目 id 集合(範本失效判斷用:題目集或頁數變了就作廢)。
     const currentQids = ((ANSWER_KEY?.questions as Array<{ id?: string }> | undefined) ?? []).map((q) => String(q?.id ?? '')).filter(Boolean)
-    // ── 跨次持久化:先試作業存好的 PDF 統一框範本 → 有效就全套、完全跳過 classify(省 API)。──
+    // ── 跨次持久化:先試考卷存好的 PDF 統一框範本 → 有效就全套、完全跳過 classify(省 API)。──
     //   只對 PDF/teacher_scan;fail-safe(fetch/驗證失敗一律退回下方正常 classify);照片路徑完全不碰。
     let pdfTemplateApplied = false
     if (pdfCandidates.length > 0 && !stopRequestedRef.current) {
@@ -3339,7 +3339,7 @@ export default function GradingPage({
         }
         pdfBoxApplied = true
         pdfTemplateApplied = true
-        console.log(`[PdfTemplate] 套用作業存檔統一框到 ${pdfCandidates.length} 份 PDF、全跳過 classify`)
+        console.log(`[PdfTemplate] 套用考卷存檔統一框到 ${pdfCandidates.length} 份 PDF、全跳過 classify`)
       }
     }
     if (!pdfTemplateApplied) {
@@ -3410,7 +3410,7 @@ export default function GradingPage({
           bumpStage('classify', 'started'); bumpStage('classify', 'completed')
         }
         console.log(`[PdfSampling] classify PDF 樣本 ${sampleEntries.length} 份 → 套統一框到其餘 ${remaining.length} 份(免 classify、含救援 ${rescueSubs.length})`)
-        // 跨次持久化:把本次算好的統一框範本存進作業、之後同作業批改直接套(省 classify)。fail-safe。
+        // 跨次持久化:把本次算好的統一框範本存進考卷、之後同考卷批改直接套(省 classify)。fail-safe。
         try {
           const saveCtx = JSON.parse(JSON.stringify(templateCtx)) as ClassifyCtx
           const sal = saveCtx?.classifyResult?.alignedQuestions
@@ -3660,7 +3660,7 @@ export default function GradingPage({
             ANSWER_KEY,
             sub.pageBreaks,
             assignment?.domain,
-            sub.assignmentId ?? assignment?.id,  // 跨班：記到各份自己的作業（非批改時 === assignment.id）
+            sub.assignmentId ?? assignment?.id,  // 跨班：記到各份自己的考卷（非批改時 === assignment.id）
             undefined,  // classifyCorrections — 重新截取不帶老師舊修正
             assignment?.answerSheetMode,
             sub.id,
@@ -3905,7 +3905,7 @@ export default function GradingPage({
 
   // 2026-05-17: Phase B only with fromCache 執行器
   // 給 selected/all 候選 submissions 各自跑 Phase B（用 server 端 cached phase_a_state）、
-  // 不重跑 Phase A（省 4 min）。對應「批改作業」按鈕觸發。
+  // 不重跑 Phase A（省 4 min）。對應「批改考卷」按鈕觸發。
   // 2026-05-31: opts.silent —「一鍵接著批改」的 needB 步驟用。跑完不跳結果 notice
   //（避免一鍵流程中途彈出 needB 的結果視窗、跟後面 Phase A 的視窗打架）。預設 false=現行。
   // ── 2026-07-06 [提速落地・共用核心]：單卷 Phase B fromCache ─────────────────
@@ -4255,7 +4255,7 @@ export default function GradingPage({
     await executeGradeOnlyCache(graded, { alignAnswerKeyVersion: true })
   }, [stageAggregates, executeGradeOnlyCache, alertModal])
 
-  // 2026-05-17: Phase B only 入口（批改作業按鈕）
+  // 2026-05-17: Phase B only 入口（批改考卷按鈕）
   // 步驟：1. 檢查 in-scope 卡片狀態  2. 若需先截取或補答、block modal  3. 若會覆寫、warning modal  4. 否則直接跑
   const handleGradeOnly = async () => {
     gradingRunStartRef.current = Date.now()   // 本輪起始（成功數判定用，見 gradingRunStartRef）
@@ -4266,7 +4266,7 @@ export default function GradingPage({
     if (gradeButtonState.variant === 'disabled') return
     const { inScope, stageMap } = stageAggregates
     if (inScope.length === 0) {
-      void alertModal('沒有可批改的作業')
+      void alertModal('沒有可批改的考卷')
       return
     }
     if (gradeButtonState.block === 'needs_extract') {
@@ -4676,7 +4676,7 @@ export default function GradingPage({
   const runOneClickForBuckets = async (needA: Submission[], needReview: Submission[], needB: Submission[]) => {
     const scope = [...needA, ...needReview, ...needB]
     if (scope.length === 0) {
-      void alertModal('沒有可批改的作業')
+      void alertModal('沒有可批改的考卷')
       return
     }
     // 2026-08-11 家長報告失效前置閘已移除（報告退回無 AI 版＝即時計算、重批不會使報告失效）。
@@ -4724,7 +4724,7 @@ export default function GradingPage({
     setOneClickConfirmOpen(false)
     const { needA, needReview, needB } = unfinishedBuckets
     if (needA.length + needReview.length + needB.length === 0) {
-      void alertModal('沒有未完成的作業')
+      void alertModal('沒有未完成的考卷')
       return
     }
     await runOneClickForBuckets(needA, needReview, needB)
@@ -4734,7 +4734,7 @@ export default function GradingPage({
   //   已批改/批改失敗/待批改的也重頭跑 Phase A（個別批改＝把這幾份徹底重做一次），待複核的進審查、其餘跑 A。
   const handleIndividualFullGrade = async () => {
     const inScope = stageAggregates.inScope
-    if (inScope.length === 0) { void alertModal('請先勾選要批改的作業'); return }
+    if (inScope.length === 0) { void alertModal('請先勾選要批改的考卷'); return }
     const needA: Submission[] = []; const needReview: Submission[] = []; const needB: Submission[] = []
     for (const s of inScope) {
       const stage = deriveCardStage(s, correctionStatusByStudent[s.studentId])
@@ -4793,7 +4793,7 @@ export default function GradingPage({
     const candidates = hasManualSelection ? selectedSubs : allSubs
 
     if (candidates.length === 0) {
-      void alertModal(hasManualSelection ? '勾選的作業沒有可批改影像' : '沒有可批改的作業')
+      void alertModal(hasManualSelection ? '勾選的考卷沒有可批改影像' : '沒有可批改的考卷')
       return
     }
 
@@ -4839,8 +4839,8 @@ export default function GradingPage({
     setCompletedReviewCount(0)
 
     try {
-      // 處理需要準備圖片的作業（沒有 Blob 但可能有 Base64 或需要下載）
-      // 🔧 重要：強制為所有有 Base64 的作業重新重建 Blob，確保修復損壞的 Base64
+      // 處理需要準備圖片的考卷（沒有 Blob 但可能有 Base64 或需要下載）
+      // 🔧 重要：強制為所有有 Base64 的考卷重新重建 Blob，確保修復損壞的 Base64
       const needRebuild = candidates.filter((s) => s.imageBase64)
       const needPrepare = candidates.filter((s) => !s.imageBlob && !s.imageBase64)
       const prepareErrors: string[] = []
@@ -4879,7 +4879,7 @@ export default function GradingPage({
           }
         }
 
-        // 再下載沒有 Base64 也沒有 Blob 的作業（並行，最多 5 份同時下載）
+        // 再下載沒有 Base64 也沒有 Blob 的考卷（並行，最多 5 份同時下載）
         let downloadedCount = 0
         await runWithConcurrency(
           needPrepare,
@@ -4937,8 +4937,8 @@ export default function GradingPage({
         if (prepareErrors.length > 0) {
           const ok = await confirmModal({
             tone: 'warning',
-            title: `${prepareErrors.length} 份作業準備失敗`,
-            message: `以下作業準備失敗，將無法批改：\n${prepareErrors.join('\n')}\n\n是否繼續批改其他作業？`,
+            title: `${prepareErrors.length} 份考卷準備失敗`,
+            message: `以下考卷準備失敗，將無法批改：\n${prepareErrors.join('\n')}\n\n是否繼續批改其他考卷？`,
             confirmLabel: '繼續批改',
             cancelLabel: '停止',
           })
@@ -4956,7 +4956,7 @@ export default function GradingPage({
         return
       }
 
-      console.log(`✅ 準備 Phase A，共 ${toGrade.length} 份作業`)
+      console.log(`✅ 準備 Phase A，共 ${toGrade.length} 份考卷`)
       setGradingProgress({ current: 0, total: toGrade.length })
       setGradingMessage('定位答案中…')
       setGradingPhase('phase_a_running')
@@ -5117,14 +5117,14 @@ export default function GradingPage({
           failedEntries: [],
         })
       } else {
-        // ── 品質總檢查（所有作業 Phase A 完成後，內部執行不外顯） ──────────────
+        // ── 品質總檢查（所有考卷 Phase A 完成後，內部執行不外顯） ──────────────
 
         const CONSECUTIVE_BLANK_THRESHOLD = 3   // ≥3 題連續空白 → 重跑
         const MIN_SUBMISSIONS_FOR_TYPE = 3       // 至少 N 份才能建立主流類型
         const DOMINANT_TYPE_RATIO = 0.6          // ≥60% 同意才算確立主流
 
         const anomalousIndices = new Set<number>()
-        // 收集每份被標記作業的詳細原因，結束後 POST 到後端
+        // 收集每份被標記考卷的詳細原因，結束後 POST 到後端
         const flagDetails = new Map<number, {
           conditions: string[]
           consecutiveBlankMax?: number
@@ -5163,10 +5163,10 @@ export default function GradingPage({
         }
 
         // 條件二（已移除）：fill_blank 答案類型主流不符
-        // AI1/AI2 角色分化 + AI3 一致性判官已能攔截此類問題，不再需要跨作業比對重跑
+        // AI1/AI2 角色分化 + AI3 一致性判官已能攔截此類問題，不再需要跨考卷比對重跑
 
-        // 條件三：是非題主流（O/X）但個別作業被讀成 ABCD
-        // 若某題 ≥60% 非空白答案是 O/X 類型，標記任何被讀成 A/B/C/D 的作業
+        // 條件三：是非題主流（O/X）但個別考卷被讀成 ABCD
+        // 若某題 ≥60% 非空白答案是 O/X 類型，標記任何被讀成 A/B/C/D 的考卷
         if (entries.length >= MIN_SUBMISSIONS_FOR_TYPE) {
           const isTrueFalseAnswer = (answer: string) => /^[OoXx○×✓✗✕⭕❌是非對錯]$/.test(answer.trim())
           const isABCDAnswer = (answer: string) => /^[A-Da-d]$/.test(answer.trim())
@@ -5195,7 +5195,7 @@ export default function GradingPage({
             }
           }
 
-          // 第二輪：找出是非題被讀成 ABCD 的作業
+          // 第二輪：找出是非題被讀成 ABCD 的考卷
           if (trueFalseQuestions.size > 0) {
             for (let i = 0; i < entries.length; i++) {
               if (anomalousIndices.has(i)) continue
@@ -5314,7 +5314,7 @@ export default function GradingPage({
           }).catch(() => {/* log 失敗不影響主流程 */})
         }
 
-        // 重跑品質不通過的作業（最多一次）
+        // 重跑品質不通過的考卷（最多一次）
         if (anomalousIndices.size > 0) {
           setGradingMessage('品質檢測中…')
           const indicesToRetry = Array.from(anomalousIndices)
@@ -5932,7 +5932,7 @@ export default function GradingPage({
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-emerald-800 mb-4">
               以下 {correctionPassedBlockModal.blockedStudents.length} 位學生已完成訂正、不能重跑批改。
               <br />
-              若真的要重批、請先到「作業訂正看板」退回訂正、清掉已通過狀態後再操作。
+              若真的要重批、請先到「考卷訂正看板」退回訂正、清掉已通過狀態後再操作。
             </div>
             <div className="max-h-60 overflow-y-auto mb-4 border border-gray-100 rounded-lg">
               <ul className="text-sm divide-y divide-gray-100">
@@ -5964,7 +5964,7 @@ export default function GradingPage({
         onConfirm={() => { void handleOneClickContinue() }}
       >
         <div className="mb-2">
-          即將處理 <strong>{unfinishedBuckets.total}</strong> 份還沒完成的作業。
+          即將處理 <strong>{unfinishedBuckets.total}</strong> 份還沒完成的考卷。
         </div>
         {FLAT_BILLING && (
           <div className="mb-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
@@ -6006,7 +6006,7 @@ export default function GradingPage({
         onCancel={() => setAdvInkConfirm(null)}
         onConfirm={() => { const a = advInkConfirm; setAdvInkConfirm(null); a?.run() }}
       >
-        <div>即將{advInkConfirm?.kind === 'phase_a' ? '重新截取答案' : '重新批改'} <strong>{advInkConfirm?.count ?? 0}</strong> 份作業。</div>
+        <div>即將{advInkConfirm?.kind === 'phase_a' ? '重新截取答案' : '重新批改'} <strong>{advInkConfirm?.count ?? 0}</strong> 份考卷。</div>
         {FLAT_BILLING && advInkConfirm?.kind !== 'phase_a' && (
           <div className="mt-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
             費用:{gradingPriceTextSmart(advInkConfirm?.count ?? 0, assignment?.answerKey, sortedStudents.length)}
@@ -6022,7 +6022,7 @@ export default function GradingPage({
         title="重新截取答案"
         clears={['AI 讀取結果', '批改分數', '訂正狀態']}
         keeps={['學生作答照片']}
-        affectedNoun="份作業"
+        affectedNoun="份考卷"
         inkNote="重新截取會消耗墨水（點數）"
         affected={(recaptureConfirm?.cleared ?? []).map((sub) => {
           const stu = students.find((s) => s.id === sub.studentId)
@@ -6043,7 +6043,7 @@ export default function GradingPage({
         }}
       />
 
-      {/* 2026-05-17: 批改作業 block modal（先補答 / 先截取） */}
+      {/* 2026-05-17: 批改考卷 block modal（先補答 / 先截取） */}
       {gradeBlockModal && (
         <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center">
           <div className="bg-white rounded-xl border border-slate-200 p-6 max-w-md w-full mx-4">
@@ -6052,8 +6052,8 @@ export default function GradingPage({
             </h3>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800 mb-4">
               {gradeBlockModal.reason === 'needs_extract'
-                ? `以下 ${gradeBlockModal.submissions.length} 份作業還沒擷取答案、無法直接批改。請先按「截取答案」。`
-                : `以下 ${gradeBlockModal.submissions.length} 份作業含舊版待複核資料、無法直接批改。請按「智慧批改」重跑辨識。`}
+                ? `以下 ${gradeBlockModal.submissions.length} 份考卷還沒擷取答案、無法直接批改。請先按「截取答案」。`
+                : `以下 ${gradeBlockModal.submissions.length} 份考卷含舊版待複核資料、無法直接批改。請按「智慧批改」重跑辨識。`}
             </div>
             <div className="max-h-60 overflow-y-auto mb-4 border border-gray-100 rounded-lg">
               <ul className="text-sm divide-y divide-gray-100">
@@ -6081,7 +6081,7 @@ export default function GradingPage({
         </div>
       )}
 
-      {/* 2026-05-30: 批改作業覆寫確認（severity low：Phase B 只重算分；訂正中學生走 reconcile 逐題調和、不粗暴覆寫） */}
+      {/* 2026-05-30: 批改考卷覆寫確認（severity low：Phase B 只重算分；訂正中學生走 reconcile 逐題調和、不粗暴覆寫） */}
       <DangerConfirmModal
         open={!!gradeOverwriteConfirm}
         severity="low"
@@ -6118,7 +6118,7 @@ export default function GradingPage({
             
             <div className="space-y-3 mb-6">
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                <span className="text-gray-600">作業數量</span>
+                <span className="text-gray-600">考卷數量</span>
                 <span className="font-semibold text-gray-900">{gradeCandidates.length} 份</span>
               </div>
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
@@ -6127,7 +6127,7 @@ export default function GradingPage({
               </div>
               {isRegrade && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700">
-                  ⚠️ 這些作業已批改過，重新批改會覆蓋原有結果
+                  ⚠️ 這些考卷已批改過，重新批改會覆蓋原有結果
                 </div>
               )}
             </div>
@@ -6172,7 +6172,7 @@ export default function GradingPage({
                 <span className="font-semibold text-rose-600">{phaseAResultNotice.failCount} 份</span>
               </div>
               <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                <span className="text-gray-600">總作業數</span>
+                <span className="text-gray-600">總考卷數</span>
                 <span className="font-semibold text-gray-900">{phaseAResultNotice.totalCount} 份</span>
               </div>
               {phaseAResultNotice.failReasons.length > 0 && (
@@ -6194,7 +6194,7 @@ export default function GradingPage({
               )}
               {phaseAResultNotice.successCount > 0 && (
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                  讀取完成的作業可按「批改作業」開始正式評分。
+                  讀取完成的考卷可按「批改考卷」開始正式評分。
                 </div>
               )}
             </div>
@@ -6240,7 +6240,7 @@ export default function GradingPage({
                   <span className="font-semibold text-rose-600">{gradeResultNotice.failCount} 份</span>
                 </div>
                 <div className="flex justify-between items-center px-3.5 py-2.5 border-t border-slate-100 bg-slate-50">
-                  <span className="font-semibold text-gray-700">總作業數</span>
+                  <span className="font-semibold text-gray-700">總考卷數</span>
                   <span className="font-semibold text-gray-900">{gradeResultNotice.totalCount} 份</span>
                 </div>
               </div>
@@ -6323,7 +6323,7 @@ export default function GradingPage({
             className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
-            返回作業批改
+            返回考卷批改
           </button>
         )}
 
@@ -6430,7 +6430,7 @@ export default function GradingPage({
                     type="button"
                     onClick={() => setOneClickConfirmOpen(true)}
                     disabled={smartLeftDisabled}
-                    title={smartHasWork ? '把所有未完成的作業一次批改到完成（已完成的略過）' : '目前沒有未完成的作業'}
+                    title={smartHasWork ? '把所有未完成的考卷一次批改到完成（已完成的略過）' : '目前沒有未完成的考卷'}
                     className={`inline-flex items-center gap-2 rounded-l-lg border px-4 py-2 text-sm font-semibold transition-colors active:scale-[0.98] ${
                       smartLeftDisabled
                         ? 'border-slate-300 bg-white text-slate-400 cursor-not-allowed active:scale-100'
@@ -6489,7 +6489,7 @@ export default function GradingPage({
                 {selectedSubmissionIds.size > 0 ? '取消全選' : '全選'}
               </Button>
               <span className="text-sm text-slate-600">
-                {advancedMode === 'phase_a' ? '重新截取答案' : advancedMode === 'full' ? '個別批改' : '重新批改作業'}
+                {advancedMode === 'phase_a' ? '重新截取答案' : advancedMode === 'full' ? '個別批改' : '重新批改考卷'}
                 {' · 已選 '}
                 <strong className="text-slate-900">{selectedSubmissionCount}</strong>
                 {' 份'}
@@ -6507,7 +6507,7 @@ export default function GradingPage({
                   }
                 >
                   {advancedMode === 'phase_a' ? <RefreshCw className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
-                  開始{advancedMode === 'phase_a' ? '重新截取答案' : advancedMode === 'full' ? '個別批改' : '重新批改作業'}（{selectedSubmissionCount}）
+                  開始{advancedMode === 'phase_a' ? '重新截取答案' : advancedMode === 'full' ? '個別批改' : '重新批改考卷'}（{selectedSubmissionCount}）
                 </Button>
               </div>
             </div>
@@ -6524,7 +6524,7 @@ export default function GradingPage({
             stageProgress={pipelineStageProgress}
             phaseANeedsReviewCount={phaseANeedsReviewCount}
             phaseATotalQuestionCount={phaseATotalQuestionCount}
-            gradingMessage={isDownloading ? '正在下載學生作業圖片…' : gradingMessage}
+            gradingMessage={isDownloading ? '正在下載學生考卷圖片…' : gradingMessage}
             stopRequested={stopRequested}
             onStop={handleStopGrading}
           />
@@ -6849,7 +6849,7 @@ export default function GradingPage({
                               void handleDeleteSubmission(submission, student)
                             }}
                             className="absolute bottom-2 left-2 p-1.5 bg-white text-gray-700 rounded-full hidden group-hover:flex hover:bg-red-50 hover:text-red-600 z-10 disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="刪除此學生的作業"
+                            title="刪除此學生的考卷"
                             disabled={isBusy}
                           >
                             <Trash2 className="w-4 h-4" />

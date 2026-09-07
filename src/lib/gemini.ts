@@ -374,7 +374,7 @@ let cachedAnswerKeyHash: string | null = null
 let cachedAnswerKeyJson: string | null = null
 
 /**
- * 設置 AnswerKey 緩存（同一份作業的多次請求共享）
+ * 設置 AnswerKey 緩存（同一份考卷的多次請求共享）
  */
 export function setAnswerKeyCache(answerKey: AnswerKey | null): void {
   if (answerKey) {
@@ -387,7 +387,7 @@ export function setAnswerKeyCache(answerKey: AnswerKey | null): void {
 }
 
 /**
- * 清除 AnswerKey 緩存（作業切換時調用）
+ * 清除 AnswerKey 緩存（考卷切換時調用）
  */
 export function clearAnswerKeyCache(): void {
   cachedAnswerKeyJson = null
@@ -713,7 +713,7 @@ let currentModelName = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash'
 
 export interface ExtractAnswerKeyOptions {
   domain?: string
-  /** 'answer_key'（預設）：從已填寫的解答圖擷取答案；'infer_blank'：從空白作業推論正確答案 */
+  /** 'answer_key'（預設）：從已填寫的解答圖擷取答案；'infer_blank'：從空白考卷推論正確答案 */
   inferMode?: 'answer_key' | 'infer_blank'
   /** 108課綱概念清單（依班級年級篩出），用於 AI 標記每題的 concept_code */
   conceptMap?: { code: string; label: string }[]
@@ -778,19 +778,19 @@ const gradingDomainHints: Record<string, string> = {
 1. studentAnswer 一律逐字抄寫「圖片中看得到的學生筆跡」，不可摘要、不可改寫、不可修正錯字、不可補全。
 2. 需要抓重點/摘要只能寫在 reason 或 mistakes/weaknesses/suggestions，絕對不能寫進 studentAnswer。
 
-【國語作業特別警告：造詞題最容易腦補】
+【國語考卷特別警告：造詞題最容易腦補】
 ⚠️ 嚴重警告：造詞題空白時，絕不可依據讀音或部首腦補詞語！
 - 題目：「ㄋㄨㄥˋ：□□」，學生空白 → 輸出「未作答」（❌ 不可腦補「弄瓦」「弄璋」）
 - 題目：「光：□□」，學生空白 → 輸出「未作答」（❌ 不可腦補「光明」「光線」）
 - 題目：「辨：□□」，學生空白 → 輸出「未作答」（❌ 不可腦補「辨別」「分辨」）
 - 每題獨立判斷：第1格有寫 ≠ 第2格也該有寫，空白就是空白！
 
-【國語作業閱讀方向 - 重要】
-⚠️ 國語作業幾乎都是由右往左、由上往下閱讀（直排文字）
+【國語考卷閱讀方向 - 重要】
+⚠️ 國語考卷幾乎都是由右往左、由上往下閱讀（直排文字）
 - 排序題：要按照「右→左、上→下」的順序判讀學生填寫的內容
 - 多欄位題目：右邊的欄位是第一個，左邊的欄位是最後一個
 - 例如：選項排列「甲 乙 丙 丁」在圖片中可能是「丁 丙 乙 甲」（從右到左）
-- 不要用西式「左→右」的習慣來判讀國語作業
+- 不要用西式「左→右」的習慣來判讀國語考卷
 
 【評分提示（只影響 isCorrect/score/reason，不得影響 studentAnswer）】
 1. 文意題：避免主觀推論，只在 reason 說明「缺哪些關鍵字/要點」。
@@ -829,7 +829,7 @@ const gradingDomainHints: Record<string, string> = {
 `.trim(),
 
   數學: `
-【數學作業特別警告：計算題最容易腦補】
+【數學考卷特別警告：計算題最容易腦補】
 ⚠️ 嚴重警告：計算題空白時，絕不可依據算式或常識腦補答案！
 - 題目：「2+3=______」，學生空白 → 輸出「未作答」（❌ 不可腦補「5」）
 - 題目：「5×7=______」，學生空白 → 輸出「未作答」（❌ 不可腦補「35」）
@@ -851,7 +851,7 @@ const gradingDomainHints: Record<string, string> = {
 `.trim(),
 
   社會: `
-【社會作業最高警戒：絕對禁止腦補空白】
+【社會考卷最高警戒：絕對禁止腦補空白】
 🚨 最高優先級規則：社會科最容易腦補，必須嚴格檢查！
 
 ⚠️ 重要觀念：「輸出記錄」≠「生成答案」！
@@ -965,7 +965,7 @@ const gradingDomainHints: Record<string, string> = {
 `.trim(),
 
   自然: `
-【自然作業特別警告：概念題最容易腦補】
+【自然考卷特別警告：概念題最容易腦補】
 ⚠️ 嚴重警告：概念題空白時，絕不可依據科學知識腦補答案！
 - 題目：「光合作用的場所是______」，學生空白 → 輸出「未作答」（❌ 不可腦補「葉綠體」）
 - 題目：「水的化學式是______」，學生空白 → 輸出「未作答」（❌ 不可腦補「H₂O」）
@@ -986,7 +986,7 @@ const gradingDomainHints: Record<string, string> = {
 `.trim(),
 
   英語: `
-【英語作業特別警告：填空題最容易腦補】
+【英語考卷特別警告：填空題最容易腦補】
 ⚠️ 嚴重警告：填空題空白時，絕不可依據文法或常識腦補單字！
 - 題目：「I ____ a student.」，學生空白 → 輸出「未作答」（❌ 不可腦補「am」）
 - 題目：「apple: ______（中文）」，學生空白 → 輸出「未作答」（❌ 不可腦補「蘋果」）
@@ -2124,7 +2124,7 @@ function buildDomainRefinements(domain: string = '其他'): string {
 }
 
 /**
- * 建立「從空白作業推論答案」的 Prompt
+ * 建立「從空白考卷推論答案」的 Prompt
  * 不需要解答圖，AI 直接根據題目內容與語言/學科知識推論正確答案
  */
 function buildInferFromBlankPrompt(domain?: string): string {
@@ -2137,7 +2137,7 @@ function buildInferFromBlankPrompt(domain?: string): string {
 你是一位台灣${domainLabel}老師，請看這份**空白習作**圖片，推論每題的正確標準答案，建立 AnswerKey。
 
 【重要說明】
-- 這是**尚未填寫的空白作業**，不是解答圖
+- 這是**尚未填寫的空白考卷**，不是解答圖
 - 請根據題目文字、課文語境與你的學科知識，推論正確答案
 - 不要憑猜測，有把握的才填；不確定的在 answer/referenceAnswer 後加「（待確認）」
 
@@ -3431,7 +3431,7 @@ async function gradeSubmissionPaged(
       const preparedForLocate = await compressForGemini(
         submissionImage,
         GEMINI_SINGLE_IMAGE_TARGET_BYTES,
-        '作業定位'
+        '考卷定位'
       )
       const locateBase64 = await blobToBase64(preparedForLocate)
       const locateMimeType = preparedForLocate.type || 'image/jpeg'
@@ -3484,7 +3484,7 @@ async function gradeSubmissionCoreWithPreparedImage(
 }
 
 /**
- * 單份作業批改入口（自動判斷是否使用分頁批改）
+ * 單份考卷批改入口（自動判斷是否使用分頁批改）
  * 
  * ❗ 注意：Ink session 由「批改頁面」統一管理（mount 時 start，unmount 時 close）
  *    這裡不負責 start/close，只確保有 session 時會自動帶入 sessionId
@@ -3517,7 +3517,7 @@ export async function gradeSubmission(
 }
 
 /**
- * 單份作業批改核心邏輯（支援 AnswerKey 與答案卷圖片）
+ * 單份考卷批改核心邏輯（支援 AnswerKey 與答案卷圖片）
  */
 async function gradeSubmissionCore(
   submissionImage: Blob,
@@ -3552,7 +3552,7 @@ async function gradeSubmissionCore(
       const preparedSubmissionImage = await compressForGemini(
         submissionImage,
         submissionTarget,
-        '作業'
+        '考卷'
       )
       compressTime = performance.now() - compressStartTime
 
@@ -3567,7 +3567,7 @@ async function gradeSubmissionCore(
 
     promptSections.push(
       `
-你是一位嚴謹、公正的老師，負責批改學生的紙本作業。
+你是一位嚴謹、公正的老師，負責批改學生的紙本考卷。
 本系統會用在各種科目（例如：國語、英文、數學、自然、社會等），
 請主要根據「題目文字」與「標準答案」來判斷對錯，不要憑常識亂猜。
 `.trim()
@@ -3581,7 +3581,7 @@ async function gradeSubmissionCore(
       const partialImageHint = isPartialImage
         ? `
 ⚠️ 【分頁批改模式】
-這張圖片是多頁作業拆分後的其中一段，可能只包含部分題目。
+這張圖片是多頁考卷拆分後的其中一段，可能只包含部分題目。
 - 只批改你在這張圖片中實際看到的題目，看不到的題號請不要輸出
 - 如果某題號在圖片中完全看不到（沒有題目也沒有作答區域），則不輸出該題
 - 這不是遺漏，而是該題在其他分頁中
@@ -3590,7 +3590,7 @@ async function gradeSubmissionCore(
       
       promptSections.push(
         `
-下面是本次作業的標準答案與配分（JSON 格式）：
+下面是本次考卷的標準答案與配分（JSON 格式）：
 ${JSON.stringify(answerKey)}
 
 【批改流程】
@@ -3654,9 +3654,9 @@ ${isPartialImage
       const answerKeyMimeType = preparedAnswerKeyImage.type || 'image/jpeg'
       promptSections.push(
         `
-第一張圖片是「標準答案／解答本」，第二張圖片是「學生作業」。
+第一張圖片是「標準答案／解答本」，第二張圖片是「學生考卷」。
 請先從標準答案圖片中，為每一題抽取「題號、正確答案、配分（可以合理估計）」，
-再根據這些標準答案來批改學生作業。
+再根據這些標準答案來批改學生考卷。
 請不要憑空新增題目，也不要改變題號。
 
 【答案卷識別提示】
@@ -3671,7 +3671,7 @@ ${isPartialImage
     } else {
       promptSections.push(
         `
-目前沒有提供標準答案，只有學生作業圖片。
+目前沒有提供標準答案，只有學生考卷圖片。
 請執行以下步驟：
 1. 先盡量辨識圖片中的「學生原始筆跡」，填入 studentAnswer（不可修改學生內容；不可摘要/不可改寫/不可補全）。
 2. 如需保守推測題意或合理答案，只能寫在 reason（或 mistakes/weaknesses/suggestions），不得寫進 studentAnswer。
@@ -4296,7 +4296,7 @@ ${forcedIds.map((id) => `- 題號 ${id}：studentAnswer="無法辨識", score=0,
 }
 
 /**
- * 批改多份作業（一鍵批改）
+ * 批改多份考卷（一鍵批改）
  */
 export async function gradeMultipleSubmissions(
   submissions: Submission[],
@@ -4304,13 +4304,13 @@ export async function gradeMultipleSubmissions(
   onProgress: (current: number, total: number) => void,
   answerKey?: AnswerKey,
   options?: GradeSubmissionOptions & {
-    /** 每批改完一份作業時的回調（可用於即時更新 UI） */
+    /** 每批改完一份考卷時的回調（可用於即時更新 UI） */
     onSubmissionComplete?: (updatedSubmission: Submission, result: GradingResult) => void
     /** 檢查是否應該停止批改（用於用戶取消） */
     shouldStop?: () => boolean
   }
 ) {
-  console.log(`📝 開始批量批改 ${submissions.length} 份作業`)
+  console.log(`📝 開始批量批改 ${submissions.length} 份考卷`)
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
   
   // 🆕 設置 AnswerKey 緩存（整個批量批改共用同一份 AnswerKey）
@@ -4324,7 +4324,7 @@ export async function gradeMultipleSubmissions(
   let failCount = 0
   let stopped = false
 
-  // 🆕 跨作業預取機制：預先壓縮下一份作業的圖片
+  // 🆕 跨考卷預取機制：預先壓縮下一份考卷的圖片
   const preparedSubmissions = new Map<string, Promise<{ blob: Blob; base64: string; mimeType: string } | null>>()
   
   const prepareSubmissionImage = async (sub: Submission): Promise<{ blob: Blob; base64: string; mimeType: string } | null> => {
@@ -4332,31 +4332,31 @@ export async function gradeMultipleSubmissions(
     
     try {
       const prepStartTime = performance.now()
-      const prepared = await compressForGemini(sub.imageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, '作業')
+      const prepared = await compressForGemini(sub.imageBlob, GEMINI_SINGLE_IMAGE_TARGET_BYTES, '考卷')
       const base64 = await blobToBase64(prepared)
       const mimeType = prepared.type || 'image/jpeg'
       const prepTime = performance.now() - prepStartTime
-      console.log(`   📦 預處理作業 ${sub.id} 完成 (${prepTime.toFixed(0)}ms, ${(prepared.size / 1024).toFixed(0)}KB)`)
+      console.log(`   📦 預處理考卷 ${sub.id} 完成 (${prepTime.toFixed(0)}ms, ${(prepared.size / 1024).toFixed(0)}KB)`)
       return { blob: prepared, base64, mimeType }
     } catch (error) {
-      console.warn(`   ⚠️ 預處理作業 ${sub.id} 失敗:`, error)
+      console.warn(`   ⚠️ 預處理考卷 ${sub.id} 失敗:`, error)
       return null
     }
   }
   
-  // 預取下一份作業
+  // 預取下一份考卷
   const prefetchNextSubmission = (currentIndex: number) => {
     const nextIndex = currentIndex + 1
     if (nextIndex < submissions.length) {
       const nextSub = submissions[nextIndex]
       if (!preparedSubmissions.has(nextSub.id!) && nextSub.imageBlob) {
-        console.log(`   🔮 預取下一份作業 ${nextSub.id}...`)
+        console.log(`   🔮 預取下一份考卷 ${nextSub.id}...`)
         preparedSubmissions.set(nextSub.id!, prepareSubmissionImage(nextSub))
       }
     }
   }
   
-  // 預取前 2 份作業
+  // 預取前 2 份考卷
   for (let i = 0; i < Math.min(2, submissions.length); i++) {
     const sub = submissions[i]
     if (sub.imageBlob && !preparedSubmissions.has(sub.id!)) {
@@ -4391,20 +4391,20 @@ export async function gradeMultipleSubmissions(
       const sub = submissions[i]
       dispatchedCount += 1
       console.log(
-        `\n📄 [W${workerId}] 批改第 ${i + 1}/${total} 份作業: ${sub.id} (派發 ${dispatchedCount}/${total})`
+        `\n📄 [W${workerId}] 批改第 ${i + 1}/${total} 份考卷: ${sub.id} (派發 ${dispatchedCount}/${total})`
       )
 
-      // 🆕 預取下一份作業（在當前作業批改期間並行準備）
+      // 🆕 預取下一份考卷（在當前考卷批改期間並行準備）
       prefetchNextSubmission(i)
 
       try {
         if (!sub.imageBlob) {
-          console.warn(`⚠️ 跳過沒有 imageBlob 的作業: ${sub.id}`)
+          console.warn(`⚠️ 跳過沒有 imageBlob 的考卷: ${sub.id}`)
           failCount++
           continue
         }
 
-        console.log(`🔍 [W${workerId}] 開始批改作業 ${sub.id}...`)
+        console.log(`🔍 [W${workerId}] 開始批改考卷 ${sub.id}...`)
 
         // 🆕 檢查是否有預處理好的圖片
         let result: GradingResult
@@ -4476,7 +4476,7 @@ export async function gradeMultipleSubmissions(
           `✅ [W${workerId}] 批改成功 (${i + 1}/${total}): ${sub.id}, 得分: ${result.totalScore}, 累計成功: ${successCount}`
         )
 
-        // 🆕 通知 UI 此份作業已完成，即時更新
+        // 🆕 通知 UI 此份考卷已完成，即時更新
         if (onSubmissionComplete) {
           const updatedSubmission: Submission = {
             ...sub,
@@ -4490,7 +4490,7 @@ export async function gradeMultipleSubmissions(
         }
       } catch (e) {
         failCount++
-        console.error(`❌ [W${workerId}] 批改作業失敗 (${i + 1}/${total}): ${sub.id}`, e)
+        console.error(`❌ [W${workerId}] 批改考卷失敗 (${i + 1}/${total}): ${sub.id}`, e)
         console.error(`   累計失敗: ${failCount}`)
       } finally {
         completedCount += 1
@@ -4752,7 +4752,7 @@ export async function extractAnswerKeyFromImage(
 
   const isInferMode = opts?.inferMode === 'infer_blank'
   const isAnswerOnly = opts?.answerSheetMode === 'answer_only'
-  console.log(`🧾 開始從圖片${isInferMode ? '推論（空白作業模式）' : (isAnswerOnly ? '抽取（純答題卡模式）' : '抽取（解答圖模式）')} AnswerKey...`)
+  console.log(`🧾 開始從圖片${isInferMode ? '推論（空白考卷模式）' : (isAnswerOnly ? '抽取（純答題卡模式）' : '抽取（解答圖模式）')} AnswerKey...`)
   const imageBase64 = await blobToBase64(answerSheetImage)
   const mimeType = answerSheetImage.type || 'image/jpeg'
 
@@ -5423,7 +5423,7 @@ export async function extractAnswerKeyFromImages(
   const totalPages = opts?.totalPages ?? answerSheetImages.length
   const needsPagePrefix = true
 
-  console.log(`🧾 開始從 ${answerSheetImages.length} 張圖片${isInferMode ? '推論（空白作業模式）' : (isAnswerOnly ? '抽取（純答題卡模式）' : '抽取（解答圖模式）')} AnswerKey... startPage=${startPage} totalPages=${totalPages}${hasBooklet ? ` + 題本 ${bookletImages.length} 頁（用於 short_answer rubric 推導）` : ''}`)
+  console.log(`🧾 開始從 ${answerSheetImages.length} 張圖片${isInferMode ? '推論（空白考卷模式）' : (isAnswerOnly ? '抽取（純答題卡模式）' : '抽取（解答圖模式）')} AnswerKey... startPage=${startPage} totalPages=${totalPages}${hasBooklet ? ` + 題本 ${bookletImages.length} 頁（用於 short_answer rubric 推導）` : ''}`)
 
   const prompt = isInferMode
     ? buildInferFromBlankPrompt(opts?.domain)
@@ -5447,7 +5447,7 @@ export async function extractAnswerKeyFromImages(
   const isSingleImage = answerSheetImages.length === 1 && totalPages === 1
   const isSinglePageOfMulti = answerSheetImages.length === 1 && totalPages > 1
   const multiImageNote = isInferMode
-    ? `【多張圖片處理】\n- 你會收到 ${answerSheetImages.length} 張空白作業圖片\n- 請從所有圖片中推論所有題目的正確答案，合併成完整 AnswerKey${pageIdRule}`
+    ? `【多張圖片處理】\n- 你會收到 ${answerSheetImages.length} 張空白考卷圖片\n- 請從所有圖片中推論所有題目的正確答案，合併成完整 AnswerKey${pageIdRule}`
     : isSingleImage
       ? `【單張答案卷】\n- 你會收到 1 張答案卷圖片\n- ID 前綴一律為 "1-"（即使卷上印有多個大題編號，第一段也固定是 1）\n- totalScore 是所有題目的 maxScore 總和${pageIdRule}`
       : isSinglePageOfMulti
@@ -6318,7 +6318,7 @@ export async function gradePhaseA(
 /**
  * 執行批改 Phase B（Accessor + Explain）
  * 需要老師透過 ConsistencyReviewPanel 確認所有 diff/unstable 題目後再呼叫。
- * @param submissionImageBlob 原始作業圖片（Blob）
+ * @param submissionImageBlob 原始考卷圖片（Blob）
  * @param phaseAResult gradePhaseA 回傳的結果（含 _phaseContext）
  * @param finalAnswers 老師確認後的最終答案列表
  */
@@ -6419,9 +6419,9 @@ export async function gradePhaseB(
  *
  * 後端 server 從 submissions.phase_a_state + submissions.final_answers 載入、跑 Phase B、寫結果。
  *
- * @param submissionImageBlob 學生作業圖片（給 Explain 階段看）
+ * @param submissionImageBlob 學生考卷圖片（給 Explain 階段看）
  * @param submissionId 要跑哪一份卷子
- * @param assignmentId 作業 id
+ * @param assignmentId 考卷 id
  * @param finalAnswersOverride 可選——若 client 想用即時編輯的 finalAnswers 覆蓋 DB cached 值
  */
 export async function gradePhaseBFromCache(

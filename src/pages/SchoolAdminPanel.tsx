@@ -729,7 +729,7 @@ export default function SchoolAdminPanel({
       const ok = await confirmModal({
         tone: 'danger',
         title: `刪除考卷「${ex.title}」?`,
-        message: `將一併移除 ${ex.classes.length} 個班級的作業與已匯入的卷。此動作無法復原。`,
+        message: `將一併移除 ${ex.classes.length} 個班級的考卷與已匯入的卷。此動作無法復原。`,
         confirmLabel: '刪除考卷'
       })
       if (!ok) return
@@ -1217,7 +1217,7 @@ export default function SchoolAdminPanel({
       </div>
 
       <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-600">勾選=施測班級;取消勾選會移除該班作業。</p>
+        <p className="text-sm text-slate-600">勾選=施測班級;取消勾選會移除該班考卷。</p>
         <span className="text-sm font-medium text-slate-500">已選 {editClassIds.size} 個班級</span>
       </div>
       {gradeGroups
@@ -1243,7 +1243,7 @@ export default function SchoolAdminPanel({
                         return next
                       })
                     }}
-                    title={existed && !on ? '取消勾選=移除此班作業(含已匯入的卷)' : undefined}
+                    title={existed && !on ? '取消勾選=移除此班考卷(含已匯入的卷)' : undefined}
                     className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
                       on
                         ? 'border-sky-300 bg-sky-50 text-sky-700'
@@ -1741,7 +1741,7 @@ export default function SchoolAdminPanel({
                   )}
                 </div>
               )}
-              {/* 考卷卡片:比照教師端作業卡(大卡+右側三顆方形動作鈕) */}
+              {/* 考卷卡片:比照教師端考卷卡(大卡+右側三顆方形動作鈕) */}
               <div className="space-y-3">
                 {exams.map((ex) => (
                   <div key={ex.id} className="w-full rounded-xl border border-slate-200 bg-white px-4 py-4 hover:border-slate-300">
@@ -2040,7 +2040,7 @@ export default function SchoolAdminPanel({
                       <th className="px-4 py-2.5 font-medium">老師(1Campus 帳號)</th>
                       <th className="px-3 py-2.5 font-medium">任教</th>
                       <th className="px-3 py-2.5 font-medium text-right">班級數</th>
-                      <th className="px-3 py-2.5 font-medium text-right">作業數</th>
+                      <th className="px-3 py-2.5 font-medium text-right">考卷數</th>
                       <th className="px-3 py-2.5 font-medium text-right">個人點數</th>
                       <th className="px-3 py-2.5" />
                     </tr>

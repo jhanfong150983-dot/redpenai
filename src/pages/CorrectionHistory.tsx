@@ -234,7 +234,7 @@ export default function CorrectionHistory({ onBack, embedded, classroomScope = '
                 ? true
                 : qItems[qItems.length - 1]?.status === 'resolved' && lastAttemptPassed
             )
-          // 學生實際訂正輪數：cqi attempt_no >= 1 + 該題真正變對的那輪（不算 attempt_no=0 起點/原作業）
+          // 學生實際訂正輪數：cqi attempt_no >= 1 + 該題真正變對的那輪（不算 attempt_no=0 起點/原考卷）
           const lastCqiAttemptNo = qItems.reduce((m, it) => Math.max(m, it.attemptNo), 0)
           const firstRightRoundNo = pendingDispute
             ? null
@@ -379,7 +379,7 @@ export default function CorrectionHistory({ onBack, embedded, classroomScope = '
                         <ChevronRight className="h-4 w-4 shrink-0 text-slate-500" />
                       )}
                       <span className="truncate text-sm font-semibold text-slate-900">
-                        {row.assignment.title || '未命名作業'}
+                        {row.assignment.title || '未命名考卷'}
                       </span>
                       <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusInfo.tone}`}>
                         {statusInfo.label}
@@ -400,9 +400,9 @@ export default function CorrectionHistory({ onBack, embedded, classroomScope = '
                             if (hasAttempts && s === 'correction_passed') return '學生訂正後全部通過，無個別錯題明細。'
                             if (hasAttempts) return '已有訂正紀錄，但無個別題目明細。'
                             if (s === 'uploaded')     return '學生已繳交，等待老師批改。'
-                            if (s === 'not_uploaded') return '老師已清空作業，學生尚未重傳。'
+                            if (s === 'not_uploaded') return '老師已清空考卷，學生尚未重傳。'
                             if (s === 'graded')       return '已批改，老師尚未派發訂正。'
-                            return '此作業沒有題目層級紀錄。'
+                            return '此考卷沒有題目層級紀錄。'
                           })()}
                         </p>
                       ) : (
@@ -512,7 +512,7 @@ export default function CorrectionHistory({ onBack, embedded, classroomScope = '
                                       {(() => {
                                         let stopAfterDispute = false
                                         // 該題「第一次變對」的那輪 = 最後一個 cqi attempt + 1（之後 student 沒再被標錯）
-                                        // 學生在那輪才會有重拍照片；不要用「整份作業通過」那輪、否則學生可能根本沒拍
+                                        // 學生在那輪才會有重拍照片；不要用「整份考卷通過」那輪、否則學生可能根本沒拍
                                         const lastCqiAttempt = q.items.reduce((m, it) => Math.max(m, it.attemptNo), 0)
                                         const firstRightRound = q.pendingDispute
                                           ? null
@@ -597,7 +597,7 @@ export default function CorrectionHistory({ onBack, embedded, classroomScope = '
                                           }
                                           return items
                                         })
-                                        // 學生在原作業就直接申訴（沒做訂正、cqi.attempt_no=0）→ flatMap 不會跑到
+                                        // 學生在原考卷就直接申訴（沒做訂正、cqi.attempt_no=0）→ flatMap 不會跑到
                                         // disputed 分支、必須在這裡追加 📝 row
                                         if (q.pendingDispute && q.pendingDispute.attemptNo < 1) {
                                           rendered.push(

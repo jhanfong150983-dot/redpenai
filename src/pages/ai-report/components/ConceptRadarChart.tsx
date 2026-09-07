@@ -17,7 +17,7 @@ type ConceptRadarChartProps = {
   /**
    * 2026-08-11 跨班比較（user 拍板：切換模式、疊在雷達上、匿名）：
    *   同卷全體（含本班、同校他師班級的匿名彙總）的逐指標比率——灰虛線多邊形疊圖。
-   *   不帶任何班級/作業名稱，只有總班數。
+   *   不帶任何班級/考卷名稱，只有總班數。
    */
   overlay?: { label: string; byCode: Record<string, number> }
 }
@@ -61,11 +61,11 @@ export default function ConceptRadarChart({ students, concepts, debugInfo, onSel
     return (
       <div className="card" style={{ padding: '1.25rem 1.5rem', fontSize: '0.875rem' }}>
         <div style={{ color: 'var(--muted)', marginBottom: debugInfo?.length ? '0.75rem' : 0 }}>
-          此班級的作業尚無 108 課綱概念標記，精熟雷達圖無法顯示。
+          此班級的考卷尚無 108 課綱概念標記，精熟雷達圖無法顯示。
         </div>
         {debugInfo && debugInfo.length > 0 && (
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-            <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem' }}>診斷：各作業的概念標記狀態</div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem' }}>診斷：各考卷的概念標記狀態</div>
             {debugInfo.map((d, i) => {
               const hasCode = d.withCode > 0
               const noGraded = (d.gradedCount ?? 0) === 0

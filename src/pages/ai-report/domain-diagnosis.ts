@@ -268,13 +268,13 @@ export function buildDomainDiagnosisPrompt(plan: DomainPlan) {
 規則：
 1. 只能輸出 JSON：{"overview": "...", "trendSummary": "...", "teachingActions": ["..."], "abilityInsight": "...?"}
 2. overview 與 trendSummary 需 50~120 字，teachingActions 2~3 行。
-3. 必須是「跨作業」統整文字，不可提單一題目/題號/單一步驟/單一算式。
+3. 必須是「跨考卷」統整文字，不可提單一題目/題號/單一步驟/單一算式。
 4. 禁止空話：加強理解、多練習、注意、提升能力。
 5. teachingActions 必須是課程層級調整（教學順序/固定流程/評量設計/回饋方式/每週安排），且回答「接下來幾週怎麼教」。
 6. abilityInsight 若有，需 <= 80 字。
 7. 若 mustAddCaveat=true，trendSummary 必須包含「樣本較少」或「參考」等保留語句。
 8. 不得列學生姓名；不得捏造不存在的資料（題號、分數分布、趨勢上升下降等）。
-9. 自我檢查：若移除任何單一作業名稱或題目內容，文字仍然成立才算通過。
+9. 自我檢查：若移除任何單一考卷名稱或題目內容，文字仍然成立才算通過。
 
 DomainPlan:
 ${JSON.stringify(payload, null, 2)}
@@ -512,7 +512,7 @@ function validateDiagnosis(diagnosis: DomainDiagnosis, plan: DomainPlan) {
 function buildFallbackDiagnosis(plan: DomainPlan): DomainDiagnosis {
   const topLabels = plan.topTags.map((tag) => tag.label).filter(Boolean)
   const overviewTags = topLabels.slice(0, 2).join('、') || '常見錯誤標籤'
-  const overview = `本領域近期作業顯示${overviewTags}較為集中，反映出跨作業的概念理解需要穩定化，建議以整體教學節奏做調整。`
+  const overview = `本領域近期考卷顯示${overviewTags}較為集中，反映出跨考卷的概念理解需要穩定化，建議以整體教學節奏做調整。`
   const trendSummary = plan.mustAddCaveat
     ? `目前樣本較少，趨勢判讀先以參考為主；仍可先從${overviewTags}切入規畫教學安排。`
     : `整體錯誤分布呈現集中於${overviewTags}的趨勢，適合在課堂流程中安排固定回饋與檢核節點。`

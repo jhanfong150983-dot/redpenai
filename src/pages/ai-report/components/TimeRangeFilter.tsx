@@ -38,7 +38,7 @@ export default function TimeRangeFilter({
         <div>
           <h3>時段篩選</h3>
           <p className="subtitle">
-            {startLabel} – {endLabel} · 作業 {assignmentCount} 份｜樣本{' '}
+            {startLabel} – {endLabel} · 考卷 {assignmentCount} 份｜樣本{' '}
             {sampleCountTotal}
           </p>
         </div>

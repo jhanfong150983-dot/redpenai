@@ -86,7 +86,7 @@ export type ItemAnalysisResult = {
   alpha: number | null
   dBandCounts: Record<string, number>
   flagged: Array<{ questionId: string; why: string }>
-  /** 每卷總分（作業總覽用） */
+  /** 每卷總分（考卷總覽用） */
   totals: number[]
   /** 整卷滿分（各題配分合計） */
   examMaxScore: number

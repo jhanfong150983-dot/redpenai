@@ -48,11 +48,11 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
     return (
       <div className="card" style={{ padding: '1.25rem 1.5rem', fontSize: '0.875rem' }}>
         <div style={{ color: 'var(--muted)', marginBottom: debugInfo?.length ? '0.75rem' : 0 }}>
-          此班級的作業尚無 108 課綱概念標記，雙向細目表無法顯示。
+          此班級的考卷尚無 108 課綱概念標記，雙向細目表無法顯示。
         </div>
         {debugInfo && debugInfo.length > 0 && (
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-            <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem' }}>診斷：各作業的答案鍵狀態</div>
+            <div style={{ fontSize: '0.7rem', fontWeight: 600, color: '#6b7280', marginBottom: '0.4rem' }}>診斷：各考卷的答案鍵狀態</div>
             {debugInfo.map((d, i) => {
               const hasCode = d.withCode > 0
               const noGraded = (d.gradedCount ?? 0) === 0
@@ -78,22 +78,22 @@ export default function ConceptMasteryTable({ students, concepts, debugInfo }: C
             })}
             {debugInfo.every(d => d.total > 0 && d.withCode === 0) && (
               <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#92400e', background: '#fef3c7', borderRadius: '0.375rem', padding: '0.5rem 0.75rem' }}>
-                答案鍵有題目但都沒有 concept_code。請在「作業設定」重新抽取答案鍵，並確認班級有設定年級。
+                答案鍵有題目但都沒有 concept_code。請在「考卷設定」重新抽取答案鍵，並確認班級有設定年級。
               </div>
             )}
             {debugInfo.every(d => d.total === 0) && (
               <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#92400e', background: '#fef3c7', borderRadius: '0.375rem', padding: '0.5rem 0.75rem' }}>
-                答案鍵尚未設定。請先在「作業設定」中上傳並抽取答案鍵。
+                答案鍵尚未設定。請先在「考卷設定」中上傳並抽取答案鍵。
               </div>
             )}
             {debugInfo.some(d => d.withCode > 0 && (d.gradedCount ?? 0) > 0 && (d.matchedCount ?? 0) === 0) && (
               <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#92400e', background: '#fef3c7', borderRadius: '0.375rem', padding: '0.5rem 0.75rem' }}>
-                概念標籤的題號與批改紀錄不吻合，可能是重新抽取答案鍵後題號有改變。請至「作業設定」重新執行概念標記。
+                概念標籤的題號與批改紀錄不吻合，可能是重新抽取答案鍵後題號有改變。請至「考卷設定」重新執行概念標記。
               </div>
             )}
             {debugInfo.some(d => d.withCode > 0 && (d.gradedCount ?? 0) === 0) && (
               <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#1d4ed8', background: '#dbeafe', borderRadius: '0.375rem', padding: '0.5rem 0.75rem' }}>
-                答案鍵有概念標籤，但此作業尚無已批改的學生作業，表格無法顯示。
+                答案鍵有概念標籤，但此考卷尚無已批改的學生考卷，表格無法顯示。
               </div>
             )}
           </div>
