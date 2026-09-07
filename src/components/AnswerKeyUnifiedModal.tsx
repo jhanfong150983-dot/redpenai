@@ -944,6 +944,9 @@ export default function AnswerKeyUnifiedModal({
       if (pageItems.length === 0 && canSkipUpload && teacherMakerResult) {
         setExtractionMsg('準備答案卷影像（生成的老師版）…')
         teacherSheetImage = (await rasterizeSheetSvg(teacherMakerResult.svg, teacherMakerResult.layoutMeta.pageMm)) ?? undefined
+        console.warn('[crop:modal] teacherMakerResult?', !!teacherMakerResult, 'rasterized blob:', teacherSheetImage ? `${teacherSheetImage.size}B` : 'NULL', 'pageMm:', teacherMakerResult.layoutMeta.pageMm)
+      } else {
+        console.warn('[crop:modal] 跳過點陣化 pageItems', pageItems.length, 'canSkipUpload', canSkipUpload, 'teacherMakerResult?', !!teacherMakerResult)
       }
       const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setExtractionMsg, {
         domain: effectiveDomain,

@@ -478,7 +478,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
             im.src = url
           })
           cropById = new Map(cropReferenceSheetCells(img, context.generatedLayout).map((c) => [c.id, c.dataUrl]))
-        } catch (err) { console.warn('[skipUpload] 裁格失敗（退回無圖）', err) }
+          console.warn('[crop:bank] 裁格成功', cropById.size, '格；影像', img.naturalWidth, 'x', img.naturalHeight, 'ids', [...cropById.keys()].slice(0, 3), 'skeleton', skeleton.questions.slice(0, 3).map((q) => q.id))
+        } catch (err) { console.warn('[crop:bank] 裁格失敗（退回無圖）:', (err as Error)?.message || err) }
+      } else {
+        console.warn('[crop:bank] 無 teacherSheetImage', !!context.teacherSheetImage, '或 generatedLayout', !!context.generatedLayout)
       }
       // 需 AI 生 rubric 的題：多元填空(判準)、應用題(級分)、作圖(看圖判準，正解圖=老師畫筆畫的、已烘進生成影像)。
       const rubricItems = skeleton.questions.filter((q) => {
