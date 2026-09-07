@@ -169,6 +169,19 @@ export interface GeneratedSheetData {
   sectionOverrides?: Record<string, SectionOverride>
   /** 建卷當下估算的「批改一份」點數（菜單制公式、classSize=30 名目值；後端統計用，不顯示） */
   estimatedPointsPerSheet?: number
+  /** 2026-09-07 老師在「製作作答卷」打的可編輯內容（參考答案/文字方塊/底圖/畫筆）。
+   *  持久化這個 → 存檔後重開能完整還原、繼續編輯，不會消失。結構＝SheetMakerState。 */
+  sheetInputs?: SheetInputsData
+}
+
+/** 製作作答卷的可編輯輸入（＝SheetMakerState 的可序列化內容，供持久化與還原） */
+export interface SheetInputsData {
+  pageSize: PageSize
+  sectionOverrides: Record<string, SectionOverride>
+  baseImages: Record<string, GenBaseImage & { bookletPage?: number; rect?: { x: number; y: number; w: number; h: number } }>
+  cellTexts: Record<string, GenCellText[]>
+  refAnswers?: Record<string, string>
+  refDrawings?: Record<string, RefStroke[]>
 }
 
 export interface GenFail {

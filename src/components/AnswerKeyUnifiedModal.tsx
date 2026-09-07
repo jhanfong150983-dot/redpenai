@@ -305,7 +305,10 @@ export default function AnswerKeyUnifiedModal({
   // ── step state machine ────────────────────────────────────────────────────
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
   // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
-  const [makerState, setMakerState] = useState<SheetMakerState>(EMPTY_SHEET_MAKER_STATE)
+  //   2026-09-07 編輯模式重開：從已存的 generatedSheet.sheetInputs 還原老師打的內容（參考答案/文字方塊/底圖/畫筆）
+  const [makerState, setMakerState] = useState<SheetMakerState>(
+    () => (editMode && initialGeneratedSheet?.sheetInputs ? (initialGeneratedSheet.sheetInputs as SheetMakerState) : EMPTY_SHEET_MAKER_STATE)
+  )
   const [makerResult, setMakerResult] = useState<GenResult | null>(null)
   const [teacherMakerResult, setTeacherMakerResult] = useState<GenResult | null>(null) // 老師版(帶紅字)、供AI解析下載
   const [makerFitStatus, setMakerFitStatus] = useState<'ok' | 'overflow' | 'pending'>('pending') // 版面是否放得下單面一頁
@@ -1588,6 +1591,8 @@ export default function AnswerKeyUnifiedModal({
               // 2026-09-05（2b）：建卷當下估「批改一份要多少點」（菜單制公式、classSize 取 30 名目值）。
               // 不顯示給老師，後端由 generated_sheet 讀取即可。
               estimatedPointsPerSheet: computePointsPerSheet(updatedKey, 30, domainValue),
+              // 2026-09-07 持久化老師打的可編輯內容（參考答案/文字方塊/底圖/畫筆）→ 重開能完整還原
+              sheetInputs: makerState,
             }
           // ⚠️ 2026-09-07：不用「重建版面」覆蓋 generatedSheet/PDF——重建只從答案還原，
           //   會丟失老師打的文字方塊/底圖/畫筆(未持久化)、且會覆蓋掉舊的好 PDF。缺版面就維持缺(不清、不覆蓋)。
