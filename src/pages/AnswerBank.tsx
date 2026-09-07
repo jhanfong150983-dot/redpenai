@@ -450,8 +450,24 @@ export default function AnswerBank(_props: AnswerBankProps) {
       skeleton?: AnswerKey
       /** Phase 4「直接使用」：老師製作作答卷時打的參考答案（逐格 qid→文字）→ 有值的格直接用、不送 AI 讀 */
       refAnswers?: Record<string, string>
+      /** 純打字免上傳：每格都打字、且無作圖/應用題 → 不上傳手寫卷、零 AI 直接建卷 */
+      skipUpload?: boolean
     }
   ) => {
+    // 純打字免上傳（2026-09-07）：老師每格都打了參考答案、且無作圖/應用題 →
+    //   零 AI、不需手寫卷、不扣墨水 → 直接用打的字建卷（放在 inkConfirm 之前，完全不開墨水 session）。
+    if (context.skipUpload && context.generatedLayout && context.skeleton) {
+      _onProgress('用打字的參考答案直接建卷（免上傳、零 AI）…')
+      const refAnswers = context.refAnswers ?? {}
+      const questions = context.skeleton.questions.map((q) => {
+        const typed = (refAnswers[q.id] ?? '').trim()
+        const next = { ...q }
+        if (typed) (next as { answer?: string }).answer = typed
+        return next
+      })
+      const answerKey: AnswerKey = { ...context.skeleton, questions, totalScore: questions.reduce((t, q) => t + (q.maxScore ?? 0), 0) }
+      return { answerKey, imageBlobs: [], notice: '已用您打字的參考答案直接建卷（未上傳手寫卷、零 AI 讀取）。請逐題核對。' }
+    }
     // 2026-06-01: 擷取會花墨水 → 先跳同意框（promise-confirm，不同意則中止、不扣點）
     const inkOk = await new Promise<boolean>((resolve) => setInkConfirm({ resolve }))
     setInkConfirm(null)

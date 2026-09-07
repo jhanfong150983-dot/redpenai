@@ -928,6 +928,8 @@ export default function AnswerKeyUnifiedModal({
               skeleton: editingKey,
               // Phase 4「直接使用」：老師在製作作答卷時打的參考答案（逐格）→ 有值的格直接用、不送 AI 讀
               refAnswers: makerState.refAnswers ?? {},
+              // 純打字免上傳：沒上傳手寫卷且每格都打字（canSkipUpload）→ 零 AI 直接建卷
+              ...(pageItems.length === 0 && canSkipUpload ? { skipUpload: true } : {}),
             }
           : {}),
       })
@@ -954,6 +956,18 @@ export default function AnswerKeyUnifiedModal({
 
   // ─�� Step 4: editing state ──────────��──────────────────────────────────────
   const [editingKey, setEditingKey] = useState<AnswerKey | null>(initialAnswerKey)
+
+  // 純打字免上傳（2026-09-07）：每格都在製作作答卷時打了參考答案、且無「一定要影像」的題型
+  //   （作圖/繪圖類、應用題 word_problem 的級分 rubric 都得看手寫圖）→ 可完全略過上傳、零 AI 建卷。
+  const canSkipUpload = useMemo(() => {
+    if (!GENERATED_SHEET_STEP_ENABLED || !editingKey) return false
+    const qs = editingKey.questions
+    if (qs.length === 0) return false
+    const NEEDS_IMAGE = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'word_problem'])
+    if (qs.some((q) => NEEDS_IMAGE.has(String(q.questionCategory)))) return false
+    const refAnswers = makerState.refAnswers ?? {}
+    return qs.every((q) => (refAnswers[q.id] ?? '').trim() !== '')
+  }, [editingKey, makerState.refAnswers])
 
   const [genDraftRestored, setGenDraftRestored] = useState(false)
   const [schoolName, setSchoolName] = useState('')
@@ -1525,6 +1539,10 @@ export default function AnswerKeyUnifiedModal({
       if (GENERATED_SHEET_STEP_ENABLED) {
         // ④＝上傳「手寫在作答卷上的參考答案」→ bbox 裁格讀取。需：已上傳答案卷圖(pageItems)＋版面(makerResult)
         if (!makerResult) return { label: '版面載入中…', disabled: true, loading: true }
+        // 純打字免上傳：每格都打字、無作圖/應用題 → 可略過上傳直接建卷（零 AI）
+        if (pageItems.length === 0 && canSkipUpload) {
+          return { label: '直接完成建卷（免上傳）', disabled: false, icon: <Check className="w-4 h-4" /> }
+        }
         return {
           label: pageItems.length === 0 ? '請先上傳手寫參考答案卷' : '確認送出解析',
           disabled: pageItems.length === 0,
@@ -1921,10 +1939,19 @@ export default function AnswerKeyUnifiedModal({
                         <div className="flex items-baseline justify-between mb-3">
                           <div className="flex items-center gap-2">
                             <h3 className="text-sm font-semibold text-rose-900">{GENERATED_SHEET_STEP_ENABLED ? '📑 手寫參考答案卷' : '📑 答案卷'}</h3>
-                            <span className="text-[11px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-medium">必傳</span>
+                            {canSkipUpload ? (
+                              <span className="text-[11px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded font-medium">可略過</span>
+                            ) : (
+                              <span className="text-[11px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-medium">必傳</span>
+                            )}
                             <span className="text-xs text-gray-500">{GENERATED_SHEET_STEP_ENABLED ? '— 標準答案手寫在上一步下載的作答卷上，拍照或掃描上傳' : '— 你自己寫好標準答案的版本'}</span>
                           </div>
                         </div>
+                        {canSkipUpload && pageItems.length === 0 && (
+                          <div className="mb-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
+                            <p className="text-xs text-emerald-800">✓ 每格都已填好參考答案、且沒有作圖／應用題 → 可直接按下方「<span className="font-semibold">直接完成建卷（免上傳）</span>」，不必列印手寫、零 AI 讀取。若仍要上傳手寫卷校對也可以。</p>
+                          </div>
+                        )}
                         <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />
                         <input ref={addFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleAddFiles} />
                         {pageItems.length === 0 ? (
