@@ -9,6 +9,7 @@ import { db, generateId } from '@/lib/db'
 import type { AnswerKey, AnswerKeyTemplate } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { rescaleSubmissionForMaxScoreChange } from '@/lib/answerStats'
+import { fetchBuildQuota, type BuildQuota } from '@/lib/buildQuota'
 import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
 import { solveAnswerKeyFromBooklet, extractAnswerKeyFromImages, readReferenceAnswerCells, detectVisualRubric, detectLevelRubric } from '@/lib/gemini'
 import { cropReferenceSheetCells } from '@/lib/generatedSheetAlign'
@@ -427,6 +428,13 @@ export default function AnswerBank(_props: AnswerBankProps) {
 
   // 2026-06-01: 擷取墨水同意框（promise-confirm）
   const [inkConfirm, setInkConfirm] = useState<{ resolve: (ok: boolean) => void } | null>(null)
+  const [inkQuota, setInkQuota] = useState<BuildQuota | null>(null) // 建卷週次數上限（確認框顯示剩餘）
+  useEffect(() => {
+    if (!inkConfirm) return
+    let alive = true
+    void fetchBuildQuota().then((q) => { if (alive) setInkQuota(q) })
+    return () => { alive = false }
+  }, [inkConfirm])
 
   const handleUnifiedExtract = async (
     orderedPages: Array<{ index: number; url: string; blob: Blob }>,
@@ -1210,14 +1218,20 @@ export default function AnswerBank(_props: AnswerBankProps) {
         />
       )}
 
-      {/* 2026-06-01: 擷取答案卷墨水同意框 */}
+      {/* 擷取答案卷同意框（建卷免費、鎖週次數；非扣點數） */}
       <InkConfirmModal
         open={!!inkConfirm}
-        warning="擷取答案卷會消耗墨水（點數）"
+        warning="擷取答案卷會消耗次數"
         onCancel={() => { inkConfirm?.resolve(false); setInkConfirm(null) }}
         onConfirm={() => { inkConfirm?.resolve(true); setInkConfirm(null) }}
       >
         即將用 AI 讀取這份答案卷的題目與答案。
+        {inkQuota && !inkQuota.unlimited && inkQuota.cap != null && (
+          <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-amber-800">
+            本週建卷額度：剩餘 <strong>{inkQuota.remaining}</strong> / {inkQuota.cap} 次
+            <div className="mt-0.5 text-xs text-amber-600">每週一自動重置（建卷免費，僅計次數）</div>
+          </div>
+        )}
       </InkConfirmModal>
 
       {/* 匯入短碼 Modal */}
