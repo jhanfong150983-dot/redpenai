@@ -17,6 +17,7 @@ import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
 import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
 import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData } from '@/lib/answerSheetGenerator'
+import { cropReferenceSheetCells } from '@/lib/generatedSheetAlign'
 import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { db } from '@/lib/db'
@@ -1488,6 +1489,39 @@ export default function AnswerKeyUnifiedModal({
       const updatedKey: AnswerKey = {
         ...editingKey,
         totalScore: editingKey.questions.reduce((s, q) => s + (q.maxScore ?? 0), 0),
+      }
+      // 存檔前補「作答區截圖」：免上傳建的卷可能缺 crop → 用生成的老師版影像(帶紅字)裁每格。
+      //   client 端、免 AI；本 session 有經過製作作答卷才有 teacherMakerResult/makerResult。失敗不擋存檔。
+      if (GENERATED_SHEET_STEP_ENABLED && teacherMakerResult && makerResult) {
+        const needCrop = updatedKey.questions.some((q) => !(q as { cropImageUrl?: string; cropImagePath?: string }).cropImageUrl && !(q as { cropImagePath?: string }).cropImagePath)
+        if (needCrop) {
+          try {
+            setExtractError(null)
+            const blob = await rasterizeSheetSvg(teacherMakerResult.svg, teacherMakerResult.layoutMeta.pageMm)
+            if (blob) {
+              const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+                const im = new Image(); im.onload = () => resolve(im); im.onerror = () => reject(new Error('影像載入失敗')); im.src = URL.createObjectURL(blob)
+              })
+              const layout: GeneratedSheetData = {
+                version: ANSWER_SHEET_GEN_VERSION,
+                pageSize: makerState.pageSize,
+                pageMm: makerResult.layoutMeta.pageMm,
+                anchorsMm: makerResult.layoutMeta.anchorsMm,
+                uvBasis: makerResult.layoutMeta.uvBasis,
+                header: makerResult.layoutMeta.header,
+                boxes: makerResult.boxes,
+                sectionOverrides: makerState.sectionOverrides,
+              }
+              const cropMap = new Map(cropReferenceSheetCells(img, layout).map((c) => [c.id, c.dataUrl]))
+              updatedKey.questions = updatedKey.questions.map((q) => {
+                const has = !!(q as { cropImageUrl?: string }).cropImageUrl || !!(q as { cropImagePath?: string }).cropImagePath
+                const crop = cropMap.get(q.id)
+                return (!has && crop) ? { ...q, cropImageUrl: crop } : q
+              })
+              console.warn('[crop backfill] 補上', cropMap.size, '格截圖')
+            } else console.warn('[crop backfill] 點陣化失敗、無截圖')
+          } catch (err) { console.warn('[crop backfill] 失敗（存檔續行、無截圖）:', (err as Error)?.message || err) }
+        }
       }
       const domainValue = domain === '國語（測試中）' ? '國語' : (domain || '其他')
 
