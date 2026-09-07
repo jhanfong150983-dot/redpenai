@@ -229,46 +229,18 @@ export default function AssignmentList({
       if (settingsSelectedNewAK?.answerKey) {
         const gradedCount = settingsAssignment.gradedCount ?? 0
         if (gradedCount > 0) {
+          // 2026-09-07 Phase B（主動權還給老師）：更換答案卷不再破壞性清空舊批改。
+          //   改為保留舊成績、把 boundAnswerKeyVersion 設 0 → 批改頁 getAnswerKeyVersionStatus 回 'updated'
+          //   → 顯示「答案卷內容已變更，請重新批改」橫幅＋重批按鈕，由老師主動重批（用新答案卷、Phase B only）。
+          //   註：常見換卷＝原卷解析錯、換同結構修正版，學生筆跡沒動、舊讀取(phaseAState)仍有效可沿用；
+          //   極少數「結構全變」的換卷若讀取失準，老師可改用「個別批改」full 重讀。
           const ok = await confirmModal({
-            tone: 'danger',
-            title: '更換答案卷將清除批改',
-            message: `此作業已有 ${gradedCount} 份批改結果，更換答案卷將清除所有批改。確定？`,
-            confirmLabel: '清除並更換',
+            tone: 'warning',
+            title: '更換答案卷',
+            message: `此作業已有 ${gradedCount} 份批改結果。更換後，這些成績會先保留，批改頁會顯示「答案卷內容已變更，請重新批改」——由你決定何時用新答案卷重批（不會自動清除舊成績）。`,
+            confirmLabel: '更換答案卷',
           })
           if (!ok) { setIsSavingSettings(false); return }
-          // 清除本地 Dexie 批改結果
-          // 2026-06-21 Bug F：換答案卷 = 答案卷有問題 → 連 reads(phaseAState)+finalAnswers 一起清、全部重來。
-          //   理由：read2 是「知答案」校對、classify 也依答案卷對位 → 舊讀取受舊(錯)答案卷污染、不可沿用，
-          //   否則智慧批改會用舊 reads 重算分(跳過重讀)。
-          const subs = await db.submissions.where('assignmentId').equals(settingsAssignment.id).toArray()
-          for (const sub of subs) {
-            if (sub.gradingResult || sub.score != null || sub.phaseAState || sub.hasGradingResult || sub.phaseASavedAt || (Array.isArray(sub.finalAnswers) && sub.finalAnswers.length > 0)) {
-              await db.submissions.update(sub.id, {
-                gradingResult: null as unknown as undefined,
-                score: null as unknown as undefined,
-                aiScore: null as unknown as undefined,
-                gradedAt: null as unknown as undefined,
-                phaseAState: null as unknown as undefined,
-                hasGradingResult: undefined, phaseASavedAt: undefined, detailsFetchedAt: undefined,
-                finalAnswers: null as unknown as undefined,
-                status: 'synced', updatedAt: now,
-              })
-            }
-          }
-          // 同步清除 Supabase 批改結果（否則下次 sync pull 會把舊分數抓回來覆蓋）
-          try {
-            const res = await fetch('/api/data/clear-grading', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ assignmentId: settingsAssignment.id }),
-            })
-            if (!res.ok) {
-              console.warn('[clear-grading] 後端清除失敗', await res.text())
-            }
-          } catch (err) {
-            console.warn('[clear-grading] 後端清除例外', err)
-          }
         }
         const newAK = JSON.parse(JSON.stringify(settingsSelectedNewAK.answerKey))
         newAK.strictness = settingsStrictness
@@ -282,7 +254,8 @@ export default function AssignmentList({
         await db.assignments.update(settingsAssignment.id, {
           answerKey: newAK, domain: settingsSelectedNewAK.domain,
           answerKeyTemplateId: settingsSelectedNewAK.id,
-          boundAnswerKeyVersion: settingsSelectedNewAK.version ?? 1,
+          // 有舊成績→設 0 強制 'updated'（保留成績、老師主動重批）；無舊成績→對齊新版本＝'normal'（乾淨換卷）
+          boundAnswerKeyVersion: gradedCount > 0 ? 0 : (settingsSelectedNewAK.version ?? 1),
           scoringMode: settingsScoringMode === 'unscored' ? 'unscored' : undefined,
           folder: settingsFolder || undefined,
           updatedAt: now,
