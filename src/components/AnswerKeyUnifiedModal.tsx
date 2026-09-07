@@ -1007,7 +1007,7 @@ export default function AnswerKeyUnifiedModal({
     if (boxes.length === 0) return null
     // 只有「作圖/繪圖類」一定要上傳（答案是圖、沒法打字）。應用題(word_problem)現在可免上傳：
     //   用生成的老師版作答卷(帶紅字)當答案卷影像、裁格餵 detectLevelRubric 生級分制。
-    const DRAW_TYPES = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'])
+    const DRAW_TYPES = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'map_fill'])
     // 需 AI 生 rubric 的題（免上傳時會用生成影像＋題本跑一次 AI）
     const RUBRIC_TYPES = new Set(['fill_variants', 'word_problem'])
     const refAnswers = makerState.refAnswers ?? {}

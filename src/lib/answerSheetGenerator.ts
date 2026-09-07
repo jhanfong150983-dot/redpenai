@@ -84,9 +84,17 @@ export interface GenQuestion {
   refDrawing?: RefStroke[]
 }
 
-/** 內建正解圖的一筆（畫筆）：點座標以「格子」正規化 0~1（隨格子縮放）。直線=2 點、曲線=多點 polyline。 */
+/**
+ * 內建正解圖的一筆（畫筆）。座標一律以「格子」正規化 0~1（隨格子縮放）。
+ * type 省略＝poly（直線=2 點、曲線=多點折線，向下相容舊資料）。
+ *   poly：pts 折線；arrow：pts=[起,迄] 直線＋箭頭；fill：pts 封閉填色多邊形（半透明紅）；
+ *   rect：x/y/w/h 矩形外框；ellipse：cx/cy/rx/ry 橢圓外框。
+ */
 export interface RefStroke {
-  pts: Array<[number, number]>
+  type?: 'poly' | 'arrow' | 'fill' | 'rect' | 'ellipse'
+  pts?: Array<[number, number]>
+  x?: number; y?: number; w?: number; h?: number
+  cx?: number; cy?: number; rx?: number; ry?: number
 }
 
 /** 格內文字方塊 */
@@ -343,14 +351,35 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
       const anchor = isCenter ? ' text-anchor="middle"' : ''
       els.push(`<text x="${rtx * DPMM}" y="${rty * DPMM}" font-size="${rsize * DPMM}" fill="#c00"${anchor}${lenAttr} xml:space="preserve">${esc(raw)}</text>`)
     }
-    // 2026-09-07 內建正解圖（畫筆紅色筆畫，繪圖題）：點 0~1 正規化 → 映射到格內。
+    // 2026-09-07 內建正解圖（畫筆，繪圖題）：座標 0~1 正規化 → 映射到格內。支援折線/直線/曲線/箭頭/塗色/矩形/橢圓。
     //   ⛔ 鐵律：只老師版(withRefAnswers)畫，學生版絕不畫。
     if (withRefAnswers && q.refDrawing && q.refDrawing.length) {
-      const sw = 0.35 // mm 筆寬
-      for (const stroke of q.refDrawing) {
-        if (!stroke?.pts || stroke.pts.length < 2) continue
-        const pts = stroke.pts.map(([px, py]) => `${(x + px * w) * DPMM},${(yy + py * h) * DPMM}`).join(' ')
-        els.push(`<polyline points="${pts}" fill="none" stroke="#c00" stroke-width="${sw * DPMM}" stroke-linecap="round" stroke-linejoin="round"/>`)
+      const sw = 0.35 * DPMM // 筆寬
+      const RED = '#c00'
+      const FILL = 'rgba(204,0,0,0.30)'
+      const MX = (px: number) => +((x + px * w) * DPMM).toFixed(1)
+      const MY = (py: number) => +((yy + py * h) * DPMM).toFixed(1)
+      for (const s of q.refDrawing) {
+        const type = s.type ?? 'poly'
+        if (type === 'rect' && s.x != null && s.y != null && s.w != null && s.h != null) {
+          els.push(`<rect x="${MX(s.x)}" y="${MY(s.y)}" width="${+(s.w * w * DPMM).toFixed(1)}" height="${+(s.h * h * DPMM).toFixed(1)}" fill="none" stroke="${RED}" stroke-width="${sw}"/>`)
+        } else if (type === 'ellipse' && s.cx != null && s.cy != null && s.rx != null && s.ry != null) {
+          els.push(`<ellipse cx="${MX(s.cx)}" cy="${MY(s.cy)}" rx="${+(s.rx * w * DPMM).toFixed(1)}" ry="${+(s.ry * h * DPMM).toFixed(1)}" fill="none" stroke="${RED}" stroke-width="${sw}"/>`)
+        } else if (s.pts && s.pts.length >= 2) {
+          const pts = s.pts.map(([px, py]) => `${MX(px)},${MY(py)}`).join(' ')
+          if (type === 'fill') {
+            els.push(`<polygon points="${pts}" fill="${FILL}" stroke="${RED}" stroke-width="${sw}" stroke-linejoin="round"/>`)
+          } else if (type === 'arrow') {
+            els.push(`<polyline points="${pts}" fill="none" stroke="${RED}" stroke-width="${sw}" stroke-linecap="round"/>`)
+            const ax = MX(s.pts[0][0]), ay = MY(s.pts[0][1]), bx = MX(s.pts[s.pts.length - 1][0]), by = MY(s.pts[s.pts.length - 1][1])
+            const ang = Math.atan2(by - ay, bx - ax); const hl = 2.5 * DPMM; const th = 0.44
+            const p1x = +(bx - hl * Math.cos(ang - th)).toFixed(1), p1y = +(by - hl * Math.sin(ang - th)).toFixed(1)
+            const p2x = +(bx - hl * Math.cos(ang + th)).toFixed(1), p2y = +(by - hl * Math.sin(ang + th)).toFixed(1)
+            els.push(`<polygon points="${bx},${by} ${p1x},${p1y} ${p2x},${p2y}" fill="${RED}"/>`)
+          } else {
+            els.push(`<polyline points="${pts}" fill="none" stroke="${RED}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`)
+          }
+        }
       }
     }
   }

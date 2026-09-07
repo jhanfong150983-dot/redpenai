@@ -535,9 +535,11 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
   const canvasRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ kind: 'text' | 'img-move' | 'img-resize'; idx?: number; handle?: string; sx: number; sy: number; ox: number; oy: number; ow?: number; oh?: number } | null>(null)
   const uploadRef = useRef<HTMLInputElement>(null)
-  // 畫筆（繪圖題正解圖，紅色、只老師版）：off=不畫、line=直線(按→拖→放)、curve=曲線(自由手繪)。
+  // 畫筆（繪圖題正解圖，紅色、只老師版）：off/直線/曲線/圓橢圓/矩形/箭頭/塗色。
   //   點座標存 0~1 正規化（隨格子縮放）。用 ref 存進行中筆畫、drawTick 觸發重繪避免 stale closure。
-  const [drawMode, setDrawMode] = useState<'off' | 'line' | 'curve'>('off')
+  type DrawMode = 'off' | 'line' | 'curve' | 'ellipse' | 'rect' | 'arrow' | 'fill'
+  const [drawMode, setDrawMode] = useState<DrawMode>('off')
+  const TWO_PT = (m: DrawMode) => m === 'line' || m === 'ellipse' || m === 'rect' || m === 'arrow' // 拖框類：只留起訖兩點
   const drawingRef = useRef(false)
   const liveRef = useRef<Array<[number, number]> | null>(null)
   const [, setDrawTick] = useState(0)
@@ -556,16 +558,55 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
   const moveStroke = (e: React.PointerEvent) => {
     if (!drawingRef.current || !liveRef.current) return
     const p = toNorm(e)
-    liveRef.current = drawMode === 'line' ? [liveRef.current[0], p] : [...liveRef.current, p]
+    liveRef.current = TWO_PT(drawMode) ? [liveRef.current[0], p] : [...liveRef.current, p]
     setDrawTick((t) => t + 1)
+  }
+  // 進行中兩點 → 對應形狀 RefStroke（拖框類 rect/ellipse 由 bounding box 算）
+  const strokeFromLive = (mode: DrawMode, pts: Array<[number, number]>): RefStroke | null => {
+    if (pts.length < 2) return null
+    const a = pts[0], b = pts[pts.length - 1]
+    if (mode === 'rect') return { type: 'rect', x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) }
+    if (mode === 'ellipse') return { type: 'ellipse', cx: (a[0] + b[0]) / 2, cy: (a[1] + b[1]) / 2, rx: Math.abs(b[0] - a[0]) / 2, ry: Math.abs(b[1] - a[1]) / 2 }
+    if (mode === 'arrow') return { type: 'arrow', pts: [a, b] }
+    if (mode === 'fill') return { type: 'fill', pts }
+    return { type: 'poly', pts } // line(2點)/curve(多點)
   }
   const endStroke = () => {
     if (!drawingRef.current) return
     drawingRef.current = false
     const s = liveRef.current
     liveRef.current = null
-    if (s && s.length >= 2) onRefDrawingChange([...refDrawing, { pts: s }])
+    const stroke = s ? strokeFromLive(drawMode, s) : null
+    if (stroke) onRefDrawingChange([...refDrawing, stroke])
     setDrawTick((t) => t + 1)
+  }
+  // 一筆 RefStroke → React SVG（各形狀）。SX/SY：正規化 0~1 → 畫布 px。dashed=進行中預覽。
+  const SX = (nx: number) => nx * cellWMm * k
+  const SY = (ny: number) => ny * cellHMm * k
+  const drawEl = (s: RefStroke, key: React.Key, dashed = false) => {
+    const type = s.type ?? 'poly'
+    const RED = '#c00'; const sw = 1.4; const dash = dashed ? '5 3' : undefined
+    if (type === 'rect' && s.w != null && s.h != null)
+      return <rect key={key} x={SX(s.x ?? 0)} y={SY(s.y ?? 0)} width={s.w * cellWMm * k} height={s.h * cellHMm * k} fill="none" stroke={RED} strokeWidth={sw} strokeDasharray={dash} />
+    if (type === 'ellipse' && s.rx != null && s.ry != null)
+      return <ellipse key={key} cx={SX(s.cx ?? 0)} cy={SY(s.cy ?? 0)} rx={s.rx * cellWMm * k} ry={s.ry * cellHMm * k} fill="none" stroke={RED} strokeWidth={sw} strokeDasharray={dash} />
+    if (s.pts && s.pts.length >= 2) {
+      const pstr = s.pts.map(([px, py]) => `${SX(px)},${SY(py)}`).join(' ')
+      if (type === 'fill')
+        return <polygon key={key} points={pstr} fill="rgba(204,0,0,0.30)" stroke={RED} strokeWidth={sw} strokeLinejoin="round" strokeDasharray={dash} />
+      if (type === 'arrow') {
+        const a = s.pts[0], b = s.pts[s.pts.length - 1]
+        const bx = SX(b[0]), by = SY(b[1]); const ang = Math.atan2(by - SY(a[1]), bx - SX(a[0])); const hl = 10, th = 0.44
+        return (
+          <g key={key}>
+            <line x1={SX(a[0])} y1={SY(a[1])} x2={bx} y2={by} stroke={RED} strokeWidth={sw} strokeDasharray={dash} strokeLinecap="round" />
+            <polygon points={`${bx},${by} ${bx - hl * Math.cos(ang - th)},${by - hl * Math.sin(ang - th)} ${bx - hl * Math.cos(ang + th)},${by - hl * Math.sin(ang + th)}`} fill={RED} />
+          </g>
+        )
+      }
+      return <polyline key={key} points={pstr} fill="none" stroke={RED} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={dash} />
+    }
+    return null
   }
 
   const sizeMm = (t: GenCellText) => (t.size === 's' ? 2.6 : t.size === 'l' ? 4.2 : 3.2)
@@ -745,11 +786,11 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
               <div className="pt-2 mt-2 border-t">
                 <div className="text-xs font-semibold text-red-600 mb-1">正解圖（紅色畫筆）</div>
                 <p className="text-[11px] text-amber-600 leading-relaxed mb-1.5">繪圖題可直接在右邊格子畫出正解，免印出手寫。只老師／批改看得到、學生版絕不含。</p>
-                <div className="flex gap-1 mb-1">
-                  <button type="button" onClick={() => setDrawMode(drawMode === 'line' ? 'off' : 'line')}
-                    className={`flex-1 text-xs px-2 py-1.5 rounded border ${drawMode === 'line' ? 'bg-red-600 text-white border-red-600' : 'text-red-600 border-red-300 hover:bg-red-50'}`}>直線</button>
-                  <button type="button" onClick={() => setDrawMode(drawMode === 'curve' ? 'off' : 'curve')}
-                    className={`flex-1 text-xs px-2 py-1.5 rounded border ${drawMode === 'curve' ? 'bg-red-600 text-white border-red-600' : 'text-red-600 border-red-300 hover:bg-red-50'}`}>曲線</button>
+                <div className="grid grid-cols-3 gap-1 mb-1">
+                  {([['line', '直線'], ['curve', '曲線'], ['ellipse', '圓'], ['rect', '矩形'], ['arrow', '箭頭'], ['fill', '塗色']] as Array<[DrawMode, string]>).map(([m, label]) => (
+                    <button key={m} type="button" onClick={() => setDrawMode(drawMode === m ? 'off' : m)}
+                      className={`text-xs px-1 py-1.5 rounded border ${drawMode === m ? 'bg-red-600 text-white border-red-600' : 'text-red-600 border-red-300 hover:bg-red-50'}`}>{label}</button>
+                  ))}
                 </div>
                 <div className="flex gap-1">
                   <button type="button" disabled={!refDrawing.length} onClick={() => onRefDrawingChange(refDrawing.slice(0, -1))}
@@ -757,7 +798,16 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
                   <button type="button" disabled={!refDrawing.length} onClick={() => onRefDrawingChange([])}
                     className="flex-1 text-xs px-2 py-1 rounded border text-gray-600 border-gray-300 hover:bg-gray-50 disabled:opacity-40">清除</button>
                 </div>
-                {drawMode !== 'off' && <p className="text-[11px] text-red-500 mt-1">{drawMode === 'line' ? '在格子上按住起點→拖到終點→放開＝一條直線' : '在格子上按住拖曳＝自由曲線'}（可畫多筆）</p>}
+                {drawMode !== 'off' && (
+                  <p className="text-[11px] text-red-500 mt-1">
+                    {drawMode === 'curve' ? '在格子上按住拖曳＝自由曲線'
+                      : drawMode === 'fill' ? '按住拖曳描出一塊區域→放開＝紅色塗滿（塗色/畫記題）'
+                      : drawMode === 'line' ? '按住起點→拖到終點→放開＝直線'
+                      : drawMode === 'arrow' ? '按住起點→拖到箭頭指向→放開＝箭頭'
+                      : '按住拖曳出範圍→放開＝' + (drawMode === 'ellipse' ? '圓／橢圓' : '矩形')}
+                    （可畫多筆）
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -881,14 +931,10 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
                 )}
               </div>
             ))}
-            {/* 正解圖紅色筆畫（畫筆）：已存的實線＋進行中虛線；pointer-events-none 讓 canvas 收畫筆事件 */}
+            {/* 正解圖紅色畫筆：已存實線＋進行中虛線預覽；pointer-events-none 讓 canvas 收畫筆事件 */}
             <svg className="absolute inset-0 pointer-events-none" width={cellWMm * k} height={cellHMm * k}>
-              {refDrawing.map((s, i) => (
-                <polyline key={i} points={s.pts.map(([px, py]) => `${px * cellWMm * k},${py * cellHMm * k}`).join(' ')} fill="none" stroke="#c00" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
-              ))}
-              {liveRef.current && liveRef.current.length >= 2 && (
-                <polyline points={liveRef.current.map(([px, py]) => `${px * cellWMm * k},${py * cellHMm * k}`).join(' ')} fill="none" stroke="#c00" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="5 3" />
-              )}
+              {refDrawing.map((s, i) => drawEl(s, i))}
+              {liveRef.current && (() => { const ls = strokeFromLive(drawMode, liveRef.current); return ls ? drawEl(ls, 'live', true) : null })()}
             </svg>
           </div>
         </div>

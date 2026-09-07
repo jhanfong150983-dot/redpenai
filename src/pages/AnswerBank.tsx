@@ -462,7 +462,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
     if (context.skipUpload && context.generatedLayout && context.skeleton) {
       const skeleton = context.skeleton
       const refAnswers = context.refAnswers ?? {}
-      const DRAW_TYPES = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'])
+      const DRAW_TYPES = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'map_fill'])
       type VjR = { itemLabels: string[]; itemScores?: number[]; condition?: string; gradingDefinition?: string }
       // 需 AI 生 rubric 的題：多元填空(判準)、應用題(級分)、作圖(看圖判準，正解圖=老師畫筆畫的、已烘進生成影像)。
       const rubricItems = skeleton.questions.filter((q) => {
