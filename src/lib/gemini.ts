@@ -5753,6 +5753,61 @@ export async function detectLevelRubric(
   return best
 }
 
+/**
+ * 免上傳「直接使用」時，為 fill_variants（多元填空題：注釋/造詞）生成「判準」。
+ * 老師已打參考答案、但零 AI 不知道這題是造詞還是注釋、也沒判準 →
+ *   讀題本＋老師答案，逐題判斷造詞/注釋、寫一句 referenceAnswer 判準＋acceptableAnswers 清單。
+ * 一次 AI call 處理全部 fill_variants 題（routeKey=answer_key.solve，計建卷次數）。
+ * 失敗不擋建卷（回空 map、老師可手填）。
+ */
+export async function detectFillVariantsCriteria(
+  items: Array<{ id: string; answer: string; anchorHint?: string; maxScore?: number }>,
+  bookletImages: Blob[],
+  opts?: { domain?: string; onProgress?: (m: string) => void },
+): Promise<Map<string, { referenceAnswer: string; acceptableAnswers: string[] }>> {
+  const out = new Map<string, { referenceAnswer: string; acceptableAnswers: string[] }>()
+  if (!items.length || !bookletImages.length) return out
+  const onProgress = opts?.onProgress ?? (() => {})
+  onProgress(`AI 依題本為 ${items.length} 題多元填空生判準…`)
+  const imageParts: GeminiRequestPart[] = []
+  for (let i = 0; i < bookletImages.length; i++) {
+    imageParts.push(`【第 ${i + 1} 頁】`)
+    imageParts.push({ inlineData: { mimeType: bookletImages[i].type || 'image/jpeg', data: await blobToBase64(bookletImages[i]) } })
+  }
+  const list = items.map((q) => `- ${q.id}（${q.anchorHint ?? ''}）老師參考答案：「${q.answer}」`).join('\n')
+  const prompt = `這是一份考卷的「題目卷（題本）」。以下是幾題「多元填空題」，老師已提供參考答案。
+請逐題**在題本裡找到對應題目的題幹**，判斷是哪一種、寫出「判準」，供之後 AI 閱卷判斷「參考答案以外」的作答對不對。
+
+【兩種類型（看題幹判斷）】
+- 造詞：題幹要求「用某字造詞／造一個詞語」→ 判準寫「凡含『X』的合法詞語皆可」（X＝題目指定的字）。
+- 注釋（詞義）：題幹要求「解釋詞語意思／寫出…的意思」→ 判準寫「語意與參考答案相近即可（可用不同說法）」。
+
+【每題輸出】
+- referenceAnswer＝**一句話判準**：描述「什麼樣的答案算對」。⛔不可只照抄參考答案；要能判斷清單外的答案。
+- acceptableAnswers＝明確可接受的答案清單（**一定要含老師的參考答案**；造詞題可多列幾個常見合法詞；沒把握就只放參考答案）。
+
+【題目清單】
+${list}
+
+【輸出 JSON（純 JSON、無 markdown）】
+{ "items": [ { "id": "1-2-1", "referenceAnswer": "…判準…", "acceptableAnswers": ["…","…"] } ] }
+只輸出 JSON。`
+  try {
+    const text = await generateGeminiText(currentModelName, [prompt, ...imageParts], { routeKey: 'answer_key.solve' })
+    const parsed = parseGeminiJsonText(text) as { items?: Array<{ id: string; referenceAnswer?: string; acceptableAnswers?: string[] }> } | null
+    for (const it of parsed?.items ?? []) {
+      const id = String(it.id ?? '')
+      if (!id) continue
+      const ref = String(it.referenceAnswer ?? '').trim()
+      const acc = Array.isArray(it.acceptableAnswers) ? it.acceptableAnswers.map((a) => String(a).trim()).filter(Boolean) : []
+      out.set(id, { referenceAnswer: ref, acceptableAnswers: acc })
+    }
+  } catch (err) {
+    console.warn('[fill_variants criteria] 生成失敗（不擋建卷，老師可手填）', err)
+  }
+  return out
+}
+
 export async function detectVisualRubric(
   cropImageDataUrl: string,
   category: string,

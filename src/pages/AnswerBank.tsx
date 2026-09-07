@@ -11,7 +11,7 @@ import { requestSync } from '@/lib/sync-events'
 import { rescaleSubmissionForMaxScoreChange } from '@/lib/answerStats'
 import { fetchBuildQuota, type BuildQuota } from '@/lib/buildQuota'
 import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
-import { solveAnswerKeyFromBooklet, extractAnswerKeyFromImages, readReferenceAnswerCells, detectVisualRubric, detectLevelRubric } from '@/lib/gemini'
+import { solveAnswerKeyFromBooklet, extractAnswerKeyFromImages, readReferenceAnswerCells, detectVisualRubric, detectLevelRubric, detectFillVariantsCriteria } from '@/lib/gemini'
 import { cropReferenceSheetCells } from '@/lib/generatedSheetAlign'
 import type { GeneratedSheetData } from '@/lib/answerSheetGenerator'
 import { runKpUpgradeInline } from '@/lib/parentReport'
@@ -454,26 +454,48 @@ export default function AnswerBank(_props: AnswerBankProps) {
       skipUpload?: boolean
     }
   ) => {
-    // 純打字免上傳（2026-09-07）：老師每格都打了參考答案、且無作圖/應用題 →
-    //   零 AI、不需手寫卷、不扣墨水 → 直接用打的字建卷（放在 inkConfirm 之前，完全不開墨水 session）。
+    // 純打字免上傳（2026-09-07）：老師每格都打了參考答案、無作圖類 → 用打的字建卷。
+    //   ⭐需 rubric 的題（多元填空 fill_variants…）：跑一次 AI 讀「題本＋老師答案」生判準（user 拍板）；
+    //     純客觀題（選擇/填空…）維持零 AI、不開墨水 session。
     if (context.skipUpload && context.generatedLayout && context.skeleton) {
-      _onProgress('用打字的參考答案直接建卷（免上傳、零 AI）…')
+      const skeleton = context.skeleton
       const refAnswers = context.refAnswers ?? {}
-      const questions = context.skeleton.questions.map((q) => {
-        const typed = (refAnswers[q.id] ?? '').trim()
-        const next = { ...q }
-        if (typed) (next as { answer?: string }).answer = typed
-        return next
-      })
-      const matched = questions.filter((q) => ((q as { answer?: string }).answer ?? '').trim()).length
-      // 診斷（2026-09-07）：60缺答排查——若 matched 0，多半是 refAnswers 的 key 對不上骨架題 id
-      if (matched < questions.length) {
-        console.warn('[skipUpload] matched', matched, '/', questions.length,
-          '｜refAnswers keys(前10):', Object.keys(refAnswers).slice(0, 10),
-          '｜skeleton ids(前10):', context.skeleton.questions.slice(0, 10).map((q) => q.id))
+      const RUBRIC_TYPES = new Set(['fill_variants']) // word_problem 級分制之後接同機制
+      const rubricItems = skeleton.questions.filter((q) => RUBRIC_TYPES.has(String(q.questionCategory)) && (refAnswers[q.id] ?? '').trim())
+      // 逐題：頂層 answer=打的字；有 rubric map 就併入判準/可接受答案
+      const buildQuestions = (rubricMap: Map<string, { referenceAnswer: string; acceptableAnswers: string[] }> | null) =>
+        skeleton.questions.map((q) => {
+          const typed = (refAnswers[q.id] ?? '').trim()
+          const next = { ...q } as typeof q & { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[] }
+          if (typed) next.answer = typed
+          const rb = rubricMap?.get(q.id)
+          if (rb) {
+            if (rb.referenceAnswer) next.referenceAnswer = rb.referenceAnswer
+            if (rb.acceptableAnswers.length) next.acceptableAnswers = rb.acceptableAnswers
+          }
+          return next
+        })
+      const mkKey = (qs: AnswerKey['questions']): AnswerKey => ({ ...skeleton, questions: qs, totalScore: qs.reduce((t, q) => t + (q.maxScore ?? 0), 0) })
+
+      if (rubricItems.length === 0) {
+        // 純客觀 → 零 AI、免同意框、不扣墨水
+        _onProgress('用打字的參考答案直接建卷（免上傳、零 AI）…')
+        const questions = buildQuestions(null)
+        const matched = questions.filter((q) => ((q as { answer?: string }).answer ?? '').trim()).length
+        return { answerKey: mkKey(questions), imageBlobs: [], notice: `已用您打字的參考答案直接建卷（${matched}/${questions.length} 格有答案、零 AI 讀取）。請逐題核對。` }
       }
-      const answerKey: AnswerKey = { ...context.skeleton, questions, totalScore: questions.reduce((t, q) => t + (q.maxScore ?? 0), 0) }
-      return { answerKey, imageBlobs: [], notice: `已用您打字的參考答案直接建卷（${matched}/${questions.length} 格有答案、零 AI 讀取）。請逐題核對。` }
+      // 有 rubric 題 → 需 AI 讀題本生判準 → 走同意框＋開 session（計一次建卷次數）
+      const inkOk = await new Promise<boolean>((resolve) => setInkConfirm({ resolve }))
+      setInkConfirm(null)
+      if (!inkOk) throw new Error('已取消（未扣墨水）')
+      await startInkSession()
+      try {
+        const items = rubricItems.map((q) => ({ id: q.id, answer: (refAnswers[q.id] ?? '').trim(), anchorHint: (q as { anchorHint?: string }).anchorHint, maxScore: q.maxScore }))
+        const rubricMap = await detectFillVariantsCriteria(items, context.bookletBlobs ?? [], { domain: context.domain, onProgress: _onProgress })
+        const questions = buildQuestions(rubricMap)
+        const gen = rubricMap.size
+        return { answerKey: mkKey(questions), imageBlobs: [], notice: `已用您打字的參考答案建卷；其中 ${rubricItems.length} 題多元填空由 AI 依題本生成判準${gen < rubricItems.length ? `（${gen} 題成功、其餘請手填）` : ''}，請逐題核對。` }
+      } finally { closeInkSession() }
     }
     // 2026-06-01: 擷取會花墨水 → 先跳同意框（promise-confirm，不同意則中止、不扣點）
     const inkOk = await new Promise<boolean>((resolve) => setInkConfirm({ resolve }))

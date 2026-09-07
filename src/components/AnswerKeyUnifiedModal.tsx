@@ -908,13 +908,6 @@ export default function AnswerKeyUnifiedModal({
         }
       }
 
-      // 診斷（2026-09-07）：60缺答排查——確認免上傳時 skipUpload/refAnswers 有正確帶出
-      if (GENERATED_SHEET_STEP_ENABLED && makerResult && editingKey) {
-        const ra = makerState.refAnswers ?? {}
-        console.warn('[skipUpload:parent] pageItems', pageItems.length, 'canSkipUpload', canSkipUpload,
-          'refAnswers 數', Object.keys(ra).length, 'keys(前10)', Object.keys(ra).slice(0, 10),
-          'skeleton ids(前10)', editingKey.questions.slice(0, 10).map((q) => q.id))
-      }
       const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setExtractionMsg, {
         domain: effectiveDomain,
         docType,
@@ -1965,7 +1958,7 @@ export default function AnswerKeyUnifiedModal({
                         </div>
                         {pageItems.length === 0 && canSkipUpload && (
                           <div className="mb-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
-                            <p className="text-xs text-emerald-800">✓ 每格都已填好參考答案、且沒有作圖／應用題 → 可直接按下方「<span className="font-semibold">直接完成建卷（免上傳）</span>」，不必列印手寫、零 AI 讀取。若仍要上傳手寫卷校對也可以。</p>
+                            <p className="text-xs text-emerald-800">✓ 每格都已填好參考答案 → 可直接按下方「<span className="font-semibold">直接完成建卷（免上傳）</span>」，不必列印手寫。純選擇／填空題<span className="font-semibold">零 AI</span>；若含「多元填空題」會用一次次數由 AI 依題本生成判準。仍要上傳手寫卷校對也可以。</p>
                           </div>
                         )}
                         {pageItems.length === 0 && skipStatus && !skipStatus.hasImageType && skipStatus.unfilled > 0 && (
