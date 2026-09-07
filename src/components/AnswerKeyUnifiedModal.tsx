@@ -239,7 +239,37 @@ export interface AnswerKeyUnifiedModalProps {
   domainOptions?: string[]
 }
 
-// ─── main component ───────────────────────���────────────────────────────────
+// 點陣化「老師版作答卷（帶紅字參考答案）」SVG → PNG blob。
+//   免上傳時當作「答案卷影像」，供 AnswerBank 用現成格位裁格、餵 rubric 生成器（跟上傳版同一套）。
+//   生成影像幾何精準（無透視變形），裁格比掃描更準。SVG 內圖片都是 data URI、自足可點陣化。
+async function rasterizeSheetSvg(svg: string, pageMm: [number, number]): Promise<Blob | null> {
+  try {
+    const DPMM = 3508 / 297
+    const w = Math.max(1, Math.round(pageMm[0] * DPMM))
+    const h = Math.max(1, Math.round(pageMm[1] * DPMM))
+    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = new Image()
+      im.onload = () => resolve(im)
+      im.onerror = () => reject(new Error('svg raster load failed'))
+      im.src = url
+    })
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, w, h)
+    ctx.drawImage(img, 0, 0, w, h)
+    return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'))
+  } catch (err) {
+    console.warn('[rasterizeSheetSvg] 失敗（免上傳將退回純文字判準）', err)
+    return null
+  }
+}
+
+// ─── main component ─────────────────────────────────────────────────────────
 
 export default function AnswerKeyUnifiedModal({
   open,
@@ -908,6 +938,13 @@ export default function AnswerKeyUnifiedModal({
         }
       }
 
+      // 免上傳且含需 rubric 的題（多元填空/應用題）→ 點陣化「老師版作答卷(帶紅字)」當答案卷影像，
+      //   AnswerBank 用現成 boxes 幾何裁格、餵 rubric 生成器（統一上傳版與免上傳版的來源）。
+      let teacherSheetImage: Blob | undefined
+      if (pageItems.length === 0 && canSkipUpload && skipStatus?.hasRubric && teacherMakerResult) {
+        setExtractionMsg('準備答案卷影像（生成的老師版）…')
+        teacherSheetImage = (await rasterizeSheetSvg(teacherMakerResult.svg, teacherMakerResult.layoutMeta.pageMm)) ?? undefined
+      }
       const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setExtractionMsg, {
         domain: effectiveDomain,
         docType,
@@ -931,6 +968,8 @@ export default function AnswerKeyUnifiedModal({
               refAnswers: makerState.refAnswers ?? {},
               // 純打字免上傳：沒上傳手寫卷且每格都打字（canSkipUpload）→ 零 AI 直接建卷
               ...(pageItems.length === 0 && canSkipUpload ? { skipUpload: true } : {}),
+              // 免上傳時的「答案卷影像」＝生成的老師版作答卷(帶紅字)，供裁格生 rubric
+              ...(teacherSheetImage ? { teacherSheetImage } : {}),
             }
           : {}),
       })
@@ -966,11 +1005,16 @@ export default function AnswerKeyUnifiedModal({
     if (!GENERATED_SHEET_STEP_ENABLED || !makerResult) return null
     const boxes = makerResult.boxes
     if (boxes.length === 0) return null
-    const NEEDS_IMAGE = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'word_problem'])
+    // 只有「作圖/繪圖類」一定要上傳（答案是圖、沒法打字）。應用題(word_problem)現在可免上傳：
+    //   用生成的老師版作答卷(帶紅字)當答案卷影像、裁格餵 detectLevelRubric 生級分制。
+    const NEEDS_IMAGE = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'])
+    // 需 AI 生 rubric 的題（免上傳時會用生成影像＋題本跑一次 AI）
+    const RUBRIC_TYPES = new Set(['fill_variants', 'word_problem'])
     const refAnswers = makerState.refAnswers ?? {}
     const hasImageType = boxes.some((b) => NEEDS_IMAGE.has(String(b.type)))
+    const hasRubric = boxes.some((b) => RUBRIC_TYPES.has(String(b.type)))
     const unfilled = boxes.filter((b) => !NEEDS_IMAGE.has(String(b.type)) && !(refAnswers[b.id] ?? '').trim()).length
-    return { hasImageType, unfilled, total: boxes.length }
+    return { hasImageType, hasRubric, unfilled, total: boxes.length }
   }, [makerResult, makerState.refAnswers])
   const canSkipUpload = !!skipStatus && !skipStatus.hasImageType && skipStatus.unfilled === 0
 
@@ -1958,7 +2002,7 @@ export default function AnswerKeyUnifiedModal({
                         </div>
                         {pageItems.length === 0 && canSkipUpload && (
                           <div className="mb-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
-                            <p className="text-xs text-emerald-800">✓ 每格都已填好參考答案 → 可直接按下方「<span className="font-semibold">直接完成建卷（免上傳）</span>」，不必列印手寫。純選擇／填空題<span className="font-semibold">零 AI</span>；若含「多元填空題」會用一次次數由 AI 依題本生成判準。仍要上傳手寫卷校對也可以。</p>
+                            <p className="text-xs text-emerald-800">✓ 每格都已填好參考答案 → 可直接按下方「<span className="font-semibold">直接完成建卷（免上傳）</span>」，不必列印手寫。純選擇／填空題<span className="font-semibold">零 AI</span>；若含「多元填空題／應用題」會用一次次數由 AI 依題本＋生成的答案卷產生評分規準。仍要上傳手寫卷校對也可以。</p>
                           </div>
                         )}
                         {pageItems.length === 0 && skipStatus && !skipStatus.hasImageType && skipStatus.unfilled > 0 && (
@@ -1968,7 +2012,7 @@ export default function AnswerKeyUnifiedModal({
                         )}
                         {pageItems.length === 0 && skipStatus?.hasImageType && (
                           <div className="mb-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
-                            <p className="text-xs text-slate-600">本卷有作圖／應用題（需看手寫圖才能評分）→ 一定要上傳手寫卷；其餘打過字的格仍會直接採用、不重讀。</p>
+                            <p className="text-xs text-slate-600">本卷有作圖／繪圖題（答案是圖、沒法打字）→ 一定要上傳手寫卷；其餘打過字的格仍會直接採用、不重讀。</p>
                           </div>
                         )}
                         <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />

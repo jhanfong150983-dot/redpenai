@@ -6,7 +6,7 @@ import {
   Folder, ChevronDown, ChevronRight, Edit2, Download, Copy
 } from 'lucide-react'
 import { db, generateId } from '@/lib/db'
-import type { AnswerKey, AnswerKeyTemplate } from '@/lib/db'
+import type { AnswerKey, AnswerKeyTemplate, LevelRubric } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
 import { rescaleSubmissionForMaxScoreChange } from '@/lib/answerStats'
 import { fetchBuildQuota, type BuildQuota } from '@/lib/buildQuota'
@@ -450,8 +450,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
       skeleton?: AnswerKey
       /** Phase 4「直接使用」：老師製作作答卷時打的參考答案（逐格 qid→文字）→ 有值的格直接用、不送 AI 讀 */
       refAnswers?: Record<string, string>
-      /** 純打字免上傳：每格都打字、且無作圖/應用題 → 不上傳手寫卷、零 AI 直接建卷 */
+      /** 純打字免上傳：每格都打字、且無作圖 → 不上傳手寫卷、直接用打的字建卷 */
       skipUpload?: boolean
+      /** 免上傳時的「答案卷影像」＝生成的老師版作答卷(帶紅字)。用現成 boxes 幾何裁格、餵 rubric 生成器 */
+      teacherSheetImage?: Blob
     }
   ) => {
     // 純打字免上傳（2026-09-07）：老師每格都打了參考答案、無作圖類 → 用打的字建卷。
@@ -460,19 +462,27 @@ export default function AnswerBank(_props: AnswerBankProps) {
     if (context.skipUpload && context.generatedLayout && context.skeleton) {
       const skeleton = context.skeleton
       const refAnswers = context.refAnswers ?? {}
-      const RUBRIC_TYPES = new Set(['fill_variants']) // word_problem 級分制之後接同機制
-      const rubricItems = skeleton.questions.filter((q) => RUBRIC_TYPES.has(String(q.questionCategory)) && (refAnswers[q.id] ?? '').trim())
-      // 逐題：頂層 answer=打的字；有 rubric map 就併入判準/可接受答案
-      const buildQuestions = (rubricMap: Map<string, { referenceAnswer: string; acceptableAnswers: string[] }> | null) =>
+      // 需 AI 生 rubric 的題：多元填空(判準)、應用題(級分制)。作圖類不在此列（沒法打字、要上傳）。
+      const rubricItems = skeleton.questions.filter((q) => {
+        const cat = String(q.questionCategory)
+        return (cat === 'fill_variants' || cat === 'word_problem') && (refAnswers[q.id] ?? '').trim()
+      })
+      // 逐題：頂層 answer=打的字；併入 rubric（fill_variants 判準/可接受答案；word_problem levelRubric）
+      const buildQuestions = (
+        criteriaMap: Map<string, { referenceAnswer: string; acceptableAnswers: string[] }>,
+        levelMap: Map<string, LevelRubric>,
+      ) =>
         skeleton.questions.map((q) => {
           const typed = (refAnswers[q.id] ?? '').trim()
-          const next = { ...q } as typeof q & { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[] }
+          const next = { ...q } as typeof q & { answer?: string; referenceAnswer?: string; acceptableAnswers?: string[]; levelRubric?: LevelRubric }
           if (typed) next.answer = typed
-          const rb = rubricMap?.get(q.id)
-          if (rb) {
-            if (rb.referenceAnswer) next.referenceAnswer = rb.referenceAnswer
-            if (rb.acceptableAnswers.length) next.acceptableAnswers = rb.acceptableAnswers
+          const cr = criteriaMap.get(q.id)
+          if (cr) {
+            if (cr.referenceAnswer) next.referenceAnswer = cr.referenceAnswer
+            if (cr.acceptableAnswers.length) next.acceptableAnswers = cr.acceptableAnswers
           }
+          const lr = levelMap.get(q.id)
+          if (lr) next.levelRubric = lr
           return next
         })
       const mkKey = (qs: AnswerKey['questions']): AnswerKey => ({ ...skeleton, questions: qs, totalScore: qs.reduce((t, q) => t + (q.maxScore ?? 0), 0) })
@@ -480,21 +490,52 @@ export default function AnswerBank(_props: AnswerBankProps) {
       if (rubricItems.length === 0) {
         // 純客觀 → 零 AI、免同意框、不扣墨水
         _onProgress('用打字的參考答案直接建卷（免上傳、零 AI）…')
-        const questions = buildQuestions(null)
+        const questions = buildQuestions(new Map(), new Map<string, LevelRubric>())
         const matched = questions.filter((q) => ((q as { answer?: string }).answer ?? '').trim()).length
         return { answerKey: mkKey(questions), imageBlobs: [], notice: `已用您打字的參考答案直接建卷（${matched}/${questions.length} 格有答案、零 AI 讀取）。請逐題核對。` }
       }
-      // 有 rubric 題 → 需 AI 讀題本生判準 → 走同意框＋開 session（計一次建卷次數）
+      // 有 rubric 題 → 需 AI（讀「題本＋生成的答案卷影像該格」生 rubric）→ 走同意框＋開 session（計一次建卷次數）
       const inkOk = await new Promise<boolean>((resolve) => setInkConfirm({ resolve }))
       setInkConfirm(null)
       if (!inkOk) throw new Error('已取消（未扣墨水）')
       await startInkSession()
       try {
-        const items = rubricItems.map((q) => ({ id: q.id, answer: (refAnswers[q.id] ?? '').trim(), anchorHint: (q as { anchorHint?: string }).anchorHint, maxScore: q.maxScore }))
-        const rubricMap = await detectFillVariantsCriteria(items, context.bookletBlobs ?? [], { domain: context.domain, onProgress: _onProgress })
-        const questions = buildQuestions(rubricMap)
-        const gen = rubricMap.size
-        return { answerKey: mkKey(questions), imageBlobs: [], notice: `已用您打字的參考答案建卷；其中 ${rubricItems.length} 題多元填空由 AI 依題本生成判準${gen < rubricItems.length ? `（${gen} 題成功、其餘請手填）` : ''}，請逐題核對。` }
+        // 用生成的老師版作答卷(帶紅字)影像＋現成 boxes 幾何裁出每格（跟上傳版同一支）
+        let cropById = new Map<string, string>()
+        if (context.teacherSheetImage && context.generatedLayout) {
+          try {
+            _onProgress('用生成的答案卷影像裁出各題作答區…')
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+              const url = URL.createObjectURL(context.teacherSheetImage!)
+              const im = new Image()
+              im.onload = () => resolve(im)
+              im.onerror = () => reject(new Error('生成答案卷影像載入失敗'))
+              im.src = url
+            })
+            cropById = new Map(cropReferenceSheetCells(img, context.generatedLayout).map((c) => [c.id, c.dataUrl]))
+          } catch (err) { console.warn('[skipUpload] 裁格失敗（word_problem 級分改退回無圖）', err) }
+        }
+        // ① 多元填空判準（一次 AI call：題本＋老師答案）
+        const fvItems = rubricItems.filter((q) => String(q.questionCategory) === 'fill_variants')
+          .map((q) => ({ id: q.id, answer: (refAnswers[q.id] ?? '').trim(), anchorHint: (q as { anchorHint?: string }).anchorHint, maxScore: q.maxScore }))
+        const criteriaMap = fvItems.length
+          ? await detectFillVariantsCriteria(fvItems, context.bookletBlobs ?? [], { domain: context.domain, onProgress: _onProgress })
+          : new Map<string, { referenceAnswer: string; acceptableAnswers: string[] }>()
+        // ② 應用題級分制（逐題：該格 crop＋題本→ detectLevelRubric）
+        const levelMap = new Map<string, LevelRubric>()
+        const wpItems = rubricItems.filter((q) => String(q.questionCategory) === 'word_problem')
+        for (const q of wpItems) {
+          const crop = cropById.get(q.id)
+          if (!crop) continue // 無 crop（點陣化/裁格失敗）→ 略過，老師可後補
+          _onProgress(`AI 為應用題 ${q.id} 生成級分規準…`)
+          try {
+            const lr = await detectLevelRubric({ ...q, referenceAnswer: (refAnswers[q.id] ?? '').trim() } as typeof q, crop, context.bookletBlobs ?? [])
+            if (lr) levelMap.set(q.id, lr)
+          } catch (err) { console.warn(`[skipUpload] word_problem ${q.id} 級分生成失敗`, err) }
+        }
+        const questions = buildQuestions(criteriaMap, levelMap)
+        const gen = criteriaMap.size + levelMap.size
+        return { answerKey: mkKey(questions), imageBlobs: [], notice: `已用您打字的參考答案建卷；其中 ${rubricItems.length} 題由 AI 依題本＋生成的答案卷生成評分規準${gen < rubricItems.length ? `（${gen} 題成功、其餘請手填）` : ''}，請逐題核對。` }
       } finally { closeInkSession() }
     }
     // 2026-06-01: 擷取會花墨水 → 先跳同意框（promise-confirm，不同意則中止、不扣點）
