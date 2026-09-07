@@ -1679,6 +1679,7 @@ export default function GradingPage({
 
   // 答案卷版本狀態
   const [answerKeyStatus, setAnswerKeyStatus] = useState<'normal' | 'updated' | 'deleted'>('normal')
+  const [regradeChangedOpen, setRegradeChangedOpen] = useState(false) // A3b：答案卷已變更→重批確認框
 
   // Phase A/B 批次一致性審查
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
@@ -4093,7 +4094,7 @@ export default function GradingPage({
         }
   }
 
-  const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean; noticeOffset?: { success: number; total: number }; fullPipeline?: boolean; skipReviewGate?: boolean; withReviewCandidates?: boolean }) => {
+  const executeGradeOnlyCache = useCallback(async (candidates: Submission[], opts?: { silent?: boolean; noticeOffset?: { success: number; total: number }; fullPipeline?: boolean; skipReviewGate?: boolean; withReviewCandidates?: boolean; alignAnswerKeyVersion?: boolean }) => {
     if (candidates.length === 0) return
     if (inkSessionError) { void alertModal(inkSessionError); return }
     if (!inkSessionReady) { void alertModal('批改會話尚未準備完成、請稍候'); return }
@@ -4210,6 +4211,20 @@ export default function GradingPage({
     setGradingPhase('idle')
     setCurrentGradingStudent('')
     requestSync()  // 把 server 端寫的 score / gradingResult 拉回 local
+    // 2026-09-07 A3b：因「答案卷內容已變更」而重批、且全數成功（無失敗、無待複核擋下）→ 對齊
+    //   boundAnswerKeyVersion 到 template 現行版本 → getAnswerKeyVersionStatus 回 normal → 消橫幅/回復按鈕。
+    //   部分失敗（failCount>0 / heldForReviewCount>0）不對齊，保留 updated 提醒老師還有卷沒重批完。
+    if (opts?.alignAnswerKeyVersion && failCount === 0 && heldForReviewCount === 0 && assignmentId) {
+      try {
+        const asg = await db.assignments.get(assignmentId)
+        const tpl = asg?.answerKeyTemplateId ? await db.answerKeyTemplates.get(asg.answerKeyTemplateId) : null
+        if (tpl?.version != null) {
+          await db.assignments.update(assignmentId, { boundAnswerKeyVersion: tpl.version })
+          setAssignment((prev) => (prev ? { ...prev, boundAnswerKeyVersion: tpl.version } : prev))
+          setAnswerKeyStatus('normal')
+        }
+      } catch (e) { console.warn('[A3b] 對齊答案卷版本失敗（不影響批改結果）:', e) }
+    }
     // 待複核被擋下的卷：在結果面板最上面提示老師「先去複核」（智慧批改會把它們帶回審查面板）
     if (heldForReviewCount > 0) {
       failReasons.unshift(`⚠ ${heldForReviewCount} 份含舊版待複核資料、已跳過批改 — 請按「智慧批改」重跑辨識（會重新讀取，不需人工逐題確認）`)
@@ -4231,6 +4246,14 @@ export default function GradingPage({
     inkSessionError, inkSessionReady, isGeminiAvailable, assignment, students,
     correctionStatusByStudent
   ])
+
+  // 2026-09-07 A3b：答案卷內容已變更 → 對「已批改」的卷用新答案卷重批（Phase B only、省 read、
+  //   保訂正/申訴逐題調和；缺 phase_a_state 快取者會失敗計數→不清 updated，符合安全語意）。全成功→清 updated。
+  const handleRegradeForAnswerKeyChange = useCallback(async () => {
+    const graded = stageAggregates.stageMap.graded
+    if (graded.length === 0) { void alertModal('目前沒有已批改的卷需要重批。'); return }
+    await executeGradeOnlyCache(graded, { alignAnswerKeyVersion: true })
+  }, [stageAggregates, executeGradeOnlyCache, alertModal])
 
   // 2026-05-17: Phase B only 入口（批改作業按鈕）
   // 步驟：1. 檢查 in-scope 卡片狀態  2. 若需先截取或補答、block modal  3. 若會覆寫、warning modal  4. 否則直接跑
@@ -5961,6 +5984,21 @@ export default function GradingPage({
         </div>
       </InkConfirmModal>
 
+      {/* 2026-09-07 A3b：答案卷已變更 → 用新答案卷重批已批改卷（Phase B only、覆寫舊分數、保訂正/申訴） */}
+      <InkConfirmModal
+        open={regradeChangedOpen}
+        warning="重新批改會消耗墨水（點數）"
+        onCancel={() => setRegradeChangedOpen(false)}
+        onConfirm={() => { setRegradeChangedOpen(false); void handleRegradeForAnswerKeyChange() }}
+      >
+        <div className="mb-2">
+          答案卷內容已變更。即將用<strong>新答案卷</strong>重新批改 <strong>{stageAggregates.counts.graded}</strong> 份已批改的卷。
+        </div>
+        <div className="text-slate-600 text-xs">
+          ℹ️ 會覆寫這些卷的舊分數（訂正／申訴紀錄逐題保留）；沿用原讀取結果、不需重新讀取。缺快取的卷會失敗、需改用「智慧批改」重讀。
+        </div>
+      </InkConfirmModal>
+
       {/* 2026-06-01: 進階「無覆寫風險直接跑」的墨水確認 */}
       <InkConfirmModal
         open={!!advInkConfirm}
@@ -6506,9 +6544,20 @@ export default function GradingPage({
         {answerKeyStatus === 'updated' && (
           <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
-            <p className="text-sm text-amber-700 font-medium">
+            <p className="flex-1 text-sm text-amber-700 font-medium">
               答案卷內容已變更，請重新批改（目前仍顯示舊版批改結果，重批前不會變動）
             </p>
+            {stageAggregates.counts.graded > 0 && (
+              <button
+                type="button"
+                onClick={() => setRegradeChangedOpen(true)}
+                disabled={isGrading || isDownloading || !inkSessionReady}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                用新答案卷重新批改
+              </button>
+            )}
           </div>
         )}
         {answerKeyStatus === 'deleted' && (
