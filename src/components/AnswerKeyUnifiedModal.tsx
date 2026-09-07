@@ -926,6 +926,8 @@ export default function AnswerKeyUnifiedModal({
                 sectionOverrides: makerState.sectionOverrides,
               },
               skeleton: editingKey,
+              // Phase 4「直接使用」：老師在製作作答卷時打的參考答案（逐格）→ 有值的格直接用、不送 AI 讀
+              refAnswers: makerState.refAnswers ?? {},
             }
           : {}),
       })

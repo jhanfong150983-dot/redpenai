@@ -448,6 +448,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
       generatedLayout?: GeneratedSheetData
       /** 生成流程④：②結構推斷的骨架（題號/題型/配分已定案，讀到的答案填進來） */
       skeleton?: AnswerKey
+      /** Phase 4「直接使用」：老師製作作答卷時打的參考答案（逐格 qid→文字）→ 有值的格直接用、不送 AI 讀 */
+      refAnswers?: Record<string, string>
     }
   ) => {
     // 2026-06-01: 擷取會花墨水 → 先跳同意框（promise-confirm，不同意則中止、不扣點）
@@ -483,12 +485,14 @@ export default function AnswerBank(_props: AnswerBankProps) {
         const crops = cropReferenceSheetCells(img, layout)
         const cropById = new Map(crops.map((c) => [c.id, c.dataUrl]))
         const skeletonQs = context.skeleton.questions
+        // Phase 4「直接使用」：老師已打字的格 → 不送 AI 讀（用打的值）；只讀沒打字的文字格。
         const textCells = skeletonQs
-          .filter((q) => cropById.has(q.id) && !DRAWING.has(String(q.questionCategory)))
+          .filter((q) => cropById.has(q.id) && !DRAWING.has(String(q.questionCategory)) && !((context.refAnswers?.[q.id] ?? '').trim()))
           .map((q) => ({ id: q.id, dataUrl: cropById.get(q.id)!, hint: String(q.questionCategory) === 'word_problem' ? '手寫算式與答案（多行照抄）' : '手寫國字/注音/數值/數學式/選項代號' }))
         const drawCount = skeletonQs.filter((q) => cropById.has(q.id) && DRAWING.has(String(q.questionCategory))).length
         _onProgress(`AI 讀取手寫答案（文字題 ${textCells.length} 格${drawCount ? `，作圖題 ${drawCount} 格另存正解圖` : ''}）…`)
-        const reads = await readReferenceAnswerCells(textCells)
+        // 全部都打字了（textCells 空）→ 不 call AI 讀，零 read AI（零 read 次數）
+        const reads = textCells.length > 0 ? await readReferenceAnswerCells(textCells) : new Map<string, string>()
         _onProgress('產生評分規準（作圖/應用題）…')
         const questions = [] as typeof skeletonQs
         for (const q of skeletonQs) {
@@ -502,7 +506,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
               if (vr) next.vjRubric = { ...vr }
             } catch { /* rubric 失敗不擋答案，老師可後補 */ }
           } else if (crop) {
-            const read = reads.get(q.id)
+            // 直接使用：老師打的參考答案優先；沒打的才用 AI 讀到的
+            const read = (context.refAnswers?.[q.id]?.trim()) || reads.get(q.id)
             if (read != null && read !== '') {
               if (cat === 'word_problem') {
                 next.referenceAnswer = read
