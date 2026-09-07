@@ -2325,10 +2325,11 @@ export default function AnswerKeyUnifiedModal({
                               <span className="w-20 px-2 py-1 border border-gray-200 rounded bg-gray-100 text-gray-600 select-all">{selectedQuestion.id ?? ''}</span>
                             </div>
                             <div className="flex-1 flex flex-col gap-1">
-                              <span className="text-gray-500">題型 <span className="text-[10px] text-gray-400">(AI 自動分類，可手動修正)</span></span>
+                              <span className="text-gray-500">題型 <span className="text-[10px] text-gray-400">{locked ? '(AI 自動分類)' : '(AI 自動分類，可手動修正)'}</span></span>
                               <select
-                                className="w-full px-2 py-1 border border-gray-300 rounded bg-white text-gray-700"
+                                className={`w-full px-2 py-1 border border-gray-300 rounded text-gray-700 ${locked ? 'bg-gray-100' : 'bg-white'}`}
                                 value={selectedCategory}
+                                disabled={locked}
                                 onChange={(e) => handleCategoryChange(selectedIdx, e.target.value as QuestionCategory)}
                               >
                                 {GROUPED_TYPE_OPTIONS.map((grp) => (
