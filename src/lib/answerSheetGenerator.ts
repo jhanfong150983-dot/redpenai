@@ -429,7 +429,8 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
       y += 6.5
     }
     if (sec.kind === 'numgrid') {
-      const cols = sec.cols
+      // 題數少於設定欄數時，欄數收斂到題數 → 只有一列時框自動撐滿整頁寬（不會只填半頁）
+      const cols = Math.max(1, Math.min(sec.cols, sec.qs.length))
       const numH = 4.5 * vScale
       const ansH = sec.ansH * vScale
       const cellW = (PW - 2 * M) / cols
@@ -449,7 +450,7 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
       }
       y += 2
     } else if (sec.kind === 'wide') {
-      const cols = sec.cols
+      const cols = Math.max(1, Math.min(sec.cols, sec.qs.length)) // 題數少於欄數→收斂，單列撐滿寬
       const cellW = (PW - 2 * M) / cols
       const cellH = sec.ansH * vScale
       for (let i = 0; i < sec.qs.length; i += cols) {
