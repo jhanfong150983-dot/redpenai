@@ -6507,7 +6507,7 @@ export default function GradingPage({
           <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
             <p className="text-sm text-amber-700 font-medium">
-              答案卷已更新，目前成績為舊版批改結果
+              答案卷內容已變更，請重新批改（目前仍顯示舊版批改結果，重批前不會變動）
             </p>
           </div>
         )}

@@ -725,7 +725,10 @@ export default function AnswerKeyUnifiedModal({
   // 編輯模式下按過「重新 AI 解析」→ 儲存時另存為新版本答案卷（原本那份原封不動）
   const [didReextract, setDidReextract] = useState(false)
   // 已存檔的答案卷唯讀；重新解析出來的新內容還沒存檔，所以解鎖讓老師確認後再存
-  const locked = editMode && !didReextract
+  // 2026-09-07 主動權還給老師：已存答案卷改為可直接編輯（原「存檔=定版唯讀」設計退場）。
+  //   改動後由版本機制(AnswerBank version+1)標記引用作業「需重新批改」，舊成績保留、老師主動重批。
+  //   locked 保留但恆 false（詳情面板永遠可編輯）；答案卷「圖片」仍唯讀（另條路徑、不受此影響）。
+  const locked = false
   // 純答案卷模式：題本是判題型的唯一依據，缺了就不給解析
   const needsBooklet = answerSheetMode === 'answer_only' && bookletPageItems.length === 0
 
@@ -1372,20 +1375,13 @@ export default function AnswerKeyUnifiedModal({
       setConfirmOverlay('save')
       return
     }
-    // 存檔＝定版。之後只能重新解析成新版本，不能再改這一份，所以先講清楚。
-    // 已鎖定的答案卷（純粹改名稱/資料夾）不必再問一次。
-    if (!locked) {
+    // 2026-09-07：存檔不再＝定版唯讀，之後仍可直接編輯。建立模式給一句輕提醒即可（編輯模式直接存）。
+    if (!editMode) {
       void (async () => {
         const ok = await confirmModal({
           tone: 'warning',
-          title: '儲存後就不能再修改題目',
-          message: [
-            '答案卷是批改的判準，存檔後會鎖定。',
-            '',
-            '之後要調整，只能「重新 AI 解析」產生新版本，或建立新的答案卷。',
-            '',
-            '請先確認題號、答案、配分都正確再儲存。',
-          ].join('\n'),
+          title: '確認儲存答案卷',
+          message: '請先確認題號、答案、配分都正確。存檔後仍可再修改（若已被批改，改動會標記那些作業需重新批改，舊成績會保留）。',
           confirmLabel: '確認儲存',
         })
         if (ok) void doSave()
@@ -1594,7 +1590,7 @@ export default function AnswerKeyUnifiedModal({
           <div className="w-52 bg-gray-50 border-r border-gray-200 flex flex-col shrink-0">
             <div className="px-4 py-4 border-b border-gray-200">
               <h2 className="text-base font-semibold text-gray-900">
-                {!editMode ? '新增答案卷' : locked ? '查看答案卷' : '確認新版本答案卷'}
+                {!editMode ? '新增答案卷' : '編輯答案卷'}
               </h2>
             </div>
             {/* 流程清單為純文字，導航全交由 footer 主按鈕（樣式保留） */}
