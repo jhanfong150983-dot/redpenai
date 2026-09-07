@@ -261,7 +261,7 @@ function buildSections(questions: GenQuestion[], overrides: Record<string, Secti
     } else if (types.has('short_answer') || types.has('fill_variants')) {
       // 步驟2：fill_variants(注釋/造詞) 沿用 short_answer 的 wide 框（號碼＋寬作答區＝驗收過的注釋版型），
       //   避免改判 fill_variants 後掉進 numgrid 填充框而變版型。
-      secs.push({ key, label: titled(types.has('fill_variants') ? '注釋題' : '簡答題'), kind: 'wide', qs, cols: 2, ansH: 14 * sizeMul, stemInCell: true })
+      secs.push({ key, label: titled(types.has('fill_variants') ? '注釋題' : '簡答題'), kind: 'wide', qs, cols: ov.cols ?? 2, ansH: 14 * sizeMul, stemInCell: true })
     } else if (qs.every((q) => CHOICE_TYPES.has(q.questionCategory))) {
       secs.push({ key, label: `${titled('選擇題')}｜寫代號`, kind: 'numgrid', qs, cols: ov.cols ?? 10, ansH: 9 * sizeMul })
     } else {

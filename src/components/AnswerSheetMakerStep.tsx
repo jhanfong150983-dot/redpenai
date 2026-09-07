@@ -57,6 +57,8 @@ function sectionKeyOf(id: string): string {
 }
 
 const BIG_KINDS = new Set(['grid_geometry', 'word_problem'])
+// 生成器也排「大框」的圈選/圖類（與 answerSheetGenerator 的 BIGBOX_IMAGE_TYPES 對齊）→ 控制面板要用大框控制項
+const BIGBOX_IMAGE_KINDS = new Set(['circle_select_one', 'circle_select_many', 'matching', 'mark_in_text', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'map_fill'])
 
 // 文字寬度「實測」（同字型同字級；估算式對空白/混排不準會造成編輯器與卷面不一致）
 // 2026-09-06 一律標楷體（文字方塊＋作答卷）：Windows=DFKai-SB/標楷體、mac=BiauKai、fallback Noto Serif TC
@@ -116,6 +118,12 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
       const hintName = qs.map((q) => (String(q.anchorHint ?? '').match(/『(.+?)』/) ?? [])[1]).find(Boolean)
       const isChoice = qs.every((q) => ['single_choice', 'multi_choice', 'true_false'].includes(q.questionCategory))
       const hasBig = qs.some((q) => BIG_KINDS.has(q.questionCategory))
+      // 圈選/連線/圈詞/繪圖/填圖類＝生成器也排「大框」，但不在 BIG_KINDS → 之前控制面板誤顯示 grid 控制項(每列格數/格高)、對大框無效。
+      //   這類改用大框控制卡（每列格數=perRow、大格高度=bigH 預設50，與 buildSections 對齊）。
+      const hasImageBig = !hasBig && qs.some((q) => BIGBOX_IMAGE_KINDS.has(q.questionCategory))
+      if (hasImageBig) {
+        return [{ key, qs, name: hintName ?? '作答區', isChoice: false, hasBig: true, bigDefault: 50 }]
+      }
       if (!hasBig) {
         return [{ key, qs, name: hintName ?? (isChoice ? '選擇題' : '作答區'), isChoice, hasBig, bigDefault: 0 }]
       }
@@ -209,18 +217,20 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
               <div className="text-[11px] text-gray-400">{sec.qs.length} 題</div>
               {!sec.hasBig && (
                 <>
+                  {(() => { const isWide = sec.qs.some((q) => ['short_answer', 'fill_variants'].includes(q.questionCategory)); return (
                   <label className="block text-xs text-gray-500">
                     每列格數
                     <select
-                      value={ov.cols ?? (sec.isChoice ? 10 : 5)}
+                      value={ov.cols ?? (sec.isChoice ? 10 : isWide ? 2 : 5)}
                       onChange={(e) => setOverride(sec.key, { cols: Number(e.target.value) })}
                       className="mt-0.5 w-full border rounded px-2 py-1 text-sm"
                     >
-                      {(sec.isChoice ? [8, 10] : [3, 4, 5, 6]).map((c) => (
+                      {(sec.isChoice ? [8, 10] : isWide ? [1, 2, 3, 4] : [3, 4, 5, 6]).map((c) => (
                         <option key={c} value={c}>{c} 格</option>
                       ))}
                     </select>
                   </label>
+                  ) })()}
                   <label className="block text-xs text-gray-500">
                     格子高度
                     <div className="mt-0.5 flex gap-1">
