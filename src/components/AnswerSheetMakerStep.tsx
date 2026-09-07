@@ -121,16 +121,33 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
     const qs = questions.map((q) => ({
       ...q,
       ...(state.baseImages[q.id] ? { baseImage: state.baseImages[q.id] } : {}),
-      ...(state.cellTexts?.[q.id]?.length ? { cellTexts: state.cellTexts[q.id] } : {})
+      ...(state.cellTexts?.[q.id]?.length ? { cellTexts: state.cellTexts[q.id] } : {}),
+      ...(state.refAnswers?.[q.id] ? { refAnswer: state.refAnswers[q.id] } : {}),
     }))
+    // ⛔ 鐵律：canonical result（onResult→存檔/學生下載）＝學生版、絕不帶紅字。
+    //   紅字參考答案只在下方 previewResult（顯示用）畫；老師版帶紅的 PDF 由 AI 解析那條另生（Phase 3+）。
     return generateAnswerSheet({
       title,
       pageSize: state.pageSize,
       questions: qs,
       headerDataUri,
-      sectionOverrides: state.sectionOverrides
+      sectionOverrides: state.sectionOverrides,
     })
   }, [title, questions, headerDataUri, state])
+
+  // 預覽專用：帶紅字參考答案（老師看；不進 onResult、不落存檔）
+  const previewResult = useMemo<ReturnType<typeof generateAnswerSheet> | null>(() => {
+    if (!headerDataUri) return null
+    const hasRef = questions.some((q) => (state.refAnswers?.[q.id] ?? '').trim())
+    if (!hasRef) return result // 沒填參考答案 → 直接用 canonical（省一次生成）
+    const qs = questions.map((q) => ({
+      ...q,
+      ...(state.baseImages[q.id] ? { baseImage: state.baseImages[q.id] } : {}),
+      ...(state.cellTexts?.[q.id]?.length ? { cellTexts: state.cellTexts[q.id] } : {}),
+      ...(state.refAnswers?.[q.id] ? { refAnswer: state.refAnswers[q.id] } : {}),
+    }))
+    return generateAnswerSheet({ title, pageSize: state.pageSize, questions: qs, headerDataUri, sectionOverrides: state.sectionOverrides, withRefAnswers: true })
+  }, [title, questions, headerDataUri, state, result])
 
   useEffect(() => {
     onResult?.(result && result.ok ? (result as GenResult) : null)
@@ -263,9 +280,9 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
                 const qid = (e.target as Element)?.getAttribute?.('data-qid')
                 if (qid) setEditCell(qid)
               }}
-              dangerouslySetInnerHTML={{ __html: result.svg }}
+              dangerouslySetInnerHTML={{ __html: (previewResult?.ok ? previewResult.svg : result.svg) }}
             />
-            <div className="text-[11px] text-gray-400 mt-1 text-center">點任一格可加入文字方塊／底圖</div>
+            <div className="text-[11px] text-gray-400 mt-1 text-center">點任一格可加入文字方塊／底圖／參考答案（紅字為參考答案，學生版不含）</div>
           </div>
         )}
       </div>

@@ -78,6 +78,8 @@ export interface GenQuestion {
   baseImage?: GenBaseImage
   /** 格內文字方塊（老師自加提示，如「請寫出計算過程」）；決定性渲染 */
   cellTexts?: GenCellText[]
+  /** 2026-09-07 內建參考答案（紅字）；僅 withRefAnswers=true（老師版）才渲染，學生版不畫 */
+  refAnswer?: string
 }
 
 /** 格內文字方塊 */
@@ -112,6 +114,8 @@ export interface GenInput {
   /** RPOMR1 標頭圖的 data URI（呼叫端 fetch /templates/omr-header.png 轉入） */
   headerDataUri: string
   sectionOverrides?: Record<string, SectionOverride>
+  /** 2026-09-07 老師版＝true → 畫參考答案紅字；學生版＝false/省略 → 絕不畫紅字（鐵律） */
+  withRefAnswers?: boolean
 }
 
 export interface GenBox {
@@ -259,7 +263,7 @@ function esc(s: string): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
 }
 
-function layoutPages(sections: Section[], g: PageGeom): LayoutPage[] {
+function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean): LayoutPage[] {
   const PW = g.pw
   const PH = g.ph
   const UV = g.uvBasis
@@ -311,6 +315,17 @@ function layoutPages(sections: Section[], g: PageGeom): LayoutPage[] {
       els.push(
         `<image x="${(x + bi.place.xMm) * DPMM}" y="${(yy + bi.place.yMm) * DPMM}" width="${bi.place.wMm * DPMM}" height="${bi.place.hMm * DPMM}" preserveAspectRatio="none" href="${bi.dataUri}"/>`
       )
+    }
+    // 2026-09-07 參考答案紅字：只在老師版(withRefAnswers)畫，學生版絕不畫。放格內下半、避開頂端文字方塊。
+    if (withRefAnswers && q.refAnswer && q.refAnswer.trim()) {
+      const raw = q.refAnswer.trim()
+      const rsize = 3.2
+      const rtx = x + 1.5
+      const rty = yy + h * 0.62 + rsize
+      const estMm = estimateTextWidthMm(raw, rsize)
+      const availMm = w - 3
+      const lenAttr = (estMm > availMm && availMm > 2) ? ` textLength="${availMm * DPMM}" lengthAdjust="spacingAndGlyphs"` : ''
+      els.push(`<text x="${rtx * DPMM}" y="${rty * DPMM}" font-size="${rsize * DPMM}" fill="#c00"${lenAttr} xml:space="preserve">${esc(raw)}</text>`)
     }
   }
   // 預覽點擊層：透明 rect 蓋在每格上（data-qid 供 UI 點格開編輯視窗）；印刷不可見
@@ -451,7 +466,7 @@ function assembleSvg(g: PageGeom, input: GenInput, els: string[]): string {
 export function generateAnswerSheet(input: GenInput): GenResult | GenFail {
   const g = pageGeom(input.pageSize ?? 'A4')
   const sections = buildSections(input.questions, input.sectionOverrides ?? {})
-  const pages = layoutPages(sections, g)
+  const pages = layoutPages(sections, g, !!input.withRefAnswers)
   if (pages.length !== 1) {
     // 裝不下：不自動縮格（user 拍板），回首頁預覽給 UI 紅框顯示
     return { ok: false, reason: 'fit_failed', previewSvg: assembleSvg(g, input, pages[0].els) }
