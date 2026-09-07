@@ -959,15 +959,19 @@ export default function AnswerKeyUnifiedModal({
 
   // 純打字免上傳（2026-09-07）：每格都在製作作答卷時打了參考答案、且無「一定要影像」的題型
   //   （作圖/繪圖類、應用題 word_problem 的級分 rubric 都得看手寫圖）→ 可完全略過上傳、零 AI 建卷。
-  const canSkipUpload = useMemo(() => {
-    if (!GENERATED_SHEET_STEP_ENABLED || !editingKey) return false
-    const qs = editingKey.questions
-    if (qs.length === 0) return false
+  //   ⭐用 makerResult.boxes（實際渲染、老師看得到的可填格）當權威，不用 editingKey.questions
+  //   （骨架可能含大題標題等「不產生格」的題，用它 every() 會永遠 false）。box.type = questionCategory。
+  const skipStatus = useMemo(() => {
+    if (!GENERATED_SHEET_STEP_ENABLED || !makerResult) return null
+    const boxes = makerResult.boxes
+    if (boxes.length === 0) return null
     const NEEDS_IMAGE = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'word_problem'])
-    if (qs.some((q) => NEEDS_IMAGE.has(String(q.questionCategory)))) return false
     const refAnswers = makerState.refAnswers ?? {}
-    return qs.every((q) => (refAnswers[q.id] ?? '').trim() !== '')
-  }, [editingKey, makerState.refAnswers])
+    const hasImageType = boxes.some((b) => NEEDS_IMAGE.has(String(b.type)))
+    const unfilled = boxes.filter((b) => !NEEDS_IMAGE.has(String(b.type)) && !(refAnswers[b.id] ?? '').trim()).length
+    return { hasImageType, unfilled, total: boxes.length }
+  }, [makerResult, makerState.refAnswers])
+  const canSkipUpload = !!skipStatus && !skipStatus.hasImageType && skipStatus.unfilled === 0
 
   const [genDraftRestored, setGenDraftRestored] = useState(false)
   const [schoolName, setSchoolName] = useState('')
@@ -1947,9 +1951,19 @@ export default function AnswerKeyUnifiedModal({
                             <span className="text-xs text-gray-500">{GENERATED_SHEET_STEP_ENABLED ? '— 標準答案手寫在上一步下載的作答卷上，拍照或掃描上傳' : '— 你自己寫好標準答案的版本'}</span>
                           </div>
                         </div>
-                        {canSkipUpload && pageItems.length === 0 && (
+                        {pageItems.length === 0 && canSkipUpload && (
                           <div className="mb-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
                             <p className="text-xs text-emerald-800">✓ 每格都已填好參考答案、且沒有作圖／應用題 → 可直接按下方「<span className="font-semibold">直接完成建卷（免上傳）</span>」，不必列印手寫、零 AI 讀取。若仍要上傳手寫卷校對也可以。</p>
+                          </div>
+                        )}
+                        {pageItems.length === 0 && skipStatus && !skipStatus.hasImageType && skipStatus.unfilled > 0 && (
+                          <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                            <p className="text-xs text-amber-800">還有 <span className="font-semibold">{skipStatus.unfilled}</span> 格沒填參考答案 → 回「製作作答卷」把每格都填好，就能<span className="font-semibold">免上傳</span>直接建卷；或現在直接上傳手寫卷也可以。</p>
+                          </div>
+                        )}
+                        {pageItems.length === 0 && skipStatus?.hasImageType && (
+                          <div className="mb-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
+                            <p className="text-xs text-slate-600">本卷有作圖／應用題（需看手寫圖才能評分）→ 一定要上傳手寫卷；其餘打過字的格仍會直接採用、不重讀。</p>
                           </div>
                         )}
                         <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />
