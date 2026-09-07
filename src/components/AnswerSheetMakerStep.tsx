@@ -24,9 +24,11 @@ export interface SheetMakerState {
   baseImages: Record<string, GenBaseImage & { bookletPage?: number; rect?: { x: number; y: number; w: number; h: number } }>
   /** 格內文字方塊：題目 id → 文字清單（點預覽格子編輯） */
   cellTexts: Record<string, GenCellText[]>
+  /** 2026-09-07 內建參考答案：題目 id → 參考答案（紅字，只老師/批改看；學生版下載不含） */
+  refAnswers?: Record<string, string>
 }
 
-export const EMPTY_SHEET_MAKER_STATE: SheetMakerState = { pageSize: 'A4', sectionOverrides: {}, baseImages: {}, cellTexts: {} }
+export const EMPTY_SHEET_MAKER_STATE: SheetMakerState = { pageSize: 'A4', sectionOverrides: {}, baseImages: {}, cellTexts: {}, refAnswers: {} }
 
 interface Props {
   title: string
@@ -271,6 +273,8 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
       {editCell && result?.ok && (() => {
         const box = (result as GenResult).boxes.find((b) => b.id === editCell)
         if (!box) return null
+        const cat = String(questions.find((q) => q.id === editCell)?.questionCategory ?? '')
+        const isDrawing = ['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'map_fill'].includes(cat)
         return (
           <CellEditModal
             qid={editCell}
@@ -279,6 +283,13 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
             texts={state.cellTexts?.[editCell] ?? []}
             baseImage={state.baseImages[editCell] ?? null}
             hasBooklet={bookletImages.length > 0}
+            refAnswer={state.refAnswers?.[editCell] ?? ''}
+            refAnswerHint={isDrawing ? '此題為繪圖／符號題，請印出後手寫參考答案' : undefined}
+            onRefAnswerChange={(v) => {
+              const next = { ...(state.refAnswers ?? {}) }
+              if (v.trim()) next[editCell] = v; else delete next[editCell]
+              onStateChange({ ...state, refAnswers: next })
+            }}
             onTextsChange={(texts) => onStateChange({ ...state, cellTexts: { ...state.cellTexts, [editCell]: texts } })}
             onBaseImageChange={(entry) => {
               const next = { ...state.baseImages }
@@ -456,13 +467,16 @@ function BaseImageCropModal({ bookletImages, existing, onCancel, onDone }: CropM
 // ── 格編輯視窗（Canva 式）：格子即畫布——文字方塊就地打字拖曳、底圖 8 點縮放拖移 ──
 type BaseImageEntry = GenBaseImage & { bookletPage?: number; rect?: { x: number; y: number; w: number; h: number } }
 
-function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, onTextsChange, onBaseImageChange, onOpenCrop, onClose }: {
+function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, refAnswer, refAnswerHint, onRefAnswerChange, onTextsChange, onBaseImageChange, onOpenCrop, onClose }: {
   qid: string
   cellWMm: number
   cellHMm: number
   texts: GenCellText[]
   baseImage: BaseImageEntry | null
   hasBooklet: boolean
+  refAnswer: string
+  refAnswerHint?: string
+  onRefAnswerChange: (v: string) => void
   onTextsChange: (texts: GenCellText[]) => void
   onBaseImageChange: (entry: BaseImageEntry | null) => void
   onOpenCrop: () => void
@@ -629,6 +643,24 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, on
             <p className="text-[11px] text-gray-400 leading-relaxed pt-1">
               文字：框內打字、拖框移動。<br />底圖：拖曳移動、拉 8 點縮放。<br />改動即時反映在整份預覽。
             </p>
+            {/* 2026-09-07 內建參考答案（紅字，只老師/批改看；學生版不含）*/}
+            <div className="pt-2 mt-2 border-t">
+              <div className="text-xs font-semibold text-red-600 mb-1">參考答案（紅字）</div>
+              {refAnswerHint ? (
+                <p className="text-[11px] text-amber-600 leading-relaxed">{refAnswerHint}</p>
+              ) : (
+                <>
+                  <textarea
+                    rows={2}
+                    value={refAnswer}
+                    onChange={(e) => onRefAnswerChange(e.target.value)}
+                    placeholder="老師填的正解，會以紅字顯示"
+                    className="w-full text-xs px-2 py-1 border border-red-200 rounded focus:border-red-400 focus:outline-none"
+                  />
+                  <p className="text-[11px] text-gray-400 mt-0.5">只老師／批改看得到；學生印的作答卷不會有。</p>
+                </>
+              )}
+            </div>
           </div>
 
           {/* 右：格子畫布（1:1 比例） */}
