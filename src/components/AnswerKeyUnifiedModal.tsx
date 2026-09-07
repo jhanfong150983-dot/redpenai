@@ -16,7 +16,7 @@ import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
 import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
-import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData } from '@/lib/answerSheetGenerator'
+import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData, type PageSize } from '@/lib/answerSheetGenerator'
 import { cropReferenceSheetCells } from '@/lib/generatedSheetAlign'
 import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
@@ -246,28 +246,11 @@ export interface AnswerKeyUnifiedModalProps {
 //   免上傳時當作「答案卷影像」，供 AnswerBank 用現成格位裁格、餵 rubric 生成器（跟上傳版同一套）。
 //   生成影像幾何精準（無透視變形），裁格比掃描更準。SVG 內圖片都是 data URI、自足可點陣化。
 async function rasterizeSheetSvg(svg: string, pageMm: [number, number]): Promise<Blob | null> {
+  // 複用已驗證的 renderSheetPng（用 blob object URL、大 SVG 也穩；data URL 對大 SVG 會載入失敗）。
   try {
-    const DPMM = 3508 / 297
-    const w = Math.max(1, Math.round(pageMm[0] * DPMM))
-    const h = Math.max(1, Math.round(pageMm[1] * DPMM))
-    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const im = new Image()
-      im.onload = () => resolve(im)
-      im.onerror = () => reject(new Error('svg raster load failed'))
-      im.src = url
-    })
-    const canvas = document.createElement('canvas')
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return null
-    ctx.fillStyle = '#fff'
-    ctx.fillRect(0, 0, w, h)
-    ctx.drawImage(img, 0, 0, w, h)
-    return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'))
+    return await renderSheetPng(svg, pageMm)
   } catch (err) {
-    console.warn('[rasterizeSheetSvg] 失敗（免上傳將退回純文字判準）', err)
+    console.warn('[rasterizeSheetSvg] 失敗', err)
     return null
   }
 }
@@ -1520,15 +1503,23 @@ export default function AnswerKeyUnifiedModal({
               svg = teacherMakerResult.svg
               pageMm = teacherMakerResult.layoutMeta.pageMm
               layout = { version: ANSWER_SHEET_GEN_VERSION, pageSize: makerState.pageSize, pageMm, anchorsMm: makerResult.layoutMeta.anchorsMm, uvBasis: makerResult.layoutMeta.uvBasis, header: makerResult.layoutMeta.header, boxes: makerResult.boxes, sectionOverrides: makerState.sectionOverrides }
-            } else if (initialGeneratedSheet) {
+            } else {
+              // 無 session 影像 → 用題目結構重建老師版影像（答案當紅字）。
+              //   有已存版面(initialGeneratedSheet)→用它的 pageSize/sectionOverrides 精準還原；
+              //   連版面都沒有(舊卷漏存)→退而求其次：試 A4→B4 出一版可用的（review 截圖用，未必與原印刷版逐像素同）。
               const header = await fetchOmrHeaderDataUri()
               if (header) {
                 const qs = updatedKey.questions.map((q) => ({ id: q.id, questionCategory: q.questionCategory ?? 'fill_blank', maxScore: q.maxScore, refAnswer: (q as { answer?: string }).answer, anchorHint: (q as { anchorHint?: string }).anchorHint }))
-                const gen = generateAnswerSheet({ title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '), pageSize: initialGeneratedSheet.pageSize, questions: qs, headerDataUri: header, sectionOverrides: initialGeneratedSheet.sectionOverrides, withRefAnswers: true })
-                if (gen.ok) {
-                  svg = gen.svg
-                  pageMm = gen.layoutMeta.pageMm
-                  layout = { version: ANSWER_SHEET_GEN_VERSION, pageSize: initialGeneratedSheet.pageSize, pageMm, anchorsMm: gen.layoutMeta.anchorsMm, uvBasis: gen.layoutMeta.uvBasis, header: gen.layoutMeta.header, boxes: gen.boxes, sectionOverrides: initialGeneratedSheet.sectionOverrides }
+                const so = initialGeneratedSheet?.sectionOverrides ?? {}
+                const sizes: PageSize[] = initialGeneratedSheet?.pageSize ? [initialGeneratedSheet.pageSize] : ['A4', 'B4']
+                for (const ps of sizes) {
+                  const gen = generateAnswerSheet({ title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '), pageSize: ps, questions: qs, headerDataUri: header, sectionOverrides: so, withRefAnswers: true })
+                  if (gen.ok) {
+                    svg = gen.svg
+                    pageMm = gen.layoutMeta.pageMm
+                    layout = { version: ANSWER_SHEET_GEN_VERSION, pageSize: ps, pageMm, anchorsMm: gen.layoutMeta.anchorsMm, uvBasis: gen.layoutMeta.uvBasis, header: gen.layoutMeta.header, boxes: gen.boxes, sectionOverrides: so }
+                    break
+                  }
                 }
               }
             }
