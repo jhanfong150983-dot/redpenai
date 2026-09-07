@@ -316,16 +316,21 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
         `<image x="${(x + bi.place.xMm) * DPMM}" y="${(yy + bi.place.yMm) * DPMM}" width="${bi.place.wMm * DPMM}" height="${bi.place.hMm * DPMM}" preserveAspectRatio="none" href="${bi.dataUri}"/>`
       )
     }
-    // 2026-09-07 參考答案紅字：只在老師版(withRefAnswers)畫，學生版絕不畫。放格內下半、避開頂端文字方塊。
+    // 2026-09-07 參考答案紅字：只在老師版(withRefAnswers)畫，學生版絕不畫。
+    //   短代號/符號類（選擇/成語/是非/勾選/圈選/填空/國字注音等）→ 置中；文字類（注釋/簡答/應用）→ 靠左（長文好讀）。
     if (withRefAnswers && q.refAnswer && q.refAnswer.trim()) {
       const raw = q.refAnswer.trim()
       const rsize = 3.2
-      const rtx = x + 1.5
-      const rty = yy + h * 0.62 + rsize
+      // 只有「小框代號題型」(選擇/多選/是非＝CHOICE_TYPES；成語填代號也是 single_choice) 置中；
+      //   其餘(注釋/簡答/填空/國字注音等)靠左。
+      const isCenter = CHOICE_TYPES.has(String((q as { questionCategory?: string }).questionCategory ?? ''))
+      const rtx = isCenter ? x + w / 2 : x + 2
+      const rty = yy + h / 2 + rsize / 2
       const estMm = estimateTextWidthMm(raw, rsize)
       const availMm = w - 3
       const lenAttr = (estMm > availMm && availMm > 2) ? ` textLength="${availMm * DPMM}" lengthAdjust="spacingAndGlyphs"` : ''
-      els.push(`<text x="${rtx * DPMM}" y="${rty * DPMM}" font-size="${rsize * DPMM}" fill="#c00"${lenAttr} xml:space="preserve">${esc(raw)}</text>`)
+      const anchor = isCenter ? ' text-anchor="middle"' : ''
+      els.push(`<text x="${rtx * DPMM}" y="${rty * DPMM}" font-size="${rsize * DPMM}" fill="#c00"${anchor}${lenAttr} xml:space="preserve">${esc(raw)}</text>`)
     }
   }
   // 預覽點擊層：透明 rect 蓋在每格上（data-qid 供 UI 點格開編輯視窗）；印刷不可見
