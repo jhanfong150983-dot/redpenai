@@ -278,6 +278,7 @@ export default function AnswerKeyUnifiedModal({
   // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
   const [makerState, setMakerState] = useState<SheetMakerState>(EMPTY_SHEET_MAKER_STATE)
   const [makerResult, setMakerResult] = useState<GenResult | null>(null)
+  const [teacherMakerResult, setTeacherMakerResult] = useState<GenResult | null>(null) // 老師版(帶紅字)、供AI解析下載
 
   const [completedSteps, setCompletedSteps] = useState<Set<UnifiedStep>>(
     () => editMode
@@ -796,12 +797,15 @@ export default function AnswerKeyUnifiedModal({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editMode, initialBookletImages])
 
-  // step③：下載作答卷草稿 PDF（尚未存檔——直接由目前排版結果渲染）
+  // step③/④：下載作答卷 PDF 給老師印出手寫。
+  //   ⛔ 用「老師版」(teacherMakerResult，帶紅字參考答案)——老師只需手寫繪圖/符號等打不了的；
+  //      沒填參考答案時 teacherMakerResult == 學生版(無紅)。學生版存檔/卡片下載另走 makerResult。
   const handleDownloadDraftSheet = async () => {
-    if (!makerResult) return
+    const src = teacherMakerResult ?? makerResult
+    if (!src) return
     try {
-      const png = await renderSheetPng(makerResult.svg, makerResult.layoutMeta.pageMm)
-      const pdf = await buildSheetPdf(png, makerResult.layoutMeta.pageMm)
+      const png = await renderSheetPng(src.svg, src.layoutMeta.pageMm)
+      const pdf = await buildSheetPdf(png, src.layoutMeta.pageMm)
       const url = URL.createObjectURL(pdf)
       const a = document.createElement('a')
       a.href = url
@@ -2686,6 +2690,7 @@ export default function AnswerKeyUnifiedModal({
                     state={makerState}
                     onStateChange={setMakerState}
                     onResult={setMakerResult}
+                    onTeacherResult={setTeacherMakerResult}
                   />
                 </div>
               )}

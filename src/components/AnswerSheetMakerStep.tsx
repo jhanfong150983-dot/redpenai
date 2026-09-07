@@ -39,6 +39,8 @@ interface Props {
   onStateChange: (next: SheetMakerState) => void
   /** 每次重排結果回拋（ok 才能儲存定版） */
   onResult?: (result: GenResult | null) => void
+  /** 老師版（帶紅字參考答案）result；供「AI 解析」那步下載列印手寫。學生版走 onResult。 */
+  onTeacherResult?: (result: GenResult | null) => void
 }
 
 function sectionKeyOf(id: string): string {
@@ -59,7 +61,7 @@ function measureTextPx(text: string, fontPx: number): number {
   return _measureCtx.measureText(text).width
 }
 
-export default function AnswerSheetMakerStep({ title, questions, bookletImages, state, onStateChange, onResult }: Props) {
+export default function AnswerSheetMakerStep({ title, questions, bookletImages, state, onStateChange, onResult, onTeacherResult }: Props) {
   const [headerDataUri, setHeaderDataUri] = useState<string | null>(null)
   const [headerError, setHeaderError] = useState(false)
   const [cropTarget, setCropTarget] = useState<string | null>(null)
@@ -151,8 +153,10 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
 
   useEffect(() => {
     onResult?.(result && result.ok ? (result as GenResult) : null)
+    // 老師版（帶紅字參考答案）回傳給父層供「AI 解析」那步下載列印手寫用；學生版仍走 onResult
+    onTeacherResult?.(previewResult && previewResult.ok ? (previewResult as GenResult) : null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result])
+  }, [result, previewResult])
 
   const setOverride = (key: string, patch: Partial<SectionOverride>) => {
     onStateChange({
