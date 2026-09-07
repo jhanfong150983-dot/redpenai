@@ -204,6 +204,8 @@ interface Section {
   perRow?: number
   grid?: boolean
   stemInCell?: boolean
+  /** 說明題：作答區切「作答／說明」上下兩段 */
+  explain?: boolean
 }
 
 const CN_NUM = '一二三四五六七八九十'
@@ -213,6 +215,11 @@ const CHOICE_TYPES = new Set(['single_choice', 'multi_choice', 'true_false'])
 const BIGBOX_IMAGE_TYPES = new Set([
   'circle_select_one', 'circle_select_many', 'matching', 'mark_in_text',
   'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'map_fill',
+])
+// 說明題（複合題：作答＋寫理由）→ wide 版型、作答區切「作答／說明」兩段
+const EXPLAIN_TYPES = new Set([
+  'compound_check_with_explain', 'compound_circle_with_explain', 'compound_writein_with_explain',
+  'compound_judge_with_explain', 'compound_judge_with_correction',
 ])
 
 function sectionKeyOf(id: string): string {
@@ -258,6 +265,9 @@ function buildSections(questions: GenQuestion[], overrides: Record<string, Secti
         secs.push({ key, label: titled(name), kind: 'bigbox', qs: gridQs, cols: 0, ansH: gv.bigH ?? 58, perRow: gv.perRow ?? 2, grid: true })
       if (essayQs.length)
         secs.push({ key, label: gridQs.length ? null : titled(name), kind: 'bigbox', qs: essayQs, cols: 0, ansH: ev.bigH ?? 44, perRow: ev.perRow ?? 1 })
+    } else if (qs.every((q) => EXPLAIN_TYPES.has(q.questionCategory))) {
+      // 說明題（勾選/圈選/寫代號/判斷 ＋ 寫理由）→ wide 框、作答區切「作答／說明」兩段；預設較高好寫理由
+      secs.push({ key, label: titled('說明題'), kind: 'wide', qs, cols: ov.cols ?? 2, ansH: 22 * sizeMul, stemInCell: true, explain: true })
     } else if (types.has('short_answer') || types.has('fill_variants')) {
       // 步驟2：fill_variants(注釋/造詞) 沿用 short_answer 的 wide 框（號碼＋寬作答區＝驗收過的注釋版型），
       //   避免改判 fill_variants 後掉進 numgrid 填充框而變版型。
@@ -464,6 +474,14 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
           line(x0 + numW, by, x0 + numW, by + cellH, 0.18)              // 號碼框分隔線
           text(x0 + numW / 2, by + cellH / 2 + 1, String(q.num), 2.8, 'text-anchor="middle" fill="#444"') // 題號置中於號碼框
           addBox(q, x0 + numW, by, cellW - numW, cellH, 'wide')         // 作答區＝號碼框右側整塊
+          if (sec.explain) {
+            // 說明題：作答區切上下兩段——上段「作答」(打勾/圈選/代號)、下段「說明」(寫理由)
+            const ax = x0 + numW
+            const splitY = by + cellH * 0.4
+            line(ax, splitY, x0 + cellW, splitY, 0.12, '#bbb')
+            text(ax + 1, by + 3, '作答', 2.3, 'fill="#aaa"')
+            text(ax + 1, splitY + 3, '說明', 2.3, 'fill="#aaa"')
+          }
         })
         y = by + cellH
       }
