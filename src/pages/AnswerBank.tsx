@@ -1253,6 +1253,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
             <div className="mt-0.5 text-xs text-amber-600">每週一自動重置（建卷免費，僅計次數）</div>
           </div>
         )}
+        {inkQuota?.unlimited && (
+          <div className="mt-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-slate-600 text-xs">
+            本週建卷額度：<strong>無上限</strong>（管理員帳號）—— 一般老師帳號會顯示每週剩餘次數。
+          </div>
+        )}
       </InkConfirmModal>
 
       {/* 匯入短碼 Modal */}
