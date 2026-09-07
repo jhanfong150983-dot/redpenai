@@ -54,21 +54,8 @@ interface Props {
   onQuestionCategoryChange?: (qids: string[], category: string) => void
 }
 
-// 製作作答卷可就地切換的題型（涵蓋版型差異大的類別；細分留人工檢核）
-const SHEET_TYPE_OPTIONS: Array<[string, string]> = [
-  ['single_choice', '選擇題（寫代號）'],
-  ['true_false', '是非題'],
-  ['fill_blank', '填空題'],
-  ['short_answer', '簡答題'],
-  ['compound_writein_with_explain', '寫入說明題'],
-  ['fill_variants', '多元填空／注釋'],
-  ['word_problem', '應用題（大框）'],
-  ['grid_geometry', '作圖題'],
-  ['circle_select_one', '圈選題'],
-  ['mark_in_text', '圈詞題'],
-  ['connect_dots', '連連看'],
-  ['map_fill', '塗色／填圖'],
-]
+// 製作作答卷可就地切換的題型：直接用權威 label 表全列出（中文、零遺漏，含所有說明題/複合題）
+const SHEET_TYPE_OPTIONS: Array<[string, string]> = Object.entries(QUESTION_CATEGORY_LABELS)
 
 function sectionKeyOf(id: string): string {
   const parts = String(id).split('-')
