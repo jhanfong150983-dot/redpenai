@@ -266,6 +266,10 @@ function esc(s: string): string {
 function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean): LayoutPage[] {
   const PW = g.pw
   const PH = g.ph
+  // 2026-09-07 格高隨紙張等比放大：寬度本就隨 cellW=(PW-2M)/cols 縮放，高度原本固定 mm →
+  //   B4(較寬)只變寬不變高＝框被橫向拉扁（user 回報「比例不對」）。乘上 vScale 讓框等比變大。
+  //   ⭐A4 時 vScale=1（210/210）→ 舊 A4 卷完全不變、零回歸；只有 B4 生效。
+  const vScale = PW / 210
   const UV = g.uvBasis
   const pages: LayoutPage[] = []
   let els: string[] = []
@@ -367,8 +371,8 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
     }
     if (sec.kind === 'numgrid') {
       const cols = sec.cols
-      const numH = 4.5
-      const ansH = sec.ansH
+      const numH = 4.5 * vScale
+      const ansH = sec.ansH * vScale
       const cellW = (PW - 2 * M) / cols
       for (let i = 0; i < sec.qs.length; i += cols) {
         const band = sec.qs.slice(i, i + cols)
@@ -388,7 +392,7 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
     } else if (sec.kind === 'wide') {
       const cols = sec.cols
       const cellW = (PW - 2 * M) / cols
-      const cellH = sec.ansH
+      const cellH = sec.ansH * vScale
       for (let i = 0; i < sec.qs.length; i += cols) {
         const band = sec.qs.slice(i, i + cols)
         ensure(cellH + 0.5)
@@ -409,7 +413,7 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
       const w = (PW - 2 * M - (perRow - 1) * 3) / perRow
       for (let i = 0; i < sec.qs.length; i += perRow) {
         const band = sec.qs.slice(i, i + perRow)
-        const h = sec.ansH
+        const h = sec.ansH * vScale
         ensure(h + 10)
         const by = y
         band.forEach((q, k) => {
