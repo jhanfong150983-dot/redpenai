@@ -907,6 +907,13 @@ export default function AnswerKeyUnifiedModal({
         }
       }
 
+      // 診斷（2026-09-07）：60缺答排查——確認免上傳時 skipUpload/refAnswers 有正確帶出
+      if (GENERATED_SHEET_STEP_ENABLED && makerResult && editingKey) {
+        const ra = makerState.refAnswers ?? {}
+        console.warn('[skipUpload:parent] pageItems', pageItems.length, 'canSkipUpload', canSkipUpload,
+          'refAnswers 數', Object.keys(ra).length, 'keys(前10)', Object.keys(ra).slice(0, 10),
+          'skeleton ids(前10)', editingKey.questions.slice(0, 10).map((q) => q.id))
+      }
       const { answerKey, imageBlobs: blobs, notice: n } = await onExtract(orderedBlobs, setExtractionMsg, {
         domain: effectiveDomain,
         docType,

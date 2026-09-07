@@ -465,8 +465,15 @@ export default function AnswerBank(_props: AnswerBankProps) {
         if (typed) (next as { answer?: string }).answer = typed
         return next
       })
+      const matched = questions.filter((q) => ((q as { answer?: string }).answer ?? '').trim()).length
+      // 診斷（2026-09-07）：60缺答排查——若 matched 0，多半是 refAnswers 的 key 對不上骨架題 id
+      if (matched < questions.length) {
+        console.warn('[skipUpload] matched', matched, '/', questions.length,
+          '｜refAnswers keys(前10):', Object.keys(refAnswers).slice(0, 10),
+          '｜skeleton ids(前10):', context.skeleton.questions.slice(0, 10).map((q) => q.id))
+      }
       const answerKey: AnswerKey = { ...context.skeleton, questions, totalScore: questions.reduce((t, q) => t + (q.maxScore ?? 0), 0) }
-      return { answerKey, imageBlobs: [], notice: '已用您打字的參考答案直接建卷（未上傳手寫卷、零 AI 讀取）。請逐題核對。' }
+      return { answerKey, imageBlobs: [], notice: `已用您打字的參考答案直接建卷（${matched}/${questions.length} 格有答案、零 AI 讀取）。請逐題核對。` }
     }
     // 2026-06-01: 擷取會花墨水 → 先跳同意框（promise-confirm，不同意則中止、不扣點）
     const inkOk = await new Promise<boolean>((resolve) => setInkConfirm({ resolve }))
