@@ -1489,9 +1489,6 @@ export default function AnswerKeyUnifiedModal({
         totalScore: editingKey.questions.reduce((s, q) => s + (q.maxScore ?? 0), 0),
       }
       const domainValue = domain === '國語（測試中）' ? '國語' : (domain || '其他')
-      // 重建出來的版面／SVG（缺 generatedSheet 的舊卷用它補回，順便存回讓下載 PDF 復活）
-      let backfillLayout: GeneratedSheetData | null = null
-      let backfillSvg: string | null = null
       // 存檔前補「作答區截圖」：免上傳建的卷可能缺 crop → 用老師版作答卷影像(帶紅字)裁每格（client 端、免 AI）。
       //   來源①本 session 的 teacherMakerResult（剛做過作答卷）；②編輯模式重開→用已存版面 initialGeneratedSheet
       //   ＋題目答案(當紅字)重建。作圖題的手繪正解(refDrawing)未持久化，重建版無法還原→那類仍缺，其餘都補。失敗不擋存檔。
@@ -1528,8 +1525,6 @@ export default function AnswerKeyUnifiedModal({
               }
             }
             if (svg && pageMm && layout) {
-              backfillLayout = layout // 供下方補存 generatedSheet（缺版面的舊卷）
-              backfillSvg = svg       // 供下方補產 PDF
               const blob = await rasterizeSheetSvg(svg, pageMm)
               if (blob) {
                 const img = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -1567,13 +1562,12 @@ export default function AnswerKeyUnifiedModal({
       }
 
       // step④ 定版：渲染 PDF（定版物＝實體檔案，含底圖；下載/重印直接拿檔不重算）
+      // ⚠️ 只在有 session 版面(makerResult)時才產/覆蓋 PDF；重開編輯無 makerResult 時不覆蓋，避免清掉舊好 PDF。
       let generatedSheetPdf: Blob | undefined
-      const pdfSvg = makerResult ? makerResult.svg : backfillSvg
-      const pdfPageMm = makerResult ? makerResult.layoutMeta.pageMm : backfillLayout?.pageMm
-      if (GENERATED_SHEET_STEP_ENABLED && pdfSvg && pdfPageMm) {
+      if (GENERATED_SHEET_STEP_ENABLED && makerResult) {
         try {
-          const png = await renderSheetPng(pdfSvg, pdfPageMm)
-          generatedSheetPdf = await buildSheetPdf(png, pdfPageMm)
+          const png = await renderSheetPng(makerResult.svg, makerResult.layoutMeta.pageMm)
+          generatedSheetPdf = await buildSheetPdf(png, makerResult.layoutMeta.pageMm)
         } catch (err) {
           console.warn('[UnifiedModal] 作答卷 PDF 渲染失敗（存檔照常，之後可重新定版）:', err)
         }
@@ -1595,10 +1589,10 @@ export default function AnswerKeyUnifiedModal({
               // 不顯示給老師，後端由 generated_sheet 讀取即可。
               estimatedPointsPerSheet: computePointsPerSheet(updatedKey, 30, domainValue),
             }
-          // 無 session 版面但有重建版面(舊卷缺 generatedSheet)→ 補存重建的版面，讓「下載作答卷 PDF」復活
-          : backfillLayout
-            ? { ...backfillLayout, estimatedPointsPerSheet: computePointsPerSheet(updatedKey, 30, domainValue) }
-            : undefined
+          // ⚠️ 2026-09-07：不用「重建版面」覆蓋 generatedSheet/PDF——重建只從答案還原，
+          //   會丟失老師打的文字方塊/底圖/畫筆(未持久化)、且會覆蓋掉舊的好 PDF。缺版面就維持缺(不清、不覆蓋)。
+          //   根治＝持久化 makerState（另做），這裡先止血。
+          : undefined
 
       await onSave(updatedKey, extractedImageBlobs, {
         title: title.trim(),
