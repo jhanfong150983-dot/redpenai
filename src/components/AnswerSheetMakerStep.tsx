@@ -16,6 +16,7 @@ import {
   type RefStroke,
   type SectionOverride
 } from '../lib/answerSheetGenerator'
+import { QUESTION_CATEGORY_LABELS } from '../lib/db'
 
 /** step④ 的可調狀態（存進 template.generatedSheet.sectionOverrides 等） */
 export interface SheetMakerState {
@@ -59,6 +60,7 @@ const SHEET_TYPE_OPTIONS: Array<[string, string]> = [
   ['true_false', '是非題'],
   ['fill_blank', '填空題'],
   ['short_answer', '簡答題'],
+  ['compound_writein_with_explain', '寫入說明題'],
   ['fill_variants', '多元填空／注釋'],
   ['word_problem', '應用題（大框）'],
   ['grid_geometry', '作圖題'],
@@ -245,7 +247,7 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
                       onChange={(e) => e.target.value && onQuestionCategoryChange(sec.qs.map((q) => q.id), e.target.value)}
                       className="mt-0.5 w-full border rounded px-2 py-1 text-sm"
                     >
-                      {!known && <option value="">{cur || '（未分類）'}</option>}
+                      {!known && <option value="">{(QUESTION_CATEGORY_LABELS as Record<string, string>)[cur] ?? cur ?? '（未分類）'}</option>}
                       {SHEET_TYPE_OPTIONS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
                     </select>
                   </label>
