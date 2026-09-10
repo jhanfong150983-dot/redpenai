@@ -288,7 +288,6 @@ export default function AssignmentFormModal({
   }, [selectedAK])
   const has = (...cats: string[]) => cats.some((c) => questionTypes.has(c))
   const hasMultiCheck = has('multi_check', 'multi_choice', 'circle_select_many', 'multi_check_other')
-  const hasWordProblem = has('word_problem')
   // 單位錯誤只對「答案含單位」的題型有意義（應用題/計算/填空）——數學卷才顯示
   const hasUnitRelevant = has('word_problem', 'calculation', 'fill_blank')
 
@@ -908,67 +907,10 @@ export default function AssignmentFormModal({
                         </p>
                       </div>
                       )}
-                      {/* 2026-07-16 應用題過程分；2026-09-06：只在有應用題時顯示 */}
-                      {hasWordProblem && (
-                      <div className="mt-4">
-                        <label className="block text-sm font-semibold text-gray-800 mb-2">應用題過程分</label>
-                        <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => updateSetting('processCreditRule', 'none')}
-                            className={`px-4 py-2 text-sm font-medium transition-colors ${
-                              settings.processCreditRule === 'none'
-                                ? 'bg-green-600 text-white'
-                                : 'bg-white text-gray-600 hover:bg-gray-50'
-                            }`}
-                          >
-                            不給分
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateSetting('processCreditRule', 'half')}
-                            className={`px-4 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
-                              settings.processCreditRule === 'half'
-                                ? 'bg-green-600 text-white'
-                                : 'bg-white text-gray-600 hover:bg-gray-50'
-                            }`}
-                          >
-                            給一半分數
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => updateSetting('processCreditRule', 'deduct')}
-                            className={`px-4 py-2 text-sm font-medium border-l border-gray-300 transition-colors ${
-                              settings.processCreditRule === 'deduct'
-                                ? 'bg-green-600 text-white'
-                                : 'bg-white text-gray-600 hover:bg-gray-50'
-                            }`}
-                          >
-                            扣固定分數
-                          </button>
-                        </div>
-                        {settings.processCreditRule === 'deduct' && (
-                          <div className="mt-2 flex items-center gap-2 text-sm text-gray-700">
-                            <span>過程對但答案錯，每題扣</span>
-                            <input
-                              type="number"
-                              min={0.5}
-                              max={20}
-                              step={0.5}
-                              value={settings.processCreditDeduction}
-                              onChange={(e) => updateSetting('processCreditDeduction', Math.max(0.5, Math.min(20, Number(e.target.value) || 1)))}
-                              className="w-20 px-2 py-1 rounded border border-gray-300 text-center focus:outline-none focus:ring-2 focus:ring-green-300"
-                            />
-                            <span>分（扣到該題 0 分為止）</span>
-                          </div>
-                        )}
-                        <p className="mt-2 text-xs text-slate-500">
-                          {settings.processCreditRule === 'none'
-                            ? '應用題最終答案錯 → 整題 0 分（不看過程）'
-                            : `最終答案錯時 AI 會檢視手寫計算過程：列式與過程正確、僅最後算錯/抄錯 → ${settings.processCreditRule === 'half' ? '給該題一半分數' : `該題扣 ${settings.processCreditDeduction} 分`}；過程本身有錯仍 0 分`}
-                        </p>
-                      </div>
-                      )}
+                      {/* 2026-09-10「應用題過程分」UI 拆除（user 拍板）：word_problem 已由級分制（answer key 的 levelRubric、
+                          server B-Level 分支）接管、判官不讀此設定，三段選項對主路徑無效＝假承諾。
+                          settings.processCreditRule 型別/預設 'none' 保留（AssignmentList 仍寫入、DB 113 份作業 0 份非 none）；
+                          server 一律視為 none（PROCESS_CREDIT_ENABLED 閘門）。 */}
                     </div>
                   )}
 
