@@ -340,11 +340,204 @@ function triggerDownload(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
+// ═══ 原卷註記版（2026-09-10 user 逐輪拍板、原型 redpenaisever/local-only/exp-review-overlay/build.mjs）═══
+//   學生原卷當底圖，每題作答框右側疊紅筆 ✓／✗（細筆、60% 透明＝壓到字也看得見），
+//   每大題扣分一筆寫在該大題最右側空白，右上總分章，底部頁腳。
+//   ⛔ 不寫正解（老師逐題朗誦／黑板對答案）、不寫每格扣分、未作答只打 ✗、全對的大題不標。
+//   一人一頁（多頁卷依 pageBreaks 逐頁）。純 canvas、零 AI、零 server 呼叫（不經 parent-pdf），pdf-lib 直接嵌 JPEG。
+export type ReviewSheetMode = 'overlay' | 'table'
+const OV = { red: '#d0021b', markScale: 0.8, markOpacity: 0.6, markStroke: 0.07, maxW: 1800, jpegQ: 0.85 }
+const OV_FONT = '"Noto Sans TC","Microsoft JhengHei","PingFang TC","Heiti TC",sans-serif'
+// 大題鍵：題號 "頁-大題-小題" → "頁-大題"；"大題-小題" → "大題"
+const sectionKeyOf = (qid: string) => { const p = qid.split('-'); return p.length >= 3 ? p.slice(0, 2).join('-') : p[0] }
+const fmtNum = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1))
+
+type OverlayItem = { qid: string; bbox: Bbox; correct: boolean; lost: number }
+
+function drawMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, ok: boolean) {
+  ctx.save()
+  ctx.strokeStyle = OV.red
+  ctx.globalAlpha = OV.markOpacity
+  ctx.lineWidth = Math.max(1.6, s * OV.markStroke)
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+  ctx.beginPath()
+  if (ok) {
+    ctx.moveTo(cx - s * 0.45, cy); ctx.lineTo(cx - s * 0.12, cy + s * 0.32); ctx.lineTo(cx + s * 0.5, cy - s * 0.42)
+  } else {
+    ctx.moveTo(cx - s * 0.4, cy - s * 0.4); ctx.lineTo(cx + s * 0.4, cy + s * 0.4)
+    ctx.moveTo(cx + s * 0.4, cy - s * 0.4); ctx.lineTo(cx - s * 0.4, cy + s * 0.4)
+  }
+  ctx.stroke()
+  ctx.restore()
+}
+
+// 渲染一張（原卷的一頁）：slice=[y0,y1) 為 pageBreaks 切出的合併圖區段（0~1）
+async function renderOverlayPage(
+  bmp: ImageBitmap,
+  slice: { y0: number; y1: number },
+  items: OverlayItem[],
+  sections: Array<{ lost: number; yMin: number }>,
+  meta: { first: boolean; pageNo: number; pageCount: number; total: number | null; maxTotal: number; wrongCount: number; lost: number; title: string; who: string }
+): Promise<Blob> {
+  const scale = Math.min(1, OV.maxW / bmp.width)
+  const sliceH = (slice.y1 - slice.y0) * bmp.height
+  const W = Math.max(1, Math.round(bmp.width * scale))
+  const H = Math.max(1, Math.round(sliceH * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = W; canvas.height = H
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('canvas 不可用')
+  ctx.drawImage(bmp, 0, Math.round(slice.y0 * bmp.height), bmp.width, Math.round(sliceH), 0, 0, W, H)
+  const u = W / 1000
+  const span = Math.max(1e-6, slice.y1 - slice.y0)
+  const toY = (ny: number) => ((ny - slice.y0) / span) * H
+
+  // 每題 ✓／✗（窄格如選擇題：小勾更靠右、不蓋代號）
+  for (const it of items) {
+    const x = it.bbox.x * W, y = toY(it.bbox.y), w = it.bbox.w * W, hh = (it.bbox.h / span) * H
+    const compact = (w / Math.max(1, hh)) < 2.6
+    const s = OV.markScale * (compact
+      ? Math.max(14 * u, Math.min(hh * 0.62, w * 0.34, 34 * u))
+      : Math.max(18 * u, Math.min(hh * 0.9, 40 * u)))
+    drawMark(ctx, x + w - s * (compact ? 0.62 : 0.8), y + hh / 2, s, it.correct)
+  }
+  // 每大題扣分：右對齊頁緣、對齊該大題第一列
+  ctx.save()
+  ctx.fillStyle = OV.red
+  ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic'
+  ctx.font = `700 ${Math.round(26 * u)}px ${OV_FONT}`
+  for (const sec of sections) ctx.fillText(`−${fmtNum(sec.lost)}`, W - 8 * u, toY(sec.yMin) + 26 * u * 0.95)
+  ctx.restore()
+  // 右上總分章（首頁）
+  if (meta.first) {
+    const stW = 236 * u, stH = 108 * u, sx = W - stW - 22 * u, sy = 18 * u
+    ctx.save()
+    ctx.globalAlpha = 0.9; ctx.fillStyle = '#fff'
+    ctx.beginPath(); ctx.roundRect(sx, sy, stW, stH, 8 * u); ctx.fill()
+    ctx.globalAlpha = 1; ctx.lineWidth = 3 * u; ctx.strokeStyle = OV.red; ctx.stroke()
+    ctx.fillStyle = OV.red; ctx.textAlign = 'left'
+    const scoreTxt = meta.total == null ? '—' : fmtNum(meta.total)
+    ctx.font = `700 ${Math.round(54 * u)}px ${OV_FONT}`
+    ctx.fillText(scoreTxt, sx + 16 * u, sy + 56 * u)
+    const sw = ctx.measureText(scoreTxt).width
+    ctx.font = `400 ${Math.round(22 * u)}px ${OV_FONT}`
+    ctx.fillText(`/ ${meta.maxTotal}`, sx + 16 * u + sw + 6 * u, sy + 56 * u)
+    ctx.font = `400 ${Math.round(15 * u)}px ${OV_FONT}`
+    ctx.fillText(`錯 ${meta.wrongCount} 題 · 扣 ${fmtNum(meta.lost)} 分`, sx + 16 * u, sy + 80 * u)
+    ctx.font = `400 ${Math.round(12 * u)}px ${OV_FONT}`
+    ctx.fillText('✓ 正確　✗ 錯誤　右側紅字＝該大題扣分', sx + 16 * u, sy + 98 * u)
+    ctx.restore()
+  }
+  // 頁腳
+  ctx.save()
+  ctx.fillStyle = OV.red; ctx.textAlign = 'center'
+  ctx.font = `400 ${Math.round(13 * u)}px ${OV_FONT}`
+  const pg = meta.pageCount > 1 ? `　第 ${meta.pageNo} / ${meta.pageCount} 頁` : ''
+  ctx.fillText(`檢討單　${meta.title}${meta.who ? '　' + meta.who : ''}${pg}`, W / 2, H - 14 * u)
+  ctx.restore()
+
+  return await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob 失敗'))), 'image/jpeg', OV.jpegQ)
+  })
+}
+
+// 一班 → 原卷註記版 PDF（pdf-lib 直接嵌圖、A4 直式等比置中）
+async function buildOverlayClassPdf(
+  assignmentId: string,
+  onProgress?: ReviewProgress
+): Promise<{ assignment: Assignment; className: string; bytes: Uint8Array; students: number; failed: number }> {
+  const assignment = await db.assignments.get(assignmentId)
+  if (!assignment) throw new Error('找不到考卷資料,請先同步')
+  const classroom = await db.classrooms.get(assignment.classroomId)
+  const students = await db.students.where('classroomId').equals(assignment.classroomId).toArray()
+  const stuById = new Map(students.map((s) => [s.id, s]))
+  const subs = (await db.submissions.where('assignmentId').equals(assignmentId).toArray())
+    .filter((s) => s.status === 'graded' && s.gradingResult)
+  const ordered = subs
+    .map((sub) => ({ sub, stu: stuById.get(sub.studentId) }))
+    .filter((x): x is { sub: Submission; stu: Student } => !!x.stu)
+    .sort((a, b) => a.stu.seatNumber - b.stu.seatNumber)
+  if (ordered.length === 0) throw new Error('此班尚無已批改的卷,請先完成 AI 批改')
+
+  const { PDFDocument } = await import('pdf-lib')
+  const pdf = await PDFDocument.create()
+  const A4 = { w: 595.28, h: 841.89 }
+  let done = 0, failed = 0
+  for (const { sub, stu } of ordered) {
+    try {
+      const details = ((sub.gradingResult as { details?: GradingDetail[] } | undefined)?.details ?? [])
+      const phaseAligned = (sub.phaseAState?.classifyResult as
+        { alignedQuestions?: Array<{ questionId?: string; answerBbox?: Bbox }> } | undefined)?.alignedQuestions ?? []
+      const bboxFallback = new Map<string, Bbox>()
+      for (const q of phaseAligned) if (q?.questionId && q.answerBbox) bboxFallback.set(String(q.questionId), q.answerBbox)
+      const items: OverlayItem[] = []
+      for (const d of details) {
+        const bbox = d.answerBbox || bboxFallback.get(d.questionId)
+        if (!bbox || bbox.x == null) continue
+        const maxScore = Number(d.maxScore ?? 0), score = Number(d.score ?? 0)
+        items.push({ qid: String(d.questionId), bbox, correct: d.isCorrect === true, lost: Math.max(0, maxScore - score) })
+      }
+      const maxTotal = details.reduce((s, d) => s + Number(d.maxScore ?? 0), 0)
+      const wrongCount = details.filter((d) => d.isCorrect === false).length
+      const lost = items.reduce((s, it) => s + it.lost, 0)
+      // 大題扣分（全卷彙總；寫在該大題第一列所在的那一頁）
+      const secMap = new Map<string, { lost: number; yMin: number }>()
+      for (const it of items) {
+        const k = sectionKeyOf(it.qid)
+        const sec = secMap.get(k) ?? { lost: 0, yMin: Infinity }
+        sec.lost += it.lost; sec.yMin = Math.min(sec.yMin, it.bbox.y)
+        secMap.set(k, sec)
+      }
+      const secAll = Array.from(secMap.values()).filter((s) => s.lost > 0)
+
+      const bmp = await getSubmissionBitmap(sub)
+      if (!bmp) throw new Error('無原卷影像')
+      const breaks = Array.isArray(sub.pageBreaks) ? sub.pageBreaks.filter((b) => b > 0 && b < 1).sort((a, b) => a - b) : []
+      const bounds = [0, ...breaks, 1]
+      const who = `${stu.seatNumber}號 ${stu.name ?? ''}`
+      for (let p = 0; p < bounds.length - 1; p++) {
+        const slice = { y0: bounds[p], y1: bounds[p + 1] }
+        const inPage = (ny: number) => ny >= slice.y0 && ny < slice.y1
+        const pageItems = items.filter((it) => inPage(it.bbox.y + it.bbox.h / 2))
+        const pageSecs = secAll.filter((s) => inPage(s.yMin))
+        const blob = await renderOverlayPage(bmp, slice, pageItems, pageSecs, {
+          first: p === 0, pageNo: p + 1, pageCount: bounds.length - 1,
+          total: typeof sub.score === 'number' ? sub.score : null, maxTotal, wrongCount, lost,
+          title: assignment.title, who,
+        })
+        const img = await pdf.embedJpg(await blob.arrayBuffer())
+        const s = Math.min(A4.w / img.width, A4.h / img.height)
+        const dw = img.width * s, dh = img.height * s
+        pdf.addPage([A4.w, A4.h]).drawImage(img, { x: (A4.w - dw) / 2, y: (A4.h - dh) / 2, width: dw, height: dh })
+      }
+      bmp.close()
+    } catch (e) {
+      console.warn(`[reviewSheet:overlay] 座號${stu.seatNumber} 失敗:`, e)
+      failed++
+    }
+    done++
+    onProgress?.('build', done, ordered.length)
+  }
+  return { assignment, className: classroom?.name ?? '', bytes: await pdf.save(), students: ordered.length - failed, failed }
+}
+
 // ── 主流程:組資料 → 逐生渲染(併發 3+失敗循序重試一次) → pdf-lib 依座號合併 → 下載 ──
+//   mode='overlay'（預設、2026-09-10）＝原卷註記版；'table'＝逐題表格版（2026-08 定稿）。
 export async function downloadClassReviewSheetPdf(
   assignmentId: string,
-  opts: { onProgress?: ReviewProgress } = {}
+  opts: { onProgress?: ReviewProgress; mode?: ReviewSheetMode } = {}
 ): Promise<{ students: number; failed: number }> {
+  if ((opts.mode ?? 'overlay') === 'overlay') {
+    const r = await buildOverlayClassPdf(assignmentId, opts.onProgress)
+    const dateText = new Date().toLocaleDateString('zh-TW')
+    const outBuf = new ArrayBuffer(r.bytes.byteLength)
+    new Uint8Array(outBuf).set(r.bytes)
+    triggerDownload(
+      new Blob([outBuf], { type: 'application/pdf' }),
+      `檢討單_${safeFileName(r.className)}_${safeFileName(r.assignment.title)}_${dateText.replace(/\//g, '')}.pdf`
+    )
+    return { students: r.students, failed: r.failed }
+  }
   const { assignment, className, sheets } = await buildClassReviewSheets(assignmentId, opts.onProgress)
   if (sheets.length === 0) throw new Error('此班尚無已批改的卷,請先完成 AI 批改')
   const dateText = new Date().toLocaleDateString('zh-TW')

@@ -16,7 +16,7 @@ import type { StudentMastery, ConceptEntry } from './ai-report/components/Concep
 import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
 import ConceptDrillDown from './ai-report/components/ConceptDrillDown'
 import KpBackfillCard from './ai-report/components/KpBackfillCard'
-import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
+import { downloadClassReviewSheetPdf, type ReviewSheetMode } from '@/lib/reviewSheetPdf'
 
 // 跨班比較（exam-compare 端點的匿名彙總；classCount 之外無任何來源資訊）
 export type CrossCompare = {
@@ -993,11 +993,14 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   const [reviewSheetBusy, setReviewSheetBusy] = useState(false)
   const [reviewSheetProgress, setReviewSheetProgress] = useState<{ done: number; total: number } | null>(null)
   const [reviewSheetMsg, setReviewSheetMsg] = useState('')
+  // 2026-09-10 檢討單版型：原卷註記版（預設、user 拍板）／逐題表格版（2026-08 定稿）
+  const [reviewSheetMode, setReviewSheetMode] = useState<ReviewSheetMode>('overlay')
   const handleDownloadReviewSheet = async () => {
     if (reviewSheetBusy || !selectedAssignmentId) return
     setReviewSheetBusy(true); setReviewSheetMsg(''); setReviewSheetProgress(null)
     try {
       const r = await downloadClassReviewSheetPdf(selectedAssignmentId, {
+        mode: reviewSheetMode,
         onProgress: (_phase, done, total) => setReviewSheetProgress({ done, total }),
       })
       setReviewSheetMsg(`✅ 已下載全班檢討單（${r.students} 位）${r.failed > 0 ? `、${r.failed} 位失敗略過` : ''}`)
@@ -1188,11 +1191,31 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 3 ? (
                 <>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                    {/* 2026-09-10 版型切換：原卷註記版／逐題表格版 */}
+                    <div style={{ display: 'inline-flex', border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: 8, padding: 2, fontSize: 12 }}>
+                      {([['overlay', '原卷註記版'], ['table', '逐題表格版']] as Array<[ReviewSheetMode, string]>).map(([m, label]) => (
+                        <button
+                          key={m}
+                          type="button"
+                          disabled={reviewSheetBusy}
+                          onClick={() => setReviewSheetMode(m)}
+                          style={{
+                            padding: '4px 10px', borderRadius: 6, border: 'none', cursor: reviewSheetBusy ? 'not-allowed' : 'pointer', fontWeight: 600,
+                            background: reviewSheetMode === m ? '#fff' : 'transparent', color: reviewSheetMode === m ? '#0f172a' : '#64748b',
+                            boxShadow: reviewSheetMode === m ? '0 1px 2px rgba(0,0,0,.08)' : 'none',
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                     <button
                       type="button"
                       onClick={() => void handleDownloadReviewSheet()}
                       disabled={reviewSheetBusy}
-                      title="全班已批改者人人一份(全題+裁圖+正解、低信心黃框、簽名欄),整班合併一份 PDF 直接列印"
+                      title={reviewSheetMode === 'overlay'
+                        ? '學生原卷當底圖、每題旁打 ✓／✗、每大題扣分寫右側、右上總分;不印正解(老師對答案)。全班已批改者人人一份,整班合併一份 PDF'
+                        : '全班已批改者人人一份(全題+裁圖+正解、低信心黃框、簽名欄),整班合併一份 PDF 直接列印'}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 6,
                         padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: reviewSheetBusy ? 'not-allowed' : 'pointer',

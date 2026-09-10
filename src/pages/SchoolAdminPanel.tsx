@@ -32,7 +32,7 @@ import { requestSync, waitForSync } from '@/lib/sync-events'
 import { db } from '@/lib/db'
 import { setSchoolBillingContext, SCHOOL_WALLET_EVENT } from '@/lib/school-billing'
 import { gradeFromLabel, classNumFromLabel } from '@/lib/classroom-order'
-import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
+import { downloadClassReviewSheetPdf, type ReviewSheetMode } from '@/lib/reviewSheetPdf'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import SchoolParentReportPanel from '@/components/SchoolParentReportPanel'
 import SchoolReportSettings from '@/components/SchoolReportSettings'
@@ -315,6 +315,8 @@ export default function SchoolAdminPanel({
   const [reportCounts, setReportCounts] = useState<Record<string, { graded: number; total: number }>>({})
   const [reportBusy, setReportBusy] = useState<string | null>(null)
   const [reportProg, setReportProg] = useState<{ phase: string; done: number; total: number } | null>(null)
+  // 2026-09-10 檢討單版型：原卷註記版（預設、user 拍板）／逐題表格版（2026-08 定稿）
+  const [reportMode, setReportMode] = useState<ReviewSheetMode>('overlay')
   const [reportMsg, setReportMsg] = useState<Record<string, string>>({})
   const [tab, setTab] = useState<SchoolTab>('home')
   const [rosterSyncing, setRosterSyncing] = useState(false)
@@ -1158,6 +1160,7 @@ export default function SchoolAdminPanel({
       // 2026-08-03 sync 瘦身:檢討單要逐題 crop/讀值,大 JSONB 已不隨 sync 下來,先補齊
       await ensureAssignmentDetails([assignmentId])
       const r = await downloadClassReviewSheetPdf(assignmentId, {
+        mode: reportMode,
         onProgress: (phase, done, total) => setReportProg({ phase, done, total }),
       })
       setReportMsg((m) => ({
@@ -1606,9 +1609,27 @@ export default function SchoolAdminPanel({
 
                   {reportTab === 'review' ? (
                   <div className="rounded-xl border border-slate-200 bg-white p-5">
-                    <h3 className="text-sm font-semibold text-slate-800">學生檢討單(紙本)</h3>
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-semibold text-slate-800">學生檢討單(紙本)</h3>
+                      {/* 2026-09-10 版型切換 */}
+                      <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
+                        {([['overlay', '原卷註記版'], ['table', '逐題表格版']] as Array<[ReviewSheetMode, string]>).map(([m, label]) => (
+                          <button
+                            key={m}
+                            type="button"
+                            disabled={reportBusy !== null}
+                            onClick={() => setReportMode(m)}
+                            className={`rounded-md px-2.5 py-1 font-medium transition-colors ${reportMode === m ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <p className="mt-1 text-xs text-slate-500">
-                      每位學生逐題列出:作答裁圖+AI 擷取內容+得分(扣分題附正解、低信心題標示核對),自動排版成兩頁、末頁附總分與核對簽名欄。一個班合併成一個 PDF,直接列印發下。
+                      {reportMode === 'overlay'
+                        ? '學生原卷當底圖,每題作答框旁直接打 ✓／✗(半透明紅筆),每大題扣分寫在右側,右上角總分。不印正解,由老師逐題對答案。一人一頁、一個班合併成一個 PDF。'
+                        : '每位學生逐題列出:作答裁圖+AI 擷取內容+得分(扣分題附正解、低信心題標示核對),自動排版成兩頁、末頁附總分與核對簽名欄。一個班合併成一個 PDF,直接列印發下。'}
                     </p>
                     <div className="mt-3 divide-y divide-slate-100">
                       {reportExam.classes.map((c) => {
@@ -1633,7 +1654,7 @@ export default function SchoolAdminPanel({
                               <FileText className="h-3.5 w-3.5" />
                               {busy
                                 ? reportProg
-                                  ? `${reportProg.phase === 'build' ? '裁圖中' : 'PDF 渲染'} ${reportProg.done}/${reportProg.total}`
+                                  ? `${reportProg.phase === 'build' ? (reportMode === 'overlay' ? '註記中' : '裁圖中') : 'PDF 渲染'} ${reportProg.done}/${reportProg.total}`
                                   : '準備中…'
                                 : '產生檢討單 PDF'}
                             </button>
