@@ -227,7 +227,7 @@ export default function AssignmentFormModal({
   const [settings, setSettings] = useState<FormSettings>({
     strictness: initialSettings?.strictness ?? (STRICTNESS_UI_ENABLED ? null : STRICTNESS_WHEN_HIDDEN),
     scoringMode: initialSettings?.scoringMode ?? 'scored',
-    fractionRule: initialSettings?.fractionRule ?? null,
+    fractionRule: initialSettings?.fractionRule ?? 'require_simplified', // 2026-09-10 預設「必須最簡分數」（user 拍板）
     multiCheckRule: initialSettings?.multiCheckRule ?? 'deduct',
     unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
     unitErrorDeduction: initialSettings?.unitErrorDeduction ?? 1,
@@ -260,7 +260,7 @@ export default function AssignmentFormModal({
     setSettings({
       strictness: initialSettings?.strictness ?? (STRICTNESS_UI_ENABLED ? null : STRICTNESS_WHEN_HIDDEN),
       scoringMode: initialSettings?.scoringMode ?? 'scored',
-      fractionRule: initialSettings?.fractionRule ?? null,
+      fractionRule: initialSettings?.fractionRule ?? 'require_simplified', // 2026-09-10 預設「必須最簡分數」（user 拍板）
     multiCheckRule: initialSettings?.multiCheckRule ?? 'deduct',
       unitErrorRule: initialSettings?.unitErrorRule ?? 'zero',
       unitErrorDeduction: initialSettings?.unitErrorDeduction ?? 1,
