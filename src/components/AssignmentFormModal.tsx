@@ -211,6 +211,12 @@ export default function AssignmentFormModal({
 }: AssignmentFormModalProps) {
   // ── Step state ──
   const [activeStep, setActiveStep] = useState<AssignmentStep>('basic')
+  // 2026-09-10 步驟打勾＝「值齊了」且「走到過」。原本只看值：批改規則在建立模式有預設值 → 還沒走到就先打勾（user 回報）。
+  //   編輯模式維持全勾（既有考卷值都齊、本來就該顯示完成）。
+  const [reachedSteps, setReachedSteps] = useState<Set<AssignmentStep>>(() => new Set(['basic']))
+  useEffect(() => {
+    setReachedSteps((prev) => (prev.has(activeStep) ? prev : new Set(prev).add(activeStep)))
+  }, [activeStep])
 
   // ── Form state ──
   const [title, setTitle] = useState(initialTitle)
@@ -247,6 +253,7 @@ export default function AssignmentFormModal({
   useEffect(() => {
     if (!open) return
     setActiveStep('basic')
+    setReachedSteps(new Set(['basic']))
     setTitle(initialTitle)
     setFolder(initialFolder)
     setSelectedAnswerKeyId('')
@@ -446,7 +453,7 @@ export default function AssignmentFormModal({
             <nav className="flex-1 py-2">
               {steps.map((stepCfg) => {
                 const isActive = activeStep === stepCfg.key
-                const completed = isStepComplete(stepCfg.key)
+                const completed = isStepComplete(stepCfg.key) && (mode === 'edit' || reachedSteps.has(stepCfg.key))
 
                 return (
                   <div
