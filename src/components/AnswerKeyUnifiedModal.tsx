@@ -205,6 +205,8 @@ export interface AnswerKeyUnifiedModalProps {
       answerSheetMode: 'with_questions' | 'answer_only'
       /** answer_only 模式下若老師有上傳題本，傳給 AI 幫忙推 short_answer rubric */
       bookletBlobs?: Blob[]
+      /** 2026-09-10 會考級分模式：false → 不為 word_problem 生 levelRubric */
+      levelRubricEnabled?: boolean
     }
   ) => Promise<{ answerKey: AnswerKey; imageBlobs: Blob[]; notice: string | null }>
   onSave: (answerKey: AnswerKey, imageBlobs: Blob[], metadata: {
@@ -320,6 +322,11 @@ export default function AnswerKeyUnifiedModal({
   //   答案卷＝老師寫好答案的考卷本身、批改 classify 照舊（一班算一次）。
   const genFlow = GENERATED_SHEET_STEP_ENABLED && answerSheetMode === 'answer_only'
   const STEP_CONFIG = useMemo(() => stepConfigFor(genFlow), [genFlow])
+  // 2026-09-10 會考級分模式（應用題看過程）：老師自選要不要花錢生規準＋跑級分判官。
+  //   新建預設關（只比最終答案＝級分制之前的原路）；編輯模式讀舊值（undefined＝舊卷視為開）。
+  const [levelRubricEnabled, setLevelRubricEnabled] = useState<boolean>(
+    () => (editMode ? initialAnswerKey?.levelRubricEnabled !== false : false)
+  )
 
   // ── step state machine ────────────────────────────────────────────────────
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
@@ -985,6 +992,7 @@ export default function AnswerKeyUnifiedModal({
         docType,
         answerSheetMode,
         bookletBlobs: bookletBlobsForExtract,
+        levelRubricEnabled,
         // 生成流程：帶定版版面＋骨架 → AnswerBank 走 bbox 裁格讀取（AI 不重新 locate、題號不變）
         ...(genFlow && makerResult && editingKey
           ? {
@@ -1044,7 +1052,8 @@ export default function AnswerKeyUnifiedModal({
     //   用生成的老師版作答卷(帶紅字)當答案卷影像、裁格餵 detectLevelRubric 生級分制。
     const DRAW_TYPES = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'map_fill'])
     // 需 AI 生 rubric 的題（免上傳時會用生成影像＋題本跑一次 AI）
-    const RUBRIC_TYPES = new Set(['fill_variants', 'word_problem'])
+    // 2026-09-10 會考級分模式關閉 → word_problem 不需生規準、視同一般填答（打完答案即可零 AI 建卷）
+    const RUBRIC_TYPES = new Set(levelRubricEnabled ? ['fill_variants', 'word_problem'] : ['fill_variants'])
     const refAnswers = makerState.refAnswers ?? {}
     const refDrawings = makerState.refDrawings ?? {}
     // 作圖格：老師用畫筆畫了正解圖(refDrawing)就算滿足、可免上傳；沒畫才必上傳
@@ -1520,6 +1529,7 @@ export default function AnswerKeyUnifiedModal({
       const updatedKey: AnswerKey = {
         ...editingKey,
         totalScore: editingKey.questions.reduce((s, q) => s + (q.maxScore ?? 0), 0),
+        levelRubricEnabled, // 2026-09-10 會考級分模式（明確存布林；server 以 !== false 守門）
       }
       const domainValue = domain === '國語（測試中）' ? '國語' : (domain || '其他')
       // 存檔前補「作答區截圖」：免上傳建的卷可能缺 crop → 用老師版作答卷影像(帶紅字)裁每格（client 端、免 AI）。
@@ -1964,6 +1974,35 @@ export default function AnswerKeyUnifiedModal({
                           : mathTrack === 'B' ? '社會組取向（數乙）：矩陣資料表格、週期/成長模型等。'
                           : '未選＝不分軌（歸類時兩軌代碼都可能被選；建議選定以免雷達裂軸）。'}
                       </p>
+                    </div>
+                  )}
+
+                  {/* 2026-09-10 會考級分模式開關（數學才顯示）：老師自選花錢看過程 vs 省錢只比答案 */}
+                  {(domain === '數學') && (
+                    <div className="rounded-xl border border-gray-200 bg-white p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <label htmlFor="level-rubric-toggle" className="block text-base font-semibold text-gray-800">會考級分模式（應用題看過程）</label>
+                          <p className="mt-1 text-xs text-gray-600 leading-relaxed">
+                            {levelRubricEnabled
+                              ? '開：AI 解析時為每題應用題產生級分規準（每題一次 AI）、批改時逐要素看計算過程給 0～3 級分。較貴，但題本寫「須列式」時能扣過程分。'
+                              : '關（預設）：應用題只比最終答案，湊對答案即滿分、不看過程。解析與批改都不跑級分 AI，最省。'}
+                          </p>
+                          {editMode && levelRubricEnabled && (initialAnswerKey?.questions ?? []).some((q) => q.questionCategory === 'word_problem' && !(q as { levelRubric?: unknown }).levelRubric) && (
+                            <p className="mt-1 text-xs text-amber-700">這份卷有應用題還沒有級分規準——開啟後需「重新解析」才會產生（吃一次建卷次數）。</p>
+                          )}
+                        </div>
+                        <button
+                          id="level-rubric-toggle"
+                          type="button"
+                          role="switch"
+                          aria-checked={levelRubricEnabled}
+                          onClick={() => setLevelRubricEnabled((v) => !v)}
+                          className={`relative shrink-0 inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-300 ${levelRubricEnabled ? 'bg-green-600' : 'bg-gray-300'}`}
+                        >
+                          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${levelRubricEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        </button>
+                      </div>
                     </div>
                   )}
 

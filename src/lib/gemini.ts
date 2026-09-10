@@ -713,6 +713,8 @@ let currentModelName = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash'
 
 export interface ExtractAnswerKeyOptions {
   domain?: string
+  /** 2026-09-10 會考級分模式：false → 不為 word_problem 生 levelRubric（省 A0 逐題呼叫），批改退回只比最終答案 */
+  levelRubricEnabled?: boolean
   /** 'answer_key'（預設）：從已填寫的解答圖擷取答案；'infer_blank'：從空白考卷推論正確答案 */
   inferMode?: 'answer_key' | 'infer_blank'
   /** 108課綱概念清單（依班級年級篩出），用於 AI 標記每題的 concept_code */
@@ -5401,7 +5403,8 @@ export async function extractAnswerKeyFromImages(
         // map_fill positions + VJ rubric Stage A（fan-out 路徑也要跑、否則生不出 positions/vjRubric）
         await runAnswerKeyStageA(merged.questions,
           opts?.answerSheetMode === 'answer_only' ? (opts?.bookletImages ?? []) : [],
-          answerSheetImages)
+          answerSheetImages,
+          { levelRubricEnabled: opts?.levelRubricEnabled })
       } catch (err) {
         console.warn('⚠️ [AnswerKey fan-out] locate / crop 階段失敗：', err)
       }
@@ -5633,7 +5636,7 @@ export async function extractAnswerKeyFromImages(
     }
 
     // ─── Phase 4: map_fill 位置偵測 + VJ rubric 偵測（Stage A，共用 helper）─────
-    await runAnswerKeyStageA(result.questions, bookletImages, answerSheetImages)
+    await runAnswerKeyStageA(result.questions, bookletImages, answerSheetImages, { levelRubricEnabled: opts?.levelRubricEnabled })
   }
 
   return result
@@ -5895,6 +5898,8 @@ async function runAnswerKeyStageA(
   // 一般模式（題目答案同卷）沒有題本，但題幹就印在整頁上——crop 只框作答區，看不到題目在問什麼。
   // 級分制要素必須依題目要求推導，缺題幹時 AI 只寫得出「答案」一條（實測 4-5-1 兩輪都只有 1 條）。
   pageImages: Blob[] = [],
+  // 2026-09-10 會考級分模式開關（false＝跳過應用題規準生成）
+  stageOpts: { levelRubricEnabled?: boolean } = {},
 ): Promise<void> {
   // map_fill 位置偵測（Direction Y Stage A）
   const mapFillQs = questions.filter((q) => q.questionCategory === 'map_fill' && q.cropImageUrl)
@@ -5945,7 +5950,13 @@ async function runAnswerKeyStageA(
 
   // 2026-08-14 應用題級分制規準（A0）：逐題單獨呼叫。
   //   放在主擷取裡時，題數一多就會被輸出壓力擠掉（實測 9 題應用題：輪1 產 9 份、輪2 只產 1 份）。
-  const lrQs = questions.filter((q) => q.questionCategory === 'word_problem' && q.cropImageUrl)
+  // 2026-09-10 會考級分模式關閉 → 不生規準（批改自動退回 Bucket A 只比最終答案；省逐題 A0 呼叫）
+  const lrQs = stageOpts.levelRubricEnabled === false
+    ? []
+    : questions.filter((q) => q.questionCategory === 'word_problem' && q.cropImageUrl)
+  if (stageOpts.levelRubricEnabled === false && questions.some((q) => q.questionCategory === 'word_problem')) {
+    console.log('📐 [AnswerKey 級分制] 會考級分模式關閉 → 略過應用題規準生成（批改只比最終答案）')
+  }
   if (lrQs.length > 0) {
     console.log(`📐 [AnswerKey 級分制] ${lrQs.length} 題應用題、逐題產生規準...`)
     await Promise.all(

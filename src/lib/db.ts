@@ -386,6 +386,9 @@ export interface AnswerKeyQuestion {
 }
 
 export interface AnswerKey {
+  /** 2026-09-10 會考級分模式（應用題看過程）：false＝答案卷不生 levelRubric、批改只比最終答案（Bucket A 舊路）。
+   *  undefined＝舊卷相容（視為開、已生的規準照用）。新建卷預設 false（省錢；老師自選）。 */
+  levelRubricEnabled?: boolean
   questions: AnswerKeyQuestion[]
   totalScore: number
   strictness?: 'strict' | 'standard' | 'lenient'

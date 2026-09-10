@@ -456,8 +456,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
       skipUpload?: boolean
       /** 免上傳時的「答案卷影像」＝生成的老師版作答卷(帶紅字)。用現成 boxes 幾何裁格、餵 rubric 生成器 */
       teacherSheetImage?: Blob
+      /** 2026-09-10 會考級分模式：false → 三條路徑都不為 word_problem 生 levelRubric（批改只比最終答案） */
+      levelRubricEnabled?: boolean
     }
   ) => {
+    const levelOn = context.levelRubricEnabled !== false
     // 純打字免上傳（2026-09-07）：老師每格都打了參考答案、無作圖類 → 用打的字建卷。
     //   ⭐需 rubric 的題（多元填空 fill_variants…）：跑一次 AI 讀「題本＋老師答案」生判準（user 拍板）；
     //     純客觀題（選擇/填空…）維持零 AI、不開墨水 session。
@@ -540,7 +543,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
           : new Map<string, { referenceAnswer: string; acceptableAnswers: string[] }>()
         // ② 應用題級分制（逐題：該格 crop＋題本→ detectLevelRubric）
         const levelMap = new Map<string, LevelRubric>()
-        const wpItems = rubricItems.filter((q) => String(q.questionCategory) === 'word_problem')
+        const wpItems = levelOn ? rubricItems.filter((q) => String(q.questionCategory) === 'word_problem') : []
         for (const q of wpItems) {
           const crop = cropById.get(q.id)
           if (!crop) continue // 無 crop（點陣化/裁格失敗）→ 略過，老師可後補
@@ -631,7 +634,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
                 next.answer = read
               }
             }
-            if (cat === 'word_problem') {
+            if (cat === 'word_problem' && levelOn) {
               try {
                 const lr = await detectLevelRubric(next, crop, context.bookletBlobs ?? [])
                 if (lr) next.levelRubric = lr
@@ -649,6 +652,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
         docType: context.docType,
         answerSheetMode: context.answerSheetMode,
         bookletImages: context.bookletBlobs,
+        levelRubricEnabled: context.levelRubricEnabled,
       })
       return { answerKey, imageBlobs: blobs, notice: null }
     } finally { closeInkSession() }
