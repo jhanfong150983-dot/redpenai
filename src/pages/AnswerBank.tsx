@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { db, generateId } from '@/lib/db'
 import type { AnswerKey, AnswerKeyTemplate, LevelRubric } from '@/lib/db'
+import { getSheetSource, SHEET_SOURCE_LABEL, SHEET_SOURCE_HINT, SHEET_SOURCE_BADGE_CLASS } from '@/lib/sheetSource'
 import { requestSync } from '@/lib/sync-events'
 import { rescaleSubmissionForMaxScoreChange } from '@/lib/answerStats'
 import { fetchBuildQuota, type BuildQuota } from '@/lib/buildQuota'
@@ -1082,6 +1083,18 @@ export default function AnswerBank(_props: AnswerBankProps) {
             </>
           )}
           <DomainBadge domain={t.domain || '其他'} />
+          {/* 2026-09-10 答案卷來源模式徽章：一般模式／答案卷（掃描）／生成作答卷（由 answerSheetMode+generatedSheet 推導） */}
+          {(() => {
+            const src = getSheetSource(t)
+            return (
+              <span
+                className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${SHEET_SOURCE_BADGE_CLASS[src]}`}
+                title={SHEET_SOURCE_HINT[src]}
+              >
+                {SHEET_SOURCE_LABEL[src]}
+              </span>
+            )
+          })()}
           {!usedTemplateIds.has(t.id) && (
             <span
               className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700 border border-orange-200"

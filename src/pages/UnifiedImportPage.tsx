@@ -35,6 +35,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import type { Assignment, Student, Submission } from '@/lib/db'
+import { getSheetSource, type SheetSource } from '@/lib/sheetSource'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { blobToBase64, compressToTargetBytes, rotateImageBlob } from '@/lib/imageCompression'
@@ -300,6 +301,10 @@ export default function UnifiedImportPage({
 
   // 2026-08-29 座號辨識匯入（第 3 期）：'seq'=照順序（現行）、'omr'=公版答案卷劃卡辨識
   const [importMode, setImportMode] = useState<'seq' | 'omr'>('seq')
+  // 2026-09-10 依答案卷來源模式自動選：生成作答卷（標頭含座號劃卡＋錨點）→ 預設座號辨識；
+  //   一般模式／老師掃描卷沒有劃卡標頭 → 只能照順序、座號辨識鈕停用。只在首次載入設預設，不蓋老師手動切換。
+  const [sheetSource, setSheetSource] = useState<SheetSource | null>(null)
+  const importModeInitRef = useRef(false)
   const [omrPages, setOmrPages] = useState<OmrPageItem[]>([])
   const [showOmrConfirm, setShowOmrConfirm] = useState(false)
 
@@ -356,6 +361,21 @@ export default function UnifiedImportPage({
       const assignmentData = await db.assignments.get(assignmentId)
       if (!assignmentData) throw new Error('找不到這份考卷')
       setAssignment(assignmentData)
+
+      // 2026-09-10 解析答案卷來源模式（模板優先；舊資料走 assignment 內嵌 answerKey）→ 匯入方式預設
+      let src: SheetSource = 'with_questions'
+      if (assignmentData.answerKeyTemplateId) {
+        const tpl = await db.answerKeyTemplates.get(assignmentData.answerKeyTemplateId)
+        if (tpl) src = getSheetSource(tpl)
+      } else {
+        // 舊架構（answerKey 內嵌於 assignment）：模式記在 Assignment.answerSheetMode
+        src = getSheetSource({ answerSheetMode: assignmentData.answerSheetMode })
+      }
+      setSheetSource(src)
+      if (!importModeInitRef.current) {
+        importModeInitRef.current = true
+        setImportMode(src === 'generated' ? 'omr' : 'seq')
+      }
 
       const studentsData = await db.students
         .where('classroomId')
@@ -1178,10 +1198,16 @@ export default function UnifiedImportPage({
               <button
                 type="button"
                 onClick={() => setImportMode('omr')}
+                // 2026-09-10 非生成作答卷（一般模式／老師掃描卷）沒有座號劃卡標頭 → 停用，避免整批辨識失敗
+                disabled={sheetSource !== null && sheetSource !== 'generated'}
                 className={`rounded-lg px-3 py-1.5 font-medium transition-colors ${
                   importMode === 'omr' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                }`}
-                title="使用公版答案卷（標頭含座號劃卡格）時，自動辨識每頁座號，不需按號碼排序"
+                } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-500`}
+                title={
+                  sheetSource !== null && sheetSource !== 'generated'
+                    ? '這份考卷不是系統生成的作答卷（沒有座號劃卡標頭），請用「照順序」匯入'
+                    : '使用系統生成的作答卷（標頭含座號劃卡格）時，自動辨識每頁座號，不需按號碼排序'
+                }
               >
                 座號辨識
               </button>

@@ -172,7 +172,9 @@ const GENERATED_SHEET_STEP_ENABLED = (() => {
 // 2026-09-05 五步重拼裝（user 拍板）：③製作作答卷提前到 AI 解析之前——
 // 老師把標準答案「手寫在下載的作答卷上」，④就是原版 extract（答案卷=手寫作答卷＋題本），
 // ⑤就是原版題目編輯（crop 預覽、題型唯讀）。所有模組都是舊的，只是重新拼裝。
-const STEP_CONFIG: { key: UnifiedStep; label: string; shortLabel: string }[] = GENERATED_SHEET_STEP_ENABLED
+// 2026-09-10 一般模式解封：步驟清單改依「這份卷是否走生成流程(genFlow)」決定，不再只看旗標。
+//   genFlow（答案卷模式＋旗標開）＝5 步；一般模式(with_questions)＝舊 3 步（無題本/製作作答卷，classify 照舊）。
+const stepConfigFor = (genFlow: boolean): { key: UnifiedStep; label: string; shortLabel: string }[] => genFlow
   ? [
       { key: 'metadata', label: '基本資料', shortLabel: '①' },
       { key: 'booklet', label: '上傳題本', shortLabel: '②' },
@@ -302,6 +304,23 @@ export default function AnswerKeyUnifiedModal({
     return () => { alive = false }
   }, [])
 
+  // ── 模式（提前宣告：step state machine 要依模式決定步驟清單）──────────────
+  // 建立模式：從 localStorage 草稿還原（modal 每次開啟重新掛載，initializer 讀一次即可）
+  const draftRef = useRef<MetadataDraft | null>(editMode ? null : readMetadataDraft())
+  const draft = draftRef.current
+  const [answerSheetMode, setAnswerSheetMode] = useState<'with_questions' | 'answer_only'>(
+    // 生成流程預設「答案卷模式」（題本分開）；2026-09-10 一般模式解封：老師可在①切回 with_questions
+    //   （小考：題目與答案同一張紙、沒有作答卷）。草稿有記模式就照草稿。
+    GENERATED_SHEET_STEP_ENABLED && !editMode
+      ? (draft?.answerSheetMode ?? 'answer_only')
+      : editMode ? initialAnswerSheetMode : (draft?.answerSheetMode ?? initialAnswerSheetMode)
+  )
+  // 2026-09-10 解耦：GENERATED_SHEET_STEP_ENABLED＝功能開關；genFlow＝「這份卷走生成作答卷 5 步流程」。
+  //   一般模式即使旗標開也走舊 3 步（①基本資料→②AI 解析→③題目編輯）：無題本、無製作作答卷、
+  //   答案卷＝老師寫好答案的考卷本身、批改 classify 照舊（一班算一次）。
+  const genFlow = GENERATED_SHEET_STEP_ENABLED && answerSheetMode === 'answer_only'
+  const STEP_CONFIG = useMemo(() => stepConfigFor(genFlow), [genFlow])
+
   // ── step state machine ────────────────────────────────────────────────────
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
   // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
@@ -315,7 +334,7 @@ export default function AnswerKeyUnifiedModal({
 
   const [completedSteps, setCompletedSteps] = useState<Set<UnifiedStep>>(
     () => editMode
-      ? new Set<UnifiedStep>(GENERATED_SHEET_STEP_ENABLED
+      ? new Set<UnifiedStep>(genFlow
           ? ['metadata', 'booklet', 'sheet', 'extract', 'editing']
           : ['metadata', 'extract', 'editing'])
       : new Set()
@@ -329,7 +348,7 @@ export default function AnswerKeyUnifiedModal({
       if (!completedSteps.has(STEP_CONFIG[i].key)) return false
     }
     return true
-  }, [completedSteps])
+  }, [completedSteps, STEP_CONFIG])
 
   // Edit mode: steps 1-3 are read-only (viewable but not editable)
   const isStepReadOnly = useCallback((step: UnifiedStep): boolean => {
@@ -351,17 +370,15 @@ export default function AnswerKeyUnifiedModal({
       }
       return next
     })
-  }, [])
+  }, [STEP_CONFIG])
 
   const allComplete = useMemo(() =>
     STEP_CONFIG.every(s => completedSteps.has(s.key)),
-    [completedSteps]
+    [completedSteps, STEP_CONFIG]
   )
 
   // ── Step 1: metadata state ────────���───────────────────────────────────────
-  // 建立模式：從 localStorage 草稿還原（modal 每次開啟重新掛載，initializer 讀一次即可）
-  const draftRef = useRef<MetadataDraft | null>(editMode ? null : readMetadataDraft())
-  const draft = draftRef.current
+  // （draftRef/draft 與 answerSheetMode 已提前到 step state machine 之前宣告——genFlow 需要）
   const [title, setTitle] = useState(initialTitle || draft?.title || '')
   const [domain, setDomain] = useState(initialDomain || draft?.domain || '')
   // 2026-08-29 年級→領域（user 拍板：選年級才可選領域，依課綱分科）。
@@ -383,12 +400,6 @@ export default function AnswerKeyUnifiedModal({
   // docType UI 已移除（AI 直接從圖片視覺判斷雙欄/單欄）；保留變數供 sync 與 onExtract 傳遞
   const [docType] = useState<'worksheet' | 'exam'>(initialDocType)
   const [folder] = useState(initialFolder)
-  const [answerSheetMode, setAnswerSheetMode] = useState<'with_questions' | 'answer_only'>(
-    // 生成作答卷單一流程（A 案）：新建一律答案卷模式（題本分開），不再選模式
-    GENERATED_SHEET_STEP_ENABLED && !editMode
-      ? 'answer_only'
-      : editMode ? initialAnswerSheetMode : (draft?.answerSheetMode ?? initialAnswerSheetMode)
-  )
 
   // 草稿自動保存（只在建立模式）；全空就清掉
   useEffect(() => {
@@ -418,7 +429,7 @@ export default function AnswerKeyUnifiedModal({
     setMathTrack('')
     setSubjectLabel('')
     setDomain('')
-    setAnswerSheetMode('with_questions')
+    setAnswerSheetMode(GENERATED_SHEET_STEP_ENABLED ? 'answer_only' : 'with_questions')
     setDraftRestored(false)
   }
 
@@ -529,8 +540,8 @@ export default function AnswerKeyUnifiedModal({
         setFileError(`答案卷照片最多 ${MAX_UPLOAD_IMAGES} 張（PDF 不限頁數），目前選了 ${imageCount} 張`); return
       }
       // 生成流程：作答卷恆為單面一頁 → 手寫參考答案卷只取第 1 頁
-      const limited = GENERATED_SHEET_STEP_ENABLED ? blobs.slice(0, 1) : blobs
-      if (GENERATED_SHEET_STEP_ENABLED && blobs.length > 1) {
+      const limited = genFlow ? blobs.slice(0, 1) : blobs
+      if (genFlow && blobs.length > 1) {
         setFileError('作答卷是單面一頁，已只取第 1 頁；若拍了多張請重選正確那張。')
       }
       const compressed = await Promise.all(limited.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
@@ -542,7 +553,7 @@ export default function AnswerKeyUnifiedModal({
       resetFromStep('extract')
       // ⛔ 生成流程不得清骨架：editingKey 是②結構推斷的題號/題型/配分（bbox 路徑的根基），
       //    重傳手寫參考答案卷只是換圖，骨架必須保留。舊流程照舊清空（答案卷=解析來源）。
-      if (!GENERATED_SHEET_STEP_ENABLED) setEditingKey(null)
+      if (!genFlow) setEditingKey(null)
       setExtractedImageBlobs([])
     } catch (err) {
       setFileError(err instanceof Error ? err.message : '檔案處理失敗')
@@ -574,9 +585,9 @@ export default function AnswerKeyUnifiedModal({
       if (!newHasPdf && uploadedPages.length + newImageCount > MAX_UPLOAD_IMAGES) {
         setFileError(`答案卷照片最多 ${MAX_UPLOAD_IMAGES} 張（PDF 不限頁數），目前 ${uploadedPages.length} 張、又選了 ${newImageCount} 張`); return
       }
-      const limited = GENERATED_SHEET_STEP_ENABLED ? blobs.slice(0, 1) : blobs
+      const limited = genFlow ? blobs.slice(0, 1) : blobs
       const compressed = await Promise.all(limited.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
-      if (GENERATED_SHEET_STEP_ENABLED) {
+      if (genFlow) {
         // 生成流程：單面一頁 → 「新增」語意改成「替換」
         uploadedPages.forEach(p => URL.revokeObjectURL(p.url))
         setUploadedPages(compressed.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) })))
@@ -587,7 +598,7 @@ export default function AnswerKeyUnifiedModal({
       }
       // Reset downstream steps since pages changed
       resetFromStep('extract')
-      if (!GENERATED_SHEET_STEP_ENABLED) setEditingKey(null)
+      if (!genFlow) setEditingKey(null)
       setExtractedImageBlobs([])
     } catch (err) {
       setFileError(err instanceof Error ? err.message : '檔案處理失敗')
@@ -719,6 +730,10 @@ export default function AnswerKeyUnifiedModal({
   }, [bookletPages])
 
   // 切換到 with_questions 模式時清空題本（避免殘留）
+  // 2026-09-10 一般模式解封：模式切換（掛載後、建立模式）同時重置下游——兩種模式的「答案卷」語意不同
+  //   （一般模式＝寫好答案的考卷本身；生成流程＝手寫在作答卷上的參考答案），且步驟清單/骨架/版面都不通用，
+  //   不能拿另一模式的圖、骨架(editingKey)、版面(makerResult) 往下走。
+  const modeMountedRef = useRef(false)
   useEffect(() => {
     if (answerSheetMode === 'with_questions' && bookletPages.length > 0) {
       bookletPages.forEach(p => URL.revokeObjectURL(p.url))
@@ -726,6 +741,21 @@ export default function AnswerKeyUnifiedModal({
       setBookletPageItems([])
       setBookletFileError(null)
     }
+    if (!modeMountedRef.current) { modeMountedRef.current = true; return }
+    if (editMode) return
+    uploadedPages.forEach(p => URL.revokeObjectURL(p.url))
+    setUploadedPages([])
+    setPageItems([])
+    setExtractedImageBlobs([])
+    setEditingKey(null)
+    setMakerResult(null)
+    setTeacherMakerResult(null)
+    setCompletedSteps(prev => {
+      const next = new Set(prev)
+      for (const k of ['booklet', 'sheet', 'extract', 'editing'] as UnifiedStep[]) next.delete(k)
+      return next
+    })
+    setActiveStep('metadata')
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answerSheetMode])
 
@@ -956,7 +986,7 @@ export default function AnswerKeyUnifiedModal({
         answerSheetMode,
         bookletBlobs: bookletBlobsForExtract,
         // 生成流程：帶定版版面＋骨架 → AnswerBank 走 bbox 裁格讀取（AI 不重新 locate、題號不變）
-        ...(GENERATED_SHEET_STEP_ENABLED && makerResult && editingKey
+        ...(genFlow && makerResult && editingKey
           ? {
               generatedLayout: {
                 version: ANSWER_SHEET_GEN_VERSION,
@@ -1007,7 +1037,7 @@ export default function AnswerKeyUnifiedModal({
   //   ⭐用 makerResult.boxes（實際渲染、老師看得到的可填格）當權威，不用 editingKey.questions
   //   （骨架可能含大題標題等「不產生格」的題，用它 every() 會永遠 false）。box.type = questionCategory。
   const skipStatus = useMemo(() => {
-    if (!GENERATED_SHEET_STEP_ENABLED || !makerResult) return null
+    if (!genFlow || !makerResult) return null
     const boxes = makerResult.boxes
     if (boxes.length === 0) return null
     // 只有「作圖/繪圖類」一定要上傳（答案是圖、沒法打字）。應用題(word_problem)現在可免上傳：
@@ -1036,7 +1066,7 @@ export default function AnswerKeyUnifiedModal({
 
   // 續作/直接跳④：makerResult 空但骨架＋版面狀態在 → 就地重算（版面決定性，免回③、免費）
   useEffect(() => {
-    if (!GENERATED_SHEET_STEP_ENABLED || makerResult || !editingKey) return
+    if (!genFlow || makerResult || !editingKey) return
     if (activeStep !== 'sheet' && activeStep !== 'extract') return
     let cancelled = false
     void (async () => {
@@ -1083,7 +1113,7 @@ export default function AnswerKeyUnifiedModal({
   // ── ③自動暫存（2026-09-05）：老師中途離開可續作，免重跑結構推斷 ──
   // 觸發：生成流程、建立模式、結構已出（editingKey）；debounce 1.5s 寫入 Dexie 單列草稿
   useEffect(() => {
-    if (!GENERATED_SHEET_STEP_ENABLED || editMode || !editingKey) return
+    if (!genFlow || editMode || !editingKey) return
     // 2026-09-07 加入 'editing'：AI 解析成功後會自動跳 editing，若不納入則解析結果（含答案）永遠不入草稿，
     //   離開續作只能重解析（還多扣一次建卷額度）。
     if (!['booklet', 'sheet', 'extract', 'editing'].includes(activeStep)) return
@@ -1108,7 +1138,7 @@ export default function AnswerKeyUnifiedModal({
 
   // 開啟時偵測草稿 → 詢問續作（僅建立模式、一次）
   useEffect(() => {
-    if (!GENERATED_SHEET_STEP_ENABLED || editMode || genDraftRestored) return
+    if (!genFlow || editMode || genDraftRestored) return
     let cancelled = false
     void (async () => {
       try {
@@ -1495,7 +1525,7 @@ export default function AnswerKeyUnifiedModal({
       // 存檔前補「作答區截圖」：免上傳建的卷可能缺 crop → 用老師版作答卷影像(帶紅字)裁每格（client 端、免 AI）。
       //   來源①本 session 的 teacherMakerResult（剛做過作答卷）；②編輯模式重開→用已存版面 initialGeneratedSheet
       //   ＋題目答案(當紅字)重建。作圖題的手繪正解(refDrawing)未持久化，重建版無法還原→那類仍缺，其餘都補。失敗不擋存檔。
-      if (GENERATED_SHEET_STEP_ENABLED) {
+      if (genFlow) {
         const needCrop = updatedKey.questions.some((q) => !(q as { cropImageUrl?: string }).cropImageUrl && !(q as { cropImagePath?: string }).cropImagePath)
         if (needCrop) {
           try {
@@ -1567,7 +1597,7 @@ export default function AnswerKeyUnifiedModal({
       // step④ 定版：渲染 PDF（定版物＝實體檔案，含底圖；下載/重印直接拿檔不重算）
       // ⚠️ 只在有 session 版面(makerResult)時才產/覆蓋 PDF；重開編輯無 makerResult 時不覆蓋，避免清掉舊好 PDF。
       let generatedSheetPdf: Blob | undefined
-      if (GENERATED_SHEET_STEP_ENABLED && makerResult) {
+      if (genFlow && makerResult) {
         try {
           const png = await renderSheetPng(makerResult.svg, makerResult.layoutMeta.pageMm)
           generatedSheetPdf = await buildSheetPdf(png, makerResult.layoutMeta.pageMm)
@@ -1576,7 +1606,7 @@ export default function AnswerKeyUnifiedModal({
         }
       }
       // step④ 定版資料（旗標開啟且排版 ok 時才帶）
-      const generatedSheet: GeneratedSheetData | undefined = !GENERATED_SHEET_STEP_ENABLED
+      const generatedSheet: GeneratedSheetData | undefined = !genFlow
         ? undefined
         : makerResult
           ? {
@@ -1614,7 +1644,7 @@ export default function AnswerKeyUnifiedModal({
       })
       void logQtypeOverrides(updatedKey, domainValue) // Phase 3：老師改過題型→記 override log（fire-and-forget）
       if (!editMode) clearMetadataDraft() // 建立成功→草稿功成身退
-      if (GENERATED_SHEET_STEP_ENABLED && !editMode) void db.genSheetDrafts.delete('current').catch(() => {})
+      if (genFlow && !editMode) void db.genSheetDrafts.delete('current').catch(() => {})
     } finally {
       setIsSaving(false)
     }
@@ -1658,7 +1688,7 @@ export default function AnswerKeyUnifiedModal({
       if (goingBackFromEdit) {
         return { label: '下一步：題目編輯', disabled: false, icon: <ChevronRight className="w-4 h-4" /> }
       }
-      if (GENERATED_SHEET_STEP_ENABLED) {
+      if (genFlow) {
         // ④＝上傳「手寫在作答卷上的參考答案」→ bbox 裁格讀取。需：已上傳答案卷圖(pageItems)＋版面(makerResult)
         if (!makerResult) return { label: '版面載入中…', disabled: true, loading: true }
         // 純打字免上傳：每格都打字、無作圖/應用題 → 可略過上傳直接建卷（零 AI）
@@ -1688,7 +1718,7 @@ export default function AnswerKeyUnifiedModal({
 
   const handlePrimaryAction = () => {
     if (activeStep === 'metadata') {
-      setActiveStep(GENERATED_SHEET_STEP_ENABLED ? 'booklet' : 'extract')
+      setActiveStep(genFlow ? 'booklet' : 'extract')
       return
     }
     if (activeStep === 'booklet') {
@@ -1719,7 +1749,7 @@ export default function AnswerKeyUnifiedModal({
   const handleBack = () => {
     if (activeStep === 'booklet') { setActiveStep('metadata'); return }
     if (activeStep === 'sheet') { setActiveStep('booklet'); return }
-    if (activeStep === 'extract') { setActiveStep(GENERATED_SHEET_STEP_ENABLED ? 'sheet' : 'metadata'); return }
+    if (activeStep === 'extract') { setActiveStep(genFlow ? 'sheet' : 'metadata'); return }
     if (activeStep === 'editing') { setActiveStep('extract'); return }
   }
 
@@ -1937,24 +1967,28 @@ export default function AnswerKeyUnifiedModal({
                     </div>
                   )}
 
-                  {/* 答案卷模式 — 卡片式選擇器（生成流程整塊隱藏：模式固定、公版 Word 範本由生成作答卷取代） */}
-                  <div className={GENERATED_SHEET_STEP_ENABLED && !editMode ? 'hidden' : undefined}>
+                  {/* 答案卷模式 — 卡片式選擇器。
+                      2026-09-10 一般模式解封：生成流程也顯示（老師可選「一般模式」＝小考、題目答案同一張、走舊 3 步）。
+                      公版 Word 範本只在舊流程（旗標關）提供——生成流程由「製作作答卷」取代。 */}
+                  <div>
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <label className="block text-base font-semibold text-gray-800">答案卷模式</label>
-                      {/* 2026-08-29 公版答案卷範本改「動態產生」：帶入校名/名稱/科目；名稱與領域必填才可下載 */}
-                      <button
-                        type="button"
-                        disabled={!metadataValid || isGeneratingTemplate}
-                        onClick={() => void handleDownloadTemplate()}
-                        className="text-xs text-green-700 underline underline-offset-2 hover:text-green-800 disabled:text-gray-400 disabled:no-underline disabled:cursor-not-allowed"
-                        title={
-                          metadataValid
-                            ? '產生 Word 範本：標題與科目自動帶入，標頭含座號劃卡格；全班同卷可影印/油印，考後匯入可自動辨識座號'
-                            : '請先填寫「答案卷名稱」與「領域」，範本會自動帶入這些資訊'
-                        }
-                      >
-                        {isGeneratingTemplate ? '產生中…' : '下載公版答案卷範本 (Word)'}
-                      </button>
+                      {!GENERATED_SHEET_STEP_ENABLED && (
+                        // 2026-08-29 公版答案卷範本改「動態產生」：帶入校名/名稱/科目；名稱與領域必填才可下載
+                        <button
+                          type="button"
+                          disabled={!metadataValid || isGeneratingTemplate}
+                          onClick={() => void handleDownloadTemplate()}
+                          className="text-xs text-green-700 underline underline-offset-2 hover:text-green-800 disabled:text-gray-400 disabled:no-underline disabled:cursor-not-allowed"
+                          title={
+                            metadataValid
+                              ? '產生 Word 範本：標題與科目自動帶入，標頭含座號劃卡格；全班同卷可影印/油印，考後匯入可自動辨識座號'
+                              : '請先填寫「答案卷名稱」與「領域」，範本會自動帶入這些資訊'
+                          }
+                        >
+                          {isGeneratingTemplate ? '產生中…' : '下載公版答案卷範本 (Word)'}
+                        </button>
+                      )}
                     </div>
                     {editMode ? (
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{answerSheetMode === 'with_questions' ? '一般模式（題目帶答案）' : '答案卷模式（題本分開）'}</p>
@@ -2043,7 +2077,7 @@ export default function AnswerKeyUnifiedModal({
                           {buildQuotaHint}
                         </div>
                       )}
-                      {GENERATED_SHEET_STEP_ENABLED && activeStep === 'extract' && (
+                      {genFlow && activeStep === 'extract' && (
                         <div className="flex items-center justify-between gap-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
                           <p className="text-xs text-blue-800">還沒列印作答卷？先下載列印、把標準答案手寫在卷上再上傳。</p>
                           <button
@@ -2060,13 +2094,13 @@ export default function AnswerKeyUnifiedModal({
                       <section className={`rounded-xl border border-rose-200 bg-rose-50/30 p-4 ${activeStep === 'booklet' ? 'hidden' : ''}`}>
                         <div className="flex items-baseline justify-between mb-3">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-semibold text-rose-900">{GENERATED_SHEET_STEP_ENABLED ? '📑 手寫參考答案卷' : '📑 答案卷'}</h3>
+                            <h3 className="text-sm font-semibold text-rose-900">{genFlow ? '📑 手寫參考答案卷' : '📑 答案卷'}</h3>
                             {canSkipUpload ? (
                               <span className="text-[11px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded font-medium">可略過</span>
                             ) : (
                               <span className="text-[11px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-medium">必傳</span>
                             )}
-                            <span className="text-xs text-gray-500">{GENERATED_SHEET_STEP_ENABLED ? '— 標準答案手寫在上一步下載的作答卷上，拍照或掃描上傳' : '— 你自己寫好標準答案的版本'}</span>
+                            <span className="text-xs text-gray-500">{genFlow ? '— 標準答案手寫在上一步下載的作答卷上，拍照或掃描上傳' : '— 你自己寫好標準答案的版本（一般模式：題目和答案同一張紙）'}</span>
                           </div>
                         </div>
                         {pageItems.length === 0 && canSkipUpload && (
@@ -2101,7 +2135,7 @@ export default function AnswerKeyUnifiedModal({
                             <span className="text-sm font-medium">
                               {isProcessingFiles ? '處理中…' : '點擊上傳答案卷圖片或 PDF'}
                             </span>
-                            <span className="text-xs text-rose-400/80">{GENERATED_SHEET_STEP_ENABLED ? '單面一頁：1 張照片或 1 頁 PDF（多頁只取第 1 頁）' : `照片最多 ${MAX_UPLOAD_IMAGES} 張，PDF 不限頁數`}</span>
+                            <span className="text-xs text-rose-400/80">{genFlow ? '單面一頁：1 張照片或 1 頁 PDF（多頁只取第 1 頁）' : `照片最多 ${MAX_UPLOAD_IMAGES} 張，PDF 不限頁數`}</span>
                           </button>
                         ) : (
                           <div className="flex items-center justify-between mb-3">
@@ -2147,7 +2181,7 @@ export default function AnswerKeyUnifiedModal({
                       </section>
 
                       {/* ── 題本區塊：生成流程＝②上傳題本步驟；舊流程＝answer_only 模式與答案卷同頁 ── */}
-                      {(GENERATED_SHEET_STEP_ENABLED ? activeStep === 'booklet' : answerSheetMode === 'answer_only') && (
+                      {(genFlow ? activeStep === 'booklet' : answerSheetMode === 'answer_only') && (
                         <section className="rounded-xl border border-blue-200 bg-blue-50/30 p-4">
                           <div className="flex items-baseline justify-between mb-3">
                             <div className="flex items-center gap-2">
@@ -2158,7 +2192,7 @@ export default function AnswerKeyUnifiedModal({
                           </div>
                           {/* 答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上。
                               沒題本＝只能瞎猜題型，而且會錯得無聲無息，所以直接擋住解析。 */}
-                          {needsBooklet && !GENERATED_SHEET_STEP_ENABLED && (
+                          {needsBooklet && !genFlow && (
                             <div className="mb-3 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5 leading-relaxed">
                               沒有題本就無法解析。答案卷上只有格子，AI 看不出哪幾題要求寫出計算過程，
                               會把應用題判成填空題，批改時學生只寫答案就能拿分。
