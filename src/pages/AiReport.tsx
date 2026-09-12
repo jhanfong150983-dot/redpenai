@@ -17,6 +17,7 @@ import ConceptRadarChart from './ai-report/components/ConceptRadarChart'
 import ConceptDrillDown from './ai-report/components/ConceptDrillDown'
 import KpBackfillCard from './ai-report/components/KpBackfillCard'
 import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
+import ReviewModeOverlay from './ai-report/components/ReviewModeOverlay'
 
 // 跨班比較（exam-compare 端點的匿名彙總；classCount 之外無任何來源資訊）
 export type CrossCompare = {
@@ -989,6 +990,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     [classFilteredSubmissions]
   )
 
+  // ── 檢討模式（2026-09-12 user 設計：上課投影全螢幕；左題本預覽、右本題素材；零 AI）──
+  const [showReviewMode, setShowReviewMode] = useState(false)
   // ── 檢討單下載（2026-08-12 從訂正頁移植到考試總覽;與行政端同一條 reviewSheetPdf 管線）──
   const [reviewSheetBusy, setReviewSheetBusy] = useState(false)
   const [reviewSheetProgress, setReviewSheetProgress] = useState<{ done: number; total: number } | null>(null)
@@ -1103,16 +1106,16 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
             {/* 2026-08-12 資訊架構二修(user 拍板、對齊教學影片三階段情境):
                 檢討考卷=考試總覽(含檢討單下載)+樣態分析;後續追蹤=試題分析+概念雷達+家長報告。
                 2026-07-20 三個「診斷性快報」退役;面板碼保留但無入口。 */}
+            {/* 2026-09-12 user 拍板：樣態分析對檢討課幫助不大、屬後續追蹤研究用 → 移到後續追蹤；
+                檢討考卷只剩考卷總覽（含檢討單下載＋檢討模式）→ 不再顯示 tab 列 */}
             {(isTrack
               ? ([
                   { id: 'items', label: '試題分析' },
+                  { id: 'patterns', label: '樣態分析' },
                   { id: 'student', label: '概念雷達' },
                   { id: 'parent', label: '家長報告' },
                 ] as const)
-              : ([
-                  { id: 'overview', label: '考卷總覽' },
-                  { id: 'patterns', label: '樣態分析' },
-                ] as const)
+              : ([] as ReadonlyArray<{ id: 'overview'; label: string }>)
             ).map((tab) => (
               <button
                 key={tab.id}
@@ -1184,6 +1187,17 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
 
           {/* 2026-07-16 考試總覽（原考卷總覽）：純程式即時、零墨水。
               2026-08-12 user 拍板:檢討單下載從訂正頁移植到這裡（檢討課情境的第一步） */}
+          {showReviewMode && (
+            <ReviewModeOverlay
+              assignmentId={selectedAssignmentId}
+              templateId={itemAnalysisTemplateId}
+              title={assignmentById.get(selectedAssignmentId)?.title ?? ''}
+              questions={itemAnalysisQuestions}
+              submissions={itemAnalysisSubmissions}
+              students={syncData?.students ?? []}
+              onClose={() => setShowReviewMode(false)}
+            />
+          )}
           {activeTab === 'overview' && (
             <section>
               {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 3 ? (
@@ -1205,6 +1219,18 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                         : '下載檢討單'}
                     </button>
                     {reviewSheetMsg && <span style={{ fontSize: 12, color: reviewSheetMsg.startsWith('✅') ? '#15803d' : '#b91c1c' }}>{reviewSheetMsg}</span>}
+                    <button
+                      type="button"
+                      onClick={() => setShowReviewMode(true)}
+                      title="全螢幕投影檢討：左邊題本預覽（可放大、換頁）、右邊每題錯幾人、誰錯了、典型錯法與正確寫法；← → 換題、Esc 離開"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                        border: '1px solid #0f172a', background: '#0f172a', color: '#fff',
+                      }}
+                    >
+                      📽 檢討模式
+                    </button>
                   </div>
                   <AssignmentOverviewSection
                     questions={itemAnalysisQuestions}
