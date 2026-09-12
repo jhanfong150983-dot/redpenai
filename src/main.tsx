@@ -85,8 +85,23 @@ function showUpdateToast(onApply: () => void) {
 
 if (import.meta.env.PROD) {
   // 正式環境才註冊 Service Worker，避免開發環境被舊快取干擾
+  // 2026-09-13：老師桌面捷徑（PWA）開起來停在很舊的版本——新版 SW 早就下載好在 waiting，
+  //   但 skipWaiting:false 要等老師按 toast 或把所有 RedPen 視窗全關才會接管；視窗長期不關
+  //   （筆電只休眠）就永遠停在舊版。修法：**剛開啟的頭幾秒**發現有新版＝什麼都還沒開始做，
+  //   直接套用（一次 reload、無感）；只有「使用中途」才走 toast 問，保留原本不打斷批改的原則。
+  const AUTO_APPLY_WINDOW_MS = 10_000
   const updateSW = registerSW({
     onNeedRefresh() {
+      // 防迴圈：新 SW 若接管失敗，reload 後又會在頭幾秒再觸發 → 同一分頁只自動套用一次，之後改問
+      let autoTried = false
+      try { autoTried = sessionStorage.getItem('rp-sw-autoapply') === '1' } catch { /* 無 storage */ }
+      if (performance.now() < AUTO_APPLY_WINDOW_MS && !autoTried) {
+        try { sessionStorage.setItem('rp-sw-autoapply', '1') } catch { /* 無 storage */ }
+        void updateSW(true)
+        // updateSW(true) 靠 controllerchange 觸發 reload；保險絲同「立即更新」按鈕
+        setTimeout(() => { window.location.reload() }, 1500)
+        return
+      }
       // SW 設成 skipWaiting:false、不會自動接管現有 tab；改用 toast 提示老師
       // 主動點「立即更新」才會 skipWaiting + reload，避免批改中突然被刷掉
       showUpdateToast(() => {
