@@ -480,12 +480,19 @@ async function renderOverlayPage(
     }
     ctx.restore()
   }
-  // 頁腳
+  // 頁眉（2026-09-12 user：原本在頁腳，會跟下方「解題過程檢討」區塊擠在一起 → 移到最上緣、靠左；首頁右上有總分章、避開它）
   ctx.save()
-  ctx.fillStyle = OV.red; ctx.textAlign = 'center'
+  ctx.fillStyle = OV.red; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
   ctx.font = `400 ${Math.round(13 * u)}px ${OV_FONT}`
   const pg = meta.pageCount > 1 ? `　第 ${meta.pageNo} / ${meta.pageCount} 頁` : ''
-  ctx.fillText(`檢討單　${meta.title}${meta.who ? '　' + meta.who : ''}${pg}`, W / 2, H + blockH - 14 * u)
+  let head = `檢討單　${meta.title}${meta.who ? '　' + meta.who : ''}${pg}`
+  const headMaxW = (meta.first ? W - 236 * u - 22 * u : W) - 48 * u
+  while (head.length > 8 && ctx.measureText(head).width > headMaxW) head = head.slice(0, -2)
+  if (head !== `檢討單　${meta.title}${meta.who ? '　' + meta.who : ''}${pg}`) head = head.replace(/…?$/u, '…')
+  ctx.globalAlpha = 0.85; ctx.fillStyle = '#fff'
+  ctx.fillRect(20 * u, 4 * u, ctx.measureText(head).width + 8 * u, 18 * u)
+  ctx.globalAlpha = 1; ctx.fillStyle = OV.red
+  ctx.fillText(head, 24 * u, 17 * u)
   ctx.restore()
 
   return await new Promise<Blob>((resolve, reject) => {
