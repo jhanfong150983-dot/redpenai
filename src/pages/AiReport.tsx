@@ -50,6 +50,7 @@ function CrossToggle({ on, onToggle, classCount }: { on: boolean; onToggle: () =
 }
 import DomainDiagnosisView from './ai-report/components/DomainDiagnosisView'
 import InkConfirmModal from '@/components/InkConfirmModal'
+import { normalizeSections, type ParentReportSections } from '@/lib/parentReport'
 import {
   runSanityCheck
 } from './ai-report/compute'
@@ -327,6 +328,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   //   順便帶回登入者姓名,當老師沒在偏好設定填「任課老師」時的預設值。
   const [reportBrand, setReportBrand] = useState<{
     schoolName: string; crestDataUrl: string; configured: boolean; viewerName: string
+    sections: ParentReportSections | null // 2026-09-13 學校層大項目開關；null＝學校沒設（全開）
   } | null>(null)
   useEffect(() => {
     void (async () => {
@@ -338,7 +340,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           schoolName: d?.schoolName || '',
           crestDataUrl: d?.crestDataUrl || '',
           configured: !!d?.configured,
-          viewerName: d?.viewerName || ''
+          viewerName: d?.viewerName || '',
+          sections: d?.sections ? normalizeSections(d.sections) : null
         })
       } catch { /* 非致命:退回個人設定 */ }
     })()
@@ -1337,6 +1340,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                       : undefined
                   }
                   fallbackTeacherName={reportBrand?.viewerName}
+                  schoolSections={reportBrand?.sections ?? undefined}
                   requestInk={requestInk}
                   onKpSaved={() => setKpReloadTick((t) => t + 1)}
                   grade={itemAnalysisTemplateGrade ?? (syncData?.classrooms.find((c) => c.id === selectedClassroomId) as { grade?: number } | undefined)?.grade}

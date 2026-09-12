@@ -65,6 +65,30 @@ export type ReportHeader = {
   assignmentTitle: string
   teacherName?: string
   dateStr: string
+  /** 2026-09-13（校長提）：大項目開關；缺＝全開。關＝整段不出現、後面段落自動重新編號。 */
+  sections?: ParentReportSections
+}
+
+// ── 家長報告大項目開關（2026-09-13 user 拍板：只做大項目、不做細項；關閉＝整段都不要）──
+//   學校層（schools.report_sections、行政端設定頁）＝全校關閉、老師不能開；
+//   老師層（localStorage）＝在學校允許的段落內自行勾選；兩層 AND 後餵 renderReportHtml。
+export type ParentReportSectionKey = 'score' | 'types' | 'mastery' | 'wrong'
+export type ParentReportSections = Record<ParentReportSectionKey, boolean>
+export const PARENT_REPORT_SECTIONS: ReadonlyArray<{ key: ParentReportSectionKey; label: string; hint: string }> = [
+  { key: 'score', label: '成績與班級位置', hint: '得分、班級平均／中位數、落點' },
+  { key: 'types', label: '各題型答對率', hint: '與班級平均對照' },
+  { key: 'mastery', label: '知識點精熟程度', hint: '有知識點歸類的考卷才會出現' },
+  { key: 'wrong', label: '逐題錯題分析', hint: '作答影像、標準答案、班級狀況' },
+]
+export const ALL_SECTIONS_ON: ParentReportSections = { score: true, types: true, mastery: true, wrong: true }
+/** 任何來源（API JSON、localStorage）的鬆散值 → 完整四鍵；缺鍵一律視為開。 */
+export function normalizeSections(v: unknown): ParentReportSections {
+  const o = (v && typeof v === 'object' ? v : {}) as Record<string, unknown>
+  const pick = (k: ParentReportSectionKey) => o[k] === false ? false : true
+  return { score: pick('score'), types: pick('types'), mastery: pick('mastery'), wrong: pick('wrong') }
+}
+export function andSections(a: ParentReportSections, b: ParentReportSections): ParentReportSections {
+  return { score: a.score && b.score, types: a.types && b.types, mastery: a.mastery && b.mastery, wrong: a.wrong && b.wrong }
 }
 
 export type TypeRate = { label: string; studentRate: number; classRate: number }
@@ -764,6 +788,66 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
   const noteHtml = `<div class="pr-note"><div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>`
   const footHtml = `<div class="pr-foot2"><div class="dis">本報告由 AI 批改系統自動彙整生成，內容（含作答判讀、分數與分析）可能有誤，僅供學習參考、非最終成績；如有疑問請以老師確認為準．答對率以本次評量實際作答計算</div><div class="org">${esc(h.schoolName)}・${esc(h.subject)}科</div></div>`
 
+  // 大項目開關（缺＝全開）；編號依實際出現的段落順序重排（一、二、三、四）
+  const on = normalizeSections(h.sections)
+  const CN = ['一', '二', '三', '四']
+  let secNo = 0
+  const sec = (title: string) => `<div class="pr-sec">${CN[secNo++] || ''}、${title}</div>`
+  const scoreHtml = on.score ? `
+    ${sec('本次成績與班級位置')}
+    <table class="pr-hero"><tbody><tr>
+      <td class="pr-scorecell"><div class="pr-score"><div class="n${r.isLow ? ' low' : ''}">${r.score}</div>
+        <div class="o">滿分 ${r.examMax} 分</div>
+        <div class="g${r.isLow ? ' low' : ''}">${esc(r.gradeLabel)}</div></div></td>
+      <td><div class="pr-dist"><div class="cap">孩子在班上的落點（標記為本人、灰帶為多數同學）</div>
+        <div class="pr-bar">
+          <div class="axis"></div>
+          <div class="band" style="left:${bandL}%;width:${Math.max(2, bandR - bandL)}%"></div>
+          <div class="me${r.isLow ? ' low' : ''}" style="left:${mePos}%"></div>
+        </div>
+        <div class="pr-ticks"><span class="lo">最低 ${r.classMin}</span><span class="hi">最高 ${r.classMax}</span></div>
+        <div class="pr-keys"><span>本次得分 <b>${r.score}</b></span><span>班級平均 <b>${r.classAvg}</b></span><span>中位數 <b>${r.classMedian}</b></span></div>
+      </div></td>
+    </tr></tbody></table>` : ''
+  const typesSecHtml = on.types ? `
+    ${sec('各題型答對率（與班級平均對照）')}
+    <table class="pr-types"><tbody>${typesHtml}</tbody></table>
+    <table class="pr-tlgd"><tbody><tr>
+      <td class="chipcell"><div class="sw" style="background:#1E4D8C"></div></td><td class="txt">孩子的答對率</td>
+      <td class="chipcell"><div class="cl"></div></td><td class="txt">班級平均</td>
+      <td class="txt">紅色＝明顯偏低、值得優先加強</td>
+    </tr></tbody></table>` : ''
+  let tailHtml: string
+  if (r.hasAnalysis) {
+    const masterySec = on.mastery ? `
+    ${sec('各主題知識點的精熟程度')}
+    ${masteryLegend}
+    ${masteryHtml}` : ''
+    // 逐題錯題分析原本獨立成第二頁；關掉時第二頁整個不要，簽名列直接接在前面
+    const wrongSec = on.wrong ? `
+    <div class="pr-page2">
+      ${sec('逐題錯題分析')}
+      ${errorSection}
+
+      ${noteHtml}
+
+      ${footHtml}
+    </div>` : `
+    ${noteHtml}
+
+    ${footHtml}`
+    tailHtml = masterySec + wrongSec
+  } else {
+    const wrongSec = on.wrong ? `
+    ${sec('重點錯題與訂正方向')}
+    <table class="pr-wtab"><thead><tr><th class="qcell">題號</th><th>作答狀況與訂正方向</th></tr></thead><tbody>${wrongsHtml}</tbody></table>${moreRow}` : ''
+    tailHtml = `${wrongSec}
+
+    ${noteHtml}
+
+    ${footHtml}`
+  }
+
   return `<div class="pr-root">
     <table class="pr-mast"><tbody><tr>
       <td class="crestcell">${crest}</td>
@@ -780,49 +864,9 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
       ${h.teacherName ? `<td><span class="k">任課老師</span><span class="v">${esc(h.teacherName)}</span></td>` : ''}
     </tr></tbody></table>
 
-    <div class="pr-sec">一、本次成績與班級位置</div>
-    <table class="pr-hero"><tbody><tr>
-      <td class="pr-scorecell"><div class="pr-score"><div class="n${r.isLow ? ' low' : ''}">${r.score}</div>
-        <div class="o">滿分 ${r.examMax} 分</div>
-        <div class="g${r.isLow ? ' low' : ''}">${esc(r.gradeLabel)}</div></div></td>
-      <td><div class="pr-dist"><div class="cap">孩子在班上的落點（標記為本人、灰帶為多數同學）</div>
-        <div class="pr-bar">
-          <div class="axis"></div>
-          <div class="band" style="left:${bandL}%;width:${Math.max(2, bandR - bandL)}%"></div>
-          <div class="me${r.isLow ? ' low' : ''}" style="left:${mePos}%"></div>
-        </div>
-        <div class="pr-ticks"><span class="lo">最低 ${r.classMin}</span><span class="hi">最高 ${r.classMax}</span></div>
-        <div class="pr-keys"><span>本次得分 <b>${r.score}</b></span><span>班級平均 <b>${r.classAvg}</b></span><span>中位數 <b>${r.classMedian}</b></span></div>
-      </div></td>
-    </tr></tbody></table>
-
-    <div class="pr-sec">二、各題型答對率（與班級平均對照）</div>
-    <table class="pr-types"><tbody>${typesHtml}</tbody></table>
-    <table class="pr-tlgd"><tbody><tr>
-      <td class="chipcell"><div class="sw" style="background:#1E4D8C"></div></td><td class="txt">孩子的答對率</td>
-      <td class="chipcell"><div class="cl"></div></td><td class="txt">班級平均</td>
-      <td class="txt">紅色＝明顯偏低、值得優先加強</td>
-    </tr></tbody></table>
-
-    ${r.hasAnalysis ? `
-    <div class="pr-sec">三、各主題知識點的精熟程度</div>
-    ${masteryLegend}
-    ${masteryHtml}
-
-    <div class="pr-page2">
-      <div class="pr-sec">四、逐題錯題分析</div>
-      ${errorSection}
-
-      ${noteHtml}
-
-      ${footHtml}
-    </div>` : `
-    <div class="pr-sec">三、重點錯題與訂正方向</div>
-    <table class="pr-wtab"><thead><tr><th class="qcell">題號</th><th>作答狀況與訂正方向</th></tr></thead><tbody>${wrongsHtml}</tbody></table>${moreRow}
-
-    ${noteHtml}
-
-    ${footHtml}`}
+    ${scoreHtml}
+    ${typesSecHtml}
+    ${tailHtml}
   </div>`
 }
 
@@ -1268,6 +1312,14 @@ export function loadReportHeaderSettings(): ReportHeaderSettings {
 }
 export function saveReportHeaderSettings(v: ReportHeaderSettings): void {
   try { localStorage.setItem(HEADER_STORE_KEY, JSON.stringify(v)) } catch { /* quota */ }
+}
+
+const SECTIONS_STORE_KEY = 'parentReport.sections.v1'
+export function loadReportSections(): ParentReportSections {
+  try { return normalizeSections(JSON.parse(localStorage.getItem(SECTIONS_STORE_KEY) || '{}')) } catch { return { ...ALL_SECTIONS_ON } }
+}
+export function saveReportSections(v: ParentReportSections): void {
+  try { localStorage.setItem(SECTIONS_STORE_KEY, JSON.stringify(v)) } catch { /* quota */ }
 }
 
 const commentsKey = (assignmentId: string) => `parentReport.comments.${assignmentId}`

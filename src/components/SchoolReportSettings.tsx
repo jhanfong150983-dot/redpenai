@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Upload, X } from 'lucide-react'
+import { PARENT_REPORT_SECTIONS, normalizeSections, type ParentReportSections } from '@/lib/parentReport'
 
 /**
  * 2026-08-03 行政端偏好設定 → 家長報告抬頭(學校級、存雲端)。
@@ -13,6 +14,8 @@ export interface SchoolReportSettingsValue {
   schoolName: string
   schoolNameOverridden: boolean
   crestDataUrl: string
+  /** 2026-09-13 家長報告大項目開關（學校層）；false＝全校關閉、老師不能開 */
+  sections: ParentReportSections
 }
 
 export function useSchoolReportSettings(schoolId: string) {
@@ -29,7 +32,8 @@ export function useSchoolReportSettings(schoolId: string) {
       setValue({
         schoolName: d?.schoolName || '',
         schoolNameOverridden: !!d?.schoolNameOverridden,
-        crestDataUrl: d?.crestDataUrl || ''
+        crestDataUrl: d?.crestDataUrl || '',
+        sections: normalizeSections(d?.sections)
       })
     } catch { /* 非致命:抬頭會空白,畫面有提示 */ }
   }, [schoolId])
@@ -43,7 +47,7 @@ export default function SchoolReportSettings({ schoolId }: { schoolId: string })
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
-  const save = useCallback(async (patch: { schoolName?: string; crestDataUrl?: string }) => {
+  const save = useCallback(async (patch: { schoolName?: string; crestDataUrl?: string; sections?: ParentReportSections }) => {
     setSaving(true)
     setMsg('')
     try {
@@ -148,6 +152,35 @@ export default function SchoolReportSettings({ schoolId }: { schoolId: string })
             {saving ? '儲存中…' : msg}
           </p>
         )}
+      </div>
+
+      {/* 2026-09-13 校長提：報告內容由學校決定要不要印；只做大項目、關閉＝整段不出現 */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5">
+        <h3 className="text-sm font-semibold text-slate-800">家長報告內容</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          取消勾選的項目<span className="font-medium text-slate-600">全校一律不印</span>，老師端也不能再打開；
+          有勾選的項目老師可依班級需要自行決定要不要印。
+        </p>
+        <div className="mt-3 space-y-2">
+          {PARENT_REPORT_SECTIONS.map((sec) => {
+            const on = value ? value.sections[sec.key] : true
+            return (
+              <label key={sec.key} className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4"
+                  checked={on}
+                  disabled={!value || saving}
+                  onChange={(e) => { if (value) void save({ sections: { ...value.sections, [sec.key]: e.target.checked } }) }}
+                />
+                <span className="text-sm">
+                  <span className={`font-medium ${on ? 'text-slate-800' : 'text-slate-400 line-through'}`}>{sec.label}</span>
+                  <span className="ml-2 text-xs text-slate-400">{sec.hint}</span>
+                </span>
+              </label>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

@@ -156,6 +156,7 @@ export default function SchoolParentReportPanel({
               crestDataUrl: settings?.crestDataUrl || undefined,
               teacherName: openClass.teacherName || undefined
             }}
+            schoolSections={settings?.sections}
             requestInk={(fn, message) => setInkAction({ fn, message })}
             onKpSaved={reloadQuestions}
             grade={data.grade}

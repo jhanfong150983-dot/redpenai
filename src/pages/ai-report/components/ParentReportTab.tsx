@@ -5,13 +5,15 @@
 //   知識點歸類已改建卷時預跑（2026-08-11）；此頁保留「補跑歸類」給舊卷（一次性、花墨水）。
 //   舊快取（parent_reports）只回讀「評語」讓老師先前寫過/改過的話不消失；診斷欄位不再讀取。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FileDown, Eye, Loader2, Sparkles, Settings, CheckSquare, X } from 'lucide-react'
+import { FileDown, Eye, Loader2, Sparkles, Settings, CheckSquare, X, Lock } from 'lucide-react'
 import {
   assembleParentReports, fetchQuestionCrops,
   applyDiagnosisAndCrops,
   createReportPdfBlob, downloadSingleReport, downloadReportsAsZip,
   loadReportHeaderSettings, runKpUpgrade,
+  PARENT_REPORT_SECTIONS, ALL_SECTIONS_ON, andSections, loadReportSections, saveReportSections,
   type PRQuestion, type PRSubmission, type PRStudent, type ReportHeader, type StudentReport, type KpUpgradeResult,
+  type ParentReportSections,
 } from '@/lib/parentReport'
 import { db } from '@/lib/db'
 
@@ -43,10 +45,15 @@ type Props = {
   headerOverride?: { schoolName?: string; crestDataUrl?: string; teacherName?: string }
   /** 老師沒在偏好設定填名字時的預設（教師端＝登入者本人姓名）。 */
   fallbackTeacherName?: string
+  /**
+   * 2026-09-13（校長提）：學校層大項目開關。false 的段落全校不印、此頁的勾選框鎖住不能開；
+   *   缺＝學校沒設＝四段都由老師決定。老師層存 localStorage（parentReport.sections.v1）。
+   */
+  schoolSections?: ParentReportSections
 }
 
 export function ParentReportTab({
-  questions, submissions, students, kpTips, assignmentId, className, subject, assignmentTitle, onOpenPreferences, requestInk, onKpSaved, grade, headerOverride, fallbackTeacherName,
+  questions, submissions, students, kpTips, assignmentId, className, subject, assignmentTitle, onOpenPreferences, requestInk, onKpSaved, grade, headerOverride, fallbackTeacherName, schoolSections,
 }: Props) {
   const [reports, setReports] = useState<StudentReport[]>([])
   const [multiSelect, setMultiSelect] = useState(false)
@@ -56,6 +63,12 @@ export function ParentReportTab({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [settings, setSettings] = useState(loadReportHeaderSettings())
   const [msg, setMsg] = useState('')
+  const [mySections, setMySections] = useState<ParentReportSections>(loadReportSections())
+  const schoolAllow = schoolSections ?? ALL_SECTIONS_ON
+  const effectiveSections = useMemo(() => andSections(schoolAllow, mySections), [schoolAllow, mySections])
+  const toggleSection = (k: keyof ParentReportSections, on: boolean) => {
+    setMySections((prev) => { const next = { ...prev, [k]: on }; saveReportSections(next); return next })
+  }
 
   useEffect(() => {
     setSettings(loadReportHeaderSettings())
@@ -75,7 +88,8 @@ export function ParentReportTab({
     className, subject, assignmentTitle,
     teacherName: headerOverride?.teacherName || settings.teacherName || fallbackTeacherName || undefined,
     dateStr: formatDateZh(new Date()),
-  }), [settings, headerOverride, fallbackTeacherName, className, subject, assignmentTitle])
+    sections: effectiveSections,
+  }), [settings, headerOverride, fallbackTeacherName, className, subject, assignmentTitle, effectiveSections])
 
   const toggle = (id: string) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const allSelected = reports.length > 0 && selected.size === reports.length
@@ -223,6 +237,26 @@ export function ParentReportTab({
           <Loader2 className="h-4 w-4 animate-spin" />正在建立知識點歸類（每卷一次性、之後不再收費）…
         </div>
       )}
+
+      {/* 報告內容大項目開關（2026-09-13）：學校關掉的鎖住；其餘老師自選、記在本機 */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2">
+        <span className="text-sm text-slate-500">報告內容</span>
+        {PARENT_REPORT_SECTIONS.map((sec) => {
+          const locked = !schoolAllow[sec.key]
+          const on = effectiveSections[sec.key]
+          return (
+            <label
+              key={sec.key}
+              title={locked ? '學校統一設定為不印，無法打開' : sec.hint}
+              className={`flex items-center gap-1.5 text-sm ${locked ? 'cursor-not-allowed text-slate-400' : 'cursor-pointer text-slate-700'}`}
+            >
+              <input type="checkbox" className="h-4 w-4" checked={on} disabled={locked} onChange={(e) => toggleSection(sec.key, e.target.checked)} />
+              <span className={on ? '' : 'line-through'}>{sec.label}</span>
+              {locked && <Lock className="h-3 w-3" />}
+            </label>
+          )
+        })}
+      </div>
 
       {/* 工具列 */}
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
