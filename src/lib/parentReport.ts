@@ -1,6 +1,6 @@
 // 家長學習報告（2026-07-18 B2B MVP → 2026-08-11 退回無 AI 版、皆 user 拍板）：
 //   老師選一份考卷 → 全班家長報告 PDF、打包 zip。一份考卷＝一份報告（不跨科合併）。
-//   報告＝純程式確定性產物（成績/落點/題型/知識點加強地圖/錯題裁圖＋正解＋班級狀況），
+//   報告＝純程式確定性產物（成績/落點/題型/知識點加強地圖/錯題裁圖＋正解；逐題班級狀況 09-13 拿掉），
 //   永遠對應最新批改、重批不需重生；「為什麼錯」的解讀歸老師專業——AI 逐題診斷與評語草擬已移除。
 //   唯一留在此檔的 AI 呼叫＝知識點歸類（runKpUpgrade 系列；新卷建卷預跑、舊卷報告頁補跑）。
 //   PDF 產出沿用原 correctionNoticePdf 骨架（html2canvas→jsPDF、系統中文字型、每生一頁；該檔已於 2026-08-12 退役刪除）。
@@ -78,7 +78,7 @@ export const PARENT_REPORT_SECTIONS: ReadonlyArray<{ key: ParentReportSectionKey
   { key: 'score', label: '成績與班級位置', hint: '得分、班級平均／中位數、落點' },
   { key: 'types', label: '各題型答對率', hint: '與班級平均對照' },
   { key: 'mastery', label: '知識點精熟程度', hint: '有知識點歸類的考卷才會出現' },
-  { key: 'wrong', label: '逐題錯題分析', hint: '作答影像、標準答案、班級狀況' },
+  { key: 'wrong', label: '逐題錯題分析', hint: '作答影像、標準答案' },
 ]
 export const ALL_SECTIONS_ON: ParentReportSections = { score: true, types: true, mastery: true, wrong: true }
 /** 任何來源（API JSON、localStorage）的鬆散值 → 完整四鍵；缺鍵一律視為開。 */
@@ -724,11 +724,9 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     const ansLine = (w.studentAnswer || w.referenceAnswer || w.imageJudged)
       ? `<div class="pr-ans">孩子的答案：<span class="y"${w.imageJudged ? ' style="color:#6B7684"' : ''}>${esc(shownStu)}</span>${w.referenceAnswer ? `　正確答案：<span class="r">${esc(w.referenceAnswer)}</span>` : ''}</div>`
       : ''
-    const clsLine = er && er.classTotal > 0
-      ? `<div class="pr-wcls">班級狀況：全班 ${er.classTotal} 人中 ${er.classFull} 人此題拿滿分</div>`
-      : ''
+    // 2026-09-13 user：拿掉「班級狀況：全班 N 人中 M 人此題拿滿分」——老師擔心家長拿來比較（資料仍算、只不印）
     return `<tr><td class="qcell"><span class="qno">${esc(formatQuestionLabel(w.questionId))}</span><span class="qt">${esc(w.typeLabel)}</span></td>
-      <td>${cropImg}${ansLine}${clsLine}<span class="pr-fix">✎ ${esc(w.reason || '請對照正確答案重新檢視這一題。')}</span></td></tr>`
+      <td>${cropImg}${ansLine}<span class="pr-fix">✎ ${esc(w.reason || '請對照正確答案重新檢視這一題。')}</span></td></tr>`
   }).join('') : `<tr><td colspan="2" style="text-align:center;color:#7B8794;padding:14px">本次沒有明顯失分的題目，表現很好！</td></tr>`
   const moreRow = r.moreWrongCount > 0
     ? `<div class="pr-more">另有 ${r.moreWrongCount} 題失分，完整內容請見孩子的考卷。</div>` : ''
@@ -763,13 +761,10 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     const shownStudent = e.imageJudged
       ? `<span class="you imgjudge">圖像辨識</span>`
       : `<span class="you">${esc(e.studentAnswer || '（空白）')}</span>`
-    const classStat = e.classTotal > 0
-      ? `<div class="pr-qr"><span class="l">班級狀況</span><span class="cls">全班 ${e.classTotal} 人中 ${e.classFull} 人此題拿滿分</span></div>`
-      : ''
+    // 2026-09-13 user：逐題「班級狀況」不印（老師擔心家長比較）
     const info = `<div class="pr-qinfo">
         <div class="pr-qr"><span class="l">AI 讀到</span>${shownStudent}</div>
         <div class="pr-qr"><span class="l">標準答案</span><span class="ans">${esc(e.referenceAnswer || '—')}</span></div>
-        ${classStat}
       </div>`
     const why = e.why
       ? `<div class="pr-qwhy"><b>🧠 為什麼會這樣：</b>${esc(e.why)}</div>`
