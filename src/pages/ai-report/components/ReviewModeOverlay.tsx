@@ -2,7 +2,7 @@
 // 上課投影用、全螢幕。左＝題本預覽（放大縮小、換頁；換題時不動，老師自己調）。
 // 右＝這一題檢討需要的素材：錯幾人、誰錯了（座號）、正確寫法、典型錯法（樣態群＋代表卷面）、參考答案（預設收起）。
 // 順序＝檢討順序（失分率高→低）；← → 換題；Esc 離開。零 AI、零墨水：全部來自已批改資料與樣態聚合。
-import { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Maximize2, Eye, EyeOff, Check } from 'lucide-react'
 import { db, type Submission } from '@/lib/db'
 import { buildQuestionStats, cmpQid, type AnswerGroup, type QuestionStats } from '@/lib/answerStats'
@@ -35,6 +35,25 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
     return () => { cancelled = true }
   }, [templateId])
   const pageUrl = (i: number) => `/api/storage/download?templateId=${encodeURIComponent(templateId)}&pageIndex=${i}&prefix=question-booklets`
+  // 2026-09-12 user：滑鼠拖曳平移題本（按住拖＝捲動容器；Ctrl+滾輪＝縮放）
+  const viewerRef = useRef<HTMLDivElement | null>(null)
+  const drag = useRef<{ x: number; y: number; sl: number; st: number } | null>(null)
+  const onViewerDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || !viewerRef.current) return
+    drag.current = { x: e.clientX, y: e.clientY, sl: viewerRef.current.scrollLeft, st: viewerRef.current.scrollTop }
+    e.preventDefault()
+  }
+  const onViewerMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!drag.current || !viewerRef.current) return
+    viewerRef.current.scrollLeft = drag.current.sl - (e.clientX - drag.current.x)
+    viewerRef.current.scrollTop = drag.current.st - (e.clientY - drag.current.y)
+  }
+  const onViewerUp = () => { drag.current = null }
+  const onViewerWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (!e.ctrlKey && !e.metaKey) return
+    e.preventDefault()
+    setZoom((z) => Math.max(0.5, Math.min(4, +(z + (e.deltaY < 0 ? 0.1 : -0.1)).toFixed(2))))
+  }
 
   // ── 樣態聚合（同樣態分析／評分統計那一套） ──
   const stuById = useMemo(() => new Map(students.map((s) => [s.id, s])), [students])
@@ -185,9 +204,11 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
             <button type="button" onClick={() => setZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)))} className="p-1.5 rounded hover:bg-slate-800"><ZoomIn className="w-4 h-4" /></button>
             <button type="button" onClick={() => setZoom(1)} className="p-1.5 rounded hover:bg-slate-800" title="還原"><Maximize2 className="w-4 h-4" /></button>
           </div>
-          <div className="flex-1 min-h-0 overflow-auto bg-slate-900">
+          <div ref={viewerRef} className="flex-1 min-h-0 overflow-auto bg-slate-900 cursor-grab active:cursor-grabbing"
+            onMouseDown={onViewerDown} onMouseMove={onViewerMove} onMouseUp={onViewerUp} onMouseLeave={onViewerUp} onWheel={onViewerWheel}
+            title="按住拖曳移動；Ctrl＋滾輪縮放">
             {pageCount > 0
-              ? <img src={pageUrl(page)} alt={`題本第 ${page + 1} 頁`} draggable={false} style={{ width: `${zoom * 100}%`, maxWidth: 'none', display: 'block' }} />
+              ? <img src={pageUrl(page)} alt={`題本第 ${page + 1} 頁`} draggable={false} style={{ width: `${zoom * 100}%`, maxWidth: 'none', display: 'block', pointerEvents: 'none' }} />
               : <div className="h-full flex items-center justify-center text-slate-500 text-sm">這份考卷沒有上傳題本，左側無法預覽</div>}
           </div>
         </div>
