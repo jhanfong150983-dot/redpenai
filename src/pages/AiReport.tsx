@@ -293,14 +293,15 @@ type AiReportProps = {
    *   exam（預設）＝「檢討考卷」：考試總覽（含檢討單下載）→樣態分析——考完隔天的檢討課用
    *   track＝「後續追蹤」：試題分析→概念雷達→家長報告——檢討完的深入分析與對外交付
    */
-  variant?: 'exam' | 'track'
+  variant?: 'exam' | 'track' | 'parent'   // 2026-09-12 parent＝家長報告獨立側欄項
   /** 2026-08-29 歷史資料頁：'archived'=只看已封存班級 */
   classroomScope?: 'active' | 'archived'
 }
 
 export default function AiReport({ onBack, embedded, variant = 'exam', classroomScope = 'active' }: AiReportProps) {
   const isTrack = variant === 'track'
-  const pageEyebrow = isTrack ? '後續追蹤' : '檢討考卷'
+  const isParent = variant === 'parent'
+  const pageEyebrow = isParent ? '家長報告' : isTrack ? '後續追蹤' : '檢討考卷'
   const [syncData, setSyncData] = useState<SyncPayload | null>(null)
   const [reportData, setReportData] = useState<ReportPayload | null>(null)
   const [loading, setLoading] = useState(true)
@@ -317,7 +318,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   >({})
   // 手動觸發領域診斷重生（後補題本後可用，繞過 cache）
   const [domainDiagnosisRegenCounter, setDomainDiagnosisRegenCounter] = useState(0)
-  const [activeTab, setActiveTab] = useState<'overview' | 'class' | 'items' | 'patterns' | 'parent' | 'domain' | 'student'>(isTrack ? 'items' : 'overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'class' | 'items' | 'patterns' | 'parent' | 'domain' | 'student'>(isParent ? 'parent' : isTrack ? 'items' : 'overview')
   // 2026-06-01: 生成/重生報告會花墨水 → 先跳同意框，同意才跑（存待執行動作）
   // 2026-07-22：requestInk 支援自訂 modal 內容（統一走 InkConfirmModal、不再混用 window.confirm）
   const [inkAction, setInkAction] = useState<{ fn: () => void; message?: React.ReactNode } | null>(null)
@@ -1110,14 +1111,14 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                 2026-07-20 三個「診斷性快報」退役;面板碼保留但無入口。 */}
             {/* 2026-09-12 user 拍板：樣態分析對檢討課幫助不大、屬後續追蹤研究用 → 移到後續追蹤；
                 檢討考卷只剩考卷總覽（含檢討單下載＋檢討模式）→ 不再顯示 tab 列 */}
+            {/* 2026-09-12 user：家長報告獨立成側欄項（variant='parent'、單一分頁不顯示 tab 列） */}
             {(isTrack
               ? ([
                   { id: 'items', label: '試題分析' },
                   { id: 'patterns', label: '樣態分析' },
                   { id: 'student', label: '概念雷達' },
-                  { id: 'parent', label: '家長報告' },
                 ] as const)
-              : ([] as ReadonlyArray<{ id: 'overview'; label: string }>)
+              : ([] as ReadonlyArray<{ id: 'overview' | 'parent'; label: string }>)
             ).map((tab) => (
               <button
                 key={tab.id}

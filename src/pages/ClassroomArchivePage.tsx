@@ -18,13 +18,14 @@ interface ClassroomArchivePageProps {
   embedded?: boolean
 }
 
-type TabKey = 'classes' | 'gradebook' | 'exam' | 'track'
+type TabKey = 'classes' | 'gradebook' | 'exam' | 'track' | 'parent'
 
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: 'classes', label: '班級恢復' },
   { key: 'gradebook', label: '成績統計' },
   { key: 'exam', label: '檢討考卷' },
-  { key: 'track', label: '後續追蹤' }
+  { key: 'track', label: '後續追蹤' },
+  { key: 'parent', label: '家長報告' }
 ]
 
 export default function ClassroomArchivePage({ onBack, embedded = false }: ClassroomArchivePageProps) {
@@ -235,6 +236,15 @@ export default function ClassroomArchivePage({ onBack, embedded = false }: Class
                 key={`track-${reloadTick}`}
                 embedded
                 variant="track"
+                classroomScope="archived"
+                onBack={() => setActiveTab('classes')}
+              />
+            )}
+            {activeTab === 'parent' && (
+              <AiReport
+                key={`parent-${reloadTick}`}
+                embedded
+                variant="parent"
                 classroomScope="archived"
                 onBack={() => setActiveTab('classes')}
               />

@@ -90,6 +90,7 @@ type Page =
   | 'correction-history'
   | 'ai-report'
   | 'learning-track'
+  | 'parent-report'
   | 'admin-panel'
   | 'admin-user-detail'
   | 'ink-topup'
@@ -2082,6 +2083,12 @@ function App() {
     if (!canAccessTracking) return
     setCurrentPage('learning-track')
   }
+  // 2026-09-12 user：家長報告從後續追蹤拆出、獨立側欄項
+  const openParentReport = async () => {
+    if (!(await confirmLeaveGrading())) return
+    if (!canAccessTracking) return
+    setCurrentPage('parent-report')
+  }
   // 2026-07-20 歷程分析先隱藏（user 用不到）：導覽入口與此開啟函式一併停用。要恢復把此函式與側欄項目取消註解。
   // const openCorrectionHistory = () => {
   //   if (!(await confirmLeaveGrading())) return
@@ -2183,9 +2190,18 @@ function App() {
         {
           key: 'learning-track',
           label: '後續追蹤',
-          description: '試題分析、概念雷達、家長報告',
+          description: '試題分析、樣態分析、概念雷達',
           icon: Target,
           onClick: openLearningTrack,
+          disabled: !canAccessTracking,
+          badge: canAccessTracking ? undefined : 'Pro'
+        },
+        {
+          key: 'parent-report',
+          label: '家長報告',
+          description: '逐生報告預覽、老師的話、下載',
+          icon: School,
+          onClick: openParentReport,
           disabled: !canAccessTracking,
           badge: canAccessTracking ? undefined : 'Pro'
         }
@@ -2719,12 +2735,12 @@ function App() {
                     </button>
                   </div>
                 )
-              ) : currentPage === 'ai-report' || currentPage === 'learning-track' ? (
+              ) : currentPage === 'ai-report' || currentPage === 'learning-track' || currentPage === 'parent-report' ? (
                 canAccessTracking ? (
                   <AiReport
                     key={currentPage}
                     embedded
-                    variant={currentPage === 'learning-track' ? 'track' : 'exam'}
+                    variant={currentPage === 'learning-track' ? 'track' : currentPage === 'parent-report' ? 'parent' : 'exam'}
                     onBack={() => setCurrentPage('home')}
                   />
                 ) : (
