@@ -91,6 +91,7 @@ export type QuestionStats = {
 // 要素短標：取冒號前段（「第(4)小題條件(3)檢驗：算出…」→「第(4)小題條件(3)檢驗」），仍超過 14 字就截斷
 export function shortLabelOf(full: string, fallback = ''): string {
   const t = String(full ?? '').trim() || fallback
+  if (t.length <= 16) return t   // 短的（作圖題「步驟1：以直線 L 為對稱軸作圖」）整句保留、不切冒號
   const head = t.split(/[：:]/u)[0].trim() || t
   return head.length > 14 ? `${head.slice(0, 14)}…` : head
 }
