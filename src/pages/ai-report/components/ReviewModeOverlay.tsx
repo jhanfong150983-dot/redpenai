@@ -73,7 +73,7 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
       const total = q.groups.reduce((a, g) => a + g.members.length, 0)
       const got = q.groups.reduce((a, g) => a + g.members.reduce((x, m) => x + m.score, 0), 0)
       const missRate = q.maxScore > 0 && total > 0 ? 1 - got / (q.maxScore * total) : 0
-      const wrong = q.groups.filter((g) => q.maxScore > 0 && g.score < q.maxScore).reduce((a, g) => a + g.members.length, 0)
+      const wrong = q.groups.reduce((a, g) => a + g.members.filter((m) => q.maxScore > 0 && m.score < q.maxScore).length, 0)
       rows.push({ qid: q.qid, missRate, wrong, total })
     }
     return rows.sort((a, b) => b.missRate - a.missRate || cmpQid(a.qid, b.qid))
@@ -121,15 +121,19 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
   const typicalMulti = useMemo(() => typicalWrong.filter((g) => g.members.length >= 2), [typicalWrong])
   const singles = useMemo(() => typicalWrong.filter((g) => g.members.length < 2), [typicalWrong])
   const blankCount = useMemo(() => wrongGroups.filter(isSpecialGroup).reduce((a, g) => a + g.members.length, 0), [wrongGroups])
-  const wrongSeats = useMemo(() => {
-    if (!active) return [] as string[]
-    const seats: Array<string | number> = []
-    for (const g of wrongGroups) for (const m of g.members) seats.push(m.seat ?? m.name ?? '?')
-    return seats.sort((a, b) => (Number(a) || 999) - (Number(b) || 999)).map(String)
-  }, [active, wrongGroups])
+  const allMembers = useMemo(() => (active ? active.groups.flatMap((g) => g.members.map((m) => ({ ...m, groupRaw: g.raw }))) : []), [active])
+  const wrongMembers = useMemo(() => allMembers.filter((m) => active && active.maxScore > 0 && m.score < active.maxScore).sort((a, b) => (Number(a.seat) || 999) - (Number(b.seat) || 999)), [allMembers, active])
+  const correctMembers = useMemo(() => allMembers.filter((m) => active && active.maxScore > 0 && m.score >= active.maxScore).sort((a, b) => (Number(a.seat) || 999) - (Number(b.seat) || 999)), [allMembers, active])
+  const wrongSeats = useMemo(() => wrongMembers.map((m) => String(m.seat ?? m.name ?? '?')), [wrongMembers])
+  // 國字注音等「圖像辨識」格：讀值是佔位字、全班塌成一個鎖定群且群內分數混雜 → 改成逐人卷面（錯的寫法／對的寫法各抓縮圖）
+  const glyphMode = useMemo(() => !!active && active.groups.some((g) => g.locked && g.raw === '圖像辨識' && g.members.length > 0), [active])
   // 代表卷面：圖像判分題所有群、文字題只抓錯法前 3 群（老師要看的是錯法長什麼樣）
   useEffect(() => {
     if (!active) return
+    if (glyphMode) {
+      for (const m of [...wrongMembers.slice(0, 8), ...correctMembers.slice(0, 4)]) void fetchCrop(m.studentId, active.qid)
+      return
+    }
     const targets = [...(active.groups.some((g) => g.imageAgg) ? active.groups.filter((g) => !isSpecialGroup(g)).slice(0, 6) : typicalMulti.slice(0, 3))]
     for (const g of targets) { const rep = g.members[0]; if (rep) void fetchCrop(rep.studentId, active.qid) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -265,6 +269,35 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
                     )}
                   </div>
                 )}
+                {/* 圖像辨識題（國字注音）：逐人卷面 */}
+                {glyphMode ? (
+                  <>
+                    <div>
+                      <div className="text-sm text-slate-400 mb-1.5">錯的寫法（卷面，前 {Math.min(8, wrongMembers.length)} 位）</div>
+                      {wrongMembers.length === 0 ? <div className="text-slate-500 text-sm">全班答對</div> : (
+                        <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
+                          {wrongMembers.slice(0, 8).map((m) => { const uri = crops.get(`${m.studentId}|${active.qid}`); return (
+                            <div key={m.submissionId} className="rounded-lg border-2 border-rose-500/70 bg-white/95 overflow-hidden">
+                              <div className="min-h-[56px] flex items-center justify-center">{uri ? <img src={uri} alt="" className="w-full object-contain" style={{ maxHeight: 110 }} /> : <span className="text-xs text-slate-400 py-4">載入中…</span>}</div>
+                              <div className="px-2 py-0.5 text-xs text-rose-700 font-bold bg-rose-50">{m.seat != null ? `${m.seat}號` : m.name}　{m.score}/{active.maxScore}</div>
+                            </div>) })}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-sm text-slate-400 mb-1.5">對的寫法（卷面）</div>
+                      {correctMembers.length === 0 ? <div className="text-slate-500 text-sm">無人答對</div> : (
+                        <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))' }}>
+                          {correctMembers.slice(0, 4).map((m) => { const uri = crops.get(`${m.studentId}|${active.qid}`); return (
+                            <div key={m.submissionId} className="rounded-lg border-2 border-emerald-500/70 bg-white/95 overflow-hidden">
+                              <div className="min-h-[56px] flex items-center justify-center">{uri ? <img src={uri} alt="" className="w-full object-contain" style={{ maxHeight: 110 }} /> : <span className="text-xs text-slate-400 py-4">載入中…</span>}</div>
+                              <div className="px-2 py-0.5 text-xs text-emerald-700 font-bold bg-emerald-50">{m.seat != null ? `${m.seat}號` : m.name}</div>
+                            </div>) })}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                ) : (<>
                 {/* 典型錯法 */}
                 <div>
                   <div className="text-sm text-slate-400 mb-1.5">典型錯法（人數最多的前 3 種）{blankCount > 0 && <span className="ml-2 text-slate-500">未作答／全無 {blankCount} 人不列入</span>}</div>
@@ -297,6 +330,7 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
                   {correctGroups.length === 0 ? <div className="text-slate-500 text-sm">無人滿分</div>
                     : <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>{correctGroups.slice(0, 2).map((g) => groupCard(g, 'ok'))}</div>}
                 </div>
+                </>)}
               </div>
             </>
           )}
