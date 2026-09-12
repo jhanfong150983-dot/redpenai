@@ -10,6 +10,8 @@ type Props = {
   submissions: ItemAnalysisSubmissionLike[]
   /** 有帶齊這三個才會出現「AI 歸納錯誤樣態」按鈕（開放文字題） */
   domain?: string
+  /** 2026-09-12：點題號 → 跳到該題的樣態分析 */
+  onJumpToPatterns?: (qid: string) => void
 }
 
 export const BAND_STYLE: Record<string, { bg: string; fg: string }> = {
@@ -116,7 +118,7 @@ export function DistributionBar({ item }: { item: ItemStat }) {
   )
 }
 
-export default function ItemAnalysisSection({ questions, submissions, domain }: Props) {
+export default function ItemAnalysisSection({ questions, submissions, domain, onJumpToPatterns }: Props) {
   const result = useMemo(() => computeItemAnalysis(questions, submissions, domain), [questions, submissions, domain])
   const [showAll, setShowAll] = useState(false)
   if (!result) return null
@@ -278,7 +280,12 @@ export default function ItemAnalysisSection({ questions, submissions, domain }: 
             {rows.map((it) => (
               <tr key={it.questionId} style={{ borderBottom: '1px solid #f1f5f9', verticalAlign: 'top' }}>
                 <td style={{ padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                  {it.questionId}
+                  {onJumpToPatterns ? (
+                    <button type="button" onClick={() => onJumpToPatterns(String(it.questionId))} title="看這題的樣態分析"
+                      style={{ padding: 0, border: 'none', background: 'none', font: 'inherit', fontWeight: 600, color: '#0369a1', textDecoration: 'underline dotted', cursor: 'pointer' }}>
+                      {it.questionId}
+                    </button>
+                  ) : it.questionId}
                   {it.keySuspect && <span title="多數學生齊答同一個非正解、建議確認解答"> 🚩</span>}
                   {it.partialCredit && <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 400 }}>得分率制</div>}
                 </td>

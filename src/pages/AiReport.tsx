@@ -992,6 +992,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
 
   // ── 檢討模式（2026-09-12 user 設計：上課投影全螢幕；左題本預覽、右本題素材；零 AI）──
   const [showReviewMode, setShowReviewMode] = useState(false)
+  // 2026-09-12 試題分析點題號 → 切到樣態分析並停在該題
+  const [patternsJumpQid, setPatternsJumpQid] = useState<string | undefined>(undefined)
   // ── 檢討單下載（2026-08-12 從訂正頁移植到考試總覽;與行政端同一條 reviewSheetPdf 管線）──
   const [reviewSheetBusy, setReviewSheetBusy] = useState(false)
   const [reviewSheetProgress, setReviewSheetProgress] = useState<{ done: number; total: number } | null>(null)
@@ -1272,6 +1274,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                     questions={itemAnalysisQuestions}
                     submissions={crossOn && crossData && crossSubmissions.length >= 3 ? crossSubmissions : itemAnalysisSubmissions}
                     domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
+                    onJumpToPatterns={(qid) => { setPatternsJumpQid(qid); setActiveTab('patterns'); window.scrollTo({ top: 0 }) }}
                   />
                 </>
               ) : detailsLoading ? detailsLoadingCard : (
@@ -1300,6 +1303,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                     submissions={itemAnalysisSubmissions as any}
                     students={syncData?.students ?? []}
                     cross={crossOn && crossData ? { classCount: crossData.classCount, answers: crossData.answers } : undefined}
+                    initialQid={patternsJumpQid}
                   />
                 </>
               ) : detailsLoading ? detailsLoadingCard : (

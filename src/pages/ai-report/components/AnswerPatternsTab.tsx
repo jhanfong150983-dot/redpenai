@@ -4,7 +4,7 @@
 //   - 文字題 → 答案卡片分 滿分/部分分/零分 三區,附 AI 批改理由;錯誤樣態的「解讀」回歸老師專業
 //   - 圖像判分題(注音/作圖)→ 對/錯/未作答 長條+提示投影原卷討論
 //   - 學生名單預設收合(投影時不洩漏;老師可逐卡展開)
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import { type Submission } from '@/lib/db'
 import { buildQuestionStats, normAnswerValue, type AnswerGroup } from '@/lib/answerStats'
@@ -20,6 +20,8 @@ type Props = {
    * 有帶＝整個 TAB 切到「同卷全體」視角：值+人數+分數而已，無名單、無班級來源、無 AI 理由。
    */
   cross?: { classCount: number; answers: Record<string, Array<{ value: string; score: number; count: number }>> }
+  /** 2026-09-12：從試題分析點題號跳過來時要停在哪一題 */
+  initialQid?: string
 }
 
 const SPECIAL_RAW = new Set(['', '未作答', '無法辨識', '圖像辨識', '(空白)'])
@@ -86,7 +88,7 @@ function MemberList({ g }: { g: AnswerGroup }) {
 
 const CHOICE_LIKE = new Set(['single_choice', 'multi_choice', 'true_false', 'single_check', 'multi_check', 'circle_select_one', 'circle_select_many', 'multi_fill', 'matching', 'ordering'])
 
-export default function AnswerPatternsTab({ questions, submissions, students, cross }: Props) {
+export default function AnswerPatternsTab({ questions, submissions, students, cross, initialQid }: Props) {
   const stats = useMemo(() => {
     const stuById = new Map(students.map((s) => [s.id, s]))
     const entries = submissions
@@ -105,6 +107,11 @@ export default function AnswerPatternsTab({ questions, submissions, students, cr
   }, [questions])
 
   const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    if (!initialQid) return
+    const i = stats.findIndex((q) => q.qid === initialQid)
+    if (i >= 0) setIdx(i)
+  }, [initialQid, stats])
   if (!stats.length) {
     return <section className="card" style={{ color: '#64748b', fontSize: 13 }}>此考卷還沒有可統計的批改資料。</section>
   }
