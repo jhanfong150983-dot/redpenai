@@ -223,7 +223,22 @@ export default function AnswerStatsModal({ entries, onClose, onUpdated }: Props)
                                   </button>
                                 )
                               })()}
-                              <div className="font-medium text-gray-900 break-all">{g.imageAgg ? g.raw : `「${g.raw}」`}</div>
+                              {g.items && g.items.length > 0 ? (
+                                <div title={g.raw}>
+                                  <div className="font-semibold text-gray-900">{g.headline ?? g.raw}</div>
+                                  <div className="mt-1 space-y-0.5">
+                                    {g.items.map((it) => (
+                                      <div key={it.key} className={`flex items-center gap-1 text-[11px] leading-4 ${it.state === 'miss' ? 'text-rose-600 font-semibold' : it.state === 'partial' ? 'text-amber-600' : 'text-gray-400'}`} title={it.text}>
+                                        <span className="w-3.5 text-center shrink-0">{it.state === 'ok' ? '✓' : it.state === 'miss' ? '✗' : it.state === 'waived' ? '－' : it.state === 'blank' ? '○' : '◐'}</span>
+                                        <span className="truncate">{it.label}</span>
+                                        {it.note && <span className="ml-auto shrink-0 tabular-nums">{it.note}</span>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="font-medium text-gray-900 break-all">{g.imageAgg ? g.raw : `「${g.raw}」`}</div>
+                              )}
                               {g.reason && (
                                 <div
                                   onClick={() => setExpandedReason(expandedReason === fullKey ? null : fullKey)}

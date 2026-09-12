@@ -74,6 +74,10 @@ export type AnswerGroup = {
                            // ⚠ 旗標語意是「群名不是學生答案」,不只是圖像判分:它同時控制
                            //    ①抓代表 crop ②群名不加「」③回寫時不送 value(不可誤寫進值→分數表)
   reason: string           // 代表理由(多數分數成員的 AI 理由;查表題=同答同理由)
+  // 2026-09-12 rubric 題可讀性（user 拍板「要素矩陣」）：群內逐項判定、固定順序，卡片畫成 ✓／✗ 列表；
+  //   label＝短標（冒號前段、≤14 字），text＝完整敘述（tooltip）；headline＝一行摘要（「二級分・4/6 項」）
+  items?: Array<{ key: string; label: string; text: string; state: 'ok' | 'miss' | 'waived' | 'blank' | 'partial'; note?: string }>
+  headline?: string
 }
 
 export type QuestionStats = {
@@ -83,6 +87,14 @@ export type QuestionStats = {
   hasMixed: boolean
   lockedOnly: boolean      // 全部都是鎖定群(例:整題圖像判分)→ 唯讀 tab
 }
+
+// 要素短標：取冒號前段（「第(4)小題條件(3)檢驗：算出…」→「第(4)小題條件(3)檢驗」），仍超過 14 字就截斷
+export function shortLabelOf(full: string, fallback = ''): string {
+  const t = String(full ?? '').trim() || fallback
+  const head = t.split(/[：:]/u)[0].trim() || t
+  return head.length > 14 ? `${head.slice(0, 14)}…` : head
+}
+const LEVEL_NAME: Record<number, string> = { 3: '三級分', 2: '二級分', 1: '一級分', 0: '零級分' }
 
 // 題號自然排序("1-A-2"→逐段、數字當數字)
 export function cmpQid(a: string, b: string): number {
@@ -131,6 +143,8 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
 
       let rawText = ''
       let key = ''
+      let items: AnswerGroup['items'] | undefined
+      let headline: string | undefined
       if (isLevel) {
         // 群名列「缺哪幾項」（user 選 B）：老師檢討時要找的是這群卡在哪一步。
         // 標籤在批改時就存進 evidence.label——統計面板拿不到答案卷，不能靠 key 反查。
@@ -147,9 +161,15 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
             ? `${done}/${total} 項｜缺：${named.join('、')}`
             : `${done}/${total} 項`
         key = `__level__${[...(lv!.found ?? [])].sort().join('|')}`
+        if (ev.length) {
+          items = ev.map((e) => ({ key: e.key, label: shortLabelOf(e.label ?? '', e.key), text: e.label ?? e.key, state: e.present ? 'ok' : (e.waived ? 'waived' : 'miss') }))
+          headline = `${LEVEL_NAME[Number(lv!.level)] ?? `${lv!.level} 級分`}・${done}/${total} 項`
+        }
       } else if (isVj) {
         rawText = vj!.map((i) => `${i.label || `項目${i.idx}`}${i.verdict === 'correct' ? '✓' : i.verdict === 'blank' ? '（空白）' : '✗'}`).join('　')
         key = `__vj__${vj!.map((i) => `${i.idx}:${i.verdict}`).join('|')}`
+        items = vj!.map((i) => ({ key: String(i.idx), label: shortLabelOf(i.label ?? '', `項目${i.idx}`), text: i.label ?? `項目${i.idx}`, state: i.verdict === 'correct' ? 'ok' : i.verdict === 'blank' ? 'blank' : 'miss' }))
+        headline = `通過 ${vj!.filter((i) => i.verdict === 'correct').length}/${vj!.length} 項`
       } else if (isRubric) {
         // 群名列「缺哪幾個維度」，與級分制同形狀（老師檢討時要找的是這群卡在哪一項）
         const miss = rs!.filter((x) => Number(x.score ?? 0) < Number(x.maxScore ?? 0))
@@ -160,6 +180,8 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
         //   只有完整向量能保證同群必同分（實測 214 格逐維度加總 vs 總分 零不符）。
         // 維度名排序後入鍵：AI 回傳的陣列順序不可信，排序才不會因順序漂移把同一判定裂成兩群。
         key = `__rubric__${rs!.map((x) => `${x.dimension ?? '?'}=${Number(x.score ?? 0)}`).sort().join('|')}`
+        items = rs!.map((x, i) => { const sc = Number(x.score ?? 0), mx = Number(x.maxScore ?? 0); return { key: x.dimension ?? String(i), label: shortLabelOf(x.dimension ?? '', `維度 ${i + 1}`), text: x.dimension ?? '', state: mx > 0 && sc >= mx ? 'ok' : sc <= 0 ? 'miss' : 'partial', note: `${sc}/${mx}` } })
+        headline = `${Math.round(rs!.reduce((a, x) => a + Number(x.score ?? 0), 0) * 10) / 10}/${Math.round(rs!.reduce((a, x) => a + Number(x.maxScore ?? 0), 0) * 10) / 10} 分`
       } else {
         rawText = String(d?.studentAnswer ?? d?.studentFinalAnswer ?? '').trim()
         key = normAnswerValue(rawText)
@@ -175,7 +197,7 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
       //   老師若只改分不改讀值，仍會出現「群內分數不一致」＝提醒老師去把讀值也改掉（低信心 modal 已可直接改讀值）。
       const edited = !!d?._aiOriginal
       const gKey = isImageAgg ? key : (locked ? `__special__${rawText || '(空白)'}` : key)
-      const g = gm.get(gKey) ?? { key: gKey, raw: isImageAgg ? rawText : (locked ? (rawText || '(空白)') : rawText), members: [], score: 0, mixed: false, locked, imageAgg: isImageAgg, reason: '' }
+      const g = gm.get(gKey) ?? { key: gKey, raw: isImageAgg ? rawText : (locked ? (rawText || '(空白)') : rawText), members: [], score: 0, mixed: false, locked, imageAgg: isImageAgg, reason: '', ...(items ? { items, headline } : {}) }
       g.members.push({
         submissionId: submission.id,
         assignmentId: submission.assignmentId,
