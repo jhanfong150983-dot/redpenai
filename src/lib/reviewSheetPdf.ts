@@ -352,7 +352,7 @@ const OV_FONT = '"Noto Sans TC","Microsoft JhengHei","PingFang TC","Heiti TC",sa
 const sectionKeyOf = (qid: string) => { const p = qid.split('-'); return p.length >= 3 ? p.slice(0, 2).join('-') : p[0] }
 const fmtNum = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1))
 
-type OverlayItem = { qid: string; bbox: Bbox; correct: boolean; lost: number }
+type OverlayItem = { qid: string; bbox: Bbox; correct: boolean; lost: number; ref?: string }   // ref＝rubric 題檢討區塊編號（①②…）
 
 function drawMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number, ok: boolean) {
   ctx.save()
@@ -372,23 +372,52 @@ function drawMark(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: numb
 }
 
 // 渲染一張（原卷的一頁）：slice=[y0,y1) 為 pageBreaks 切出的合併圖區段（0~1）
+// 2026-09-12 rubric 題（級分／作圖／rubric 判官）檢討註記（user 定案版式、越短越好）：
+//   頁面下方加「解題過程檢討」區塊，每題一行標頭＋未呈現要素全文（含應出現的值）；格內 ✗ 旁標 ①② 對應。
+//   ⚠ 這是刻意打破「不寫正解」原則：rubric 題的正解就是過程，不寫學生無法檢討也無法申訴（user 拍板）。
+type RubricNote = { qid: string; header: string; lines: string[]; ref: string }
+const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩']
+const LEVEL_NAME_RS: Record<number, string> = { 3: '三級分', 2: '二級分', 1: '一級分', 0: '零級分' }
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  const out: string[] = []; let cur = ''
+  for (const ch of text) { const t = cur + ch; if (ctx.measureText(t).width > maxW && cur) { out.push(cur); cur = ch } else cur = t }
+  if (cur) out.push(cur)
+  return out
+}
+
 async function renderOverlayPage(
   bmp: ImageBitmap,
   slice: { y0: number; y1: number },
   items: OverlayItem[],
   sections: Array<{ lost: number; yMin: number }>,
-  meta: { first: boolean; pageNo: number; pageCount: number; total: number | null; maxTotal: number; wrongCount: number; lost: number; title: string; who: string }
+  meta: { first: boolean; pageNo: number; pageCount: number; total: number | null; maxTotal: number; wrongCount: number; lost: number; title: string; who: string },
+  notes: RubricNote[] = []
 ): Promise<Blob> {
   const scale = Math.min(1, OV.maxW / bmp.width)
   const sliceH = (slice.y1 - slice.y0) * bmp.height
   const W = Math.max(1, Math.round(bmp.width * scale))
   const H = Math.max(1, Math.round(sliceH * scale))
+  const u = W / 1000
+  // 先量檢討區塊高度（有 rubric 題未滿分才有），畫布往下加高、原卷不縮
+  const measure = document.createElement('canvas').getContext('2d')
+  let blockLines: Array<{ text: string; bold: boolean; indent: number }> = []
+  if (notes.length && measure) {
+    const maxW = W - 48 * u
+    for (const n of notes) {
+      measure.font = `700 ${Math.round(15 * u)}px ${OV_FONT}`
+      for (const l of wrapText(measure, n.header, maxW)) blockLines.push({ text: l, bold: true, indent: 0 })
+      measure.font = `400 ${Math.round(14 * u)}px ${OV_FONT}`
+      n.lines.forEach((line, i) => { const w = wrapText(measure, `${CIRCLED[i] ?? `(${i + 1})`} ${line}`, maxW - 16 * u); w.forEach((l, k) => blockLines.push({ text: l, bold: false, indent: k === 0 ? 16 : 34 })) })
+    }
+  }
+  const lineH = 19 * u
+  const blockH = blockLines.length ? Math.round(30 * u + blockLines.length * lineH + 26 * u) : 0
   const canvas = document.createElement('canvas')
-  canvas.width = W; canvas.height = H
+  canvas.width = W; canvas.height = H + blockH
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('canvas 不可用')
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H + blockH)
   ctx.drawImage(bmp, 0, Math.round(slice.y0 * bmp.height), bmp.width, Math.round(sliceH), 0, 0, W, H)
-  const u = W / 1000
   const span = Math.max(1e-6, slice.y1 - slice.y0)
   const toY = (ny: number) => ((ny - slice.y0) / span) * H
 
@@ -400,6 +429,12 @@ async function renderOverlayPage(
       ? Math.max(14 * u, Math.min(hh * 0.62, w * 0.34, 34 * u))
       : Math.max(18 * u, Math.min(hh * 0.9, 40 * u)))
     drawMark(ctx, x + w - s * (compact ? 0.62 : 0.8), y + hh / 2, s, it.correct)
+    if (it.ref) {
+      ctx.save(); ctx.fillStyle = OV.red; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'
+      ctx.font = `700 ${Math.round(Math.max(12 * u, Math.min(18 * u, s * 0.5)))}px ${OV_FONT}`
+      ctx.fillText(it.ref, x + w - s * (compact ? 0.62 : 0.8) + s * 0.55, y + hh / 2 - s * 0.35)
+      ctx.restore()
+    }
   }
   // 每大題扣分：右對齊頁緣、對齊該大題第一列
   ctx.save()
@@ -428,12 +463,29 @@ async function renderOverlayPage(
     ctx.fillText('✓ 正確　✗ 錯誤　右側紅字＝該大題扣分', sx + 16 * u, sy + 98 * u)
     ctx.restore()
   }
+  // 解題過程檢討區塊（原卷下方）
+  if (blockH > 0) {
+    ctx.save()
+    ctx.strokeStyle = OV.red; ctx.lineWidth = 1.5 * u
+    ctx.beginPath(); ctx.moveTo(24 * u, H + 8 * u); ctx.lineTo(W - 24 * u, H + 8 * u); ctx.stroke()
+    ctx.fillStyle = OV.red; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
+    ctx.font = `700 ${Math.round(16 * u)}px ${OV_FONT}`
+    ctx.fillText('解題過程檢討', 24 * u, H + 26 * u)
+    let yy = H + 30 * u + lineH
+    for (const l of blockLines) {
+      ctx.fillStyle = l.bold ? '#111' : '#b91c1c'
+      ctx.font = `${l.bold ? 700 : 400} ${Math.round((l.bold ? 15 : 14) * u)}px ${OV_FONT}`
+      ctx.fillText(l.text, (24 + l.indent) * u, yy)
+      yy += lineH
+    }
+    ctx.restore()
+  }
   // 頁腳
   ctx.save()
   ctx.fillStyle = OV.red; ctx.textAlign = 'center'
   ctx.font = `400 ${Math.round(13 * u)}px ${OV_FONT}`
   const pg = meta.pageCount > 1 ? `　第 ${meta.pageNo} / ${meta.pageCount} 頁` : ''
-  ctx.fillText(`檢討單　${meta.title}${meta.who ? '　' + meta.who : ''}${pg}`, W / 2, H - 14 * u)
+  ctx.fillText(`檢討單　${meta.title}${meta.who ? '　' + meta.who : ''}${pg}`, W / 2, H + blockH - 14 * u)
   ctx.restore()
 
   return await new Promise<Blob>((resolve, reject) => {
@@ -471,11 +523,39 @@ async function buildOverlayClassPdf(
       const bboxFallback = new Map<string, Bbox>()
       for (const q of phaseAligned) if (q?.questionId && q.answerBbox) bboxFallback.set(String(q.questionId), q.answerBbox)
       const items: OverlayItem[] = []
+      const notes: RubricNote[] = []
+      const akByQid = new Map((assignment.answerKey?.questions ?? []).map((q) => [String(q.id), q]))
       for (const d of details) {
         const bbox = d.answerBbox || bboxFallback.get(d.questionId)
         if (!bbox || bbox.x == null) continue
         const maxScore = Number(d.maxScore ?? 0), score = Number(d.score ?? 0)
-        items.push({ qid: String(d.questionId), bbox, correct: d.isCorrect === true, lost: Math.max(0, maxScore - score) })
+        const item: OverlayItem = { qid: String(d.questionId), bbox, correct: d.isCorrect === true, lost: Math.max(0, maxScore - score) }
+        // rubric 題未滿分 → 檢討註記（級分：未呈現要素全文；作圖：未達成項；rubric：未滿分維度）
+        if (score < maxScore) {
+          const lv = (d as { levelResult?: { level?: number; found?: string[]; evidence?: Array<{ key: string; label?: string; present?: boolean; waived?: boolean }> } }).levelResult
+          const vj = (d as { vjItemResults?: Array<{ idx: number; label?: string; verdict?: string }> }).vjItemResults
+          const rs = (d as { rubricScores?: Array<{ dimension?: string; score?: number; maxScore?: number }> }).rubricScores
+          const akQ = akByQid.get(String(d.questionId)) as { levelRubric?: { requiredElements?: Array<{ key: string; desc?: string }>; alternativeGroups?: Array<{ options?: Array<{ key: string; desc?: string }> }> } } | undefined
+          let note: RubricNote | null = null
+          if (lv && Array.isArray(lv.evidence) && lv.evidence.length) {
+            const descOf = new Map<string, string>()
+            for (const e of akQ?.levelRubric?.requiredElements ?? []) descOf.set(e.key, e.desc ?? '')
+            for (const g of akQ?.levelRubric?.alternativeGroups ?? []) for (const o of g.options ?? []) descOf.set(o.key, o.desc ?? '')
+            const missing = lv.evidence.filter((e) => !e.present && !e.waived)
+            const lines = (lv.found?.length ?? 0) === 0 && missing.length === lv.evidence.length
+              ? ['未呈現解題過程']
+              : missing.map((e) => (descOf.get(e.key) || e.label || e.key).replace(/\s*⛔.*$/u, '').trim())
+            note = { qid: String(d.questionId), header: `${d.questionId}（${maxScore} 分）${LEVEL_NAME_RS[Number(lv.level)] ?? ''}，得 ${score} 分。未呈現或表達錯誤：`, lines, ref: '' }
+          } else if (Array.isArray(vj) && vj.length) {
+            const miss = vj.filter((i) => i.verdict !== 'correct')
+            note = { qid: String(d.questionId), header: `${d.questionId}（${maxScore} 分）得 ${score} 分。未達成：`, lines: miss.map((i) => `${i.label || `項目${i.idx}`}（${i.verdict === 'blank' ? '未作答' : '不符'}）`), ref: '' }
+          } else if (Array.isArray(rs) && rs.length) {
+            const miss = rs.filter((x) => Number(x.score ?? 0) < Number(x.maxScore ?? 0))
+            note = { qid: String(d.questionId), header: `${d.questionId}（${maxScore} 分）得 ${score} 分。未滿分：`, lines: miss.map((x) => `${x.dimension ?? '?'} ${Number(x.score ?? 0)}/${Number(x.maxScore ?? 0)}`), ref: '' }
+          }
+          if (note && note.lines.length) { note.ref = CIRCLED[notes.length] ?? `(${notes.length + 1})`; item.ref = note.ref; notes.push(note) }
+        }
+        items.push(item)
       }
       const maxTotal = details.reduce((s, d) => s + Number(d.maxScore ?? 0), 0)
       const wrongCount = details.filter((d) => d.isCorrect === false).length
@@ -500,11 +580,13 @@ async function buildOverlayClassPdf(
         const inPage = (ny: number) => ny >= slice.y0 && ny < slice.y1
         const pageItems = items.filter((it) => inPage(it.bbox.y + it.bbox.h / 2))
         const pageSecs = secAll.filter((s) => inPage(s.yMin))
+        const pageQids = new Set(pageItems.map((it) => it.qid))
+        const pageNotes = notes.filter((n) => pageQids.has(n.qid))
         const blob = await renderOverlayPage(bmp, slice, pageItems, pageSecs, {
           first: p === 0, pageNo: p + 1, pageCount: bounds.length - 1,
           total: typeof sub.score === 'number' ? sub.score : null, maxTotal, wrongCount, lost,
           title: assignment.title, who,
-        })
+        }, pageNotes)
         const img = await pdf.embedJpg(await blob.arrayBuffer())
         const s = Math.min(A4.w / img.width, A4.h / img.height)
         const dw = img.width * s, dh = img.height * s
