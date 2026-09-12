@@ -112,6 +112,10 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
 
   const correctGroups = useMemo(() => (active ? active.groups.filter((g) => active.maxScore > 0 && g.score >= active.maxScore).sort((a, b) => b.members.length - a.members.length) : []), [active])
   const wrongGroups = useMemo(() => (active ? active.groups.filter((g) => !(active.maxScore > 0 && g.score >= active.maxScore)).sort((a, b) => b.members.length - a.members.length) : []), [active])
+  // 2026-09-12 user：未作答／無法辨識不是「錯法」→ 典型錯法排除，人數另列一行
+  const isSpecialGroup = (g: AnswerGroup) => g.locked || SPECIAL.has(String(g.raw ?? '').trim())
+  const typicalWrong = useMemo(() => wrongGroups.filter((g) => !isSpecialGroup(g)), [wrongGroups])
+  const blankCount = useMemo(() => wrongGroups.filter(isSpecialGroup).reduce((a, g) => a + g.members.length, 0), [wrongGroups])
   const wrongSeats = useMemo(() => {
     if (!active) return [] as string[]
     const seats: Array<string | number> = []
@@ -121,7 +125,7 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
   // 代表卷面：圖像判分題所有群、文字題只抓錯法前 3 群（老師要看的是錯法長什麼樣）
   useEffect(() => {
     if (!active) return
-    const targets = [...(active.groups.some((g) => g.imageAgg) ? active.groups : wrongGroups.slice(0, 3))]
+    const targets = [...(active.groups.some((g) => g.imageAgg) ? active.groups.filter((g) => !isSpecialGroup(g)) : typicalWrong.slice(0, 3))]
     for (const g of targets) { const rep = g.members[0]; if (rep) void fetchCrop(rep.studentId, active.qid) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.qid])
@@ -258,10 +262,10 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
                 )}
                 {/* 典型錯法 */}
                 <div>
-                  <div className="text-sm text-slate-400 mb-1.5">典型錯法（人數最多的前 3 種）</div>
-                  {wrongGroups.length === 0 ? <div className="text-slate-500 text-sm">沒有錯誤作答</div>
-                    : <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>{wrongGroups.slice(0, 3).map((g) => groupCard(g, 'ng'))}</div>}
-                  {wrongGroups.length > 3 && <div className="mt-1 text-xs text-slate-500">另有 {wrongGroups.length - 3} 種寫法、共 {wrongGroups.slice(3).reduce((a, g) => a + g.members.length, 0)} 人</div>}
+                  <div className="text-sm text-slate-400 mb-1.5">典型錯法（人數最多的前 3 種）{blankCount > 0 && <span className="ml-2 text-slate-500">未作答 {blankCount} 人不列入</span>}</div>
+                  {typicalWrong.length === 0 ? <div className="text-slate-500 text-sm">沒有錯誤作答</div>
+                    : <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>{typicalWrong.slice(0, 3).map((g) => groupCard(g, 'ng'))}</div>}
+                  {typicalWrong.length > 3 && <div className="mt-1 text-xs text-slate-500">另有 {typicalWrong.length - 3} 種寫法、共 {typicalWrong.slice(3).reduce((a, g) => a + g.members.length, 0)} 人</div>}
                 </div>
                 {/* 正確寫法 */}
                 <div>
