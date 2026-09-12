@@ -324,7 +324,8 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated }: Prop
       {zoomCrop && (
         <div
           className="fixed inset-0 z-[400] bg-black/80 flex items-center justify-center p-4 cursor-zoom-out"
-          onClick={() => setZoomCrop(null)}
+          // 2026-09-12 修：overlay 在 modal 的 backdrop（onClick=onClose）裡面，關閉放大時 click 會冒泡到 backdrop 把整個低信心 modal 一起關掉
+          onClick={(e) => { e.stopPropagation(); setZoomCrop(null) }}
         >
           <img src={zoomCrop} alt="放大檢視" className="max-w-full max-h-full object-contain" />
         </div>
