@@ -171,8 +171,13 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
       const mx = Number(d?.maxScore)
       if (Number.isFinite(mx) && mx > 0) maxByQid.set(qid, Math.max(maxByQid.get(qid) ?? 0, mx))
       const gm = byQid.get(qid) ?? new Map<string, AnswerGroup>()
-      const gKey = isImageAgg ? key : (locked ? `__special__${rawText || '(空白)'}` : key)
-      const g = gm.get(gKey) ?? { key: gKey, raw: isImageAgg ? rawText : (locked ? (rawText || '(空白)') : rawText), members: [], score: 0, mixed: false, locked, imageAgg: isImageAgg, reason: '' }
+      // 2026-09-12 盲區修（user 抓到）：AI 讀值錯（27.7 讀成 22.7）但老師已在卡片改分 → 若仍照「AI 讀值」歸到「22.7」群，
+      //   會出現假的「群內 2 種分數」紅點，且整群拖曳會把老師的裁決一起蓋掉。老師裁決過的格自成一群、鎖定不可拖、不計入 mixed。
+      const edited = !!d?._aiOriginal
+      const baseKey = isImageAgg ? key : (locked ? `__special__${rawText || '(空白)'}` : key)
+      const gKey = edited ? `${baseKey}·__edited__` : baseKey
+      const baseRaw = isImageAgg ? rawText : (locked ? (rawText || '(空白)') : rawText)
+      const g = gm.get(gKey) ?? { key: gKey, raw: edited ? `${baseRaw}（老師裁決）` : baseRaw, members: [], score: 0, mixed: false, locked: locked || edited, imageAgg: isImageAgg, reason: '' }
       g.members.push({
         submissionId: submission.id,
         assignmentId: submission.assignmentId,
@@ -180,7 +185,7 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
         seat: student.seatNumber ?? null,
         name: student.name ?? '',
         score: Number.isFinite(Number(d?.score)) ? Number(d.score) : 0,
-        edited: !!d?._aiOriginal,
+        edited,
         reason: String(d?.reason ?? d?.comment ?? '').trim()
       })
       gm.set(gKey, g)
