@@ -113,7 +113,9 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
   const correctGroups = useMemo(() => (active ? active.groups.filter((g) => active.maxScore > 0 && g.score >= active.maxScore).sort((a, b) => b.members.length - a.members.length) : []), [active])
   const wrongGroups = useMemo(() => (active ? active.groups.filter((g) => !(active.maxScore > 0 && g.score >= active.maxScore)).sort((a, b) => b.members.length - a.members.length) : []), [active])
   // 2026-09-12 user：未作答／無法辨識不是「錯法」→ 典型錯法排除，人數另列一行
+  // rubric 題「要素全無」（零級分 0/n、作圖全空白、rubric 維度全 0）＝等同未作答（user 拍板），一樣不算典型錯法
   const isSpecialGroup = (g: AnswerGroup) => g.locked || SPECIAL.has(String(g.raw ?? '').trim())
+    || (Array.isArray(g.items) && g.items.length > 0 && g.items.every((it) => it.state === 'miss' || it.state === 'blank' || it.state === 'waived'))
   const typicalWrong = useMemo(() => wrongGroups.filter((g) => !isSpecialGroup(g)), [wrongGroups])
   const blankCount = useMemo(() => wrongGroups.filter(isSpecialGroup).reduce((a, g) => a + g.members.length, 0), [wrongGroups])
   const wrongSeats = useMemo(() => {
@@ -262,7 +264,7 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
                 )}
                 {/* 典型錯法 */}
                 <div>
-                  <div className="text-sm text-slate-400 mb-1.5">典型錯法（人數最多的前 3 種）{blankCount > 0 && <span className="ml-2 text-slate-500">未作答 {blankCount} 人不列入</span>}</div>
+                  <div className="text-sm text-slate-400 mb-1.5">典型錯法（人數最多的前 3 種）{blankCount > 0 && <span className="ml-2 text-slate-500">未作答／全無 {blankCount} 人不列入</span>}</div>
                   {typicalWrong.length === 0 ? <div className="text-slate-500 text-sm">沒有錯誤作答</div>
                     : <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>{typicalWrong.slice(0, 3).map((g) => groupCard(g, 'ng'))}</div>}
                   {typicalWrong.length > 3 && <div className="mt-1 text-xs text-slate-500">另有 {typicalWrong.length - 3} 種寫法、共 {typicalWrong.slice(3).reduce((a, g) => a + g.members.length, 0)} 人</div>}
