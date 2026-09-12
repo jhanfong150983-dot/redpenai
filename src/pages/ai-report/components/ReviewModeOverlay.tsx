@@ -117,6 +117,9 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
   const isSpecialGroup = (g: AnswerGroup) => g.locked || SPECIAL.has(String(g.raw ?? '').trim())
     || (Array.isArray(g.items) && g.items.length > 0 && g.items.every((it) => it.state === 'miss' || it.state === 'blank' || it.state === 'waived'))
   const typicalWrong = useMemo(() => wrongGroups.filter((g) => !isSpecialGroup(g)), [wrongGroups])
+  // 2026-09-12 user：「典型」＝至少 2 人的群；全是 1 人時挑前 3 等於隨機 → 改列「各不相同」清單（只文字、不抓卷面）
+  const typicalMulti = useMemo(() => typicalWrong.filter((g) => g.members.length >= 2), [typicalWrong])
+  const singles = useMemo(() => typicalWrong.filter((g) => g.members.length < 2), [typicalWrong])
   const blankCount = useMemo(() => wrongGroups.filter(isSpecialGroup).reduce((a, g) => a + g.members.length, 0), [wrongGroups])
   const wrongSeats = useMemo(() => {
     if (!active) return [] as string[]
@@ -127,7 +130,7 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
   // 代表卷面：圖像判分題所有群、文字題只抓錯法前 3 群（老師要看的是錯法長什麼樣）
   useEffect(() => {
     if (!active) return
-    const targets = [...(active.groups.some((g) => g.imageAgg) ? active.groups.filter((g) => !isSpecialGroup(g)) : typicalWrong.slice(0, 3))]
+    const targets = [...(active.groups.some((g) => g.imageAgg) ? active.groups.filter((g) => !isSpecialGroup(g)).slice(0, 6) : typicalMulti.slice(0, 3))]
     for (const g of targets) { const rep = g.members[0]; if (rep) void fetchCrop(rep.studentId, active.qid) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.qid])
@@ -265,9 +268,28 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
                 {/* 典型錯法 */}
                 <div>
                   <div className="text-sm text-slate-400 mb-1.5">典型錯法（人數最多的前 3 種）{blankCount > 0 && <span className="ml-2 text-slate-500">未作答／全無 {blankCount} 人不列入</span>}</div>
-                  {typicalWrong.length === 0 ? <div className="text-slate-500 text-sm">沒有錯誤作答</div>
-                    : <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>{typicalWrong.slice(0, 3).map((g) => groupCard(g, 'ng'))}</div>}
-                  {typicalWrong.length > 3 && <div className="mt-1 text-xs text-slate-500">另有 {typicalWrong.length - 3} 種寫法、共 {typicalWrong.slice(3).reduce((a, g) => a + g.members.length, 0)} 人</div>}
+                  {typicalWrong.length === 0 ? <div className="text-slate-500 text-sm">沒有錯誤作答</div> : (
+                    <>
+                      {typicalMulti.length > 0 && (
+                        <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>{typicalMulti.slice(0, 3).map((g) => groupCard(g, 'ng'))}</div>
+                      )}
+                      {typicalMulti.length > 3 && <div className="mt-1 text-xs text-slate-500">另有 {typicalMulti.length - 3} 種 2 人以上的寫法、共 {typicalMulti.slice(3).reduce((a, g) => a + g.members.length, 0)} 人</div>}
+                      {singles.length > 0 && (
+                        <div className={typicalMulti.length > 0 ? 'mt-2' : ''}>
+                          <div className="text-xs text-slate-500 mb-1">{typicalMulti.length > 0 ? `其餘各 1 人的寫法（${singles.length} 種）` : `錯法各不相同（${singles.length} 種、各 1 人）`}</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {singles.slice(0, 12).map((g) => (
+                              <span key={g.key} className="px-2 py-1 rounded-md bg-rose-950/40 border border-rose-800 text-rose-100 text-base" title={g.items ? (g.headline ?? g.raw) : g.raw}>
+                                {g.items ? `${g.headline ?? g.raw}：${g.items.filter((it) => it.state === 'miss').map((it) => it.label).join('、') || '—'}` : g.raw}
+                                <span className="ml-1 text-xs text-rose-300/80">{g.members[0]?.seat != null ? `${g.members[0].seat}號` : ''}</span>
+                              </span>
+                            ))}
+                            {singles.length > 12 && <span className="text-xs text-slate-500 self-center">另 {singles.length - 12} 種</span>}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
                 {/* 正確寫法 */}
                 <div>
