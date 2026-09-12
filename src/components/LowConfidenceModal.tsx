@@ -10,7 +10,7 @@ import { X, RotateCcw, Loader2 } from 'lucide-react'
 import { type Submission, type Student, type AnswerKey } from '@/lib/db'
 import { levelFromElements, levelToScore } from '@/lib/levelRubric'
 import { requestSync } from '@/lib/sync-events'
-import { applyScoreEditsToSubmission, applyAnswerEditToSubmission, restoreDetailToAi, cmpQid } from '@/lib/answerStats'
+import { applyScoreEditsToSubmission, applyAnswerEditToSubmission, applyVjItemsToSubmission, vjScoreOf, restoreDetailToAi, cmpQid } from '@/lib/answerStats'
 
 type Props = {
   entries: Array<{ submission: Submission; student: Student }>
@@ -38,6 +38,7 @@ type Cell = {
   levelEvidence: Array<{ key: string; label?: string; present?: boolean; waived?: boolean }> | null
   levelFound: string[] | null
   rubricScores: Array<{ dimension?: string; score?: number; maxScore?: number }> | null
+  vjItems: Array<{ idx: number; label: string; verdict: 'correct' | 'wrong' | 'blank'; reason: string }> | null
 }
 
 const confTone = (c: number) => (c < 50
@@ -74,6 +75,9 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated, answer
           levelEvidence: Array.isArray(d?.levelResult?.evidence) && d.levelResult.evidence.length ? d.levelResult.evidence : null,
           levelFound: Array.isArray(d?.levelResult?.found) ? d.levelResult.found : null,
           rubricScores: Array.isArray(d?.rubricScores) && d.rubricScores.length ? d.rubricScores : null,
+          vjItems: Array.isArray(d?.vjItemResults) && d.vjItemResults.length
+            ? d.vjItemResults.map((it: any) => ({ idx: Number(it.idx), label: String(it.label ?? `項目${it.idx}`), verdict: (it.verdict === 'correct' || it.verdict === 'blank') ? it.verdict : 'wrong', reason: String(it.reason ?? '') }))
+            : null,
         })
       }
     }
@@ -172,6 +176,22 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated, answer
       else if (!r.ok) setErrMsg(`儲存失敗：${r.error ?? '請重試'}`)
     } finally {
       setBusyKey(null); setLevelDraft(null)
+    }
+  }
+  // ── 作圖 VJ 逐項 ✓／✗／空白：分數由 code 依規準逐項配分算（vjScoreOf 鏡像 server） ──
+  const [vjDraft, setVjDraft] = useState<{ key: string; items: NonNullable<Cell['vjItems']> } | null>(null)
+  const vjItemScoresOf = (qid: string) => (answerKey?.questions ?? []).find((q) => String(q.id) === qid)?.vjRubric?.itemScores ?? null
+  const applyVj = async (c: Cell, items: NonNullable<Cell['vjItems']>) => {
+    const key = cellKey(c)
+    if (busyKey) return
+    setBusyKey(key); setErrMsg('')
+    try {
+      const next = items.map((it) => ({ ...it, reason: it.verdict === 'correct' ? '正確' : it.verdict === 'blank' ? '未作答' : (it.reason || '老師判定不符') }))
+      const r = await applyVjItemsToSubmission(c.submissionId, c.qid, next, vjScoreOf(next, c.maxScore, vjItemScoresOf(c.qid)))
+      if (r.ok && r.updated) { onUpdated(r.updated); requestSync() }
+      else if (!r.ok) setErrMsg(`儲存失敗：${r.error ?? '請重試'}`)
+    } finally {
+      setBusyKey(null); setVjDraft(null)
     }
   }
   // ── rubric 維度分：老師逐維度給分 → 總分＝加總 ──
@@ -340,6 +360,34 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated, answer
                               <span className="text-slate-600">→ {pv?.level ?? '?'} 級分、{pv?.score ?? '?'} 分</span>
                               {dirty && <button type="button" onClick={() => void applyLevel(c, draft)} className="px-2 py-0.5 rounded-md bg-sky-600 text-white text-xs font-semibold">儲存級分</button>}
                               {dirty && <button type="button" onClick={() => setLevelDraft(null)} className="px-2 py-0.5 rounded-md border border-slate-300 text-slate-600 text-xs">取消</button>}
+                            </div>
+                          </div>
+                        )
+                      })()}
+                      {c.vjItems && !busy && (() => {
+                        const draft = vjDraft?.key === key ? vjDraft.items : c.vjItems
+                        const dirty = vjDraft?.key === key
+                        const score = vjScoreOf(draft, c.maxScore, vjItemScoresOf(c.qid))
+                        const setV = (i: number, v: 'correct' | 'wrong' | 'blank') => setVjDraft({ key, items: draft.map((it, k) => (k === i ? { ...it, verdict: v } : it)) })
+                        const btn = (i: number, v: 'correct' | 'wrong' | 'blank', text: string, on: string) => (
+                          <button type="button" onClick={() => setV(i, v)}
+                            className={`px-1.5 py-0.5 rounded border text-[11px] ${draft[i].verdict === v ? on : 'border-slate-300 text-slate-500 bg-white'}`}>{text}</button>
+                        )
+                        return (
+                          <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                            <div className="text-[11px] text-slate-500 mb-1">逐項判定（看圖決定）</div>
+                            {draft.map((it, i) => (
+                              <div key={it.idx} className="flex items-center gap-1.5 text-[12px] text-slate-700 py-0.5">
+                                <span className="flex-1 min-w-0 truncate" title={it.label}>{it.label}</span>
+                                {btn(i, 'correct', '✓ 對', 'border-green-400 bg-green-50 text-green-700 font-semibold')}
+                                {btn(i, 'wrong', '✗ 錯', 'border-rose-400 bg-rose-50 text-rose-700 font-semibold')}
+                                {btn(i, 'blank', '空白', 'border-slate-400 bg-slate-200 text-slate-700 font-semibold')}
+                              </div>
+                            ))}
+                            <div className="mt-1 flex items-center gap-2 text-[12px]">
+                              <span className="text-slate-600">→ {score} 分</span>
+                              {dirty && <button type="button" onClick={() => void applyVj(c, draft)} className="px-2 py-0.5 rounded-md bg-sky-600 text-white text-xs font-semibold">儲存判定</button>}
+                              {dirty && <button type="button" onClick={() => setVjDraft(null)} className="px-2 py-0.5 rounded-md border border-slate-300 text-slate-600 text-xs">取消</button>}
                             </div>
                           </div>
                         )

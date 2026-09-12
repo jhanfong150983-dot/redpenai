@@ -304,7 +304,7 @@ export async function applyScoreEditsToSubmission(
       const snapshotAiOriginal = d._aiOriginal ?? {
         score: d.score, maxScore: d.maxScore, isCorrect: d.isCorrect,
         reason: d.reason, comment: d.comment, studentAnswer: d.studentAnswer,
-        errorType: d.errorType, rubricScores: d.rubricScores, levelResult: d.levelResult
+        errorType: d.errorType, rubricScores: d.rubricScores, levelResult: d.levelResult, vjItemResults: d.vjItemResults
       }
       return {
         ...d, ...(patch ?? {}), score: safeScore,
@@ -517,6 +517,51 @@ export async function applyAnswerEditToSubmission(submissionId: string, qid: str
         body: JSON.stringify({ submissions: [{ id: submissionId, score: submission.score, aiScore: submission.aiScore, scoreSource: submission.scoreSource, gradingResult: newGr, gradedAt: submission.gradedAt }], fromManualScoreEdit: true }),
       }).catch(() => {})
     }
+    const updated = await db.submissions.get(submissionId)
+    return { submissionId, ok: true, updated: updated ?? undefined }
+  } catch (e) {
+    return { submissionId, ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
+ * 2026-09-12：作圖 VJ 題逐項改（老師看圖逐項 ✓／✗／空白）→ 分數由 code 依規準逐項配分算（鏡像 server aggregateVjScore：
+ *   itemScores 齊全且總和>0 → Σ 通過項配分（四捨五入到 0.1）；否則 round(滿分 × 通過項數 ÷ 項數)）。
+ *   寫入：detail.vjItemResults／studentAnswer 摘要／分數（走 applyScoreEditsToSubmission、含 _aiOriginal 快照），
+ *   並把 finalAnswers[qid].vjBlankConfirmed 同步（重批時 Phase B 依老師的空白判定）。
+ */
+export function vjScoreOf(items: Array<{ verdict: string }>, maxScore: number, itemScores?: number[] | null): number {
+  const n = items.length
+  if (n === 0) return 0
+  const w = Array.isArray(itemScores) && itemScores.length === n
+    && itemScores.every((x) => Number.isFinite(Number(x)) && Number(x) >= 0)
+    && itemScores.reduce((a, b) => a + Number(b), 0) > 0
+    ? itemScores.map(Number) : null
+  const pass = items.filter((r) => r.verdict === 'correct').length
+  return w
+    ? Math.round(items.reduce((sum, r, i) => sum + (r.verdict === 'correct' ? w[i] : 0), 0) * 10) / 10
+    : Math.round(maxScore * pass / n)
+}
+export async function applyVjItemsToSubmission(
+  submissionId: string, qid: string,
+  items: Array<{ idx: number; label: string; verdict: 'correct' | 'wrong' | 'blank'; reason: string }>,
+  score: number
+): Promise<BatchEditResult> {
+  const summary = items.some((it) => it.verdict !== 'blank') ? '圖上作答' : '未作答'
+  const r = await applyScoreEditsToSubmission(submissionId, new Map([[qid, score]]),
+    new Map([[qid, { vjItemResults: items, studentAnswer: summary, studentFinalAnswer: summary }]]))
+  if (!r.ok) return r
+  try {
+    const submission = await db.submissions.get(submissionId)
+    if (!submission) return r
+    const byQid = new Map((Array.isArray(submission.finalAnswers) ? submission.finalAnswers : []).map((fa: any) => [fa.questionId, fa]))
+    byQid.set(qid, { questionId: qid, finalStudentAnswer: summary, finalAnswerSource: 'manual', vjBlankConfirmed: items.map((it) => ({ idx: it.idx, isBlank: it.verdict === 'blank' })) } as any)
+    const newFinalAnswers = Array.from(byQid.values()) as any
+    await db.submissions.update(submissionId, { finalAnswers: newFinalAnswers, updatedAt: Date.now() })
+    void fetch('/api/data/save-final-answers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ submissions: [{ id: submissionId, finalAnswers: newFinalAnswers }] }),
+    }).catch(() => {})
     const updated = await db.submissions.get(submissionId)
     return { submissionId, ok: true, updated: updated ?? undefined }
   } catch (e) {
