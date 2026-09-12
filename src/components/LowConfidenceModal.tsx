@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { X, RotateCcw, Loader2 } from 'lucide-react'
 import { type Submission, type Student } from '@/lib/db'
 import { requestSync } from '@/lib/sync-events'
-import { applyScoreEditsToSubmission, restoreDetailToAi, cmpQid } from '@/lib/answerStats'
+import { applyScoreEditsToSubmission, applyAnswerEditToSubmission, restoreDetailToAi, cmpQid } from '@/lib/answerStats'
 
 type Props = {
   entries: Array<{ submission: Submission; student: Student }>
@@ -136,6 +136,23 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated }: Prop
   const [errMsg, setErrMsg] = useState('')
 
   const cellKey = (c: Cell) => `${c.submissionId}|${c.qid}`
+  // 2026-09-12 改讀值（user 拍板：AI 讀錯時老師要能直接改「學生實際寫的」，評分統計依改後讀值聚合）
+  //   圖像判分題的 studentAnswer 是佔位字（圖像辨識／卷面作答／圖上作答／採視覺評分）→ 不開放
+  const PLACEHOLDER = new Set(['圖像辨識', '卷面作答', '圖上作答', '採視覺評分', '未作答'])
+  const canEditAnswer = (c: Cell) => !PLACEHOLDER.has(String(c.studentAnswer || '').trim())
+  const [answerInput, setAnswerInput] = useState<{ key: string; value: string } | null>(null)
+  const applyAnswer = async (c: Cell, value: string) => {
+    const key = cellKey(c)
+    if (busyKey) return
+    setBusyKey(key); setErrMsg('')
+    try {
+      const r = await applyAnswerEditToSubmission(c.submissionId, c.qid, value.trim())
+      if (r.ok && r.updated) { onUpdated(r.updated); requestSync() }
+      else if (!r.ok) setErrMsg(`儲存失敗：${r.error ?? '請重試'}`)
+    } finally {
+      setBusyKey(null); setAnswerInput(null)
+    }
+  }
 
   const applyScore = async (c: Cell, score: number) => {
     const key = cellKey(c)
@@ -228,12 +245,28 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated }: Prop
                           : <span className="text-[11px] text-slate-300 py-4">裁圖載入中…</span>}
                       </div>
                       {/* AI 讀值 + 理由（編輯後顯示 AI 原判資訊，老師才看得到當初 AI 怎麼判） */}
-                      <div className="mt-2 text-[13px] text-slate-700">
-                        AI 讀到：<span className="font-semibold">「{c.studentAnswer || '（空白）'}」</span>
+                      <div className="mt-2 text-[13px] text-slate-700 flex items-center gap-1 flex-wrap">
+                        {c.edited ? '讀值：' : 'AI 讀到：'}<span className="font-semibold">「{c.studentAnswer || '（空白）'}」</span>
+                        {canEditAnswer(c) && !busy && answerInput?.key !== key && (
+                          <button type="button" onClick={() => setAnswerInput({ key, value: c.studentAnswer || '' })}
+                            className="px-1.5 py-0.5 rounded border border-slate-300 text-slate-600 text-[11px] hover:bg-slate-50" title="AI 讀錯時，改成學生實際寫的內容">
+                            改讀值
+                          </button>
+                        )}
                         {c.edited && c.aiOriginalScore !== null && (
                           <span className="text-slate-400">　AI 原判 {c.aiOriginalScore} 分</span>
                         )}
                       </div>
+                      {answerInput?.key === key && (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <input autoFocus value={answerInput.value}
+                            onChange={(e) => setAnswerInput({ key, value: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === 'Enter') void applyAnswer(c, answerInput.value); if (e.key === 'Escape') setAnswerInput(null) }}
+                            className="flex-1 min-w-0 px-2 py-1 rounded-md border border-sky-300 text-sm" placeholder="學生實際寫的內容" />
+                          <button type="button" onClick={() => void applyAnswer(c, answerInput.value)} className="px-2 py-1 rounded-md bg-sky-600 text-white text-xs font-semibold">儲存讀值</button>
+                          <button type="button" onClick={() => setAnswerInput(null)} className="px-2 py-1 rounded-md border border-slate-300 text-slate-600 text-xs">取消</button>
+                        </div>
+                      )}
                       {(c.edited ? c.aiOriginalReason : c.reason) && (
                         <div className="mt-1 text-xs text-slate-500 line-clamp-2" title={c.edited ? c.aiOriginalReason : c.reason}>
                           {c.edited ? c.aiOriginalReason : c.reason}

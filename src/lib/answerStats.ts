@@ -171,13 +171,11 @@ export function buildQuestionStats(entries: Array<{ submission: Submission; stud
       const mx = Number(d?.maxScore)
       if (Number.isFinite(mx) && mx > 0) maxByQid.set(qid, Math.max(maxByQid.get(qid) ?? 0, mx))
       const gm = byQid.get(qid) ?? new Map<string, AnswerGroup>()
-      // 2026-09-12 盲區修（user 抓到）：AI 讀值錯（27.7 讀成 22.7）但老師已在卡片改分 → 若仍照「AI 讀值」歸到「22.7」群，
-      //   會出現假的「群內 2 種分數」紅點，且整群拖曳會把老師的裁決一起蓋掉。老師裁決過的格自成一群、鎖定不可拖、不計入 mixed。
+      // 2026-09-12 user 拍板：聚合鍵＝「老師改過的讀值」（改讀值後自然歸到正確的群），不另立「老師裁決」群；
+      //   老師若只改分不改讀值，仍會出現「群內分數不一致」＝提醒老師去把讀值也改掉（低信心 modal 已可直接改讀值）。
       const edited = !!d?._aiOriginal
-      const baseKey = isImageAgg ? key : (locked ? `__special__${rawText || '(空白)'}` : key)
-      const gKey = edited ? `${baseKey}·__edited__` : baseKey
-      const baseRaw = isImageAgg ? rawText : (locked ? (rawText || '(空白)') : rawText)
-      const g = gm.get(gKey) ?? { key: gKey, raw: edited ? `${baseRaw}（老師裁決）` : baseRaw, members: [], score: 0, mixed: false, locked: locked || edited, imageAgg: isImageAgg, reason: '' }
+      const gKey = isImageAgg ? key : (locked ? `__special__${rawText || '(空白)'}` : key)
+      const g = gm.get(gKey) ?? { key: gKey, raw: isImageAgg ? rawText : (locked ? (rawText || '(空白)') : rawText), members: [], score: 0, mixed: false, locked, imageAgg: isImageAgg, reason: '' }
       g.members.push({
         submissionId: submission.id,
         assignmentId: submission.assignmentId,
@@ -467,4 +465,58 @@ export async function applyStagedGroupEdits(
   } catch { /* 非致命：回寫失敗不影響本次改分，只是下次重批可能被 AI 覆蓋 */ }
   requestSync()
   return results
+}
+
+/**
+ * 2026-09-12：改「讀值」（老師認定學生實際寫的內容）——鏡像 SubmissionDetailModal.handleDetailStudentAnswerChange：
+ *   detail.studentAnswer 改掉、reason/comment=已經由老師編輯、_aiOriginal 快照（首次）、finalAnswers 該題 source=manual；
+ *   ⚠ 不動分數（老師改分另按改分鈕）、不退回待批改（老師是最終權威）。
+ *   只給文字/數值題用；圖像判分題（圖像辨識／卷面作答／圖上作答）讀值是佔位字、呼叫端要擋。
+ */
+export async function applyAnswerEditToSubmission(submissionId: string, qid: string, newAnswer: string): Promise<BatchEditResult> {
+  try {
+    const submission = await db.submissions.get(submissionId)
+    if (!submission) return { submissionId, ok: false, error: 'submission not found' }
+    const gr: any = submission.gradingResult
+    const details: any[] = Array.isArray(gr?.details) ? gr.details : []
+    const idx = details.findIndex((d: any) => String(d?.questionId ?? '').trim() === qid)
+    if (idx < 0) return { submissionId, ok: false, error: 'question not found' }
+    const now = Date.now()
+    const snapshot = (d: any) => d._aiOriginal ?? {
+      studentAnswer: d.studentAnswer ?? '',
+      score: Number.isFinite(Number(d.score)) ? Number(d.score) : 0,
+      maxScore: Number.isFinite(Number(d.maxScore)) ? Number(d.maxScore) : 0,
+      isCorrect: d.isCorrect === true,
+      reason: d.reason ?? '', comment: d.comment ?? '',
+      systemConfidence: typeof d.systemConfidence === 'number' ? d.systemConfidence : undefined,
+    }
+    const updatedDetails = details.map((d: any, i: number) => (i === idx
+      ? { ...d, studentAnswer: newAnswer, studentFinalAnswer: newAnswer, reason: '已經由老師編輯', comment: '已經由老師編輯', _aiOriginal: snapshot(d), _editedAt: now, _editedBy: undefined }
+      : d))
+    const newGr = { ...(gr || {}), details: updatedDetails } as Submission['gradingResult']
+    const existingFinal = new Map((Array.isArray(submission.finalAnswers) ? submission.finalAnswers : []).map((fa: any) => [fa.questionId, fa]))
+    const newFinalAnswers = updatedDetails.map((d: any, i: number) => {
+      const q = d.questionId
+      if (i === idx) return { questionId: q, finalStudentAnswer: newAnswer, finalAnswerSource: 'manual' as const }
+      const ex: any = existingFinal.get(q)
+      return ex
+        ? { questionId: q, finalStudentAnswer: ex.finalStudentAnswer, finalAnswerSource: (ex.finalAnswerSource || 'ai_read1') as any }
+        : { questionId: q, finalStudentAnswer: String(d.studentAnswer || ''), finalAnswerSource: 'ai_read1' as const }
+    })
+    await db.submissions.update(submissionId, { gradingResult: newGr, finalAnswers: newFinalAnswers as any, updatedAt: now })
+    void fetch('/api/data/save-final-answers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ submissions: [{ id: submissionId, finalAnswers: newFinalAnswers }] }),
+    }).catch(() => {})
+    if (submission.status === 'graded') {
+      void fetch('/api/data/save-grading', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ submissions: [{ id: submissionId, score: submission.score, aiScore: submission.aiScore, scoreSource: submission.scoreSource, gradingResult: newGr, gradedAt: submission.gradedAt }], fromManualScoreEdit: true }),
+      }).catch(() => {})
+    }
+    const updated = await db.submissions.get(submissionId)
+    return { submissionId, ok: true, updated: updated ?? undefined }
+  } catch (e) {
+    return { submissionId, ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
 }
