@@ -1582,7 +1582,7 @@ export default function GradingPage({
   const [advancedMode, setAdvancedMode] = useState<'phase_a' | 'phase_b' | 'full' | null>(null)
   const [advancedMenuOpen, setAdvancedMenuOpen] = useState(false)
   // 2026-06-01: 進階「無覆寫風險直接跑」時的墨水確認（有覆寫風險走 DangerConfirmModal 的 inkNote）
-  const [advInkConfirm, setAdvInkConfirm] = useState<null | { kind: 'phase_a' | 'phase_b'; count: number; run: () => void }>(null)
+  const [advInkConfirm, setAdvInkConfirm] = useState<null | { kind: 'phase_a' | 'phase_b' | 'full'; count: number; run: () => void }>(null)
   const [correctionGuardModal, setCorrectionGuardModal] = useState<CorrectionGuardModalState | null>(
     null
   )
@@ -4743,7 +4743,10 @@ export default function GradingPage({
       else if (stage === 'pending_grading' || stage === 'phase_b_failed') needB.push(s)
       else needA.push(s)  // not_extracted / phase_a_failed / graded → 完整重跑 Phase A
     }
-    await runOneClickForBuckets(needA, needReview, needB)
+    const total = needA.length + needReview.length + needB.length
+    if (total === 0) { void alertModal('勾選的考卷都不需要批改（未繳交／手動標記）'); return }
+    // 2026-09-12 修：個別批改原本直接開跑、沒有扣點確認框（智慧批改／重新批改都有）→ 套同一個 InkConfirmModal 顯示份數與費用
+    setAdvInkConfirm({ kind: 'full', count: total, run: () => { void runOneClickForBuckets(needA, needReview, needB) } })
   }
 
   // 2026-06-01 Phase3: 進階模式 helper。
@@ -6002,11 +6005,11 @@ export default function GradingPage({
       {/* 2026-06-01: 進階「無覆寫風險直接跑」的墨水確認 */}
       <InkConfirmModal
         open={!!advInkConfirm}
-        warning={advInkConfirm?.kind === 'phase_a' ? '重新截取會消耗墨水（點數）' : '重新批改會消耗墨水（點數）'}
+        warning={advInkConfirm?.kind === 'phase_a' ? '重新截取會消耗墨水（點數）' : advInkConfirm?.kind === 'full' ? '個別批改會消耗墨水（點數）' : '重新批改會消耗墨水（點數）'}
         onCancel={() => setAdvInkConfirm(null)}
         onConfirm={() => { const a = advInkConfirm; setAdvInkConfirm(null); a?.run() }}
       >
-        <div>即將{advInkConfirm?.kind === 'phase_a' ? '重新截取答案' : '重新批改'} <strong>{advInkConfirm?.count ?? 0}</strong> 份考卷。</div>
+        <div>即將{advInkConfirm?.kind === 'phase_a' ? '重新截取答案' : advInkConfirm?.kind === 'full' ? '個別批改' : '重新批改'} <strong>{advInkConfirm?.count ?? 0}</strong> 份考卷。</div>
         {FLAT_BILLING && advInkConfirm?.kind !== 'phase_a' && (
           <div className="mt-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
             費用:{gradingPriceTextSmart(advInkConfirm?.count ?? 0, assignment?.answerKey, sortedStudents.length)}
