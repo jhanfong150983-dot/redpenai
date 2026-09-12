@@ -187,7 +187,7 @@ export default function SchoolParentReportPanel({
           <h3 className="text-sm font-semibold text-slate-800">家長報告</h3>
           <p className="mt-1 max-w-2xl text-xs text-slate-500">
             一位學生一份:成績與班級落點、各題型答對率、知識點加強地圖、錯題整理(裁圖+讀到的答案+正解+班級狀況)。
-            內容由系統即時計算、永遠對應最新批改結果;選一個班進去可逐位預覽、填寫老師的話,再單獨下載或整班打包。
+            內容由系統即時計算、永遠對應最新批改結果;選一個班進去可逐位預覽,再單獨下載或整班打包。
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">

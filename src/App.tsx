@@ -2199,7 +2199,7 @@ function App() {
         {
           key: 'parent-report',
           label: '家長報告',
-          description: '逐生報告預覽、老師的話、下載',
+          description: '逐生報告預覽、下載',
           icon: School,
           onClick: openParentReport,
           disabled: !canAccessTracking,

@@ -8,9 +8,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { FileDown, Eye, Loader2, Sparkles, Settings, CheckSquare, X } from 'lucide-react'
 import {
   assembleParentReports, fetchQuestionCrops,
-  applyDiagnosisAndCrops, loadParentReportCache,
+  applyDiagnosisAndCrops,
   createReportPdfBlob, downloadSingleReport, downloadReportsAsZip,
-  loadReportHeaderSettings, loadCachedComments, saveCachedComment, runKpUpgrade,
+  loadReportHeaderSettings, runKpUpgrade,
   type PRQuestion, type PRSubmission, type PRStudent, type ReportHeader, type StudentReport, type KpUpgradeResult,
 } from '@/lib/parentReport'
 import { db } from '@/lib/db'
@@ -61,25 +61,9 @@ export function ParentReportTab({
     setSettings(loadReportHeaderSettings())
     let list: StudentReport[] = []
     try { list = assembleParentReports(questions, submissions, students, { kpTips }) } catch { list = [] }
-    const cached = loadCachedComments(assignmentId)
-    for (const r of list) if (cached[r.studentId]) r.comment = cached[r.studentId]
     setReports(list)
     setSelected(new Set())
     setMsg('')
-    // 雲端舊快取只回讀「評語」（老師先前寫/改過的話不消失）；本機編輯優先。診斷欄位不再讀。
-    let cancelled = false
-    loadParentReportCache(assignmentId)
-      .then((cache) => {
-        if (cancelled || cache.size === 0) return
-        const localCmts = loadCachedComments(assignmentId)
-        setReports((prev) => prev.map((r) => {
-          const c = cache.get(r.studentId)
-          if (!c?.comment || localCmts[r.studentId]) return r
-          return { ...r, comment: c.comment }
-        }))
-      })
-      .catch(() => { /* 讀不到雲端評語不影響報告本體 */ })
-    return () => { cancelled = true }
   }, [questions, submissions, students, kpTips, assignmentId])
 
   // 抬頭優先序（2026-08-03 user 拍板）：
@@ -93,10 +77,6 @@ export function ParentReportTab({
     dateStr: formatDateZh(new Date()),
   }), [settings, headerOverride, fallbackTeacherName, className, subject, assignmentTitle])
 
-  const setComment = (studentId: string, text: string) => {
-    setReports((prev) => prev.map((r) => (r.studentId === studentId ? { ...r, comment: text } : r)))
-    saveCachedComment(assignmentId, studentId, text)
-  }
   const toggle = (id: string) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   const allSelected = reports.length > 0 && selected.size === reports.length
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(reports.map((r) => r.studentId)))
@@ -282,7 +262,7 @@ export function ParentReportTab({
               {multiSelect && <th className="w-10 px-3 py-2"></th>}
               <th className="w-28 px-2 py-2">座號 · 姓名</th>
               <th className="w-16 px-2 py-2 text-right">分數</th>
-              <th className="px-2 py-2">老師的話（手動輸入、自動儲存）</th>
+              <th className="px-2 py-2"></th>
               <th className="w-24 px-2 py-2 text-center">操作</th>
             </tr>
           </thead>
@@ -304,15 +284,7 @@ export function ParentReportTab({
                     <span className={`font-semibold tabular-nums ${r.isLow ? 'text-rose-600' : 'text-slate-800'}`}>{r.score}</span>
                     <span className="text-xs text-slate-400">/{r.examMax}</span>
                   </td>
-                  <td className="px-2 py-2">
-                    <textarea
-                      value={r.comment}
-                      onChange={(e) => setComment(r.studentId, e.target.value)}
-                      placeholder="想對家長說的話（選填；留空＝報告保留空白欄位、紙本可手寫）"
-                      rows={3}
-                      className="w-full resize-y rounded-md border border-slate-200 px-2.5 py-1.5 text-[13px] leading-relaxed text-slate-700 focus:border-sky-400 focus:outline-none"
-                    />
-                  </td>
+                  <td className="px-2 py-2"></td>
                   <td className="px-2 py-2.5">
                     <div className="flex items-center justify-center gap-1">
                       <button onClick={() => previewOne(r)} disabled={busy || !!rb} title="預覽"
@@ -333,8 +305,7 @@ export function ParentReportTab({
       </div>
       <p className="text-xs text-slate-400">
         報告內容（成績與班級落點、題型答對率、知識點加強地圖、錯題裁圖＋標準答案＋班級狀況）由系統即時計算，
-        永遠對應最新批改結果——重新批改或改分後直接重新下載即可，不需要「重新生成」。
-        「老師的話」直接在表格輸入、自動儲存；留空＝報告保留空白欄位、紙本可手寫。下載為每位一份 PDF。
+        永遠對應最新批改結果——重新批改或改分後直接重新下載即可，不需要「重新生成」。下載為每位一份 PDF。
       </p>
 
       {/* 預覽彈窗（App 內嵌 PDF、不開新分頁） */}

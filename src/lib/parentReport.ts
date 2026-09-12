@@ -760,8 +760,8 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     ? `${aiCheckNote}${errorCards}`
     : `<div class="pr-allgood">本次沒有明顯失分的題目，表現很好！</div>`
   // 2026-08-11 無 AI 版：評語一律老師手動輸入；留空＝印空白欄位（含署名），紙本可手寫。
-  const commentHtml = r.comment ? esc(r.comment) : '&nbsp;'
-  const noteHtml = `<div class="pr-note">${commentHtml}<div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>`
+  // 2026-09-12 user 拍板：拿掉「老師的話」（AI 評語 8/11 退場後老師不會手打；不硬上規則句）→ 只留簽名列
+  const noteHtml = `<div class="pr-note"><div class="sig">${esc(h.subject)}科任課老師${h.teacherName ? `　${esc(h.teacherName)}` : ''}　${esc(h.dateStr)}</div></div>`
   const footHtml = `<div class="pr-foot2"><div class="dis">本報告由 AI 批改系統自動彙整生成，內容（含作答判讀、分數與分析）可能有誤，僅供學習參考、非最終成績；如有疑問請以老師確認為準．答對率以本次評量實際作答計算</div><div class="org">${esc(h.schoolName)}・${esc(h.subject)}科</div></div>`
 
   return `<div class="pr-root">
@@ -813,7 +813,6 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
       <div class="pr-sec">四、逐題錯題分析</div>
       ${errorSection}
 
-      <div class="pr-sec">五、老師的話</div>
       ${noteHtml}
 
       ${footHtml}
@@ -821,7 +820,6 @@ export function renderReportHtml(r: StudentReport, h: ReportHeader): string {
     <div class="pr-sec">三、重點錯題與訂正方向</div>
     <table class="pr-wtab"><thead><tr><th class="qcell">題號</th><th>作答狀況與訂正方向</th></tr></thead><tbody>${wrongsHtml}</tbody></table>${moreRow}
 
-    <div class="pr-sec">四、老師的話</div>
     ${noteHtml}
 
     ${footHtml}`}
