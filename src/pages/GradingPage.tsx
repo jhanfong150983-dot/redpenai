@@ -6992,6 +6992,7 @@ export default function GradingPage({
           onUpdated={(updated) => {
             setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
           }}
+          answerKey={assignment?.answerKey}
         />
       )}
       {/* Modal */}

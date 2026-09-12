@@ -276,7 +276,9 @@ export async function rescaleSubmissionForMaxScoreChange(
 
 export async function applyScoreEditsToSubmission(
   submissionId: string,
-  editsByQid: Map<string, number>
+  editsByQid: Map<string, number>,
+  // 2026-09-12：rubric 題逐項改（級分要素 found/evidence、rubric 維度分）→ 與分數同一筆寫入；有 patch 就算分數沒變也留痕
+  patchByQid?: Map<string, Record<string, unknown>>
 ): Promise<BatchEditResult> {
   try {
     const submission = await db.submissions.get(submissionId)
@@ -296,15 +298,16 @@ export async function applyScoreEditsToSubmission(
         ? Math.max(0, Math.min(target, rowMax))
         : Math.max(0, target)
       const prevScore = Number(d?.score ?? 0)
-      if (safeScore === prevScore) return d   // 無實質改變不留痕(鏡像單格規則)
+      const patch = patchByQid?.get(qid)
+      if (safeScore === prevScore && !patch) return d   // 無實質改變不留痕(鏡像單格規則)
       changed++
       const snapshotAiOriginal = d._aiOriginal ?? {
         score: d.score, maxScore: d.maxScore, isCorrect: d.isCorrect,
         reason: d.reason, comment: d.comment, studentAnswer: d.studentAnswer,
-        errorType: d.errorType, rubricScores: d.rubricScores
+        errorType: d.errorType, rubricScores: d.rubricScores, levelResult: d.levelResult
       }
       return {
-        ...d, score: safeScore,
+        ...d, ...(patch ?? {}), score: safeScore,
         reason: '已經由老師編輯', comment: '已經由老師編輯',
         _aiOriginal: snapshotAiOriginal, _editedAt: now, _editedBy: undefined
       }

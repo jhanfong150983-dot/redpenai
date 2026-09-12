@@ -7,7 +7,8 @@
 // 依「題」分組（同題連著看、老師只需載入一次評分標準）；裁圖走 /api/report/crops（server 現切、零墨水）。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { X, RotateCcw, Loader2 } from 'lucide-react'
-import { type Submission, type Student } from '@/lib/db'
+import { type Submission, type Student, type AnswerKey } from '@/lib/db'
+import { levelFromElements, levelToScore } from '@/lib/levelRubric'
 import { requestSync } from '@/lib/sync-events'
 import { applyScoreEditsToSubmission, applyAnswerEditToSubmission, restoreDetailToAi, cmpQid } from '@/lib/answerStats'
 
@@ -15,6 +16,7 @@ type Props = {
   entries: Array<{ submission: Submission; student: Student }>
   onClose: () => void
   onUpdated: (updated: Submission) => void
+  answerKey?: AnswerKey   // 2026-09-12 級分要素勾選要 levelRubric 算級分
 }
 
 type Cell = {
@@ -32,13 +34,17 @@ type Cell = {
   edited: boolean
   aiOriginalScore: number | null
   aiOriginalReason: string
+  // 2026-09-12 rubric 題逐項改：級分要素（evidence 帶 label/present）／rubric 維度分
+  levelEvidence: Array<{ key: string; label?: string; present?: boolean; waived?: boolean }> | null
+  levelFound: string[] | null
+  rubricScores: Array<{ dimension?: string; score?: number; maxScore?: number }> | null
 }
 
 const confTone = (c: number) => (c < 50
   ? { bg: '#fee2e2', fg: '#b91c1c' }
   : { bg: '#fef3c7', fg: '#b45309' })
 
-export default function LowConfidenceModal({ entries, onClose, onUpdated }: Props) {
+export default function LowConfidenceModal({ entries, onClose, onUpdated, answerKey }: Props) {
   // 低信心格聚合（entries 由父層即時餵入 → 改分/回復後自動反映最新狀態；低信心名單本身不變）
   const groups = useMemo(() => {
     const cells: Cell[] = []
@@ -65,6 +71,9 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated }: Prop
           edited: !!d?._aiOriginal,
           aiOriginalScore: Number.isFinite(Number(d?._aiOriginal?.score)) ? Number(d._aiOriginal.score) : null,
           aiOriginalReason: String(d?._aiOriginal?.reason ?? '').trim(),
+          levelEvidence: Array.isArray(d?.levelResult?.evidence) && d.levelResult.evidence.length ? d.levelResult.evidence : null,
+          levelFound: Array.isArray(d?.levelResult?.found) ? d.levelResult.found : null,
+          rubricScores: Array.isArray(d?.rubricScores) && d.rubricScores.length ? d.rubricScores : null,
         })
       }
     }
@@ -141,6 +150,46 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated }: Prop
   const PLACEHOLDER = new Set(['圖像辨識', '卷面作答', '圖上作答', '採視覺評分', '未作答'])
   const canEditAnswer = (c: Cell) => !PLACEHOLDER.has(String(c.studentAnswer || '').trim())
   const [answerInput, setAnswerInput] = useState<{ key: string; value: string } | null>(null)
+  // ── 級分要素勾選：老師看圖逐條勾「有做到」→ 級分與分數由 code 算（levelFromElements / levelToScore）──
+  const [levelDraft, setLevelDraft] = useState<{ key: string; found: Set<string> } | null>(null)
+  const levelRubricOf = (qid: string) => (answerKey?.questions ?? []).find((q) => String(q.id) === qid)?.levelRubric
+  const previewLevel = (c: Cell, found: Set<string>) => {
+    const rubric = levelRubricOf(c.qid)
+    if (!rubric) return null
+    const level = levelFromElements(rubric, found)
+    return { level, score: levelToScore(rubric, level) }
+  }
+  const applyLevel = async (c: Cell, found: Set<string>) => {
+    const key = cellKey(c)
+    const pv = previewLevel(c, found)
+    if (busyKey || !pv || pv.level == null) return
+    setBusyKey(key); setErrMsg('')
+    try {
+      const evidence = (c.levelEvidence ?? []).map((e) => ({ ...e, present: found.has(e.key), evidence: found.has(e.key) === !!e.present ? (e as { evidence?: string }).evidence : '老師勾選' }))
+      const patch = { levelResult: { level: pv.level, found: [...found], split: [], unsure: [], evidence } }
+      const r = await applyScoreEditsToSubmission(c.submissionId, new Map([[c.qid, pv.score]]), new Map([[c.qid, patch]]))
+      if (r.ok && r.updated) { onUpdated(r.updated); requestSync() }
+      else if (!r.ok) setErrMsg(`儲存失敗：${r.error ?? '請重試'}`)
+    } finally {
+      setBusyKey(null); setLevelDraft(null)
+    }
+  }
+  // ── rubric 維度分：老師逐維度給分 → 總分＝加總 ──
+  const [rubricDraft, setRubricDraft] = useState<{ key: string; scores: number[] } | null>(null)
+  const applyRubric = async (c: Cell, scores: number[]) => {
+    const key = cellKey(c)
+    if (busyKey || !c.rubricScores) return
+    setBusyKey(key); setErrMsg('')
+    try {
+      const rubricScores = c.rubricScores.map((r, i) => ({ ...r, score: Math.max(0, Math.min(Number(r.maxScore ?? 0), Number(scores[i]) || 0)) }))
+      const total = Math.round(rubricScores.reduce((s, r) => s + Number(r.score ?? 0), 0) * 10) / 10
+      const r = await applyScoreEditsToSubmission(c.submissionId, new Map([[c.qid, total]]), new Map([[c.qid, { rubricScores }]]))
+      if (r.ok && r.updated) { onUpdated(r.updated); requestSync() }
+      else if (!r.ok) setErrMsg(`儲存失敗：${r.error ?? '請重試'}`)
+    } finally {
+      setBusyKey(null); setRubricDraft(null)
+    }
+  }
   const applyAnswer = async (c: Cell, value: string) => {
     const key = cellKey(c)
     if (busyKey) return
@@ -272,6 +321,53 @@ export default function LowConfidenceModal({ entries, onClose, onUpdated }: Prop
                           {c.edited ? c.aiOriginalReason : c.reason}
                         </div>
                       )}
+                      {/* 2026-09-12 級分要素逐條勾選（user 拍板：rubric 題老師看圖逐格打勾、分數由 code 算） */}
+                      {c.levelEvidence && levelRubricOf(c.qid) && !busy && (() => {
+                        const draft = levelDraft?.key === key ? levelDraft.found : new Set(c.levelFound ?? [])
+                        const pv = previewLevel(c, draft)
+                        const dirty = levelDraft?.key === key
+                        return (
+                          <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                            <div className="text-[11px] text-slate-500 mb-1">要素（勾＝卷面有做到）</div>
+                            {c.levelEvidence.map((e) => (
+                              <label key={e.key} className="flex items-start gap-1.5 text-[12px] text-slate-700 py-0.5 cursor-pointer">
+                                <input type="checkbox" className="mt-0.5" checked={draft.has(e.key)}
+                                  onChange={(ev) => { const next = new Set(draft); if (ev.target.checked) next.add(e.key); else next.delete(e.key); setLevelDraft({ key, found: next }) }} />
+                                <span>{e.label || e.key}{e.waived ? <span className="text-slate-400">（替代組已滿足）</span> : null}</span>
+                              </label>
+                            ))}
+                            <div className="mt-1 flex items-center gap-2 text-[12px]">
+                              <span className="text-slate-600">→ {pv?.level ?? '?'} 級分、{pv?.score ?? '?'} 分</span>
+                              {dirty && <button type="button" onClick={() => void applyLevel(c, draft)} className="px-2 py-0.5 rounded-md bg-sky-600 text-white text-xs font-semibold">儲存級分</button>}
+                              {dirty && <button type="button" onClick={() => setLevelDraft(null)} className="px-2 py-0.5 rounded-md border border-slate-300 text-slate-600 text-xs">取消</button>}
+                            </div>
+                          </div>
+                        )
+                      })()}
+                      {c.rubricScores && !busy && (() => {
+                        const draft = rubricDraft?.key === key ? rubricDraft.scores : c.rubricScores.map((r) => Number(r.score ?? 0))
+                        const dirty = rubricDraft?.key === key
+                        const total = Math.round(draft.reduce((s, x) => s + (Number(x) || 0), 0) * 10) / 10
+                        return (
+                          <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
+                            <div className="text-[11px] text-slate-500 mb-1">逐維度給分</div>
+                            {c.rubricScores.map((r, i) => (
+                              <div key={i} className="flex items-center gap-2 text-[12px] text-slate-700 py-0.5">
+                                <span className="flex-1 min-w-0 truncate">{r.dimension || `維度 ${i + 1}`}</span>
+                                <input type="number" min={0} max={Number(r.maxScore ?? 0)} step={0.5} value={draft[i]}
+                                  onChange={(ev) => { const next = [...draft]; next[i] = Number(ev.target.value); setRubricDraft({ key, scores: next }) }}
+                                  className="w-14 px-1 py-0.5 rounded border border-slate-300 text-right" />
+                                <span className="text-slate-400">/ {Number(r.maxScore ?? 0)}</span>
+                              </div>
+                            ))}
+                            <div className="mt-1 flex items-center gap-2 text-[12px]">
+                              <span className="text-slate-600">→ 合計 {total} 分</span>
+                              {dirty && <button type="button" onClick={() => void applyRubric(c, draft)} className="px-2 py-0.5 rounded-md bg-sky-600 text-white text-xs font-semibold">儲存維度分</button>}
+                              {dirty && <button type="button" onClick={() => setRubricDraft(null)} className="px-2 py-0.5 rounded-md border border-slate-300 text-slate-600 text-xs">取消</button>}
+                            </div>
+                          </div>
+                        )
+                      })()}
                       {/* 動作列 */}
                       <div className="mt-2 flex items-center gap-1.5 flex-wrap">
                         {busy ? (
