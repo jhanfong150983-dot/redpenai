@@ -119,7 +119,7 @@ interface PersonInfo {
   email: string | null
 }
 
-type SchoolTab = 'home' | 'overview' | 'answerkeys' | 'exams' | 'grades' | 'analysis' | 'teachers' | 'settings' | 'weakness'
+type SchoolTab = 'home' | 'overview' | 'answerkeys' | 'exams' | 'grades' | 'analysis' | 'teachers' | 'wallet' | 'settings' | 'weakness'
 
 // 2026-08-03(user 要求對齊教師端):側欄分區塊,功能好找。
 //   分組原則比照教師端——常用=每天在做的事、成果分析=看結果、系統設定=人與設定。
@@ -154,6 +154,8 @@ const navSections: Array<{
       // 2026-08-03(user):名冊是校務資料維護、不是每天在做的事,兩個總覽都歸這區
       { key: 'overview', label: '學生總覽', icon: Users, enabled: true },
       { key: 'teachers', label: '教師總覽', icon: UserCog, enabled: true },
+      // 2026-09-13 user：份數紀錄從教師總覽拆出成獨立分頁
+      { key: 'wallet', label: '份數紀錄', icon: Droplet, enabled: true },
       // 2026-08-03(user 要求):學校級設定的家,目前是家長報告抬頭;之後的學校設定都掛這裡
       { key: 'settings', label: '偏好設定', icon: SlidersHorizontal, enabled: true }
     ]
@@ -588,7 +590,7 @@ export default function SchoolAdminPanel({
 
 
   useEffect(() => {
-    if (tab === 'teachers' && school) {
+    if ((tab === 'teachers' || tab === 'wallet') && school) {
       void loadTeachers(school.school_id)
     }
   }, [tab, school, loadTeachers])
@@ -2130,6 +2132,64 @@ export default function SchoolAdminPanel({
               )}
               <SchoolReportSettings schoolId={school?.school_id ?? ''} />
             </div>
+          ) : tab === 'wallet' ? (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center gap-6 rounded-xl border border-slate-200 bg-slate-50/60 px-5 py-3">
+                <div className="flex items-center gap-2 text-slate-700">
+                  <Droplet className="h-4 w-4 text-amber-500" />
+                  <span className="text-lg font-semibold tabular-nums">{walletBalance ?? '—'}</span>
+                  <span className="text-sm text-slate-500">份（學校池，統一考卷與配發由此扣）</span>
+                </div>
+                <span className="text-xs text-slate-400">加購由 RedPen AI 於簽約／付款後入帳；配發給老師的份數成為校園墨水，只能用在本校班級。</span>
+              </div>
+              {/* 學校點數紀錄 */}
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-slate-700">學校份數紀錄</h3>
+                <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-xs text-slate-500">
+                        <th className="px-4 py-2.5 font-medium">時間</th>
+                        <th className="px-3 py-2.5 font-medium text-right">變動</th>
+                        <th className="px-3 py-2.5 font-medium text-right">餘額</th>
+                        <th className="px-3 py-2.5 font-medium">項目</th>
+                        <th className="px-3 py-2.5 font-medium">操作者</th>
+                        <th className="px-3 py-2.5 font-medium">備註</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {walletLedger.map((l, i) => (
+                        <tr key={`${l.createdAt}:${i}`} className="border-b border-slate-50">
+                          <td className="px-4 py-2 text-slate-600">
+                            {new Date(l.createdAt).toLocaleString('zh-TW', {
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </td>
+                          <td
+                            className={`px-3 py-2 text-right font-semibold tabular-nums ${
+                              l.delta > 0 ? 'text-emerald-600' : 'text-rose-600'
+                            }`}
+                          >
+                            {l.delta > 0 ? '+' : ''}
+                            {l.delta}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-slate-700">{l.balanceAfter ?? '—'}</td>
+                          <td className="px-3 py-2 text-slate-700">{LEDGER_REASON_LABEL[l.reason] || l.reason}</td>
+                          <td className="px-3 py-2 text-slate-600">{l.actorName || '—'}</td>
+                          <td className="px-3 py-2 text-slate-500">{l.note || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {walletLedger.length === 0 && (
+                    <div className="px-4 py-8 text-center text-sm text-slate-400">尚無份數紀錄。</div>
+                  )}
+                </div>
+              </div>
+            </div>
           ) : tab === 'teachers' ? (
             <div className="space-y-6">
               {/* 教師摘要 */}
@@ -2276,53 +2336,6 @@ export default function SchoolAdminPanel({
               </div>
 
 
-              {/* 學校點數紀錄 */}
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-slate-700">學校份數紀錄</h3>
-                <div className="overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-xs text-slate-500">
-                        <th className="px-4 py-2.5 font-medium">時間</th>
-                        <th className="px-3 py-2.5 font-medium text-right">變動</th>
-                        <th className="px-3 py-2.5 font-medium text-right">餘額</th>
-                        <th className="px-3 py-2.5 font-medium">項目</th>
-                        <th className="px-3 py-2.5 font-medium">操作者</th>
-                        <th className="px-3 py-2.5 font-medium">備註</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {walletLedger.map((l, i) => (
-                        <tr key={`${l.createdAt}:${i}`} className="border-b border-slate-50">
-                          <td className="px-4 py-2 text-slate-600">
-                            {new Date(l.createdAt).toLocaleString('zh-TW', {
-                              month: '2-digit',
-                              day: '2-digit',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </td>
-                          <td
-                            className={`px-3 py-2 text-right font-semibold tabular-nums ${
-                              l.delta > 0 ? 'text-emerald-600' : 'text-rose-600'
-                            }`}
-                          >
-                            {l.delta > 0 ? '+' : ''}
-                            {l.delta}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums text-slate-700">{l.balanceAfter ?? '—'}</td>
-                          <td className="px-3 py-2 text-slate-700">{LEDGER_REASON_LABEL[l.reason] || l.reason}</td>
-                          <td className="px-3 py-2 text-slate-600">{l.actorName || '—'}</td>
-                          <td className="px-3 py-2 text-slate-500">{l.note || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {walletLedger.length === 0 && (
-                    <div className="px-4 py-8 text-center text-sm text-slate-400">尚無份數紀錄。</div>
-                  )}
-                </div>
-              </div>
             </div>
           ) : (
             <>
