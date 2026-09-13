@@ -1283,9 +1283,12 @@
         max-width: none;
       }
 
+      /* 2026-09-13 user：平板直式(768~900px)「領域」「考卷」一上一下把版面拉高 → 並排兩欄；
+         只有手機寬度才疊成一欄 */
       .summary-controls {
         width: 100%;
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        justify-content: stretch;
       }
 
       .radar-wrap {
@@ -1294,6 +1297,12 @@
 
       .radar-stage .radar-label {
         display: none;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .summary-controls {
+        grid-template-columns: 1fr;
       }
     }
 
