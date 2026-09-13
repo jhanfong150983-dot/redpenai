@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Droplet, RefreshCw, Plus } from 'lucide-react'
 import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
 import { PLANS, PLAN_LABEL, normalizePlan, type SchoolPlan } from '@/lib/school-plan'
@@ -46,6 +46,29 @@ export default function AdminSchoolWallet() {
   const [topupValue, setTopupValue] = useState('')
   const [topupNote, setTopupNote] = useState('')
   const [topupBusy, setTopupBusy] = useState(false)
+  // 2026-09-13 手動學校（非 1Campus）：後台建校 → 再到「學校行政開通」開行政帳號
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createName, setCreateName] = useState('')
+  const [createType, setCreateType] = useState<'國小' | '國中' | '高中'>('國中')
+  const [createBusy, setCreateBusy] = useState(false)
+  const submitCreate = useCallback(async () => {
+    const name = createName.trim(); if (!name) return
+    setCreateBusy(true)
+    try {
+      const res = await fetch('/api/admin/school-wallet?action=school-wallet', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ createSchool: true, name, schoolType: createType })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || '建立失敗')
+      setCreateOpen(false); setCreateName('')
+      await alertModal(`已建立「${name}」。下一步到「學校行政開通」把行政帳號掛上去，行政登入後在偏好設定批次上傳名冊。`)
+      await refreshRef.current?.()
+    } catch (e) {
+      await alertModal(e instanceof Error ? e.message : '建立失敗', { title: '建立失敗' })
+    } finally { setCreateBusy(false) }
+  }, [createName, createType, alertModal])
+  const refreshRef = useRef<null | (() => Promise<void>)>(null)
 
   // 2026-09-13 方案等級：只有系統 admin 能改（這頁本身就是 admin 後台）
   const changePlan = useCallback(async (s: WalletSchool, plan: SchoolPlan) => {
@@ -66,6 +89,10 @@ export default function AdminSchoolWallet() {
   }, [confirm, alertModal])
 
   const refresh = useCallback(async () => {
+    refreshRef.current = async () => { await refreshInner() }
+    await refreshInner()
+  }, [])
+  const refreshInner = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -148,15 +175,40 @@ export default function AdminSchoolWallet() {
             <Droplet className="w-4 h-4 text-amber-600" />
             學校錢包({schools.length})
           </h2>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
-            aria-label="重新整理"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setCreateOpen((v) => !v)}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-slate-400">
+              <Plus className="w-3 h-3" />新增手動學校
+            </button>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+              aria-label="重新整理"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
+        {createOpen && (
+          <div className="flex flex-wrap items-end gap-3 border-b border-gray-100 bg-slate-50 px-5 py-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">學校名稱（非 1Campus 學校）</label>
+              <input value={createName} onChange={(e) => setCreateName(e.target.value)} placeholder="例如：私立○○國中" className="w-64 rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">學制</label>
+              <select value={createType} onChange={(e) => setCreateType(e.target.value as '國小' | '國中' | '高中')} className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm">
+                <option value="國小">國小</option><option value="國中">國中</option><option value="高中">高中</option>
+              </select>
+            </div>
+            <button type="button" onClick={() => void submitCreate()} disabled={createBusy || !createName.trim()}
+              className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+              {createBusy ? '建立中…' : '建立'}
+            </button>
+            <span className="text-xs text-slate-400">建好後到「學校行政開通」掛行政帳號；名冊由行政在偏好設定批次上傳。</span>
+          </div>
+        )}
         {error && <div className="px-5 py-3 text-sm text-red-600">{error}</div>}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

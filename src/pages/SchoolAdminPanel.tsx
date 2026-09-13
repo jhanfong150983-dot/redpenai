@@ -49,6 +49,7 @@ interface SchoolRow {
   name: string
   student_count: number
   class_count: number
+  provider_dsns?: string | null // null＝手動學校（非 1Campus，名冊由行政批次上傳）
 }
 interface ClassRow {
   class_label: string
@@ -327,6 +328,21 @@ export default function SchoolAdminPanel({
   const [reportMsg, setReportMsg] = useState<Record<string, string>>({})
   const [tab, setTab] = useState<SchoolTab>('home')
   const [rosterSyncing, setRosterSyncing] = useState(false)
+  // 2026-09-13 手動學校批次上傳名冊（貼上 Excel 內容；Tab 或逗號分隔）
+  const [importYear, setImportYear] = useState(() => String(new Date().getFullYear() - 1911 - (new Date().getMonth() < 7 ? 1 : 0)))
+  const [importSem, setImportSem] = useState<'1' | '2'>(new Date().getMonth() >= 1 && new Date().getMonth() < 7 ? '2' : '1')
+  const [importStudentsText, setImportStudentsText] = useState('')
+  const [importTeachersText, setImportTeachersText] = useState('')
+  const [importBusy, setImportBusy] = useState(false)
+  const parseRows = (text: string) => text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => l.split(/\t|,|，/).map((c) => c.trim()))
+  const parsedStudents = useMemo(() => parseRows(importStudentsText).filter((r) => r.length >= 5 && !/^年級|^班級/.test(r[0]))
+    .map((r) => ({ gradeYear: Number(r[0]) || null, className: r[1], seatNo: Number(r[2]) || null, name: r[3], studentNumber: r[4], email: r[5] || '' })), [importStudentsText])
+  const parsedTeachers = useMemo(() => parseRows(importTeachersText).filter((r) => r.length >= 2 && !/^姓名/.test(r[0]))
+    .map((r) => ({
+      name: r[0], email: r[1],
+      courses: (r[2] || '').split(/;|；/).map((x) => x.trim()).filter(Boolean).map((x) => { const [className, subject] = x.split(/:|：/).map((y) => y.trim()); return { className, subject } }).filter((c) => c.className && c.subject),
+      homeroom: r[3] || ''
+    })), [importTeachersText])
   // 首次使用自動準備:空校(從未同步)且有歸屬校 → 自動跑一次全校名冊同步,行政零操作
   const [autoSyncPending, setAutoSyncPending] = useState(false)
   const autoSyncTriedRef = useRef(false)
@@ -450,6 +466,30 @@ export default function SchoolAdminPanel({
 
   // 2026-07-30 Step 3.5:全校名冊同步(getClassStudent 全校→歸戶 SSoT+班級參考表+轉出標記)。
   // 空校時 school 尚為 null → 退回行政自己的歸屬校 preferredSchoolId,讓第一次拉取也能按。
+  // 2026-09-13 手動學校：批次上傳名冊（放在 loadSchool 之後）
+  const runRosterImport = useCallback(async () => {
+    const sid = school?.school_id ?? preferredSchoolId
+    if (!sid || importBusy) return
+    if (!parsedStudents.length && !parsedTeachers.length) { await alertModal('請先貼上學生名冊或教師名冊'); return }
+    setImportBusy(true)
+    try {
+      const res = await fetch('/api/data/school-roster-import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ schoolId: sid, schoolYear: Number(importYear), semester: Number(importSem), students: parsedStudents, teachers: parsedTeachers })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || '匯入失敗')
+      await alertModal(
+        `班級 ${data.classes}、學生 ${data.students}（本次未出現而標為離校 ${data.inactivated}）、老師 ${data.teachers}、任課 ${data.courses}；已登入的老師 ${data.enrolled} 位已歸戶、鏡像 ${data.mirroredClasses} 個班。` +
+        (data.errors?.length ? `\n未匯入：${data.errors.slice(0, 8).join('；')}${data.errors.length > 8 ? '…' : ''}` : ''),
+        { title: '名冊匯入完成' }
+      )
+      await loadSchool()
+    } catch (err) {
+      await alertModal(err instanceof Error ? err.message : '匯入失敗', { title: '名冊匯入失敗' })
+    } finally { setImportBusy(false) }
+  }, [school, preferredSchoolId, importBusy, parsedStudents, parsedTeachers, importYear, importSem, alertModal, loadSchool])
+
   const runRosterSync = useCallback(async () => {
     const targetSchoolId = school?.school_id ?? preferredSchoolId
     if (!targetSchoolId || rosterSyncing) return
@@ -1985,7 +2025,45 @@ export default function SchoolAdminPanel({
             />
           ) : tab === 'settings' ? (
             <div className="max-w-3xl space-y-4">
-              {/* 2026-08-03(user):全校名冊同步搬到這裡——偶爾才做的維護動作,不該常駐頁首 */}
+              {/* 2026-09-13 手動學校（無 1Campus）：批次上傳名冊，寫進與 1Campus 同步同一套名冊表 */}
+              {school && !school.provider_dsns ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-5">
+                  <h3 className="text-sm font-semibold text-slate-800">批次上傳名冊</h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    貴校沒有接 1Campus，名冊由行政上傳。從 Excel 複製貼上即可（Tab 或逗號分隔，第一列標題可留）。
+                    上傳後老師用名冊上的 Email 以 Google 登入，就會自動看到自己任教的班級與學生。整份重傳＝以最新一份為準。
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-end gap-3">
+                    <label className="text-xs text-slate-600">學年
+                      <input value={importYear} onChange={(e) => setImportYear(e.target.value)} className="ml-1 w-16 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+                    </label>
+                    <label className="text-xs text-slate-600">學期
+                      <select value={importSem} onChange={(e) => setImportSem(e.target.value as '1' | '2')} className="ml-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm">
+                        <option value="1">上學期</option><option value="2">下學期</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-slate-700">學生名冊　<span className="font-normal text-slate-400">年級, 班級, 座號, 姓名, 學號, Email(選填)</span></div>
+                      <textarea value={importStudentsText} onChange={(e) => setImportStudentsText(e.target.value)} rows={8} placeholder={'7\t701\t1\t王小明\t11301001\n7\t701\t2\t李小華\t11301002'} className="w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs" />
+                      <div className="mt-1 text-xs text-slate-400">解析到 {parsedStudents.length} 名學生、{new Set(parsedStudents.map((s) => s.className)).size} 個班</div>
+                    </div>
+                    <div>
+                      <div className="mb-1 text-xs font-medium text-slate-700">教師名冊　<span className="font-normal text-slate-400">姓名, Email, 任課(班級:科目;…), 導師班級(選填)</span></div>
+                      <textarea value={importTeachersText} onChange={(e) => setImportTeachersText(e.target.value)} rows={8} placeholder={'陳老師\tchen@school.edu.tw\t701:國語;702:國語\t701\n林老師\tlin@school.edu.tw\t701:數學'} className="w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-xs" />
+                      <div className="mt-1 text-xs text-slate-400">解析到 {parsedTeachers.length} 位老師、{parsedTeachers.reduce((a, t) => a + t.courses.length, 0)} 筆任課</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex items-center gap-3">
+                    <button type="button" onClick={() => void runRosterImport()} disabled={importBusy || (!parsedStudents.length && !parsedTeachers.length)}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50">
+                      <School className={`h-4 w-4 ${importBusy ? 'animate-pulse' : ''}`} />{importBusy ? '匯入中…' : '匯入名冊'}
+                    </button>
+                    <span className="text-xs text-slate-400">學號必填：日後開通 1Campus 時靠學號把學生接起來</span>
+                  </div>
+                </div>
+              ) : (
               <div className="rounded-xl border border-slate-200 bg-white p-5">
                 <h3 className="text-sm font-semibold text-slate-800">全校名冊同步</h3>
                 <p className="mt-1 text-xs text-slate-500">
@@ -2005,6 +2083,7 @@ export default function SchoolAdminPanel({
                   <span className="text-xs text-slate-400">全校資料量大,可能需要一到兩分鐘</span>
                 </div>
               </div>
+              )}
               <SchoolReportSettings schoolId={school?.school_id ?? ''} />
             </div>
           ) : tab === 'teachers' ? (
