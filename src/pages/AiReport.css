@@ -177,13 +177,20 @@
       flex-wrap: wrap;
     }
 
+    /* 2026-09-13：改 flex。原本 grid auto-fit 放在 flex 子項（寬度不定）裡，Safari/WebKit 會把欄數算成 1、
+       「領域」「考卷」一上一下（平板實機、PC 模擬看不出來）；flex 在各瀏覽器行為一致 */
     .summary-controls {
-      display: grid;
+      display: flex;
+      flex-wrap: wrap;
       gap: 0.75rem;
-      grid-template-columns: repeat(auto-fit, minmax(11rem, 14rem));
-      justify-content: end;
+      justify-content: flex-end;
       min-width: 0;
       max-width: 100%;
+    }
+
+    .summary-controls > label {
+      flex: 0 1 14rem;
+      min-width: 11rem;
     }
 
     .tab-filters {
@@ -1287,8 +1294,11 @@
          只有手機寬度才疊成一欄 */
       .summary-controls {
         width: 100%;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        justify-content: stretch;
+      }
+
+      .summary-controls > label {
+        flex: 1 1 0;
+        min-width: 0;
       }
 
       .radar-wrap {
@@ -1301,8 +1311,8 @@
     }
 
     @media (max-width: 560px) {
-      .summary-controls {
-        grid-template-columns: 1fr;
+      .summary-controls > label {
+        flex-basis: 100%;
       }
     }
 
