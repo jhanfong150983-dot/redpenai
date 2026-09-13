@@ -1795,6 +1795,13 @@ export default function GradingPage({
   // 2026-05-31 Phase1b: 一鍵接著批改——所有未完成卷分桶（不看勾選，一鍵 = 處理全部待辦）
   // needA=未擷取/Phase A 失敗(要跑 Phase A)、needReview=待複核、needB=待算分/Phase B 失敗(直接 Phase B)
   const [oneClickConfirmOpen, setOneClickConfirmOpen] = useState(false)
+  // 2026-09-13 份制：開確認框時抓兩種墨水（⚠ 必須放在 isLoading/error 的 early return 之前，否則 hooks 數量改變＝React #310）
+  useEffect(() => {
+    if (!FLAT_BILLING || !(oneClickConfirmOpen || advInkConfirm || regradeChangedOpen)) return
+    let cancelled = false
+    void fetchMyWallets(assignmentId).then((w) => { if (!cancelled) setWalletInfo(w) })
+    return () => { cancelled = true }
+  }, [oneClickConfirmOpen, advInkConfirm, regradeChangedOpen, assignmentId])
   const unfinishedBuckets = useMemo(() => {
     const needA: Submission[] = []; const needReview: Submission[] = []; const needB: Submission[] = []
     for (const s of submissions.values()) {
@@ -5845,12 +5852,6 @@ export default function GradingPage({
 
   // 2026-06-01 Phase3: 「智慧批改 ▼」分段按鈕的衍生狀態
   //   左半=智慧批改（一鍵接著批改）；右半 ▼=進階選單。total=0 時左半鎖住改字「已批改完成」、▼ 仍可點。
-  useEffect(() => {
-    if (!FLAT_BILLING || !(oneClickConfirmOpen || advInkConfirm || regradeChangedOpen)) return
-    let cancelled = false
-    void fetchMyWallets(assignmentId).then((w) => { if (!cancelled) setWalletInfo(w) })
-    return () => { cancelled = true }
-  }, [oneClickConfirmOpen, advInkConfirm, regradeChangedOpen, assignmentId])
   const smartHasWork = unfinishedBuckets.total > 0
   const smartHasSubs = submissions.size > 0
   const smartBusy = isGrading || isDownloading || isCheckingCorrectionState || !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'
