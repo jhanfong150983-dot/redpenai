@@ -196,7 +196,6 @@ interface TeacherOverviewRow {
   bound: boolean
   profileId: string | null
   loginEmail: string
-  inkBalance: number | null
   campusBalance: number | null
   classroomCount: number | null
   assignmentCount: number | null
@@ -2145,7 +2144,6 @@ export default function SchoolAdminPanel({
                       <th className="px-3 py-2.5 font-medium text-right">班級數</th>
                       <th className="px-3 py-2.5 font-medium text-right">考卷數</th>
                       <th className="px-3 py-2.5 font-medium text-right" title="學校配發、尚未用掉的份數">校園墨水</th>
-                      <th className="px-3 py-2.5 font-medium text-right" title="老師自己的份數">個人</th>
                       <th className="px-3 py-2.5" />
                     </tr>
                   </thead>
@@ -2196,7 +2194,6 @@ export default function SchoolAdminPanel({
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.classroomCount ?? '—'}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.assignmentCount ?? '—'}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-emerald-700">{t.campusBalance ?? '—'}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-500">{t.inkBalance ?? '—'}</td>
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
                           <button
                             type="button"
