@@ -15,3 +15,6 @@ interface Window {
   __SW_UPDATE__?: () => Promise<void>
   Capacitor?: any
 }
+
+/** 建置時間戳（vite define 注入、台灣時區）；頁尾顯示用 */
+declare const __BUILD_STAMP__: string

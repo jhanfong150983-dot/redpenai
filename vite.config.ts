@@ -3,8 +3,12 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// 2026-09-13 版本戳：頁尾顯示建置時間（台灣時區、到分），讓老師回報「還是舊版」時一眼看得出裝置上跑的是哪一版
+const BUILD_STAMP = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+
 // https://vite.dev/config/
 export default defineConfig({
+  define: { __BUILD_STAMP__: JSON.stringify(BUILD_STAMP) },
   plugins: [
     react(),
     VitePWA({

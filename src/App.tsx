@@ -3066,6 +3066,8 @@ function App() {
                 <span className="text-slate-500">0981-716-650</span>
                 <span className="text-slate-300">|</span>
                 <span className="text-slate-400">Copyright © 2026黃政昱</span>
+                <span className="text-slate-300">|</span>
+                <span className="text-slate-400" title="此裝置目前執行的版本（建置時間）">版本 {__BUILD_STAMP__}</span>
               </div>
             </div>
           </footer>
