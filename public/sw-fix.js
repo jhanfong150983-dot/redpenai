@@ -30,6 +30,10 @@
   // 1) 若標記了需要 reset（且未超過重試上限）
   var needsReset = false
   try { needsReset = localStorage.getItem(RESET_KEY) === '1' } catch (e) {}
+  // 2026-09-13：網址帶 ?rp-reset=1 也觸發（給「關閉重開／重新整理都還是舊版」的裝置用）。
+  //   sw-fix.js 不進 precache、Vercel 標 no-store，所以就算頁面本身是舊 SW 送的舊版，這支永遠是新的 → 一定救得回來
+  var urlReset = /[?&]rp-reset=1(&|$)/.test(location.search)
+  if (urlReset) needsReset = true
   if (needsReset && diagCount < 2) {
     try { localStorage.removeItem(RESET_KEY) } catch (e) {}
     try { sessionStorage.setItem(DIAG_KEY, String(diagCount + 1)) } catch (e) {}
@@ -45,9 +49,10 @@
         }
         return Promise.all(tasks)
       }).then(function () {
-        location.reload()
+        // 由網址觸發時去掉參數再進站，避免每次 reload 都又重置
+        if (urlReset) location.replace(location.pathname); else location.reload()
       }).catch(function () {
-        location.reload()
+        if (urlReset) location.replace(location.pathname); else location.reload()
       })
       var root = document.getElementById('root')
       if (root) {
