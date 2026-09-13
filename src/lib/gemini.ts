@@ -7310,5 +7310,10 @@ export async function extractTeacherScanAnswerKey(
   const located = questions.filter((q) => q.answerBbox).length
   const read = questions.filter((q) => String(q.answer ?? '').trim()).length
   console.log(`✅ [teacher_scan unified] ${questions.length} 題、定位 ${located}、讀到答案 ${read}`)
+  // 護欄（09-13 user 實測：把試題卷丟進作答卷框→定位 23/60 全是假框、讀到 0 個答案、還存成卷）
+  //   零答案＝幾乎一定是兩邊放反或作答卷影像不對 → 直接擋、不存空卷。
+  if (read === 0) {
+    throw new Error(`作答卷上一個答案都沒讀到（定位 ${located}/${questions.length} 格）。請確認兩邊沒有放反：題本＝試題卷（題目）、作答卷＝寫好標準答案的教師用答案卷（只有格子）。`)
+  }
   return { ...skeleton, questions, totalScore: questions.reduce((t, q) => t + (q.maxScore ?? 0), 0) }
 }

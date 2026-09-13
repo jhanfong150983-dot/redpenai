@@ -2117,16 +2117,17 @@ export default function AnswerKeyUnifiedModal({
                         </div>
                       )}
                       {/* ── 答案卷區塊（生成流程＝上傳「手寫在作答卷上的參考答案」；②上傳題本步驟隱藏） ── */}
-                      <section className={`rounded-xl border border-rose-200 bg-rose-50/30 p-4 ${activeStep === 'booklet' ? 'hidden' : ''}`}>
+                      {/* 2026-09-13 自備作答卷：題本在上、作答卷在下（user 實測把試題卷丟進作答卷框→全卷零答案） */}
+                      <section className={`rounded-xl border border-rose-200 bg-rose-50/30 p-4 ${activeStep === 'booklet' ? 'hidden' : ''} ${sheetSource === 'teacher_scan' ? 'order-2' : ''}`}>
                         <div className="flex items-baseline justify-between mb-3">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-semibold text-rose-900">{genFlow ? '📑 手寫參考答案卷' : sheetSource === 'teacher_scan' ? '📑 作答卷（寫好標準答案）' : '📑 答案卷'}</h3>
+                            <h3 className="text-sm font-semibold text-rose-900">{genFlow ? '📑 手寫參考答案卷' : sheetSource === 'teacher_scan' ? '📑 ② 作答卷（教師用答案卷）' : '📑 答案卷'}</h3>
                             {canSkipUpload ? (
                               <span className="text-[11px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded font-medium">可略過</span>
                             ) : (
                               <span className="text-[11px] px-1.5 py-0.5 bg-rose-100 text-rose-700 rounded font-medium">必傳</span>
                             )}
-                            <span className="text-xs text-gray-500">{genFlow ? '— 標準答案手寫在上一步下載的作答卷上，拍照或掃描上傳' : '— 你自己寫好標準答案的版本（一般模式：題目和答案同一張紙）'}</span>
+                            <span className="text-xs text-gray-500">{genFlow ? '— 標準答案手寫在上一步下載的作答卷上，拍照或掃描上傳' : sheetSource === 'teacher_scan' ? '— 只有作答格、已填好標準答案的那張（不是試題卷）' : '— 你自己寫好標準答案的版本（一般模式：題目和答案同一張紙）'}</span>
                           </div>
                         </div>
                         {pageItems.length === 0 && canSkipUpload && (
@@ -2159,7 +2160,7 @@ export default function AnswerKeyUnifiedModal({
                               <Upload className="w-8 h-8" />
                             )}
                             <span className="text-sm font-medium">
-                              {isProcessingFiles ? '處理中…' : '點擊上傳答案卷圖片或 PDF'}
+                              {isProcessingFiles ? '處理中…' : sheetSource === 'teacher_scan' ? '點擊上傳作答卷（教師用答案卷）圖片或 PDF' : '點擊上傳答案卷圖片或 PDF'}
                             </span>
                             <span className="text-xs text-rose-400/80">{genFlow ? '單面一頁：1 張照片或 1 頁 PDF（多頁只取第 1 頁）' : `照片最多 ${MAX_UPLOAD_IMAGES} 張，PDF 不限頁數`}</span>
                           </button>
@@ -2208,12 +2209,12 @@ export default function AnswerKeyUnifiedModal({
 
                       {/* ── 題本區塊：生成流程＝②上傳題本步驟；舊流程＝answer_only 模式與答案卷同頁 ── */}
                       {(genFlow ? activeStep === 'booklet' : answerSheetMode === 'answer_only') && (
-                        <section className="rounded-xl border border-blue-200 bg-blue-50/30 p-4">
+                        <section className={`rounded-xl border border-blue-200 bg-blue-50/30 p-4 ${sheetSource === 'teacher_scan' ? 'order-1' : ''}`}>
                           <div className="flex items-baseline justify-between mb-3">
                             <div className="flex items-center gap-2">
-                              <h3 className="text-sm font-semibold text-blue-900">📚 題本</h3>
+                              <h3 className="text-sm font-semibold text-blue-900">{sheetSource === 'teacher_scan' ? '📚 ① 題本（試題卷）' : '📚 題本'}</h3>
                               <span className="text-[11px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-medium">必須上傳</span>
-                              <span className="text-xs text-gray-500">— 學生看的乾淨題目卷</span>
+                              <span className="text-xs text-gray-500">{sheetSource === 'teacher_scan' ? '— 學生看的題目卷，可多頁' : '— 學生看的乾淨題目卷'}</span>
                             </div>
                           </div>
                           {/* 答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上。
@@ -2239,7 +2240,7 @@ export default function AnswerKeyUnifiedModal({
                                 <Upload className="w-8 h-8" />
                               )}
                               <span className="text-sm font-medium">
-                                {isProcessingBooklet ? '處理中…' : '點擊上傳題本圖片或 PDF'}
+                                {isProcessingBooklet ? '處理中…' : sheetSource === 'teacher_scan' ? '點擊上傳題本（試題卷）圖片或 PDF' : '點擊上傳題本圖片或 PDF'}
                               </span>
                               <span className="text-xs text-blue-400/80">支援多檔上傳</span>
                             </button>

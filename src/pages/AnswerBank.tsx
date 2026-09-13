@@ -657,9 +657,10 @@ export default function AnswerBank(_props: AnswerBankProps) {
         const n = answerKey.questions.length
         const located = answerKey.questions.filter((q) => q.answerBbox).length
         const read = answerKey.questions.filter((q) => String(q.answer ?? '').trim()).length
+        const warn = located < n * 0.6 ? `⚠ 只定位到 ${located}/${n} 格，請確認作答卷影像完整清晰、沒有和題本放反。` : ''
         return {
           answerKey, imageBlobs: blobs,
-          notice: `已依題本分析結構（${n} 題）、在作答卷上定位 ${located} 格、讀到 ${read} 格答案。請逐題核對（每題附裁切截圖）。`,
+          notice: `已依題本分析結構（${n} 題）、在作答卷上定位 ${located} 格、讀到 ${read} 格答案。請逐題核對（每題附裁切截圖）。${warn}`,
         }
       }
       const answerKey = await extractAnswerKeyFromImages(blobs, {
