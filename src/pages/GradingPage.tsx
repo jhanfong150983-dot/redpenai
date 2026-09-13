@@ -4730,6 +4730,17 @@ export default function GradingPage({
     await runOneClickForBuckets(needA, needReview, needB)
   }
 
+  // 2026-09-13 user 拍板：「先批 1 份確認」——每次批改都是完整重跑、每份都扣，老師怕答案卷有錯整班白扣 →
+  //   從確認框直接先批一份（未擷取優先、其次待批改），看過沒問題再按「智慧批改」批其餘（剩餘數自動更新、不重複扣）。
+  const handleOneClickTrial = async () => {
+    setOneClickConfirmOpen(false)
+    const { needA, needReview, needB } = unfinishedBuckets
+    if (needA[0]) { await runOneClickForBuckets([needA[0]], [], []); return }
+    if (needB[0]) { await runOneClickForBuckets([], [], [needB[0]]); return }
+    if (needReview[0]) { await runOneClickForBuckets([], [needReview[0]], []); return }
+    void alertModal('沒有未完成的考卷')
+  }
+
   // 2026-06-30 個別批改：老師在進階勾選模式選定的卷、不論目前狀態一律跑「完整流程」(擷取→讀取→審查→批改)。
   //   已批改/批改失敗/待批改的也重頭跑 Phase A（個別批改＝把這幾份徹底重做一次），待複核的進審查、其餘跑 A。
   const handleIndividualFullGrade = async () => {
@@ -5985,6 +5996,18 @@ export default function GradingPage({
         <div className="text-slate-600">
           ℹ️ 批改會一次跑完;AI 把握度低的題目會標示出來,批改完可以點進去核對。
         </div>
+        {unfinishedBuckets.total > 1 && (
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="text-sm text-slate-700">還不確定答案卷對不對？可以先批一份看看，確認沒問題再批其餘的。</div>
+            <button
+              type="button"
+              onClick={() => { void handleOneClickTrial() }}
+              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+            >
+              先批 1 份確認（只扣 1 份）
+            </button>
+          </div>
+        )}
       </InkConfirmModal>
 
       {/* 2026-09-07 A3b：答案卷已變更 → 用新答案卷重批已批改卷（Phase B only、覆寫舊分數、保訂正/申訴） */}
