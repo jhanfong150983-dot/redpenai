@@ -179,18 +179,22 @@
 
     /* 2026-09-13：改 flex。原本 grid auto-fit 放在 flex 子項（寬度不定）裡，Safari/WebKit 會把欄數算成 1、
        「領域」「考卷」一上一下（平板實機、PC 模擬看不出來）；flex 在各瀏覽器行為一致 */
+    /* 2026-09-13 第三修（平板實機拿到 flex 版仍一上一下）：問題出在容器本身的寬度是「shrink-to-fit」
+       （tab 列的 flex 子項、basis auto），WebKit 算 wrap 容器的固有寬度會只算「最大單一子項」→ 容器只有一格寬
+       → 第二格被擠到下一行。改給容器**明確的 flex-basis**（28rem、可長），寬度就是確定值、與引擎無關；
+       內部 nowrap，兩格永遠同一列，靠右對齊。 */
     .summary-controls {
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       gap: 0.75rem;
       justify-content: flex-end;
+      flex: 1 1 28rem;
       min-width: 0;
       max-width: 100%;
     }
 
     .summary-controls > label {
       flex: 0 1 14rem;
-      min-width: 11rem;
     }
 
     .tab-filters {
@@ -1294,6 +1298,7 @@
          只有手機寬度才疊成一欄 */
       .summary-controls {
         width: 100%;
+        flex-basis: 100%;
       }
 
       .summary-controls > label {
@@ -1311,6 +1316,10 @@
     }
 
     @media (max-width: 560px) {
+      .summary-controls {
+        flex-wrap: wrap;
+      }
+
       .summary-controls > label {
         flex-basis: 100%;
       }
