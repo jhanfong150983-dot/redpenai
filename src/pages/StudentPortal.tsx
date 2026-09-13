@@ -17,6 +17,7 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { blobToBase64, compressToTargetBytes } from '@/lib/imageCompression'
+import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { safeToBlobWithFallback } from '@/lib/canvasToBlob'
 import { mergePageBlobs } from '@/lib/image-merge'
 import { getSubmissionImageUrl } from '@/lib/utils'
@@ -1155,32 +1156,48 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     cameraInputRef.current?.click()
   }
 
+  // 2026-09-14 user 拍板：全系統匯入一律只收 PDF（學生繳交／訂正也是）。原生相機入口退場，
+  //   改為選 PDF → 逐頁點陣化 → 沿用原本「拍照完成」的後段流程（整份繳交＝每頁一張；逐題訂正／單頁重傳＝只取第 1 頁）。
   const handleNativeCameraCapture = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
-    // 重置 input value、否則學生重拍同一頁時 onChange 不會再 fire
+    // 重置 input value、否則學生重選同一檔時 onChange 不會再 fire
     event.target.value = ''
-    if (!file) {
-      // 使用者取消 native 相機、重置 camera state
+    const resetCamera = () => {
       setCameraMode(null)
       setCameraAssignmentId('')
       setCorrectionCameraQuestionId(null)
       onCaptureModeChange?.(false)
+    }
+    if (!file) { resetCamera(); return }
+    if (getFileType(file) !== 'pdf') { setError(PDF_ONLY_MSG); resetCamera(); return }
+    let pages: Blob[] = []
+    try {
+      pages = await convertPdfToImages(file, { scale: 1.5, quality: 0.85 })
+    } catch (err) {
+      console.warn('[StudentPortal] PDF 轉圖失敗:', err)
+    }
+    if (pages.length === 0) { setError('PDF 沒有可用頁面，請重新掃描'); resetCamera(); return }
+    // 壓到 ≤3MB / ≤2000px（Vercel /api/proxy 4.5MB body limit）
+    const compress = (b: Blob) =>
+      compressToTargetBytes(b, 3_000_000, { maxWidth: 2000, qualities: [0.92, 0.88, 0.85, 0.78] }).catch(() => b)
+    // 逐題訂正／單頁重傳：只取第 1 頁，走原本單張流程
+    if ((cameraMode === 'correction' && correctionCameraQuestionId) || retakePageIdx !== null) {
+      handleCameraCaptureComplete(await compress(pages[0]))
       return
     }
-    // Native iPhone/Android 原圖 4-10MB、會撞 Vercel /api/proxy 4.5MB body limit
-    // (validatePhotos → detectDocumentCorners 把整張圖 base64 塞 request body)。
-    // 在進入 uploadDrafts / validation 之前先壓到 ≤3MB / ≤2000px、跟舊 CameraCapturePage
-    // 出口同等規格 (CameraCapturePage.tsx 原本就在 compressImage(maxWidth=2000, q=0.92))。
-    let blob: Blob = file
-    try {
-      blob = await compressToTargetBytes(file, 3_000_000, {
-        maxWidth: 2000,
-        qualities: [0.92, 0.88, 0.85, 0.78],
-      })
-    } catch (err) {
-      console.warn('[StudentPortal] native camera pre-compress failed, using raw file:', err)
+    // 整份繳交：PDF 每頁一張（超過需要頁數只取前幾頁）
+    const limit = Math.max(1, cameraRequiredPages || pages.length)
+    const blobs = await Promise.all(pages.slice(0, limit).map(compress))
+    const files = blobs.map((blob, index) => new File([blob], `student-pdf-${index + 1}.jpg`, { type: blob.type || 'image/jpeg' }))
+    setCapturedBlobs(blobs)
+    if (cameraMode === 'upload' && cameraAssignmentId) {
+      const assignmentId = cameraAssignmentId
+      setUploadDrafts((drafts) => ({ ...drafts, [assignmentId]: files }))
+      setValidatedDrafts((prev) => { const next = { ...prev }; delete next[assignmentId]; return next })
+    } else {
+      setSelectedFiles(files)
     }
-    handleCameraCaptureComplete(blob)
+    resetCamera()
   }
 
   const rotateCorrectionPhoto = useCallback(
@@ -1296,7 +1313,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       }
       const missing = actionableItems.filter((item) => !questionActions[item.questionId || ''])
       if (missing.length > 0) {
-        setError(`還有 ${missing.length} 題未處理，請逐題拍照或申訴`)
+        setError(`還有 ${missing.length} 題未處理，請逐題上傳 PDF 或申訴`)
         return
       }
     } else {
@@ -1559,8 +1576,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       <input
         ref={cameraInputRef}
         type="file"
-        accept="image/*"
-        capture="environment"
+        accept=".pdf,application/pdf"
         hidden
         onChange={handleNativeCameraCapture}
       />
@@ -1754,7 +1770,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                       className="w-full rounded-xl border border-slate-200 bg-white px-4 py-4 text-left"
                     >
                       <h3 className="mb-1 truncate text-base font-semibold text-gray-900">{item.title}</h3>
-                      <p className="text-sm text-gray-500">此考卷由老師上傳批改，不需自行拍照。</p>
+                      <p className="text-sm text-gray-500">此考卷由老師上傳批改，不需自行上傳。</p>
                     </article>
                   )
                 }
@@ -1847,8 +1863,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                                 : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
                             }`}
                           >
-                            <Camera className="h-4 w-4" />
-                            <span className="text-center leading-tight">拍照上傳</span>
+                            <Upload className="h-4 w-4" />
+                            <span className="text-center leading-tight">上傳 PDF</span>
                           </button>
 
                           <span className="px-1 text-slate-300">›</span>
@@ -1959,7 +1975,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
               <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
                 <div>
                   <p className="text-sm font-semibold text-red-800">AI 批改失敗</p>
-                  <p className="text-xs text-red-600">請重新拍照送出訂正。</p>
+                  <p className="text-xs text-red-600">請重新上傳 PDF 送出訂正。</p>
                 </div>
               </div>
             )}
@@ -1999,7 +2015,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                 {/* Guide banner: shown when there are actionable items but student hasn't started */}
                 {actionableItems.length > 0 && Object.keys(questionActions).length === 0 && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
-                    ⬇️ 請為下方每一題點選「拍照重做」或「申訴此題」，完成後才能送出訂正。
+                    ⬇️ 請為下方每一題點選「上傳 PDF 重做」或「申訴此題」，完成後才能送出訂正。
                   </div>
                 )}
 
@@ -2035,7 +2051,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                       {/* Question header */}
                       <p className="mb-2 text-sm font-semibold text-slate-900">
                         {qId}{item.questionText ? ` · ${item.questionText}` : ''}
-                        {action?.type === 'photo' && <span className="ml-2 text-xs font-normal text-emerald-600">✓ 已拍照</span>}
+                        {action?.type === 'photo' && <span className="ml-2 text-xs font-normal text-emerald-600">✓ 已上傳</span>}
                         {action?.type === 'dispute' && <span className="ml-2 text-xs font-normal text-amber-600">✓ 已申訴</span>}
                       </p>
 
@@ -2044,7 +2060,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         <div className="mb-2 rounded border border-rose-200 bg-rose-50 px-2 py-1.5">
                           <p className="text-xs font-semibold text-rose-700">老師駁回申訴</p>
                           <p className="mt-0.5 text-xs text-rose-600">{item.disputeRejectionNote}</p>
-                          <p className="mt-1 text-xs text-rose-500">此題無法再申訴，請重新拍照訂正。</p>
+                          <p className="mt-1 text-xs text-rose-500">此題無法再申訴，請重新上傳 PDF 訂正。</p>
                         </div>
                       )}
 
@@ -2190,8 +2206,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                             onClick={() => openCamera('correction', correctionAssignmentId, qId)}
                             className="inline-flex items-center gap-1.5 rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            <Camera className="h-3.5 w-3.5" />
-                            拍照重做
+                            <Upload className="h-3.5 w-3.5" />
+                            上傳 PDF 重做
                           </button>
                           {!rejectedOnly && (
                             <button
@@ -2273,7 +2289,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                   <p className="text-xs text-slate-500">
                     {currentCorrectionAssignment?.status === 'correction_in_progress'
                       ? 'AI 批改中，請稍候…'
-                      : '每一題都需要選擇「拍照重做」或「申訴此題」後才能送出。'}
+                      : '每一題都需要選擇「上傳 PDF 重做」或「申訴此題」後才能送出。'}
                   </p>
                 )}
               </>
