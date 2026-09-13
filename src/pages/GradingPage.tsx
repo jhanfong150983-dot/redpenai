@@ -36,7 +36,8 @@ async function resolveGradeBand(
   return (g ?? 0) >= 10 ? 'high' : 'k9'
 }
 import { ensureAssignmentDetails } from '@/lib/submission-details'
-import { FLAT_BILLING, gradingPriceTextSmart } from '@/lib/action-pricing'
+import { FLAT_BILLING, gradingPriceTextSmart, fetchMyWallets, type MyWallets } from '@/lib/action-pricing'
+import { dispatchCampusBalance } from '@/lib/ink-events'
 import { dispatchInkBalance } from '@/lib/ink-events'
 import { dispatchSchoolWalletBalance } from '@/lib/school-billing'
 import { requestSync, waitForSync } from '@/lib/sync-events'
@@ -1615,7 +1616,7 @@ export default function GradingPage({
     //   →targets→debit→stampCharged→total（累計毫秒）。
     const t = (j as { timings?: Record<string, number> } | null)?.timings
     if (t) console.log('[save-grading] 分段耗時(累計ms)', t)
-    const b = (j as { billing?: { points?: number; scope?: string | null; balanceAfter?: number | null } } | null)?.billing
+    const b = (j as { billing?: { points?: number; scope?: string | null; balanceAfter?: number | null; campusBalanceAfter?: number | null; personalBalanceAfter?: number | null } } | null)?.billing
     if (!b) return
     const pts = b.points
     if (typeof pts === 'number' && pts > 0) setBilledPoints((p) => p + pts)
@@ -1624,7 +1625,25 @@ export default function GradingPage({
       if (b.scope === 'personal') dispatchInkBalance(b.balanceAfter)
       else if (b.scope === 'school') dispatchSchoolWalletBalance(b.balanceAfter)
     }
+    // 2026-09-13 份制：campus scope＝校園墨水優先、不足扣個人 → 兩個餘額都可能變
+    if (b.scope === 'campus') {
+      if (typeof b.campusBalanceAfter === 'number') dispatchCampusBalance({ schoolId: null, balance: b.campusBalanceAfter })
+      if (typeof b.personalBalanceAfter === 'number') dispatchInkBalance(b.personalBalanceAfter)
+    }
   }, [])
+  // 2026-09-13 份制：確認框顯示這份卷會扣哪一種墨水、各剩多少（開框時抓一次）
+  const [walletInfo, setWalletInfo] = useState<MyWallets | null>(null)
+  const walletLine = (count: number) => {
+    const a = walletInfo?.applicable
+    if (!a) return null
+    if (a.scope === 'school') return <span>由學校份數扣除。</span>
+    if (a.scope === 'campus') {
+      const short = Math.max(0, count - a.campusBalance)
+      return <span>先扣校園墨水（{a.schoolName ? `${a.schoolName}・` : ''}剩 {a.campusBalance} 份）{short > 0 ? `，不足的 ${short} 份改扣個人墨水（剩 ${a.personalBalance} 份）` : ''}。</span>
+    }
+    const short = Math.max(0, count - a.personalBalance)
+    return <span>扣個人墨水（剩 {a.personalBalance} 份）{short > 0 ? <b className="text-rose-600">，不足 {short} 份，批到用完會停止</b> : ''}。</span>
+  }
   // 結果視窗延遲顯示:notice 設定後先等扣點結算,等到就一次顯示藍卡(含點數+餘額);
   // 逾時則 fail-open 顯示灰卡「結算中,實際扣點以餘額為準」,結算補到後原地轉成藍卡。
   //
@@ -5826,6 +5845,12 @@ export default function GradingPage({
 
   // 2026-06-01 Phase3: 「智慧批改 ▼」分段按鈕的衍生狀態
   //   左半=智慧批改（一鍵接著批改）；右半 ▼=進階選單。total=0 時左半鎖住改字「已批改完成」、▼ 仍可點。
+  useEffect(() => {
+    if (!FLAT_BILLING || !(oneClickConfirmOpen || advInkConfirm || regradeChangedOpen)) return
+    let cancelled = false
+    void fetchMyWallets(assignmentId).then((w) => { if (!cancelled) setWalletInfo(w) })
+    return () => { cancelled = true }
+  }, [oneClickConfirmOpen, advInkConfirm, regradeChangedOpen, assignmentId])
   const smartHasWork = unfinishedBuckets.total > 0
   const smartHasSubs = submissions.size > 0
   const smartBusy = isGrading || isDownloading || isCheckingCorrectionState || !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'
@@ -5973,7 +5998,7 @@ export default function GradingPage({
       {/* 2026-06-01: 智慧批改確認——套共用 InkConfirmModal（墨水花費提醒 + 同意/不同意） */}
       <InkConfirmModal
         open={oneClickConfirmOpen}
-        warning="批改會消耗墨水（點數）"
+        warning="批改會扣份數：每批改成功一份扣 1 份、失敗不扣"
         onCancel={() => setOneClickConfirmOpen(false)}
         onConfirm={() => { void handleOneClickContinue() }}
       >
@@ -5982,8 +6007,8 @@ export default function GradingPage({
         </div>
         {FLAT_BILLING && (
           <div className="mb-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
-            費用:{gradingPriceTextSmart(unfinishedBuckets.total, assignment?.answerKey, sortedStudents.length)}
-            <span className="ml-1 text-xs text-sky-600">(固定價;失敗的卷不扣)</span>
+            本次扣 {gradingPriceTextSmart(unfinishedBuckets.total, assignment?.answerKey, sortedStudents.length)}
+            <div className="mt-0.5 text-xs text-sky-700">{walletLine(unfinishedBuckets.total) ?? '失敗的卷不扣。'}</div>
           </div>
         )}
         <ul className="mb-3 list-none space-y-1">
@@ -6013,13 +6038,19 @@ export default function GradingPage({
       {/* 2026-09-07 A3b：答案卷已變更 → 用新答案卷重批已批改卷（Phase B only、覆寫舊分數、保訂正/申訴） */}
       <InkConfirmModal
         open={regradeChangedOpen}
-        warning="重新批改會消耗墨水（點數）"
+        warning="重新批改會扣份數：每份 1 份（整份重新讀卷）"
         onCancel={() => setRegradeChangedOpen(false)}
         onConfirm={() => { setRegradeChangedOpen(false); void handleRegradeForAnswerKeyChange() }}
       >
         <div className="mb-2">
           答案卷內容已變更。即將用<strong>新答案卷</strong>重新批改 <strong>{stageAggregates.counts.graded}</strong> 份已批改的卷。
         </div>
+        {FLAT_BILLING && (
+          <div className="mb-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
+            本次扣 {stageAggregates.counts.graded} 份
+            <div className="mt-0.5 text-xs text-sky-700">{walletLine(stageAggregates.counts.graded) ?? '失敗的卷不扣。'}</div>
+          </div>
+        )}
         <div className="text-slate-600 text-xs">
           ℹ️ 會覆寫這些卷的舊分數（訂正／申訴紀錄逐題保留）；沿用原讀取結果、不需重新讀取。缺快取的卷會失敗、需改用「智慧批改」重讀。
         </div>
@@ -6028,14 +6059,15 @@ export default function GradingPage({
       {/* 2026-06-01: 進階「無覆寫風險直接跑」的墨水確認 */}
       <InkConfirmModal
         open={!!advInkConfirm}
-        warning={advInkConfirm?.kind === 'phase_a' ? '重新截取會消耗墨水（點數）' : advInkConfirm?.kind === 'full' ? '個別批改會消耗墨水（點數）' : '重新批改會消耗墨水（點數）'}
+        warning={advInkConfirm?.kind === 'phase_a' ? '重新截取本身不扣份；之後批改每份扣 1 份' : advInkConfirm?.kind === 'full' ? '個別批改會扣份數：每批改成功一份扣 1 份' : '重新批改會扣份數：每份 1 份'}
         onCancel={() => setAdvInkConfirm(null)}
         onConfirm={() => { const a = advInkConfirm; setAdvInkConfirm(null); a?.run() }}
       >
         <div>即將{advInkConfirm?.kind === 'phase_a' ? '重新截取答案' : advInkConfirm?.kind === 'full' ? '個別批改' : '重新批改'} <strong>{advInkConfirm?.count ?? 0}</strong> 份考卷。</div>
         {FLAT_BILLING && advInkConfirm?.kind !== 'phase_a' && (
           <div className="mt-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
-            費用:{gradingPriceTextSmart(advInkConfirm?.count ?? 0, assignment?.answerKey, sortedStudents.length)}
+            本次扣 {gradingPriceTextSmart(advInkConfirm?.count ?? 0, assignment?.answerKey, sortedStudents.length)}
+            <div className="mt-0.5 text-xs text-sky-700">{walletLine(advInkConfirm?.count ?? 0) ?? '失敗的卷不扣。'}</div>
             <span className="ml-1 text-xs text-sky-600">(固定價;失敗的卷不扣)</span>
           </div>
         )}
@@ -6049,7 +6081,7 @@ export default function GradingPage({
         clears={['AI 讀取結果', '批改分數', '訂正狀態']}
         keeps={['學生作答照片']}
         affectedNoun="份考卷"
-        inkNote="重新截取會消耗墨水（點數）"
+        inkNote="重新截取本身不扣份；之後批改每份扣 1 份"
         affected={(recaptureConfirm?.cleared ?? []).map((sub) => {
           const stu = students.find((s) => s.id === sub.studentId)
           const stage = deriveCardStage(sub, correctionStatusByStudent[sub.studentId])
@@ -6115,7 +6147,7 @@ export default function GradingPage({
         clears={['舊分數']}
         keeps={['訂正/申訴紀錄（逐題調和保留）']}
         affectedNoun="份已批改"
-        inkNote="重新批改會消耗墨水（點數）"
+        inkNote="重新批改會扣份數：每份 1 份"
         affected={(gradeOverwriteConfirm?.overwriting ?? []).map((sub) => {
           const stu = students.find((s) => s.id === sub.studentId)
           return {
@@ -6273,19 +6305,19 @@ export default function GradingPage({
               {/* 區塊二:本輪扣點(獨立卡;正常=藍卡含餘額、結算逾時=灰卡以餘額為準) */}
               {FLAT_BILLING && billedPoints > 0 && (
                 <div className="flex justify-between items-center rounded-lg border border-sky-200 bg-sky-50 px-3.5 py-3">
-                  <span className="flex items-center gap-2 text-sky-900"><span aria-hidden>🖋</span>本輪扣點</span>
+                  <span className="flex items-center gap-2 text-sky-900"><span aria-hidden>🖋</span>本輪扣份</span>
                   <span className="text-right">
                     <span className="block text-lg font-bold leading-tight text-sky-700">{billedPoints} 點</span>
                     {typeof billedBalanceAfter === 'number' && (
-                      <span className="mt-0.5 block text-xs text-slate-500">餘額 {billedBalanceAfter.toLocaleString()} 點</span>
+                      <span className="mt-0.5 block text-xs text-slate-500">剩餘 {billedBalanceAfter.toLocaleString()} 份</span>
                     )}
                   </span>
                 </div>
               )}
               {FLAT_BILLING && billedPoints === 0 && !billingSettled && (
                 <div className="flex justify-between items-center rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
-                  <span className="flex items-center gap-2 text-slate-500"><span aria-hidden>🖋</span>本輪扣點</span>
-                  <span className="text-sm text-slate-400">結算中,實際扣點以餘額為準</span>
+                  <span className="flex items-center gap-2 text-slate-500"><span aria-hidden>🖋</span>本輪扣份</span>
+                  <span className="text-sm text-slate-400">結算中,實際扣份以餘額為準</span>
                 </div>
               )}
               {gradeResultNotice.failReasons.length > 0 && (

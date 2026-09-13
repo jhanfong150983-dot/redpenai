@@ -10,7 +10,7 @@ import Button from '@/components/ui/Button'
  */
 export default function InkConfirmModal({
   open,
-  warning = '此動作會消耗墨水（點數）',
+  warning = '此動作會使用 AI',
   confirmLabel = '同意',
   cancelLabel = '不同意',
   onConfirm,

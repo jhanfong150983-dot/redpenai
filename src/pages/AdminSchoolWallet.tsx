@@ -86,8 +86,8 @@ export default function AdminSchoolWallet() {
     if (!Number.isFinite(delta) || delta === 0) return
     if (
       !(await confirm({
-        title: delta > 0 ? '學校儲值' : '學校點數調減',
-        message: `確定為「${topupTarget.name}」${delta > 0 ? '儲值' : '調減'} ${Math.abs(delta)} 點?${
+        title: delta > 0 ? '學校加購份數' : '學校份數調減',
+        message: `確定為「${topupTarget.name}」${delta > 0 ? '加購' : '調減'} ${Math.abs(delta)} 份?${
           topupNote.trim() ? `\n備註:${topupNote.trim()}` : ''
         }`,
         tone: 'warning',
@@ -108,7 +108,7 @@ export default function AdminSchoolWallet() {
       setTopupTarget(null)
       setTopupValue('')
       setTopupNote('')
-      await alertModal(`「${data.schoolName || topupTarget.name}」目前餘額 ${data.balance} 點。`)
+      await alertModal(`「${data.schoolName || topupTarget.name}」目前餘額 ${data.balance} 份。`)
       await refresh()
       if (selected?.id === topupTarget.id) void openLedger({ ...topupTarget, balance: data.balance })
     } catch (e) {
@@ -193,7 +193,7 @@ export default function AdminSchoolWallet() {
       {selected && (
         <div className="bg-white rounded-xl border border-slate-200">
           <div className="px-5 py-3 border-b border-gray-200">
-            <h2 className="text-sm font-bold text-gray-900">點數紀錄 · {selected.name}</h2>
+            <h2 className="text-sm font-bold text-gray-900">份數紀錄 · {selected.name}</h2>
           </div>
           {ledgerLoading ? (
             <div className="px-5 py-8 text-center text-sm text-gray-400">載入中…</div>
@@ -255,7 +255,7 @@ export default function AdminSchoolWallet() {
             </div>
             <div className="space-y-3 px-6 py-5">
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">點數(正數=儲值、負數=調減)</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">份數(正數=加購入帳、負數=調減)</label>
                 <input
                   type="number"
                   value={topupValue}
@@ -267,14 +267,14 @@ export default function AdminSchoolWallet() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">備註(選填,寫入點數紀錄)</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">備註(選填,寫入份數紀錄)</label>
                 <input
                   type="text"
                   value={topupNote}
                   onChange={(e) => setTopupNote(e.target.value)}
                   maxLength={200}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="例如:2026 學年度預付點數包"
+                  placeholder="例如:2026 學年度 PRO 20,000 份"
                 />
               </div>
             </div>

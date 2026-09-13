@@ -2635,7 +2635,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
       {aiGradeConfirmItem && (
         <InkConfirmModal
           open
-          warning="AI 批改會消耗墨水（點數，記在老師帳上）"
+          warning="AI 批改由系統處理，不扣老師份數"
           confirmLabel="開始批改"
           cancelLabel="取消"
           onCancel={() => setAiGradeConfirmItem(null)}

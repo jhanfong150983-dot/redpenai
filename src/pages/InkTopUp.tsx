@@ -394,10 +394,10 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
           </div>
           <div className="text-right">
             <p className="text-xs text-slate-500">目前餘額</p>
-            <p className="text-xl font-bold tabular-nums text-amber-700">{currentBalance} 滴</p>
+            <p className="text-xl font-bold tabular-nums text-amber-700">{currentBalance} 份</p>
             {pendingTotalDrops > 0 && (
               <p className="mt-0.5 text-xs text-amber-600">
-                待入帳 {pendingTotalDrops} 滴（{pendingAmountTwd} 元）
+                待入帳 {pendingTotalDrops} 份（{pendingAmountTwd} 元）
               </p>
             )}
           </div>
@@ -443,7 +443,7 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-semibold text-slate-900">{item.label}</span>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-sky-600">{item.drops} 滴</span>
+                        <span className="text-sm font-semibold text-sky-600">{item.drops} 份</span>
                         {itemBonus > 0 && (
                           <span className="text-xs font-semibold text-emerald-600">
                             +{itemBonus} 贈
@@ -455,7 +455,7 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
                       <p className="mt-1 text-xs text-slate-500">{item.description}</p>
                     )}
                     {itemBonus > 0 && (
-                      <p className="mt-1 text-xs text-emerald-600">實際獲得 {itemTotal} 滴</p>
+                      <p className="mt-1 text-xs text-emerald-600">實際獲得 {itemTotal} 份</p>
                     )}
                   </button>
                 )
@@ -473,11 +473,11 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
             </div>
             <div className="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5">
               <p className="text-[11px] text-emerald-600">加贈墨水</p>
-              <p className="mt-0.5 text-base font-semibold text-emerald-700">{bonusDrops} 滴</p>
+              <p className="mt-0.5 text-base font-semibold text-emerald-700">{bonusDrops} 份</p>
             </div>
             <div className="rounded-lg border border-sky-100 bg-sky-50 px-3 py-2.5">
               <p className="text-[11px] text-sky-600">實際獲得</p>
-              <p className="mt-0.5 text-base font-semibold text-sky-700">{totalDrops} 滴</p>
+              <p className="mt-0.5 text-base font-semibold text-sky-700">{totalDrops} 份</p>
             </div>
           </div>
         </div>
@@ -611,7 +611,7 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
                     ? order.bonus_drops
                     : 0
                 const orderTotal = order.drops + orderBonus
-                const orderLabel = order.package_label || `${order.drops} 滴`
+                const orderLabel = order.package_label || `${order.drops} 份`
                 return (
                   <div
                     key={order.id}
@@ -620,7 +620,7 @@ export default function InkTopUp({ onBack, currentBalance = 0 }: InkTopUpProps) 
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-900">
                         {orderLabel} / {order.amount_twd} 元
-                        {orderBonus > 0 ? `（加贈 ${orderBonus}，共 ${orderTotal} 滴）` : ''}
+                        {orderBonus > 0 ? `（加贈 ${orderBonus}，共 ${orderTotal} 份）` : ''}
                       </p>
                       <p className="mt-0.5 text-xs text-slate-500">
                         建立時間：{formatDate(order.created_at)}

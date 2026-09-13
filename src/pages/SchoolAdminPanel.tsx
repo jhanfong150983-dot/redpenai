@@ -192,6 +192,7 @@ interface TeacherOverviewRow {
   profileId: string | null
   loginEmail: string
   inkBalance: number | null
+  campusBalance: number | null
   classroomCount: number | null
   assignmentCount: number | null
 }
@@ -209,6 +210,7 @@ const LEDGER_REASON_LABEL: Record<string, string> = {
   admin_adjustment: '調整',
   grading_job: '統一批改',
   school_grant: '配發老師',
+  school_reclaim: '收回校園墨水',
   school_ai: 'AI 功能'
 }
 
@@ -908,10 +910,10 @@ export default function SchoolAdminPanel({
 
 
   // 配發:學校池 → 老師個人帳戶(行政與系統 admin 都可操作)
-  const submitGrant = useCallback(async () => {
+  const submitGrant = useCallback(async (override?: number) => {
     const sid = school?.school_id
-    const amount = parseInt(grantValue, 10)
-    if (!sid || !grantTarget?.profileId || !Number.isFinite(amount) || amount <= 0) return
+    const amount = typeof override === 'number' ? override : parseInt(grantValue, 10)
+    if (!sid || !grantTarget?.profileId || !Number.isFinite(amount) || amount === 0) return
     setGrantBusy(true)
     try {
       const res = await fetch('/api/data/school-grant', {
@@ -923,7 +925,9 @@ export default function SchoolAdminPanel({
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || '配發失敗')
       setGrantTarget(null)
-      await alertModal(`已配發 ${amount} 點給 ${data.teacherName || grantTarget.name},學校點數剩 ${data.balance} 點。`)
+      await alertModal(amount > 0
+        ? `已配發 ${amount} 份給 ${data.teacherName || grantTarget.name}（校園墨水剩 ${data.teacherBalance ?? '—'} 份），學校份數剩 ${data.balance} 份。`
+        : `已從 ${data.teacherName || grantTarget.name} 收回 ${data.reclaimed ?? -amount} 份，學校份數剩 ${data.balance} 份。`)
       await loadTeachers(sid)
     } catch (err) {
       await alertModal(err instanceof Error ? err.message : '配發失敗', { title: '配發失敗' })
@@ -1382,11 +1386,11 @@ export default function SchoolAdminPanel({
             {walletBalance != null && (
               <div
                 className="flex h-10 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 text-sm text-amber-800"
-                title="學校共用點數:統一批改與報告產生由學校點數扣除,全校行政看到同一個餘額。儲值由 RedPen AI 於簽約/付款後入點。"
+                title="學校共用份數:統一批改每成功一份扣 1 份;配發給老師的成為校園墨水,只能用在本校班級。加購由 RedPen AI 於簽約/付款後入帳。"
               >
                 <Droplet className="h-4 w-4" />
                 <span className="font-semibold tabular-nums">{walletBalance}</span>
-                <span className="text-xs">學校點數</span>
+                <span className="text-xs">學校份數</span>
               </div>
             )}
             {schoolList.length > 1 && (
@@ -2042,7 +2046,8 @@ export default function SchoolAdminPanel({
                       <th className="px-3 py-2.5 font-medium">任教</th>
                       <th className="px-3 py-2.5 font-medium text-right">班級數</th>
                       <th className="px-3 py-2.5 font-medium text-right">考卷數</th>
-                      <th className="px-3 py-2.5 font-medium text-right">個人點數</th>
+                      <th className="px-3 py-2.5 font-medium text-right" title="學校配發、尚未用掉的份數">校園墨水</th>
+                      <th className="px-3 py-2.5 font-medium text-right" title="老師自己的份數">個人</th>
                       <th className="px-3 py-2.5" />
                     </tr>
                   </thead>
@@ -2092,7 +2097,8 @@ export default function SchoolAdminPanel({
                         </td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.classroomCount ?? '—'}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.assignmentCount ?? '—'}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.inkBalance ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-emerald-700">{t.campusBalance ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-500">{t.inkBalance ?? '—'}</td>
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
                           <button
                             type="button"
@@ -2101,10 +2107,10 @@ export default function SchoolAdminPanel({
                               setGrantTarget(t)
                             }}
                             disabled={!t.bound}
-                            title={t.bound ? undefined : '老師尚未登入綁定,無法配發點數'}
+                            title={t.bound ? undefined : '老師尚未登入綁定,無法配發份數'}
                             className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            配發點數
+                            配發／收回
                           </button>
                           <button
                             type="button"
@@ -2121,7 +2127,7 @@ export default function SchoolAdminPanel({
                 </table>
                 {!teachersLoading && teachers.length === 0 && (
                   <div className="px-4 py-10 text-center text-sm text-slate-400">
-                    尚無教師名冊——請先到左側「偏好設定」按「全校名冊同步」;老師登入綁定後即可配發點數。
+                    尚無教師名冊——請先到左側「偏好設定」按「全校名冊同步」;老師登入綁定後即可配發份數。
                   </div>
                 )}
                 {teachersLoading && (
@@ -2132,7 +2138,7 @@ export default function SchoolAdminPanel({
 
               {/* 學校點數紀錄 */}
               <div>
-                <h3 className="mb-2 text-sm font-semibold text-slate-700">學校點數紀錄</h3>
+                <h3 className="mb-2 text-sm font-semibold text-slate-700">學校份數紀錄</h3>
                 <div className="overflow-x-auto rounded-xl border border-slate-200">
                   <table className="w-full text-sm">
                     <thead>
@@ -2173,7 +2179,7 @@ export default function SchoolAdminPanel({
                     </tbody>
                   </table>
                   {walletLedger.length === 0 && (
-                    <div className="px-4 py-8 text-center text-sm text-slate-400">尚無點數紀錄。</div>
+                    <div className="px-4 py-8 text-center text-sm text-slate-400">尚無份數紀錄。</div>
                   )}
                 </div>
               </div>
@@ -2619,20 +2625,20 @@ export default function SchoolAdminPanel({
         }}
       />
 
-      {/* 配發點數 modal:學校池 → 老師個人帳戶 */}
+      {/* 配發／收回 modal:學校池 ↔ 老師校園墨水（2026-09-13 份制：不再進個人帳、可收回） */}
       {grantTarget && (
         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 px-4">
           <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
             <div className="flex items-center justify-center gap-2 border-b border-amber-200 bg-amber-50 px-6 py-4 text-amber-800">
               <Droplet className="h-4 w-4" />
-              <span className="text-base font-bold">配發點數給 {grantTarget.name || grantTarget.account}</span>
+              <span className="text-base font-bold">配發份數給 {grantTarget.name || grantTarget.account}</span>
             </div>
             <div className="space-y-3 px-6 py-5">
               <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600">
-                從學校點數(目前 {walletBalance ?? '—'} 點)轉入老師個人帳戶,供其日常批改使用。此操作會寫入雙方點數紀錄。
+                從學校份數(目前 {walletBalance ?? '—'} 份)撥給老師成為「校園墨水」,只能用在本校班級的考卷;老師目前有 {grantTarget.campusBalance ?? 0} 份。未用完的可以隨時收回。
               </p>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-600">配發點數(正整數)</label>
+                <label className="mb-1 block text-xs font-medium text-slate-600">配發份數(正整數)</label>
                 <input
                   type="number"
                   value={grantValue}
@@ -2654,6 +2660,17 @@ export default function SchoolAdminPanel({
               >
                 取消
               </button>
+              {(grantTarget.campusBalance ?? 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { void submitGrant(-(grantTarget.campusBalance ?? 0)) }}
+                  disabled={grantBusy}
+                  className="mr-auto rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50"
+                  title="把這位老師尚未用掉的校園墨水全部收回學校池"
+                >
+                  收回全部 {grantTarget.campusBalance} 份
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => void submitGrant()}

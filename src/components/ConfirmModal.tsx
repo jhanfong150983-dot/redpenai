@@ -54,7 +54,7 @@ export function useAlertModal() {
 const TONE_BANNER: Record<Exclude<ConfirmTone, 'neutral'>, { cls: string; defaultText: string }> = {
   danger: { cls: 'border-red-200 bg-red-50 text-red-800', defaultText: '此動作無法復原' },
   warning: { cls: 'border-amber-200 bg-amber-50 text-amber-800', defaultText: '請確認後再繼續' },
-  ink: { cls: 'border-amber-200 bg-amber-50 text-amber-800', defaultText: '此動作會消耗墨水（點數）' },
+  ink: { cls: 'border-amber-200 bg-amber-50 text-amber-800', defaultText: '此動作會使用 AI' },
 }
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {

@@ -52,7 +52,8 @@ import GlobalSyncBar from '@/components/GlobalSyncBar'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { useConfirm } from '@/components/ConfirmModal'
 import { checkWebPSupport } from '@/lib/webpSupport'
-import { INK_BALANCE_EVENT, type InkBalanceDetail } from '@/lib/ink-events'
+import { INK_BALANCE_EVENT, CAMPUS_BALANCE_EVENT, type InkBalanceDetail, type CampusBalanceDetail } from '@/lib/ink-events'
+import { fetchMyWallets } from '@/lib/action-pricing'
 import { buildApiUrl } from '@/lib/api-base'
 import {
   requestSync,
@@ -1032,6 +1033,22 @@ function App() {
     window.addEventListener(INK_BALANCE_EVENT, handleInkBalance)
     return () => window.removeEventListener(INK_BALANCE_EVENT, handleInkBalance)
   }, [])
+  // 2026-09-13 份制：校園墨水（學校配發）——登入後抓一次、批改扣款事件來時重抓
+  const [campusWallets, setCampusWallets] = useState<Array<{ schoolId: string; schoolName: string; balance: number }>>([])
+  const authedUserId = auth.status === 'authenticated' ? auth.user.id : null
+  useEffect(() => {
+    if (!authedUserId) { setCampusWallets([]); return }
+    let cancelled = false
+    const load = () => { void fetchMyWallets().then((w) => { if (!cancelled && w) setCampusWallets(w.campus ?? []) }) }
+    load()
+    const onCampus = (e: Event) => {
+      const d = (e as CustomEvent<CampusBalanceDetail>).detail
+      if (d?.schoolId) setCampusWallets((prev) => prev.map((c) => (c.schoolId === d.schoolId ? { ...c, balance: d.balance } : c)))
+      else load()
+    }
+    window.addEventListener(CAMPUS_BALANCE_EVENT, onCampus)
+    return () => { cancelled = true; window.removeEventListener(CAMPUS_BALANCE_EVENT, onCampus) }
+  }, [authedUserId])
 
   useEffect(() => {
     if (auth.status !== 'authenticated') {
@@ -1298,9 +1315,9 @@ function App() {
     if (balance < 0) {
       const shouldTopUp = await confirmModal({
         tone: 'warning',
-        title: '墨水不足',
-        message: '目前墨水為負值，請先補充墨水後再使用 AI 批改。是否前往補充墨水？',
-        confirmLabel: '前往補充',
+        title: '份數不足',
+        message: '目前個人份數為負值，請先加購份數（或請學校配發校園墨水）後再使用 AI 批改。是否前往加購？',
+        confirmLabel: '前往加購',
         cancelLabel: '稍後再說',
       })
       if (shouldTopUp) {
@@ -2295,15 +2312,21 @@ function App() {
                           </span>
                         </div>
                         <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                          <span>墨水</span>
+                          <span>個人墨水</span>
                           <span className="font-semibold tabular-nums text-amber-700">
-                            {auth.user.inkBalance ?? 0} 滴
+                            {auth.user.inkBalance ?? 0} 份
                           </span>
                         </div>
+                        {campusWallets.map((c) => (
+                          <div key={c.schoolId} className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-emerald-800" title="學校配發、只能用在該校班級的考卷">
+                            <span className="truncate pr-2">校園墨水{c.schoolName ? `・${c.schoolName}` : ''}</span>
+                            <span className="shrink-0 font-semibold tabular-nums">{c.balance} 份</span>
+                          </div>
+                        ))}
                         {pendingInk.totalDrops > 0 && (
                           <div className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-amber-700">
                             <span>待入帳</span>
-                            <span className="font-semibold tabular-nums">{pendingInk.totalDrops} 滴</span>
+                            <span className="font-semibold tabular-nums">{pendingInk.totalDrops} 份</span>
                           </div>
                         )}
                       </div>
@@ -2319,7 +2342,7 @@ function App() {
                           className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-700"
                         >
                           <Droplet className="h-4 w-4" />
-                          補充墨水
+                          加購份數
                         </button>
                       )}
                       {isAdmin && (
