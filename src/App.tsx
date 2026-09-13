@@ -54,6 +54,7 @@ import { useConfirm } from '@/components/ConfirmModal'
 import { checkWebPSupport } from '@/lib/webpSupport'
 import { INK_BALANCE_EVENT, CAMPUS_BALANCE_EVENT, type InkBalanceDetail, type CampusBalanceDetail } from '@/lib/ink-events'
 import { fetchMyWallets } from '@/lib/action-pricing'
+import { PLAN_RANK, normalizePlan } from '@/lib/school-plan'
 import { buildApiUrl } from '@/lib/api-base'
 import {
   requestSync,
@@ -1035,11 +1036,13 @@ function App() {
   }, [])
   // 2026-09-13 份制：校園墨水（學校配發）——登入後抓一次、批改扣款事件來時重抓
   const [campusWallets, setCampusWallets] = useState<Array<{ schoolId: string; schoolName: string; balance: number }>>([])
+  // 2026-09-13 方案等級：老師任教學校中最高的方案（PRO 以上→開後續追蹤／家長報告；方案只加權限不減）
+  const [bestSchoolPlanRank, setBestSchoolPlanRank] = useState(0)
   const authedUserId = auth.status === 'authenticated' ? auth.user.id : null
   useEffect(() => {
     if (!authedUserId) { setCampusWallets([]); return }
     let cancelled = false
-    const load = () => { void fetchMyWallets().then((w) => { if (!cancelled && w) setCampusWallets(w.campus ?? []) }) }
+    const load = () => { void fetchMyWallets().then((w) => { if (!cancelled && w) { setCampusWallets(w.campus ?? []); setBestSchoolPlanRank(Math.max(0, ...(w.plans ?? []).map((p) => PLAN_RANK[normalizePlan(p.plan)]))) } }) }
     load()
     const onCampus = (e: Event) => {
       const d = (e as CustomEvent<CampusBalanceDetail>).detail
@@ -1306,7 +1309,7 @@ function App() {
     (auth.user.permissionTier === 'advanced' || hasPaidOrder)
   const canAccessTracking =
     auth.status === 'authenticated' &&
-    (isProTier || isAdmin)
+    (isProTier || isAdmin || bestSchoolPlanRank >= PLAN_RANK.pro)
   // 2026-07-22 modal 統一：window.confirm → useConfirm（async），呼叫端一律 await
   const confirmModal = useConfirm()
   const ensureInkNonNegative = useCallback(async () => {

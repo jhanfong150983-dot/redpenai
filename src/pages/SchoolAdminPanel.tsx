@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { PLAN_LABEL, normalizePlan, planAllows, planDeniedMessage, type SchoolPlan } from '@/lib/school-plan'
 import {
   ArrowLeft,
   RefreshCw,
@@ -136,6 +137,9 @@ const navSections: Array<{
   }
 ]
 
+// 2026-09-13 方案等級：這些分頁屬 PRO（行政端統一批改、建立學校答案、成績統計、學情分析）
+const PLAN_LOCKED_TABS = new Set<string>(['exams', 'answerkeys', 'grades', 'analysis'])
+
 // 分頁標題吃同一份 navSections——原本用巢狀三元,加了「偏好設定」就漏掉、顯示成「弱點分析」。
 const TAB_LABEL: Record<string, string> = Object.fromEntries(
   navSections.flatMap((s) => s.items.map((i) => [i.key, i.label]))
@@ -260,6 +264,8 @@ export default function SchoolAdminPanel({
   const alertModal = useAlertModal()
   const confirmModal = useConfirm()
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
+  // 2026-09-13 方案等級（school-wallet GET 帶回；null＝未知→不鎖）
+  const [schoolPlan, setSchoolPlan] = useState<SchoolPlan | null>(null)
   const [teachers, setTeachers] = useState<TeacherOverviewRow[]>([])
   const [teacherSource, setTeacherSource] = useState<'roster' | 'fallback' | null>(null)
   const [walletLedger, setWalletLedger] = useState<WalletLedgerRow[]>([])
@@ -344,6 +350,7 @@ export default function SchoolAdminPanel({
       const data = await res.json()
       if (res.ok && typeof data.balance === 'number') setWalletBalance(data.balance)
       else setWalletBalance(null)
+      setSchoolPlan(res.ok && data.plan ? normalizePlan(data.plan) : null)
     } catch {
       setWalletBalance(null)
     }
@@ -1391,6 +1398,11 @@ export default function SchoolAdminPanel({
                 <Droplet className="h-4 w-4" />
                 <span className="font-semibold tabular-nums">{walletBalance}</span>
                 <span className="text-xs">學校份數</span>
+                {schoolPlan && (
+                  <span className={`ml-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${schoolPlan === 'basic' ? 'bg-slate-200 text-slate-700' : 'bg-slate-900 text-white'}`} title="學校方案等級，由 RedPen AI 依合約設定">
+                    {PLAN_LABEL[schoolPlan]}
+                  </span>
+                )}
               </div>
             )}
             {schoolList.length > 1 && (
@@ -1514,7 +1526,14 @@ export default function SchoolAdminPanel({
             </div>
           )}
 
-          {tab === 'weakness' ? (
+          {schoolPlan && PLAN_LOCKED_TABS.has(tab) && !planAllows(schoolPlan, 'schoolGrading') ? (
+            /* 2026-09-13 方案等級：Basic 校的行政端只有名冊／教師／設定；統一批改、成績、學情屬 PRO */
+            <div className="mx-auto mt-10 max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
+              <div className="text-base font-bold text-slate-900">這是 PRO 方案的功能</div>
+              <p className="mt-2 text-sm text-slate-600">{planDeniedMessage('schoolGrading', schoolPlan)}</p>
+              <p className="mt-3 text-xs text-slate-400">老師端的批改、檢討單、成績統計、試題分析不受影響，Basic 全部可用。</p>
+            </div>
+          ) : tab === 'weakness' ? (
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center text-slate-400">
               弱點分析即將推出
             </div>

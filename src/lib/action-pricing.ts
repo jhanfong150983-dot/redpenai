@@ -29,6 +29,8 @@ export type MyWallets = {
   personal: number
   campus: Array<{ schoolId: string; schoolName: string; balance: number }>
   applicable?: { scope: 'school' | 'campus' | 'personal'; schoolId: string | null; schoolName: string; campusBalance: number; personalBalance: number }
+  /** 老師任教學校的方案等級（2026-09-13；方案只加權限） */
+  plans?: Array<{ schoolId: string; schoolName: string; plan: 'basic' | 'pro' | 'promax' }>
 }
 export async function fetchMyWallets(assignmentId?: string): Promise<MyWallets | null> {
   try {

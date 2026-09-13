@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Droplet, RefreshCw, Plus } from 'lucide-react'
 import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
+import { PLANS, PLAN_LABEL, normalizePlan, type SchoolPlan } from '@/lib/school-plan'
 
 // 2026-07-30 學校錢包(user 拍板:儲值只在 admin 後台——學校付款/簽約後由我們入點)。
 // 學校端(SchoolAdminPanel)只讀餘額與紀錄;配發給老師是行政在學校端做。
@@ -10,6 +11,7 @@ type WalletSchool = {
   name: string
   dsns: string
   balance: number
+  plan: SchoolPlan
 }
 
 type LedgerRow = {
@@ -26,6 +28,8 @@ const REASON_LABEL: Record<string, string> = {
   admin_adjustment: '調整',
   grading_job: '統一批改',
   school_grant: '配發老師',
+  school_reclaim: '收回校園墨水',
+  plan_change: '方案變更',
   school_ai: 'AI 功能'
 }
 
@@ -43,6 +47,24 @@ export default function AdminSchoolWallet() {
   const [topupNote, setTopupNote] = useState('')
   const [topupBusy, setTopupBusy] = useState(false)
 
+  // 2026-09-13 方案等級：只有系統 admin 能改（這頁本身就是 admin 後台）
+  const changePlan = useCallback(async (s: WalletSchool, plan: SchoolPlan) => {
+    if (plan === s.plan) return
+    const ok = await confirm({ tone: 'warning', title: '變更學校方案', message: `確定把「${s.name}」從 ${PLAN_LABEL[s.plan]} 改為 ${PLAN_LABEL[plan]}？行政端與老師端的功能開放會立即跟著變。`, confirmLabel: '確定變更', cancelLabel: '取消' })
+    if (!ok) return
+    try {
+      const res = await fetch('/api/admin/school-wallet?action=school-wallet', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify({ schoolId: s.id, plan })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || '更新方案失敗')
+      setSchools((prev) => prev.map((x) => (x.id === s.id ? { ...x, plan } : x)))
+    } catch (e) {
+      await alertModal(e instanceof Error ? e.message : '更新方案失敗', { title: '更新方案失敗' })
+    }
+  }, [confirm, alertModal])
+
   const refresh = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -50,7 +72,7 @@ export default function AdminSchoolWallet() {
       const res = await fetch('/api/admin/school-wallet?action=school-wallet', { credentials: 'include' })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || '讀取失敗')
-      setSchools(Array.isArray(data.schools) ? data.schools : [])
+      setSchools(Array.isArray(data.schools) ? data.schools.map((s: WalletSchool) => ({ ...s, plan: normalizePlan(s.plan) })) : [])
     } catch (e) {
       setError(e instanceof Error ? e.message : '讀取失敗')
     } finally {
@@ -141,7 +163,8 @@ export default function AdminSchoolWallet() {
             <thead>
               <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
                 <th className="px-5 py-2 font-medium">學校</th>
-                <th className="px-3 py-2 font-medium text-right">餘額</th>
+                <th className="px-3 py-2 font-medium">方案</th>
+                <th className="px-3 py-2 font-medium text-right">餘額（份）</th>
                 <th className="px-3 py-2" />
               </tr>
             </thead>
@@ -154,6 +177,16 @@ export default function AdminSchoolWallet() {
                   <td className="px-5 py-2.5">
                     <div className="text-gray-900">{s.name}</div>
                     <div className="text-xs text-gray-500">{s.dsns}</div>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <select
+                      value={s.plan}
+                      onChange={(e) => void changePlan(s, normalizePlan(e.target.value))}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-800"
+                      title="學校方案等級：Basic 只有老師端批改；PRO 加家長報告／檢討模式／行政端統一批改；PROMAX 加學生訂正／家長推播"
+                    >
+                      {PLANS.map((p) => <option key={p} value={p}>{PLAN_LABEL[p]}</option>)}
+                    </select>
                   </td>
                   <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">{s.balance}</td>
                   <td className="px-3 py-2.5 text-right whitespace-nowrap">
