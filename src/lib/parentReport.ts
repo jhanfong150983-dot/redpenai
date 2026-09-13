@@ -1379,6 +1379,23 @@ function triggerDownload(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 4000)
 }
 
+/** 2026-09-13 發布：伺服器產這位學生的 PDF、存 Storage、回時效簽章連結（家長免登入可開）。之後「發送給家長」把 url 放進推播。 */
+export type PublishedReport = { url: string; expiresAt: string; path: string; bytes: number }
+export async function publishParentReport(report: StudentReport, header: ReportHeader, assignmentId: string, ttlDays = 14): Promise<PublishedReport> {
+  const res = await fetch('/api/report/parent-publish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ assignmentId, studentId: report.studentId, ttlDays, html: buildPrintDocument([report], header) }),
+  })
+  if (!res.ok) {
+    let msg = `發布失敗（${res.status}）`
+    try { const j = await res.json(); if (j?.error) msg = j.error } catch { /* 非 JSON */ }
+    throw new Error(msg)
+  }
+  return (await res.json()) as PublishedReport
+}
+
 /** 單份 PDF Blob（供下載、預覽）。 */
 export async function createReportPdfBlob(report: StudentReport, header: ReportHeader): Promise<Blob> {
   return fetchReportPdf([report], header)
