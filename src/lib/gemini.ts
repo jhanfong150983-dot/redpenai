@@ -7191,3 +7191,124 @@ export async function readReferenceAnswerCells(cells: ReferenceCellInput[]): Pro
   }
   return out
 }
+
+
+// ═══ 2026-09-13 自備作答卷統一管線（與「系統製作作答卷」同源）══════════════════
+//   user 拍板：兩者都是「題本＋作答卷」，解析應該一樣。差別只有一步：老師自己的作答卷格位未知，
+//   要靠 AI 在卷上定位（生成卷版面已知、免定位）。其餘全部重用生成卷模組：
+//     ① 題本 → solveAnswerKeyFromBooklet(structureOnly)：骨架（31 型權威表、配分）＝生成卷②
+//     ② 多頁作答卷：一次 AI 判每題在第幾頁（單頁免問）→ 題號改 <照片序號>-<大題>-<序>、設 pageIndex
+//     ③ 定位：locateAnswerOnlyBboxesAcrossPages（既有 answer_only locate、靠 anchorHint）
+//     ④ canvas 裁格 → readReferenceAnswerCells 逐格讀字（＝生成卷④同一支 read_reference）
+//     ⑤ 規準：runAnswerKeyStageA（map_fill 位置／作圖 VJ／應用題級分）＋多元填空判準（同免上傳路徑）
+//   舊的「一支 prompt 判 6 型＋讀答案」（buildAnswerKeyAnswerOnlyPrompt）在旗標開時於此模式退場。
+//   旗標預設關（先拿真實自備作答卷對照舊路徑、通過再切預設）：localStorage.setItem('redpen-teacher-scan-unified','1')
+export const TEACHER_SCAN_UNIFIED_ENABLED = (() => {
+  try { return localStorage.getItem('redpen-teacher-scan-unified') === '1' } catch { return false }
+})()
+
+function buildSheetPageAssignPrompt(questions: AnswerKeyQuestion[], pageCount: number): string {
+  const list = questions.map((q) => `${q.id}｜${q.anchorHint ?? ''}`).join('\n')
+  return `這是一份老師自備的「作答卷」共 ${pageCount} 頁（只有作答格、沒有題目）。
+以下題目清單來自題本的結構分析。請判斷每一題的作答格印在作答卷的第幾頁（1..${pageCount}）。
+依大題標題與格子順序對應；同一大題可能跨頁（前幾格在第 1 頁、其餘在第 2 頁）。在作答卷上找不到的題可省略。
+題目清單（id｜位置提示）：
+${list}
+只輸出 JSON：{"pages":[{"questionId":"1-1-1","page":1}]}`
+}
+
+export async function extractTeacherScanAnswerKey(
+  bookletBlobs: Blob[],
+  sheetBlobs: Blob[],
+  opts: { domain?: string; levelRubricEnabled?: boolean; onProgress?: (m: string) => void } = {},
+): Promise<AnswerKey> {
+  const onProgress = opts.onProgress ?? (() => {})
+  if (!bookletBlobs.length) throw new Error('自備作答卷需要題本才能解析（題型只寫在題本上）')
+  if (!sheetBlobs.length) throw new Error('請先上傳寫好標準答案的作答卷')
+
+  // ① 題本 → 骨架
+  const skeleton = await solveAnswerKeyFromBooklet(bookletBlobs, { domain: opts.domain, structureOnly: true, onProgress })
+  const questions: AnswerKeyQuestion[] = skeleton.questions.map((q) => ({ ...q }))
+  if (!questions.length) throw new Error('AI 無法從題本分析出考卷結構，請確認題本影像清晰完整')
+
+  // ② 多頁：每題在第幾頁
+  const pageOf = new Map<string, number>()
+  if (sheetBlobs.length > 1) {
+    onProgress(`作答卷共 ${sheetBlobs.length} 頁，AI 判斷各題所在頁…`)
+    const parts: GeminiRequestPart[] = [buildSheetPageAssignPrompt(questions, sheetBlobs.length)]
+    for (let i = 0; i < sheetBlobs.length; i++) {
+      parts.push(`【作答卷第 ${i + 1} 頁】`)
+      parts.push({ inlineData: { mimeType: sheetBlobs[i].type || 'image/jpeg', data: await blobToBase64(sheetBlobs[i]) } })
+    }
+    try {
+      const text = await generateGeminiText(currentModelName, parts, { routeKey: 'answer_key.locate' })
+      const parsed = parseGeminiJsonText(text) as { pages?: Array<{ questionId: string; page: number }> } | null
+      for (const p of parsed?.pages ?? []) {
+        const pg = Number(p?.page)
+        if (Number.isInteger(pg) && pg >= 1 && pg <= sheetBlobs.length) pageOf.set(String(p.questionId), pg - 1)
+      }
+      console.log(`📄 [teacher_scan] 頁面歸屬 ${pageOf.size}/${questions.length} 題`)
+    } catch (err) {
+      console.warn('[teacher_scan] 頁面歸屬失敗，全部視為第 1 頁:', err instanceof Error ? err.message : err)
+    }
+  }
+  // 題號改成 <照片序號>-<大題>-<序>（與舊 answer_only 慣例一致；server 以 pageIndex／id 首段定頁）
+  for (const q of questions) {
+    const pi = pageOf.get(q.id) ?? 0
+    q.pageIndex = pi
+    const segs = String(q.id).split('-')
+    q.id = `${pi + 1}-${segs.slice(1).join('-')}`
+  }
+
+  // ③ 定位（唯一與生成卷不同的一步）
+  onProgress('AI 在作答卷上定位各題作答格…')
+  const bboxMap = await locateAnswerOnlyBboxesAcrossPages(questions, sheetBlobs)
+  for (const q of questions) { const b = bboxMap.get(q.id); if (b) q.answerBbox = b }
+
+  // ④ 裁格 → 逐格讀字
+  const cropMap = await cropAnswerKeyQuestionsOnCanvas(questions, bboxMap, sheetBlobs)
+  for (const q of questions) { const c = cropMap.get(q.id); if (c) q.cropImageUrl = c }
+  const DRAWING = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'])
+  const textCells: ReferenceCellInput[] = questions
+    .filter((q) => q.cropImageUrl && !DRAWING.has(String(q.questionCategory)))
+    .map((q) => ({
+      id: q.id,
+      dataUrl: q.cropImageUrl!,
+      hint: String(q.questionCategory) === 'word_problem' ? '手寫算式與答案（多行照抄）' : '手寫國字/注音/數值/數學式/選項代號',
+    }))
+  onProgress(`AI 讀取作答卷上的標準答案（${textCells.length} 格）…`)
+  const reads = new Map<string, string>()
+  for (let i = 0; i < textCells.length; i += 30) { // 合批每 30 格一次（自備卷可能上百格）
+    const part = await readReferenceAnswerCells(textCells.slice(i, i + 30))
+    for (const [k, v] of part) reads.set(k, v)
+  }
+  for (const q of questions) {
+    const r = reads.get(q.id)
+    if (r == null || r === '') continue
+    if (String(q.questionCategory) === 'word_problem') { q.referenceAnswer = r; q.answer = r }
+    else q.answer = r
+  }
+
+  // ⑤ 規準
+  onProgress('產生評分規準（作圖／應用題／多元填空）…')
+  await runAnswerKeyStageA(questions, bookletBlobs, sheetBlobs, { levelRubricEnabled: opts.levelRubricEnabled })
+  const fv = questions.filter((q) => String(q.questionCategory) === 'fill_variants' && String(q.answer ?? '').trim())
+  if (fv.length) {
+    try {
+      const crit = await detectFillVariantsCriteria(
+        fv.map((q) => ({ id: q.id, answer: String(q.answer), anchorHint: q.anchorHint, maxScore: q.maxScore })),
+        bookletBlobs, { domain: opts.domain, onProgress },
+      )
+      for (const q of fv) {
+        const c = crit.get(q.id); if (!c) continue
+        if (c.referenceAnswer) q.referenceAnswer = c.referenceAnswer
+        if (c.acceptableAnswers.length) q.acceptableAnswers = c.acceptableAnswers
+      }
+    } catch (err) { console.warn('[teacher_scan] 多元填空判準失敗（可後補）:', err instanceof Error ? err.message : err) }
+  }
+
+  const located = questions.filter((q) => q.answerBbox).length
+  const read = questions.filter((q) => String(q.answer ?? '').trim()).length
+  console.log(`✅ [teacher_scan unified] ${questions.length} 題、定位 ${located}、讀到答案 ${read}`)
+  return { ...skeleton, questions, totalScore: questions.reduce((t, q) => t + (q.maxScore ?? 0), 0) }
+}

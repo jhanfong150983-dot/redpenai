@@ -12,7 +12,7 @@ import { requestSync } from '@/lib/sync-events'
 import { rescaleSubmissionForMaxScoreChange } from '@/lib/answerStats'
 import { fetchBuildQuota, type BuildQuota } from '@/lib/buildQuota'
 import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
-import { solveAnswerKeyFromBooklet, extractAnswerKeyFromImages, readReferenceAnswerCells, detectVisualRubric, detectLevelRubric, detectFillVariantsCriteria } from '@/lib/gemini'
+import { solveAnswerKeyFromBooklet, extractAnswerKeyFromImages, readReferenceAnswerCells, detectVisualRubric, detectLevelRubric, detectFillVariantsCriteria, extractTeacherScanAnswerKey, TEACHER_SCAN_UNIFIED_ENABLED } from '@/lib/gemini'
 import { cropReferenceSheetCells } from '@/lib/generatedSheetAlign'
 import type { GeneratedSheetData } from '@/lib/answerSheetGenerator'
 import { runKpUpgradeInline } from '@/lib/parentReport'
@@ -647,6 +647,21 @@ export default function AnswerBank(_props: AnswerBankProps) {
         return { answerKey, imageBlobs: blobs, notice: '已依定版格位逐格讀取手寫答案；請逐題核對（每題附裁切截圖），作圖/應用題的評分規準已由您的正解自動產生。' }
       }
 
+      // ── 2026-09-13 自備作答卷統一管線（旗標、預設關）：題本→骨架（同生成卷②）＋作答卷 AI 定位→裁格→逐格讀（同生成卷④）──
+      if (TEACHER_SCAN_UNIFIED_ENABLED && context.answerSheetMode === 'answer_only' && !context.generatedLayout && (context.bookletBlobs?.length ?? 0) > 0) {
+        const answerKey = await extractTeacherScanAnswerKey(context.bookletBlobs!, blobs, {
+          domain: context.domain || undefined,
+          levelRubricEnabled: context.levelRubricEnabled,
+          onProgress: _onProgress,
+        })
+        const n = answerKey.questions.length
+        const located = answerKey.questions.filter((q) => q.answerBbox).length
+        const read = answerKey.questions.filter((q) => String(q.answer ?? '').trim()).length
+        return {
+          answerKey, imageBlobs: blobs,
+          notice: `已依題本分析結構（${n} 題）、在作答卷上定位 ${located} 格、讀到 ${read} 格答案。請逐題核對（每題附裁切截圖）。`,
+        }
+      }
       const answerKey = await extractAnswerKeyFromImages(blobs, {
         domain: context.domain || undefined,
         docType: context.docType,
