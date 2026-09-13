@@ -2,7 +2,7 @@
 // 上課投影用、全螢幕。左＝題本預覽（放大縮小、換頁；換題時不動，老師自己調）。
 // 右＝這一題檢討需要的素材：錯幾人、誰錯了（座號）、正確寫法、典型錯法（樣態群＋代表卷面）、參考答案（預設收起）。
 // 順序＝檢討順序（失分率高→低）；← → 換題；Esc 離開。零 AI、零墨水：全部來自已批改資料與樣態聚合。
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, X, ZoomIn, ZoomOut, Maximize2, Eye, EyeOff, Check } from 'lucide-react'
 import { db, type Submission } from '@/lib/db'
 import { buildQuestionStats, cmpQid, type AnswerGroup, type QuestionStats } from '@/lib/answerStats'
@@ -54,6 +54,47 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
     e.preventDefault()
     setZoom((z) => Math.max(0.5, Math.min(4, +(z + (e.deltaY < 0 ? 0.1 : -0.1)).toFixed(2))))
   }
+  // 2026-09-13 user：平板雙指縮放題本。用原生 touch 事件（React 的 onTouchMove 是 passive、擋不住瀏覽器整頁縮放），
+  //   容器 touch-action: pan-x pan-y 保留單指捲動、關掉瀏覽器自己的 pinch；縮放中心＝兩指中點（縮放後補捲動量讓中點不動）。
+  const zoomRef = useRef(zoom)
+  zoomRef.current = zoom
+  const pendingScroll = useRef<{ sl: number; st: number } | null>(null)
+  useLayoutEffect(() => {
+    if (pendingScroll.current && viewerRef.current) {
+      viewerRef.current.scrollLeft = pendingScroll.current.sl
+      viewerRef.current.scrollTop = pendingScroll.current.st
+      pendingScroll.current = null
+    }
+  }, [zoom])
+  useEffect(() => {
+    const el = viewerRef.current
+    if (!el) return
+    let pinch: { d: number; z: number; mx: number; my: number; sl: number; st: number } | null = null
+    const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return
+      const r = el.getBoundingClientRect()
+      pinch = { d: dist(e.touches) || 1, z: zoomRef.current, mx: (e.touches[0].clientX + e.touches[1].clientX) / 2 - r.left, my: (e.touches[0].clientY + e.touches[1].clientY) / 2 - r.top, sl: el.scrollLeft, st: el.scrollTop }
+      e.preventDefault()
+    }
+    const onMove = (e: TouchEvent) => {
+      if (!pinch || e.touches.length !== 2) return
+      e.preventDefault()
+      const z = Math.max(0.5, Math.min(4, +(pinch.z * dist(e.touches) / pinch.d).toFixed(2)))
+      const k = z / pinch.z
+      pendingScroll.current = { sl: (pinch.sl + pinch.mx) * k - pinch.mx, st: (pinch.st + pinch.my) * k - pinch.my }
+      setZoom(z)
+    }
+    const onEnd = (e: TouchEvent) => { if (e.touches.length < 2) pinch = null }
+    el.addEventListener('touchstart', onStart, { passive: false })
+    el.addEventListener('touchmove', onMove, { passive: false })
+    el.addEventListener('touchend', onEnd)
+    el.addEventListener('touchcancel', onEnd)
+    return () => {
+      el.removeEventListener('touchstart', onStart); el.removeEventListener('touchmove', onMove)
+      el.removeEventListener('touchend', onEnd); el.removeEventListener('touchcancel', onEnd)
+    }
+  }, [pageCount])
 
   // ── 樣態聚合（同樣態分析／評分統計那一套） ──
   const stuById = useMemo(() => new Map(students.map((s) => [s.id, s])), [students])
@@ -218,8 +259,9 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
             <button type="button" onClick={() => setZoom(1)} className="p-1.5 rounded hover:bg-slate-800" title="還原"><Maximize2 className="w-4 h-4" /></button>
           </div>
           <div ref={viewerRef} className="flex-1 min-h-0 overflow-auto bg-slate-900 cursor-grab active:cursor-grabbing"
+            style={{ touchAction: 'pan-x pan-y' }}
             onMouseDown={onViewerDown} onMouseMove={onViewerMove} onMouseUp={onViewerUp} onMouseLeave={onViewerUp} onWheel={onViewerWheel}
-            title="按住拖曳移動；Ctrl＋滾輪縮放">
+            title="按住拖曳移動；Ctrl＋滾輪或雙指縮放">
             {pageCount > 0
               ? <img src={pageUrl(page)} alt={`題本第 ${page + 1} 頁`} draggable={false} style={{ width: `${zoom * 100}%`, maxWidth: 'none', display: 'block', pointerEvents: 'none' }} />
               : <div className="h-full flex items-center justify-center text-slate-500 text-sm">這份考卷沒有上傳題本，左側無法預覽</div>}
@@ -231,15 +273,16 @@ export default function ReviewModeOverlay({ assignmentId, templateId, title, que
             <div className="flex-1 flex items-center justify-center text-slate-500">此考卷還沒有可統計的批改資料</div>
           ) : (
             <>
-              <div className="flex items-center gap-3 px-4 py-2 border-b border-slate-800 shrink-0">
-                <button type="button" disabled={idx <= 0} onClick={() => setIdx((i) => Math.max(0, i - 1))} className="p-2 rounded-lg border border-slate-700 hover:bg-slate-800 disabled:opacity-30"><ChevronLeft className="w-5 h-5" /></button>
-                <div className="text-3xl font-black tabular-nums">{cur.qid}</div>
-                <div className="text-sm text-slate-400">檢討順序 {idx + 1}/{order.length}　配分 {active.maxScore}</div>
-                <div className={`ml-1 px-2.5 py-1 rounded-lg font-bold ${cur.wrong > 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'}`}>錯 {cur.wrong} / {cur.total} 人</div>
-                <button type="button" onClick={() => toggleDone(cur.qid)} className={`ml-auto inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm font-semibold ${done.has(cur.qid) ? 'border-emerald-500 bg-emerald-500/20 text-emerald-200' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}>
+              {/* 2026-09-13 user：平板右欄較窄時這排被壓縮、題號「1-1-1」被拆成兩行 → 每項 nowrap＋shrink-0，擠不下就整項換行 */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2 border-b border-slate-800 shrink-0">
+                <button type="button" disabled={idx <= 0} onClick={() => setIdx((i) => Math.max(0, i - 1))} className="shrink-0 p-2 rounded-lg border border-slate-700 hover:bg-slate-800 disabled:opacity-30"><ChevronLeft className="w-5 h-5" /></button>
+                <div className="text-3xl font-black tabular-nums whitespace-nowrap shrink-0">{cur.qid}</div>
+                <div className="text-sm text-slate-400 whitespace-nowrap shrink-0">檢討順序 {idx + 1}/{order.length}　配分 {active.maxScore}</div>
+                <div className={`ml-1 px-2.5 py-1 rounded-lg font-bold whitespace-nowrap shrink-0 ${cur.wrong > 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'}`}>錯 {cur.wrong} / {cur.total} 人</div>
+                <button type="button" onClick={() => toggleDone(cur.qid)} className={`ml-auto inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border text-sm font-semibold whitespace-nowrap shrink-0 ${done.has(cur.qid) ? 'border-emerald-500 bg-emerald-500/20 text-emerald-200' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}>
                   <Check className="w-4 h-4" />{done.has(cur.qid) ? '已檢討' : '標為已檢討'}
                 </button>
-                <button type="button" disabled={idx >= order.length - 1} onClick={() => setIdx((i) => Math.min(order.length - 1, i + 1))} className="p-2 rounded-lg border border-slate-700 hover:bg-slate-800 disabled:opacity-30"><ChevronRight className="w-5 h-5" /></button>
+                <button type="button" disabled={idx >= order.length - 1} onClick={() => setIdx((i) => Math.min(order.length - 1, i + 1))} className="shrink-0 p-2 rounded-lg border border-slate-700 hover:bg-slate-800 disabled:opacity-30"><ChevronRight className="w-5 h-5" /></button>
               </div>
               <div className="flex-1 min-h-0 overflow-auto px-4 py-3 space-y-4">
                 {/* 誰錯了 */}
