@@ -2,6 +2,7 @@
 //   內容＝原首頁五題＋定價相關三題（一份是什麼／用完怎麼辦／失敗不扣）。
 import { useEffect, useState } from 'react'
 import PublicNav from '../components/PublicNav'
+import PublicFooter from '../components/PublicFooter'
 import { SUPPORT_EMAIL, LINE_OA_URL } from '../lib/legal'
 
 const PAGE_TITLE = 'RedPen AI 常見問題'
@@ -21,7 +22,22 @@ function usePageMeta(): void {
   }, [])
 }
 
-const GROUPS: Array<{ title: string; items: Array<{ q: string; a: string }> }> = [
+const GROUPS: Array<{ title: string; items: Array<{ q: string; a: string; bullets?: string[] }> }> = [
+  {
+    title: '我們對 AI 的態度',
+    items: [
+      {
+        q: 'AI 會判錯，你們怎麼把關？',
+        a: 'AI 會判錯。所以把關做在流程裡，不是寫在免責聲明裡。你可以相信 AI，但你一定要認真檢查——這句話寫在我們的產品裡，也寫在教學影片裡。我們的設計目標不是「零錯誤」，是「錯了你三十秒內就會發現」。',
+        bullets: [
+          '低信心標記：AI 自己不確定的格子會標出來、集中一頁讓你複核；標記永久保留，可追溯。',
+          '檢討單當第二道檢查：檢討單把 AI 沒把握的題印成醒目標示，發下去逐題核對後簽名。',
+          '一鍵回復 AI 原判：老師改過的分數留有紀錄；覺得改錯了，隨時還原成 AI 原本的判斷。',
+          '改分留紀錄：疑義當面提出、老師當場判斷，系統負責把紀錄留下來。',
+        ],
+      },
+    ],
+  },
   {
     title: '批改',
     items: [
@@ -93,7 +109,16 @@ export default function FaqPage() {
                       <span className="flex-1 text-lg font-semibold text-gray-900">{f.q}</span>
                       <span className="font-mono text-gray-400">{isOpen ? '－' : '＋'}</span>
                     </button>
-                    {isOpen && <p className="mb-5 leading-relaxed text-gray-500">{f.a}</p>}
+                    {isOpen && (
+                      <div className="mb-5">
+                        <p className="leading-relaxed text-gray-500">{f.a}</p>
+                        {f.bullets && (
+                          <ul className="mt-3 space-y-2">
+                            {f.bullets.map((b) => <li key={b} className="border-l-2 border-gray-200 pl-3 leading-relaxed text-gray-600">{b}</li>)}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -111,9 +136,7 @@ export default function FaqPage() {
           </a>
         </div>
       </main>
-      <footer className="border-t border-gray-100 py-10 text-center text-sm text-gray-400">
-        © {new Date().getFullYear()} RedPen AI・<a href="/" className="hover:text-gray-600">回首頁</a>
-      </footer>
+      <PublicFooter />
     </div>
   )
 }

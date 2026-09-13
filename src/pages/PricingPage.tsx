@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import PublicNav from '../components/PublicNav'
+import PublicFooter from '../components/PublicFooter'
 import { SUPPORT_EMAIL, LINE_OA_URL } from '../lib/legal'
 
 const PAGE_TITLE = 'RedPen AI 定價 — 用多少花多少'
@@ -127,9 +128,7 @@ export default function PricingPage() {
         </div>
       )}
 
-      <footer className="border-t border-gray-100 py-10 text-center text-sm text-gray-400">
-        © {new Date().getFullYear()} RedPen AI・<a href="/" className="hover:text-gray-600">回首頁</a>
-      </footer>
+      <PublicFooter />
     </div>
   )
 }

@@ -7,6 +7,7 @@ import { ArrowRight, Play, Clock } from 'lucide-react'
 import { TUTORIAL_EPISODES, formatTime, type TutorialEpisode } from '../data/tutorials'
 import { LINE_OA_URL } from '../lib/legal'
 import PublicNav from '../components/PublicNav'
+import PublicFooter from '../components/PublicFooter'
 
 
 const PAGE_TITLE = 'RedPen AI 教學中心 — 三支影片走完批改、檢討、分析'
@@ -68,7 +69,7 @@ function EpisodeBlock({ episode, index }: {
   const cta = [
     { label: '聯絡我們', href: '/contact' },
     { label: '看定價', href: '/pricing' },
-    { label: '看學校方案', href: '/school' },
+    { label: '常見問題', href: '/faq' },
   ][index] ?? { label: '聯絡我們', href: '/contact' }
 
   return (
@@ -252,6 +253,7 @@ export default function TutorialsPage() {
           </div>
         </div>
       </section>
+      <PublicFooter />
     </div>
   )
 }

@@ -3,11 +3,10 @@
 // 學生端尚未成熟 → 本頁不宣傳學生功能。
 import { useEffect, useState } from 'react'
 import {
-  ArrowRight, CheckCircle2, Mail, Phone, Users, ScanLine, ShieldCheck,
-  LineChart, FileText, Scale
-} from 'lucide-react'
-import { SUPPORT_EMAIL, SUPPORT_PHONE, LINE_OA_URL } from '../lib/legal'
+  ArrowRight, CheckCircle2, Users, ScanLine, ShieldCheck, LineChart, FileText, Scale } from 'lucide-react'
+import { LINE_OA_URL } from '../lib/legal'
 import PublicNav from '../components/PublicNav'
+import PublicFooter from '../components/PublicFooter'
 const PAGE_TITLE = 'RedPen AI 學校方案 — 全校一次段考，統一批改'
 const PAGE_DESC = '學校統一批改紙本段考卷：跨班同一套判準、行政端集中送批、1Campus 名冊同步，並批次產出檢討單與家長報告。以學期或學年約計價，學校統一付費。'
 
@@ -285,36 +284,7 @@ export default function SchoolPlanPage() {
         </div>
       </section>
 
-      <footer className="bg-gray-950 py-12">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-wrap items-start justify-between gap-8">
-            <div>
-              <div className="flex items-center gap-2">
-                <img src="/logo.png" alt="RedPen AI" className="h-8 w-8" />
-                <span className="text-xl font-bold text-white">RedPen AI</span>
-              </div>
-              <p className="mt-4 max-w-sm text-sm leading-relaxed text-gray-500">
-                批改有品質，時間有價值。RedPen AI，重新定義評量。
-              </p>
-            </div>
-            <ul className="space-y-2">
-              <li className="flex items-center gap-2 text-sm text-gray-500">
-                <Mail className="h-4 w-4" />
-                <a href={`mailto:${SUPPORT_EMAIL}`} className="transition-colors hover:text-white">{SUPPORT_EMAIL}</a>
-              </li>
-              <li className="flex items-center gap-2 text-sm text-gray-500">
-                <Phone className="h-4 w-4" />
-                <a href={`tel:${SUPPORT_PHONE.replace(/-/g, '')}`} className="transition-colors hover:text-white">{SUPPORT_PHONE}</a>
-              </li>
-              <li><a href="/" className="text-sm text-gray-500 transition-colors hover:text-white">給老師的說明</a></li>
-              <li><a href="/tutorials" className="text-sm text-gray-500 transition-colors hover:text-white">教學影片</a></li>
-            </ul>
-          </div>
-          <div className="mt-12 border-t border-gray-800 pt-8 text-center">
-            <p className="text-sm text-gray-600">Copyright © 2026 黃政昱. All Rights Reserved.</p>
-          </div>
-        </div>
-      </footer>
+      <PublicFooter />
     </div>
   )
 }

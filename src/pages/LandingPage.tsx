@@ -2,29 +2,14 @@
 // 敘事＝「一份段考卷的旅程」：考試 → 檢討 → 分析，與產品 IA、教學影片一致。
 // user 拍板的三個原則：
 //   ① 只放可查證的事實，不用無法佐證的累積數字
-//   ② 學校方案獨立成 /school，首頁只放入口區塊
+//   ② 學校方案區塊已從首頁拿掉（2026-09-13 user）；/school 路由保留
 //   ③ 定價、常見問題各自獨立分頁（2026-09-13 user：分頁要是真的分頁不是捲動），首頁不再內嵌
 //   ④ 學生端尚未成熟 → 首頁不宣傳學生功能；學生登入僅保留 footer 一個功能性連結
-import { useState } from 'react'
-import {
-  ArrowRight,
-  CheckCircle2,
-  Mail,
-  Phone,
-  Play,
-  ScanLine,
-  ShieldCheck,
-  Users,
-  LineChart
-} from 'lucide-react'
-import { SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/legal'
-import { buildApiUrl } from '../lib/api-base'
+import { ArrowRight, CheckCircle2, Play } from 'lucide-react'
 import { TUTORIAL_EPISODES } from '../data/tutorials'
 import PublicNav from '../components/PublicNav'
+import PublicFooter from '../components/PublicFooter'
 
-const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
-const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
-const STUDENT_LOGIN_URL = buildApiUrl('/api/auth/google?entry=student')
 
 /** 行銷介紹影片（YouTube） */
 const PROMO_VIDEO_ID = 'L-1pNKoww5o'
@@ -89,11 +74,11 @@ const FEATURES = [
   {
     tag: '檢討課',
     color: '#16a34a',
-    title: '檢討單發下去，講稿系統幫你排好',
-    desc: '每個學生一份檢討單，逐題印出他寫了什麼、標準答案是什麼，AI 沒把握的還特別標示。全班的錯法自動聚成幾疊——那就是你要講的重點。',
-    bullets: ['整班合併一份 PDF，直接列印；末尾有簽名欄', '考卷總覽依失分率排出檢討順序', '全班齊答同一個錯答案時自動插旗，提醒你確認題目'],
-    img: '/site/patterns.jpg',
-    alt: '作答樣態分析畫面'
+    title: '檢討模式：投影上課，一題一題講',
+    desc: '全螢幕投影：左邊是題本，可以放大、換頁；右邊是這一題錯幾人、誰錯了、全班最典型的錯法和正確寫法。依失分率排好檢討順序，按 → 換下一題。',
+    bullets: ['錯幾人、誰錯了（座號）一眼看到', '典型錯法自動聚成幾種，附學生卷面', '每個學生一份檢討單，逐題印出他寫了什麼'],
+    img: '/site/review-mode.jpg',
+    alt: '檢討模式畫面'
   },
   {
     tag: '學情分析',
@@ -106,13 +91,6 @@ const FEATURES = [
   }
 ]
 
-const GUARDRAILS = [
-  { t: '低信心標記', d: 'AI 自己不確定的格子會標出來、集中一頁讓你複核；標記永久保留，可追溯。' },
-  { t: '檢討單當第二道檢查', d: '檢討單把 AI 沒把握的題印成醒目標示，發下去逐題核對後簽名。' },
-  { t: '一鍵回復 AI 原判', d: '老師改過的分數留有紀錄；覺得改錯了，隨時還原成 AI 原本的判斷。' },
-  { t: '改分留紀錄', d: '疑義當面提出、老師當場判斷，系統負責把紀錄留下來。' }
-]
-
 const TUTORIAL_CARD_COPY = [
   '建立答案卷、收卷掃描、一鍵 AI 批改。',
   '檢討單、重點題、講稿怎麼來。',
@@ -121,17 +99,6 @@ const TUTORIAL_CARD_COPY = [
 const ROMAN = ['一', '二', '三']
 
 export default function LandingPage() {
-  const [, setLoginLoading] = useState<'teacher' | 'student' | null>(null)
-
-  const handleLogin = (entry: 'teacher' | 'student') => {
-    if (typeof window === 'undefined') return
-    setLoginLoading(entry)
-    window.localStorage.setItem(LOGIN_ENTRY_STORAGE_KEY, entry)
-    setTimeout(() => {
-      window.location.href = entry === 'student' ? STUDENT_LOGIN_URL : LOGIN_URL
-    }, 100)
-  }
-
   const totalMin = Math.round(TUTORIAL_EPISODES.reduce((s, e) => s + e.durationSec, 0) / 60)
 
   return (
@@ -326,156 +293,27 @@ export default function LandingPage() {
                 </ul>
               </div>
               <div className={`animate-fade-in-up animation-delay-200 overflow-hidden rounded-2xl border border-gray-100 shadow-lg ${i % 2 === 1 ? 'lg:order-1' : ''}`}>
-                <img src={f.img} alt={f.alt} className="h-auto w-full" loading="lazy" />
+                <img
+                  src={f.img} alt={f.alt} className="h-auto w-full" loading="lazy"
+                  // 2026-09-13 檢討模式截圖 /site/review-mode.jpg 由 user 補檔；缺檔時顯示灰底文字、不出現破圖
+                  onError={(e) => {
+                    const el = e.currentTarget
+                    el.style.display = 'none'
+                    const box = el.parentElement
+                    if (box && !box.dataset.fallback) {
+                      box.dataset.fallback = '1'
+                      box.classList.add('grid', 'place-items-center', 'aspect-video', 'bg-gray-100', 'text-sm', 'text-gray-400')
+                      box.append(`${f.alt}（截圖準備中）`)
+                    }
+                  }}
+                />
               </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* 對 AI 的態度 */}
-      <section className="bg-gray-900 py-16 sm:py-24">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-          <p className="text-xs font-bold uppercase tracking-[0.14em] text-gray-500">我們對 AI 的態度</p>
-          <h2 className="mt-3 max-w-4xl text-3xl font-bold leading-snug tracking-tight text-white sm:text-4xl">
-            AI 會判錯。所以把關做在流程裡，不是寫在免責聲明裡
-          </h2>
-          <p className="mt-5 max-w-3xl text-lg leading-relaxed text-gray-400">
-            你可以相信 AI，但你一定要認真檢查——這句話寫在我們的產品裡，也寫在教學影片裡。
-            我們的設計目標不是「零錯誤」，是「錯了你三十秒內就會發現」。
-          </p>
-          <div className="mt-10 grid items-center gap-12 lg:grid-cols-2">
-            <ul className="space-y-6">
-              {GUARDRAILS.map((g) => (
-                <li key={g.t} className="border-l-2 border-white/20 pl-4">
-                  <p className="text-lg font-bold text-white">{g.t}</p>
-                  <p className="mt-1 leading-relaxed text-gray-400">{g.d}</p>
-                </li>
-              ))}
-            </ul>
-            <div className="overflow-hidden rounded-2xl border border-white/10 shadow-xl">
-              <img src="/site/reviewsheet.jpg" alt="檢討單：逐題含原卷影像與核對標示" className="h-auto w-full" loading="lazy" />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 學校方案入口 */}
-      <section className="border-b border-gray-100 bg-white py-16 sm:py-24">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-          <div className="grid items-start gap-12 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-16">
-            <div className="animate-fade-in-up">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-gray-400">學校方案</p>
-              <h2 className="mt-3 text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-                全校一次段考，統一批改
-              </h2>
-              <p className="mt-4 text-lg leading-relaxed text-gray-500">
-                老師各自批改也可以，但由學校統一批改能解決兩件老師自己解決不了的事：
-                跨班用同一套判準，以及不必每位老師各自摸索一套流程。
-              </p>
-              <div className="mt-8 grid gap-3 sm:grid-cols-2">
-                {[
-                  { icon: Users, t: '跨班公平性', d: '同一份答案卷、同一套判準，多班可合併成一個母體重算試題分析。' },
-                  { icon: ScanLine, t: '行政統一批改', d: '行政端建立全校考卷、逐班匯入、集中送批。' },
-                  { icon: ShieldCheck, t: '1Campus 整合', d: '班級與名冊直接同步，老師登入自動歸戶到學校。' },
-                  { icon: LineChart, t: '批次產出報表', d: '檢討單與家長報告整班整校一次產出。' }
-                ].map((s) => (
-                  <div key={s.t} className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                    <s.icon className="h-5 w-5 text-gray-900" />
-                    <p className="mt-2 font-bold text-gray-900">{s.t}</p>
-                    <p className="mt-1 text-sm leading-relaxed text-gray-500">{s.d}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="animate-fade-in-up animation-delay-200 rounded-2xl border border-gray-200 bg-white p-7 shadow-sm">
-              <h3 className="text-xl font-bold text-gray-900">怎麼開始</h3>
-              <p className="mt-3 leading-relaxed text-gray-500">
-                先用一個領域、一次段考試辦。我們協助建立答案卷與匯入流程，跑完一輪再決定要不要擴到全校。
-              </p>
-              <div className="mt-6 grid gap-3">
-                <a
-                  href="/school"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-6 py-3.5 font-semibold text-white transition-colors hover:bg-gray-700"
-                >
-                  看學校方案<ArrowRight className="h-4 w-4" />
-                </a>
-                <a
-                  href="/contact"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-gray-200 px-6 py-3.5 font-semibold text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50"
-                >
-                  聯絡我們
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="bg-gray-950 py-12">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="sm:col-span-2 lg:col-span-1">
-              <div className="flex items-center gap-2">
-                <img src="/logo.png" alt="RedPen AI" className="h-8 w-8" />
-                <span className="text-xl font-bold text-white">RedPen AI</span>
-              </div>
-              <p className="mt-4 text-sm leading-relaxed text-gray-500">
-                {SLOGAN_MAIN.join('')}。{SLOGAN_SUB}。
-              </p>
-            </div>
-
-            <div>
-              <h4 className="text-sm font-semibold uppercase tracking-wider text-gray-500">產品</h4>
-              <ul className="mt-4 space-y-2 text-sm">
-                <li><a href="/" className="text-gray-500 transition-colors hover:text-white">首頁</a></li>
-                <li><a href="/pricing" className="text-gray-500 transition-colors hover:text-white">定價</a></li>
-                <li><a href="/tutorials" className="text-gray-500 transition-colors hover:text-white">教學</a></li>
-                <li><a href="/faq" className="text-gray-500 transition-colors hover:text-white">常見問題</a></li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="text-sm font-semibold uppercase tracking-wider text-gray-500">聯絡我們</h4>
-              <ul className="mt-4 space-y-2">
-                <li className="flex items-center gap-2 text-sm text-gray-500">
-                  <Mail className="h-4 w-4" />
-                  <a href={`mailto:${SUPPORT_EMAIL}`} className="transition-colors hover:text-white">{SUPPORT_EMAIL}</a>
-                </li>
-                <li className="flex items-center gap-2 text-sm text-gray-500">
-                  <Phone className="h-4 w-4" />
-                  <a href={`tel:${SUPPORT_PHONE.replace(/-/g, '')}`} className="transition-colors hover:text-white">{SUPPORT_PHONE}</a>
-                </li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="text-sm font-semibold uppercase tracking-wider text-gray-500">登入</h4>
-              <div className="mt-4 flex flex-col items-start gap-3">
-                <a
-                  href={LOGIN_URL}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-gray-900 transition-colors hover:bg-gray-100"
-                >
-                  教師登入<ArrowRight className="h-4 w-4" />
-                </a>
-                {/* 學生端尚未對外宣傳，僅保留功能性入口供已在使用的學生登入 */}
-                <button
-                  type="button"
-                  onClick={() => handleLogin('student')}
-                  className="text-sm text-gray-600 transition-colors hover:text-gray-300"
-                >
-                  學生登入
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-12 border-t border-gray-800 pt-8 text-center">
-            <p className="text-sm text-gray-600">Copyright © 2026 黃政昱. All Rights Reserved.</p>
-          </div>
-        </div>
-      </footer>
+      <PublicFooter />
 
       <style>{`
         @keyframes fade-in-up {

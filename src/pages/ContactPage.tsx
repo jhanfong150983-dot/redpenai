@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowRight, Mail, MessageCircle, Phone } from 'lucide-react'
 import PublicNav from '../components/PublicNav'
+import PublicFooter from '../components/PublicFooter'
 import { SUPPORT_EMAIL, SUPPORT_PHONE, LINE_OA_URL } from '../lib/legal'
 import { buildApiUrl } from '../lib/api-base'
 
@@ -89,9 +90,7 @@ export default function ContactPage() {
           </button>
         </p>
       </main>
-      <footer className="border-t border-gray-100 py-10 text-center text-sm text-gray-400">
-        © {new Date().getFullYear()} RedPen AI・<a href="/" className="hover:text-gray-600">回首頁</a>
-      </footer>
+      <PublicFooter />
     </div>
   )
 }
