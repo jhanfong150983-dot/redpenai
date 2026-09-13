@@ -42,6 +42,7 @@ const LandingPage = lazy(() => import('@/pages/LandingPage'))
 const TutorialsPage = lazy(() => import('@/pages/TutorialsPage'))
 const SchoolPlanPage = lazy(() => import('@/pages/SchoolPlanPage'))
 const PricingPage = lazy(() => import('@/pages/PricingPage'))
+const FaqPage = lazy(() => import('@/pages/FaqPage'))
 const AdminUserDetail = lazy(() => import('@/pages/AdminUserDetail'))
 const TeacherPreferences = lazy(() => import('@/pages/TeacherPreferences'))
 const SchoolAdminPanel = lazy(() => import('@/pages/SchoolAdminPanel'))
@@ -392,11 +393,12 @@ const PATH_PAGE_MAP: Record<string, Page> = {
 
 // 公開頁白名單（不需登入即可瀏覽；SPA rewrite 已把所有路徑導向 index.html）
 // 要再加公開頁（例如隱私權），在這裡加一行即可。
-type PublicPageKey = 'tutorials' | 'school' | 'pricing'
+type PublicPageKey = 'tutorials' | 'school' | 'pricing' | 'faq'
 const PUBLIC_PAGE_PATHS: Record<string, PublicPageKey> = {
   '/tutorials': 'tutorials',
   '/school': 'school',
-  '/pricing': 'pricing'
+  '/pricing': 'pricing',
+  '/faq': 'faq'
 }
 const resolvePublicPage = (): PublicPageKey | null => {
   if (typeof window === 'undefined') return null
@@ -1807,7 +1809,7 @@ function App() {
           <div className="w-10 h-10 border-4 border-gray-300 border-t-transparent rounded-full animate-spin" />
         </div>
       }>
-        {publicPage === 'school' ? <SchoolPlanPage /> : publicPage === 'pricing' ? <PricingPage /> : <TutorialsPage />}
+        {publicPage === 'school' ? <SchoolPlanPage /> : publicPage === 'pricing' ? <PricingPage /> : publicPage === 'faq' ? <FaqPage /> : <TutorialsPage />}
       </Suspense>
     )
   }

@@ -3,7 +3,7 @@
 // user 拍板的三個原則：
 //   ① 只放可查證的事實，不用無法佐證的累積數字
 //   ② 學校方案獨立成 /school，首頁只放入口區塊
-//   ③ 定價公開級距、點價寫「約」（保留 B2B 折扣縱深）
+//   ③ 定價、常見問題各自獨立分頁（2026-09-13 user：分頁要是真的分頁不是捲動），首頁不再內嵌
 //   ④ 學生端尚未成熟 → 首頁不宣傳學生功能；學生登入僅保留 footer 一個功能性連結
 import { useState } from 'react'
 import {
@@ -21,6 +21,7 @@ import {
 import { SUPPORT_EMAIL, SUPPORT_PHONE, LINE_OA_URL } from '../lib/legal'
 import { buildApiUrl } from '../lib/api-base'
 import { TUTORIAL_EPISODES } from '../data/tutorials'
+import PublicNav from '../components/PublicNav'
 
 const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
 const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
@@ -117,37 +118,6 @@ const GUARDRAILS = [
   { t: '改分留紀錄', d: '疑義當面提出、老師當場判斷，系統負責把紀錄留下來。' }
 ]
 
-// 2026-09-13 user 拍板：校園版三級・每份計價（Basic 5／PRO 4.5／PROMAX 4），不分科目題型；細節在 /pricing。
-const PRICE_HIGHLIGHTS = [
-  { label: 'Basic・2,000 份起', price: 'NT$ 5 /份' },
-  { label: 'PRO・8,000 份起', price: 'NT$ 4.5 /份' },
-  { label: 'PROMAX・20,000 份起', price: 'NT$ 4 /份' },
-  { label: '檢討單・成績統計・試題分析', price: '包含', free: true }
-]
-
-const FAQS = [
-  {
-    q: 'AI 判錯了怎麼辦？',
-    a: '系統會把 AI 沒把握的格子標記出來、集中在一頁讓你複核，你也可以直接改分數並隨時回復 AI 原判。檢討單上也會標示這些題，讓學生逐題核對。我們的假設是 AI 會錯，所以整套流程都圍繞「讓你快速發現並修正」設計。'
-  },
-  {
-    q: '我要改變出題方式嗎？',
-    a: '不用。你照平常出卷、印卷、考試。唯一多做的一件事是把答案卷上傳一次讓 AI 解析題目——同一份卷子之後重複使用不必再建。'
-  },
-  {
-    q: '手寫的題目也能改嗎？',
-    a: '可以，這正是重點。國字注音、注釋、填空、應用題、作圖題都支援；系統會裁出每一格的作答影像，判分時同時看文字與字形。'
-  },
-  {
-    q: '學生的考卷資料安全嗎？',
-    a: '資料存放在雲端資料庫，只有該班老師與（學校方案下）學校指定的行政人員能存取。家長報告以每位學生獨立產出，不會互相看到。'
-  },
-  {
-    q: '學校要怎麼採購？',
-    a: '學校方案以學期或學年約計價，由學校統一付費、老師不需自費。建議先用一個領域、一次段考試辦，跑完一輪再擴大。歡迎預約校內說明會。'
-  }
-]
-
 const TUTORIAL_CARD_COPY = [
   '建立答案卷、收卷掃描、一鍵 AI 批改。',
   '檢討單、重點題、講稿怎麼來。',
@@ -157,7 +127,6 @@ const ROMAN = ['一', '二', '三']
 
 export default function LandingPage() {
   const [loginLoading, setLoginLoading] = useState<'teacher' | 'student' | null>(null)
-  const [openFaq, setOpenFaq] = useState<number>(0)
 
   const handleLogin = (entry: 'teacher' | 'student') => {
     if (typeof window === 'undefined') return
@@ -172,40 +141,7 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Navbar */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-gray-100 bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center gap-7">
-            <a href="/" className="flex items-center gap-2">
-              <img src="/logo.png" alt="RedPen AI" className="h-8 w-8" />
-              <span className="text-xl font-bold text-gray-900">RedPen AI</span>
-            </a>
-            <div className="hidden items-center gap-6 text-sm font-medium text-gray-500 md:flex">
-              <a href="#journey" className="transition-colors hover:text-gray-900">運作方式</a>
-              <a href="/tutorials" className="transition-colors hover:text-gray-900">教學影片</a>
-              <a href="/school" className="transition-colors hover:text-gray-900">學校方案</a>
-              <a href="#pricing" className="transition-colors hover:text-gray-900">定價</a>
-              <a href="#faq" className="transition-colors hover:text-gray-900">常見問題</a>
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                disabled={loginLoading !== null}
-                onClick={() => handleLogin('teacher')}
-                className="hidden rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-70 sm:inline-flex"
-              >
-                {loginLoading === 'teacher' ? '登入中…' : '教師登入'}
-              </button>
-              <a
-                href="#contact"
-                className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors duration-200 hover:bg-gray-700 active:scale-95"
-              >
-                預約導入
-              </a>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <PublicNav active="home" />
 
       {/* Hero */}
       <section className="bg-white pt-28 sm:pt-36">
@@ -481,104 +417,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 定價 */}
-      <section id="pricing" className="scroll-mt-20 bg-gray-50 py-16 sm:py-24">
-        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-          <div className="max-w-2xl animate-fade-in-up">
-            <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-              用多少花多少
-            </h2>
-            <p className="mt-4 text-lg text-gray-500">
-              一份＝一位學生的一份考卷，不分科目、不分題型。買幾份學校自己決定，用完再加購、同價。
-              AI 批改的功能全部開放，分級只差家長報告、檢討模式這類延伸功能。
-            </p>
-          </div>
-
-          <div className="mt-10 grid items-start gap-8 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-            <div className="animate-fade-in-up">
-              <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
-                <table className="w-full text-[15px]">
-                  <thead>
-                    <tr>
-                      <th className="bg-gray-50 px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-gray-400">動作</th>
-                      <th className="bg-gray-50 px-5 py-3 text-right text-xs font-bold uppercase tracking-wider text-gray-400">牌價</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {PRICE_HIGHLIGHTS.map((r) => (
-                      <tr key={r.label} className="border-t border-gray-100">
-                        <td className="px-5 py-3 text-gray-700">{r.label}</td>
-                        <td className={`px-5 py-3 text-right font-mono font-bold tabular-nums ${r.free ? 'text-green-600' : 'text-gray-900'}`}>
-                          {r.price}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="mt-4 text-sm leading-relaxed text-gray-400">
-                批改失敗不計份。份數一學年有效，全校共用、行政端分配。
-              </p>
-              <a href="/pricing" className="mt-3 inline-flex items-center gap-1.5 font-semibold text-gray-900 underline underline-offset-4 hover:text-gray-600">
-                看三個方案的完整內容<ArrowRight className="h-4 w-4" />
-              </a>
-            </div>
-
-            <div className="grid animate-fade-in-up animation-delay-100 gap-4">
-              <div className="rounded-2xl bg-gray-900 p-7">
-                <h3 className="font-bold text-white">一位學生的一份考卷</h3>
-                <p className="mt-3 text-4xl font-bold tracking-tight text-white">NT$ 5 起</p>
-                <p className="mt-2 leading-relaxed text-gray-400">
-                  段考、週考、小考都是同一個價。一位學生一年段考約 30 份，
-                  一所 1,000 人的學校五科全批一年約 15 萬。
-                </p>
-                <a href="/pricing" className="mt-4 inline-flex items-center gap-1.5 font-semibold text-white underline underline-offset-4 hover:text-gray-300">
-                  看方案<ArrowRight className="h-4 w-4" />
-                </a>
-              </div>
-              <div className="rounded-2xl border border-gray-200 bg-white p-7">
-                <h3 className="font-bold text-gray-900">先跑一輪再決定</h3>
-                <p className="mt-2 leading-relaxed text-gray-500">
-                  我們陪你用一份真實的考卷走完整個流程：建答案卷、匯入、批改、產出報表，
-                  跑完再談要不要導入。
-                </p>
-                <a
-                  href="#contact"
-                  className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 py-3 font-semibold text-white transition-colors hover:bg-gray-700"
-                >
-                  預約導入<ArrowRight className="h-4 w-4" />
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* FAQ */}
-      <section id="faq" className="scroll-mt-20 bg-white py-16 sm:py-24">
-        <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
-          <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">老師最常問的問題</h2>
-          <div className="mt-8 border-t border-gray-100">
-            {FAQS.map((f, i) => (
-              <div key={f.q} className="border-b border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setOpenFaq(openFaq === i ? -1 : i)}
-                  aria-expanded={openFaq === i}
-                  className="flex w-full items-center gap-4 py-5 text-left"
-                >
-                  <span className="flex-1 text-lg font-semibold text-gray-900">{f.q}</span>
-                  <span className="font-mono text-gray-400">{openFaq === i ? '－' : '＋'}</span>
-                </button>
-                {openFaq === i && (
-                  <p className="mb-5 leading-relaxed text-gray-500">{f.a}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* 聯繫我們（預約導入制：官網不做自助註冊入口） */}
       <section id="contact" className="scroll-mt-20 border-t border-gray-100 bg-gray-50 py-20 sm:py-28">
         <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
@@ -666,10 +504,10 @@ export default function LandingPage() {
             <div>
               <h4 className="text-sm font-semibold uppercase tracking-wider text-gray-500">產品</h4>
               <ul className="mt-4 space-y-2 text-sm">
-                <li><a href="#journey" className="text-gray-500 transition-colors hover:text-white">運作方式</a></li>
-                <li><a href="/tutorials" className="text-gray-500 transition-colors hover:text-white">教學影片</a></li>
-                <li><a href="/school" className="text-gray-500 transition-colors hover:text-white">學校方案</a></li>
-                <li><a href="#pricing" className="text-gray-500 transition-colors hover:text-white">定價</a></li>
+                <li><a href="/" className="text-gray-500 transition-colors hover:text-white">首頁</a></li>
+                <li><a href="/pricing" className="text-gray-500 transition-colors hover:text-white">定價</a></li>
+                <li><a href="/tutorials" className="text-gray-500 transition-colors hover:text-white">教學</a></li>
+                <li><a href="/faq" className="text-gray-500 transition-colors hover:text-white">常見問題</a></li>
               </ul>
             </div>
 

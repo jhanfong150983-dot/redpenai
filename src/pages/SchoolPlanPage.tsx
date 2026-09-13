@@ -7,6 +7,7 @@ import {
   LineChart, FileText, Scale
 } from 'lucide-react'
 import { SUPPORT_EMAIL, SUPPORT_PHONE, LINE_OA_URL } from '../lib/legal'
+import PublicNav from '../components/PublicNav'
 const PAGE_TITLE = 'RedPen AI 學校方案 — 全校一次段考，統一批改'
 const PAGE_DESC = '學校統一批改紙本段考卷：跨班同一套判準、行政端集中送批、1Campus 名冊同步，並批次產出檢討單與家長報告。以學期或學年約計價，學校統一付費。'
 
@@ -98,25 +99,7 @@ export default function SchoolPlanPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <nav className="fixed inset-x-0 top-0 z-50 border-b border-gray-100 bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex h-16 max-w-6xl items-center gap-7 px-4 sm:px-6 lg:px-8">
-          <a href="/" className="flex items-center gap-2">
-            <img src="/logo.png" alt="RedPen AI" className="h-8 w-8" />
-            <span className="text-xl font-bold text-gray-900">RedPen AI</span>
-          </a>
-          <div className="hidden items-center gap-6 text-sm font-medium text-gray-500 md:flex">
-            <a href="/" className="transition-colors hover:text-gray-900">給老師</a>
-            <a href="/tutorials" className="transition-colors hover:text-gray-900">教學影片</a>
-            <span className="font-semibold text-gray-900">學校方案</span>
-          </div>
-          <a
-            href={MEET_URL}
-            className="ml-auto rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
-          >
-            預約說明會
-          </a>
-        </div>
-      </nav>
+      <PublicNav active="home" />
 
       {/* Hero */}
       <header className="bg-white pt-28 sm:pt-36">

@@ -6,11 +6,8 @@
 //   設計沿用 LandingPage 單色系統（白底＋gray-900），只有折扣標籤用品牌紅。
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
-import { buildApiUrl } from '../lib/api-base'
+import PublicNav from '../components/PublicNav'
 import { SUPPORT_EMAIL, LINE_OA_URL } from '../lib/legal'
-
-const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
-const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
 
 const PAGE_TITLE = 'RedPen AI 定價 — 用多少花多少'
 const PAGE_DESC = '校園版每份 5 元起，買幾份學校自己決定。AI 批改全科目全題型，檢討單、成績統計、試題分析全部包含。'
@@ -58,7 +55,6 @@ const TIERS: Tier[] = [
 
 export default function PricingPage() {
   usePageMeta()
-  const [loginLoading, setLoginLoading] = useState(false)
   const [contactOpen, setContactOpen] = useState(false)
 
   useEffect(() => {
@@ -68,31 +64,9 @@ export default function PricingPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [contactOpen])
 
-  const handleLogin = () => {
-    if (typeof window === 'undefined') return
-    setLoginLoading(true)
-    window.localStorage.setItem(LOGIN_ENTRY_STORAGE_KEY, 'teacher')
-    setTimeout(() => { window.location.href = LOGIN_URL }, 100)
-  }
-
   return (
     <div className="min-h-screen bg-white">
-      {/* Navbar（鏡像 LandingPage 精簡版） */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-gray-100 bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex h-16 max-w-6xl items-center gap-7 px-4 sm:px-6 lg:px-8">
-          <a href="/" className="flex items-center gap-2 font-bold text-gray-900">RedPen AI</a>
-          <div className="hidden gap-6 text-sm text-gray-500 sm:flex">
-            <a href="/" className="transition-colors hover:text-gray-900">首頁</a>
-            <a href="/tutorials" className="transition-colors hover:text-gray-900">教學中心</a>
-            <a href="/school" className="transition-colors hover:text-gray-900">學校方案</a>
-            <span className="font-semibold text-gray-900">定價</span>
-          </div>
-          <button onClick={handleLogin} disabled={loginLoading}
-            className="ml-auto rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-700 disabled:opacity-60">
-            {loginLoading ? '前往登入…' : '老師登入'}
-          </button>
-        </div>
-      </nav>
+      <PublicNav active="pricing" />
 
       <main className="mx-auto max-w-6xl px-4 pb-24 pt-32 text-center sm:px-6 lg:px-8">
         <div className="text-sm text-gray-500">RedPen AI</div>

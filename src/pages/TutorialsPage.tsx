@@ -5,11 +5,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, Play, Clock } from 'lucide-react'
 import { TUTORIAL_EPISODES, formatTime, type TutorialEpisode } from '../data/tutorials'
-import { buildApiUrl } from '../lib/api-base'
 import { LINE_OA_URL } from '../lib/legal'
+import PublicNav from '../components/PublicNav'
 
-const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
-const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
 
 const PAGE_TITLE = 'RedPen AI 教學中心 — 三支影片走完批改、檢討、分析'
 const PAGE_DESC = '三支教學影片，用實際系統畫面帶你走完一次段考：建立答案卷與 AI 批改、檢討單與樣態分析、試題分析與家長報告。每支影片附章節跳點。'
@@ -181,40 +179,11 @@ function EpisodeBlock({ episode, index }: {
 export default function TutorialsPage() {
   usePageMeta()
   useVideoSchema(TUTORIAL_EPISODES)
-  const [loginLoading, setLoginLoading] = useState(false)
-
-  const handleLogin = () => {
-    if (typeof window === 'undefined') return
-    setLoginLoading(true)
-    window.localStorage.setItem(LOGIN_ENTRY_STORAGE_KEY, 'teacher')
-    setTimeout(() => { window.location.href = LOGIN_URL }, 100)
-  }
-
   const totalMin = Math.round(TUTORIAL_EPISODES.reduce((s, e) => s + e.durationSec, 0) / 60)
 
   return (
     <div className="min-h-screen bg-white">
-      <nav className="fixed inset-x-0 top-0 z-50 border-b border-gray-100 bg-white/95 backdrop-blur-sm">
-        <div className="mx-auto flex h-16 max-w-6xl items-center px-4 sm:px-6 lg:px-8">
-          <a href="/" className="flex items-center gap-2 text-lg font-bold text-gray-900">
-            <img src="/logo.png" alt="" className="h-8 w-8" />
-            RedPen AI
-          </a>
-          <div className="ml-auto flex items-center gap-3">
-            <a href="/" className="hidden text-sm font-semibold text-gray-500 transition-colors hover:text-gray-900 sm:inline">
-              回首頁
-            </a>
-            <button
-              type="button"
-              onClick={handleLogin}
-              disabled={loginLoading}
-              className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-700 disabled:opacity-70"
-            >
-              {loginLoading ? '前往登入…' : '教師登入'}
-            </button>
-          </div>
-        </div>
-      </nav>
+      <PublicNav active="tutorials" />
 
       <header className="px-4 pb-2 pt-28 sm:px-6 sm:pt-36 lg:px-8">
         <div className="mx-auto max-w-6xl">
