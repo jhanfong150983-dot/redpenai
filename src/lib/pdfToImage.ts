@@ -641,6 +641,10 @@ export function sortFilesByNumber(files: File[]): File[] {
 /**
  * 簡單檢測檔案類型（圖片 / PDF / 其他）
  */
+
+// 2026-09-14 user 拍板：全系統匯入一律只收 PDF（疊合免 classify 的前提：掃描件才有穩定版面）。
+export const PDF_ONLY_MSG = '只接受 PDF 檔。請用掃描器或手機掃描 App 存成 PDF 後再上傳。'
+
 export function getFileType(file: File): 'image' | 'pdf' | 'unknown' {
   const mimeType = file.type.toLowerCase()
 

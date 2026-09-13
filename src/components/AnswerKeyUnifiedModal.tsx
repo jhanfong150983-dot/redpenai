@@ -27,7 +27,7 @@ import { fetchBuildQuota, buildQuotaLine } from '@/lib/buildQuota'
 import { logQtypeOverrides } from '@/lib/qtypeLog'
 import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
-import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
+import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric } from '@/lib/db'
 import LevelRubricEditor from '@/components/LevelRubricEditor'
@@ -549,7 +549,7 @@ export default function AnswerKeyUnifiedModal({
       for (const file of files) {
         const ft = getFileType(file)
         if (ft === 'pdf') { blobs.push(...await convertPdfToImages(file, { scale: 1.5, quality: 0.7 })) }
-        else if (ft === 'image') { blobs.push(await fileToBlob(file)) }
+        else if (ft === 'image') { setFileError(PDF_ONLY_MSG); return }
         else { setFileError(`不支援的檔案格式：${file.name}`); return }
       }
       if (blobs.length === 0) { setFileError('沒有可用的圖片'); return }
@@ -594,7 +594,7 @@ export default function AnswerKeyUnifiedModal({
       for (const file of files) {
         const ft = getFileType(file)
         if (ft === 'pdf') { blobs.push(...await convertPdfToImages(file, { scale: 1.5, quality: 0.7 })) }
-        else if (ft === 'image') { blobs.push(await fileToBlob(file)) }
+        else if (ft === 'image') { setFileError(PDF_ONLY_MSG); return }
         else { setFileError(`不支援的檔案格式：${file.name}`); return }
       }
       if (blobs.length === 0) { setFileError('沒有可用的圖片'); return }
@@ -682,7 +682,7 @@ export default function AnswerKeyUnifiedModal({
       for (const file of files) {
         const ft = getFileType(file)
         if (ft === 'pdf') { blobs.push(...await convertPdfToImages(file, { scale: 1.5, quality: 0.7 })) }
-        else if (ft === 'image') { blobs.push(await fileToBlob(file)) }
+        else if (ft === 'image') { setBookletFileError(PDF_ONLY_MSG); return }
         else { setBookletFileError(`不支援的檔案格式：${file.name}`); return }
       }
       if (blobs.length === 0) { setBookletFileError('沒有可用的圖片'); return }
@@ -2145,8 +2145,8 @@ export default function AnswerKeyUnifiedModal({
                             <p className="text-xs text-slate-600">本卷有作圖／繪圖題還沒給正解 → 可在「製作作答卷」點該格、用<span className="font-semibold">紅色畫筆</span>畫出正解（就能免上傳）；或維持上傳手寫卷。其餘打過字的格仍直接採用。</p>
                           </div>
                         )}
-                        <input ref={fileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleFileChange} />
-                        <input ref={addFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleAddFiles} />
+                        <input ref={fileInputRef} type="file" accept=".pdf,application/pdf" multiple className="hidden" onChange={handleFileChange} />
+                        <input ref={addFileInputRef} type="file" accept=".pdf,application/pdf" multiple className="hidden" onChange={handleAddFiles} />
                         {pageItems.length === 0 ? (
                           <button
                             type="button"
@@ -2160,9 +2160,9 @@ export default function AnswerKeyUnifiedModal({
                               <Upload className="w-8 h-8" />
                             )}
                             <span className="text-sm font-medium">
-                              {isProcessingFiles ? '處理中…' : sheetSource === 'teacher_scan' ? '點擊上傳作答卷（教師用答案卷）圖片或 PDF' : '點擊上傳答案卷圖片或 PDF'}
+                              {isProcessingFiles ? '處理中…' : sheetSource === 'teacher_scan' ? '點擊上傳作答卷（教師用答案卷）PDF' : '點擊上傳答案卷PDF'}
                             </span>
-                            <span className="text-xs text-rose-400/80">{genFlow ? '單面一頁：1 張照片或 1 頁 PDF（多頁只取第 1 頁）' : `照片最多 ${MAX_UPLOAD_IMAGES} 張，PDF 不限頁數`}</span>
+                            <span className="text-xs text-rose-400/80">{genFlow ? '單面一頁 PDF（多頁只取第 1 頁）' : 'PDF 不限頁數，可多檔'}</span>
                           </button>
                         ) : (
                           <div className="flex items-center justify-between mb-3">
@@ -2225,8 +2225,8 @@ export default function AnswerKeyUnifiedModal({
                               會把應用題判成填空題，批改時學生只寫答案就能拿分。
                             </div>
                           )}
-                          <input ref={bookletFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleBookletFileChange} />
-                          <input ref={bookletAddFileInputRef} type="file" accept="image/*,.pdf" multiple className="hidden" onChange={handleBookletAddFiles} />
+                          <input ref={bookletFileInputRef} type="file" accept=".pdf,application/pdf" multiple className="hidden" onChange={handleBookletFileChange} />
+                          <input ref={bookletAddFileInputRef} type="file" accept=".pdf,application/pdf" multiple className="hidden" onChange={handleBookletAddFiles} />
                           {bookletPageItems.length === 0 ? (
                             <button
                               type="button"
@@ -2240,7 +2240,7 @@ export default function AnswerKeyUnifiedModal({
                                 <Upload className="w-8 h-8" />
                               )}
                               <span className="text-sm font-medium">
-                                {isProcessingBooklet ? '處理中…' : sheetSource === 'teacher_scan' ? '點擊上傳題本（試題卷）圖片或 PDF' : '點擊上傳題本圖片或 PDF'}
+                                {isProcessingBooklet ? '處理中…' : sheetSource === 'teacher_scan' ? '點擊上傳題本（試題卷）PDF' : '點擊上傳題本PDF'}
                               </span>
                               <span className="text-xs text-blue-400/80">支援多檔上傳</span>
                             </button>

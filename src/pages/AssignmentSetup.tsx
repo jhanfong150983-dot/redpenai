@@ -39,7 +39,7 @@ import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { extractAnswerKeyFromImages, reanalyzeQuestions, tagConceptsForAnswerKey } from '@/lib/gemini'
 import { runKpUpgradeInline } from '@/lib/parentReport'
 import { startInkSession, closeInkSession } from '@/lib/ink-session'
-import { convertPdfToImages, getFileType, fileToBlob, getDefaultImageFormat } from '@/lib/pdfToImage'
+import { convertPdfToImages, getFileType, fileToBlob, getDefaultImageFormat, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { compressImageFile } from '@/lib/imageCompression'
 import { checkFolderNameUnique } from '@/lib/utils'
 import { useTutorial } from '@/hooks/useTutorial'
@@ -1350,8 +1350,8 @@ export default function AssignmentSetup({
 
     for (const f of files) {
       const t = getFileType(f)
-      if (t !== 'image' && t !== 'pdf') {
-        setAnswerKeyError(`不支援的檔案格式: ${f.name}，請改用圖片或 PDF`)
+      if (t !== 'pdf') {
+        setAnswerKeyError(t === 'image' ? PDF_ONLY_MSG : `不支援的檔案格式: ${f.name}，請改用 PDF`)
         e.target.value = ''
         return
       }
@@ -1683,8 +1683,8 @@ export default function AssignmentSetup({
 
     for (const f of files) {
       const t = getFileType(f)
-      if (t !== 'image' && t !== 'pdf') {
-        setEditAnswerKeyError(`不支援的檔案格式: ${f.name}，請改用圖片或 PDF`)
+      if (t !== 'pdf') {
+        setEditAnswerKeyError(t === 'image' ? PDF_ONLY_MSG : `不支援的檔案格式: ${f.name}，請改用 PDF`)
         e.target.value = ''
         return
       }
@@ -3291,7 +3291,7 @@ export default function AssignmentSetup({
                   <p className="text-xs text-slate-500 mb-3">學生會看到的乾淨題目卷（沒有答案的版本）。用於 AI 產出錯題講解和領域診斷報告。</p>
                   <input
                     type="file"
-                    accept="image/*,.pdf"
+                    accept=".pdf,application/pdf"
                     multiple
                     onChange={async (e) => {
                       const files = Array.from(e.target.files || [])
@@ -3419,7 +3419,7 @@ export default function AssignmentSetup({
                   key={answerKeyInputKey}
                   type="file"
                   data-tutorial="assignment-upload-answerkey"
-                  accept="image/*,application/pdf"
+                  accept=".pdf,application/pdf"
                   multiple
                   onChange={handleAnswerKeyFileChange}
                   disabled={isSubmitting || isExtractingAnswerKey}
@@ -3770,7 +3770,7 @@ export default function AssignmentSetup({
                 </label>
                 <input
                   type="file"
-                  accept="image/*,application/pdf"
+                  accept=".pdf,application/pdf"
                   multiple
                   onChange={handleEditAnswerKeyFileChange}
                   disabled={isExtractingAnswerKeyEdit}

@@ -7,7 +7,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Loader2, Upload, X } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import type { AnswerKeyTemplate } from '@/lib/db'
-import { convertPdfToImages, getFileType, fileToBlob } from '@/lib/pdfToImage'
+import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { cropReferenceSheetCells, SheetAlignError } from '@/lib/generatedSheetAlign'
 import { readReferenceAnswerCells } from '@/lib/gemini'
 import InkConfirmModal from '@/components/InkConfirmModal'
@@ -66,7 +66,7 @@ export default function ReferenceAnswerModal({ template, onCancel, onConfirm }: 
         if (!pages.length) throw new Error('PDF 沒有可用頁面')
         blob = pages[0] // 作答卷恆為單面一頁
       } else if (ft === 'image') {
-        blob = await fileToBlob(file)
+        throw new Error(PDF_ONLY_MSG)
       } else {
         throw new Error(`不支援的檔案格式：${file.name}`)
       }
@@ -152,16 +152,16 @@ export default function ReferenceAnswerModal({ template, onCancel, onConfirm }: 
             <div className="space-y-3">
               <p className="text-sm text-gray-700">
                 請先從卡片<b>下載作答卷</b>並印出一份，把標準答案<b>手寫</b>在對應格子裡（作圖題直接在格內畫正解圖），
-                再拍照或掃描成 PDF 上傳。系統會自動對齊、逐格讀取並填入答案。
+                再掃描成 PDF 上傳。系統會自動對齊、逐格讀取並填入答案。
               </p>
-              <input ref={fileRef} type="file" accept="image/*,.pdf" className="hidden" onChange={handleFile} />
+              <input ref={fileRef} type="file" accept=".pdf,application/pdf" className="hidden" onChange={handleFile} />
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 className="w-full border-2 border-dashed border-blue-300 rounded-xl py-10 flex flex-col items-center gap-3 text-blue-500 hover:border-blue-400 hover:bg-blue-50/60 transition-colors"
               >
                 <Upload className="w-8 h-8" />
-                <span className="text-sm font-medium">點擊上傳參考答案卷（圖片或 PDF）</span>
+                <span className="text-sm font-medium">點擊上傳參考答案卷（PDF）</span>
                 <span className="text-xs text-blue-400/80">請確保四角黑色定位方塊完整入鏡</span>
               </button>
             </div>
