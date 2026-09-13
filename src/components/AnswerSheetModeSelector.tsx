@@ -1,25 +1,32 @@
-import { WithQuestionsIllustration, AnswerOnlyIllustration } from './illustrations/ModeIllustrations'
+import { WithQuestionsIllustration, AnswerOnlyIllustration, GeneratedSheetIllustration } from './illustrations/ModeIllustrations'
+import type { SheetSource } from '@/lib/sheetSource'
 
+/** 舊 2 值（DB 欄位 answer_sheet_mode）；選擇器本身改用三值 SheetSource，見 lib/sheetSource.ts */
 export type AnswerSheetMode = 'with_questions' | 'answer_only'
 
 interface AnswerSheetModeSelectorProps {
-  value: AnswerSheetMode
-  onChange: (mode: AnswerSheetMode) => void
+  value: SheetSource
+  onChange: (mode: SheetSource) => void
   disabled?: boolean
-  /** 'cards' (default, 上下/左右並排兩張大卡) or 'compact' (單行 segmented). compact 留給空間吃緊的場合 */
+  /** 'cards' (default, 並排大卡) or 'compact' (單行 segmented). compact 留給空間吃緊的場合 */
   variant?: 'cards' | 'compact'
+  /** 只顯示這些模式（預設三個全顯示）；舊建卷路徑只給前兩個 */
+  options?: SheetSource[]
 }
 
 interface ModeOption {
-  value: AnswerSheetMode
+  value: SheetSource
   name: string
   tagline: string
   description: string
   suit: string
   Illustration: typeof WithQuestionsIllustration
-  accent: 'red' | 'blue'
+  accent: 'red' | 'blue' | 'green'
 }
 
+// 2026-09-13 三模式（user 拍板、先不鎖 PRO）：
+//   一般模式＝題目答案同一張紙；自備作答卷＝老師自己的題本＋作答卷、一起上傳一次解析；
+//   系統製作作答卷＝上傳題本→系統排版作答卷（錨點＋座號劃卡）→列印→批改免定位。
 const MODES: ModeOption[] = [
   {
     value: 'with_questions',
@@ -31,26 +38,43 @@ const MODES: ModeOption[] = [
     accent: 'red',
   },
   {
-    value: 'answer_only',
-    name: '答案卷模式',
-    tagline: '題目本和答題卡是兩張紙',
-    description: '學生看題目本、在獨立的答題卡上劃記。題本和答題卡分開兩張紙。',
-    suit: '適合：學測模考、有獨立答題卡的大考',
+    value: 'teacher_scan',
+    name: '自備作答卷',
+    tagline: '題本和作答卷是兩張紙，都自己準備',
+    description: '同時上傳題本與寫好標準答案的作答卷，AI 一次解析後由你人工檢核。',
+    suit: '適合：已有現成答題卡的段考、模考',
     Illustration: AnswerOnlyIllustration,
     accent: 'blue',
   },
+  {
+    value: 'generated',
+    name: '系統製作作答卷',
+    tagline: '只要題本，作答卷系統幫你排',
+    description: '上傳題本，系統排好作答卷讓你列印；標準答案可直接打字，批改不必再定位作答區。',
+    suit: '適合：想省定位費、要座號自動辨識的考試',
+    Illustration: GeneratedSheetIllustration,
+    accent: 'green',
+  },
 ]
+
+const SUIT_CLASS: Record<ModeOption['accent'], string> = {
+  red: 'bg-rose-50 text-rose-700',
+  blue: 'bg-blue-50 text-blue-700',
+  green: 'bg-emerald-50 text-emerald-700',
+}
 
 export default function AnswerSheetModeSelector({
   value,
   onChange,
   disabled = false,
   variant = 'cards',
+  options,
 }: AnswerSheetModeSelectorProps) {
+  const modes = options ? MODES.filter((m) => options.includes(m.value)) : MODES
   if (variant === 'compact') {
     return (
       <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
-        {MODES.map((mode, i) => {
+        {modes.map((mode, i) => {
           const isActive = value === mode.value
           return (
             <button
@@ -74,8 +98,8 @@ export default function AnswerSheetModeSelector({
 
   return (
     <div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {MODES.map((mode) => {
+      <div className={`grid grid-cols-1 gap-4 ${modes.length >= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+        {modes.map((mode) => {
           const isActive = value === mode.value
           return (
             <button
@@ -107,11 +131,7 @@ export default function AnswerSheetModeSelector({
               </div>
 
               <p className="text-xs text-gray-600 leading-relaxed mb-2">{mode.description}</p>
-              <div className={`text-[11px] px-2.5 py-1.5 rounded-md mt-auto ${
-                mode.accent === 'red'
-                  ? 'bg-rose-50 text-rose-700'
-                  : 'bg-blue-50 text-blue-700'
-              }`}>
+              <div className={`text-[11px] px-2.5 py-1.5 rounded-md mt-auto ${SUIT_CLASS[mode.accent]}`}>
                 {mode.suit}
               </div>
             </button>
@@ -119,7 +139,7 @@ export default function AnswerSheetModeSelector({
         })}
       </div>
       <div className="mt-3 px-3 py-2 bg-blue-50 border-l-3 border-blue-400 rounded text-xs text-blue-800">
-        💡 拿不定主意？看你發給學生的紙：<strong>1 張</strong>選一般模式、<strong>2 張</strong>選答案卷模式。
+        💡 拿不定主意？看你發給學生的紙：<strong>1 張</strong>選一般模式；<strong>2 張</strong>且答題卡已有 → 自備作答卷；<strong>2 張</strong>但還沒做答題卡 → 系統製作作答卷。
       </div>
     </div>
   )

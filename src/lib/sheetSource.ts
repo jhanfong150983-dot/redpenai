@@ -16,14 +16,14 @@ export function getSheetSource(t: {
 
 export const SHEET_SOURCE_LABEL: Record<SheetSource, string> = {
   with_questions: '一般模式',
-  teacher_scan: '答案卷（掃描）',
-  generated: '生成作答卷',
+  teacher_scan: '自備作答卷',
+  generated: '系統製作作答卷',
 }
 
 export const SHEET_SOURCE_HINT: Record<SheetSource, string> = {
   with_questions: '題目和答案同一張紙；批改時 AI 定位作答區（classify）',
-  teacher_scan: '老師掃描的作答卷；批改時 AI 定位作答區（classify）',
-  generated: '系統生成的作答卷（含定位錨點）；批改免 classify、匯入可座號辨識',
+  teacher_scan: '老師自備的作答卷（題本分開）；批改時 AI 定位作答區（classify）',
+  generated: '系統製作的作答卷（含定位錨點）；批改免 classify、匯入可座號辨識',
 }
 
 /** 卡片小徽章樣式（與 AnswerSheetModeSelector 的紅/藍 accent 對齊；生成卷用綠） */

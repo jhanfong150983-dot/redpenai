@@ -118,3 +118,68 @@ export function AnswerOnlyIllustration({ className = '' }: { className?: string 
     </svg>
   )
 }
+
+export function GeneratedSheetIllustration({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 280 170"
+      xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label="系統製作作答卷：上傳題本，系統排版作答卷"
+      className={className}
+    >
+      {/* LEFT: 題本 */}
+      <rect x="10" y="10" width="100" height="150" fill="#ffffff" stroke="#64748b" strokeWidth="1.5" rx="3" />
+      <rect x="20" y="20" width="80" height="6" fill="#e2e8f0" rx="1" />
+      <text x="22" y="40" fontFamily="sans-serif" fontSize="7" fill="#475569">1. ────────────</text>
+      <text x="22" y="50" fontFamily="sans-serif" fontSize="7" fill="#94a3b8">──────────────</text>
+      <text x="22" y="72" fontFamily="sans-serif" fontSize="7" fill="#475569">2. ────────────</text>
+      <text x="22" y="82" fontFamily="sans-serif" fontSize="7" fill="#94a3b8">──────────</text>
+      <text x="22" y="104" fontFamily="sans-serif" fontSize="7" fill="#475569">3. ────────────</text>
+      <text x="22" y="114" fontFamily="sans-serif" fontSize="7" fill="#94a3b8">────────────</text>
+      <text x="60" y="155" fontFamily="sans-serif" fontSize="6.5" fill="#64748b" textAnchor="middle">題本（老師上傳）</text>
+
+      {/* → */}
+      <text x="128" y="92" fontFamily="sans-serif" fontSize="14" fill="#10b981" textAnchor="middle" fontWeight="bold">→</text>
+
+      {/* RIGHT: 系統排版的作答卷（四角錨點＋座號劃卡＋作答格） */}
+      <rect x="150" y="10" width="120" height="150" fill="#ffffff" stroke="#64748b" strokeWidth="1.5" rx="3" />
+      <rect x="155" y="15" width="7" height="7" fill="#0f172a" />
+      <rect x="258" y="15" width="7" height="7" fill="#0f172a" />
+      <rect x="155" y="148" width="7" height="7" fill="#0f172a" />
+      <rect x="258" y="148" width="7" height="7" fill="#0f172a" />
+      <rect x="168" y="16" width="60" height="5" fill="#e2e8f0" rx="1" />
+      {/* 座號劃卡 */}
+      <text x="168" y="33" fontFamily="sans-serif" fontSize="5.5" fill="#64748b">座號</text>
+      <rect x="184" y="27" width="70" height="8" fill="none" stroke="#94a3b8" strokeWidth="0.5" />
+      <circle cx="190" cy="31" r="2.2" fill="none" stroke="#94a3b8" strokeWidth="0.5" />
+      <circle cx="198" cy="31" r="2.2" fill="#0f172a" />
+      <circle cx="206" cy="31" r="2.2" fill="none" stroke="#94a3b8" strokeWidth="0.5" />
+      <circle cx="214" cy="31" r="2.2" fill="none" stroke="#94a3b8" strokeWidth="0.5" />
+      <circle cx="222" cy="31" r="2.2" fill="none" stroke="#94a3b8" strokeWidth="0.5" />
+      <circle cx="230" cy="31" r="2.2" fill="none" stroke="#94a3b8" strokeWidth="0.5" />
+      <circle cx="238" cy="31" r="2.2" fill="#0f172a" />
+      <circle cx="246" cy="31" r="2.2" fill="none" stroke="#94a3b8" strokeWidth="0.5" />
+      {/* 作答格 */}
+      <text x="160" y="48" fontFamily="sans-serif" fontSize="6" fill="#475569">一、選擇</text>
+      <rect x="160" y="51" width="100" height="20" fill="none" stroke="#64748b" strokeWidth="0.6" />
+      <line x1="160" y1="61" x2="260" y2="61" stroke="#64748b" strokeWidth="0.6" />
+      <line x1="180" y1="51" x2="180" y2="71" stroke="#64748b" strokeWidth="0.6" />
+      <line x1="200" y1="51" x2="200" y2="71" stroke="#64748b" strokeWidth="0.6" />
+      <line x1="220" y1="51" x2="220" y2="71" stroke="#64748b" strokeWidth="0.6" />
+      <line x1="240" y1="51" x2="240" y2="71" stroke="#64748b" strokeWidth="0.6" />
+      <text x="170" y="59" fontFamily="sans-serif" fontSize="5.5" fill="#64748b" textAnchor="middle">1</text>
+      <text x="190" y="59" fontFamily="sans-serif" fontSize="5.5" fill="#64748b" textAnchor="middle">2</text>
+      <text x="210" y="59" fontFamily="sans-serif" fontSize="5.5" fill="#64748b" textAnchor="middle">3</text>
+      <text x="230" y="59" fontFamily="sans-serif" fontSize="5.5" fill="#64748b" textAnchor="middle">4</text>
+      <text x="250" y="59" fontFamily="sans-serif" fontSize="5.5" fill="#64748b" textAnchor="middle">5</text>
+      <text x="160" y="84" fontFamily="sans-serif" fontSize="6" fill="#475569">二、填充</text>
+      <rect x="160" y="87" width="100" height="18" fill="none" stroke="#64748b" strokeWidth="0.6" />
+      <line x1="193" y1="87" x2="193" y2="105" stroke="#64748b" strokeWidth="0.6" />
+      <line x1="226" y1="87" x2="226" y2="105" stroke="#64748b" strokeWidth="0.6" />
+      <text x="160" y="118" fontFamily="sans-serif" fontSize="6" fill="#475569">三、計算</text>
+      <rect x="160" y="121" width="100" height="22" fill="none" stroke="#64748b" strokeWidth="0.6" />
+      <text x="210" y="155" fontFamily="sans-serif" fontSize="6.5" fill="#10b981" textAnchor="middle">系統排版・列印給學生</text>
+    </svg>
+  )
+}

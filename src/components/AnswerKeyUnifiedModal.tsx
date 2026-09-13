@@ -15,6 +15,7 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
+import type { SheetSource } from '@/lib/sheetSource'
 import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
 import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData, type PageSize } from '@/lib/answerSheetGenerator'
 import { cropReferenceSheetCells } from '@/lib/generatedSheetAlign'
@@ -142,6 +143,7 @@ interface MetadataDraft {
   domain?: string
   mathTrack?: 'A' | 'B'
   answerSheetMode?: 'with_questions' | 'answer_only'
+  sheetSource?: SheetSource
 }
 function readMetadataDraft(): MetadataDraft | null {
   try {
@@ -162,19 +164,21 @@ function clearMetadataDraft() {
 type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet'
 
 // 2026-09-04 生成作答卷單一流程（A 案）：step④ 作答卷製作。
-// 預覽旗標：預設關閉（production 不受影響）；測試者在瀏覽器 console 執行
-//   localStorage.setItem('redpen-gen-sheet-preview', '1') 後重新整理即可開啟。
-// 接完 solve route（模組2）與收模式（模組1）後改為預設開啟。
+// 2026-09-13 三模式上線：「系統製作作答卷」改為預設開放（第三張卡）。
+//   kill-switch：瀏覽器 console 執行 localStorage.setItem('redpen-gen-sheet-preview', '0') 後重新整理 → 隱藏第三張卡。
 const GENERATED_SHEET_STEP_ENABLED = (() => {
-  try { return localStorage.getItem('redpen-gen-sheet-preview') === '1' } catch { return false }
+  try { return localStorage.getItem('redpen-gen-sheet-preview') !== '0' } catch { return true }
 })()
 
 // 2026-09-05 五步重拼裝（user 拍板）：③製作作答卷提前到 AI 解析之前——
 // 老師把標準答案「手寫在下載的作答卷上」，④就是原版 extract（答案卷=手寫作答卷＋題本），
 // ⑤就是原版題目編輯（crop 預覽、題型唯讀）。所有模組都是舊的，只是重新拼裝。
 // 2026-09-10 一般模式解封：步驟清單改依「這份卷是否走生成流程(genFlow)」決定，不再只看旗標。
-//   genFlow（答案卷模式＋旗標開）＝5 步；一般模式(with_questions)＝舊 3 步（無題本/製作作答卷，classify 照舊）。
-const stepConfigFor = (genFlow: boolean): { key: UnifiedStep; label: string; shortLabel: string }[] => genFlow
+// 2026-09-13 三模式：
+//   generated（系統製作作答卷）＝5 步；
+//   teacher_scan（自備作答卷）＝3 步：②題本＋作答卷同頁一起上傳→一次 AI 解析→③人工檢核（舊 answer_only 流程重新命名）；
+//   with_questions（一般模式）＝舊 3 步（無題本/製作作答卷，classify 照舊）。
+const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; shortLabel: string }[] => source === 'generated'
   ? [
       { key: 'metadata', label: '基本資料', shortLabel: '①' },
       { key: 'booklet', label: '上傳題本', shortLabel: '②' },
@@ -182,11 +186,17 @@ const stepConfigFor = (genFlow: boolean): { key: UnifiedStep; label: string; sho
       { key: 'extract', label: 'AI 解析', shortLabel: '④' },
       { key: 'editing', label: '人工檢核', shortLabel: '⑤' },
     ]
-  : [
-      { key: 'metadata', label: '基本資料', shortLabel: '①' },
-      { key: 'extract', label: 'AI 解析', shortLabel: '②' },
-      { key: 'editing', label: '題目編輯', shortLabel: '③' },
-    ]
+  : source === 'teacher_scan'
+    ? [
+        { key: 'metadata', label: '基本資料', shortLabel: '①' },
+        { key: 'extract', label: '上傳題本＋作答卷', shortLabel: '②' },
+        { key: 'editing', label: '人工檢核', shortLabel: '③' },
+      ]
+    : [
+        { key: 'metadata', label: '基本資料', shortLabel: '①' },
+        { key: 'extract', label: 'AI 解析', shortLabel: '②' },
+        { key: 'editing', label: '題目編輯', shortLabel: '③' },
+      ]
 
 // 作答內容為圖（非文字）的題型：答案存正解圖/vjRubric，缺答檢查豁免文字判定
 const DRAWING_CATEGORIES = new Set(['grid_geometry', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color'])
@@ -310,18 +320,21 @@ export default function AnswerKeyUnifiedModal({
   // 建立模式：從 localStorage 草稿還原（modal 每次開啟重新掛載，initializer 讀一次即可）
   const draftRef = useRef<MetadataDraft | null>(editMode ? null : readMetadataDraft())
   const draft = draftRef.current
-  const [answerSheetMode, setAnswerSheetMode] = useState<'with_questions' | 'answer_only'>(
-    // 生成流程預設「答案卷模式」（題本分開）；2026-09-10 一般模式解封：老師可在①切回 with_questions
-    //   （小考：題目與答案同一張紙、沒有作答卷）。草稿有記模式就照草稿。
-    GENERATED_SHEET_STEP_ENABLED && !editMode
-      ? (draft?.answerSheetMode ?? 'answer_only')
-      : editMode ? initialAnswerSheetMode : (draft?.answerSheetMode ?? initialAnswerSheetMode)
-  )
+  // 2026-09-13 三模式：modal 層用三值 sheetSource（一般／自備作答卷／系統製作作答卷）；
+  //   存檔仍只寫舊 2 值 answerSheetMode（teacher_scan/generated 都是 answer_only）＋ generatedSheet 有無，
+  //   DB 不加欄位，getSheetSource() 反推回三值（AnswerBank 徽章、匯入頁自動選模式都靠它）。
+  const [sheetSource, setSheetSource] = useState<SheetSource>(() => {
+    if (editMode) return initialGeneratedSheet ? 'generated' : initialAnswerSheetMode === 'answer_only' ? 'teacher_scan' : 'with_questions'
+    if (draft?.sheetSource) return draft.sheetSource
+    if (draft?.answerSheetMode === 'answer_only') return 'teacher_scan'
+    return 'with_questions'
+  })
+  const answerSheetMode: 'with_questions' | 'answer_only' = sheetSource === 'with_questions' ? 'with_questions' : 'answer_only'
   // 2026-09-10 解耦：GENERATED_SHEET_STEP_ENABLED＝功能開關；genFlow＝「這份卷走生成作答卷 5 步流程」。
-  //   一般模式即使旗標開也走舊 3 步（①基本資料→②AI 解析→③題目編輯）：無題本、無製作作答卷、
-  //   答案卷＝老師寫好答案的考卷本身、批改 classify 照舊（一班算一次）。
-  const genFlow = GENERATED_SHEET_STEP_ENABLED && answerSheetMode === 'answer_only'
-  const STEP_CONFIG = useMemo(() => stepConfigFor(genFlow), [genFlow])
+  //   一般模式／自備作答卷即使旗標開也走 3 步：一般模式無題本、答案卷＝老師寫好答案的考卷本身；
+  //   自備作答卷＝題本＋作答卷同頁一起上傳、一次解析。兩者批改 classify 照舊（一班算一次）。
+  const genFlow = GENERATED_SHEET_STEP_ENABLED && sheetSource === 'generated'
+  const STEP_CONFIG = useMemo(() => stepConfigFor(genFlow ? 'generated' : sheetSource === 'generated' ? 'teacher_scan' : sheetSource), [genFlow, sheetSource])
   // 2026-09-13 user 拍板：降本後會考級分模式一律開（數學應用題逐要素看過程），老師不再選。
   //   開關 UI 已移除；舊卷若曾存 false，編輯存檔後即轉開（缺規準的題會提示重新解析）。
   const levelRubricEnabled = true
@@ -421,11 +434,12 @@ export default function AnswerKeyUnifiedModal({
         subjectLabel,
         domain,
         mathTrack: mathTrack || undefined,
-        answerSheetMode
+        answerSheetMode,
+        sheetSource,
       }
       localStorage.setItem(METADATA_DRAFT_KEY, JSON.stringify(payload))
     } catch { /* noop */ }
-  }, [editMode, title, grade, subjectLabel, domain, mathTrack, answerSheetMode])
+  }, [editMode, title, grade, subjectLabel, domain, mathTrack, answerSheetMode, sheetSource])
 
   const handleClearDraft = () => {
     clearMetadataDraft()
@@ -434,7 +448,7 @@ export default function AnswerKeyUnifiedModal({
     setMathTrack('')
     setSubjectLabel('')
     setDomain('')
-    setAnswerSheetMode(GENERATED_SHEET_STEP_ENABLED ? 'answer_only' : 'with_questions')
+    setSheetSource('with_questions')
     setDraftRestored(false)
   }
 
@@ -1977,13 +1991,12 @@ export default function AnswerKeyUnifiedModal({
 
                   {/* 2026-09-13：會考級分模式開關已移除（一律開，見 levelRubricEnabled） */}
 
-                  {/* 答案卷模式 — 卡片式選擇器。
-                      2026-09-10 一般模式解封：生成流程也顯示（老師可選「一般模式」＝小考、題目答案同一張、走舊 3 步）。
-                      公版 Word 範本只在舊流程（旗標關）提供——生成流程由「製作作答卷」取代。 */}
+                  {/* 答案卷模式 — 卡片式選擇器（2026-09-13 三模式：一般／自備作答卷／系統製作作答卷）。
+                      公版 Word 範本只在「自備作答卷」提供——系統製作作答卷由③製作作答卷取代、一般模式沒有作答卷。 */}
                   <div>
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <label className="block text-base font-semibold text-gray-800">答案卷模式</label>
-                      {!GENERATED_SHEET_STEP_ENABLED && (
+                      {!editMode && sheetSource === 'teacher_scan' && (
                         // 2026-08-29 公版答案卷範本改「動態產生」：帶入校名/名稱/科目；名稱與領域必填才可下載
                         <button
                           type="button"
@@ -2001,11 +2014,14 @@ export default function AnswerKeyUnifiedModal({
                       )}
                     </div>
                     {editMode ? (
-                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">{answerSheetMode === 'with_questions' ? '一般模式（題目帶答案）' : '答案卷模式（題本分開）'}</p>
+                      <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">
+                        {sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
+                      </p>
                     ) : (
                       <AnswerSheetModeSelector
-                        value={answerSheetMode}
-                        onChange={setAnswerSheetMode}
+                        value={sheetSource}
+                        onChange={setSheetSource}
+                        options={GENERATED_SHEET_STEP_ENABLED ? undefined : ['with_questions', 'teacher_scan']}
                       />
                     )}
                   </div>
@@ -2104,7 +2120,7 @@ export default function AnswerKeyUnifiedModal({
                       <section className={`rounded-xl border border-rose-200 bg-rose-50/30 p-4 ${activeStep === 'booklet' ? 'hidden' : ''}`}>
                         <div className="flex items-baseline justify-between mb-3">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-semibold text-rose-900">{genFlow ? '📑 手寫參考答案卷' : '📑 答案卷'}</h3>
+                            <h3 className="text-sm font-semibold text-rose-900">{genFlow ? '📑 手寫參考答案卷' : sheetSource === 'teacher_scan' ? '📑 作答卷（寫好標準答案）' : '📑 答案卷'}</h3>
                             {canSkipUpload ? (
                               <span className="text-[11px] px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded font-medium">可略過</span>
                             ) : (

@@ -3268,12 +3268,13 @@ export default function AssignmentSetup({
                   <label className="block text-sm font-medium text-gray-700 mb-2">答案卷模式</label>
                   {modalMode === 'edit' ? (
                     <p className="text-sm text-gray-700 px-3 py-2.5 bg-slate-100 rounded-xl border border-gray-300">
-                      {createAnswerSheetMode === 'with_questions' ? '一般模式（題目帶答案）' : '答案卷模式（題本分開）'}
+                      {createAnswerSheetMode === 'with_questions' ? '一般模式（題目帶答案）' : '自備作答卷（題本分開）'}
                     </p>
                   ) : (
                     <AnswerSheetModeSelector
-                      value={createAnswerSheetMode}
-                      onChange={setCreateAnswerSheetMode}
+                      value={createAnswerSheetMode === 'answer_only' ? 'teacher_scan' : 'with_questions'}
+                      onChange={(v) => setCreateAnswerSheetMode(v === 'with_questions' ? 'with_questions' : 'answer_only')}
+                      options={['with_questions', 'teacher_scan']}
                       disabled={isSubmitting || isExtractingAnswerKey}
                     />
                   )}
