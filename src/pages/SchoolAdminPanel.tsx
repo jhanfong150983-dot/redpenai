@@ -50,7 +50,25 @@ interface SchoolRow {
   student_count: number
   class_count: number
   provider_dsns?: string | null // null＝手動學校（非 1Campus，名冊由行政批次上傳）
+  roster_school_year?: number | null // 名冊目前的學年（school_classes 最大值）
+  roster_semester?: number | null
 }
+
+// 現在的學年學期（台灣：8 月起新學年上學期；2～7 月下學期；1 月仍算上學期）
+function currentTerm(): { sy: number; sem: 1 | 2 } {
+  const d = new Date(); const y = d.getFullYear(); const m = d.getMonth() + 1
+  if (m >= 8) return { sy: y - 1911, sem: 1 }
+  if (m === 1) return { sy: y - 1912, sem: 1 }
+  return { sy: y - 1912, sem: 2 }
+}
+/** 1Campus 校的名冊比現在的學年學期舊 → 老師端登入同步已是新學期、行政端名冊還停在舊的（09-13 關埔實例） */
+function rosterIsStale(sch: SchoolRow | null): boolean {
+  if (!sch || !sch.provider_dsns || sch.roster_school_year == null) return false
+  const cur = currentTerm()
+  const key = sch.roster_school_year * 10 + (sch.roster_semester ?? 0)
+  return key < cur.sy * 10 + cur.sem
+}
+const termLabel = (sy: number | null | undefined, sem: number | null | undefined) => sy == null ? '—' : `${sy} 學年${sem === 1 ? '上' : sem === 2 ? '下' : ''}學期`
 interface ClassRow {
   class_label: string
   grade: number | null
@@ -413,6 +431,11 @@ export default function SchoolAdminPanel({
       void loadCourses(first.school_id)
       const { classes: cls } = await fetchOverview({ schoolId: first.school_id })
       setClasses(Array.isArray(cls) ? cls : [])
+      // 2026-09-13：名冊比現在學期舊 → 這個 session 自動同步一次（老師端登入時各自同步、行政端名冊不會自己更新）
+      if (rosterIsStale(first) && !autoSyncTriedRef.current) {
+        autoSyncTriedRef.current = true
+        setAutoSyncPending(true)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '讀取失敗')
     } finally {
@@ -1562,6 +1585,15 @@ export default function SchoolAdminPanel({
           {error && (
             <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
+            </div>
+          )}
+          {rosterIsStale(school) && (
+            <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <span>名冊還是 <b>{termLabel(school?.roster_school_year, school?.roster_semester)}</b>，現在是 <b>{termLabel(currentTerm().sy, currentTerm().sem)}</b>。老師端登入時會各自同步，行政端名冊要按這裡才會更新。</span>
+              <button type="button" onClick={() => void runRosterSync()} disabled={rosterSyncing}
+                className="rounded-md bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50">
+                {rosterSyncing ? '同步中…' : '立即同步全校名冊'}
+              </button>
             </div>
           )}
 
