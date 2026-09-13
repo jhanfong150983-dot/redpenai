@@ -1,6 +1,6 @@
 // 2026-09-13 公開頁共用導覽列（user：分頁要是真的分頁、不是捲動；只留 首頁／定價／教學／常見問題）。
 //   首頁 /、定價 /pricing、教學 /tutorials、常見問題 /faq 都是獨立路由（App.tsx PUBLIC_PAGE_PATHS）。
-//   右側：教師登入（Google OAuth）＋「聯絡我們」→ /contact（官網採預約導入制、不做自助註冊）。
+//   右側只有教師登入（聯絡我們在導覽列分頁，不重複放按鈕）。
 import { useState } from 'react'
 import { buildApiUrl } from '../lib/api-base'
 
@@ -44,16 +44,10 @@ export default function PublicNav({ active }: { active: PublicNavKey }) {
             type="button"
             onClick={handleLogin}
             disabled={loginLoading}
-            className="hidden rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-70 sm:inline-flex"
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-70"
           >
             {loginLoading ? '登入中…' : '教師登入'}
           </button>
-          <a
-            href="/contact"
-            className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
-          >
-            聯絡我們
-          </a>
         </div>
       </div>
     </nav>
