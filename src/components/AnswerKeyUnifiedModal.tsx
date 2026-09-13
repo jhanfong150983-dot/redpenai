@@ -322,11 +322,9 @@ export default function AnswerKeyUnifiedModal({
   //   答案卷＝老師寫好答案的考卷本身、批改 classify 照舊（一班算一次）。
   const genFlow = GENERATED_SHEET_STEP_ENABLED && answerSheetMode === 'answer_only'
   const STEP_CONFIG = useMemo(() => stepConfigFor(genFlow), [genFlow])
-  // 2026-09-10 會考級分模式（應用題看過程）：老師自選要不要花錢生規準＋跑級分判官。
-  //   新建預設關（只比最終答案＝級分制之前的原路）；編輯模式讀舊值（undefined＝舊卷視為開）。
-  const [levelRubricEnabled, setLevelRubricEnabled] = useState<boolean>(
-    () => (editMode ? initialAnswerKey?.levelRubricEnabled !== false : false)
-  )
+  // 2026-09-13 user 拍板：降本後會考級分模式一律開（數學應用題逐要素看過程），老師不再選。
+  //   開關 UI 已移除；舊卷若曾存 false，編輯存檔後即轉開（缺規準的題會提示重新解析）。
+  const levelRubricEnabled = true
 
   // ── step state machine ────────────────────────────────────────────────────
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
@@ -1977,34 +1975,7 @@ export default function AnswerKeyUnifiedModal({
                     </div>
                   )}
 
-                  {/* 2026-09-10 會考級分模式開關（數學才顯示）：老師自選花錢看過程 vs 省錢只比答案 */}
-                  {(domain === '數學') && (
-                    <div className="rounded-xl border border-gray-200 bg-white p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <label htmlFor="level-rubric-toggle" className="block text-base font-semibold text-gray-800">會考級分模式（應用題看過程）</label>
-                          <p className="mt-1 text-xs text-gray-600 leading-relaxed">
-                            {levelRubricEnabled
-                              ? '開：AI 解析時為每題應用題產生級分規準（每題一次 AI）、批改時逐要素看計算過程給 0～3 級分。較貴，但題本寫「須列式」時能扣過程分。'
-                              : '關（預設）：應用題只比最終答案，湊對答案即滿分、不看過程。解析與批改都不跑級分 AI，最省。'}
-                          </p>
-                          {editMode && levelRubricEnabled && (initialAnswerKey?.questions ?? []).some((q) => q.questionCategory === 'word_problem' && !(q as { levelRubric?: unknown }).levelRubric) && (
-                            <p className="mt-1 text-xs text-amber-700">這份卷有應用題還沒有級分規準——開啟後需「重新解析」才會產生（吃一次建卷次數）。</p>
-                          )}
-                        </div>
-                        <button
-                          id="level-rubric-toggle"
-                          type="button"
-                          role="switch"
-                          aria-checked={levelRubricEnabled}
-                          onClick={() => setLevelRubricEnabled((v) => !v)}
-                          className={`relative shrink-0 inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-300 ${levelRubricEnabled ? 'bg-green-600' : 'bg-gray-300'}`}
-                        >
-                          <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${levelRubricEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  {/* 2026-09-13：會考級分模式開關已移除（一律開，見 levelRubricEnabled） */}
 
                   {/* 答案卷模式 — 卡片式選擇器。
                       2026-09-10 一般模式解封：生成流程也顯示（老師可選「一般模式」＝小考、題目答案同一張、走舊 3 步）。
