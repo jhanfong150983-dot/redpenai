@@ -77,7 +77,11 @@ interface ClassRow {
   campus_class_id?: string | null
   homeroom_teacher_name?: string | null
   homeroom_teacher_acc?: string | null
+  school_year?: number | null // 2026-09-13：換學年後名冊表同時有舊班與新班，預設只看最新學期
+  semester?: number | null
 }
+const classTermKey = (c: { school_year?: number | null; semester?: number | null }) =>
+  c.school_year == null ? '' : `${c.school_year}-${c.semester ?? 0}`
 // 2026-08-03 任課關係(school_class_courses):一列=某班某科由某位老師任教。
 //   source='1campus' 由全校名冊同步寫入、'admin' 是行政手動指派。
 interface CourseRow {
@@ -366,7 +370,16 @@ export default function SchoolAdminPanel({
   const [school, setSchool] = useState<SchoolRow | null>(null)
   // 2026-07-30:系統 admin 看得到所有學校——保留清單供切換;預設選「自己行政歸屬」的學校
   const [schoolList, setSchoolList] = useState<SchoolRow[]>([])
-  const [classes, setClasses] = useState<ClassRow[]>([])
+  const [allClasses, setAllClasses] = useState<ClassRow[]>([])
+  // 學年學期篩選：'' ＝最新（自動）、'all' ＝全部、'115-1' ＝指定
+  const [termFilter, setTermFilter] = useState<string>('')
+  const presentTerms = useMemo(() => [...new Set(allClasses.map(classTermKey).filter(Boolean))].sort((a, b) => (b > a ? 1 : -1)), [allClasses])
+  const activeTerm = termFilter === '' ? (presentTerms[0] ?? '') : termFilter
+  const classes = useMemo(
+    () => (activeTerm === 'all' || !activeTerm) ? allClasses : allClasses.filter((c) => classTermKey(c) === activeTerm || !classTermKey(c)),
+    [allClasses, activeTerm]
+  )
+  const setClasses = setAllClasses
   const [selectedClass, setSelectedClass] = useState<string | null>(null)
   const [students, setStudents] = useState<StudentRow[]>([])
   const [person, setPerson] = useState<PersonInfo | null>(null)
@@ -2469,7 +2482,15 @@ export default function SchoolAdminPanel({
                     </div>
                   )}
                   {classes.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {presentTerms.length > 1 && (
+                        <select value={activeTerm} onChange={(e) => setTermFilter(e.target.value)}
+                          className="mr-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-sm text-slate-700"
+                          title="換學年後舊班仍保留在名冊表（歷史考卷與成績都在），預設只看最新學期">
+                          {presentTerms.map((t) => <option key={t} value={t}>{t.replace('-', ' 學年 ') === t ? t : `${t.split('-')[0]} 學年${t.split('-')[1] === '1' ? '上' : t.split('-')[1] === '2' ? '下' : ''}學期`}</option>)}
+                          <option value="all">全部學年</option>
+                        </select>
+                      )}
                       <button
                         type="button"
                         onClick={() => setGradeFilter('all')}
