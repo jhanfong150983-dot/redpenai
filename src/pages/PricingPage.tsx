@@ -1,18 +1,19 @@
-// 定價頁（公開頁 /pricing）：菜單式試算器。
-// 2026-08-27 user 拍板：廢除題數級距，改「按考卷內容計價」——模式＋頁數＋題型組成 → 即時預估牌價。
-// 左欄＝選配（模式/頁數/人數/題型數量），右欄＝逐項明細＋每份/每班/每年預估。
-// 牌價常數＝8 月 production 逐 token 實測成本 × 2.25（維運加成 1.5 × 毛利 1.5）——
-//   調整倍率時整組重算，勿只改單一項（見 docs 報價單）。菜單價為承諾價：實際 token 高於菜單由我方吸收。
-// 設計原則：沿用 LandingPage 單色系統（白底＋gray-900），互動元件不引入新色。
-import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, Minus, Plus, FileText, Layers } from 'lucide-react'
+// 定價頁（公開頁 /pricing）。
+// 2026-09-13 user 拍板重做：廢除題型試算器、改「校園版三級・每份計價」（Basic 5／PRO 4.5／PROMAX 4 元，起購量分級）。
+//   原則：批改相關功能全級別開放（含會考級分模式、作圖判分），只有不影響批改的額外功能分 PRO／PROMAX。
+//   個人版（月訂閱 299/599/999）金流未接、暫不上；教師版數字見 2026-09-13 對話紀錄。
+//   「聯絡我們」＝開 modal 顯示 LINE 官方帳號（不接表單）。
+//   設計沿用 LandingPage 單色系統（白底＋gray-900），只有折扣標籤用品牌紅。
+import { useEffect, useState } from 'react'
+import { X } from 'lucide-react'
 import { buildApiUrl } from '../lib/api-base'
+import { SUPPORT_EMAIL, LINE_OA_URL } from '../lib/legal'
 
 const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
 const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
 
-const PAGE_TITLE = 'RedPen AI 定價 — 按考卷內容計價，出什麼卷付什麼錢'
-const PAGE_DESC = '不分方案、沒有月費。AI 批改按考卷的題型組成計價：選擇題 0.15 元/題起，檢討單、學情分析、成績報表全部包含。用試算器直接估你的考卷。'
+const PAGE_TITLE = 'RedPen AI 定價 — 用多少花多少'
+const PAGE_DESC = '校園版每份 5 元起，買幾份學校自己決定。AI 批改全科目全題型，檢討單、成績統計、試題分析全部包含。'
 
 function usePageMeta(): void {
   useEffect(() => {
@@ -28,62 +29,44 @@ function usePageMeta(): void {
   }, [])
 }
 
-// ── 牌價常數（NT$；成本×2.25 後取 0.05 階）────────────────────────────────
-const UNIT_PRICE = [
-  { key: 'choice',  label: '選擇／是非／勾選／配合', hint: '答案是選項代號', price: 0.15 },
-  { key: 'fillTxt', label: '填空（文字、英文）',     hint: '答案是詞語或短句', price: 0.2 },
-  { key: 'fillMath',label: '填空（數學式）',         hint: '算式、分數、不等式', price: 0.2 },
-  { key: 'short',   label: '簡答／問答',             hint: '依評分規準逐項判定', price: 0.3 },
-  { key: 'handwrite',label: '國字／注音書寫',        hint: '字形與注音逐格校對', price: 0.9 },
-  { key: 'draw',    label: '作圖題',                 hint: 'AI 視覺三重判定', price: 1.4 },
-  { key: 'word',    label: '應用題（級分制）',       hint: '會考級分制、逐要素判定', price: 2.1 },
-] as const
-type UnitKey = typeof UNIT_PRICE[number]['key']
-
-// 每份基本費 = (整卷判分 0.15 + 版面定位建模攤提) × 2.25
-//   建模費實測：答案卷模式 ~47/班、原卷作答 ~14.5/頁/班（8 月 production）
-const baseFee = (mode: 'ao' | 'wq', pages: number, classSize: number): number => {
-  const modelFee = mode === 'ao' ? 47 : 14.5 * pages
-  return (0.15 + modelFee / Math.max(1, classSize)) * 2.25
+// ── 校園版三級（2026-09-13 定案；成本 3 元/份、最薄 PROMAX 毛利 25%）───────────
+type Tier = {
+  name: string
+  tagline: string
+  from: string
+  price: string
+  listPrice?: string
+  discount?: string
+  inclFrom?: string
+  features: string[]
+  primary: boolean
 }
-
-const PRESETS: Array<{ label: string; mode: 'ao' | 'wq'; pages: number; counts: Record<UnitKey, number> }> = [
-  { label: '數學段考', mode: 'ao', pages: 1, counts: { choice: 0, fillTxt: 0, fillMath: 28, short: 0, handwrite: 0, draw: 1, word: 2 } },
-  { label: '國語段考', mode: 'ao', pages: 2, counts: { choice: 40, fillTxt: 0, fillMath: 0, short: 10, handwrite: 10, draw: 0, word: 0 } },
-  { label: '英語段考', mode: 'wq', pages: 3, counts: { choice: 40, fillTxt: 8, fillMath: 0, short: 0, handwrite: 0, draw: 0, word: 0 } },
-  { label: '社會段考', mode: 'wq', pages: 6, counts: { choice: 31, fillTxt: 1, fillMath: 0, short: 8, handwrite: 0, draw: 0, word: 0 } },
-  { label: '選擇題小考', mode: 'ao', pages: 1, counts: { choice: 25, fillTxt: 0, fillMath: 0, short: 0, handwrite: 0, draw: 0, word: 0 } },
+const TIERS: Tier[] = [
+  {
+    name: 'Basic', tagline: '全校段考交給 AI', from: '2,000 份起（NT$1 萬）', price: '5', primary: false,
+    features: ['AI 批改，全科目、全題型', '會考級分模式、作圖題判分，全部包含', '學生檢討單、成績統計、試題分析', '份數全校共用，行政端分配'],
+  },
+  {
+    name: 'PRO', tagline: '從批改到家長溝通', from: '8,000 份起（NT$3.6 萬）', price: '4.5', listPrice: '5', discount: '9 折', inclFrom: 'Basic', primary: true,
+    features: ['家長報告，學校統一設定內容', '檢討模式、樣態分析、概念雷達', '行政端統一批改、跨班校級報表', '一次到校導入'],
+  },
+  {
+    name: 'PROMAX', tagline: '週考小考也能用', from: '20,000 份起（NT$8 萬）', price: '4', listPrice: '5', discount: '8 折', inclFrom: 'PRO', primary: true,
+    features: ['學生訂正與自助批改', '家長推播（1Campus）', '每學期到校、優先支援'],
+  },
 ]
-
-const fmt = (n: number): string => (Math.round(n * 20) / 20).toLocaleString('zh-TW', { maximumFractionDigits: 2 })
-
-function Stepper({ value, onChange, max = 80 }: { value: number; onChange: (v: number) => void; max?: number }) {
-  return (
-    <div className="flex items-center gap-1">
-      <button type="button" aria-label="減少" onClick={() => onChange(Math.max(0, value - 1))}
-        className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:border-gray-900 hover:text-gray-900">
-        <Minus className="h-3.5 w-3.5" />
-      </button>
-      <input
-        type="number" min={0} max={max} value={value}
-        onChange={(e) => onChange(Math.min(max, Math.max(0, parseInt(e.target.value, 10) || 0)))}
-        className="h-8 w-14 rounded-lg border border-gray-200 text-center font-mono text-sm font-bold tabular-nums text-gray-900 focus:border-gray-900 focus:outline-none"
-      />
-      <button type="button" aria-label="增加" onClick={() => onChange(Math.min(max, value + 1))}
-        className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition-colors hover:border-gray-900 hover:text-gray-900">
-        <Plus className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  )
-}
 
 export default function PricingPage() {
   usePageMeta()
-  const [mode, setMode] = useState<'ao' | 'wq'>('ao')
-  const [pages, setPages] = useState(2)
-  const [classSize, setClassSize] = useState(30)
-  const [counts, setCounts] = useState<Record<UnitKey, number>>({ choice: 30, fillTxt: 10, fillMath: 0, short: 5, handwrite: 0, draw: 0, word: 0 })
   const [loginLoading, setLoginLoading] = useState(false)
+  const [contactOpen, setContactOpen] = useState(false)
+
+  useEffect(() => {
+    if (!contactOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setContactOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [contactOpen])
 
   const handleLogin = () => {
     if (typeof window === 'undefined') return
@@ -91,21 +74,6 @@ export default function PricingPage() {
     window.localStorage.setItem(LOGIN_ENTRY_STORAGE_KEY, 'teacher')
     setTimeout(() => { window.location.href = LOGIN_URL }, 100)
   }
-
-  const applyPreset = (p: typeof PRESETS[number]) => {
-    setMode(p.mode); setPages(p.pages); setCounts({ ...p.counts })
-  }
-
-  const calc = useMemo(() => {
-    const base = baseFee(mode, pages, classSize)
-    const rows = UNIT_PRICE
-      .map((u) => ({ ...u, n: counts[u.key], subtotal: counts[u.key] * u.price }))
-      .filter((r) => r.n > 0)
-    const qTotal = rows.reduce((s, r) => s + r.subtotal, 0)
-    const perSheet = base + qTotal
-    const totalQ = rows.reduce((s, r) => s + r.n, 0)
-    return { base, rows, perSheet, perClass: perSheet * classSize, perYear: perSheet * classSize * 6, totalQ }
-  }, [mode, pages, classSize, counts])
 
   return (
     <div className="min-h-screen bg-white">
@@ -126,120 +94,64 @@ export default function PricingPage() {
         </div>
       </nav>
 
-      <main className="mx-auto max-w-6xl px-4 pb-24 pt-28 sm:px-6 lg:px-8">
-        <div className="max-w-2xl">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">按考卷內容計價</h1>
-          <p className="mt-4 text-lg leading-relaxed text-gray-500">
-            不分方案、沒有月費。AI 批改的花費由你的考卷決定：選擇題幾乎免費，
-            應用題、作圖題因為 AI 要做多次判定所以較高——<b className="text-gray-700">怎麼出卷，就怎麼計價</b>。
-            檢討單、學情分析、成績報表、家長報告全部包含，不另外收費。
-          </p>
-        </div>
+      <main className="mx-auto max-w-6xl px-4 pb-24 pt-32 text-center sm:px-6 lg:px-8">
+        <div className="text-sm text-gray-500">RedPen AI</div>
+        <h1 className="mt-2 text-5xl font-black tracking-tight text-gray-900 sm:text-6xl">定價</h1>
+        <p className="mt-4 text-lg text-gray-500">用多少花多少</p>
 
-        {/* 常見卷型快速套用 */}
-        <div className="mt-8 flex flex-wrap gap-2">
-          {PRESETS.map((p) => (
-            <button key={p.label} type="button" onClick={() => applyPreset(p)}
-              className="rounded-full border border-gray-200 px-4 py-1.5 text-sm text-gray-600 transition-colors hover:border-gray-900 hover:text-gray-900">
-              {p.label}
-            </button>
+        <div className="mx-auto mt-12 grid max-w-5xl gap-4 text-left md:grid-cols-3">
+          {TIERS.map((t) => (
+            <div key={t.name} className="relative flex flex-col rounded-2xl border border-gray-200 bg-white p-7">
+              {t.discount && (
+                <span className="absolute -top-3 left-7 rounded-full bg-red-600 px-3 py-1 text-xs font-bold text-white">{t.discount}</span>
+              )}
+              <h2 className="text-3xl font-black tracking-tight text-gray-900">{t.name}</h2>
+              <p className="mt-1 text-gray-700">{t.tagline}</p>
+              <div className="mt-8 text-xs text-gray-500">{t.from}</div>
+              <div className="mt-1 flex items-baseline text-4xl font-black tabular-nums tracking-tight text-gray-900">
+                {t.listPrice && <s className="mr-2 text-xl font-medium text-gray-400">${t.listPrice}</s>}
+                ${t.price}
+                <span className="ml-1.5 text-sm font-medium text-gray-500">／每份</span>
+              </div>
+              <button type="button" onClick={() => setContactOpen(true)}
+                className={`mt-6 rounded-full py-3.5 text-sm font-bold transition-colors ${t.primary ? 'bg-gray-900 text-white hover:bg-gray-700' : 'border border-gray-900 text-gray-900 hover:bg-gray-50'}`}>
+                聯絡我們 ›
+              </button>
+              {t.inclFrom ? (
+                <div className="mt-7 flex items-center gap-2 border-b border-gray-200 pb-3.5 text-sm font-bold text-gray-900">
+                  <span className="text-xs text-red-600">✦</span>{t.inclFrom} 的所有功能，再加上：
+                </div>
+              ) : <div className="mt-7" />}
+              <ul className="mt-3.5 space-y-3 text-sm text-gray-700">
+                {t.features.map((f) => (
+                  <li key={f} className="flex items-start gap-3"><span className="font-bold text-gray-900">✓</span>{f}</li>
+                ))}
+              </ul>
+              <div className="mt-auto pt-6 text-xs text-gray-400">用完隨時加購，同價</div>
+            </div>
           ))}
         </div>
+      </main>
 
-        <div className="mt-6 grid items-start gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-          {/* ── 左：選配 ── */}
-          <div className="space-y-6">
-            <section className="rounded-2xl border border-gray-200 p-6">
-              <h2 className="flex items-center gap-2 font-bold text-gray-900"><Layers className="h-4 w-4" />作答模式</h2>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                {([
-                  { v: 'ao' as const, t: '答案卷模式', d: '題本與答題卷分開，學生寫在答案卷上' },
-                  { v: 'wq' as const, t: '原卷作答', d: '學生直接寫在考卷上' },
-                ]).map((o) => (
-                  <button key={o.v} type="button" onClick={() => setMode(o.v)}
-                    className={`rounded-xl border p-4 text-left transition-colors ${mode === o.v ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 text-gray-700 hover:border-gray-400'}`}>
-                    <div className="font-semibold">{o.t}</div>
-                    <div className={`mt-1 text-xs leading-relaxed ${mode === o.v ? 'text-gray-300' : 'text-gray-400'}`}>{o.d}</div>
-                  </button>
-                ))}
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-x-8 gap-y-3 text-sm text-gray-600">
-                {mode === 'wq' && (
-                  <label className="flex items-center gap-3">
-                    考卷頁數
-                    <Stepper value={pages} onChange={setPages} max={12} />
-                  </label>
-                )}
-                <label className="flex items-center gap-3">
-                  班級人數
-                  <Stepper value={classSize} onChange={setClassSize} max={60} />
-                </label>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-gray-200 p-6">
-              <h2 className="flex items-center gap-2 font-bold text-gray-900"><FileText className="h-4 w-4" />題型組成</h2>
-              <div className="mt-2 divide-y divide-gray-100">
-                {UNIT_PRICE.map((u) => (
-                  <div key={u.key} className="flex items-center justify-between gap-4 py-3">
-                    <div className="min-w-0">
-                      <div className="font-medium text-gray-800">{u.label}</div>
-                      <div className="text-xs text-gray-400">{u.hint}・NT$ {fmt(u.price)}/題</div>
-                    </div>
-                    <Stepper value={counts[u.key]} onChange={(v) => setCounts((c) => ({ ...c, [u.key]: v }))} />
-                  </div>
-                ))}
-              </div>
-            </section>
-          </div>
-
-          {/* ── 右：預估 ── */}
-          <div className="lg:sticky lg:top-24">
-            <div className="overflow-hidden rounded-2xl bg-gray-900 text-white">
-              <div className="p-7">
-                <div className="text-sm text-gray-400">這份考卷（{calc.totalQ} 題）每份預估</div>
-                <div className="mt-1 text-5xl font-bold tabular-nums tracking-tight">
-                  NT$ {fmt(calc.perSheet)}
-                </div>
-                <div className="mt-6 space-y-2 border-t border-white/10 pt-5 text-sm">
-                  <div className="flex justify-between text-gray-300">
-                    <span>每份基本費（卷面定位＋整卷判分）</span>
-                    <span className="font-mono tabular-nums">{fmt(calc.base)}</span>
-                  </div>
-                  {calc.rows.map((r) => (
-                    <div key={r.key} className="flex justify-between text-gray-300">
-                      <span>{r.label} × {r.n}</span>
-                      <span className="font-mono tabular-nums">{fmt(r.subtotal)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 divide-x divide-white/10 border-t border-white/10 bg-white/5 text-center">
-                <div className="p-4">
-                  <div className="text-xs text-gray-400">一班（{classSize} 人）</div>
-                  <div className="mt-1 font-mono text-xl font-bold tabular-nums">NT$ {Math.round(calc.perClass).toLocaleString()}</div>
-                </div>
-                <div className="p-4">
-                  <div className="text-xs text-gray-400">一年（6 次段考）</div>
-                  <div className="mt-1 font-mono text-xl font-bold tabular-nums">NT$ {Math.round(calc.perYear).toLocaleString()}</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-gray-200 p-6 text-sm leading-relaxed text-gray-500">
-              <p>・預估價即承諾價：實際 AI 用量高於預估由我們吸收，不追加。</p>
-              <p>・批改失敗不扣費；重批照輪計算。</p>
-              <p>・檢討單、試題分析、概念雷達、家長報告、成績匯出全部包含。</p>
-              <p>・學校學期約／學年約另有折扣，<a href="/#contact" className="font-semibold text-gray-900 underline">預約說明會</a>。</p>
-            </div>
-
-            <button onClick={handleLogin} disabled={loginLoading}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 py-3.5 font-semibold text-white transition-colors hover:bg-gray-700 disabled:opacity-60">
-              免費註冊，用一份真實考卷試跑<ArrowRight className="h-4 w-4" />
-            </button>
+      {/* 聯絡我們：LINE 官方帳號（z-index 沿用彈窗慣例 ≥ z-[120]） */}
+      {contactOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-gray-900/45 p-6" onClick={() => setContactOpen(false)}>
+          <div role="dialog" aria-modal="true" aria-labelledby="contact-title"
+            className="relative w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <button type="button" aria-label="關閉" onClick={() => setContactOpen(false)}
+              className="absolute right-3 top-3 rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"><X className="h-5 w-5" /></button>
+            <h3 id="contact-title" className="text-2xl font-black text-gray-900">聯絡我們</h3>
+            <p className="mt-2 text-sm text-gray-500">加入 LINE 官方帳號，直接跟我們談報價與導入。手機點按鈕，電腦掃 QR。</p>
+            <img src="/site/line-qr.png" alt="RedPen AI LINE 官方帳號 QR Code" className="mx-auto mt-5 h-44 w-44 rounded-xl border border-gray-100" />
+            <a href={LINE_OA_URL} target="_blank" rel="noreferrer"
+              className="mt-5 inline-flex items-center justify-center rounded-full px-7 py-3 font-bold text-white transition-opacity hover:opacity-90"
+              style={{ backgroundColor: '#06C755' }}>
+              加入 LINE 好友
+            </a>
+            <p className="mt-4 text-xs text-gray-400">或來信 {SUPPORT_EMAIL}</p>
           </div>
         </div>
-      </main>
+      )}
 
       <footer className="border-t border-gray-100 py-10 text-center text-sm text-gray-400">
         © {new Date().getFullYear()} RedPen AI・<a href="/" className="hover:text-gray-600">回首頁</a>

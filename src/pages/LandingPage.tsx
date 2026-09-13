@@ -117,13 +117,12 @@ const GUARDRAILS = [
   { t: '改分留紀錄', d: '疑義當面提出、老師當場判斷，系統負責把紀錄留下來。' }
 ]
 
-// 2026-08-27 user 拍板：廢除題數級距，改「按考卷內容計價」——定價細節與試算器移到公開頁 /pricing。
+// 2026-09-13 user 拍板：校園版三級・每份計價（Basic 5／PRO 4.5／PROMAX 4），不分科目題型；細節在 /pricing。
 const PRICE_HIGHLIGHTS = [
-  { label: '選擇／是非題', price: 'NT$ 0.15 /題' },
-  { label: '填空題（文字）', price: 'NT$ 0.2 /題' },
-  { label: '簡答／問答題', price: 'NT$ 0.3 /題' },
-  { label: '應用題・作圖題', price: 'NT$ 1.6–4.5 /題' },
-  { label: '檢討單・學情分析・成績報表・家長報告', price: '包含', free: true }
+  { label: 'Basic・2,000 份起', price: 'NT$ 5 /份' },
+  { label: 'PRO・8,000 份起', price: 'NT$ 4.5 /份' },
+  { label: 'PROMAX・20,000 份起', price: 'NT$ 4 /份' },
+  { label: '檢討單・成績統計・試題分析', price: '包含', free: true }
 ]
 
 const FAQS = [
@@ -487,11 +486,11 @@ export default function LandingPage() {
         <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
           <div className="max-w-2xl animate-fade-in-up">
             <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">
-              按考卷內容計價，功能不分方案
+              用多少花多少
             </h2>
             <p className="mt-4 text-lg text-gray-500">
-              沒有「升級才能看學情報告」這種事。分析、檢討單、成績報表全部包含在內，
-              只有 AI 批改本身按考卷的題型組成計算——怎麼出卷，就怎麼計價。
+              一份＝一位學生的一份考卷，不分科目、不分題型。買幾份學校自己決定，用完再加購、同價。
+              AI 批改的功能全部開放，分級只差家長報告、檢討模式這類延伸功能。
             </p>
           </div>
 
@@ -518,23 +517,23 @@ export default function LandingPage() {
                 </table>
               </div>
               <p className="mt-4 text-sm leading-relaxed text-gray-400">
-                批改失敗不收費，重批照輪計算。學校學期約與學年約另有折扣。
+                批改失敗不計份。份數一學年有效，全校共用、行政端分配。
               </p>
               <a href="/pricing" className="mt-3 inline-flex items-center gap-1.5 font-semibold text-gray-900 underline underline-offset-4 hover:text-gray-600">
-                打開試算器，直接估你的考卷<ArrowRight className="h-4 w-4" />
+                看三個方案的完整內容<ArrowRight className="h-4 w-4" />
               </a>
             </div>
 
             <div className="grid animate-fade-in-up animation-delay-100 gap-4">
               <div className="rounded-2xl bg-gray-900 p-7">
-                <h3 className="font-bold text-white">一份標準段考卷</h3>
-                <p className="mt-3 text-4xl font-bold tracking-tight text-white">約 NT$10–22</p>
+                <h3 className="font-bold text-white">一位學生的一份考卷</h3>
+                <p className="mt-3 text-4xl font-bold tracking-tight text-white">NT$ 5 起</p>
                 <p className="mt-2 leading-relaxed text-gray-400">
-                  依題型組成而定：選擇題為主的卷最省，應用題、作圖題較高。
-                  含檢討單與完整分析。
+                  段考、週考、小考都是同一個價。一位學生一年段考約 30 份，
+                  一所 1,000 人的學校五科全批一年約 15 萬。
                 </p>
                 <a href="/pricing" className="mt-4 inline-flex items-center gap-1.5 font-semibold text-white underline underline-offset-4 hover:text-gray-300">
-                  用你的考卷試算<ArrowRight className="h-4 w-4" />
+                  看方案<ArrowRight className="h-4 w-4" />
                 </a>
               </div>
               <div className="rounded-2xl border border-gray-200 bg-white p-7">

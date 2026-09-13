@@ -80,7 +80,7 @@ const FAQ = [
   },
   {
     q: '要花多少錢？誰付？',
-    a: '以學期約或學年約計價、由學校統一付費，老師不需自費。費用按批改的考卷規模計算（標準段考卷約 NT$15/份），分析與報表全部包含。實際報價依領域數與班級數估算，說明會時提供。'
+    a: '學校一次購買一學年的份數、統一付費，老師不需自費。每份 NT$5 起（一份＝一位學生的一份考卷，不分科目題型），買越多每份越便宜；分析與報表全部包含。用完隨時加購、同價。'
   },
   {
     q: '非 1Campus 的學校可以用嗎？',
@@ -225,13 +225,13 @@ export default function SchoolPlanPage() {
                   <FileText className="h-5 w-5 text-gray-400" />
                   <h3 className="font-bold text-white">計價方式</h3>
                 </div>
-                <p className="mt-4 text-3xl font-bold tracking-tight text-white">學期約 / 學年約</p>
+                <p className="mt-4 text-3xl font-bold tracking-tight text-white">每份 NT$ 5 起</p>
                 <p className="mt-3 leading-relaxed text-gray-400">
-                  按批改的考卷規模計算，標準段考卷（40–60 題）約 NT$15/份；
-                  分析、檢討單、成績報表全含。實際報價依領域數與班級數估算。
+                  一份＝一位學生的一份考卷，不分科目、不分題型。學校買一學年的份數自己分配，
+                  用完再加購、同價；分析、檢討單、成績報表全含。
                 </p>
                 <p className="mt-4 border-t border-white/10 pt-4 text-sm text-gray-500">
-                  由學校統一付費，老師不需自費。量大另有折扣。
+                  由學校統一付費，老師不需自費。Basic 5 元、PRO 4.5 元、PROMAX 4 元，買越多越便宜。
                 </p>
               </div>
               <div className="rounded-2xl border border-gray-200 p-7">
