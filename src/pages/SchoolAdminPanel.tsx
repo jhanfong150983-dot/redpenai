@@ -92,6 +92,8 @@ interface CourseRow {
   teacher_acc: string | null
   teacher_name: string | null
   source: string
+  school_year?: number | null
+  semester?: number | null
 }
 interface StudentRow {
   person_id: string
@@ -221,8 +223,6 @@ interface TeacherOverviewRow {
   profileId: string | null
   loginEmail: string
   campusBalance: number | null
-  classroomCount: number | null
-  assignmentCount: number | null
 }
 interface WalletLedgerRow {
   delta: number
@@ -1096,9 +1096,16 @@ export default function SchoolAdminPanel({
 
   // 任課索引:班級 → 該班所有科目、老師 → 任教幾班幾科。
   //   同一班同一科可能有多筆(協同教學),以 subject 為單位去重才算得出「幾科」。
+  // 2026-09-13：任課表只增不刪（舊學期考卷檢視權要留），顯示時只看目前學期（跟班級清單同一個 activeTerm）
+  const coursesInTerm = useMemo(() => {
+    const keys = [...new Set(courses.map(classTermKey).filter(Boolean))].sort((a, b) => (b > a ? 1 : -1))
+    const term = activeTerm && activeTerm !== 'all' ? activeTerm : (keys[0] ?? '')
+    if (!term || activeTerm === 'all') return courses
+    return courses.filter((c) => classTermKey(c) === term || !classTermKey(c))
+  }, [courses, activeTerm])
   const coursesByClass = useMemo(() => {
     const map = new Map<string, CourseRow[]>()
-    for (const c of courses) {
+    for (const c of coursesInTerm) {
       const cid = String(c.campus_class_id || '')
       if (!cid) continue
       if (!map.has(cid)) map.set(cid, [])
@@ -1108,11 +1115,11 @@ export default function SchoolAdminPanel({
       list.sort((a, b) => String(a.subject || '').localeCompare(String(b.subject || ''), 'zh-Hant'))
     }
     return map
-  }, [courses])
+  }, [coursesInTerm])
 
   const teachingByTeacher = useMemo(() => {
     const map = new Map<string, { classes: Set<string>; subjects: Set<string> }>()
-    for (const c of courses) {
+    for (const c of coursesInTerm) {
       const acc = String(c.teacher_acc || '')
       if (!acc) continue
       if (!map.has(acc)) map.set(acc, { classes: new Set(), subjects: new Set() })
@@ -1121,7 +1128,7 @@ export default function SchoolAdminPanel({
       if (c.subject) e.subjects.add(String(c.subject))
     }
     return map
-  }, [courses])
+  }, [coursesInTerm])
 
   // 每位老師一段可搜尋文字:姓名/帳號/登入信箱 + 任教班級與科目 + 帶哪一班的導師。
   //   關鍵字用空白拆開後全部都要命中(「五年3 英語」找得到五年3班的英語老師)。
@@ -2246,8 +2253,6 @@ export default function SchoolAdminPanel({
                     <tr className="border-b border-slate-100 bg-slate-50/60 text-left text-xs text-slate-500">
                       <th className="px-4 py-2.5 font-medium">老師(1Campus 帳號)</th>
                       <th className="px-3 py-2.5 font-medium">任教</th>
-                      <th className="px-3 py-2.5 font-medium text-right">班級數</th>
-                      <th className="px-3 py-2.5 font-medium text-right">考卷數</th>
                       <th className="px-3 py-2.5 font-medium text-right" title="學校配發、尚未用掉的份數">校園墨水</th>
                       <th className="px-3 py-2.5" />
                     </tr>
@@ -2296,8 +2301,6 @@ export default function SchoolAdminPanel({
                             )
                           })()}
                         </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.classroomCount ?? '—'}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{t.assignmentCount ?? '—'}</td>
                         <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-emerald-700">{t.campusBalance ?? '—'}</td>
                         <td className="px-3 py-2.5 text-right whitespace-nowrap">
                           <button
