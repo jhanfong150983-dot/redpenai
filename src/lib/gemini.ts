@@ -7202,9 +7202,9 @@ export async function readReferenceAnswerCells(cells: ReferenceCellInput[]): Pro
 //     ④ canvas 裁格 → readReferenceAnswerCells 逐格讀字（＝生成卷④同一支 read_reference）
 //     ⑤ 規準：runAnswerKeyStageA（map_fill 位置／作圖 VJ／應用題級分）＋多元填空判準（同免上傳路徑）
 //   舊的「一支 prompt 判 6 型＋讀答案」（buildAnswerKeyAnswerOnlyPrompt）在旗標開時於此模式退場。
-//   旗標預設關（先拿真實自備作答卷對照舊路徑、通過再切預設）：localStorage.setItem('redpen-teacher-scan-unified','1')
+//   預設開（user 直接在線上用真卷驗收）；kill-switch：localStorage.setItem('redpen-teacher-scan-unified','0') 後重整 → 退回舊路徑
 export const TEACHER_SCAN_UNIFIED_ENABLED = (() => {
-  try { return localStorage.getItem('redpen-teacher-scan-unified') === '1' } catch { return false }
+  try { return localStorage.getItem('redpen-teacher-scan-unified') !== '0' } catch { return true }
 })()
 
 function buildSheetPageAssignPrompt(questions: AnswerKeyQuestion[], pageCount: number): string {
