@@ -1,5 +1,5 @@
 // 學校方案（公開頁 /school）：讀者＝教務處、領域召集人、校長。
-// 與首頁的差別：說的是「全校統一批改」與採購流程，主要 CTA 是預約說明會而不是免費試用。
+// 與首頁的差別：說的是「全校統一批改」與採購流程，主要 CTA 是「聯絡我們」（/contact）而不是免費試用。
 // 學生端尚未成熟 → 本頁不宣傳學生功能。
 import { useEffect, useState } from 'react'
 import {
@@ -11,7 +11,6 @@ import PublicNav from '../components/PublicNav'
 const PAGE_TITLE = 'RedPen AI 學校方案 — 全校一次段考，統一批改'
 const PAGE_DESC = '學校統一批改紙本段考卷：跨班同一套判準、行政端集中送批、1Campus 名冊同步，並批次產出檢討單與家長報告。以學期或學年約計價，學校統一付費。'
 
-const MEET_URL = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('預約 RedPen AI 校內導入說明會')}&body=${encodeURIComponent('學校名稱：\n聯絡人／職稱：\n聯絡電話：\n預計試辦領域與班級數：\n希望說明會時間：')}`
 
 function usePageMeta(): void {
   useEffect(() => {
@@ -118,10 +117,10 @@ export default function SchoolPlanPage() {
               </p>
               <div className="mt-9 flex flex-col gap-4 sm:flex-row">
                 <a
-                  href={MEET_URL}
+                  href="/contact"
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-7 py-4 text-lg font-semibold text-white transition-colors hover:bg-gray-700"
                 >
-                  預約校內導入說明會<ArrowRight className="h-5 w-5" />
+                  聯絡我們<ArrowRight className="h-5 w-5" />
                 </a>
                 <a
                   href="/tutorials"
@@ -226,10 +225,10 @@ export default function SchoolPlanPage() {
                   說明會約 40 分鐘，我們會用你們學校自己的一份考卷示範完整流程，並給出試辦估價。
                 </p>
                 <a
-                  href={MEET_URL}
+                  href="/contact"
                   className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 py-3.5 font-semibold text-white transition-colors hover:bg-gray-700"
                 >
-                  預約說明會<ArrowRight className="h-4 w-4" />
+                  聯絡我們<ArrowRight className="h-4 w-4" />
                 </a>
               </div>
             </div>
@@ -269,10 +268,10 @@ export default function SchoolPlanPage() {
           <p className="mt-5 text-xl text-gray-500">一個領域、一次考試。跑完一輪再決定。</p>
           <div className="mt-9 flex flex-col justify-center gap-4 sm:flex-row">
             <a
-              href={MEET_URL}
+              href="/contact"
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-8 py-4 text-lg font-semibold text-white transition-colors hover:bg-gray-700"
             >
-              預約校內說明會<ArrowRight className="h-5 w-5" />
+              聯絡我們<ArrowRight className="h-5 w-5" />
             </a>
             <a
               href={LINE_OA_URL}

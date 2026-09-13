@@ -15,10 +15,9 @@ import {
   ScanLine,
   ShieldCheck,
   Users,
-  LineChart,
-  MessageCircle
+  LineChart
 } from 'lucide-react'
-import { SUPPORT_EMAIL, SUPPORT_PHONE, LINE_OA_URL } from '../lib/legal'
+import { SUPPORT_EMAIL, SUPPORT_PHONE } from '../lib/legal'
 import { buildApiUrl } from '../lib/api-base'
 import { TUTORIAL_EPISODES } from '../data/tutorials'
 import PublicNav from '../components/PublicNav'
@@ -34,10 +33,6 @@ const PROMO_VIDEO_ID = 'L-1pNKoww5o'
  *  主標兩行刻意各 5 字、不帶標點，兩行才會左右對齊。 */
 const SLOGAN_MAIN = ['批改有品質', '時間有價值']
 const SLOGAN_SUB = 'RedPen AI，重新定義評量'
-
-/** 導入洽詢：官網不做自助試用，一律走預約導入 */
-const CONTACT_SUBJECT = 'RedPen AI 導入洽詢'
-const CONTACT_MAIL = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(CONTACT_SUBJECT)}&body=${encodeURIComponent('學校／單位：\n聯絡人／職稱：\n聯絡電話：\n任教領域與班級數：\n想了解的部分：\n')}`
 
 /** 可查證的事實（取代無法佐證的累積數字） */
 const FACTS = [
@@ -126,7 +121,7 @@ const TUTORIAL_CARD_COPY = [
 const ROMAN = ['一', '二', '三']
 
 export default function LandingPage() {
-  const [loginLoading, setLoginLoading] = useState<'teacher' | 'student' | null>(null)
+  const [, setLoginLoading] = useState<'teacher' | 'student' | null>(null)
 
   const handleLogin = (entry: 'teacher' | 'student') => {
     if (typeof window === 'undefined') return
@@ -158,10 +153,10 @@ export default function LandingPage() {
               </p>
               <div className="mt-9 flex flex-col gap-4 sm:flex-row">
                 <a
-                  href="#contact"
+                  href="/contact"
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-7 py-4 text-lg font-semibold text-white transition-colors duration-200 hover:bg-gray-700 active:scale-95"
                 >
-                  預約導入<ArrowRight className="h-5 w-5" />
+                  聯絡我們<ArrowRight className="h-5 w-5" />
                 </a>
                 <a
                   href="/tutorials"
@@ -406,84 +401,14 @@ export default function LandingPage() {
                   看學校方案<ArrowRight className="h-4 w-4" />
                 </a>
                 <a
-                  href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('預約 RedPen AI 校內導入說明會')}`}
+                  href="/contact"
                   className="inline-flex items-center justify-center gap-2 rounded-xl border-2 border-gray-200 px-6 py-3.5 font-semibold text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50"
                 >
-                  預約校內說明會
+                  聯絡我們
                 </a>
               </div>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* 聯繫我們（預約導入制：官網不做自助註冊入口） */}
-      <section id="contact" className="scroll-mt-20 border-t border-gray-100 bg-gray-50 py-20 sm:py-28">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
-          <div className="text-center">
-            <h2 className="text-4xl font-bold tracking-tight text-gray-900 sm:text-5xl">
-              下一次段考，就可以開始
-            </h2>
-            <p className="mx-auto mt-5 max-w-xl text-xl leading-relaxed text-gray-500">
-              我們採預約導入制：先聊一次，用你自己的一份考卷示範完整流程，再決定要不要用。
-            </p>
-          </div>
-
-          <div className="mt-12 grid gap-5 sm:grid-cols-2">
-            {/* Email */}
-            <div className="flex flex-col rounded-2xl border border-gray-200 bg-white p-7">
-              <Mail className="h-6 w-6 text-gray-900" />
-              <h3 className="mt-4 text-xl font-bold text-gray-900">Email 洽詢</h3>
-              <p className="mt-2 flex-1 leading-relaxed text-gray-500">
-                告訴我們學校／單位、任教領域與班級數，我們會回覆導入方式與時間。
-              </p>
-              <a
-                href={CONTACT_MAIL}
-                className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-6 py-3.5 font-semibold text-white transition-colors hover:bg-gray-700"
-              >
-                寄信給我們<ArrowRight className="h-4 w-4" />
-              </a>
-              <p className="mt-3 text-center text-sm text-gray-400">{SUPPORT_EMAIL}</p>
-            </div>
-
-            {/* LINE 官方帳號 */}
-            <div className="flex flex-col rounded-2xl border border-gray-200 bg-white p-7">
-              <MessageCircle className="h-6 w-6" style={{ color: '#06C755' }} />
-              <h3 className="mt-4 text-xl font-bold text-gray-900">LINE 官方帳號</h3>
-              <p className="mt-2 leading-relaxed text-gray-500">
-                想先問幾個問題最快的方式。手機直接點加入，電腦可掃右邊 QR。
-              </p>
-              <div className="mt-5 flex flex-1 items-end gap-5">
-                <a
-                  href={LINE_OA_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-6 py-3.5 font-semibold text-white transition-opacity hover:opacity-90"
-                  style={{ backgroundColor: '#06C755' }}
-                >
-                  加入 LINE 好友
-                </a>
-                <img
-                  src="/site/line-qr.png"
-                  alt="RedPen AI LINE 官方帳號 QR Code"
-                  className="h-24 w-24 flex-shrink-0 rounded-lg border border-gray-100"
-                  loading="lazy"
-                />
-              </div>
-            </div>
-          </div>
-
-          <p className="mt-8 text-center text-sm text-gray-400">
-            已經是使用者？
-            <button
-              type="button"
-              disabled={loginLoading !== null}
-              onClick={() => handleLogin('teacher')}
-              className="ml-1 font-semibold text-gray-600 underline decoration-gray-300 transition-colors hover:text-gray-900 disabled:opacity-70"
-            >
-              {loginLoading === 'teacher' ? '登入中…' : '教師登入'}
-            </button>
-          </p>
         </div>
       </section>
 

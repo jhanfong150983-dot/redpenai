@@ -1,19 +1,20 @@
 // 2026-09-13 公開頁共用導覽列（user：分頁要是真的分頁、不是捲動；只留 首頁／定價／教學／常見問題）。
 //   首頁 /、定價 /pricing、教學 /tutorials、常見問題 /faq 都是獨立路由（App.tsx PUBLIC_PAGE_PATHS）。
-//   右側：教師登入（Google OAuth）＋「聯絡我們」（首頁的聯繫區塊；官網採預約導入制、不做自助註冊）。
+//   右側：教師登入（Google OAuth）＋「聯絡我們」→ /contact（官網採預約導入制、不做自助註冊）。
 import { useState } from 'react'
 import { buildApiUrl } from '../lib/api-base'
 
 const LOGIN_ENTRY_STORAGE_KEY = 'redpen-login-entry'
 const LOGIN_URL = buildApiUrl('/api/auth/google?entry=teacher')
 
-export type PublicNavKey = 'home' | 'pricing' | 'tutorials' | 'faq'
+export type PublicNavKey = 'home' | 'pricing' | 'tutorials' | 'faq' | 'contact'
 
 const LINKS: Array<{ key: PublicNavKey; label: string; href: string }> = [
   { key: 'home', label: '首頁', href: '/' },
   { key: 'pricing', label: '定價', href: '/pricing' },
   { key: 'tutorials', label: '教學', href: '/tutorials' },
   { key: 'faq', label: '常見問題', href: '/faq' },
+  { key: 'contact', label: '聯絡我們', href: '/contact' },
 ]
 
 export default function PublicNav({ active }: { active: PublicNavKey }) {
@@ -48,7 +49,7 @@ export default function PublicNav({ active }: { active: PublicNavKey }) {
             {loginLoading ? '登入中…' : '教師登入'}
           </button>
           <a
-            href="/#contact"
+            href="/contact"
             className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
           >
             聯絡我們

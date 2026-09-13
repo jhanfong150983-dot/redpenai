@@ -66,10 +66,10 @@ function EpisodeBlock({ episode, index }: {
   }, [episode.youtubeId, startAt])
 
   const cta = [
-    { label: '預約導入', href: '/#contact' },
-    { label: '看定價方式', href: '/#pricing' },
+    { label: '聯絡我們', href: '/contact' },
+    { label: '看定價', href: '/pricing' },
     { label: '看學校方案', href: '/school' },
-  ][index] ?? { label: '預約導入', href: '/#contact' }
+  ][index] ?? { label: '聯絡我們', href: '/contact' }
 
   return (
     <section id={episode.id} className="scroll-mt-24 border-t border-gray-100 py-12 first:border-t-0 sm:py-16">
@@ -232,14 +232,14 @@ export default function TutorialsPage() {
         <div className="mx-auto max-w-3xl text-center">
           <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl">看完了，我們陪你跑第一輪</h2>
           <p className="mt-4 text-lg text-gray-500">
-            採預約導入制：用你自己的一份考卷示範完整流程，再決定要不要用。
+            先聊一次，用你自己的一份考卷示範完整流程，再決定要不要用。
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <a
-              href="/#contact"
+              href="/contact"
               className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-8 py-4 text-lg font-semibold text-white transition-colors hover:bg-gray-700"
             >
-              預約導入<ArrowRight className="h-5 w-5" />
+              聯絡我們<ArrowRight className="h-5 w-5" />
             </a>
             <a
               href={LINE_OA_URL}
