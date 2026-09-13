@@ -1633,6 +1633,19 @@ export default function GradingPage({
   }, [])
   // 2026-09-13 份制：確認框顯示這份卷會扣哪一種墨水、各剩多少（開框時抓一次）
   const [walletInfo, setWalletInfo] = useState<MyWallets | null>(null)
+  const walletPhrase = (count: number): string | null => {
+    const a = walletInfo?.applicable
+    if (!a) return null
+    if (a.scope === 'school') return '扣學校份數'
+    if (a.scope === 'campus') {
+      const short = Math.max(0, count - a.campusBalance)
+      return short > 0
+        ? `先扣校園墨水（剩 ${a.campusBalance} 份），不足改扣個人墨水（剩 ${a.personalBalance} 份）`
+        : `扣校園墨水（剩 ${a.campusBalance} 份）`
+    }
+    const short = Math.max(0, count - a.personalBalance)
+    return `扣個人墨水（剩 ${a.personalBalance} 份）${short > 0 ? `，不足 ${short} 份` : ''}`
+  }
   const walletLine = (count: number) => {
     const a = walletInfo?.applicable
     if (!a) return null
@@ -1795,6 +1808,9 @@ export default function GradingPage({
   // 2026-05-31 Phase1b: 一鍵接著批改——所有未完成卷分桶（不看勾選，一鍵 = 處理全部待辦）
   // needA=未擷取/Phase A 失敗(要跑 Phase A)、needReview=待複核、needB=待算分/Phase B 失敗(直接 Phase B)
   const [oneClickConfirmOpen, setOneClickConfirmOpen] = useState(false)
+  // 2026-09-13 user：智慧批改前若一份都還沒批過 → 先跳「先批 1 份確認」（跳過／確定），再進扣份確認框
+  const [trialAskOpen, setTrialAskOpen] = useState(false)
+  const [confirmMode, setConfirmMode] = useState<'all' | 'trial'>('all')
   // 2026-09-13 份制：開確認框時抓兩種墨水（⚠ 必須放在 isLoading/error 的 early return 之前，否則 hooks 數量改變＝React #310）
   useEffect(() => {
     if (!FLAT_BILLING || !(oneClickConfirmOpen || advInkConfirm || regradeChangedOpen)) return
@@ -5853,6 +5869,11 @@ export default function GradingPage({
   // 2026-06-01 Phase3: 「智慧批改 ▼」分段按鈕的衍生狀態
   //   左半=智慧批改（一鍵接著批改）；右半 ▼=進階選單。total=0 時左半鎖住改字「已批改完成」、▼ 仍可點。
   const smartHasWork = unfinishedBuckets.total > 0
+  const smartCount = confirmMode === 'trial' ? 1 : unfinishedBuckets.total
+  const openSmartConfirm = () => {
+    if (stageAggregates.counts.graded === 0 && unfinishedBuckets.total > 1) { setConfirmMode('all'); setTrialAskOpen(true); return }
+    setConfirmMode('all'); setOneClickConfirmOpen(true)
+  }
   const smartHasSubs = submissions.size > 0
   const smartBusy = isGrading || isDownloading || isCheckingCorrectionState || !isGeminiAvailable || !inkSessionReady || answerKeyStatus === 'deleted'
   const smartLabel = smartHasWork ? `智慧批改 (${unfinishedBuckets.total})` : (smartHasSubs ? '已批改完成' : '智慧批改')
@@ -5996,44 +6017,27 @@ export default function GradingPage({
         </div>
       )}
 
-      {/* 2026-06-01: 智慧批改確認——套共用 InkConfirmModal（墨水花費提醒 + 同意/不同意） */}
+      {/* 2026-09-13 user：智慧批改兩段式——一份都沒批過先問「先批 1 份確認」（跳過／確定），再進扣份確認框（文案只留一句） */}
+      <InkConfirmModal
+        open={trialAskOpen}
+        warning="還沒批改過任何一份"
+        cancelLabel="跳過"
+        confirmLabel="確定"
+        onCancel={() => { setTrialAskOpen(false); setConfirmMode('all'); setOneClickConfirmOpen(true) }}
+        onConfirm={() => { setTrialAskOpen(false); setConfirmMode('trial'); setOneClickConfirmOpen(true) }}
+      >
+        <div>先批 1 份確認答案卷沒問題，再批其餘的。</div>
+      </InkConfirmModal>
       <InkConfirmModal
         open={oneClickConfirmOpen}
-        warning="批改會扣份數：每批改成功一份扣 1 份、失敗不扣"
+        warning="批改會扣份數，失敗不扣"
         onCancel={() => setOneClickConfirmOpen(false)}
-        onConfirm={() => { void handleOneClickContinue() }}
+        onConfirm={() => { if (confirmMode === 'trial') void handleOneClickTrial(); else void handleOneClickContinue() }}
       >
-        <div className="mb-2">
-          即將處理 <strong>{unfinishedBuckets.total}</strong> 份還沒完成的考卷。
+        <div>
+          即將處理 <strong>{smartCount}</strong> 份還沒完成的考卷。
+          {FLAT_BILLING && <>本次扣 <strong>{smartCount}</strong> 份，{walletPhrase(smartCount) ?? '扣份數'}。</>}
         </div>
-        {FLAT_BILLING && (
-          <div className="mb-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
-            本次扣 {gradingPriceTextSmart(unfinishedBuckets.total, assignment?.answerKey, sortedStudents.length)}
-            <div className="mt-0.5 text-xs text-sky-700">{walletLine(unfinishedBuckets.total) ?? '失敗的卷不扣。'}</div>
-          </div>
-        )}
-        <ul className="mb-3 list-none space-y-1">
-          {unfinishedBuckets.needA.length > 0 && <li>🔵 <strong>{unfinishedBuckets.needA.length}</strong> 份未擷取</li>}
-          {unfinishedBuckets.needB.length > 0 && <li>🟢 <strong>{unfinishedBuckets.needB.length}</strong> 份待批改</li>}
-        </ul>
-        {/* 2026-08-08 移除「AI 沒把握會請你確認再繼續；可隨時暫停」——0 審查架構下批改不再中途停下
-            要老師確認（鏈 + zero-review-tail 全格出分），這句已與實際行為不符（user 指出）。
-            改成說明低信心標示：那才是現在老師需要知道的事。 */}
-        <div className="text-slate-600">
-          ℹ️ 批改會一次跑完;AI 把握度低的題目會標示出來,批改完可以點進去核對。
-        </div>
-        {unfinishedBuckets.total > 1 && (
-          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-            <div className="text-sm text-slate-700">還不確定答案卷對不對？可以先批一份看看，確認沒問題再批其餘的。</div>
-            <button
-              type="button"
-              onClick={() => { void handleOneClickTrial() }}
-              className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-800 hover:bg-slate-100"
-            >
-              先批 1 份確認（只扣 1 份）
-            </button>
-          </div>
-        )}
       </InkConfirmModal>
 
       {/* 2026-09-07 A3b：答案卷已變更 → 用新答案卷重批已批改卷（Phase B only、覆寫舊分數、保訂正/申訴） */}
@@ -6487,7 +6491,7 @@ export default function GradingPage({
                 <div className="inline-flex">
                   <button
                     type="button"
-                    onClick={() => setOneClickConfirmOpen(true)}
+                    onClick={openSmartConfirm}
                     disabled={smartLeftDisabled}
                     title={smartHasWork ? '把所有未完成的考卷一次批改到完成（已完成的略過）' : '目前沒有未完成的考卷'}
                     className={`inline-flex items-center gap-2 rounded-l-lg border px-4 py-2 text-sm font-semibold transition-colors active:scale-[0.98] ${
