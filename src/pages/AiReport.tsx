@@ -1174,8 +1174,9 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           </div>
         </div>
 
-        {/* Tab panels */}
-        <div className="grid gap-6">
+        {/* Tab panels（2026-09-13：min-w-0 讓寬表格（試題分析逐題表）在平板上留在卡片內橫向捲動，
+            否則 grid 子項 min-width:auto 會被表格撐寬、整個右側被畫面切掉） */}
+        <div className="grid gap-6 min-w-0 [&>section]:min-w-0 [&>section]:max-w-full">
           {activeTab === 'class' && (
             <section>
               <AssignmentSummaryPanel
