@@ -681,14 +681,19 @@ export default function AnswerBank(_props: AnswerBankProps) {
     if (questionsWithCrop.length === 0) return
     try {
       const crops = questionsWithCrop.map(q => ({ questionId: q.id, imageBase64: q.cropImageUrl! }))
-      const res = await fetch('/api/storage/download', {
-        method: 'POST', credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'upload_crops', assignmentId: templateId, crops }),
-      })
-      if (!res.ok) { console.warn('⚠️ 答案截圖上傳失敗'); return }
-      const { paths } = await res.json() as { paths: Record<string, string> }
-      if (!paths || Object.keys(paths).length === 0) return
+      // 2026-09-13 分批：server 單次上限 50 張（超過直接 400、一張都不存 → 60 題卷全無截圖）、路由 15s
+      const paths: Record<string, string> = {}
+      for (let i = 0; i < crops.length; i += 25) {
+        const res = await fetch('/api/storage/download', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'upload_crops', assignmentId: templateId, crops: crops.slice(i, i + 25) }),
+        })
+        if (!res.ok) { console.warn('⚠️ 答案截圖上傳失敗（批次', i / 25 + 1, '）', await res.text().catch(() => '')); continue }
+        const part = (await res.json() as { paths?: Record<string, string> }).paths ?? {}
+        Object.assign(paths, part)
+      }
+      if (Object.keys(paths).length === 0) return
       const updatedQuestions = ak.questions.map(q => {
         const p = paths[q.id]
         return p ? { ...q, cropImagePath: p } : q

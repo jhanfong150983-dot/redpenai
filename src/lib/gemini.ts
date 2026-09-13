@@ -5787,7 +5787,8 @@ export async function detectFillVariantsCriteria(
 
 【每題輸出】
 - referenceAnswer＝**一句話判準**：描述「什麼樣的答案算對」。⛔不可只照抄參考答案；要能判斷清單外的答案。
-- acceptableAnswers＝明確可接受的答案清單（**一定要含老師的參考答案**；造詞題可多列幾個常見合法詞；沒把握就只放參考答案）。
+- acceptableAnswers＝明確可接受的答案清單（**第一項一定是老師的參考答案原文、一字不改**；造詞題可多列幾個常見合法詞；沒把握就只放參考答案）。
+- ⛔ 老師參考答案裡的「、」「，」是同一個答案的一部分（例：「無不、都是」是一個答案），**不可拆成多個**清單項目。
 
 【題目清單】
 ${list}
@@ -5802,7 +5803,15 @@ ${list}
       const id = String(it.id ?? '')
       if (!id) continue
       const ref = String(it.referenceAnswer ?? '').trim()
-      const acc = Array.isArray(it.acceptableAnswers) ? it.acceptableAnswers.map((a) => String(a).trim()).filter(Boolean) : []
+      let acc = Array.isArray(it.acceptableAnswers) ? it.acceptableAnswers.map((a) => String(a).trim()).filter(Boolean) : []
+      // code 兜底（09-13 user 回報：「無不、都是」被拆成兩個可接受答案）：老師參考答案原文永遠是第一項；
+      //   AI 若把參考答案照「、，,」拆開的碎片當成獨立項目 → 剔除（只剔「拆出來的碎片」，不動其他同義詞）。
+      const teacher = String(items.find((q) => q.id === id)?.answer ?? '').trim()
+      if (teacher) {
+        const frags = new Set(teacher.split(/[、，,]/).map((f) => f.trim()).filter(Boolean))
+        if (frags.size > 1) acc = acc.filter((a) => !frags.has(a))
+        acc = [teacher, ...acc.filter((a) => a !== teacher)]
+      }
       out.set(id, { referenceAnswer: ref, acceptableAnswers: acc })
     }
   } catch (err) {
