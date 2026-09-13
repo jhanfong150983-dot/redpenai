@@ -53,13 +53,8 @@ function showUpdateToast(onApply: () => void) {
   updateBtn.addEventListener('click', () => {
     updateBtn.disabled = true
     updateBtn.textContent = '更新中…'
+    // reload 時機由 applyUpdate 依新 SW 的 state 決定（2026-09-13 修：固定 1.5s 會搶在接管前 reload）
     onApply()
-    // updateSW(true) 內部靠 `controllerchange` 事件決定何時 reload；當新 SW
-    // 已 active 或沒有現任 controller 時這個事件不會觸發、會卡死在「更新中…」。
-    // 1.5s 後不管如何強制 reload 當保險絲（reload 後此 timer 隨頁面消失、無副作用）。
-    setTimeout(() => {
-      window.location.reload()
-    }, 1500)
   })
   toast.appendChild(updateBtn)
 
@@ -90,6 +85,26 @@ if (import.meta.env.PROD) {
   //   （筆電只休眠）就永遠停在舊版。修法：**剛開啟的頭幾秒**發現有新版＝什麼都還沒開始做，
   //   直接套用（一次 reload、無感）；只有「使用中途」才走 toast 問，保留原本不打斷批改的原則。
   const AUTO_APPLY_WINDOW_MS = 10_000
+  let swRegistration: ServiceWorkerRegistration | undefined
+  // 2026-09-13 修「按了立即更新還是舊版、還不如 F5」（本機 Chrome 重現）：舊版按下去送 SKIP_WAITING 後
+  //   固定 1.5s 就 reload；新 SW 冷啟動＋activate（清 84 筆舊快取）在慢一點的機器超過 1.5s，
+  //   reload 便由「還是舊的」active SW 服務 → 舊 index.html → 舊版；等新 SW 接管完成時 waiting 已空、
+  //   toast 也不再出現，老師只好 F5（這時才是新版）。改成：盯著新 SW 的 state，到 activated 才 reload；
+  //   20s 保險絲防卡死。clientsClaim:false 所以 controllerchange 不會來，不能依賴它。
+  const applyUpdate = async () => {
+    // 頁面載入時就已有 waiting SW 的情況，'waiting' 事件會早於 onRegisteredSW 一個 microtask → 補抓 registration
+    let reg = swRegistration
+    if (!reg) { try { reg = await navigator.serviceWorker.getRegistration() } catch { /* 無 SW */ } }
+    const target = reg?.waiting ?? reg?.installing ?? null
+    void updateSW(true) // 送 SKIP_WAITING（vite-plugin-pwa 的 reload 靠 controllerchange、此處不會觸發）
+    let done = false
+    const reload = () => { if (done) return; done = true; window.location.reload() }
+    if (!target) { setTimeout(reload, 800); return }
+    const check = () => { if (target.state === 'activated' || target.state === 'redundant') reload() }
+    target.addEventListener('statechange', check)
+    check()
+    setTimeout(reload, 20_000)
+  }
   const updateSW = registerSW({
     onNeedRefresh() {
       // 防迴圈：新 SW 若接管失敗，reload 後又會在頭幾秒再觸發 → 同一分頁只自動套用一次，之後改問
@@ -97,18 +112,15 @@ if (import.meta.env.PROD) {
       try { autoTried = sessionStorage.getItem('rp-sw-autoapply') === '1' } catch { /* 無 storage */ }
       if (performance.now() < AUTO_APPLY_WINDOW_MS && !autoTried) {
         try { sessionStorage.setItem('rp-sw-autoapply', '1') } catch { /* 無 storage */ }
-        void updateSW(true)
-        // updateSW(true) 靠 controllerchange 觸發 reload；保險絲同「立即更新」按鈕
-        setTimeout(() => { window.location.reload() }, 1500)
+        void applyUpdate()
         return
       }
       // SW 設成 skipWaiting:false、不會自動接管現有 tab；改用 toast 提示老師
       // 主動點「立即更新」才會 skipWaiting + reload，避免批改中突然被刷掉
-      showUpdateToast(() => {
-        void updateSW(true)
-      })
+      showUpdateToast(() => { void applyUpdate() })
     },
     onRegisteredSW(_url, registration) {
+      swRegistration = registration
       // 每次載入頁面時檢查新版本（背景下載，不打斷使用者）
       if (registration) {
         void registration.update()
