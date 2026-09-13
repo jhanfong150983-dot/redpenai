@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   LayoutDashboard,
   Upload,
-  Camera,
   Send,
   RotateCcw,
   RotateCw,
@@ -1337,7 +1336,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         return
       }
       if (!validated.pages.every((p) => p.result.ok)) {
-        setError('預覽檢查未通過，請重拍標示有問題的頁面')
+        setError('預覽檢查未通過，請重傳標示有問題的頁面')
         return
       }
     }
@@ -1841,7 +1840,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                         {validationFailed && (
                           <p className="mt-1 inline-flex items-center gap-1 text-xs text-rose-600">
                             <AlertTriangle className="h-3 w-3" />
-                            照片檢查未通過，請按「預覽考卷」查看並重拍有問題的頁面。
+                            頁面檢查未通過，請按「預覽考卷」查看並重傳有問題的頁面。
                           </p>
                         )}
                         {validationOk && (
@@ -2454,8 +2453,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                     }}
                     className="inline-flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium transition-colors border-2 border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                   >
-                    <Camera className="h-4 w-4" />
-                    重新拍攝第 {currentIdx + 1} 頁
+                    <Upload className="h-4 w-4" />
+                    重傳第 {currentIdx + 1} 頁 PDF
                   </button>
                 </div>
 
@@ -2465,7 +2464,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 shrink-0 text-rose-600" />
                       <p className="text-sm font-semibold text-rose-900">
-                        第 {currentIdx + 1} 頁需要重拍
+                        第 {currentIdx + 1} 頁需要重傳
                       </p>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-3 items-start">
@@ -2524,7 +2523,7 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
                       <AlertTriangle className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
                       <div className="flex-1 space-y-1">
                         <p className="text-sm font-semibold text-amber-900">
-                          第 {currentIdx + 1} 頁建議重拍（仍可送出）：
+                          第 {currentIdx + 1} 頁建議重傳（仍可送出）：
                         </p>
                         <ul className="list-disc pl-5 text-xs text-amber-800 space-y-0.5">
                           {(currentPageResult.warnings ?? []).map((w, i) => (
