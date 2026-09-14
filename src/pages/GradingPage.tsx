@@ -1711,7 +1711,6 @@ export default function GradingPage({
 
   // 答案卷版本狀態
   const [answerKeyStatus, setAnswerKeyStatus] = useState<'normal' | 'updated' | 'deleted'>('normal')
-  const [regradeChangedOpen, setRegradeChangedOpen] = useState(false) // A3b：答案卷已變更→重批確認框
 
   // Phase A/B 批次一致性審查
   const [gradingPhase, setGradingPhase] = useState<GradingPhase>('idle')
@@ -1813,11 +1812,11 @@ export default function GradingPage({
   const [confirmMode, setConfirmMode] = useState<'all' | 'trial'>('all')
   // 2026-09-13 份制：開確認框時抓兩種墨水（⚠ 必須放在 isLoading/error 的 early return 之前，否則 hooks 數量改變＝React #310）
   useEffect(() => {
-    if (!FLAT_BILLING || !(oneClickConfirmOpen || advInkConfirm || regradeChangedOpen)) return
+    if (!FLAT_BILLING || !(oneClickConfirmOpen || advInkConfirm)) return
     let cancelled = false
     void fetchMyWallets(assignmentId).then((w) => { if (!cancelled) setWalletInfo(w) })
     return () => { cancelled = true }
-  }, [oneClickConfirmOpen, advInkConfirm, regradeChangedOpen, assignmentId])
+  }, [oneClickConfirmOpen, advInkConfirm, assignmentId])
   const unfinishedBuckets = useMemo(() => {
     const needA: Submission[] = []; const needReview: Submission[] = []; const needB: Submission[] = []
     for (const s of submissions.values()) {
@@ -1825,9 +1824,12 @@ export default function GradingPage({
       if (stage === 'not_extracted' || stage === 'phase_a_failed') needA.push(s)
       else if (stage === 'pending_review') needReview.push(s)
       else if (stage === 'pending_grading' || stage === 'phase_b_failed') needB.push(s)
+      // 2026-09-14 user 拍板：答案卷換了／改了 → 已批改卷也進「智慧批改」完整重跑（重新定位＋讀取＋評分），
+      //   老師不再分 Phase A/B；換模板時格位可能不同（疊合免 classify 以模板格位為準），沿用舊讀取不安全。
+      else if (answerKeyStatus === 'updated' && stage === 'graded') needA.push(s)
     }
     return { needA, needReview, needB, total: needA.length + needReview.length + needB.length }
-  }, [submissions, correctionStatusByStudent])
+  }, [submissions, correctionStatusByStudent, answerKeyStatus])
 
   // 2026-05-17: 「重新截取」按鈕變身規則
   // 🟢 primary：有 未擷取 / 擷取失敗 卡片
@@ -4289,13 +4291,7 @@ export default function GradingPage({
     correctionStatusByStudent
   ])
 
-  // 2026-09-07 A3b：答案卷內容已變更 → 對「已批改」的卷用新答案卷重批（Phase B only、省 read、
-  //   保訂正/申訴逐題調和；缺 phase_a_state 快取者會失敗計數→不清 updated，符合安全語意）。全成功→清 updated。
-  const handleRegradeForAnswerKeyChange = useCallback(async () => {
-    const graded = stageAggregates.stageMap.graded
-    if (graded.length === 0) { void alertModal('目前沒有已批改的卷需要重批。'); return }
-    await executeGradeOnlyCache(graded, { alignAnswerKeyVersion: true })
-  }, [stageAggregates, executeGradeOnlyCache, alertModal])
+  // 2026-09-14：答案卷已變更的重批改走智慧批改完整流程（見 unfinishedBuckets），Phase B only 入口已移除。
 
   // 2026-05-17: Phase B only 入口（批改考卷按鈕）
   // 步驟：1. 檢查 in-scope 卡片狀態  2. 若需先截取或補答、block modal  3. 若會覆寫、warning modal  4. 否則直接跑
@@ -4612,7 +4608,7 @@ export default function GradingPage({
     //   kill-switch：VITE_STREAM_A_TO_B='false' 回到柵欄（A 全班→B 全班）。
     const streamAB = (import.meta.env?.VITE_STREAM_A_TO_B ?? 'true') !== 'false'
     const phaseATargets = [...needA, ...needReview]
-    const bOpts = { silent: true, fullPipeline: true, skipReviewGate: true, withReviewCandidates: true } as const
+    const bOpts = { silent: true, fullPipeline: true, skipReviewGate: true, withReviewCandidates: true, alignAnswerKeyVersion: answerKeyStatus === 'updated' } as const
     // 2026-07-06: 純 Phase B 重批（老師改完答案後重批、A 段早已完成）——進度條重設原本掛在
     //   executeRecaptureOnly 入口、A 不跑就沒人重設 → 沿用上一輪 finalize 殘留（「批改評分 26/26 ＋
     //   三格等待中」的怪畫面、user 實測）。無 A 目標時自己重設成單階段。
@@ -5871,7 +5867,7 @@ export default function GradingPage({
   const smartHasWork = unfinishedBuckets.total > 0
   const smartCount = confirmMode === 'trial' ? 1 : unfinishedBuckets.total
   const openSmartConfirm = () => {
-    if (stageAggregates.counts.graded === 0 && unfinishedBuckets.total > 1) { setConfirmMode('all'); setTrialAskOpen(true); return }
+    if ((stageAggregates.counts.graded === 0 || answerKeyStatus === 'updated') && unfinishedBuckets.total > 1) { setConfirmMode('all'); setTrialAskOpen(true); return }
     setConfirmMode('all'); setOneClickConfirmOpen(true)
   }
   const smartHasSubs = submissions.size > 0
@@ -6040,26 +6036,6 @@ export default function GradingPage({
         </div>
       </InkConfirmModal>
 
-      {/* 2026-09-07 A3b：答案卷已變更 → 用新答案卷重批已批改卷（Phase B only、覆寫舊分數、保訂正/申訴） */}
-      <InkConfirmModal
-        open={regradeChangedOpen}
-        warning="重新批改會扣份數：每份 1 份（整份重新讀卷）"
-        onCancel={() => setRegradeChangedOpen(false)}
-        onConfirm={() => { setRegradeChangedOpen(false); void handleRegradeForAnswerKeyChange() }}
-      >
-        <div className="mb-2">
-          答案卷內容已變更。即將用<strong>新答案卷</strong>重新批改 <strong>{stageAggregates.counts.graded}</strong> 份已批改的卷。
-        </div>
-        {FLAT_BILLING && (
-          <div className="mb-2 rounded-lg bg-sky-50 border border-sky-200 px-3 py-2 text-sky-800">
-            本次扣 {stageAggregates.counts.graded} 份
-            <div className="mt-0.5 text-xs text-sky-700">{walletLine(stageAggregates.counts.graded) ?? '失敗的卷不扣。'}</div>
-          </div>
-        )}
-        <div className="text-slate-600 text-xs">
-          ℹ️ 會覆寫這些卷的舊分數（訂正／申訴紀錄逐題保留）；沿用原讀取結果、不需重新讀取。缺快取的卷會失敗、需改用「智慧批改」重讀。
-        </div>
-      </InkConfirmModal>
 
       {/* 2026-06-01: 進階「無覆寫風險直接跑」的墨水確認 */}
       <InkConfirmModal
@@ -6608,17 +6584,17 @@ export default function GradingPage({
           <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
             <p className="flex-1 text-sm text-amber-700 font-medium">
-              答案卷內容已變更，請重新批改（目前仍顯示舊版批改結果，重批前不會變動）
+              答案卷內容已變更，請重新批改（會重新定位並讀取；目前仍顯示舊版結果，重批前不會變動）
             </p>
             {stageAggregates.counts.graded > 0 && (
               <button
                 type="button"
-                onClick={() => setRegradeChangedOpen(true)}
+                onClick={openSmartConfirm}
                 disabled={isGrading || isDownloading || !inkSessionReady}
                 className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                用新答案卷重新批改
+                重新批改
               </button>
             )}
           </div>

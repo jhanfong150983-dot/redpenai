@@ -231,9 +231,9 @@ export default function AssignmentList({
         if (gradedCount > 0) {
           // 2026-09-07 Phase B（主動權還給老師）：更換答案卷不再破壞性清空舊批改。
           //   改為保留舊成績、把 boundAnswerKeyVersion 設 0 → 批改頁 getAnswerKeyVersionStatus 回 'updated'
-          //   → 顯示「答案卷內容已變更，請重新批改」橫幅＋重批按鈕，由老師主動重批（用新答案卷、Phase B only）。
-          //   註：常見換卷＝原卷解析錯、換同結構修正版，學生筆跡沒動、舊讀取(phaseAState)仍有效可沿用；
-          //   極少數「結構全變」的換卷若讀取失準，老師可改用「個別批改」full 重讀。
+          //   → 顯示「答案卷內容已變更，請重新批改」橫幅＋重批按鈕，由老師主動重批。
+          //   2026-09-14：重批＝智慧批改完整流程（重新定位＋讀取＋評分、先批一份確認）；換模板時格位可能不同
+          //   （疊合免 classify 以模板格位為準），不再沿用舊讀取。
           const ok = await confirmModal({
             tone: 'warning',
             title: '更換答案卷',
