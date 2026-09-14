@@ -1538,20 +1538,28 @@ export default function AnswerKeyUnifiedModal({
       setConfirmOverlay('save')
       return
     }
-    // 2026-09-07：存檔不再＝定版唯讀，之後仍可直接編輯。建立模式給一句輕提醒即可（編輯模式直接存）。
-    if (!editMode) {
-      void (async () => {
-        const ok = await confirmModal({
-          tone: 'warning',
-          title: '確認儲存答案卷',
-          message: '請先確認題號、答案、配分都正確。存檔後仍可再修改（若已被批改，改動會標記那些考卷需重新批改，舊成績會保留）。',
-          confirmLabel: '確認儲存',
-        })
-        if (ok) void doSave()
-      })()
-      return
-    }
-    void doSave()
+    // 2026-09-07：存檔不再＝定版唯讀，之後仍可直接編輯。
+    // 2026-09-14 user：儲存前一律提醒「答案卷會影響批改」——讀取框要真的框到學生作答、標準／參考答案要正確。
+    //   建立與編輯模式都彈；系統製作作答卷沒有框可改，只提答案。
+    void (async () => {
+      const ok = await confirmModal({
+        tone: 'warning',
+        title: '儲存前請再確認',
+        message: (
+          <div className="space-y-2">
+            <p>這份答案卷會直接決定每一位學生的批改結果。請確認：</p>
+            <ul className="list-disc pl-5 space-y-1">
+              {!genFlow && <li><b>讀取框</b>有正確框到學生會作答的位置（整個作答範圍、沒有框到題目或別題）。</li>}
+              <li><b>標準答案與參考答案</b>都是正確的答案，缺答案的題目已補上。</li>
+            </ul>
+            <p className="text-xs text-gray-500">存檔後仍可再修改；若已有考卷被批改，改動會標記那些考卷需重新批改，舊成績會保留。</p>
+          </div>
+        ),
+        confirmLabel: '我已確認，儲存',
+        cancelLabel: '再檢查一下',
+      })
+      if (ok) void doSave()
+    })()
   }
 
   const doSave = async () => {
