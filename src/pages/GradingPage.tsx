@@ -847,19 +847,22 @@ function _pct(arr: number[], p: number): number {
 //   2026-08-01 加 sampleCount/samplePapers([[classify-sample-k-experiment]]):模板要記「幾份樣本算出來的」,
 //   低樣本模板(含 legacy 無欄位=視為 1)在本批可湊出更多樣本時作廢重建——堵 K=1 壞框永久固化(77 分事故根因)。
 type PdfClassifyTemplate = { ctx: unknown; qids: string[]; totalPages: number; savedAt: number; sampleCount?: number; samplePapers?: number }
-async function fetchPdfTemplate(assignmentId?: string): Promise<PdfClassifyTemplate | null> {
-  if (!assignmentId) return null
+// 2026-09-14 疊合免 classify：server 回 registration:true（此考卷的答案卷是 PDF 模板且疊合服務開著）→
+//   不用存檔範本、不抽樣、不套統一框，每份卷各自疊合（零 AI、每份 1~2 秒、逐張修正掃描偏移）。
+async function fetchPdfTemplate(assignmentId?: string): Promise<{ template: PdfClassifyTemplate | null; registration: boolean }> {
+  if (!assignmentId) return { template: null, registration: false }
   try {
     const res = await fetch('/api/data/pdf-classify-template', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ assignmentId, mode: 'get' }),
     })
-    if (!res.ok) return null
+    if (!res.ok) return { template: null, registration: false }
     const j = await res.json().catch(() => null)
+    const registration = j?.registration === true
     const t = j?.template
-    if (t && typeof t === 'object' && t.ctx && Array.isArray(t.qids)) return t as PdfClassifyTemplate
-    return null
-  } catch { return null }
+    if (t && typeof t === 'object' && t.ctx && Array.isArray(t.qids)) return { template: t as PdfClassifyTemplate, registration }
+    return { template: null, registration }
+  } catch { return { template: null, registration: false } }
 }
 async function savePdfTemplate(assignmentId: string | undefined, template: PdfClassifyTemplate): Promise<void> {
   if (!assignmentId) return
@@ -3362,8 +3365,12 @@ export default function GradingPage({
     // ── 跨次持久化:先試考卷存好的 PDF 統一框範本 → 有效就全套、完全跳過 classify(省 API)。──
     //   只對 PDF/teacher_scan;fail-safe(fetch/驗證失敗一律退回下方正常 classify);照片路徑完全不碰。
     let pdfTemplateApplied = false
+    let perSheetRegistration = false  // 2026-09-14：疊合免 classify 生效 → 每份各自定位、跳過抽樣/統一框/存檔範本
     if (pdfCandidates.length > 0 && !stopRequestedRef.current) {
-      const saved = await fetchPdfTemplate(assignment?.id)
+      const fetched = await fetchPdfTemplate(assignment?.id)
+      const saved = fetched.template
+      perSheetRegistration = fetched.registration
+      if (perSheetRegistration) console.log('[Registration] 此考卷走疊合免 classify：每份各自定位、不套統一框')
       // 2026-08-01 K 升級門檻:legacy 無 sampleCount=視為 1;本批可湊出更好的樣本數時模板作廢重建。
       const savedCount = Math.max(1, Number(saved?.sampleCount) || 1)
       const achievableK = pdfCandidates.length >= PDF_SAMPLE_TARGET + 2 ? PDF_SAMPLE_TARGET
@@ -3387,7 +3394,7 @@ export default function GradingPage({
       }
     }
     if (!pdfTemplateApplied) {
-    if (usePdfSampling) {
+    if (usePdfSampling && !perSheetRegistration) {
       setGradingMessage('抽樣讀框中…')
       const SAMPLE_CHUNK = PDF_SAMPLE_TARGET + 2
       let idx = 0
@@ -3483,8 +3490,8 @@ export default function GradingPage({
     }
 
     // ── STAGE 2：系統檢查（peer baseline 抓框歪）+ 只重跑漂移頁 classify 到對得上鄰卷 ──
-    // pdfBoxApplied=true(PDF 抽樣已套統一框)→ 整段跳過。
-    if (!pdfBoxApplied) {
+    // pdfBoxApplied=true(PDF 抽樣已套統一框)→ 整段跳過。perSheetRegistration（疊合免 classify）→ 各卷已各自貼齊格線、不做跨卷統一框。
+    if (!pdfBoxApplied && !perSheetRegistration) {
       // 2026-06-22: 混批拆子集——統一框只對 PDF 子集(teacher_scan)生效；混批時 PDF 卷仍拿回漂移修正、照片不碰。
       const pdfOkSubs = okSubs.filter((s) => s.source === 'teacher_scan')
       const photoOkSubs = okSubs.filter((s) => s.source !== 'teacher_scan')
