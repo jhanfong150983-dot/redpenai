@@ -185,18 +185,18 @@ const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; 
       { key: 'booklet', label: '上傳題本', shortLabel: '②' },
       { key: 'sheet', label: '製作作答卷', shortLabel: '③' },
       { key: 'extract', label: 'AI 解析', shortLabel: '④' },
-      { key: 'editing', label: '人工檢核', shortLabel: '⑤' },
+      { key: 'editing', label: '答案卷編輯', shortLabel: '⑤' },
     ]
   : source === 'teacher_scan'
     ? [
         { key: 'metadata', label: '基本資料', shortLabel: '①' },
         { key: 'extract', label: '上傳題本＋作答卷', shortLabel: '②' },
-        { key: 'editing', label: '人工檢核', shortLabel: '③' },
+        { key: 'editing', label: '答案卷編輯', shortLabel: '③' },
       ]
     : [
         { key: 'metadata', label: '基本資料', shortLabel: '①' },
         { key: 'extract', label: 'AI 解析', shortLabel: '②' },
-        { key: 'editing', label: '題目編輯', shortLabel: '③' },
+        { key: 'editing', label: '答案卷編輯', shortLabel: '③' },
       ]
 
 // 作答內容為圖（非文字）的題型：答案存正解圖/vjRubric，缺答檢查豁免文字判定
@@ -1711,7 +1711,7 @@ export default function AnswerKeyUnifiedModal({
     }
     if (activeStep === 'extract') {
       if (editMode) {
-        return { label: '下一步：題目編輯', disabled: false, icon: <ChevronRight className="w-4 h-4" /> }
+        return { label: '下一步：答案卷編輯', disabled: false, icon: <ChevronRight className="w-4 h-4" /> }
       }
       if (isExtracting) {
         return { label: '解析中…', disabled: true, loading: true }
@@ -1719,7 +1719,7 @@ export default function AnswerKeyUnifiedModal({
       // 從 ③ 退回（已解析過、editingKey 仍在、頁面沒變動）→ 純導航；否則送 AI
       const goingBackFromEdit = completedSteps.has('extract') && editingKey
       if (goingBackFromEdit) {
-        return { label: '下一步：題目編輯', disabled: false, icon: <ChevronRight className="w-4 h-4" /> }
+        return { label: '下一步：答案卷編輯', disabled: false, icon: <ChevronRight className="w-4 h-4" /> }
       }
       if (genFlow) {
         // ④＝上傳「手寫在作答卷上的參考答案」→ bbox 裁格讀取。需：已上傳答案卷圖(pageItems)＋版面(makerResult)
