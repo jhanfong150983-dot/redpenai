@@ -18,7 +18,7 @@ import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
 import type { SheetSource } from '@/lib/sheetSource'
 import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
 import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData, type PageSize } from '@/lib/answerSheetGenerator'
-import { cropReferenceSheetCells } from '@/lib/generatedSheetAlign'
+import { cropReferenceSheetCells, SheetAlignError } from '@/lib/generatedSheetAlign'
 import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { db } from '@/lib/db'
@@ -32,6 +32,7 @@ import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric } from '@/lib/db'
 import LevelRubricEditor from '@/components/LevelRubricEditor'
 import PageBboxEditorModal from '@/components/PageBboxEditorModal'
+import ParseCheckReminderModal, { isParseCheckReminderDismissed } from '@/components/ParseCheckReminderModal'
 import { QUESTION_CATEGORY_TO_BUCKET, QUESTION_CATEGORY_LABELS as CATEGORY_LABELS } from '@/lib/db'
 
 function getEffectiveCategory(q: AnswerKeyQuestion): QuestionCategory {
@@ -608,6 +609,28 @@ export default function AnswerKeyUnifiedModal({
       }
       const limited = genFlow ? blobs.slice(0, 1) : blobs
       const compressed = await Promise.all(limited.map((b) => compressImageFile(b, { maxWidth: 1800, quality: 0.8 })))
+      // 2026-09-14 user：系統製作作答卷模式，老師上傳的參考答案必須是「系統印出的錨點作答卷」——
+      //   四角定位方塊找不到／對不齊 → 直接拒絕並說明，不進 AI 解析。
+      if (genFlow && makerResult) {
+        try {
+          const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const url = URL.createObjectURL(compressed[0])
+            const im = new Image()
+            im.onload = () => { resolve(im); URL.revokeObjectURL(url) }
+            im.onerror = () => { reject(new Error('圖片載入失敗')); URL.revokeObjectURL(url) }
+            im.src = url
+          })
+          const layout: GeneratedSheetData = { version: ANSWER_SHEET_GEN_VERSION, pageSize: makerState.pageSize, pageMm: makerResult.layoutMeta.pageMm, anchorsMm: makerResult.layoutMeta.anchorsMm, uvBasis: makerResult.layoutMeta.uvBasis, header: makerResult.layoutMeta.header, boxes: makerResult.boxes, sectionOverrides: makerState.sectionOverrides }
+          cropReferenceSheetCells(img, layout)
+        } catch (err) {
+          if (err instanceof SheetAlignError) {
+            setFileError(`這份不是系統製作的作答卷，無法使用。${err.message}。請列印步驟③製作的作答卷、把參考答案寫在上面再上傳。`)
+          } else {
+            setFileError(`作答卷檢查失敗：${err instanceof Error ? err.message : String(err)}`)
+          }
+          return
+        }
+      }
       if (genFlow) {
         // 生成流程：單面一頁 → 「新增」語意改成「替換」
         uploadedPages.forEach(p => URL.revokeObjectURL(p.url))
@@ -1034,6 +1057,7 @@ export default function AnswerKeyUnifiedModal({
       setExtractedImageBlobs(blobs)
       setNotice(n)
       setSelectedIdx(0)
+      if (!editMode && !isParseCheckReminderDismissed()) setReminderOpen(true)
       // Update uploadedPages with corrected images so Step 2 preview stays valid
       skipPageResetRef.current = true
       const correctedPages = blobs.map((blob, i) => ({
@@ -1243,6 +1267,8 @@ export default function AnswerKeyUnifiedModal({
 
   // bbox：2026-09-14 改成「點預覽 → 整頁大圖框選 modal」（PageBboxEditorModal），不再在小縮圖上拖曳
   const [bboxEditorOpen, setBboxEditorOpen] = useState(false)
+  // 2026-09-14 解析完成提醒（一次、可勾不再提醒）
+  const [reminderOpen, setReminderOpen] = useState(false)
   const [imageObjUrl, setImageObjUrl] = useState<string | null>(null)
   const [manualCropUrl, setManualCropUrl] = useState<string | null>(null)
 
@@ -1793,6 +1819,13 @@ export default function AnswerKeyUnifiedModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
+      {reminderOpen && editingKey && (
+        <ParseCheckReminderModal
+          questionCount={editingKey.questions.length}
+          variant={genFlow ? 'answer' : 'two'}
+          onClose={() => setReminderOpen(false)}
+        />
+      )}
       <div className={`bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden relative ${GENERATED_SHEET_STEP_ENABLED ? 'w-[96vw] max-w-[1500px] h-[92vh]' : 'w-[960px] h-[640px]'}`}>
 
         {/* ── Main content: sidebar + content ── */}
@@ -2505,8 +2538,9 @@ export default function AnswerKeyUnifiedModal({
                           {/* 點預覽 → 整頁框選（2026-09-14 user：小縮圖很難框） */}
                           <button
                             type="button"
-                            onClick={() => setBboxEditorOpen(true)}
-                            title="點一下在整頁考卷上框選作答區"
+                            disabled={genFlow}
+                            onClick={() => { if (!genFlow) setBboxEditorOpen(true) }}
+                            title={genFlow ? '系統製作的作答卷格位由排版決定，不需框選' : '點一下在整頁考卷上框選作答區'}
                             className="group relative w-full rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center h-36 hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-300 disabled:cursor-default"
                           >
                             {(manualCropUrl || selectedQuestion.cropImageUrl || selectedQuestion.cropImagePath) ? (
@@ -2527,14 +2561,16 @@ export default function AnswerKeyUnifiedModal({
                             ) : (
                               <div className="flex items-center justify-center h-24 w-48 text-gray-400 text-xs">尚無圖片</div>
                             )}
-                            {!locked && (
+                            {!locked && !genFlow && (
                               <span className="absolute inset-x-0 bottom-0 bg-black/55 text-white text-[11px] py-0.5 text-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
                                 <Crop className="inline w-3 h-3 mr-1 -mt-0.5" />點一下在整頁上框選
                               </span>
                             )}
                           </button>
                           <div className="flex items-center gap-2 mt-1.5 text-xs">
-                            {selectedQuestion.referenceBbox ? (
+                            {genFlow ? (
+                              <span className="text-gray-400">格位由系統作答卷排版決定，不需框選</span>
+                            ) : selectedQuestion.referenceBbox ? (
                               <>
                                 <span className="text-green-600">老師已框選</span>
                                 <button type="button" onClick={() => updateField(selectedIdx, 'referenceBbox', undefined)} className="text-gray-400 hover:text-red-500">清除框選</button>
@@ -2547,7 +2583,7 @@ export default function AnswerKeyUnifiedModal({
                           </div>
                         </div>
                         )}
-                        {bboxEditorOpen && (
+                        {bboxEditorOpen && !genFlow && (
                           <PageBboxEditorModal
                             pageBlobs={extractedImageBlobs}
                             questionId={String(selectedQuestion.id ?? '')}
