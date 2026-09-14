@@ -31,6 +31,7 @@ import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric } from '@/lib/db'
 import LevelRubricEditor from '@/components/LevelRubricEditor'
+import PageBboxEditorModal from '@/components/PageBboxEditorModal'
 import { QUESTION_CATEGORY_TO_BUCKET, QUESTION_CATEGORY_LABELS as CATEGORY_LABELS } from '@/lib/db'
 
 function getEffectiveCategory(q: AnswerKeyQuestion): QuestionCategory {
@@ -1240,11 +1241,8 @@ export default function AnswerKeyUnifiedModal({
 
   const [selectedIdx, setSelectedIdx] = useState(0)
 
-  // bbox drawing state
-  const [isDrawingBbox, setIsDrawingBbox] = useState(false)
-  const [bboxDraft, setBboxDraft] = useState<NormalizedBbox | null>(null)
-  const bboxDrawStart = useRef<{ x: number; y: number } | null>(null)
-  const imageContainerRef = useRef<HTMLDivElement>(null)
+  // bbox：2026-09-14 改成「點預覽 → 整頁大圖框選 modal」（PageBboxEditorModal），不再在小縮圖上拖曳
+  const [bboxEditorOpen, setBboxEditorOpen] = useState(false)
   const [imageObjUrl, setImageObjUrl] = useState<string | null>(null)
   const [manualCropUrl, setManualCropUrl] = useState<string | null>(null)
 
@@ -1260,7 +1258,7 @@ export default function AnswerKeyUnifiedModal({
   }, [extractedImageBlobs, selectedIdx, editingKey])
 
   // Reset drawing mode when switching questions
-  useEffect(() => { setIsDrawingBbox(false); setManualCropUrl(null) }, [selectedIdx])
+  useEffect(() => { setBboxEditorOpen(false); setManualCropUrl(null) }, [selectedIdx])
 
   // Canvas crop
   // 直接從 blob 切，不依賴 imageObjUrl state — 避免 imageObjUrl 還沒 ready 時 effect early-return、
@@ -1268,9 +1266,8 @@ export default function AnswerKeyUnifiedModal({
   // 只要 editingKey + extractedImageBlobs 都進入 state，這個 effect 就會即時重生 crop dataURL。
   useEffect(() => {
     const selectedQuestion = editingKey?.questions[selectedIdx] ?? null
-    // 與 activeBbox（畫框 UI）保持一致的優先序：bboxDraft > referenceBbox > answerBbox
-    // referenceBbox 是老師手動框；answerBbox 是 AI 自動標記。沒有手動框時用 AI 框切。
-    const bbox = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
+    // 優先序：referenceBbox（老師手動框）> answerBbox（AI 自動標記）
+    const bbox = selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
     const pageIdx = selectedQuestion?.pageIndex
       ?? Math.max(0, (parseInt(String(selectedQuestion?.id ?? '').split('-')[0], 10) || 1) - 1)
     const blob = extractedImageBlobs[pageIdx] ?? extractedImageBlobs[0] ?? null
@@ -1303,7 +1300,7 @@ export default function AnswerKeyUnifiedModal({
     img.onerror = () => URL.revokeObjectURL(url)
     img.src = url
     return () => { cancelled = true }
-  }, [bboxDraft, selectedIdx, editingKey, extractedImageBlobs])
+  }, [selectedIdx, editingKey, extractedImageBlobs])
 
   // Question editing helpers
   const updateField = (idx: number, field: keyof AnswerKeyQuestion, value: unknown) => {
@@ -1476,39 +1473,6 @@ export default function AnswerKeyUnifiedModal({
   // 2026-05-30: switchRubricType 已移除——評分方式改由題型自動決定、唯讀
 
   // Bbox drawing handlers
-  const getNormalizedCoords = (e: React.MouseEvent<HTMLDivElement>): { x: number; y: number } | null => {
-    const container = imageContainerRef.current
-    if (!container) return null
-    const rect = container.getBoundingClientRect()
-    return { x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)) }
-  }
-
-  const handleBboxMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDrawingBbox) return
-    const coords = getNormalizedCoords(e); if (!coords) return
-    bboxDrawStart.current = coords
-    setBboxDraft({ x: coords.x, y: coords.y, w: 0, h: 0 })
-    e.preventDefault()
-  }
-
-  const handleBboxMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDrawingBbox || !bboxDrawStart.current) return
-    const coords = getNormalizedCoords(e); if (!coords) return
-    const start = bboxDrawStart.current
-    setBboxDraft({ x: Math.min(start.x, coords.x), y: Math.min(start.y, coords.y), w: Math.abs(coords.x - start.x), h: Math.abs(coords.y - start.y) })
-  }
-
-  const handleBboxMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isDrawingBbox || !bboxDrawStart.current) return
-    const coords = getNormalizedCoords(e)
-    if (!coords || !bboxDraft || bboxDraft.w < 0.01 || bboxDraft.h < 0.01) {
-      setBboxDraft(null); bboxDrawStart.current = null; return
-    }
-    const finalBbox = { x: Math.min(bboxDrawStart.current.x, coords.x), y: Math.min(bboxDrawStart.current.y, coords.y), w: Math.abs(coords.x - bboxDrawStart.current.x), h: Math.abs(coords.y - bboxDrawStart.current.y) }
-    updateField(selectedIdx, 'referenceBbox', finalBbox)
-    setBboxDraft(null); bboxDrawStart.current = null; setIsDrawingBbox(false)
-  }
-
   // ── derived editing state ──
   const selectedQuestion = editingKey?.questions[selectedIdx] ?? null
   const selectedCategory = selectedQuestion ? getEffectiveCategory(selectedQuestion) : 'fill_blank'
@@ -1523,8 +1487,9 @@ export default function AnswerKeyUnifiedModal({
   const showAcceptableAnswers = selectedBucket === 'B'
   const showRubric = selectedBucket === 'C' || selectedBucket === 'D'
   const isVJ = VJ_CATEGORIES.includes(selectedCategory)
-  const activeBbox: NormalizedBbox | null = bboxDraft ?? selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
-  const bboxIsAiDetected = !bboxDraft && !selectedQuestion?.referenceBbox && !!selectedQuestion?.answerBbox
+  const activeBbox: NormalizedBbox | null = selectedQuestion?.referenceBbox ?? selectedQuestion?.answerBbox ?? null
+  const bboxIsAiDetected = !selectedQuestion?.referenceBbox && !!selectedQuestion?.answerBbox
+  const selectedPageIdx = selectedQuestion?.pageIndex ?? Math.max(0, (parseInt(String(selectedQuestion?.id ?? '').split('-')[0], 10) || 1) - 1)
 
   // ── save ────────────────────────────────────────��─────────────────────────
   const [isSaving, setIsSaving] = useState(false)
@@ -2525,54 +2490,65 @@ export default function AnswerKeyUnifiedModal({
                         {/* Image preview（⑤人工檢核＝原版 crop 預覽；2026-09-05 拍板喚回） */}
                         {(
                         <div className="shrink-0 border-b border-gray-100 p-3 bg-gray-50">
-                          {(manualCropUrl || selectedQuestion.cropImageUrl || selectedQuestion.cropImagePath) && !isDrawingBbox ? (
-                            <div className="rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center h-36">
+                          {/* 點預覽 → 整頁框選（2026-09-14 user：小縮圖很難框） */}
+                          <button
+                            type="button"
+                            onClick={() => setBboxEditorOpen(true)}
+                            title="點一下在整頁考卷上框選作答區"
+                            className="group relative w-full rounded-lg border border-gray-200 bg-white overflow-hidden flex items-center justify-center h-36 hover:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-300 disabled:cursor-default"
+                          >
+                            {(manualCropUrl || selectedQuestion.cropImageUrl || selectedQuestion.cropImagePath) ? (
                               <img
                                 src={manualCropUrl ?? selectedQuestion.cropImageUrl ?? `/api/storage/download?assignmentId=${encodeURIComponent(selectedQuestion.cropImagePath!.split('/')[1])}&cropPath=${encodeURIComponent(selectedQuestion.cropImagePath!)}`}
                                 alt="答案區截圖" className="max-w-full max-h-full object-contain pointer-events-none" draggable={false}
                               />
-                            </div>
-                          ) : (
-                            <div className="w-full flex justify-center rounded-lg border border-gray-200 bg-white overflow-hidden h-36">
-                              <div
-                                ref={imageContainerRef}
-                                className={`relative inline-block max-h-36 ${isDrawingBbox ? 'cursor-crosshair' : 'cursor-default'}`}
-                                onMouseDown={handleBboxMouseDown}
-                                onMouseMove={handleBboxMouseMove}
-                                onMouseUp={handleBboxMouseUp}
-                              >
-                                {imageObjUrl ? (
-                                  <img src={imageObjUrl} alt="答案卷" className="block max-w-full max-h-36 pointer-events-none" draggable={false} />
-                                ) : (
-                                  <div className="flex items-center justify-center h-24 w-48 text-gray-400 text-xs">尚無圖片</div>
-                                )}
-                                {activeBbox && imageObjUrl && (
+                            ) : imageObjUrl ? (
+                              <div className="relative inline-block max-h-36">
+                                <img src={imageObjUrl} alt="答案卷" className="block max-w-full max-h-36 pointer-events-none" draggable={false} />
+                                {activeBbox && (
                                   <div
                                     className={`absolute border-2 pointer-events-none ${bboxIsAiDetected ? 'border-blue-500 bg-blue-500/10' : 'border-green-500 bg-green-500/10'}`}
                                     style={{ left: `${activeBbox.x * 100}%`, top: `${activeBbox.y * 100}%`, width: `${activeBbox.w * 100}%`, height: `${activeBbox.h * 100}%` }}
                                   />
                                 )}
                               </div>
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2 mt-1.5">
-                            <button
-                              type="button"
-                              onClick={() => setIsDrawingBbox((v) => !v)}
-                              className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${isDrawingBbox ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-300 hover:border-green-400'}`}
-                            >
-                              <Crop className="w-3 h-3" />
-                              {isDrawingBbox ? '點擊拖曳框選' : '調整框選區域'}
-                            </button>
-                            {selectedQuestion.referenceBbox ? (
-                              <button type="button" onClick={() => updateField(selectedIdx, 'referenceBbox', undefined)} className="text-xs text-gray-400 hover:text-red-500">清除框選</button>
-                            ) : bboxIsAiDetected ? (
-                              <span className="text-xs text-blue-500">AI 已自動標記（可調整）</span>
                             ) : (
-                              <span className="text-xs text-gray-400">尚未框選</span>
+                              <div className="flex items-center justify-center h-24 w-48 text-gray-400 text-xs">尚無圖片</div>
+                            )}
+                            {!locked && (
+                              <span className="absolute inset-x-0 bottom-0 bg-black/55 text-white text-[11px] py-0.5 text-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                <Crop className="inline w-3 h-3 mr-1 -mt-0.5" />點一下在整頁上框選
+                              </span>
+                            )}
+                          </button>
+                          <div className="flex items-center gap-2 mt-1.5 text-xs">
+                            {selectedQuestion.referenceBbox ? (
+                              <>
+                                <span className="text-green-600">老師已框選</span>
+                                <button type="button" onClick={() => updateField(selectedIdx, 'referenceBbox', undefined)} className="text-gray-400 hover:text-red-500">清除框選</button>
+                              </>
+                            ) : bboxIsAiDetected ? (
+                              <span className="text-blue-500">AI 已自動標記（點圖片可調整）</span>
+                            ) : (
+                              <span className="text-red-500 font-medium">尚未框選（點圖片框選）</span>
                             )}
                           </div>
                         </div>
+                        )}
+                        {bboxEditorOpen && (
+                          <PageBboxEditorModal
+                            pageBlobs={extractedImageBlobs}
+                            questionId={String(selectedQuestion.id ?? '')}
+                            initialPage={selectedPageIdx}
+                            initialBbox={activeBbox}
+                            isAiBbox={bboxIsAiDetected}
+                            onConfirm={(bbox, pageIndex) => {
+                              updateField(selectedIdx, 'referenceBbox', bbox)
+                              if (pageIndex !== selectedPageIdx) updateField(selectedIdx, 'pageIndex', pageIndex)
+                            }}
+                            onClear={() => updateField(selectedIdx, 'referenceBbox', undefined)}
+                            onClose={() => setBboxEditorOpen(false)}
+                          />
                         )}
 
                         {/* Editing form */}
