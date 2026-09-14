@@ -870,6 +870,14 @@ export interface GenSheetDraft {
   /** step③ 版面狀態（pageSize/sectionOverrides/cellTexts/baseImages） */
   makerState: unknown
   activeStep: string
+  // 2026-09-14 三模式都存草稿（原本只有系統製作作答卷）
+  /** 'with_questions' | 'teacher_scan' | 'generated' */
+  sheetSource?: string
+  subjectLabel?: string
+  /** AI 解析前已上傳的答案卷頁（依排序、已套旋轉）；解析後改用 extractedImageBlobs */
+  uploadedPageBlobs?: Blob[]
+  /** 已完成的步驟（精確還原步驟機） */
+  completedSteps?: string[]
 }
 
 class RedPenDatabase extends Dexie {

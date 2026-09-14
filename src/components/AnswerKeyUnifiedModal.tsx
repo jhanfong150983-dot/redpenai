@@ -443,6 +443,7 @@ export default function AnswerKeyUnifiedModal({
 
   const handleClearDraft = () => {
     clearMetadataDraft()
+    void db.genSheetDrafts.delete('current').catch(() => {})
     setTitle('')
     setGrade('')
     setMathTrack('')
@@ -1131,40 +1132,58 @@ export default function AnswerKeyUnifiedModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeStep, makerResult, editingKey, schoolName])
 
-  // ── ③自動暫存（2026-09-05）：老師中途離開可續作，免重跑結構推斷 ──
-  // 觸發：生成流程、建立模式、結構已出（editingKey）；debounce 1.5s 寫入 Dexie 單列草稿
+  // ── 自動暫存（2026-09-05 生成流程；2026-09-14 user 拍板擴到三模式）：老師中途離開可續作，
+  //    AI 解析結果、老師改過的答案／題型／框、已上傳的題本與答案卷都留著，免重跑、免重傳。
+  // 觸發：建立模式、有東西可存（上傳了頁面或已有解析結果）；debounce 1.5s 寫入 Dexie 單列草稿。
   useEffect(() => {
-    if (!genFlow || editMode || !editingKey) return
-    // 2026-09-07 加入 'editing'：AI 解析成功後會自動跳 editing，若不納入則解析結果（含答案）永遠不入草稿，
-    //   離開續作只能重解析（還多扣一次建卷額度）。
-    if (!['booklet', 'sheet', 'extract', 'editing'].includes(activeStep)) return
+    if (editMode) return
+    if (!editingKey && pageItems.length === 0 && bookletPageItems.length === 0) return
     const timer = setTimeout(() => {
-      const blobs = bookletPageItems
-        .map((item) => bookletPages.find((p) => p.index === item.originalIndex)?.blob)
-        .filter((b): b is Blob => !!b)
-      void db.genSheetDrafts.put({
-        id: 'current',
-        savedAt: Date.now(),
-        metadata: { title, domain, grade: grade === '' ? undefined : grade, mathTrack: mathTrack || undefined, folder },
-        bookletBlobs: blobs,
-        answerKey: editingKey,
-        extractedImageBlobs: extractedImageBlobs.length ? [...extractedImageBlobs] : undefined,
-        makerState,
-        activeStep,
-      }).catch((err) => console.warn('[GenDraft] 暫存失敗（不影響操作）:', err))
+      void (async () => {
+        try {
+          const { rotateImageBlob } = await import('../lib/imageCompression')
+          const ordered = async (items: PageItem[], pages: Array<{ index: number; blob: Blob }>) => {
+            const out: Blob[] = []
+            for (const item of items) {
+              const orig = pages.find((p) => p.index === item.originalIndex)
+              if (!orig) continue
+              out.push(item.rotation !== 0 ? await rotateImageBlob(orig.blob, item.rotation) : orig.blob)
+            }
+            return out
+          }
+          const bookletBlobs = await ordered(bookletPageItems, bookletPages)
+          // 解析後以 extractedImageBlobs（已排序旋轉）為準；解析前存上傳頁
+          const uploadedPageBlobs = editingKey ? undefined : await ordered(pageItems, uploadedPages)
+          await db.genSheetDrafts.put({
+            id: 'current',
+            savedAt: Date.now(),
+            metadata: { title, domain, grade: grade === '' ? undefined : grade, mathTrack: mathTrack || undefined, folder },
+            subjectLabel,
+            sheetSource,
+            bookletBlobs,
+            uploadedPageBlobs,
+            answerKey: editingKey,
+            extractedImageBlobs: extractedImageBlobs.length ? [...extractedImageBlobs] : undefined,
+            makerState,
+            activeStep,
+            completedSteps: Array.from(completedSteps),
+          })
+        } catch (err) { console.warn('[Draft] 暫存失敗（不影響操作）:', err) }
+      })()
     }, 1500)
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingKey, makerState, activeStep, bookletPageItems, extractedImageBlobs])
+  }, [editingKey, makerState, activeStep, bookletPageItems, pageItems, extractedImageBlobs, title, domain, grade, subjectLabel, mathTrack, sheetSource, completedSteps])
 
   // 開啟時偵測草稿 → 詢問續作（僅建立模式、一次）
   useEffect(() => {
-    if (!genFlow || editMode || genDraftRestored) return
+    if (editMode || genDraftRestored) return
     let cancelled = false
     void (async () => {
       try {
         const draft = await db.genSheetDrafts.get('current')
-        if (!draft || cancelled || !draft.answerKey) return
+        if (!draft || cancelled) return
+        if (!draft.answerKey && !(draft.uploadedPageBlobs?.length) && !(draft.bookletBlobs?.length)) return
         const ageMin = Math.round((Date.now() - draft.savedAt) / 60000)
         const ok = await confirmModal({
           title: '發現未完成的答案卷',
@@ -1181,24 +1200,36 @@ export default function AnswerKeyUnifiedModal({
         }
         setTitle(draft.metadata.title)
         setDomain(draft.metadata.domain)
+        if (draft.subjectLabel) setSubjectLabel(draft.subjectLabel)
         if (draft.metadata.grade != null) setGrade(draft.metadata.grade)
         if ((draft.metadata as { mathTrack?: 'A' | 'B' }).mathTrack) setMathTrack((draft.metadata as { mathTrack?: 'A' | 'B' }).mathTrack!)
-        const pages = draft.bookletBlobs.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) }))
+        const restoredSource = (draft.sheetSource as SheetSource | undefined) ?? 'generated' // 舊草稿只可能是生成流程
+        setSheetSource(restoredSource)
+        const pages = (draft.bookletBlobs ?? []).map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) }))
         setBookletPages(pages)
-        setEditingKey(draft.answerKey)
+        if (draft.answerKey) setEditingKey(draft.answerKey)
         if (Array.isArray(draft.extractedImageBlobs) && draft.extractedImageBlobs.length) {
           skipPageResetRef.current = true
           const corrected = draft.extractedImageBlobs.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) }))
           setExtractedImageBlobs(draft.extractedImageBlobs)
           setUploadedPages(corrected)
+        } else if (Array.isArray(draft.uploadedPageBlobs) && draft.uploadedPageBlobs.length) {
+          skipPageResetRef.current = true
+          setUploadedPages(draft.uploadedPageBlobs.map((blob, i) => ({ index: i, blob, url: URL.createObjectURL(blob) })))
         }
-        setMakerState((draft.makerState as SheetMakerState) ?? EMPTY_SHEET_MAKER_STATE)
-        markComplete('metadata')
-        markComplete('booklet')
-        // 續作到 AI 解析後的 editing：把中間步驟一併標記完成，才不會被步驟機擋回去重解析
-        if (draft.activeStep === 'extract' || draft.activeStep === 'editing') markComplete('sheet')
-        if (draft.activeStep === 'editing') { markComplete('extract'); markComplete('editing') }
-        setActiveStep((draft.activeStep as UnifiedStep) || 'sheet')
+        if (restoredSource === 'generated') setMakerState((draft.makerState as SheetMakerState) ?? EMPTY_SHEET_MAKER_STATE)
+        if (Array.isArray(draft.completedSteps) && draft.completedSteps.length) {
+          for (const st of draft.completedSteps) markComplete(st as UnifiedStep)
+          if (draft.answerKey) { markComplete('metadata'); markComplete('extract') }
+          setActiveStep((draft.activeStep as UnifiedStep) || (draft.answerKey ? 'editing' : 'extract'))
+        } else {
+          // 舊格式草稿（生成流程）：依步驟推
+          markComplete('metadata')
+          markComplete('booklet')
+          if (draft.activeStep === 'extract' || draft.activeStep === 'editing') markComplete('sheet')
+          if (draft.activeStep === 'editing') { markComplete('extract'); markComplete('editing') }
+          setActiveStep((draft.activeStep as UnifiedStep) || 'sheet')
+        }
       } catch (err) {
         console.warn('[GenDraft] 草稿讀取失敗:', err)
       }
@@ -1669,7 +1700,7 @@ export default function AnswerKeyUnifiedModal({
       })
       void logQtypeOverrides(updatedKey, domainValue) // Phase 3：老師改過題型→記 override log（fire-and-forget）
       if (!editMode) clearMetadataDraft() // 建立成功→草稿功成身退
-      if (genFlow && !editMode) void db.genSheetDrafts.delete('current').catch(() => {})
+      if (!editMode) void db.genSheetDrafts.delete('current')  // 三模式共用同一列草稿.catch(() => {})
     } finally {
       setIsSaving(false)
     }
