@@ -707,6 +707,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
       await db.answerKeyTemplates.update(templateId, {
         answerKey: { ...ak, questions: updatedQuestions }, updatedAt: Date.now()
       })
+      requestSync() // 2026-09-14：cropImagePath 回寫後要推上 server（實測 DB 只有 60 張截圖檔、answer_key 沒路徑）
       console.log(`✅ 答案截圖已上傳 ${Object.keys(paths).length}/${questionsWithCrop.length} 題`)
     } catch (err) { console.warn('⚠️ 答案截圖上傳例外', err) }
   }
