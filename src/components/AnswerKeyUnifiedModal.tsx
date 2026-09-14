@@ -10,8 +10,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   RotateCw, Check, X, AlertTriangle, Loader2, ChevronRight, Crop, Plus, Trash2,
-  Lock, CheckCircle2, Circle, Upload
-} from 'lucide-react'
+  Lock, CheckCircle2, Circle, Upload, HelpCircle } from 'lucide-react'
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
@@ -3003,9 +3002,15 @@ export default function AnswerKeyUnifiedModal({
 
               {/* 中間 hint 區（保留原有的 編輯 step 警告） */}
               {editingKey && activeStep === 'editing' && (
-                <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
+                <button
+                  type="button"
+                  onClick={() => setReminderOpen(true)}
+                  title="再看一次檢查提醒"
+                  className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 hover:bg-amber-100 hover:border-amber-300 transition-colors"
+                >
                   你可以相信 AI，但你一定要認真檢查
-                </span>
+                  <HelpCircle className="w-3.5 h-3.5" />
+                </button>
               )}
 
               {/* 主按鈕（右下角，文案與動作隨 step 變化） */}
