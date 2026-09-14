@@ -1292,6 +1292,18 @@ export default function AnswerKeyUnifiedModal({
         const ctx = canvas.getContext('2d')
         if (!ctx) return
         ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh)
+        // 2026-09-14 user：「預覽有 padding 嗎？」→ 預覽四周多留 pad 當上下文，但把「真正的框」畫出來，
+        //   老師才分得清哪些是框內（批改會看）、哪些只是預覽多露出的鄰格。
+        const bx = Math.round((bbox.x - px) / pw * sw), by = Math.round((bbox.y - py) / ph * sh)
+        const bw = Math.round(bbox.w / pw * sw), bh = Math.round(bbox.h / ph * sh)
+        ctx.save()
+        ctx.fillStyle = 'rgba(0,0,0,0.28)'
+        ctx.fillRect(0, 0, sw, by); ctx.fillRect(0, by + bh, sw, sh - by - bh)
+        ctx.fillRect(0, by, bx, bh); ctx.fillRect(bx + bw, by, sw - bx - bw, bh)
+        ctx.strokeStyle = selectedQuestion?.referenceBbox ? '#16a34a' : '#3b82f6'
+        ctx.lineWidth = Math.max(2, Math.round(sw / 300))
+        ctx.strokeRect(bx, by, bw, bh)
+        ctx.restore()
         setManualCropUrl(canvas.toDataURL('image/jpeg', 0.92))
       } finally {
         URL.revokeObjectURL(url)
