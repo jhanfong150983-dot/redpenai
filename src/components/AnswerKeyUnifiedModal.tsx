@@ -1542,6 +1542,9 @@ export default function AnswerKeyUnifiedModal({
         ...editingKey,
         totalScore: editingKey.questions.reduce((s, q) => s + (q.maxScore ?? 0), 0),
         levelRubricEnabled, // 2026-09-10 會考級分模式（明確存布林；server 以 !== false 守門）
+        // 2026-09-14 疊合免 classify 只用「PDF 掃描」做的答案卷當模板（照片模板的框位不可靠）。
+        //   上傳入口已一律只收 PDF，本次有新上傳的答案卷影像就標 pdf；沒重新上傳的舊模板維持原值（舊照片模板＝無標記→不疊合）。
+        ...(extractedImageBlobs.length > 0 && !genFlow ? { sheetSourceKind: 'pdf' as const } : {}),
       }
       const domainValue = domain === '國語（測試中）' ? '國語' : (domain || '其他')
       // 存檔前補「作答區截圖」：免上傳建的卷可能缺 crop → 用老師版作答卷影像(帶紅字)裁每格（client 端、免 AI）。
