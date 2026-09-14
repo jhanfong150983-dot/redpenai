@@ -5275,6 +5275,16 @@ async function locateAnswerOnlyBboxesAcrossPages(
   return merged
 }
 
+/** 2026-09-14 貼齊格線後重裁：依 q.answerBbox（已更新）重做每題裁切截圖（純 canvas、零 AI）。 */
+export async function recropAnswerKeyQuestions(
+  questions: import('./db').AnswerKeyQuestion[],
+  imageBlobs: Blob[],
+): Promise<Map<string, string>> {
+  const bboxMap = new Map<string, NormalizedBbox>()
+  for (const q of questions) if (q.answerBbox) bboxMap.set(q.id, q.answerBbox as NormalizedBbox)
+  return cropAnswerKeyQuestionsOnCanvas(questions, bboxMap, imageBlobs)
+}
+
 // Canvas 裁切：對每題 bbox，在對應頁面圖上裁出 jpeg data URL
 async function cropAnswerKeyQuestionsOnCanvas(
   questions: import('./db').AnswerKeyQuestion[],

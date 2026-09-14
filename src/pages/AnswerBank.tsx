@@ -13,6 +13,7 @@ import { rescaleSubmissionForMaxScoreChange } from '@/lib/answerStats'
 import { fetchBuildQuota, type BuildQuota } from '@/lib/buildQuota'
 import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
 import { solveAnswerKeyFromBooklet, extractAnswerKeyFromImages, readReferenceAnswerCells, detectVisualRubric, detectLevelRubric, detectFillVariantsCriteria, extractTeacherScanAnswerKey, TEACHER_SCAN_UNIFIED_ENABLED } from '@/lib/gemini'
+import { snapAnswerKeyToGrid } from '@/lib/registrationSnap'
 import { cropReferenceSheetCells } from '@/lib/generatedSheetAlign'
 import type { GeneratedSheetData } from '@/lib/answerSheetGenerator'
 import { runKpUpgradeInline } from '@/lib/parentReport'
@@ -654,9 +655,12 @@ export default function AnswerBank(_props: AnswerBankProps) {
           levelRubricEnabled: context.levelRubricEnabled,
           onProgress: _onProgress,
         })
+        // 2026-09-14 貼齊格線（模板疊自己、零 AI、fail-open）：老師檢核看到的就是批改會裁的格
+        const snapped = await snapAnswerKeyToGrid(answerKey, blobs, _onProgress)
         const n = answerKey.questions.length
         const located = answerKey.questions.filter((q) => q.answerBbox).length
         const read = answerKey.questions.filter((q) => String(q.answer ?? '').trim()).length
+        if (snapped > 0) _onProgress(`已把 ${snapped} 格貼齊印刷格線`)
         const warn = located < n * 0.6 ? `⚠ 只定位到 ${located}/${n} 格，請確認作答卷影像完整清晰、沒有和題本放反。` : ''
         return {
           answerKey, imageBlobs: blobs,
@@ -670,7 +674,9 @@ export default function AnswerBank(_props: AnswerBankProps) {
         bookletImages: context.bookletBlobs,
         levelRubricEnabled: context.levelRubricEnabled,
       })
-      return { answerKey, imageBlobs: blobs, notice: null }
+      // 2026-09-14 一般模式也貼齊格線（有格線的卷才會動；括號/底線卷維持 AI 框）
+      const snapped = await snapAnswerKeyToGrid(answerKey, blobs, _onProgress)
+      return { answerKey, imageBlobs: blobs, notice: snapped > 0 ? `已把 ${snapped} 格貼齊印刷格線。` : null }
     } finally { closeInkSession() }
   }
 
