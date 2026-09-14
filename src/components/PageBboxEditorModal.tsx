@@ -29,6 +29,7 @@ export default function PageBboxEditorModal({ pageBlobs, questionId, initialPage
   const [drawing, setDrawing] = useState(false)
   const start = useRef<{ x: number; y: number } | null>(null)
   const boxRef = useRef<HTMLDivElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
   const url = useMemo(() => (pageBlobs[page] ? URL.createObjectURL(pageBlobs[page]) : null), [pageBlobs, page])
   useEffect(() => () => { if (url) URL.revokeObjectURL(url) }, [url])
   useEffect(() => {
@@ -42,7 +43,7 @@ export default function PageBboxEditorModal({ pageBlobs, questionId, initialPage
   const shownIsAi = !draft && page === initialPage && isAiBbox
 
   const norm = (e: React.PointerEvent) => {
-    const el = boxRef.current; if (!el) return null
+    const el = imgRef.current ?? boxRef.current; if (!el) return null
     const r = el.getBoundingClientRect()
     return { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) }
   }
@@ -87,17 +88,17 @@ export default function PageBboxEditorModal({ pageBlobs, questionId, initialPage
             <button type="button" onClick={onClose} className="p-1 rounded hover:bg-gray-100" aria-label="關閉"><X className="w-5 h-5 text-gray-500" /></button>
           </div>
         </div>
-        <div className="flex-1 min-h-0 overflow-auto bg-gray-100 flex justify-center p-3">
+        <div className="flex-1 min-h-0 overflow-auto bg-gray-100 flex justify-center items-start p-3">
           {url ? (
             <div
               ref={boxRef}
-              className="relative inline-block select-none cursor-crosshair touch-none"
+              className="relative inline-block self-start select-none cursor-crosshair touch-none leading-[0]"
               onPointerDown={onDown}
               onPointerMove={onMove}
               onPointerUp={onUp}
               onPointerCancel={onUp}
             >
-              <img src={url} alt={`第 ${page + 1} 頁`} className="block max-w-full pointer-events-none" draggable={false} style={{ maxHeight: 'calc(96vh - 110px)' }} />
+              <img ref={imgRef} src={url} alt={`第 ${page + 1} 頁`} className="block max-w-full pointer-events-none" draggable={false} style={{ maxHeight: 'calc(96vh - 110px)' }} />
               {shown && (
                 <div
                   className={`absolute border-2 pointer-events-none ${draft ? 'border-green-600 bg-green-500/15' : shownIsAi ? 'border-blue-500 bg-blue-500/10' : 'border-green-500 bg-green-500/10'}`}
