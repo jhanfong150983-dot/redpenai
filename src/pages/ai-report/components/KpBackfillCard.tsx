@@ -3,7 +3,7 @@
 //   故把同一顆按鈕也做成這個自足元件放到雷達。走 runKpUpgrade（兩層都跑、寫回 server＋模板、全班共用）。
 //   ⚠ Dexie merge 寫全 analysis（含 code / nodeId）——雷達靠 analysis.code 分軸、下鑽靠 nodeId，
 //     不可像家長報告頁那版只寫 topic/knowledgePoints（會讓雷達暫時掉軸）。
-//   ⚠ 雷達資料來源是 syncData（非 Dexie）→ 補跑後需「重新整理頁面」重新 sync 才會反映（server 已寫入）。
+//   雷達資料來源是 syncData（非 Dexie）→ onSaved 由 AiReport 靜默重抓 sync payload（2026-09-16），老師不必重新整理。
 
 import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -68,7 +68,7 @@ export default function KpBackfillCard({
         const r = await runKpUpgrade(assignmentId, subject, questions as never, grade)
         await mergeIntoDexie(r)
         onSaved?.()
-        setMsg('知識點歸類完成——請重新整理頁面即可看到雷達更新。')
+        setMsg('知識點歸類完成，雷達已更新。')
       } catch (e) {
         setMsg(`知識點歸類失敗：${e instanceof Error ? e.message : String(e)}`)
       } finally {

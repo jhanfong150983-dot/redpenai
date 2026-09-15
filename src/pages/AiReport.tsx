@@ -304,6 +304,8 @@ export default function AiReport({ onBack, embedded, variant = 'exam', classroom
   const isParent = variant === 'parent'
   const pageEyebrow = isParent ? '家長報告' : isTrack ? '後續追蹤' : '檢討考卷'
   const [syncData, setSyncData] = useState<SyncPayload | null>(null)
+  // 2026-09-16 user：「跑完不是要自動更新嗎」——知識點歸類寫入後靜默重抓 sync payload（雷達吃 syncData.assignments）
+  const [syncReloadTick, setSyncReloadTick] = useState(0)
   const [reportData, setReportData] = useState<ReportPayload | null>(null)
   const [loading, setLoading] = useState(true)
   const [localSubmissions, setLocalSubmissions] = useState<Submission[]>([])
@@ -402,7 +404,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
   useEffect(() => {
     let isActive = true
     const fetchData = async () => {
-      setLoading(true)
+      if (syncReloadTick === 0) setLoading(true)  // 靜默重載（tick>0）不閃整頁 loading
       setError(null)
       try {
         const [syncResponse, reportResponse] = await Promise.all([
@@ -454,7 +456,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     return () => {
       isActive = false
     }
-  }, [])
+  }, [syncReloadTick])
 
   useEffect(() => {
     if (!import.meta.env.DEV) return
@@ -1343,7 +1345,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                   fallbackTeacherName={reportBrand?.viewerName}
                   schoolSections={reportBrand?.sections ?? undefined}
                   requestInk={requestInk}
-                  onKpSaved={() => setKpReloadTick((t) => t + 1)}
+                  onKpSaved={() => { setKpReloadTick((t) => t + 1); setSyncReloadTick((t) => t + 1) }}
                   grade={itemAnalysisTemplateGrade ?? (syncData?.classrooms.find((c) => c.id === selectedClassroomId) as { grade?: number } | undefined)?.grade}
                 />
               ) : detailsLoading ? detailsLoadingCard : (
@@ -1435,7 +1437,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                         questions={kpQs as never}
                         grade={kpGrade}
                         requestInk={requestInk}
-                        onSaved={() => setKpReloadTick((t) => t + 1)}
+                        onSaved={() => { setKpReloadTick((t) => t + 1); setSyncReloadTick((t) => t + 1) }}
                         hint={hasAnyKp
                           ? '這份考卷可升級為「知識節點」分類，讓雷達與加強地圖更精準（一次性、全班共用）。'
                           : '這份考卷還沒有知識點歸類（舊卷）——概念雷達會是空的。'}

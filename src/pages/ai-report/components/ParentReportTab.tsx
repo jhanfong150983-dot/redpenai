@@ -136,7 +136,7 @@ export function ParentReportTab({
           const r = await runKpUpgrade(assignmentId, subject, questions, grade)
           await mergeKpIntoDexie(r)
           onKpSaved?.()
-          if (!onKpSaved) setMsg('知識點歸類完成，請重新整理頁面')
+          setMsg('知識點歸類完成。')
         } catch (e) {
           setMsg(`知識點歸類失敗：${e instanceof Error ? e.message : String(e)}`)
         } finally {
