@@ -56,7 +56,7 @@ import { useConfirm } from '@/components/ConfirmModal'
 import { checkWebPSupport } from '@/lib/webpSupport'
 import { INK_BALANCE_EVENT, CAMPUS_BALANCE_EVENT, type InkBalanceDetail, type CampusBalanceDetail } from '@/lib/ink-events'
 import { fetchMyWallets } from '@/lib/action-pricing'
-import { PLAN_RANK, normalizePlan } from '@/lib/school-plan'
+import { PLAN_RANK, PLAN_LABEL, normalizePlan, type SchoolPlan } from '@/lib/school-plan'
 import { buildApiUrl } from '@/lib/api-base'
 import {
   requestSync,
@@ -1042,11 +1042,13 @@ function App() {
   const [campusWallets, setCampusWallets] = useState<Array<{ schoolId: string; schoolName: string; balance: number }>>([])
   // 2026-09-13 方案等級：老師任教學校中最高的方案（PRO 以上→開後續追蹤／家長報告；方案只加權限不減）
   const [bestSchoolPlanRank, setBestSchoolPlanRank] = useState(0)
+  // 2026-09-16 頂欄徽章要顯示方案名稱（校園 Basic／PRO／PROMAX）→ 連清單一起留
+  const [schoolPlans, setSchoolPlans] = useState<Array<{ schoolId: string; schoolName: string; plan: SchoolPlan }>>([])
   const authedUserId = auth.status === 'authenticated' ? auth.user.id : null
   useEffect(() => {
     if (!authedUserId) { setCampusWallets([]); return }
     let cancelled = false
-    const load = () => { void fetchMyWallets().then((w) => { if (!cancelled && w) { setCampusWallets(w.campus ?? []); setBestSchoolPlanRank(Math.max(0, ...(w.plans ?? []).map((p) => PLAN_RANK[normalizePlan(p.plan)]))) } }) }
+    const load = () => { void fetchMyWallets().then((w) => { if (!cancelled && w) { setCampusWallets(w.campus ?? []); const plans = (w.plans ?? []).map((p) => ({ schoolId: p.schoolId, schoolName: p.schoolName ?? '', plan: normalizePlan(p.plan) })); setSchoolPlans(plans); setBestSchoolPlanRank(Math.max(0, ...plans.map((p) => PLAN_RANK[p.plan]))) } }) }
     load()
     const onCampus = (e: Event) => {
       const d = (e as CustomEvent<CampusBalanceDetail>).detail
@@ -1925,7 +1927,20 @@ function App() {
     )
   }
 
-  const permissionLabel = isAdmin ? '管理者' : isProTier ? 'Pro' : 'Basic'
+  // 2026-09-16 頂欄徽章：管理者 ＞ 校園方案（任教學校中最高）＞ 個人方案（advanced＝PRO、其餘 Basic；個人版 PROMAX 尚未推出）
+  const bestSchoolPlan: SchoolPlan | null = schoolPlans.length
+    ? schoolPlans.reduce<SchoolPlan>((best, p) => (PLAN_RANK[p.plan] > PLAN_RANK[best] ? p.plan : best), 'basic')
+    : null
+  const tierBadge: { label: string; tone: 'admin' | 'paid' | 'free'; title: string } = isAdmin
+    ? { label: '管理者', tone: 'admin', title: '系統管理者' }
+    : bestSchoolPlan
+      ? { label: `校園 ${PLAN_LABEL[bestSchoolPlan]}`, tone: bestSchoolPlan === 'basic' ? 'free' : 'paid', title: schoolPlans.map((p) => `${p.schoolName || p.schoolId}：${PLAN_LABEL[p.plan]}`).join('、') }
+      : isProTier
+        ? { label: '個人 PRO', tone: 'paid', title: '個人方案 PRO' }
+        : { label: '個人 Basic', tone: 'free', title: '個人方案 Basic' }
+  const tierBadgeClass = tierBadge.tone === 'admin'
+    ? 'bg-violet-100 text-violet-700 border-violet-200'
+    : tierBadge.tone === 'paid' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'
   const userDisplayName = isStudent
     ? auth.user.student?.name || auth.user.name || auth.user.email
     : auth.user.name || auth.user.email
@@ -2153,13 +2168,23 @@ function App() {
                 <SyncIndicator autoSync={true} />
               </span>
               {!isStudent && (
-                <span className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm">
+                <span className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-sm" title="個人墨水（份）">
                   <Droplet className="h-4 w-4 text-amber-500" />
                   <span className="font-semibold tabular-nums text-amber-700">
                     {auth.user.inkBalance ?? 0}
                   </span>
                 </span>
               )}
+              {/* 2026-09-16 校園墨水移到頂欄（個人墨水旁）；學校配發、只能用在該校班級 */}
+              {!isStudent && campusWallets.map((c) => (
+                <span key={c.schoolId} className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-sm text-emerald-800 shadow-sm" title={`校園墨水${c.schoolName ? `・${c.schoolName}` : ''}（學校配發、只能用在該校班級）`}>
+                  <School className="h-4 w-4 text-emerald-600" />
+                  <span className="font-semibold tabular-nums">{c.balance}</span>
+                  {campusWallets.length > 1 && c.schoolName && (
+                    <span className="hidden max-w-[96px] truncate text-xs text-emerald-700 lg:inline">{c.schoolName}</span>
+                  )}
+                </span>
+              ))}
               <div ref={userMenuRef} className="relative">
                 <button
                   type="button"
@@ -2172,6 +2197,12 @@ function App() {
                   <span className="hidden max-w-[140px] truncate text-sm font-medium text-slate-700 sm:block">
                     {userDisplayName}
                   </span>
+                  {!isStudent && (
+                    <span className={`hidden shrink-0 items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold sm:inline-flex ${tierBadgeClass}`} title={tierBadge.title}>
+                      {tierBadge.tone === 'paid' && <Crown className="h-3 w-3" />}
+                      {tierBadge.label}
+                    </span>
+                  )}
                   <ChevronDown className="h-4 w-4 text-slate-500" />
                 </button>
                 {isUserMenuOpen && (
@@ -2184,30 +2215,19 @@ function App() {
                           <span className="shrink-0 inline-flex items-center rounded bg-green-100 px-1.5 py-0.5 text-xs font-medium text-green-700">已綁定1campus</span>
                         )}
                       </div>
+                      {/* 2026-09-16 權限／方案改成徽章：桌機在名字旁、這裡給手機看（頂欄名字在 sm 以下隱藏） */}
+                      {!isStudent && (
+                        <div className="mt-1.5 sm:hidden">
+                          <span className={`inline-flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${tierBadgeClass}`} title={tierBadge.title}>
+                            {tierBadge.tone === 'paid' && <Crown className="h-3 w-3" />}
+                            {tierBadge.label}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                    {!isStudent && (
+                    {/* 個人墨水／校園墨水已移到頂欄，這裡只留待入帳 */}
+                    {!isStudent && pendingInk.totalDrops > 0 && (
                       <div className="space-y-2 px-4 py-3 text-xs text-slate-600">
-                        <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                          <span>權限</span>
-                          <span className="inline-flex items-center gap-1 font-semibold text-slate-700">
-                            {permissionLabel === 'Pro' && (
-                              <Crown className="h-3.5 w-3.5 text-amber-500" />
-                            )}
-                            {permissionLabel}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-                          <span>個人墨水</span>
-                          <span className="font-semibold tabular-nums text-amber-700">
-                            {auth.user.inkBalance ?? 0} 份
-                          </span>
-                        </div>
-                        {campusWallets.map((c) => (
-                          <div key={c.schoolId} className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2 text-emerald-800" title="學校配發、只能用在該校班級的考卷">
-                            <span className="truncate pr-2">校園墨水{c.schoolName ? `・${c.schoolName}` : ''}</span>
-                            <span className="shrink-0 font-semibold tabular-nums">{c.balance} 份</span>
-                          </div>
-                        ))}
                         {pendingInk.totalDrops > 0 && (
                           <div className="flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2 text-amber-700">
                             <span>待入帳</span>
