@@ -21,7 +21,11 @@ export function normalizePlan(v: unknown): SchoolPlan {
   return (PLANS as string[]).includes(p) ? (p as SchoolPlan) : 'basic'
 }
 
+/** 2026-09-18 user 拍板：砍會員／等級、功能全開。閘門與徽章保留但關掉（server 鏡像 PLAN_GATING_ENABLED env）。 */
+export const PLAN_GATING_ENABLED = false
+
 export function planAllows(plan: unknown, feature: PlanFeature): boolean {
+  if (!PLAN_GATING_ENABLED) return true
   return PLAN_RANK[normalizePlan(plan)] >= PLAN_RANK[FEATURE_MIN_PLAN[feature]]
 }
 

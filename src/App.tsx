@@ -56,7 +56,7 @@ import { useConfirm } from '@/components/ConfirmModal'
 import { checkWebPSupport } from '@/lib/webpSupport'
 import { INK_BALANCE_EVENT, CAMPUS_BALANCE_EVENT, type InkBalanceDetail, type CampusBalanceDetail } from '@/lib/ink-events'
 import { fetchMyWallets } from '@/lib/action-pricing'
-import { PLAN_RANK, PLAN_LABEL, normalizePlan, type SchoolPlan } from '@/lib/school-plan'
+import { PLAN_RANK, PLAN_LABEL, PLAN_GATING_ENABLED, normalizePlan, type SchoolPlan } from '@/lib/school-plan'
 import { buildApiUrl } from '@/lib/api-base'
 import {
   requestSync,
@@ -1191,9 +1191,10 @@ function App() {
   const isProTier =
     auth.status === 'authenticated' &&
     (auth.user.permissionTier === 'advanced' || hasPaidOrder)
+  // 2026-09-18：功能全開（PLAN_GATING_ENABLED=false）→ 登入的老師一律可用；開關打開才回到 Pro／校園方案判斷
   const canAccessTracking =
     auth.status === 'authenticated' &&
-    (isProTier || isAdmin || bestSchoolPlanRank >= PLAN_RANK.pro)
+    (PLAN_GATING_ENABLED ? (isProTier || isAdmin || bestSchoolPlanRank >= PLAN_RANK.pro) : !isStudent)
   // 2026-07-22 modal 統一：window.confirm → useConfirm（async），呼叫端一律 await
   const confirmModal = useConfirm()
   const ensureInkNonNegative = useCallback(async () => {
@@ -1931,16 +1932,19 @@ function App() {
   const bestSchoolPlan: SchoolPlan | null = schoolPlans.length
     ? schoolPlans.reduce<SchoolPlan>((best, p) => (PLAN_RANK[p.plan] > PLAN_RANK[best] ? p.plan : best), 'basic')
     : null
-  const tierBadge: { label: string; tone: 'admin' | 'paid' | 'free'; title: string } = isAdmin
+  // 2026-09-18：砍等級 → 徽章只剩「管理者」；方案徽章留在開關後面
+  const tierBadge: { label: string; tone: 'admin' | 'paid' | 'free'; title: string } | null = isAdmin
     ? { label: '管理者', tone: 'admin', title: '系統管理者' }
+    : !PLAN_GATING_ENABLED
+      ? null
     : bestSchoolPlan
       ? { label: `校園 ${PLAN_LABEL[bestSchoolPlan]}`, tone: bestSchoolPlan === 'basic' ? 'free' : 'paid', title: schoolPlans.map((p) => `${p.schoolName || p.schoolId}：${PLAN_LABEL[p.plan]}`).join('、') }
       : isProTier
         ? { label: '個人 PRO', tone: 'paid', title: '個人方案 PRO' }
         : { label: '個人 Basic', tone: 'free', title: '個人方案 Basic' }
-  const tierBadgeClass = tierBadge.tone === 'admin'
+  const tierBadgeClass = tierBadge?.tone === 'admin'
     ? 'bg-violet-100 text-violet-700 border-violet-200'
-    : tierBadge.tone === 'paid' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'
+    : tierBadge?.tone === 'paid' ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-600 border-slate-200'
   const userDisplayName = isStudent
     ? auth.user.student?.name || auth.user.name || auth.user.email
     : auth.user.name || auth.user.email
@@ -2197,7 +2201,7 @@ function App() {
                   <span className="hidden max-w-[140px] truncate text-sm font-medium text-slate-700 sm:block">
                     {userDisplayName}
                   </span>
-                  {!isStudent && (
+                  {!isStudent && tierBadge && (
                     <span className={`hidden shrink-0 items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold sm:inline-flex ${tierBadgeClass}`} title={tierBadge.title}>
                       {tierBadge.tone === 'paid' && <Crown className="h-3 w-3" />}
                       {tierBadge.label}
@@ -2216,7 +2220,7 @@ function App() {
                         )}
                       </div>
                       {/* 2026-09-16 權限／方案改成徽章：桌機在名字旁、這裡給手機看（頂欄名字在 sm 以下隱藏） */}
-                      {!isStudent && (
+                      {!isStudent && tierBadge && (
                         <div className="mt-1.5 sm:hidden">
                           <span className={`inline-flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${tierBadgeClass}`} title={tierBadge.title}>
                             {tierBadge.tone === 'paid' && <Crown className="h-3 w-3" />}

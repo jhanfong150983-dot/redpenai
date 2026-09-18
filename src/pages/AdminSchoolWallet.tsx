@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Droplet, RefreshCw, Plus } from 'lucide-react'
 import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
-import { PLANS, PLAN_LABEL, normalizePlan, type SchoolPlan } from '@/lib/school-plan'
+import { PLANS, PLAN_LABEL, PLAN_GATING_ENABLED, normalizePlan, type SchoolPlan } from '@/lib/school-plan'
 
 // 2026-07-30 學校錢包(user 拍板:儲值只在 admin 後台——學校付款/簽約後由我們入點)。
 // 學校端(SchoolAdminPanel)只讀餘額與紀錄;配發給老師是行政在學校端做。
@@ -231,6 +231,9 @@ export default function AdminSchoolWallet() {
                     <div className="text-xs text-gray-500">{s.dsns}</div>
                   </td>
                   <td className="px-3 py-2.5">
+                    {!PLAN_GATING_ENABLED ? (
+                      <span className="text-xs text-slate-400" title="2026-09-18 起功能全開、不分方案">功能全開</span>
+                    ) : (
                     <select
                       value={s.plan}
                       onChange={(e) => void changePlan(s, normalizePlan(e.target.value))}
@@ -239,6 +242,7 @@ export default function AdminSchoolWallet() {
                     >
                       {PLANS.map((p) => <option key={p} value={p}>{PLAN_LABEL[p]}</option>)}
                     </select>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">{s.balance}</td>
                   <td className="px-3 py-2.5 text-right whitespace-nowrap">
@@ -359,7 +363,7 @@ export default function AdminSchoolWallet() {
                   onChange={(e) => setTopupNote(e.target.value)}
                   maxLength={200}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="例如:2026 學年度 PRO 20,000 份"
+                  placeholder="例如:2026 學年度 20,000 份專案"
                 />
               </div>
             </div>

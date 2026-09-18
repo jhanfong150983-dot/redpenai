@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { PLAN_LABEL, normalizePlan, planAllows, planDeniedMessage, type SchoolPlan } from '@/lib/school-plan'
+import { PLAN_LABEL, PLAN_GATING_ENABLED, normalizePlan, planAllows, planDeniedMessage, type SchoolPlan } from '@/lib/school-plan'
 import {
   ArrowLeft,
   RefreshCw,
@@ -1482,7 +1482,7 @@ export default function SchoolAdminPanel({
                 <Droplet className="h-4 w-4" />
                 <span className="font-semibold tabular-nums">{walletBalance}</span>
                 <span className="text-xs">學校份數</span>
-                {schoolPlan && (
+                {schoolPlan && PLAN_GATING_ENABLED && (
                   <span className={`ml-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${schoolPlan === 'basic' ? 'bg-slate-200 text-slate-700' : 'bg-slate-900 text-white'}`} title="學校方案等級，由 RedPen AI 依合約設定">
                     {PLAN_LABEL[schoolPlan]}
                   </span>
