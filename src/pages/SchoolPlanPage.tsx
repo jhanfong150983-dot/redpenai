@@ -208,11 +208,11 @@ export default function SchoolPlanPage() {
                 </div>
                 <p className="mt-4 text-3xl font-bold tracking-tight text-white">每份 NT$ 5 起</p>
                 <p className="mt-3 leading-relaxed text-gray-400">
-                  一份＝一位學生的一份考卷，不分科目、不分題型。學校買一學年的份數自己分配，
-                  用完再加購、同價；分析、檢討單、成績報表全含。
+                  一份＝一位學生的一份考卷，不分科目、不分題型。學校一年買一次份數專案自己分配，
+                  份數永不過期、中途不夠補充每份 5 元；分析、檢討單、成績報表全含。
                 </p>
                 <p className="mt-4 border-t border-white/10 pt-4 text-sm text-gray-500">
-                  由學校統一付費，老師不需自費。Basic 5 元、PRO 4.5 元、PROMAX 4 元，買越多越便宜。
+                  由學校統一付費，老師不需自費。2,000 份每份 5 元、8,000 份 4.5 元、20,000 份 4 元，買越多越便宜。
                 </p>
               </div>
               <div className="rounded-2xl border border-gray-200 p-7">
