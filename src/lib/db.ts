@@ -567,6 +567,32 @@ export interface FinalAnswerCached {
 /**
  * 每題批改細節
  */
+/** 2026-09-19 作文批改結果。與 server/ai/essay-pipeline.js 的輸出同一份契約 */
+export interface EssayResult {
+  version: string
+  /** 逐直行抄本；lowConfidence＝該行有墨格數 ≠ 抄本字數（交老師補） */
+  columns: Array<{ page: number; col: number; text: string; inkCells: number; lowConfidence: boolean }>
+  paragraphs: string[]
+  chars: number
+  lowConfidenceColumns: number
+  feedback: {
+    typos: Array<{ wrong: string; correct: string; context: string; loc: EssayLoc | null; quoteVerified: boolean }>
+    sentenceFeedback: Array<{ quote: string; dimension: string; rubricTerm?: string; problem: string; suggestion: string; why?: string; loc: EssayLoc | null; quoteVerified: boolean }>
+    paragraphFeedback: Array<{ paragraph: number; comment: string }>
+    strengths: Array<{ quote: string; why: string; loc: EssayLoc | null; quoteVerified: boolean }>
+    dimensionDiagnosis: Array<{ name: string; terms: Array<{ term: string; severity: string }>; comment: string }>
+    summary: string
+  } | null
+  /** suggested＝AI 建議級分、final＝老師確認後的級分（成績以 final 為準） */
+  level: { suggested: number | null; final: number | null; reason: string; dimensions: Array<{ name: string; level: number; comment: string; quotes?: string[] }> }
+  /** 零 AI 閘門命中時的原因（空白卷／字數過少）；沒命中＝null */
+  gate: string | null
+  ms?: number
+}
+
+/** 眉批／錯別字在原卷上的位置（第幾頁、第幾直行） */
+export interface EssayLoc { page: number; col: number; toCol?: number }
+
 export interface GradingDetail {
   questionId: string
   studentAnswer?: string
@@ -591,6 +617,8 @@ export interface GradingDetail {
     matchedAnswer: string // 匹配到的參考答案
     matchType: 'exact' | 'synonym' | 'keyword' // 匹配方式
   }
+  /** 2026-09-19 作文批改結果（questionCategory='essay'）：逐行抄本、眉批、建議級分 */
+  essayResult?: EssayResult
   // Type 3 專用：各維度分數
   rubricScores?: Array<{
     dimension: string
