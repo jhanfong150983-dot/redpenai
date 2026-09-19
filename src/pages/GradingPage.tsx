@@ -5,7 +5,6 @@ import Button from '@/components/ui/Button'
 import InkConfirmModal from '@/components/InkConfirmModal'
 import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
 import {
-  ArrowLeft,
   Loader,
   Sparkles,
   XCircle,
@@ -65,6 +64,7 @@ import SubmissionThumbnail from '@/components/SubmissionThumbnail'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import { blobToBase64 } from '@/lib/imageCompression'
 import { isIndexedDbBlobError, shouldAvoidIndexedDbBlob } from '@/lib/blob-storage'
+import { FlowPageHeader, FlowPageFooter } from '@/components/FlowPageChrome'
 
 // 🆕 AI 批改中的有趣話語（給老師看的）
 const GRADING_MESSAGES = [
@@ -6367,29 +6367,16 @@ export default function GradingPage({
         </div>
       )}
       <div className={`${embedded ? 'max-w-none mx-0 pt-0' : 'max-w-7xl mx-auto pt-8'}${advancedMode !== null ? ' pb-24' : ''}`}>
-        {onBack && (
-          <button
-            onClick={handleExit}
-            className="mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            返回考卷批改
-          </button>
-        )}
-
-        {/* Header */}
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-3">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-semibold text-gray-900">
-              {isBatchMode ? `批次批改：${batchTemplateName || assignment?.title}` : assignment?.title}
-            </h1>
-            <p className="mt-1 text-sm text-gray-600">
-              {isBatchMode
-                ? `${batchClassrooms.size} 個班級 · ${students.length} 位學生`
-                : `${classroom?.name} · ${students.length} 位學生`}
-            </p>
-          </div>
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+        {/* Header — 三頁統一（FlowPageHeader） */}
+        <FlowPageHeader
+          onBack={onBack ? handleExit : undefined}
+          eyebrow={isBatchMode ? '批次批改' : 'AI 批改'}
+          title={isBatchMode ? (batchTemplateName || assignment?.title) : assignment?.title}
+          subtitle={isBatchMode
+            ? `${batchClassrooms.size} 個班級 · ${students.length} 位學生`
+            : `${classroom?.name} · ${students.length} 位學生`}
+          actions={
+            <>
             {/* 2026-06-19: 跨班「＋新增班級」——同答案卷的其他班可加進來、共用同一組批改按鈕一起批改。
                 只在有可加入的班級且非進階勾選模式時出現。加錯了用「重設班級」回到原本進來那班。 */}
             {advancedMode === null && siblingClasses.length > 0 && (
@@ -6522,8 +6509,9 @@ export default function GradingPage({
                 )}
               </div>
             )}
-          </div>
-        </div>
+            </>
+          }
+        />
 
         {/* 2026-06-01 Phase3: 進階勾選模式底部確認列 */}
         {advancedMode !== null && (
@@ -6980,40 +6968,19 @@ export default function GradingPage({
         )}
 
         {/* 底部下一步：模仿匯入頁右下「前往批改」按鈕。2026-09-19 學生端暫停 → 「前往檢討」；開關開才是「前往訂正」 */}
-        {(onNavigateToReview || onNavigateToCorrection) && (
-          <div className="mt-6 bg-white border-t border-slate-200 px-4 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4 text-sm">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-full bg-green-500 inline-block" />
-                  <span className="text-slate-600">
-                    已批改{' '}
-                    <span className="font-semibold text-green-600">
-                      {stageAggregates.counts.graded}
-                    </span>
-                  </span>
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-full bg-slate-300 inline-block" />
-                  <span className="text-slate-600">
-                    未批改{' '}
-                    <span className="font-semibold text-slate-700">
-                      {Math.max(students.length - stageAggregates.counts.graded, 0)}
-                    </span>
-                  </span>
-                </span>
-              </div>
-              {stageAggregates.counts.graded > 0 && (
-                <button
-                  type="button"
-                  onClick={() => (onNavigateToReview ? onNavigateToReview() : onNavigateToCorrection?.())}
-                  className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-xl hover:bg-green-700 transition-colors"
-                >
-                  {onNavigateToReview ? '前往檢討' : '前往訂正'}
-                </button>
-              )}
-            </div>
-          </div>
+        {/* 三頁統一（FlowPageFooter）：黏在可視區底部；進階勾選模式有自己的底部確認列 → 讓位 */}
+        {(onNavigateToReview || onNavigateToCorrection) && advancedMode === null && (
+          <FlowPageFooter
+            sticky
+            doneLabel="已批改"
+            doneCount={stageAggregates.counts.graded}
+            pendingLabel="未批改"
+            pendingCount={Math.max(students.length - stageAggregates.counts.graded, 0)}
+            nextLabel={onNavigateToReview ? '前往檢討' : '前往訂正'}
+            onNext={() => (onNavigateToReview ? onNavigateToReview() : onNavigateToCorrection?.())}
+            nextDisabled={stageAggregates.counts.graded === 0}
+            nextDisabledHint="至少批改一份考卷才能進下一步"
+          />
         )}
 
       </div>

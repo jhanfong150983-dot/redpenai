@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowLeft,
   Camera,
   CheckCircle,
   FileImage,
@@ -55,6 +54,7 @@ import PdfImportPreviewDialog, {
 } from '@/components/PdfImportPreviewDialog'
 import { buildApiUrl } from '@/lib/api-base'
 import { recognizeSeatFromPage } from '@/lib/omrRecognition'
+import { FlowPageHeader, FlowPageFooter } from '@/components/FlowPageChrome'
 import OmrImportConfirmDialog, { type OmrPageItem } from '@/components/OmrImportConfirmDialog'
 
 // 2026-05-26 老師端拍照入口從 webRTC CameraCapturePage 改為 native camera。
@@ -304,6 +304,7 @@ export default function UnifiedImportPage({
   // 2026-09-10 依答案卷來源模式自動選：生成作答卷（標頭含座號劃卡＋錨點）→ 預設座號辨識；
   //   一般模式／老師掃描卷沒有劃卡標頭 → 只能照順序、座號辨識鈕停用。只在首次載入設預設，不蓋老師手動切換。
   const [sheetSource, setSheetSource] = useState<SheetSource | null>(null)
+  const [classroomName, setClassroomName] = useState('')
   const importModeInitRef = useRef(false)
   const [omrPages, setOmrPages] = useState<OmrPageItem[]>([])
   const [showOmrConfirm, setShowOmrConfirm] = useState(false)
@@ -382,6 +383,8 @@ export default function UnifiedImportPage({
         .equals(assignmentData.classroomId)
         .sortBy('seatNumber')
       setStudents(studentsData)
+      const classroomData = await db.classrooms.get(assignmentData.classroomId)
+      setClassroomName(classroomData?.name ?? '')
 
       // Load existing submissions
       const submissions = await db.submissions
@@ -1149,31 +1152,14 @@ export default function UnifiedImportPage({
         onChange={handleBatchPdfSelect}
       />
 
-      {/* Header — fixed in flex layout, not sticky */}
-      <div className="shrink-0 bg-white border-b border-slate-200 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {onBack && (
-              <button
-                type="button"
-                onClick={onBack}
-                className="p-2 rounded-xl hover:bg-slate-100 transition-colors"
-              >
-                <ArrowLeft className="w-5 h-5 text-slate-600" />
-              </button>
-            )}
-            <div>
-              <h1 className="text-lg font-semibold text-gray-900">
-                匯入考卷
-              </h1>
-              {assignment && (
-                <p className="text-sm text-slate-500">
-                  {assignment.title}
-                </p>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+      {/* Header — 三頁統一（FlowPageHeader）；fixed in flex layout, not sticky */}
+      <FlowPageHeader
+        onBack={onBack}
+        eyebrow="匯入考卷"
+        title={assignment?.title ?? '匯入考卷'}
+        subtitle={[classroomName, `${totalCount} 位學生`].filter(Boolean).join(' · ')}
+        actions={
+          <>
             <button
               type="button"
               onClick={handleRefresh}
@@ -1221,9 +1207,9 @@ export default function UnifiedImportPage({
               <FileUp className="w-4 h-4" />
               PDF 批次匯入
             </button>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Error */}
       {error && (
@@ -1360,40 +1346,17 @@ export default function UnifiedImportPage({
         </div>
       </div>
 
-      {/* Bottom bar — fixed in flex layout, not sticky */}
-      <div className="shrink-0 bg-white border-t border-slate-200 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4 text-sm">
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-full bg-green-500 inline-block" />
-              <span className="text-slate-600">
-                已完成{' '}
-                <span className="font-semibold text-green-600">
-                  {completedCount}
-                </span>
-              </span>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-full bg-slate-300 inline-block" />
-              <span className="text-slate-600">
-                未完成{' '}
-                <span className="font-semibold text-slate-700">
-                  {totalCount - completedCount}
-                </span>
-              </span>
-            </span>
-          </div>
-          {completedCount > 0 && (
-            <button
-              type="button"
-              onClick={() => onUploadComplete?.()}
-              className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-xl hover:bg-green-700 transition-colors"
-            >
-              前往批改
-            </button>
-          )}
-        </div>
-      </div>
+      {/* Bottom bar — 三頁統一（FlowPageFooter）；fixed in flex layout, not sticky */}
+      <FlowPageFooter
+        doneLabel="已完成"
+        doneCount={completedCount}
+        pendingLabel="未完成"
+        pendingCount={totalCount - completedCount}
+        nextLabel="前往批改"
+        onNext={() => onUploadComplete?.()}
+        nextDisabled={completedCount === 0}
+        nextDisabledHint="至少匯入一份考卷才能批改"
+      />
 
       {/* Preview modal — shows full image + re-upload options */}
       {previewStudent && (

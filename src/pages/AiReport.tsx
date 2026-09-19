@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Printer, Presentation } from 'lucide-react'
+import { FlowPageHeader } from '@/components/FlowPageChrome'
 import { db } from '@/lib/db'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import type { Submission } from '@/lib/db'
@@ -1096,60 +1097,52 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
 
   return (
     <div className={`ai-report${embedded ? ' embedded' : ''}`}>
-      <main className="report">
-        <header className="page-header">
-          <div className="page-header-main">
-            <div className="eyebrow">{pageEyebrow}</div>
-            {singleMode ? (
-              <>
-                {/* 2026-09-19 user：檢討考卷只從考卷卡片進、只看這一份 → 標題＝考卷名，不給下拉選單 */}
-                <h1 className="page-title" title={singleTitle}>{singleTitle || '檢討考卷'}</h1>
-                <p className="subtitle">
-                  {[selectedClassroomName, selectedDomain].filter(Boolean).join(' · ')}
-                  {' · '}已批改 {itemAnalysisSubmissions.length} 份
-                </p>
-              </>
-            ) : (
-              <>
-                <h1
-                  className="page-title"
-                  style={{ fontSize: pageTitleFontSize }}
-                  title={pageTitleText}
-                >
-                  {pageTitleText}
-                </h1>
-                <p className="subtitle">
-                  資料區間：{summaryRange} · 考卷 {assignmentMeta.length} 份 · 批改{' '}
-                  {classFilteredSubmissions.length} 份（含 {totalAiFailures} 筆系統錯誤）
-                </p>
-              </>
-            )}
-          </div>
-          <div className="header-actions">
-            {singleMode && (
-              <button className="btn" type="button" onClick={onBack}>
-                ‹ 返回考卷批改
-              </button>
-            )}
-            {!singleMode && classroomOptions.length > 0 && (
-              <label className="header-filter">
-                班級
-                <select
-                  value={selectedClassroomId}
-                  title={selectedClassroomName || undefined}
-                  onChange={(event) => setSelectedClassroomId(event.target.value)}
-                >
-                  <ClassroomSelectOptions classrooms={classroomOptions} />
-                </select>
-              </label>
-            )}
-            {!embedded && (
-              <button className="btn" type="button" onClick={onBack}>
-                返回首頁
-              </button>
-            )}
-          </div>
-        </header>
+      {/* 單一考卷模式（從考卷卡片／批改頁進來）：頁首與匯入考卷、AI 批改統一、版面不另外限寬 */}
+      <main className="report" style={singleMode ? { maxWidth: 'none', padding: '0 0 3rem' } : undefined}>
+        {singleMode ? (
+          <FlowPageHeader
+            onBack={onBack}
+            eyebrow="檢討考卷"
+            title={singleTitle || '檢討考卷'}
+            subtitle={`${[selectedClassroomName, selectedDomain].filter(Boolean).join(' · ')} · 已批改 ${itemAnalysisSubmissions.length} 份`}
+          />
+        ) : (
+          <header className="page-header">
+            <div className="page-header-main">
+              <div className="eyebrow">{pageEyebrow}</div>
+                  <h1
+                    className="page-title"
+                    style={{ fontSize: pageTitleFontSize }}
+                    title={pageTitleText}
+                  >
+                    {pageTitleText}
+                  </h1>
+                  <p className="subtitle">
+                    資料區間：{summaryRange} · 考卷 {assignmentMeta.length} 份 · 批改{' '}
+                    {classFilteredSubmissions.length} 份（含 {totalAiFailures} 筆系統錯誤）
+                  </p>
+            </div>
+            <div className="header-actions">
+              {classroomOptions.length > 0 && (
+                <label className="header-filter">
+                  班級
+                  <select
+                    value={selectedClassroomId}
+                    title={selectedClassroomName || undefined}
+                    onChange={(event) => setSelectedClassroomId(event.target.value)}
+                  >
+                    <ClassroomSelectOptions classrooms={classroomOptions} />
+                  </select>
+                </label>
+              )}
+              {!embedded && (
+                <button className="btn" type="button" onClick={onBack}>
+                  返回首頁
+                </button>
+              )}
+            </div>
+          </header>
+        )}
 
         {/* Tab bar（單一考卷模式：沒有分頁也沒有領域／考卷下拉 → 整列不顯示） */}
         <div className={`flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 mb-6${singleMode ? ' hidden' : ''}`}>
