@@ -90,7 +90,7 @@ function verticalText(text: string, xMm: number, yTopMm: number, sizeMm: number,
   let y = yTopMm + sizeMm
   for (const ch of Array.from(text)) {
     if (opts?.maxBottomMm != null && y > opts.maxBottomMm) break
-    if (ch !== ' ' && ch !== '　') {
+    if (ch !== ' ' && ch !== ' ') {
       out.push(`<text x="${px(xMm)}" y="${px(y)}" font-size="${px(sizeMm)}" text-anchor="middle"${opts?.bold ? ' font-weight="bold"' : ''} fill="${opts?.fill ?? '#000'}">${esc(ch)}</text>`)
     }
     y += pitch
@@ -178,11 +178,11 @@ function pageSvg(pageNo: number, input: EssaySheetInput, g: EssayGridGeom): stri
   els.push(`<rect x="${px(gx)}" y="${px(gy)}" width="${px(gw)}" height="${px(gh)}" fill="none" stroke="${RED}" stroke-width="${px(0.45)}"/>`)
   // 直書標題：格區與座號欄之間
   const titleX = gx + gw + (g.seatStripMm[0] - (gx + gw)) / 2
-  els.push(verticalText(`${input.title}　作文稿紙　第${CN_PAGE[pageNo - 1] ?? pageNo}頁`, titleX, gy, 4.4, { bold: true, maxBottomMm: gy + gh }))
+  els.push(verticalText(`${input.title} 作文稿紙 第${CN_PAGE[pageNo - 1] ?? pageNo}頁`, titleX, gy, 4.4, { bold: true, maxBottomMm: gy + gh }))
   // 直書說明：格區左側
   const note = pageNo === 1
-    ? '由右邊第一行開始　由上往下書寫　每格一字　標點符號佔一格　寫不下請翻面續寫第二頁'
-    : '第二頁　接續第一頁　同樣由右邊第一行開始　由上往下書寫'
+    ? '由右邊第一行開始 由上往下書寫 每格一字 標點符號佔一格 寫不下請翻面續寫第二頁'
+    : '第二頁 接續第一頁 同樣由右邊第一行開始 由上往下書寫'
   els.push(verticalText(note, gx - 6, gy, 3, { fill: '#444', pitchMm: 3.4, maxBottomMm: gy + gh }))
   if (pageNo === 1) els.push(seatStripSvg(g.seatStripMm))
   void pitch
