@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { db } from '@/lib/db'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import type { Submission } from '@/lib/db'
@@ -297,9 +297,11 @@ type AiReportProps = {
   variant?: 'exam' | 'track' | 'parent'   // 2026-09-12 parent＝家長報告獨立側欄項
   /** 2026-08-29 歷史資料頁：'archived'=只看已封存班級 */
   classroomScope?: 'active' | 'archived'
+  /** 2026-09-19 從批改動線（考卷卡片「檢討考卷」／批改頁「前往檢討」）帶進來要預選的考卷；只套用一次 */
+  initialAssignmentId?: string
 }
 
-export default function AiReport({ onBack, embedded, variant = 'exam', classroomScope = 'active' }: AiReportProps) {
+export default function AiReport({ onBack, embedded, variant = 'exam', classroomScope = 'active', initialAssignmentId }: AiReportProps) {
   const isTrack = variant === 'track'
   const isParent = variant === 'parent'
   const pageEyebrow = isParent ? '家長報告' : isTrack ? '後續追蹤' : '檢討考卷'
@@ -894,6 +896,20 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     setSelectedAssignmentId(filteredAssignmentMeta[0].assignment.id)
   }, [filteredAssignmentMeta, selectedAssignmentId])
 
+  // 2026-09-19 帶考卷進來（initialAssignmentId）：資料載入後一次把班級→領域→考卷選好；
+  //   只套用一次，之後老師手動切換不會被蓋回去。找不到（已封存／不在範圍）就照原本的預設。
+  const initialAppliedRef = useRef(false)
+  useEffect(() => {
+    if (initialAppliedRef.current || !initialAssignmentId || !syncData) return
+    const target = syncData.assignments.find((a) => a.id === initialAssignmentId)
+    initialAppliedRef.current = true
+    if (!target) return
+    if (target.classroomId) setSelectedClassroomId(target.classroomId)
+    const d = normalizeDomain(target.domain)
+    if (d) setSelectedDomain(d)
+    setSelectedAssignmentId(target.id)
+  }, [initialAssignmentId, syncData])
+
   useEffect(() => {
     let isActive = true
 
@@ -1209,7 +1225,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           )}
           {activeTab === 'overview' && (
             <section>
-              {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 3 ? (
+              {/* 2026-09-19 user 拍板：檢討單／檢討模式批改 1 份就能用；全班統計仍要滿 3 份 */}
+              {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 1 ? (
                 <>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
                     <button
@@ -1241,19 +1258,25 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                       📽 檢討模式
                     </button>
                   </div>
-                  <AssignmentOverviewSection
-                    questions={itemAnalysisQuestions}
-                    submissions={itemAnalysisSubmissions}
-                    assignmentId={selectedAssignmentId}
-                    domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
-                    templateId={itemAnalysisTemplateId}
-                    requestInk={requestInk}
-                  />
+                  {itemAnalysisSubmissions.length >= 3 ? (
+                    <AssignmentOverviewSection
+                      questions={itemAnalysisQuestions}
+                      submissions={itemAnalysisSubmissions}
+                      assignmentId={selectedAssignmentId}
+                      domain={assignmentById.get(selectedAssignmentId)?.domain ?? ''}
+                      templateId={itemAnalysisTemplateId}
+                      requestInk={requestInk}
+                    />
+                  ) : (
+                    <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
+                      目前已批改 {itemAnalysisSubmissions.length} 份：檢討單與檢討模式已可使用。全班統計要滿 3 份才會顯示。
+                    </section>
+                  )}
                 </>
               ) : detailsLoading ? detailsLoadingCard : (
                 <section className="card" style={{ color: '#64748b', fontSize: 13 }}>
-                  {itemAnalysisSubmissions.length < 3
-                    ? '此考卷已批改的卷數不足 3 份，暫無法統計。'
+                  {itemAnalysisQuestions.length > 0
+                    ? '此考卷還沒有已批改的考卷。'
                     : '請先選擇一份有答案卷的考卷。'}
                 </section>
               )}

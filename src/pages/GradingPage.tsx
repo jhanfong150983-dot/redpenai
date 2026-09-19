@@ -21,6 +21,7 @@ import {
   BarChart3
 } from 'lucide-react'
 import { db, type Assignment, type Student, type Submission, type Classroom } from '@/lib/db'
+import { STUDENT_CORRECTION_UI_ENABLED } from '@/lib/student-correction'
 import { compareClassroomName } from '@/lib/classroom-order'
 
 // 2026-08-29 B案:gradeBand 年級來源=classroom.grade、缺時 fallback 答案卷模板 grade
@@ -544,6 +545,8 @@ interface GradingPageProps {
   onRequireInkTopUp?: () => void
   onGradingPhaseChange?: (phase: GradingPhase) => void
   onNavigateToCorrection?: () => void
+  /** 2026-09-19 批改動線下一步＝檢討考卷（學生訂正收起時由 App 傳入；有傳就取代「前往訂正」） */
+  onNavigateToReview?: () => void
   embedded?: boolean
 }
 
@@ -1507,6 +1510,7 @@ export default function GradingPage({
   onRequireInkTopUp,
   onGradingPhaseChange,
   onNavigateToCorrection,
+  onNavigateToReview,
   embedded = false
 }: GradingPageProps) {
   const navigate = useNavigate()
@@ -6947,6 +6951,8 @@ export default function GradingPage({
                     </div>
                   )}
                   {(() => {
+                    // 2026-09-19 學生端暫停、訂正收起：卡片不顯示任何訂正狀態／「未派發訂正」
+                    if (!STUDENT_CORRECTION_UI_ENABLED) return null
                     const cs = correctionStatusByStudent[student.id]
                     if (cs === 'correction_required') return <p className="text-xs font-medium text-amber-600 mt-1">待訂正</p>
                     if (cs === 'correction_in_progress') return <p className="text-xs font-medium text-blue-600 mt-1">訂正中</p>
@@ -6973,8 +6979,8 @@ export default function GradingPage({
         </div>
         )}
 
-        {/* 底部前往訂正：模仿匯入頁右下「前往批改」按鈕 */}
-        {onNavigateToCorrection && (
+        {/* 底部下一步：模仿匯入頁右下「前往批改」按鈕。2026-09-19 學生端暫停 → 「前往檢討」；開關開才是「前往訂正」 */}
+        {(onNavigateToReview || onNavigateToCorrection) && (
           <div className="mt-6 bg-white border-t border-slate-200 px-4 py-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4 text-sm">
@@ -7000,10 +7006,10 @@ export default function GradingPage({
               {stageAggregates.counts.graded > 0 && (
                 <button
                   type="button"
-                  onClick={() => onNavigateToCorrection?.()}
+                  onClick={() => (onNavigateToReview ? onNavigateToReview() : onNavigateToCorrection?.())}
                   className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-xl hover:bg-green-700 transition-colors"
                 >
-                  前往訂正
+                  {onNavigateToReview ? '前往檢討' : '前往訂正'}
                 </button>
               )}
             </div>

@@ -11,6 +11,7 @@ import {
   Upload,
   Sparkles,
   ClipboardCheck,
+  FileText,
   Settings,
   CheckSquare,
   Layers,
@@ -33,6 +34,7 @@ import { withoutSchoolExamClassrooms, withoutSchoolExamAssignments, schoolExamCl
 import { sortClassroomsByName } from '@/lib/classroom-order'
 import { withoutArchivedClassrooms } from '@/lib/classroom-archive'
 import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
+import { STUDENT_CORRECTION_UI_ENABLED } from '@/lib/student-correction'
 import type {
   AnswerKey,
   AnswerKeyTemplate,
@@ -71,6 +73,8 @@ interface AssignmentListProps {
   onSelectScanImport?: (assignmentId: string) => void
   onSelectBatchImport?: (assignmentId: string) => void
   onSelectCorrection?: (assignmentId: string) => void
+  /** 2026-09-19 批改動線第三步改成「檢討考卷」（學生端暫停、訂正收起）：帶著這份考卷進檢討考卷頁 */
+  onSelectReview?: (assignmentId: string) => void
   onStartBatchGrading?: (assignmentIds: string[]) => void
   canUseCorrection?: boolean
   embedded?: boolean
@@ -92,6 +96,7 @@ export default function AssignmentList({
   onSelectAssignment,
   onSelectScanImport,
   onSelectCorrection,
+  onSelectReview,
   onStartBatchGrading,
   canUseCorrection = true,
   embedded = false,
@@ -100,6 +105,11 @@ export default function AssignmentList({
   onClassroomChange,
   onFolderChange
 }: AssignmentListProps) {
+  // 卡片第三步的停用條件：檢討考卷＝至少批改 1 份；訂正考卷（開關開）＝原條件
+  const thirdStepDisabled = (a: AssignmentWithMeta) =>
+    STUDENT_CORRECTION_UI_ENABLED
+      ? !canUseCorrection || (a.gradedCount ?? 0) < 1
+      : (a.gradedCount ?? 0) < 1
   // 2026-07-22 modal 統一：window.confirm/alert → 共用 ConfirmModal
   const confirmModal = useConfirm()
   const alertModal = useAlertModal()
@@ -1353,18 +1363,20 @@ export default function AssignmentList({
 
               <span className="px-1 text-slate-300">›</span>
 
+              {/* 2026-09-19 第三步：學生端暫停 → 檢討考卷（批改 1 份即可）；開關打開才回到訂正考卷 */}
               <button
                 type="button"
-                onClick={() => onSelectCorrection?.(assignment.id)}
-                disabled={!canUseCorrection || (assignment.gradedCount ?? 0) < 1}
+                onClick={() => (STUDENT_CORRECTION_UI_ENABLED ? onSelectCorrection?.(assignment.id) : onSelectReview?.(assignment.id))}
+                disabled={thirdStepDisabled(assignment)}
+                title={STUDENT_CORRECTION_UI_ENABLED ? undefined : '下載檢討單、開檢討模式、看全班答題狀況'}
                 className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
-                  !canUseCorrection || (assignment.gradedCount ?? 0) < 1
+                  thirdStepDisabled(assignment)
                     ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
                     : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <ClipboardCheck className="h-4 w-4" />
-                <span className="text-center leading-tight">訂正考卷</span>
+                {STUDENT_CORRECTION_UI_ENABLED ? <ClipboardCheck className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                <span className="text-center leading-tight">{STUDENT_CORRECTION_UI_ENABLED ? '訂正考卷' : '檢討考卷'}</span>
               </button>
             </div>
           </div>
@@ -1615,16 +1627,17 @@ export default function AssignmentList({
 
                             <button
                               type="button"
-                              onClick={() => onSelectCorrection?.(assignment.id)}
-                              disabled={!canUseCorrection || (assignment.gradedCount ?? 0) < 1}
+                              onClick={() => (STUDENT_CORRECTION_UI_ENABLED ? onSelectCorrection?.(assignment.id) : onSelectReview?.(assignment.id))}
+                              disabled={thirdStepDisabled(assignment)}
+                              title={STUDENT_CORRECTION_UI_ENABLED ? undefined : '下載檢討單、開檢討模式、看全班答題狀況'}
                               className={`inline-flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border text-xs font-medium transition-colors ${
-                                !canUseCorrection || (assignment.gradedCount ?? 0) < 1
+                                thirdStepDisabled(assignment)
                                   ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
                                   : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
                               }`}
                             >
-                              <ClipboardCheck className="h-4 w-4" />
-                              <span className="text-center leading-tight">訂正考卷</span>
+                              {STUDENT_CORRECTION_UI_ENABLED ? <ClipboardCheck className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                              <span className="text-center leading-tight">{STUDENT_CORRECTION_UI_ENABLED ? '訂正考卷' : '檢討考卷'}</span>
                             </button>
                           </div>
                         </div>

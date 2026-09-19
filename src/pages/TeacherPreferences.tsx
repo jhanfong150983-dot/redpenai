@@ -14,6 +14,7 @@ import {
 import { loadReportHeaderSettings, saveReportHeaderSettings, type ReportHeaderSettings } from '@/lib/parentReport'
 import { NumericInput } from '@/components/NumericInput'
 import { requestSync } from '@/lib/sync-events'
+import { STUDENT_CORRECTION_UI_ENABLED } from '@/lib/student-correction'
 
 interface Campus1Binding {
   account: string
@@ -355,7 +356,8 @@ export default function TeacherPreferences({
               </div>
             </SectionCard>
 
-            {/* 2. 訂正設定 */}
+            {/* 2. 訂正設定（2026-09-19 學生端暫停 → 收起；值照存不動，開關打開就回來） */}
+            {STUDENT_CORRECTION_UI_ENABLED && (
             <SectionCard title="訂正設定" icon={RotateCcw}>
               <SettingRow
                 label="訂正派發模式"
@@ -388,6 +390,7 @@ export default function TeacherPreferences({
                 />
               </SettingRow>
             </SectionCard>
+            )}
 
             {syncBindings.length > 0 && (
               <SectionCard title="1Campus 同步" icon={RefreshCw}>

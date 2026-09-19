@@ -57,6 +57,7 @@ import { checkWebPSupport } from '@/lib/webpSupport'
 import { INK_BALANCE_EVENT, CAMPUS_BALANCE_EVENT, type InkBalanceDetail, type CampusBalanceDetail } from '@/lib/ink-events'
 import { fetchMyWallets } from '@/lib/action-pricing'
 import { PLAN_RANK, PLAN_LABEL, PLAN_GATING_ENABLED, normalizePlan, type SchoolPlan } from '@/lib/school-plan'
+import { STUDENT_CORRECTION_UI_ENABLED } from '@/lib/student-correction'
 import { buildApiUrl } from '@/lib/api-base'
 import {
   requestSync,
@@ -215,9 +216,10 @@ type OverviewActionKey =
   | 'continue-grading'
   | 'dispatch-correction'
   | 'followup-correction'
+  | 'review-exam'
   | 'review'
 
-type OverviewActionDestination = 'grading' | 'grading-list' | 'correction'
+type OverviewActionDestination = 'grading' | 'grading-list' | 'correction' | 'ai-report'
 
 type OverviewAction = {
   key: OverviewActionKey
@@ -256,8 +258,18 @@ function getOverviewActions(item: HomeOverviewItem): OverviewAction[] {
       destination: 'grading',
     })
   }
+  // 2026-09-19 學生端暫停、訂正收起：批改完的下一步是「檢討考卷」（檢討單／檢討模式），不再叫老師派發／追蹤訂正
+  if (!STUDENT_CORRECTION_UI_ENABLED && item.gradedCount > 0 && item.pendingGradingCount === 0) {
+    actions.push({
+      key: 'review-exam',
+      label: '檢討考卷',
+      statusLabel: '可檢討',
+      statusClassName: 'text-emerald-700',
+      destination: 'ai-report',
+    })
+  }
   // 已批改有錯但尚未派發訂正 = incomplete 總數 - 訂正中的人數
-  const needsDispatchCount = item.incompleteSeatNumbers.length - item.correctionCount
+  const needsDispatchCount = STUDENT_CORRECTION_UI_ENABLED ? item.incompleteSeatNumbers.length - item.correctionCount : 0
   if (needsDispatchCount > 0) {
     actions.push({
       key: 'dispatch-correction',
@@ -267,7 +279,7 @@ function getOverviewActions(item: HomeOverviewItem): OverviewAction[] {
       destination: 'correction',
     })
   }
-  if (item.correctionCount > 0) {
+  if (STUDENT_CORRECTION_UI_ENABLED && item.correctionCount > 0) {
     actions.push({
       key: 'followup-correction',
       label: '追蹤訂正',
@@ -507,6 +519,8 @@ function App() {
   const [currentPage, setCurrentPage] = useState<Page>('home')
   const [gradingPagePhase, setGradingPagePhase] = useState<string>('idle')
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>('')
+  // 2026-09-19 從批改動線帶進「檢討考卷」要預選的考卷（側欄進入時清空）
+  const [reviewAssignmentId, setReviewAssignmentId] = useState<string>('')
   const [batchAssignmentIds, setBatchAssignmentIds] = useState<string[]>([])
   const [gradingSelectedClassroomId, setGradingSelectedClassroomId] = useState<string>('')
   const [gradingSelectedFolder, setGradingSelectedFolder] = useState<string>('')
@@ -1967,7 +1981,9 @@ function App() {
       case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'unified-import', 'correction-select', 'correction'].includes(currentPage)
       case 'gradebook': return currentPage === 'gradebook'
       case 'correction-history': return currentPage === 'correction-history'
-      case 'report': return false
+      case 'report': return currentPage === 'ai-report'
+      case 'learning-track': return currentPage === 'learning-track'
+      case 'parent-report': return currentPage === 'parent-report'
       case 'classroom-management': return currentPage === 'classroom-management'
       case 'preferences': return currentPage === 'teacher-preferences'
       default: return false
@@ -1995,6 +2011,13 @@ function App() {
   const openAiReport = async () => {
     if (!(await confirmLeaveGrading())) return
     if (!canAccessTracking) return
+    setReviewAssignmentId('') // 從側欄進＝不預選，照頁面自己的預設
+    setCurrentPage('ai-report')
+  }
+  // 2026-09-19 批改動線第三步：帶著這份考卷進「檢討考卷」（卡片第三顆、批改頁右下、考卷總覽動作共用）
+  const openReviewForAssignment = (assignmentId: string) => {
+    if (!canAccessTracking) return
+    setReviewAssignmentId(assignmentId)
     setCurrentPage('ai-report')
   }
   // 2026-08-12 資訊架構二修(user 拍板、對齊教學影片「考試→檢討→分析」三階段):
@@ -2036,6 +2059,8 @@ function App() {
     } else if (destination === 'correction') {
       setSelectedAssignmentId(item.id)
       setCurrentPage('correction')
+    } else if (destination === 'ai-report') {
+      openReviewForAssignment(item.id)
     } else {
       // grading-list：missing-answer-key / missing-submission 預選班級
       setGradingSelectedClassroomId(item.classroomId)
@@ -2071,7 +2096,7 @@ function App() {
         {
           key: 'grading-flow',
           label: '考卷批改',
-          description: '蒐集考卷、AI 批改與訂正流程',
+          description: STUDENT_CORRECTION_UI_ENABLED ? '蒐集考卷、AI 批改與訂正流程' : '蒐集考卷、AI 批改與檢討',
           icon: Sparkles,
           onClick: openGrading
         }
@@ -2502,6 +2527,7 @@ function App() {
                     setSelectedAssignmentId(assignmentId)
                     setCurrentPage('correction')
                   }}
+                  onSelectReview={openReviewForAssignment}
                   onStartBatchGrading={async (ids) => {
                     if (!(await ensureInkNonNegative())) return
                     setBatchAssignmentIds(ids)
@@ -2533,10 +2559,18 @@ function App() {
                   onRequireInkTopUp={() => setCurrentPage('ink-topup')}
                   onGradingPhaseChange={setGradingPagePhase}
                   onNavigateToCorrection={
-                    canAccessTracking
+                    STUDENT_CORRECTION_UI_ENABLED && canAccessTracking
                       ? async () => {
                           if (!(await confirmLeaveGrading())) return
                           setCurrentPage('correction')
+                        }
+                      : undefined
+                  }
+                  onNavigateToReview={
+                    !STUDENT_CORRECTION_UI_ENABLED && canAccessTracking
+                      ? async () => {
+                          if (!(await confirmLeaveGrading())) return
+                          openReviewForAssignment(selectedAssignmentId)
                         }
                       : undefined
                   }
@@ -2566,6 +2600,7 @@ function App() {
                     setSelectedAssignmentId(assignmentId)
                     setCurrentPage('correction')
                   }}
+                  onSelectReview={openReviewForAssignment}
                   onStartBatchGrading={async (ids) => {
                     if (!(await ensureInkNonNegative())) return
                     setBatchAssignmentIds(ids)
@@ -2673,6 +2708,7 @@ function App() {
                     key={currentPage}
                     embedded
                     variant={currentPage === 'learning-track' ? 'track' : currentPage === 'parent-report' ? 'parent' : 'exam'}
+                    initialAssignmentId={currentPage === 'ai-report' ? reviewAssignmentId || undefined : undefined}
                     onBack={() => setCurrentPage('home')}
                   />
                 ) : (
@@ -2761,7 +2797,8 @@ function App() {
                     </div>
                   </section>
 
-                  {homeAttentionItems.length > 0 && (
+                  {/* 申訴／訂正鎖卡：學生訂正收起時不顯示（2026-09-19） */}
+                  {STUDENT_CORRECTION_UI_ENABLED && homeAttentionItems.length > 0 && (
                     <section className="mt-5 border-t border-slate-200 pt-4">
                       <div className="mb-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                         <h3 className="text-base font-semibold text-slate-900">需老師處理</h3>
@@ -2909,7 +2946,7 @@ function App() {
                                   </div>
                                   {item.gradedCount >= 1 && (
                                     <div className="mt-2 space-y-0.5 text-[11px] text-slate-500">
-                                      {item.incompleteSeatNumbers.length > 0 && (
+                                      {STUDENT_CORRECTION_UI_ENABLED && item.incompleteSeatNumbers.length > 0 && (
                                         <div>
                                           <span className="font-medium text-amber-700">未訂正：</span>
                                           {item.incompleteSeatNumbers.join('、')}
