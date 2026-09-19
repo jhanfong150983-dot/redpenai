@@ -460,6 +460,13 @@ export function useSync(options: UseSyncOptions = {}) {
           contentType,
           thumbBase64,
           thumbContentType,
+          // ⛔ 2026-09-20：合併圖的真實頁界從來沒被送上來 → submissions.page_breaks 一直是 null。
+          //   一般卷有 fallback（GradingPage 退成整張合併圖），**作文卷沒有**——正反面切不開就直接
+          //   報「作文卷需要 2 頁，這份只有 1 頁」。server 端早就收得下（api/data/[action].js 的
+          //   sanitizedPageBreaks），只是 client 沒送。pageCount 要一起送，否則長度校驗過不了。
+          ...(Array.isArray(submission.pageBreaks) && submission.pageBreaks.length > 0
+            ? { pageBreaks: submission.pageBreaks, pageCount: submission.pageBreaks.length + 1 }
+            : {}),
           source: submission.source
         })
       }).finally(() => clearTimeout(submissionAbortTimer))

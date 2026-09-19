@@ -1575,8 +1575,12 @@ export default function AssignmentSetup({
         console.warn('⚠️ 題本圖片上傳失敗', await res.text())
         return
       }
-      const { paths } = await res.json() as { paths: string[] }
-      await db.assignments.update(assignmentId, { questionBookletImagePaths: paths })
+      const { paths, persisted } = await res.json() as { paths: string[]; persisted?: boolean }
+      // 同 AnswerBank：上傳可能比 sync 早到 → server 的 update match 0 列且不報錯。
+      //   persisted=false ⇒ bump updatedAt，讓 sync push 把 question_booklet_image_paths 補上去。
+      await db.assignments.update(assignmentId, persisted === false
+        ? { questionBookletImagePaths: paths, updatedAt: Date.now() }
+        : { questionBookletImagePaths: paths })
       setAssignments(prev => prev.map(a =>
         a.id === assignmentId ? { ...a, questionBookletImagePaths: paths } : a
       ))

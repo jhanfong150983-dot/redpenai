@@ -735,9 +735,16 @@ export default function AnswerBank(_props: AnswerBankProps) {
         console.warn('⚠️ 題本圖片上傳失敗', await res.text())
         return
       }
-      const { paths } = await res.json() as { paths: string[] }
-      await db.answerKeyTemplates.update(templateId, { questionBookletImagePaths: paths })
-      console.log(`✅ 題本圖已上傳 ${paths.length} 頁`)
+      const { paths, persisted } = await res.json() as { paths: string[]; persisted?: boolean }
+      // ⛔ 2026-09-20：上傳常常比 sync 早到（模板剛 db.add() 到本機、Supabase 還沒有這一列）。
+      //   server 的 .update().eq('id') 會 match 0 列**且不報錯** → question_booklet_image_paths 永遠是 null、
+      //   批改時抓不到題本（作文卷實測就是這樣：檔案在 storage、欄位卻空的）。
+      //   persisted=false ⇒ 連 updatedAt 一起 bump，讓下一次 sync push 把欄位補上去。
+      await db.answerKeyTemplates.update(templateId, persisted === false
+        ? { questionBookletImagePaths: paths, updatedAt: Date.now() }
+        : { questionBookletImagePaths: paths })
+      if (persisted === false) requestSync()
+      console.log(`✅ 題本圖已上傳 ${paths.length} 頁${persisted === false ? '（欄位待 sync 補寫）' : ''}`)
     } catch (err) {
       console.warn('⚠️ 題本圖片上傳例外', err)
     }
