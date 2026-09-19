@@ -90,7 +90,7 @@ function verticalText(text: string, xMm: number, yTopMm: number, sizeMm: number,
   let y = yTopMm + sizeMm
   for (const ch of Array.from(text)) {
     if (opts?.maxBottomMm != null && y > opts.maxBottomMm) break
-    if (ch !== ' ' && ch !== ' ') {
+    if (ch !== ' ' && ch !== '　') {
       out.push(`<text x="${px(xMm)}" y="${px(y)}" font-size="${px(sizeMm)}" text-anchor="middle"${opts?.bold ? ' font-weight="bold"' : ''} fill="${opts?.fill ?? '#000'}">${esc(ch)}</text>`)
     }
     y += pitch
