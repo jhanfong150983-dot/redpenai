@@ -1,4 +1,4 @@
-import { WithQuestionsIllustration, AnswerOnlyIllustration, GeneratedSheetIllustration, EssayModeIllustration } from './illustrations/ModeIllustrations'
+import { WithQuestionsIllustration, AnswerOnlyIllustration, GeneratedSheetIllustration, EssayModeIllustration, EssayByoIllustration } from './illustrations/ModeIllustrations'
 import type { SheetSource } from '@/lib/sheetSource'
 
 /** 舊 2 值（DB 欄位 answer_sheet_mode）；選擇器本身改用三值 SheetSource，見 lib/sheetSource.ts */
@@ -22,6 +22,8 @@ interface ModeOption {
   suit: string
   Illustration: typeof WithQuestionsIllustration
   accent: 'red' | 'blue' | 'green' | 'amber'
+  /** 建卷流程尚未實作 → 卡片顯示但不可選 */
+  comingSoon?: boolean
 }
 
 // 2026-09-13 三模式（user 拍板、先不鎖 PRO）：
@@ -55,15 +57,26 @@ const MODES: ModeOption[] = [
     Illustration: GeneratedSheetIllustration,
     accent: 'green',
   },
-  // 2026-09-19 作文模式（第四張卡）：呼叫端用 options 控制是否顯示（上線前先藏在預覽旗標後）
+  // 2026-09-19 作文兩張卡（user 拍板：模式全部攤在第一層，不要藏在子選項裡）。
+  //   呼叫端用 options 控制顯示；領域對照表在 lib/sheetSource.ts 的 SHEET_SOURCE_DOMAINS（目前只在國語出現）。
   {
     value: 'essay',
-    name: '作文模式',
-    tagline: '一篇作文，系統製作稿紙',
-    description: '上傳作文題目，系統製作比照會考的稿紙；AI 逐句給修改建議與建議級分，由你確認。',
+    name: '自製作文卷',
+    tagline: '一篇作文，稿紙系統幫你做',
+    description: '上傳作文題目，系統製作比照會考的稿紙（含定位方塊與座號劃卡）；AI 逐句給修改建議與建議級分。',
     suit: '適合：作文練習、段考寫作測驗',
     Illustration: EssayModeIllustration,
     accent: 'amber',
+  },
+  {
+    value: 'essay_byo',
+    name: '自備作文卷',
+    tagline: '一篇作文，用你自己的稿紙',
+    description: '上傳作文題目與一張空白稿紙（例如會考答案卷），系統自動抓出每一行，你可以再微調。',
+    suit: '適合：學校已經印好稿紙、或想用會考答案卷',
+    Illustration: EssayByoIllustration,
+    accent: 'amber',
+    comingSoon: true,
   },
 ]
 
@@ -82,7 +95,7 @@ export default function AnswerSheetModeSelector({
   options,
 }: AnswerSheetModeSelectorProps) {
   // 作文模式只在呼叫端明確列進 options 時才顯示（預設三模式不變）
-  const modes = options ? MODES.filter((m) => options.includes(m.value)) : MODES.filter((m) => m.value !== 'essay')
+  const modes = options ? MODES.filter((m) => options.includes(m.value)) : MODES.filter((m) => !m.value.startsWith('essay'))
   if (variant === 'compact') {
     return (
       <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
@@ -92,7 +105,7 @@ export default function AnswerSheetModeSelector({
             <button
               key={mode.value}
               type="button"
-              disabled={disabled}
+              disabled={disabled || mode.comingSoon}
               onClick={() => onChange(mode.value)}
               className={`px-5 py-2 text-sm font-medium transition-colors ${
                 i > 0 ? 'border-l border-gray-300' : ''
@@ -110,28 +123,30 @@ export default function AnswerSheetModeSelector({
 
   return (
     <div>
-      <div className={`grid grid-cols-1 gap-4 ${modes.length >= 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : modes.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+      <div className={`grid grid-cols-1 gap-4 ${modes.length >= 4 ? 'sm:grid-cols-2 xl:grid-cols-3' : modes.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
         {modes.map((mode) => {
           const isActive = value === mode.value
           return (
             <button
               key={mode.value}
               type="button"
-              disabled={disabled}
+              disabled={disabled || mode.comingSoon}
               onClick={() => onChange(mode.value)}
               aria-pressed={isActive}
               className={`text-left rounded-xl p-4 transition-all flex flex-col ${
                 isActive
                   ? 'border-2 border-green-500 bg-green-50/50 shadow-md'
                   : 'border-2 border-gray-200 bg-white hover:border-green-300 hover:-translate-y-0.5 hover:shadow-md'
-              } ${disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
+              } ${disabled || mode.comingSoon ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}
             >
               <div className="flex items-start justify-between mb-1">
                 <div>
                   <div className="text-base font-semibold text-gray-900">{mode.name}</div>
                   <div className="text-xs text-gray-500 mt-0.5">{mode.tagline}</div>
                 </div>
-                {isActive && (
+                {mode.comingSoon ? (
+                  <span className="shrink-0 text-[10px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded-full px-2 py-0.5">準備中</span>
+                ) : isActive && (
                   <span className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-500 text-white text-xs font-bold">
                     ✓
                   </span>

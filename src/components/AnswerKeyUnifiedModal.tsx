@@ -190,7 +190,7 @@ const GENERATED_SHEET_STEP_ENABLED = (() => {
 //   generated（系統製作作答卷）＝5 步；
 //   teacher_scan（自備作答卷）＝3 步：②題本＋作答卷同頁一起上傳→一次 AI 解析→③人工檢核（舊 answer_only 流程重新命名）；
 //   with_questions（一般模式）＝舊 3 步（無題本/製作作答卷，classify 照舊）。
-const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; shortLabel: string }[] => source === 'essay'
+const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; shortLabel: string }[] => source === 'essay' || source === 'essay_byo'
   ? [
       { key: 'metadata', label: '基本資料', shortLabel: '①' },
       // 2026-09-19 實驗4 定案：批改時直接把老師上傳的題本圖送給 AI（不經 AI 轉述文字）→ 沒有 AI 起草、沒有要審的草稿；
@@ -359,7 +359,7 @@ export default function AnswerKeyUnifiedModal({
   const levelRubricEnabled = true
 
   // ── step state machine ────────────────────────────────────────────────────
-  const isEssay = sheetSource === 'essay'
+  const isEssay = sheetSource === 'essay' || sheetSource === 'essay_byo'
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? (isEssaySheet(initialGeneratedSheet) ? 'booklet' : 'editing') : 'metadata')
   // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
   //   2026-09-07 編輯模式重開：從已存的 generatedSheet.sheetInputs 還原老師打的內容（參考答案/文字方塊/底圖/畫筆）
@@ -479,10 +479,11 @@ export default function AnswerKeyUnifiedModal({
   // 2026-09-19 作文模式只在「國語（國文）」領域出現；未選領域時整個模式區塊不顯示（user 拍板）
   //   領域↔模式的對照集中在 sheetSource.ts 的 SHEET_SOURCE_DOMAINS（日後其他領域的專屬模式也登記在那）
   const essayAvailable = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay', domain)
+  const essayByoAvailable = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay_byo', domain)
   useEffect(() => {
     // 已選作文模式後又把領域改成非國語 → 退回一般模式（避免卡在看不到的選項上）
-    if (!editMode && sheetSource === 'essay' && !essayAvailable) setSheetSource('with_questions')
-  }, [editMode, sheetSource, essayAvailable])
+    if (!editMode && isEssay && !essayAvailable) setSheetSource('with_questions')
+  }, [editMode, isEssay, essayAvailable])
 
   // 2026-08-29 公版答案卷範本下載（動態產生：帶校名/名稱/科目；docx 套件 dynamic import）
   const [isGeneratingTemplate, setIsGeneratingTemplate] = useState(false)
@@ -2136,7 +2137,7 @@ export default function AnswerKeyUnifiedModal({
                     </div>
                     {editMode ? (
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">
-                        {sheetSource === 'essay' ? '作文模式（系統製作稿紙）' : sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
+                        {isEssay ? '自製作文卷（系統製作稿紙）' : sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
                       </p>
                     ) : (
                       <AnswerSheetModeSelector
@@ -2146,6 +2147,7 @@ export default function AnswerKeyUnifiedModal({
                           'with_questions', 'teacher_scan',
                           ...(GENERATED_SHEET_STEP_ENABLED ? ['generated' as const] : []),
                           ...(essayAvailable ? ['essay' as const] : []),
+                          ...(essayByoAvailable ? ['essay_byo' as const] : []),
                         ]}
                       />
                     )}

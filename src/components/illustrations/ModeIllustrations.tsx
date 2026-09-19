@@ -213,3 +213,27 @@ export function EssayModeIllustration({ className = '' }: { className?: string }
     </svg>
   )
 }
+
+
+// 2026-09-19 自備作文卷：老師上傳自己的空白稿紙 → 系統自動抓出每一行
+export function EssayByoIllustration({ className = '' }: { className?: string }) {
+  const cols = Array.from({ length: 9 }, (_, i) => 26 + i * 9)
+  const rows = Array.from({ length: 9 }, (_, i) => 40 + i * 11)
+  const cols2 = Array.from({ length: 9 }, (_, i) => 166 + i * 11)
+  return (
+    <svg viewBox="0 0 280 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="自備作文卷：上傳自己的空白稿紙，系統自動抓出每一行" className={className}>
+      {/* LEFT: 老師自己的空白稿紙 */}
+      <rect x="10" y="26" width="104" height="118" fill="#ffffff" stroke="#64748b" strokeWidth="1.5" rx="3" />
+      {cols.map((x) => rows.map((y) => <rect key={`a${x}-${y}`} x={x} y={y} width="8" height="11" fill="none" stroke="#e57373" strokeWidth="0.5" />))}
+      <text x="62" y="155" fontFamily="sans-serif" fontSize="6.5" fill="#64748b" textAnchor="middle">你的空白稿紙（上傳）</text>
+      <text x="132" y="92" fontFamily="sans-serif" fontSize="14" fill="#d97706" textAnchor="middle" fontWeight="bold">→</text>
+      {/* RIGHT: 系統抓出每一行 */}
+      <rect x="150" y="26" width="120" height="118" fill="#ffffff" stroke="#64748b" strokeWidth="1.5" rx="3" />
+      {cols2.map((x) => rows.map((y) => <rect key={`b${x}-${y}`} x={x} y={y} width="9" height="11" fill="none" stroke="#e57373" strokeWidth="0.5" />))}
+      {cols2.filter((_, i) => i % 2 === 0).map((x) => (
+        <rect key={`h${x}`} x={x - 1} y={38} width="11" height="101" fill="none" stroke="#16a34a" strokeWidth="1.6" />
+      ))}
+      <text x="210" y="155" fontFamily="sans-serif" fontSize="6.5" fill="#64748b" textAnchor="middle">系統自動抓出每一行</text>
+    </svg>
+  )
+}
