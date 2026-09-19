@@ -14,7 +14,7 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
-import type { SheetSource } from '@/lib/sheetSource'
+import { isSheetSourceAvailable, type SheetSource } from '@/lib/sheetSource'
 import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
 import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData, type PageSize } from '@/lib/answerSheetGenerator'
 import { cropReferenceSheetCells, SheetAlignError } from '@/lib/generatedSheetAlign'
@@ -479,7 +479,8 @@ export default function AnswerKeyUnifiedModal({
 
   const metadataValid = title.trim() !== '' && domain !== '' && (editMode || grade !== '')
   // 2026-09-19 作文模式只在「國語（國文）」領域出現；未選領域時整個模式區塊不顯示（user 拍板）
-  const essayAvailable = ESSAY_MODE_ENABLED && (domain === '國語' || domain === '國語（測試中）')
+  //   領域↔模式的對照集中在 sheetSource.ts 的 SHEET_SOURCE_DOMAINS（日後其他領域的專屬模式也登記在那）
+  const essayAvailable = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay', domain)
   useEffect(() => {
     // 已選作文模式後又把領域改成非國語 → 退回一般模式（避免卡在看不到的選項上）
     if (!editMode && sheetSource === 'essay' && !essayAvailable) setSheetSource('with_questions')

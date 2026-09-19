@@ -37,3 +37,18 @@ export const SHEET_SOURCE_BADGE_CLASS: Record<SheetSource, string> = {
   generated: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   essay: 'bg-amber-50 text-amber-700 border-amber-200',
 }
+
+// 2026-09-19 領域專屬模式（user 拍板：日後某些領域可能有自己的特殊模式）。
+//   沒列在這裡的模式＝所有領域通用；列了＝只有這些領域（存檔用的傘狀 domain）才會出現該模式的卡片。
+//   新增領域專屬模式時：①SheetSource 加值 ②這裡登記領域 ③AnswerSheetModeSelector 的 MODES 加一張卡。
+export const SHEET_SOURCE_DOMAINS: Partial<Record<SheetSource, string[]>> = {
+  essay: ['國語'],
+}
+
+/** 這個領域可選的模式（未選領域＝空字串 → 只回通用模式） */
+export function isSheetSourceAvailable(source: SheetSource, domain: string): boolean {
+  const only = SHEET_SOURCE_DOMAINS[source]
+  if (!only) return true
+  const d = domain === '國語（測試中）' ? '國語' : domain
+  return only.includes(d)
+}
