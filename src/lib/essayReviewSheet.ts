@@ -128,7 +128,7 @@ async function renderNotesPage(r: EssayResult, meta: EssaySheetMeta): Promise<Bl
   ctx.fillText('批改建議', M, y)
   ctx.font = `18px ${FONT}`
   ctx.fillStyle = '#555'
-  ctx.fillText(`${meta.title}　${meta.who}`, M + 140, y + 8)
+  ctx.fillText(`${meta.title}  ${meta.who}`, M + 140, y + 8)
   if (meta.level != null) {
     ctx.fillStyle = RED
     ctx.font = `bold 26px ${FONT}`
