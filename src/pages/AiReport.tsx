@@ -996,6 +996,14 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     return `${getAssignmentTitle(item.assignment)} · ${formatDate(item.lastActivity)}`
   }, [filteredAssignmentMeta, selectedAssignmentId])
 
+  // 2026-09-19 單一考卷模式：從考卷批改帶一份考卷進來的「檢討考卷」——只看這一份、不給班級／領域／考卷下拉
+  const singleMode = variant === 'exam' && !!initialAssignmentId
+  const singleTitle = useMemo(() => {
+    if (!singleMode) return ''
+    const a = syncData?.assignments.find((x) => x.id === initialAssignmentId)
+    return a ? getAssignmentTitle(a) : ''
+  }, [singleMode, syncData, initialAssignmentId])
+
   const summaryRange = useMemo(() => {
     const dates = classFilteredSubmissions
       .map((submission) => submission.createdAtMs)
@@ -1091,20 +1099,38 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
         <header className="page-header">
           <div className="page-header-main">
             <div className="eyebrow">{pageEyebrow}</div>
-            <h1
-              className="page-title"
-              style={{ fontSize: pageTitleFontSize }}
-              title={pageTitleText}
-            >
-              {pageTitleText}
-            </h1>
-            <p className="subtitle">
-              資料區間：{summaryRange} · 考卷 {assignmentMeta.length} 份 · 批改{' '}
-              {classFilteredSubmissions.length} 份（含 {totalAiFailures} 筆系統錯誤）
-            </p>
+            {singleMode ? (
+              <>
+                {/* 2026-09-19 user：檢討考卷只從考卷卡片進、只看這一份 → 標題＝考卷名，不給下拉選單 */}
+                <h1 className="page-title" title={singleTitle}>{singleTitle || '檢討考卷'}</h1>
+                <p className="subtitle">
+                  {[selectedClassroomName, selectedDomain].filter(Boolean).join(' · ')}
+                  {' · '}已批改 {itemAnalysisSubmissions.length} 份
+                </p>
+              </>
+            ) : (
+              <>
+                <h1
+                  className="page-title"
+                  style={{ fontSize: pageTitleFontSize }}
+                  title={pageTitleText}
+                >
+                  {pageTitleText}
+                </h1>
+                <p className="subtitle">
+                  資料區間：{summaryRange} · 考卷 {assignmentMeta.length} 份 · 批改{' '}
+                  {classFilteredSubmissions.length} 份（含 {totalAiFailures} 筆系統錯誤）
+                </p>
+              </>
+            )}
           </div>
           <div className="header-actions">
-            {classroomOptions.length > 0 && (
+            {singleMode && (
+              <button className="btn" type="button" onClick={onBack}>
+                ‹ 返回考卷批改
+              </button>
+            )}
+            {!singleMode && classroomOptions.length > 0 && (
               <label className="header-filter">
                 班級
                 <select
@@ -1124,8 +1150,8 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           </div>
         </header>
 
-        {/* Tab bar */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 mb-6">
+        {/* Tab bar（單一考卷模式：沒有分頁也沒有領域／考卷下拉 → 整列不顯示） */}
+        <div className={`flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 mb-6${singleMode ? ' hidden' : ''}`}>
           <div className="flex">
             {/* 2026-08-12 資訊架構二修(user 拍板、對齊教學影片三階段情境):
                 檢討考卷=考試總覽(含檢討單下載)+樣態分析;後續追蹤=試題分析+概念雷達+家長報告。

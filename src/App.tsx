@@ -9,7 +9,7 @@ import {
   LayoutDashboard,
   // FilePlus2,
   BookOpen,
-  FileText,
+  // FileText, // 2026-09-19 側欄「檢討考卷」收掉後未用
   // History, // 2026-07-20 歷程分析隱藏後未用
   SlidersHorizontal,
   ChevronDown,
@@ -520,7 +520,9 @@ function App() {
   const [gradingPagePhase, setGradingPagePhase] = useState<string>('idle')
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>('')
   // 2026-09-19 從批改動線帶進「檢討考卷」要預選的考卷（側欄進入時清空）
-  const [reviewAssignmentId, setReviewAssignmentId] = useState<string>('')
+  const [reviewAssignmentId, setReviewAssignmentId] = useState<string>(() => {
+    try { return sessionStorage.getItem('redpen-review-assignment-id') || '' } catch { return '' }
+  })
   const [batchAssignmentIds, setBatchAssignmentIds] = useState<string[]>([])
   const [gradingSelectedClassroomId, setGradingSelectedClassroomId] = useState<string>('')
   const [gradingSelectedFolder, setGradingSelectedFolder] = useState<string>('')
@@ -1978,7 +1980,7 @@ function App() {
       case 'overview': return currentPage === 'home'
       case 'answer-bank': return currentPage === 'answer-bank'
       case 'assignment-setup': return currentPage === 'assignment-setup'
-      case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'unified-import', 'correction-select', 'correction'].includes(currentPage)
+      case 'grading-flow': return ['grading-list', 'grading', 'assignment-import-select', 'unified-import', 'correction-select', 'correction', 'ai-report'].includes(currentPage) // ai-report＝檢討考卷，屬批改動線第三步
       case 'gradebook': return currentPage === 'gradebook'
       case 'correction-history': return currentPage === 'correction-history'
       case 'report': return currentPage === 'ai-report'
@@ -2008,16 +2010,12 @@ function App() {
     if (!canAccessTracking) return
     setCurrentPage('gradebook')
   }
-  const openAiReport = async () => {
-    if (!(await confirmLeaveGrading())) return
-    if (!canAccessTracking) return
-    setReviewAssignmentId('') // 從側欄進＝不預選，照頁面自己的預設
-    setCurrentPage('ai-report')
-  }
-  // 2026-09-19 批改動線第三步：帶著這份考卷進「檢討考卷」（卡片第三顆、批改頁右下、考卷總覽動作共用）
+  // 2026-09-19 批改動線第三步：帶著這份考卷進「檢討考卷」（卡片第三顆、批改頁右下、考卷總覽動作共用）。
+  //   側欄入口已收掉（user 拍板）→ 這是唯一入口；id 存 sessionStorage，重新整理還留在同一份。
   const openReviewForAssignment = (assignmentId: string) => {
-    if (!canAccessTracking) return
+    if (!canAccessTracking || !assignmentId) return
     setReviewAssignmentId(assignmentId)
+    try { sessionStorage.setItem('redpen-review-assignment-id', assignmentId) } catch { /* ignore */ }
     setCurrentPage('ai-report')
   }
   // 2026-08-12 資訊架構二修(user 拍板、對齊教學影片「考試→檢討→分析」三階段):
@@ -2124,15 +2122,16 @@ function App() {
         //   disabled: !canAccessTracking,
         //   badge: canAccessTracking ? undefined : 'Pro'
         // },
-        {
-          key: 'report',
-          label: '檢討考卷',
-          description: '檢討單下載、考卷總覽、樣態分析',
-          icon: FileText,
-          onClick: openAiReport,
-          disabled: !canAccessTracking,
-          badge: canAccessTracking ? undefined : 'Pro'
-        },
+        // 2026-09-19 user 拍板：側欄「檢討考卷」收掉——檢討只從每張考卷卡片（考卷批改）進、只看那一份考卷。
+        // {
+        //   key: 'report',
+        //   label: '檢討考卷',
+        //   description: '檢討單下載、考卷總覽、樣態分析',
+        //   icon: FileText,
+        //   onClick: openAiReport,
+        //   disabled: !canAccessTracking,
+        //   badge: canAccessTracking ? undefined : 'Pro'
+        // },
         {
           key: 'learning-track',
           label: '後續追蹤',
@@ -2704,13 +2703,28 @@ function App() {
                 )
               ) : currentPage === 'ai-report' || currentPage === 'learning-track' || currentPage === 'parent-report' ? (
                 canAccessTracking ? (
+                  currentPage === 'ai-report' && !reviewAssignmentId ? (
+                    // 2026-09-19 檢討考卷只看單一考卷：沒有帶考卷進來（舊書籤／直接打網址）→ 引導回考卷批改挑一份
+                    <div className="mx-auto w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
+                      <h2 className="text-lg font-semibold text-gray-900">請先選一份考卷</h2>
+                      <p className="mt-2 text-sm text-gray-600">檢討考卷要從「考卷批改」裡那份考卷的卡片進入。</p>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage('grading-list')}
+                        className="mt-4 inline-flex rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700"
+                      >
+                        前往考卷批改
+                      </button>
+                    </div>
+                  ) : (
                   <AiReport
-                    key={currentPage}
+                    key={`${currentPage}:${currentPage === 'ai-report' ? reviewAssignmentId : ''}`}
                     embedded
                     variant={currentPage === 'learning-track' ? 'track' : currentPage === 'parent-report' ? 'parent' : 'exam'}
-                    initialAssignmentId={currentPage === 'ai-report' ? reviewAssignmentId || undefined : undefined}
-                    onBack={() => setCurrentPage('home')}
+                    initialAssignmentId={currentPage === 'ai-report' ? reviewAssignmentId : undefined}
+                    onBack={() => setCurrentPage(currentPage === 'ai-report' ? 'grading-list' : 'home')}
                   />
+                  )
                 ) : (
                   <div className="mx-auto w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center">
                     <h2 className="text-lg font-semibold text-gray-900">權限不足</h2>
