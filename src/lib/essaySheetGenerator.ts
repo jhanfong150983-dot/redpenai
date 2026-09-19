@@ -9,12 +9,18 @@
 //   直式座號欄的幾何＝公版標頭 RPOMR1 順時針轉 90°（四角定位方塊、十位/個位各 10 個圓、手寫座號兩格的
 //   相對位置完全相同，只有文字另外用直書重畫）→ 匯入時把掃描頁逆時針轉 90° 就能直接用現有的座號辨識引擎。
 //     換算：RPOMR1 標頭座標 (hx 0~174, hy 0~34) → 橫式紙座標 X = strip.right − hy、Y = strip.top + hx
+//   RPESSAY2→3（09-19 user 看實體稿紙後修正）：
+//     ①座號劃卡改「左＝十位、右＝個位」（數字由左讀到右）：圓的位置仍是 RPOMR1 那兩排，只是語意對調——
+//       匯入時轉 90° 餵辨識引擎後，把引擎回報的 tens/ones 對調即可（見 EssayGridGeom.seatOmr）。
+//     ②手寫座號改左右並排兩格（不沿用 RPOMR1 轉出來的上下兩格）；位置記在 seatOmr.handwrittenBoxesMm。
+//     ③學校＋考卷名稱放在格區右側、當作「第一排」的等高大字（每字對齊一個字格）。
+//     ④第二頁不放標題，改「※此為第二頁，請由第一頁開始作答。」，最下方寫「第二頁」。
 //   實驗依據：redpenaisever/docs/實驗成本記錄.md「作文模式」各段（裁切只含右側窄欄＝5-10 事故修正）。
 
-import { HEADER_SIZE_MM, ANCHOR_SIZE_MM, TENS_BUBBLES, ONES_BUBBLES, HANDWRITTEN_BOXES } from './answerSheetLayout'
+import { HEADER_SIZE_MM, ANCHOR_SIZE_MM, TENS_BUBBLES, ONES_BUBBLES } from './answerSheetLayout'
 import { renderSheetPng, type GenBox, type GeneratedSheetData } from './answerSheetGenerator'
 
-export const ESSAY_SHEET_VERSION = 'RPESSAY2'
+export const ESSAY_SHEET_VERSION = 'RPESSAY3'
 
 const PW = 364 // B4／8K 橫式
 const PH = 257
@@ -42,6 +48,14 @@ export interface EssayGridGeom {
   gridMm: [number, number, number, number]
   /** 直式座號欄（＝RPOMR1 順時針轉 90°）：[left, top, width, height]；只印在第 1 頁 */
   seatStripMm: [number, number, number, number]
+  /** 座號辨識對照：把第 1 頁逆時針轉 90° 後可直接用 RPOMR1 引擎；但十位/個位的語意與引擎相反（左＝十位） */
+  seatOmr: {
+    base: 'RPOMR1_cw90'
+    /** true＝引擎回報的 tens 其實是個位、ones 其實是十位，匯入時要對調 */
+    swapTensOnes: boolean
+    /** 手寫座號兩格（左＝十位、右＝個位）：[x, y, w, h]（mm、橫式紙座標），確認畫面裁圖用 */
+    handwrittenBoxesMm: Array<[number, number, number, number]>
+  }
 }
 
 /** 作文卷的定版資料＝一般生成卷欄位＋essay 幾何（boxes＝每頁一個整格區大框，id＝`${questionId}@p${page}`） */
@@ -91,11 +105,21 @@ function verticalText(text: string, xMm: number, yTopMm: number, sizeMm: number,
   for (const ch of Array.from(text)) {
     if (opts?.maxBottomMm != null && y > opts.maxBottomMm) break
     if (ch !== ' ' && ch !== '　') {
-      out.push(`<text x="${px(xMm)}" y="${px(y)}" font-size="${px(sizeMm)}" text-anchor="middle"${opts?.bold ? ' font-weight="bold"' : ''} fill="${opts?.fill ?? '#000'}">${esc(ch)}</text>`)
+      // 直書的逗號、句號、頓號放在字格右上角
+      const punct = '，。、'.includes(ch)
+      out.push(`<text x="${px(punct ? xMm + sizeMm * 0.55 : xMm)}" y="${px(punct ? y - sizeMm * 0.55 : y)}" font-size="${px(sizeMm)}" text-anchor="middle"${opts?.bold ? ' font-weight="bold"' : ''} fill="${opts?.fill ?? '#000'}">${esc(ch)}</text>`)
     }
     y += pitch
   }
   return out.join('')
+}
+
+/** 手寫座號兩格（左＝十位、右＝個位）：各 11×12mm、左右並排置中；位於班級姓名區與劃卡區之間 */
+function seatHandwrittenBoxesMm(strip: [number, number, number, number]): Array<[number, number, number, number]> {
+  const [sx, sy, sw] = strip
+  const bw = 11, bh = 12, gap = 2
+  const x0 = sx + (sw - (bw * 2 + gap)) / 2
+  return [[x0, sy + 77, bw, bh], [x0 + bw + gap, sy + 77, bw, bh]]
 }
 
 /** 直式座號欄（RPOMR1 順時針轉 90° 的幾何＋直書文字） */
@@ -119,13 +143,12 @@ function seatStripSvg(strip: [number, number, number, number]): string {
   els.push(`<line x1="${px(X(15))}" y1="${px(Y(18))}" x2="${px(X(15))}" y2="${px(Y(68))}" stroke="${GRAY}" stroke-width="${px(0.25)}" stroke-dasharray="${px(1.2)} ${px(1)}"/>`)
   els.push(verticalText('姓名', X(22), Y(8), 3.6, { fill: GRAY }))
   els.push(`<line x1="${px(X(27))}" y1="${px(Y(18))}" x2="${px(X(27))}" y2="${px(Y(68))}" stroke="${GRAY}" stroke-width="${px(0.25)}" stroke-dasharray="${px(1.2)} ${px(1)}"/>`)
-  // 手寫座號兩格（上＝十位、下＝個位）
-  for (const b of HANDWRITTEN_BOXES) {
-    const hx = b.u * HW, hy = b.v * HH, w = b.w * HW, h = b.h * HH
-    els.push(`<rect x="${px(X(hy + h))}" y="${px(Y(hx))}" width="${px(h)}" height="${px(w)}" fill="none" stroke="${GRAY}" stroke-width="${px(0.4)}"/>`)
+  // 手寫座號：左右並排兩格（左＝十位、右＝個位）
+  for (const [bx, by, bw, bh] of seatHandwrittenBoxesMm(strip)) {
+    els.push(`<rect x="${px(bx)}" y="${px(by)}" width="${px(bw)}" height="${px(bh)}" fill="none" stroke="${GRAY}" stroke-width="${px(0.4)}"/>`)
   }
-  els.push(verticalText('座號手寫', X(27), Y(74), 2.8, { fill: GRAY }))
-  // 劃卡圓：右列＝十位、左列＝個位；0 在最上面、9 在最下面
+  els.push(`<text x="${px(sx + sw / 2)}" y="${px(Y(74.5))}" font-size="${px(3)}" text-anchor="middle" fill="${GRAY}">座號（手寫）</text>`)
+  // 劃卡圓：左列＝十位（RPOMR1 的 ones 那一排位置）、右列＝個位（tens 那一排位置）；0 在最上面、9 在最下面
   const R = 2.3
   const bubbles = (row: typeof TENS_BUBBLES) => row.map((s) => {
     const cx = X(s.v * HH), cy = Y(s.u * HW)
@@ -133,8 +156,8 @@ function seatStripSvg(strip: [number, number, number, number]): string {
       `<text x="${px(cx)}" y="${px(cy + 1.0)}" font-size="${px(2.8)}" text-anchor="middle" fill="#999" font-family="Arial, sans-serif">${s.digit}</text>`
   }).join('')
   els.push(bubbles(TENS_BUBBLES), bubbles(ONES_BUBBLES))
-  els.push(verticalText('十位', X(TENS_BUBBLES[0].v * HH), Y(98), 2.6, { fill: GRAY, pitchMm: 2.8 }))
-  els.push(verticalText('個位', X(ONES_BUBBLES[0].v * HH), Y(98), 2.6, { fill: GRAY, pitchMm: 2.8 }))
+  els.push(verticalText('十位', X(ONES_BUBBLES[0].v * HH), Y(98), 2.6, { fill: GRAY, pitchMm: 2.8 }))
+  els.push(verticalText('個位', X(TENS_BUBBLES[0].v * HH), Y(98), 2.6, { fill: GRAY, pitchMm: 2.8 }))
   els.push(verticalText('座號劃卡 請用黑筆塗滿', X(29.5), Y(104), 2.6, { fill: GRAY, pitchMm: 3 }))
   return els.join('')
 }
@@ -176,14 +199,26 @@ function pageSvg(pageNo: number, input: EssaySheetInput, g: EssayGridGeom): stri
     if (c % 5 === 0) els.push(`<text x="${px(x + w / 2)}" y="${px(gy + gh + 4.5)}" font-size="${px(2.6)}" fill="#888" text-anchor="middle" font-family="Arial, sans-serif">${c}</text>`)
   }
   els.push(`<rect x="${px(gx)}" y="${px(gy)}" width="${px(gw)}" height="${px(gh)}" fill="none" stroke="${RED}" stroke-width="${px(0.45)}"/>`)
-  // 直書標題：格區與座號欄之間
+  // 格區右側的「第一排」：第 1 頁＝學校＋考卷名稱的等高大字（每字對齊一個字格；超過可用格數就等比壓縮字距）；
+  //   第 2 頁不放標題，改提示文字。兩頁最下方都寫頁次。
   const titleX = gx + gw + (g.seatStripMm[0] - (gx + gw)) / 2
-  els.push(verticalText(`${input.title} 作文稿紙 第${CN_PAGE[pageNo - 1] ?? pageNo}頁`, titleX, gy, 4.4, { bold: true, maxBottomMm: gy + gh }))
-  // 直書說明：格區左側
-  const note = pageNo === 1
-    ? '由右邊第一行開始 由上往下書寫 每格一字 標點符號佔一格 寫不下請翻面續寫第二頁'
-    : '第二頁 接續第一頁 同樣由右邊第一行開始 由上往下書寫'
-  els.push(verticalText(note, gx - 6, gy, 3, { fill: '#444', pitchMm: 3.4, maxBottomMm: gy + gh }))
+  const pageLabel = `第${CN_PAGE[pageNo - 1] ?? pageNo}頁`
+  const labelSize = 5
+  const labelTop = gy + gh - labelSize * 1.12 * pageLabel.length
+  els.push(verticalText(pageLabel, titleX, labelTop, labelSize, { bold: true }))
+  if (pageNo === 1) {
+    const chars = Array.from(input.title.replace(/\s+/g, ' ').trim())
+    const room = labelTop - 4 - gy
+    const pitchT = Math.min(g.cellMm, room / Math.max(chars.length, 1))
+    const sizeT = Math.min(8, pitchT * 0.86)
+    els.push(verticalText(chars.join(''), titleX, gy + (pitchT - sizeT) / 2, sizeT, { bold: true, pitchMm: pitchT }))
+  } else {
+    els.push(verticalText('※此為第二頁，請由第一頁開始作答。', titleX, gy, 4.6, { pitchMm: 5.4 }))
+  }
+  // 直書說明：格區左側（只放第 1 頁）
+  if (pageNo === 1) {
+    els.push(verticalText('由右邊第一行開始 由上往下書寫 每格一字 標點符號佔一格 寫不下請翻面續寫第二頁', gx - 6, gy, 3, { fill: '#444', pitchMm: 3.4, maxBottomMm: gy + gh }))
+  }
   if (pageNo === 1) els.push(seatStripSvg(g.seatStripMm))
   void pitch
   return (
@@ -194,7 +229,7 @@ function pageSvg(pageNo: number, input: EssaySheetInput, g: EssayGridGeom): stri
 
 export function generateEssaySheet(input: EssaySheetInput): EssaySheetResult {
   const geom = pageGeom()
-  const g: EssayGridGeom = { version: ESSAY_SHEET_VERSION, orientation: 'landscape', ...ESSAY_GRID, gridMm: geom.gridMm, seatStripMm: geom.seatStripMm }
+  const g: EssayGridGeom = { version: ESSAY_SHEET_VERSION, orientation: 'landscape', ...ESSAY_GRID, gridMm: geom.gridMm, seatStripMm: geom.seatStripMm, seatOmr: { base: 'RPOMR1_cw90', swapTensOnes: true, handwrittenBoxesMm: seatHandwrittenBoxesMm(geom.seatStripMm) } }
   const uv = {
     x: (g.gridMm[0] - geom.uvBasis.x0) / geom.uvBasis.w,
     y: (g.gridMm[1] - geom.uvBasis.y0) / geom.uvBasis.h,
