@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Printer, Presentation } from 'lucide-react'
 import { db } from '@/lib/db'
 import { ensureAssignmentDetails } from '@/lib/submission-details'
 import type { Submission } from '@/lib/db'
@@ -1262,11 +1263,12 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                       title="學生原卷當底圖、每題旁打 ✓／✗、每大題扣分寫右側、右上總分;不印正解(老師對答案)。全班已批改者人人一份,整班合併一份 PDF"
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 6,
-                        padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: reviewSheetBusy ? 'not-allowed' : 'pointer',
+                        height: 34, padding: '0 14px', borderRadius: 8, fontSize: 13, lineHeight: 1, fontWeight: 600, cursor: reviewSheetBusy ? 'not-allowed' : 'pointer',
                         border: '1px solid #cbd5e1', background: '#fff', color: '#334155', opacity: reviewSheetBusy ? 0.6 : 1,
                       }}
                     >
-                      🖨 {reviewSheetBusy
+                      <Printer size={15} aria-hidden />
+                      {reviewSheetBusy
                         ? `檢討單產生中${reviewSheetProgress ? ` ${reviewSheetProgress.done}/${reviewSheetProgress.total}` : '…'}`
                         : '下載檢討單'}
                     </button>
@@ -1277,11 +1279,12 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                       title="全螢幕投影檢討：左邊題本預覽（可放大、換頁）、右邊每題錯幾人、誰錯了、典型錯法與正確寫法；← → 換題、Esc 離開"
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 6,
-                        padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                        height: 34, padding: '0 14px', borderRadius: 8, fontSize: 13, lineHeight: 1, fontWeight: 600, cursor: 'pointer',
                         border: '1px solid #0f172a', background: '#0f172a', color: '#fff',
                       }}
                     >
-                      📽 檢討模式
+                      <Presentation size={15} aria-hidden />
+                      檢討模式
                     </button>
                   </div>
                   {itemAnalysisSubmissions.length >= 3 ? (
