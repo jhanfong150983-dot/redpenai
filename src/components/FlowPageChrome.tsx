@@ -77,12 +77,14 @@ export function FlowPageFooter({
   onNext?: () => void
   nextDisabled?: boolean
   nextDisabledHint?: string
-  /** 頁面自己捲動（AI 批改）→ 黏在可視區底部；整頁 flex 版面（匯入考卷）不需要 */
+  /** 頁面自己捲動（AI 批改）→ 黏在可視區底部；整頁 flex 版面（匯入考卷）不需要。
+   *  App 的捲動容器有 py-4／md:py-5 內距，bottom-0 會在頁尾下方露出一條內容（穿透）
+   *  → 用負的 bottom 蓋到容器邊緣，再用等量的 padding-bottom 把按鈕推回原位。 */
   sticky?: boolean
 }) {
   return (
     <div
-      className={`shrink-0 bg-white border-t border-slate-200 px-4 py-3${sticky ? ' sticky bottom-0 z-10 mt-6' : ''}`}
+      className={`shrink-0 bg-white border-t border-slate-200 px-4 pt-3 ${sticky ? 'sticky z-10 mt-6 -bottom-4 pb-7 md:-bottom-5 md:pb-8' : 'pb-3'}`}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-4 text-sm">
