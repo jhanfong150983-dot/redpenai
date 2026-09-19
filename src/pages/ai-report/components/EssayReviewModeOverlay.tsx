@@ -86,7 +86,7 @@ export default function EssayReviewModeOverlay({ title, submissions, students, o
     <div className="fixed inset-0 z-[120] bg-slate-900 text-slate-100 flex flex-col">
       {/* 頂欄 */}
       <div className="shrink-0 flex items-center gap-3 px-5 py-3 border-b border-slate-700">
-        <span className="font-semibold">{title}　作文檢討</span>
+        <span className="font-semibold">{title} 作文檢討</span>
         <span className="text-sm text-slate-400">已批改 {graded} 人・共同問題 {issues.length} 項</span>
         <div className="ml-auto flex items-center gap-2">
           <button type="button" onClick={() => setNamed((v) => !v)} className="inline-flex items-center gap-1 rounded-lg border border-slate-600 px-3 py-1.5 text-sm hover:bg-slate-800">
