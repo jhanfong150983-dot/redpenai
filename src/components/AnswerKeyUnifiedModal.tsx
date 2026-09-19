@@ -478,6 +478,12 @@ export default function AnswerKeyUnifiedModal({
   }
 
   const metadataValid = title.trim() !== '' && domain !== '' && (editMode || grade !== '')
+  // 2026-09-19 作文模式只在「國語（國文）」領域出現；未選領域時整個模式區塊不顯示（user 拍板）
+  const essayAvailable = ESSAY_MODE_ENABLED && (domain === '國語' || domain === '國語（測試中）')
+  useEffect(() => {
+    // 已選作文模式後又把領域改成非國語 → 退回一般模式（避免卡在看不到的選項上）
+    if (!editMode && sheetSource === 'essay' && !essayAvailable) setSheetSource('with_questions')
+  }, [editMode, sheetSource, essayAvailable])
 
   // 2026-08-29 公版答案卷範本下載（動態產生：帶校名/名稱/科目；docx 套件 dynamic import）
   const [isGeneratingTemplate, setIsGeneratingTemplate] = useState(false)
@@ -2101,6 +2107,7 @@ export default function AnswerKeyUnifiedModal({
 
                   {/* 答案卷模式 — 卡片式選擇器（2026-09-13 三模式：一般／自備作答卷／系統製作作答卷）。
                       公版 Word 範本只在「自備作答卷」提供——系統製作作答卷由③製作作答卷取代、一般模式沒有作答卷。 */}
+                  {(editMode || domain !== '') && (
                   <div className="col-span-full">
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <label className="block text-base font-semibold text-gray-800">答案卷模式</label>
@@ -2132,11 +2139,12 @@ export default function AnswerKeyUnifiedModal({
                         options={[
                           'with_questions', 'teacher_scan',
                           ...(GENERATED_SHEET_STEP_ENABLED ? ['generated' as const] : []),
-                          ...(ESSAY_MODE_ENABLED ? ['essay' as const] : []),
+                          ...(essayAvailable ? ['essay' as const] : []),
                         ]}
                       />
                     )}
                   </div>
+                  )}
 
                   {/* 提示 */}
                   {!editMode && !metadataValid && (
