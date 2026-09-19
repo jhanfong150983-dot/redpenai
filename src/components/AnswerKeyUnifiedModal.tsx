@@ -167,7 +167,8 @@ function clearMetadataDraft() {
 type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet'
 
 // 2026-09-19 作文模式（第四張卡）：預設開放（user 拍板：系統測試中、不需要預覽旗標）。
-//   ⚠ 批改管線尚未接：作文卷送批改時 server 會回「作文卷的 AI 批改尚未開放」（api/proxy.js ESSAY_GRADING_NOT_READY）。
+//   批改管線已接（09-19）：Phase A 裁行→數格子→逐行抄寫→眉批＋級分，Phase B 零 AI 組結果。
+//     ⚠ 整條鏈尚未實機驗收；自備作文卷的高中版（學測）暫不開放，見 sheetSource.ts 的 SHEET_SOURCE_MAX_GRADE。
 //   kill-switch（同系統製作作答卷慣例）：console 執行 localStorage.setItem('redpen-essay-mode', '0') 後重新整理 → 隱藏第四張卡。
 const ESSAY_MODE_ENABLED = (() => {
   try { return localStorage.getItem('redpen-essay-mode') !== '0' } catch { return true }
