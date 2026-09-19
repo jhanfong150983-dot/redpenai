@@ -1,12 +1,12 @@
 // 2026-09-19 作文模式建卷步驟「題目與稿紙」：
 //   左＝作文的「答案卷」內容（題目／圖意／寫作任務／可接受的詮釋範圍／離題定義；AI 起草、老師確認）
-//   右＝系統稿紙預覽（比照會考：每面 23 行×22 格、正反兩頁）＋下載 PDF
+//   右＝系統稿紙預覽（比照會考：B4 橫式、每面 23 行×22 格、正反兩頁）。
+//     稿紙每份都一樣 → 這裡只預覽；下載統一走答案卷卡片上的「下載作答卷」圖示（09-19 user 拍板）。
 //   只有「立意取材」和題目有關；其餘三向度用內建會考通用六級分規準（第一版固定、此處僅顯示）。
 import { useEffect, useMemo, useState } from 'react'
-import { Download, Loader2, Plus, Trash2 } from 'lucide-react'
-import Button from '@/components/ui/Button'
+import { Plus, Trash2 } from 'lucide-react'
 import type { EssayKeyData } from '@/lib/db'
-import { generateEssaySheet, buildEssaySheetPdf, ESSAY_GRID, type EssaySheetResult } from '@/lib/essaySheetGenerator'
+import { generateEssaySheet, ESSAY_GRID, type EssaySheetResult } from '@/lib/essaySheetGenerator'
 
 interface EssayKeyStepProps {
   value: EssayKeyData
@@ -25,65 +25,16 @@ const RUBRIC_DIMENSIONS = [
   { name: '錯別字、格式與標點符號', note: '錯別字（筆畫級小錯不處理）、格式、標點' },
 ]
 
-async function fetchOmrHeaderDataUri(): Promise<string | null> {
-  try {
-    const r = await fetch('/templates/omr-header.png')
-    if (!r.ok) return null
-    const blob = await r.blob()
-    return await new Promise<string>((resolve, reject) => {
-      const fr = new FileReader()
-      fr.onload = () => resolve(String(fr.result))
-      fr.onerror = () => reject(new Error('read failed'))
-      fr.readAsDataURL(blob)
-    })
-  } catch {
-    return null
-  }
-}
-
 export default function EssayKeyStep({ value, onChange, sheetTitle, questionId, readOnly = false, onSheetReady }: EssayKeyStepProps) {
-  const [headerUri, setHeaderUri] = useState<string | null>(null)
-  const [headerFailed, setHeaderFailed] = useState(false)
   const [previewPage, setPreviewPage] = useState(0)
-  const [downloading, setDownloading] = useState(false)
 
-  useEffect(() => {
-    let alive = true
-    void fetchOmrHeaderDataUri().then((uri) => {
-      if (!alive) return
-      if (uri) setHeaderUri(uri)
-      else setHeaderFailed(true)
-    })
-    return () => { alive = false }
-  }, [])
-
-  const sheet = useMemo(
-    () => (headerUri ? generateEssaySheet({ title: sheetTitle, headerDataUri: headerUri, questionId }) : null),
-    [headerUri, sheetTitle, questionId],
-  )
+  const sheet = useMemo(() => generateEssaySheet({ title: sheetTitle, questionId }), [sheetTitle, questionId])
   useEffect(() => { onSheetReady(sheet) }, [sheet, onSheetReady])
 
   const previewUrl = useMemo(() => {
-    if (!sheet) return null
     return URL.createObjectURL(new Blob([sheet.svgs[previewPage] ?? sheet.svgs[0]], { type: 'image/svg+xml' }))
   }, [sheet, previewPage])
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
-
-  const handleDownload = async () => {
-    if (!sheet || downloading) return
-    setDownloading(true)
-    try {
-      const pdf = await buildEssaySheetPdf(sheet.svgs)
-      const url = URL.createObjectURL(pdf)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${sheetTitle || '作文'}_稿紙.pdf`
-      a.click()
-      setTimeout(() => URL.revokeObjectURL(url), 5000)
-    } finally {
-      setDownloading(false)
-    }
-  }
 
   const set = <K extends keyof EssayKeyData>(k: K, v: EssayKeyData[K]) => onChange({ ...value, [k]: v })
   const inputCls = 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm leading-relaxed focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100 disabled:bg-gray-50 disabled:text-gray-600'
@@ -153,28 +104,22 @@ export default function EssayKeyStep({ value, onChange, sheetTitle, questionId, 
 
         {/* ── 右：稿紙預覽 ── */}
         <div>
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between gap-3 mb-2">
             <div className="text-sm font-semibold text-gray-800">作文稿紙 <span className="font-normal text-xs text-gray-500">B4（8K）・每面 {ESSAY_GRID.cols} 行 × {ESSAY_GRID.rows} 格＝{ESSAY_GRID.cols * ESSAY_GRID.rows} 格・正反兩頁</span></div>
             <div className="flex items-center gap-2">
               <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden text-xs">
                 {[0, 1].map((p) => (
-                  <button key={p} type="button" onClick={() => setPreviewPage(p)} className={`px-3 py-1 ${p > 0 ? 'border-l border-gray-300' : ''} ${previewPage === p ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>第 {p + 1} 頁</button>
+                  <button key={p} type="button" onClick={() => setPreviewPage(p)} className={`px-3 py-1 whitespace-nowrap ${p > 0 ? 'border-l border-gray-300' : ''} ${previewPage === p ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>第 {p + 1} 頁</button>
                 ))}
               </div>
-              <Button type="button" variant="outline" onClick={() => void handleDownload()} disabled={!sheet || downloading}>
-                {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                下載稿紙 PDF
-              </Button>
             </div>
           </div>
           <div className="rounded-lg border border-gray-200 bg-slate-100 p-3 flex items-center justify-center min-h-[320px]">
-            {headerFailed && <p className="text-sm text-red-600">稿紙標頭圖載入失敗，請重新整理後再試。</p>}
-            {!headerFailed && !previewUrl && <Loader2 className="w-6 h-6 animate-spin text-gray-400" />}
-            {previewUrl && <img src={previewUrl} alt={`作文稿紙第 ${previewPage + 1} 頁預覽`} className="max-h-[70vh] w-auto bg-white shadow" />}
+            <img src={previewUrl} alt={`作文稿紙第 ${previewPage + 1} 頁預覽`} className="w-full h-auto bg-white shadow" />
           </div>
           <p className="mt-2 text-xs text-gray-500 leading-relaxed">
-            請用 <b>B4（8K）雙面列印</b>、不要縮放。學生把紙橫放書寫（座號欄在右側）：由右邊第 1 行開始、由上往下寫。
-            批改時系統依稿紙上的定位方塊對齊，不需要再框選作答區。
+            稿紙每份都一樣：儲存後，到答案卷卡片上按<b>「下載作答卷」</b>圖示即可下載 PDF。請用 <b>B4（8K）橫式、雙面列印</b>、不要縮放。
+            學生由右邊第 1 行開始、由上往下寫；批改時系統依稿紙上的定位方塊對齊，不需要再框選作答區。
           </p>
         </div>
       </div>
