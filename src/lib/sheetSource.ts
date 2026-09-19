@@ -56,3 +56,18 @@ export function isSheetSourceAvailable(source: SheetSource, domain: string): boo
   const d = domain === '國語（測試中）' ? '國語' : domain
   return only.includes(d)
 }
+
+
+/**
+ * 從答案卷模板推「每位學生要交幾頁」。
+ * 一般卷＝題號 prefix 的最大值（沿用既有規則）；作文卷＝稿紙幾何的頁數（RPESSAY 兩頁，題號永遠只有 1 題、反推不出來）。
+ */
+export function pagesPerStudentOf(t: {
+  answerKey?: { questions?: Array<{ id?: string }> }
+  generatedSheet?: unknown
+}): number {
+  const gs = t.generatedSheet as { essay?: { pages?: number } } | undefined
+  if (gs?.essay?.pages) return Math.max(1, gs.essay.pages)
+  const qs = t.answerKey?.questions ?? []
+  return Math.max(1, ...qs.map((q) => parseInt(String(q?.id || '1').split('-')[0], 10) || 1))
+}

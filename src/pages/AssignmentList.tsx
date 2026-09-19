@@ -25,6 +25,7 @@ import AssignmentFormModal, { type AssignmentFormData } from '@/components/Assig
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import { useConfirm, useAlertModal } from '@/components/ConfirmModal'
 import { db, generateId, getBucket, QUESTION_CATEGORY_LABELS } from '@/lib/db'
+import { pagesPerStudentOf } from '@/lib/sheetSource'
 import { requestSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { checkFolderNameUnique, sortByDomainThenName } from '@/lib/utils'
@@ -586,7 +587,7 @@ export default function AssignmentList({
         await db.assignments.update(settingsAssignment.id, {
           title: data.title.trim(), answerKey: newAK, domain: akTemplate.domain,
           answerKeyTemplateId: akTemplate.id, boundAnswerKeyVersion: akTemplate.version ?? 1,
-          totalPages: akTemplate ? Math.max(1, ...((akTemplate.answerKey?.questions as Array<{id?:string}>) || []).map(q => parseInt(String(q?.id || '1').split('-')[0], 10) || 1)) : settingsAssignment.totalPages ?? 1,
+          totalPages: akTemplate ? pagesPerStudentOf(akTemplate) : settingsAssignment.totalPages ?? 1,
           scoringMode: data.settings.scoringMode === 'unscored' ? 'unscored' : undefined,
           studentUploadEnabled: data.studentUploadEnabled,
           allowStudentAiGrading: data.allowStudentAiGrading,
@@ -2107,7 +2108,7 @@ export default function AssignmentList({
             }
             const newAssignment: Assignment = {
               id: generateId(), classroomId: selectedClassroomId, title: data.title.trim(),
-              totalPages: akTemplate ? Math.max(1, ...((akTemplate.answerKey?.questions as Array<{id?:string}>) || []).map(q => parseInt(String(q?.id || '1').split('-')[0], 10) || 1)) : 1,
+              totalPages: akTemplate ? pagesPerStudentOf(akTemplate) : 1,
               domain, answerKey, answerKeyTemplateId: akTemplate?.id || undefined, boundAnswerKeyVersion: akTemplate?.version ?? 1,
               // 從模板繼承答案卷模式與考卷形式（影響 grading pipeline 分支）
               answerSheetMode: akTemplate?.answerSheetMode,

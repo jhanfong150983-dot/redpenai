@@ -95,6 +95,7 @@ async function saveStudentSubmission(
   pageBlobs: Blob[],
   avoidBlobStorage: boolean,
   source: string,
+  essayMode = false,
 ): Promise<void> {
   // Merge pages if needed
   const mergeResult =
@@ -105,9 +106,13 @@ async function saveStudentSubmission(
   const pageBreaks = mergeResult.pageBreaks
 
   // Compress to target size
-  const compressMaxWidth = pageBlobs.length === 1 ? 2300 : 1900
+  // 2026-09-19 作文卷解析度（實驗5）：每格 <63px 時 AI 會把學生的別字悄悄改成正字。
+  //   B4 稿紙 10mm 格 → 每頁 2800px＝77px/格（＝所有已驗證實驗的解析度）、2300px＝63px（下限）。
+  //   合併是上下堆疊、每頁保留完整寬度，所以合併圖寬度就是每頁寬度（實測兩頁 2800px 合併僅 ~0.5MB）。
+  const compressMaxWidth = essayMode ? 2800 : pageBlobs.length === 1 ? 2300 : 1900
   imageBlob = await compressToTargetBytes(imageBlob, TARGET_MAX_BYTES, {
     maxWidth: compressMaxWidth,
+    ...(essayMode ? { minWidth: 2300 } : {}),
   })
 
   // Generate thumbnail
@@ -277,9 +282,13 @@ export default function UnifiedImportPage({
   const [error, setError] = useState<string | null>(null)
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
 
+  // 2026-09-19 作文卷：稿紙幾何(RPESSAY)存在 template 的 generated_sheet.essay;匯入要用它決定頁數與解析度
+  const [essayGeom, setEssayGeom] = useState<{ pages?: number } | null>(null)
+
   const pagesPerStudent = useMemo(
-    () => Math.max(1, assignment?.totalPages || 1),
-    [assignment],
+    // 作文卷每生固定兩頁：舊考卷的 totalPages 是由題號反推的（作文只有 1 題→會是 1），以稿紙幾何為準
+    () => Math.max(1, essayGeom?.pages || assignment?.totalPages || 1),
+    [assignment, essayGeom],
   )
 
   // ── View state ──────────────────────────────────────────────────────────
@@ -304,6 +313,7 @@ export default function UnifiedImportPage({
   // 2026-09-10 依答案卷來源模式自動選：生成作答卷（標頭含座號劃卡＋錨點）→ 預設座號辨識；
   //   一般模式／老師掃描卷沒有劃卡標頭 → 只能照順序、座號辨識鈕停用。只在首次載入設預設，不蓋老師手動切換。
   const [sheetSource, setSheetSource] = useState<SheetSource | null>(null)
+  const isEssay = sheetSource === 'essay' || sheetSource === 'essay_byo'
   const [classroomName, setClassroomName] = useState('')
   const importModeInitRef = useRef(false)
   const [omrPages, setOmrPages] = useState<OmrPageItem[]>([])
@@ -367,7 +377,11 @@ export default function UnifiedImportPage({
       let src: SheetSource = 'with_questions'
       if (assignmentData.answerKeyTemplateId) {
         const tpl = await db.answerKeyTemplates.get(assignmentData.answerKeyTemplateId)
-        if (tpl) src = getSheetSource(tpl)
+        if (tpl) {
+          src = getSheetSource(tpl)
+          const gs = tpl.generatedSheet as { essay?: { pages?: number } } | undefined
+          if (gs?.essay) setEssayGeom(gs.essay)
+        }
       } else {
         // 舊架構（answerKey 內嵌於 assignment）：模式記在 Assignment.answerSheetMode
         src = getSheetSource({ answerSheetMode: assignmentData.answerSheetMode })
@@ -375,7 +389,8 @@ export default function UnifiedImportPage({
       setSheetSource(src)
       if (!importModeInitRef.current) {
         importModeInitRef.current = true
-        setImportMode(src === 'generated' ? 'omr' : 'seq')
+        // 自製作文卷有座號劃卡欄 → 預設座號辨識；自備作文卷沒有 → 照順序
+        setImportMode(src === 'generated' || src === 'essay' ? 'omr' : 'seq')
       }
 
       const studentsData = await db.students
@@ -492,6 +507,7 @@ export default function UnifiedImportPage({
               next,
               avoidBlobStorage,
               'teacher_camera',
+              isEssay,
             )
               .then(() => {
                 requestSync()
@@ -624,6 +640,7 @@ export default function UnifiedImportPage({
         rotatedBlobs,
         avoidBlobStorage,
         uploadPreviewSource,
+        isEssay,
       )
       requestSync()
 
@@ -890,6 +907,7 @@ export default function UnifiedImportPage({
             pageBlobs,
             avoidBlobStorage,
             'teacher_scan',
+            isEssay,
           )
           successCount++
         }
@@ -1185,12 +1203,12 @@ export default function UnifiedImportPage({
                 type="button"
                 onClick={() => setImportMode('omr')}
                 // 2026-09-10 非生成作答卷（一般模式／老師掃描卷）沒有座號劃卡標頭 → 停用，避免整批辨識失敗
-                disabled={sheetSource !== null && sheetSource !== 'generated'}
+                disabled={sheetSource !== null && sheetSource !== 'generated' && sheetSource !== 'essay'}
                 className={`rounded-lg px-3 py-1.5 font-medium transition-colors ${
                   importMode === 'omr' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-500`}
                 title={
-                  sheetSource !== null && sheetSource !== 'generated'
+                  sheetSource !== null && sheetSource !== 'generated' && sheetSource !== 'essay'
                     ? '這份考卷不是系統生成的作答卷（沒有座號劃卡標頭），請用「照順序」匯入'
                     : '使用系統生成的作答卷（標頭含座號劃卡格）時，自動辨識每頁座號，不需按號碼排序'
                 }
