@@ -20,6 +20,7 @@ import ConceptDrillDown from './ai-report/components/ConceptDrillDown'
 import KpBackfillCard from './ai-report/components/KpBackfillCard'
 import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
 import ReviewModeOverlay from './ai-report/components/ReviewModeOverlay'
+import EssayReviewModeOverlay from './ai-report/components/EssayReviewModeOverlay'
 
 // 跨班比較（exam-compare 端點的匿名彙總；classCount 之外無任何來源資訊）
 export type CrossCompare = {
@@ -1262,7 +1263,15 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
 
           {/* 2026-07-16 考試總覽（原考卷總覽）：純程式即時、零墨水。
               2026-08-12 user 拍板:檢討單下載從訂正頁移植到這裡（檢討課情境的第一步） */}
-          {showReviewMode && (
+          {/* 2026-09-19 作文卷：檢討模式改走「向度＋規準用語聚合」版（⛔不用級分分類，user 拍板） */}
+          {showReviewMode && itemAnalysisSubmissions.some((s) => ((s.gradingResult as { details?: Array<{ essayResult?: unknown }> } | undefined)?.details ?? []).some((d) => d?.essayResult)) ? (
+            <EssayReviewModeOverlay
+              title={assignmentById.get(selectedAssignmentId)?.title ?? ''}
+              submissions={itemAnalysisSubmissions}
+              students={syncData?.students ?? []}
+              onClose={() => setShowReviewMode(false)}
+            />
+          ) : showReviewMode && (
             <ReviewModeOverlay
               assignmentId={selectedAssignmentId}
               templateId={itemAnalysisTemplateId}
