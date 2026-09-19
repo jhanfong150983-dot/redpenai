@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import { FileQuestion, ImageIcon, RefreshCw, X } from 'lucide-react'
-import { db, type Submission, type Student, type Assignment, type FinalAnswerCached as FinalAnswer } from '@/lib/db'
+import { db, type Submission, type Student, type Assignment, type FinalAnswerCached as FinalAnswer, type EssayResult } from '@/lib/db'
+import EssayReviewPanel from '@/components/EssayReviewPanel'
 import { getSubmissionImageUrl } from '@/lib/utils'
 import { buildApiUrl } from '@/lib/api-base'
 import { requestSync } from '@/lib/sync-events'
@@ -127,6 +128,8 @@ export default function SubmissionDetailModal({
               //   levelResult 沒帶 → isLevel 永遠 false → 級分制題退回文字框、羅列式不顯示。
               //   （同一個坑今天已經踩過三次：server detail 白名單、accessor 合併、systemConfidence）
               levelResult: (d as { levelResult?: unknown }).levelResult,
+              //   2026-09-19 作文批改結果（逐行抄本／眉批／建議級分）——同上，沒列進來 UI 就讀不到
+              essayResult: (d as { essayResult?: unknown }).essayResult,
               //   2026-09-04 rubric 判官（社會/自然開放式概念題）：逐維度結果改走既有的
               //   rubricScores 契約（accessor 同名欄位、answerStats 聚合直接吃），
               //   這裡轉發它＋判官的 uncertain 標記。前一版自創的 rubricDims 已廢。
@@ -766,6 +769,9 @@ export default function SubmissionDetailModal({
                         //   沒有「學生答案」這種單一值可填，所以不給文字框、改列逐要素結果。
                         const lvRes = (d as { levelResult?: { level: number; found: string[]; split: string[] } }).levelResult
                         const isLevel = !!lvRes && Array.isArray(lvRes.found)
+                        // 2026-09-19 作文：整份卷一題、沒有單一「學生答案」可填 → 換成作文複核面板
+                        const essayRes = (d as { essayResult?: EssayResult }).essayResult
+                        const isEssay = !!essayRes && Array.isArray(essayRes.columns)
 
                         return (
                           <div
@@ -876,7 +882,12 @@ export default function SubmissionDetailModal({
                             </div>
                             {/* 2026-05-18 PR3: 學生答案 inline edit、debounce 1s auto save、textarea 自動撐高 */}
                             {/* 2026-05-30: VJ 視覺判斷題 → 逐柱「有畫/沒畫」開關（不給文字框）；其他題型維持文字編輯 */}
-                            {isLevel ? (
+                            {isEssay ? (
+                              <EssayReviewPanel
+                                value={essayRes!}
+                                onChange={(next) => setEditableDetails((prev) => prev.map((x, k) => (k === i ? { ...x, essayResult: next } : x)))}
+                              />
+                            ) : isLevel ? (
                               /* 級分制＝視覺判斷型：整份手寫推導沒有單一「學生答案」可填，所以不給文字框（同國字注音）。
                                  逐要素改用羅列式呈現——理由擠成一整句很難讀，老師要的是「哪些做到、哪些沒做到」。 */
                               <div className="space-y-1.5">
