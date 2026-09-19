@@ -20,7 +20,7 @@
 import { HEADER_SIZE_MM, ANCHOR_SIZE_MM, TENS_BUBBLES, ONES_BUBBLES } from './answerSheetLayout'
 import { renderSheetPng, type GenBox, type GeneratedSheetData } from './answerSheetGenerator'
 
-export const ESSAY_SHEET_VERSION = 'RPESSAY4'
+export const ESSAY_SHEET_VERSION = 'RPESSAY5'
 
 const PW = 364 // B4／8K 橫式
 const PH = 257
@@ -75,8 +75,10 @@ function pageGeom() {
   // 直式座號欄：寬＝RPOMR1 高(34)、高＝RPOMR1 寬(174)；放在格區右側（中間留一條給直書標題）
   const stripW = HEADER_SIZE_MM.height
   const stripH = HEADER_SIZE_MM.width
-  // RPESSAY4（09-19 user）：第 1 頁由左到右＝格區 → 座號欄 → 標題（學校＋考卷名稱在最右側）
-  const seatStripMm: [number, number, number, number] = [16 + gridW + 4, 30, stripW, stripH]
+  // RPESSAY4/5（09-19 user）：第 1 頁由左到右＝格區 → 座號欄 → 標題（學校＋考卷名稱在最右側）；
+  //   緊鄰格區右側那一排兩頁同位置：上＝作答提示、下＝頁次（比照會考答案卷）
+  //   由左到右：格區 → 提示／頁次那一排 → 座號欄 → 標題；座號欄要離提示排夠遠，文字才不會壓到它的定位方塊
+  const seatStripMm: [number, number, number, number] = [16 + gridW + 8.5, 30, stripW, stripH]
   return { anchorsMm, uvBasis, gridMm, seatStripMm }
 }
 
@@ -200,22 +202,23 @@ function pageSvg(pageNo: number, input: EssaySheetInput, g: EssayGridGeom): stri
     if (c % 5 === 0) els.push(`<text x="${px(x + w / 2)}" y="${px(gy + gh + 4.5)}" font-size="${px(2.6)}" fill="#888" text-anchor="middle" font-family="Arial, sans-serif">${c}</text>`)
   }
   els.push(`<rect x="${px(gx)}" y="${px(gy)}" width="${px(gw)}" height="${px(gh)}" fill="none" stroke="${RED}" stroke-width="${px(0.45)}"/>`)
-  // 格區右側的「第一排」：第 1 頁＝學校＋考卷名稱的等高大字（每字對齊一個字格；超過可用格數就等比壓縮字距）；
-  //   第 2 頁不放標題，改提示文字。兩頁最下方都寫頁次。
-  // 第 1 頁：標題排在座號欄右邊（整張紙最右側）；第 2 頁沒有座號欄 → 提示文字緊鄰格區右側
-  const titleX = pageNo === 1 ? g.seatStripMm[0] + g.seatStripMm[2] + 8.5 : gx + gw + 5.5
+  // 緊鄰格區右側的那一排（兩頁同位置）：上＝作答提示（比照會考答案卷）、下＝頁次。
+  //   第 1 頁的「學校＋考卷名稱」另外排在座號欄右邊（整張紙最右側）。
+  const noteX = gx + gw + 4
   const pageLabel = `第${CN_PAGE[pageNo - 1] ?? pageNo}頁`
   const labelSize = 5
   const labelTop = gy + gh - labelSize * 1.12 * pageLabel.length
-  els.push(verticalText(pageLabel, titleX, labelTop, labelSize, { bold: true }))
+  els.push(verticalText(pageLabel, noteX, labelTop, labelSize, { bold: true }))
+  els.push(verticalText(
+    pageNo === 1 ? '※請從本行開始作答' : '※此為第二頁，請由第一頁開始作答。',
+    noteX, gy, 4.6, { pitchMm: 5.4, maxBottomMm: labelTop - 4 },
+  ))
   if (pageNo === 1) {
+    const titleX = g.seatStripMm[0] + g.seatStripMm[2] + 6
     const chars = Array.from(input.title.replace(/\s+/g, ' ').trim())
-    const room = labelTop - 4 - gy
-    const pitchT = Math.min(g.cellMm, room / Math.max(chars.length, 1))
+    const pitchT = Math.min(g.cellMm, gh / Math.max(chars.length, 1))
     const sizeT = Math.min(8, pitchT * 0.86)
     els.push(verticalText(chars.join(''), titleX, gy + (pitchT - sizeT) / 2, sizeT, { bold: true, pitchMm: pitchT }))
-  } else {
-    els.push(verticalText('※此為第二頁，請由第一頁開始作答。', titleX, gy, 4.6, { pitchMm: 5.4 }))
   }
   // 直書說明：格區左側（只放第 1 頁）
   if (pageNo === 1) {
