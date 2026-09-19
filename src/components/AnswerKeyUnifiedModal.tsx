@@ -19,7 +19,6 @@ import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } f
 import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData, type PageSize } from '@/lib/answerSheetGenerator'
 import { cropReferenceSheetCells, SheetAlignError } from '@/lib/generatedSheetAlign'
 import { buildEssaySheetPdf, generateEssaySheet, isEssaySheet } from '@/lib/essaySheetGenerator'
-import EssayByoSheetStep from '@/components/EssayByoSheetStep'
 import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { db } from '@/lib/db'
@@ -30,6 +29,7 @@ import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
+import { essayByoGeomForGrade, essayByoPresetForGrade } from '@/lib/essayByoPreset'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric, EssayByoGeom } from '@/lib/db'
 import LevelRubricEditor from '@/components/LevelRubricEditor'
 import PageBboxEditorModal from '@/components/PageBboxEditorModal'
@@ -164,7 +164,7 @@ function clearMetadataDraft() {
   } catch { /* noop */ }
 }
 
-type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet' | 'essay_sheet'
+type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet'
 
 // 2026-09-19 作文模式（第四張卡）：預設開放（user 拍板：系統測試中、不需要預覽旗標）。
 //   ⚠ 批改管線尚未接：作文卷送批改時 server 會回「作文卷的 AI 批改尚未開放」（api/proxy.js ESSAY_GRADING_NOT_READY）。
@@ -175,8 +175,6 @@ const ESSAY_MODE_ENABLED = (() => {
 const ESSAY_QUESTION_ID = '1'
 /** 批改時題本圖會直接送給 AI（每篇作文的每次呼叫都帶）→ 只留題目頁，上限 2 頁 */
 const ESSAY_MAX_BOOKLET_PAGES = 2
-/** 自備作文卷的預設規格＝會考寫作測驗答案卷 */
-const ESSAY_BYO_DEFAULT: EssayByoGeom = { source: 'byo', pages: 2, cols: 23, rows: 22, cellMm: 10, gutterMm: 2.5 }
 
 // 2026-09-04 生成作答卷單一流程（A 案）：step④ 作答卷製作。
 // 2026-09-13 三模式上線：「系統製作作答卷」改為預設開放（第三張卡）。
@@ -199,7 +197,7 @@ const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; 
       // 2026-09-19 實驗4 定案：批改時直接把老師上傳的題本圖送給 AI（不經 AI 轉述文字）→ 沒有 AI 起草、沒有要審的草稿；
       //   ②上傳並整理題目頁（刪封面／旋轉）＝老師的檢查點，按「儲存」才存檔。
       { key: 'booklet', label: '上傳作文題目', shortLabel: '②' },
-      ...(source === 'essay_byo' ? [{ key: 'essay_sheet' as UnifiedStep, label: '稿紙設定', shortLabel: '③' }] : []),
+      // 2026-09-20 user 拍板：自備作文卷也只有兩步——稿紙版型由年級決定（essayByoPreset），不再讓老師選
     ]
   : source === 'generated'
   ? [
@@ -365,10 +363,6 @@ export default function AnswerKeyUnifiedModal({
   // ── step state machine ────────────────────────────────────────────────────
   const isEssay = sheetSource === 'essay' || sheetSource === 'essay_byo'
   const isEssayByo = sheetSource === 'essay_byo'
-  const [essayByo, setEssayByo] = useState<EssayByoGeom>(() => {
-    const g = (initialGeneratedSheet as { essay?: EssayByoGeom } | undefined)?.essay
-    return g?.source === 'byo' ? g : ESSAY_BYO_DEFAULT
-  })
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? (isEssaySheet(initialGeneratedSheet) ? 'booklet' : 'editing') : 'metadata')
   // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
   //   2026-09-07 編輯模式重開：從已存的 generatedSheet.sheetInputs 還原老師打的內容（參考答案/文字方塊/底圖/畫筆）
@@ -382,7 +376,7 @@ export default function AnswerKeyUnifiedModal({
   const [completedSteps, setCompletedSteps] = useState<Set<UnifiedStep>>(
     () => editMode
       ? new Set<UnifiedStep>(isEssaySheet(initialGeneratedSheet)
-          ? ['metadata', 'booklet', 'essay_sheet']
+          ? ['metadata', 'booklet']
           : genFlow
           ? ['metadata', 'booklet', 'sheet', 'extract', 'editing']
           : ['metadata', 'extract', 'editing'])
@@ -434,6 +428,14 @@ export default function AnswerKeyUnifiedModal({
   //   grade/subjectLabel 只給 UI 與範本列印用；存檔一律存傘狀 domain（社會-歷史→社會），
   //   因為 server 批改管線寫死 domain === '社會'/'自然' 等分支，細科目直接存會掉出既有規則。
   const [grade, setGrade] = useState<number | ''>(initialGrade ?? draft?.grade ?? '')
+  // 自備作文卷的稿紙規格：⛔ 不是狀態、是由年級推出來的（user 拍板：少一個步驟）。
+  //   編輯既有答案卷時以存檔的幾何為準（老師當初建卷的版型不能因為改年級而變）。
+  const essayByoPreset = essayByoPresetForGrade(grade)
+  const essayByo = useMemo<EssayByoGeom>(() => {
+    const saved = (initialGeneratedSheet as { essay?: EssayByoGeom } | undefined)?.essay
+    if (editMode && saved?.source === 'byo') return saved
+    return essayByoGeomForGrade(grade)
+  }, [editMode, initialGeneratedSheet, grade])
   // 2026-09-06 高中數學選修分軌（僅 domain='數學' 且 grade≥11 顯示/有意義）
   const [mathTrack, setMathTrack] = useState<'A' | 'B' | ''>(initialMathTrack ?? draft?.mathTrack ?? '')
   const [subjectLabel, setSubjectLabel] = useState(() => {
@@ -1801,18 +1803,12 @@ export default function AnswerKeyUnifiedModal({
       return { label: '下一步', disabled: !editMode && !metadataValid, icon: <ChevronRight className="w-4 h-4" /> }
     }
     if (activeStep === 'booklet') {
-      if (isEssayByo) {
-        return { label: '下一步：稿紙設定', disabled: !editMode && bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
-      }
       if (isEssay) {
-        // 自製作文卷：這一步就是最後一步——整理好題目頁後由老師按儲存
+        // 作文卷（自製／自備）：這一步就是最後一步——整理好題目頁後由老師按儲存
         return { label: isSaving ? '儲存中…' : (!editMode && bookletPageItems.length === 0) ? '請先上傳作文題目' : '儲存作文答案卷', disabled: isSaving || (!editMode && bookletPageItems.length === 0), loading: isSaving, icon: <Check className="w-4 h-4" /> }
       }
       if (isExtracting) return { label: '結構分析中…', disabled: true, loading: true }
       return { label: '下一步：製作作答卷', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
-    }
-    if (activeStep === 'essay_sheet') {
-      return { label: isSaving ? '儲存中…' : '儲存作文答案卷', disabled: isSaving, loading: isSaving, icon: <Check className="w-4 h-4" /> }
     }
     if (activeStep === 'sheet') {
       // 版面塞不下單面一頁（overflow）→ 明確擋住並說明，不讓老師在失效版面上繼續
@@ -1873,7 +1869,6 @@ export default function AnswerKeyUnifiedModal({
           return
         }
         markComplete('booklet')
-        if (isEssayByo) { setActiveStep('essay_sheet'); return }
         handleSaveClick()
         return
       }
@@ -1883,11 +1878,6 @@ export default function AnswerKeyUnifiedModal({
       //   就會誤重跑、白花一次建卷次數（user 回報）。skeleton 在＝結構已完成，不需再 call AI。
       if (editingKey) { markComplete('booklet'); setActiveStep('sheet'); return }
       void handleStartStructure()
-      return
-    }
-    if (activeStep === 'essay_sheet') {
-      markComplete('essay_sheet')
-      handleSaveClick()
       return
     }
     if (activeStep === 'sheet') {
@@ -1907,7 +1897,6 @@ export default function AnswerKeyUnifiedModal({
   }
 
   const handleBack = () => {
-    if (activeStep === 'essay_sheet') { setActiveStep('booklet'); return }
     if (activeStep === 'booklet') { setActiveStep('metadata'); return }
     if (activeStep === 'sheet') { setActiveStep('booklet'); return }
     if (activeStep === 'extract') { setActiveStep(genFlow ? 'sheet' : 'metadata'); return }
@@ -2370,6 +2359,14 @@ export default function AnswerKeyUnifiedModal({
                               <span className="text-xs text-gray-500">{isEssay ? '— 只留有題目的那一頁（最多 2 頁）：批改時 AI 會直接看這一頁；封面、測驗說明與空白頁請刪掉' : sheetSource === 'teacher_scan' ? '— 學生看的題目卷，可多頁' : '— 學生看的乾淨題目卷'}</span>
                             </div>
                           </div>
+                          {/* 自備作文卷：稿紙版型由年級決定，老師不必上傳空白稿紙也不必選（2026-09-20 user 拍板）。
+                              批改時是在學生卷上直接找印刷格線，這裡只是告訴老師系統預期的是哪一種稿紙。 */}
+                          {isEssayByo && (
+                            <div className="mb-3 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 leading-relaxed">
+                              稿紙版型：<b>{essayByoPreset.label}</b>（{essayByoPreset.hint}）——依年級自動套用，不必上傳空白稿紙。
+                              批改時系統會直接在學生卷上找出印刷格線；每位學生請收滿 {essayByo.pages} 頁，掃描時整張掃進去、不要裁到格線。
+                            </div>
+                          )}
                           {/* 答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上。
                               沒題本＝只能瞎猜題型，而且會錯得無聲無息，所以直接擋住解析。 */}
                           {needsBooklet && !genFlow && !isEssay && (
@@ -3086,9 +3083,6 @@ export default function AnswerKeyUnifiedModal({
                 </div>
               )}
 
-              {activeStep === 'essay_sheet' && (
-                <EssayByoSheetStep value={essayByo} onChange={setEssayByo} readOnly={editMode} />
-              )}
 
               {activeStep === 'editing' && !editingKey && (
                 <div className="p-6 flex flex-col items-center justify-center h-full text-gray-400 text-sm">

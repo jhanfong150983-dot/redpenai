@@ -29,7 +29,7 @@ export const SHEET_SOURCE_HINT: Record<SheetSource, string> = {
   teacher_scan: '老師自備的作答卷（題本分開）；批改時 AI 定位作答區（classify）',
   generated: '系統製作的作答卷（含定位錨點）；批改免 classify、匯入可座號辨識',
   essay: '系統製作的作文稿紙（比照會考：每面 506 格、正反兩頁、含定位方塊與座號劃卡）；AI 逐句眉批＋建議級分',
-  essay_byo: '老師自己的作文稿紙（例如會考答案卷）；上傳一張空白卷，系統自動抓出每一行',
+  essay_byo: '用會考／學測的公版作文稿紙；不必上傳稿紙，系統會直接在學生卷上抓出每一行',
 }
 
 /** 卡片小徽章樣式（與 AnswerSheetModeSelector 的紅/藍 accent 對齊；生成卷用綠） */
