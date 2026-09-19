@@ -3065,6 +3065,7 @@ export default function AnswerKeyUnifiedModal({
                   } : prev)}
                   sheetTitle={[schoolName, title.trim() || '未命名'].filter(Boolean).join(' ')}
                   questionId={editingKey.questions[0]?.id ?? ESSAY_QUESTION_ID}
+                  bookletPages={bookletPageItems.map((item) => ({ url: bookletPages.find((p) => p.index === item.originalIndex)?.url ?? '', rotation: item.rotation })).filter((p) => p.url)}
                   onSheetReady={setEssaySheet}
                 />
               )}

@@ -1,4 +1,5 @@
 // 2026-09-19 作文模式建卷步驟「題目與稿紙」：
+//   左＝批改依據（寫作任務／可接受的詮釋範圍／離題定義＋收合的題目文字）、右＝老師上傳的題本預覽（09-19 user 拍板）。
 //   內容＝作文的「答案卷」（題目／圖意／寫作任務／可接受的詮釋範圍／離題定義；AI 起草、老師確認）
 //   稿紙（比照會考：B4 橫式、每面 23 行×22 格、正反兩頁）每份都一樣 → 這一步不顯示也不下載；
 //     存檔後到答案卷卡片上的「下載作答卷」圖示下載（09-19 user 拍板）。
@@ -15,6 +16,8 @@ interface EssayKeyStepProps {
   sheetTitle: string
   questionId: string
   readOnly?: boolean
+  /** 老師上傳的作文題目頁（右側預覽用；rotation＝上傳步驟設定的旋轉角度） */
+  bookletPages: Array<{ url: string; rotation: number }>
   onSheetReady: (result: EssaySheetResult | null) => void
 }
 
@@ -25,7 +28,7 @@ const RUBRIC_DIMENSIONS = [
   { name: '錯別字、格式與標點符號', note: '錯別字（筆畫級小錯不處理）、格式、標點' },
 ]
 
-export default function EssayKeyStep({ value, onChange, sheetTitle, questionId, readOnly = false, onSheetReady }: EssayKeyStepProps) {
+export default function EssayKeyStep({ value, onChange, sheetTitle, questionId, readOnly = false, bookletPages, onSheetReady }: EssayKeyStepProps) {
   // 稿紙每份都一樣 → 這一步不顯示稿紙；只在背景決定性產生，存檔時寫進 generatedSheet＋兩頁 PDF，
   // 老師存檔後到答案卷卡片的「下載作答卷」圖示下載（09-19 user 拍板）。
   const sheet = useMemo(() => generateEssaySheet({ title: sheetTitle, questionId }), [sheetTitle, questionId])
@@ -42,25 +45,7 @@ export default function EssayKeyStep({ value, onChange, sheetTitle, questionId, 
             寫得太窄，會讓用比喻、意象來發揮的好文章被判成不切題。
         </div>
 
-        {/* ── 左：題目本身 ── */}
-        <div className="space-y-4">
-
-          <section>
-            <label className="block text-sm font-semibold text-gray-800 mb-1">作文題目（全文）</label>
-            <textarea className={inputCls} rows={14} value={value.topicText} disabled={readOnly} onChange={(e) => set('topicText', e.target.value)} placeholder="題目引導語、寫作條件、注意事項…" />
-          </section>
-
-          <section>
-            <label className="block text-sm font-semibold text-gray-800 mb-1">圖片內容描述 <span className="font-normal text-xs text-gray-500">（看圖寫作才需要；只描述看得到的，不要寫寓意）</span></label>
-            <textarea className={inputCls} rows={5} value={value.imageDescription} disabled={readOnly} onChange={(e) => set('imageDescription', e.target.value)} placeholder="題目沒有圖片就留空" />
-          </section>
-
-          <p className="text-xs text-gray-500 leading-relaxed">
-            作文稿紙（B4 橫式、每面 506 格、正反兩頁）每份都一樣：儲存後，到答案卷卡片上按<b>「下載作答卷」</b>圖示下載，B4 雙面列印、不要縮放。
-          </p>
-        </div>
-
-        {/* ── 右：批改依據 ── */}
+        {/* ── 左：批改依據（老師主要確認這三塊） ── */}
         <div className="space-y-4">
           <section>
             <label className="block text-sm font-semibold text-gray-800 mb-1">寫作任務 <span className="font-normal text-xs text-gray-500">（學生要回應什麼才算切題）</span></label>
@@ -103,6 +88,44 @@ export default function EssayKeyStep({ value, onChange, sheetTitle, questionId, 
             </ul>
             <p className="mt-2 text-xs text-gray-500">滿分 6 分＝六級分。AI 會給「建議級分」與逐句修改建議，最後成績由你確認。</p>
           </section>
+
+          {/* 題目文字與圖意：批改時 AI 只看得到文字（看不到題本圖），所以仍要存；但老師對照右邊題本即可，平常不用改 → 收合 */}
+          <details className="rounded-lg border border-gray-200 bg-white">
+            <summary className="cursor-pointer select-none px-3 py-2 text-sm font-semibold text-gray-700">AI 讀到的題目文字 <span className="font-normal text-xs text-gray-500">（批改時給 AI 看的題目；通常不用改，讀錯再修）</span></summary>
+            <div className="space-y-4 px-3 pb-3 pt-1">
+              <section>
+                <label className="block text-sm font-semibold text-gray-800 mb-1">作文題目（全文）</label>
+                <textarea className={inputCls} rows={9} value={value.topicText} disabled={readOnly} onChange={(e) => set('topicText', e.target.value)} placeholder="題目引導語、寫作條件、注意事項…" />
+              </section>
+
+              <section>
+                <label className="block text-sm font-semibold text-gray-800 mb-1">圖片內容描述 <span className="font-normal text-xs text-gray-500">（看圖寫作才需要；只描述看得到的，不要寫寓意）</span></label>
+                <textarea className={inputCls} rows={5} value={value.imageDescription} disabled={readOnly} onChange={(e) => set('imageDescription', e.target.value)} placeholder="題目沒有圖片就留空" />
+              </section>
+
+            </div>
+          </details>
+
+          <p className="text-xs text-gray-500 leading-relaxed">
+            作文稿紙（B4 橫式、每面 506 格、正反兩頁）每份都一樣：儲存後，到答案卷卡片上按<b>「下載作答卷」</b>圖示下載，B4 雙面列印、不要縮放。
+          </p>
+        </div>
+
+        {/* ── 右：題本預覽（老師上傳的作文題目，對照用） ── */}
+        <div>
+          <div className="text-sm font-semibold text-gray-800 mb-2">題本預覽 <span className="font-normal text-xs text-gray-500">（你上傳的作文題目，共 {bookletPages.length} 頁）</span></div>
+          <div className="rounded-lg border border-gray-200 bg-slate-100 p-3 space-y-3 max-h-[72vh] overflow-y-auto">
+            {bookletPages.length === 0 && <p className="text-sm text-gray-400 text-center py-10">沒有題本圖片可預覽</p>}
+            {bookletPages.map((pg, i) => (
+              pg.rotation % 180 === 0 ? (
+                <img key={i} src={pg.url} alt={`題本第 ${i + 1} 頁`} className="w-full h-auto bg-white shadow" style={pg.rotation ? { transform: `rotate(${pg.rotation}deg)` } : undefined} draggable={false} />
+              ) : (
+                <div key={i} className="relative w-full aspect-square bg-white shadow overflow-hidden flex items-center justify-center">
+                  <img src={pg.url} alt={`題本第 ${i + 1} 頁`} className="max-w-full max-h-full object-contain" style={{ transform: `rotate(${pg.rotation}deg)` }} draggable={false} />
+                </div>
+              )
+            ))}
+          </div>
         </div>
 
       </div>
