@@ -1,4 +1,4 @@
-import { WithQuestionsIllustration, AnswerOnlyIllustration, GeneratedSheetIllustration } from './illustrations/ModeIllustrations'
+import { WithQuestionsIllustration, AnswerOnlyIllustration, GeneratedSheetIllustration, EssayModeIllustration } from './illustrations/ModeIllustrations'
 import type { SheetSource } from '@/lib/sheetSource'
 
 /** 舊 2 值（DB 欄位 answer_sheet_mode）；選擇器本身改用三值 SheetSource，見 lib/sheetSource.ts */
@@ -21,7 +21,7 @@ interface ModeOption {
   description: string
   suit: string
   Illustration: typeof WithQuestionsIllustration
-  accent: 'red' | 'blue' | 'green'
+  accent: 'red' | 'blue' | 'green' | 'amber'
 }
 
 // 2026-09-13 三模式（user 拍板、先不鎖 PRO）：
@@ -55,12 +55,23 @@ const MODES: ModeOption[] = [
     Illustration: GeneratedSheetIllustration,
     accent: 'green',
   },
+  // 2026-09-19 作文模式（第四張卡）：呼叫端用 options 控制是否顯示（上線前先藏在預覽旗標後）
+  {
+    value: 'essay',
+    name: '作文模式',
+    tagline: '一篇作文，系統製作稿紙',
+    description: '上傳作文題目，系統製作比照會考的稿紙；AI 逐句給修改建議與建議級分，由你確認。',
+    suit: '適合：作文練習、段考寫作測驗',
+    Illustration: EssayModeIllustration,
+    accent: 'amber',
+  },
 ]
 
 const SUIT_CLASS: Record<ModeOption['accent'], string> = {
   red: 'bg-rose-50 text-rose-700',
   blue: 'bg-blue-50 text-blue-700',
   green: 'bg-emerald-50 text-emerald-700',
+  amber: 'bg-amber-50 text-amber-700',
 }
 
 export default function AnswerSheetModeSelector({
@@ -70,7 +81,8 @@ export default function AnswerSheetModeSelector({
   variant = 'cards',
   options,
 }: AnswerSheetModeSelectorProps) {
-  const modes = options ? MODES.filter((m) => options.includes(m.value)) : MODES
+  // 作文模式只在呼叫端明確列進 options 時才顯示（預設三模式不變）
+  const modes = options ? MODES.filter((m) => options.includes(m.value)) : MODES.filter((m) => m.value !== 'essay')
   if (variant === 'compact') {
     return (
       <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
@@ -98,7 +110,7 @@ export default function AnswerSheetModeSelector({
 
   return (
     <div>
-      <div className={`grid grid-cols-1 gap-4 ${modes.length >= 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+      <div className={`grid grid-cols-1 gap-4 ${modes.length >= 4 ? 'md:grid-cols-2 xl:grid-cols-4' : modes.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
         {modes.map((mode) => {
           const isActive = value === mode.value
           return (

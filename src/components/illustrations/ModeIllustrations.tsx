@@ -183,3 +183,33 @@ export function GeneratedSheetIllustration({ className = '' }: { className?: str
     </svg>
   )
 }
+
+// 2026-09-19 作文模式：題本（作文題目）→ 系統製作的紅格稿紙（橫放直書）
+export function EssayModeIllustration({ className = '' }: { className?: string }) {
+  const cols = Array.from({ length: 9 }, (_, i) => 160 + i * 12)
+  const rows = Array.from({ length: 8 }, (_, i) => 40 + i * 12)
+  return (
+    <svg viewBox="0 0 280 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="作文模式：上傳作文題目，系統製作稿紙" className={className}>
+      {/* LEFT: 作文題目 */}
+      <rect x="10" y="10" width="100" height="150" fill="#ffffff" stroke="#64748b" strokeWidth="1.5" rx="3" />
+      <rect x="20" y="20" width="80" height="6" fill="#e2e8f0" rx="1" />
+      <rect x="22" y="36" width="76" height="40" fill="#f1f5f9" stroke="#cbd5e1" strokeWidth="0.6" rx="2" />
+      <text x="60" y="60" fontFamily="sans-serif" fontSize="7" fill="#94a3b8" textAnchor="middle">引導材料／圖</text>
+      <text x="22" y="92" fontFamily="sans-serif" fontSize="7" fill="#475569">請依題意完成一篇</text>
+      <text x="22" y="103" fontFamily="sans-serif" fontSize="7" fill="#475569">文章……</text>
+      <text x="60" y="155" fontFamily="sans-serif" fontSize="6.5" fill="#64748b" textAnchor="middle">作文題目（老師上傳）</text>
+      <text x="128" y="92" fontFamily="sans-serif" fontSize="14" fill="#d97706" textAnchor="middle" fontWeight="bold">→</text>
+      {/* RIGHT: 稿紙（橫放） */}
+      <rect x="146" y="26" width="128" height="118" fill="#ffffff" stroke="#64748b" strokeWidth="1.5" rx="3" />
+      <rect x="150" y="30" width="5" height="5" fill="#0f172a" />
+      <rect x="265" y="30" width="5" height="5" fill="#0f172a" />
+      <rect x="150" y="135" width="5" height="5" fill="#0f172a" />
+      <rect x="265" y="135" width="5" height="5" fill="#0f172a" />
+      {cols.map((x) => rows.map((y) => <rect key={`${x}-${y}`} x={x} y={y} width="9" height="12" fill="none" stroke="#e57373" strokeWidth="0.6" />))}
+      <text x="260.5" y="50" fontFamily="serif" fontSize="8" fill="#334155" textAnchor="middle">我</text>
+      <text x="260.5" y="62" fontFamily="serif" fontSize="8" fill="#334155" textAnchor="middle">認</text>
+      <text x="260.5" y="74" fontFamily="serif" fontSize="8" fill="#334155" textAnchor="middle">為</text>
+      <text x="210" y="155" fontFamily="sans-serif" fontSize="6.5" fill="#64748b" textAnchor="middle">系統稿紙（每面 506 格 × 兩頁）</text>
+    </svg>
+  )
+}

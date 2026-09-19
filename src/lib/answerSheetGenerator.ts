@@ -141,6 +141,8 @@ export interface GenBox {
   uv: { x: number; y: number; w: number; h: number }
   kind: 'numgrid' | 'wide' | 'grid' | 'essay'
   optionCount?: number
+  /** 2026-09-19 作文稿紙（essaySheetGenerator）：多頁卷的頁碼（1 起算）；一般生成卷單頁、無此欄 */
+  page?: number
 }
 
 export interface GenResult {

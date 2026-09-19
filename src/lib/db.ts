@@ -116,6 +116,7 @@ export type QuestionCategory =
   | 'connect_dots'         // 連點繪圖題：把指定點連起來形成圖形
   | 'diagram_draw'         // 圖表繪製題：繪製長條/圓餅圖
   | 'diagram_color'        // 塗色題：在預印圖形上塗色
+  | 'essay'                // 作文（2026-09-19）：整卷一題、系統稿紙逐直行抄寫→逐句眉批＋建議級分；只由「作文模式」建卷產生，不開放一般題目改成此型
   // ── Bucket D：複合題（多部分有依存關係，必須一起評分）──
   | 'compound_circle_with_explain'  // 圈選說明題：圈印刷選項 + 寫理由（理由要 match 圈選）
   | 'compound_check_with_explain'   // 勾選說明題：打勾 + 寫理由
@@ -152,6 +153,7 @@ export const QUESTION_CATEGORY_TO_BUCKET: Record<QuestionCategory, QuestionBucke
   map_fill: 'B',
   // Bucket C — Rubric（純文字評鑑或繪圖評鑑）
   short_answer: 'C',
+  essay: 'C',
   map_symbol: 'C',
   grid_geometry: 'C',
   connect_dots: 'C',
@@ -192,6 +194,7 @@ export const QUESTION_CATEGORY_LABELS: Record<QuestionCategory, string> = {
   map_fill: '填圖題',
   // Bucket C
   short_answer: '簡答題',
+  essay: '作文',
   calculation: '計算題',
   word_problem: '應用題',
   map_symbol: '地圖符號標記題',
@@ -385,7 +388,26 @@ export interface AnswerKeyQuestion {
   }
 }
 
+/** 2026-09-19 作文模式的「答案卷」內容：題目＋切題範圍（只有立意取材與題目有關；其餘三向度用內建會考通用規準）。
+ *  實驗教訓：AI 起草的切題範圍容易寫窄（把意象式高分卷壓分）→ 只給老師參考編輯、預設寬，不拿來硬性約束級分判官。 */
+export interface EssayKeyData {
+  /** 題目全文（引導語、條件、注意事項） */
+  topicText: string
+  /** 題本裡圖片的「客觀圖意描述」（看圖寫作用；純文字判官看不到圖）。沒有圖＝空字串 */
+  imageDescription: string
+  /** 寫作任務要點（考生要回應什麼才算切題） */
+  writingTasks: string[]
+  /** 可接受的詮釋範圍（預設寬：抽象／意象式詮釋也算切題） */
+  acceptableRange: string
+  /** 什麼算完全離題／僅抄寫題幹 */
+  offTopicRule: string
+  /** 評分規準：會考通用六級分（第一版固定） */
+  rubricPreset: 'cap_6level'
+}
+
 export interface AnswerKey {
+  /** 2026-09-19 作文模式：有此欄＝這份是作文卷（questions 只有一題 questionCategory='essay'、滿分＝6 級分） */
+  essay?: EssayKeyData
   /** 2026-09-10 會考級分模式（應用題看過程）：false＝答案卷不生 levelRubric、批改只比最終答案（Bucket A 舊路）。
    *  undefined＝舊卷相容（視為開、已生的規準照用）。新建卷預設 false（省錢；老師自選）。 */
   levelRubricEnabled?: boolean

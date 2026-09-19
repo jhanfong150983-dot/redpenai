@@ -12,7 +12,7 @@ import { requestSync } from '@/lib/sync-events'
 import { rescaleSubmissionForMaxScoreChange } from '@/lib/answerStats'
 import { fetchBuildQuota, type BuildQuota } from '@/lib/buildQuota'
 import { queueDelete, queueDeleteMany } from '@/lib/sync-delete-queue'
-import { solveAnswerKeyFromBooklet, extractAnswerKeyFromImages, readReferenceAnswerCells, detectVisualRubric, detectLevelRubric, detectFillVariantsCriteria, extractTeacherScanAnswerKey, TEACHER_SCAN_UNIFIED_ENABLED } from '@/lib/gemini'
+import { draftEssayKeyFromBooklet, solveAnswerKeyFromBooklet, extractAnswerKeyFromImages, readReferenceAnswerCells, detectVisualRubric, detectLevelRubric, detectFillVariantsCriteria, extractTeacherScanAnswerKey, TEACHER_SCAN_UNIFIED_ENABLED } from '@/lib/gemini'
 import { snapAnswerKeyToGrid } from '@/lib/registrationSnap'
 import { cropReferenceSheetCells } from '@/lib/generatedSheetAlign'
 import type { GeneratedSheetData } from '@/lib/answerSheetGenerator'
@@ -459,6 +459,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
       teacherSheetImage?: Blob
       /** 2026-09-10 會考級分模式：false → 三條路徑都不為 word_problem 生 levelRubric（批改只比最終答案） */
       levelRubricEnabled?: boolean
+      /** 2026-09-19 作文模式：只上傳作文題目 → AI 擷取題目＋起草切題範圍（不走一般題目結構推斷） */
+      essayDraft?: { questionId: string; gradeLabel?: string }
     }
   ) => {
     const levelOn = context.levelRubricEnabled !== false
@@ -578,6 +580,16 @@ export default function AnswerBank(_props: AnswerBankProps) {
     const blobs = orderedPages.map((p) => p.blob)
     await startInkSession()
     try {
+      // 作文模式：題目卷 → 題目全文＋圖意描述＋切題範圍草稿；整卷一題、滿分＝六級分
+      if (context.essayDraft && context.bookletBlobs?.length) {
+        const essay = await draftEssayKeyFromBooklet(context.bookletBlobs, { gradeLabel: context.essayDraft.gradeLabel, onProgress: _onProgress })
+        const answerKey: AnswerKey = {
+          essay,
+          totalScore: 6,
+          questions: [{ id: context.essayDraft.questionId, questionCategory: 'essay', type: 3, maxScore: 6, answer: '', referenceAnswer: essay.topicText } as AnswerKey['questions'][number]],
+        }
+        return { answerKey, imageBlobs: [], notice: 'AI 已讀取作文題目並起草切題範圍，請確認內容後儲存。' }
+      }
       // 生成答案卷流程：沒有答案卷、只有題目卷 → AI 解題起草（answer_key.solve）
       if (blobs.length === 0 && context.bookletBlobs?.length) {
         const answerKey = await solveAnswerKeyFromBooklet(context.bookletBlobs, {
@@ -962,7 +974,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
       //   全部直接繼承同一套 KP(跨班名稱一致、班際比較才成立),不會 11 個班燒 11 次。
       //   模式分流同 AssignmentSetup:一般=答案卷含題幹直餵;答案卷模式=有題本才跑、沒題本跳過
       //   (報告端「補跑歸類」懶跑路徑原樣保留當兜底)。
-      if (answerKey.questions?.length) {
+      // 2026-09-19 作文卷整卷一題、沒有學科知識點可歸 → 不預跑（省一次 AI）
+      if (answerKey.questions?.length && !answerKey.essay) {
         const kpImages = metadata.answerSheetMode === 'answer_only'
           ? (metadata.questionBookletBlobs.length > 0 ? metadata.questionBookletBlobs.slice() : null)
           : (imageBlobs.length > 0 ? imageBlobs.slice() : null)

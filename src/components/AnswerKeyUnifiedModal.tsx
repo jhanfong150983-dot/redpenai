@@ -18,6 +18,8 @@ import type { SheetSource } from '@/lib/sheetSource'
 import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
 import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData, type PageSize } from '@/lib/answerSheetGenerator'
 import { cropReferenceSheetCells, SheetAlignError } from '@/lib/generatedSheetAlign'
+import EssayKeyStep from '@/components/EssayKeyStep'
+import { buildEssaySheetPdf, isEssaySheet, type EssaySheetResult } from '@/lib/essaySheetGenerator'
 import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { db } from '@/lib/db'
@@ -28,7 +30,7 @@ import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
-import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric } from '@/lib/db'
+import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric, EssayKeyData } from '@/lib/db'
 import LevelRubricEditor from '@/components/LevelRubricEditor'
 import PageBboxEditorModal from '@/components/PageBboxEditorModal'
 import ParseCheckReminderModal, { isParseCheckReminderDismissed } from '@/components/ParseCheckReminderModal'
@@ -78,7 +80,7 @@ const BUCKET_GROUP_LABELS: Record<string, string> = {
 const GROUPED_TYPE_OPTIONS = (['A', 'B', 'C', 'D'] as const).map((b) => ({
   bucket: b,
   label: BUCKET_GROUP_LABELS[b],
-  cats: (Object.keys(QUESTION_CATEGORY_TO_BUCKET) as QuestionCategory[]).filter((c) => QUESTION_CATEGORY_TO_BUCKET[c] === b),
+  cats: (Object.keys(QUESTION_CATEGORY_TO_BUCKET) as QuestionCategory[]).filter((c) => QUESTION_CATEGORY_TO_BUCKET[c] === b && c !== 'essay'), // essay 只由作文模式建卷產生
 }))
 
 const rubricLabels = ['優秀', '良好', '尚可', '待努力'] as const
@@ -162,7 +164,15 @@ function clearMetadataDraft() {
   } catch { /* noop */ }
 }
 
-type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet'
+type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet' | 'essay'
+
+// 2026-09-19 作文模式（第四張卡）：批改管線（P3）上線前先藏在預覽旗標後——
+//   瀏覽器 console 執行 localStorage.setItem('redpen-essay-mode', '1') 後重新整理才看得到。
+//   ⛔ 旗標未開前不可對外開放：作文卷目前還不能批改。
+const ESSAY_MODE_ENABLED = (() => {
+  try { return localStorage.getItem('redpen-essay-mode') === '1' } catch { return false }
+})()
+const ESSAY_QUESTION_ID = '1'
 
 // 2026-09-04 生成作答卷單一流程（A 案）：step④ 作答卷製作。
 // 2026-09-13 三模式上線：「系統製作作答卷」改為預設開放（第三張卡）。
@@ -179,7 +189,13 @@ const GENERATED_SHEET_STEP_ENABLED = (() => {
 //   generated（系統製作作答卷）＝5 步；
 //   teacher_scan（自備作答卷）＝3 步：②題本＋作答卷同頁一起上傳→一次 AI 解析→③人工檢核（舊 answer_only 流程重新命名）；
 //   with_questions（一般模式）＝舊 3 步（無題本/製作作答卷，classify 照舊）。
-const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; shortLabel: string }[] => source === 'generated'
+const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; shortLabel: string }[] => source === 'essay'
+  ? [
+      { key: 'metadata', label: '基本資料', shortLabel: '①' },
+      { key: 'booklet', label: '上傳作文題目', shortLabel: '②' },
+      { key: 'essay', label: '題目與稿紙', shortLabel: '③' },
+    ]
+  : source === 'generated'
   ? [
       { key: 'metadata', label: '基本資料', shortLabel: '①' },
       { key: 'booklet', label: '上傳題本', shortLabel: '②' },
@@ -218,6 +234,8 @@ export interface AnswerKeyUnifiedModalProps {
       bookletBlobs?: Blob[]
       /** 2026-09-10 會考級分模式：false → 不為 word_problem 生 levelRubric */
       levelRubricEnabled?: boolean
+      /** 2026-09-19 作文模式：AI 擷取作文題目＋起草切題範圍 */
+      essayDraft?: { questionId: string; gradeLabel?: string }
     }
   ) => Promise<{ answerKey: AnswerKey; imageBlobs: Blob[]; notice: string | null }>
   onSave: (answerKey: AnswerKey, imageBlobs: Blob[], metadata: {
@@ -325,7 +343,7 @@ export default function AnswerKeyUnifiedModal({
   //   存檔仍只寫舊 2 值 answerSheetMode（teacher_scan/generated 都是 answer_only）＋ generatedSheet 有無，
   //   DB 不加欄位，getSheetSource() 反推回三值（AnswerBank 徽章、匯入頁自動選模式都靠它）。
   const [sheetSource, setSheetSource] = useState<SheetSource>(() => {
-    if (editMode) return initialGeneratedSheet ? 'generated' : initialAnswerSheetMode === 'answer_only' ? 'teacher_scan' : 'with_questions'
+    if (editMode) return isEssaySheet(initialGeneratedSheet) ? 'essay' : initialGeneratedSheet ? 'generated' : initialAnswerSheetMode === 'answer_only' ? 'teacher_scan' : 'with_questions'
     if (draft?.sheetSource) return draft.sheetSource
     if (draft?.answerSheetMode === 'answer_only') return 'teacher_scan'
     return 'with_questions'
@@ -341,7 +359,10 @@ export default function AnswerKeyUnifiedModal({
   const levelRubricEnabled = true
 
   // ── step state machine ────────────────────────────────────────────────────
-  const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? 'editing' : 'metadata')
+  const isEssay = sheetSource === 'essay'
+  const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? (isEssaySheet(initialGeneratedSheet) ? 'essay' : 'editing') : 'metadata')
+  // 作文稿紙（EssayKeyStep 依標題決定性產生；存檔時寫進 generatedSheet＋PDF）
+  const [essaySheet, setEssaySheet] = useState<EssaySheetResult | null>(null)
   // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
   //   2026-09-07 編輯模式重開：從已存的 generatedSheet.sheetInputs 還原老師打的內容（參考答案/文字方塊/底圖/畫筆）
   const [makerState, setMakerState] = useState<SheetMakerState>(
@@ -353,7 +374,9 @@ export default function AnswerKeyUnifiedModal({
 
   const [completedSteps, setCompletedSteps] = useState<Set<UnifiedStep>>(
     () => editMode
-      ? new Set<UnifiedStep>(genFlow
+      ? new Set<UnifiedStep>(isEssaySheet(initialGeneratedSheet)
+          ? ['metadata', 'booklet', 'essay']
+          : genFlow
           ? ['metadata', 'booklet', 'sheet', 'extract', 'editing']
           : ['metadata', 'extract', 'editing'])
       : new Set()
@@ -372,7 +395,7 @@ export default function AnswerKeyUnifiedModal({
   // Edit mode: steps 1-3 are read-only (viewable but not editable)
   const isStepReadOnly = useCallback((step: UnifiedStep): boolean => {
     if (!editMode) return false
-    return step !== 'editing'
+    return step !== 'editing' && step !== 'essay'
   }, [editMode])
 
   const markComplete = useCallback((step: UnifiedStep) => {
@@ -929,7 +952,7 @@ export default function AnswerKeyUnifiedModal({
     if (isExtracting) return
     setIsExtracting(true)
     setExtractError(null)
-    setExtractionMsg('分析考卷結構（題型、題數、配分）…')
+    setExtractionMsg(isEssay ? 'AI 正在讀取作文題目…' : '分析考卷結構（題型、題數、配分）…')
     try {
       let bookletBlobs: Blob[] = []
       try {
@@ -947,12 +970,13 @@ export default function AnswerKeyUnifiedModal({
         docType,
         answerSheetMode: 'answer_only',
         bookletBlobs,
+        ...(isEssay ? { essayDraft: { questionId: ESSAY_QUESTION_ID, gradeLabel: grade === '' ? undefined : gradeFullLabel(grade) } } : {}),
       })
       setEditingKey(answerKey)
       setNotice(n)
       setSelectedIdx(0)
       markComplete('booklet')
-      setActiveStep('sheet')
+      setActiveStep(isEssay ? 'essay' : 'sheet')
     } catch (err) {
       setExtractError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -1548,8 +1572,17 @@ export default function AnswerKeyUnifiedModal({
           <div className="space-y-2">
             <p>這份答案卷會直接決定每一位學生的批改結果。請確認：</p>
             <ul className="list-disc pl-5 space-y-1">
-              {!genFlow && <li><b>讀取框</b>有正確框到學生會作答的位置（整個作答範圍、沒有框到題目或別題）。</li>}
-              <li><b>標準答案與參考答案</b>都是正確的答案，缺答案的題目已補上。</li>
+              {isEssay ? (
+                <>
+                  <li><b>作文題目與圖片描述</b>和發給學生的題目一致。</li>
+                  <li><b>可接受的詮釋範圍</b>夠寬——用比喻、意象發揮的好文章不會被當成離題。</li>
+                </>
+              ) : (
+                <>
+                  {!genFlow && <li><b>讀取框</b>有正確框到學生會作答的位置（整個作答範圍、沒有框到題目或別題）。</li>}
+                  <li><b>標準答案與參考答案</b>都是正確的答案，缺答案的題目已補上。</li>
+                </>
+              )}
             </ul>
             <p className="text-xs text-gray-500">存檔後仍可再修改；若已有考卷被批改，改動會標記那些考卷需重新批改，舊成績會保留。</p>
           </div>
@@ -1663,6 +1696,13 @@ export default function AnswerKeyUnifiedModal({
       // step④ 定版：渲染 PDF（定版物＝實體檔案，含底圖；下載/重印直接拿檔不重算）
       // ⚠️ 只在有 session 版面(makerResult)時才產/覆蓋 PDF；重開編輯無 makerResult 時不覆蓋，避免清掉舊好 PDF。
       let generatedSheetPdf: Blob | undefined
+      if (isEssay && essaySheet) {
+        try {
+          generatedSheetPdf = await buildEssaySheetPdf(essaySheet.svgs)
+        } catch (err) {
+          console.warn('[UnifiedModal] 作文稿紙 PDF 渲染失敗（存檔照常，之後可重新產生）:', err)
+        }
+      }
       if (genFlow && makerResult) {
         try {
           const png = await renderSheetPng(makerResult.svg, makerResult.layoutMeta.pageMm)
@@ -1672,7 +1712,9 @@ export default function AnswerKeyUnifiedModal({
         }
       }
       // step④ 定版資料（旗標開啟且排版 ok 時才帶）
-      const generatedSheet: GeneratedSheetData | undefined = !genFlow
+      const generatedSheet: GeneratedSheetData | undefined = isEssay
+        ? essaySheet?.sheet // 作文稿紙幾何（RPESSAY1；帶 essay 欄 → getSheetSource 反推為作文模式）
+        : !genFlow
         ? undefined
         : makerResult
           ? {
@@ -1732,8 +1774,17 @@ export default function AnswerKeyUnifiedModal({
       return { label: '下一步', disabled: !editMode && !metadataValid, icon: <ChevronRight className="w-4 h-4" /> }
     }
     if (activeStep === 'booklet') {
-      if (isExtracting) return { label: '結構分析中…', disabled: true, loading: true }
+      if (isExtracting) return { label: isEssay ? 'AI 讀取題目中…' : '結構分析中…', disabled: true, loading: true }
+      if (isEssay) return { label: editingKey?.essay ? '下一步：題目與稿紙' : '下一步：AI 讀取題目', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
       return { label: '下一步：製作作答卷', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
+    }
+    if (activeStep === 'essay') {
+      return {
+        label: isSaving ? '儲存中…' : '儲存作文答案卷',
+        disabled: isSaving || !editingKey?.essay?.topicText.trim() || !essaySheet,
+        loading: isSaving,
+        icon: <Check className="w-4 h-4" />,
+      }
     }
     if (activeStep === 'sheet') {
       // 版面塞不下單面一頁（overflow）→ 明確擋住並說明，不讓老師在失效版面上繼續
@@ -1784,7 +1835,7 @@ export default function AnswerKeyUnifiedModal({
 
   const handlePrimaryAction = () => {
     if (activeStep === 'metadata') {
-      setActiveStep(genFlow ? 'booklet' : 'extract')
+      setActiveStep(genFlow || isEssay ? 'booklet' : 'extract')
       return
     }
     if (activeStep === 'booklet') {
@@ -1792,8 +1843,13 @@ export default function AnswerKeyUnifiedModal({
       // 2026-09-07：只要結構已推斷（editingKey/骨架在）就直接導航、絕不重跑結構推斷 AI。
       //   原本還檢查 completedSteps.has('booklet')，但返回過程若該旗標被 resetFromStep 清掉，
       //   就會誤重跑、白花一次建卷次數（user 回報）。skeleton 在＝結構已完成，不需再 call AI。
-      if (editingKey) { markComplete('booklet'); setActiveStep('sheet'); return }
+      if (editingKey) { markComplete('booklet'); setActiveStep(isEssay ? 'essay' : 'sheet'); return }
       void handleStartStructure()
+      return
+    }
+    if (activeStep === 'essay') {
+      markComplete('essay')
+      handleSaveClick()
       return
     }
     if (activeStep === 'sheet') {
@@ -1814,6 +1870,7 @@ export default function AnswerKeyUnifiedModal({
 
   const handleBack = () => {
     if (activeStep === 'booklet') { setActiveStep('metadata'); return }
+    if (activeStep === 'essay') { setActiveStep('booklet'); return }
     if (activeStep === 'sheet') { setActiveStep('booklet'); return }
     if (activeStep === 'extract') { setActiveStep(genFlow ? 'sheet' : 'metadata'); return }
     if (activeStep === 'editing') { setActiveStep('extract'); return }
@@ -2066,13 +2123,17 @@ export default function AnswerKeyUnifiedModal({
                     </div>
                     {editMode ? (
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">
-                        {sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
+                        {sheetSource === 'essay' ? '作文模式（系統製作稿紙）' : sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
                       </p>
                     ) : (
                       <AnswerSheetModeSelector
                         value={sheetSource}
                         onChange={setSheetSource}
-                        options={GENERATED_SHEET_STEP_ENABLED ? undefined : ['with_questions', 'teacher_scan']}
+                        options={[
+                          'with_questions', 'teacher_scan',
+                          ...(GENERATED_SHEET_STEP_ENABLED ? ['generated' as const] : []),
+                          ...(ESSAY_MODE_ENABLED ? ['essay' as const] : []),
+                        ]}
                       />
                     )}
                   </div>
@@ -2263,14 +2324,14 @@ export default function AnswerKeyUnifiedModal({
                         <section className={`rounded-xl border border-blue-200 bg-blue-50/30 p-4 ${sheetSource === 'teacher_scan' ? 'order-1' : ''}`}>
                           <div className="flex items-baseline justify-between mb-3">
                             <div className="flex items-center gap-2">
-                              <h3 className="text-sm font-semibold text-blue-900">{sheetSource === 'teacher_scan' ? '📚 ① 題本（試題卷）' : '📚 題本'}</h3>
+                              <h3 className="text-sm font-semibold text-blue-900">{isEssay ? '📝 作文題目' : sheetSource === 'teacher_scan' ? '📚 ① 題本（試題卷）' : '📚 題本'}</h3>
                               <span className="text-[11px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded font-medium">必須上傳</span>
-                              <span className="text-xs text-gray-500">{sheetSource === 'teacher_scan' ? '— 學生看的題目卷，可多頁' : '— 學生看的乾淨題目卷'}</span>
+                              <span className="text-xs text-gray-500">{isEssay ? '— 只要有題目的那一頁即可（含圖片、引導文字）；封面與空白頁可刪' : sheetSource === 'teacher_scan' ? '— 學生看的題目卷，可多頁' : '— 學生看的乾淨題目卷'}</span>
                             </div>
                           </div>
                           {/* 答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上。
                               沒題本＝只能瞎猜題型，而且會錯得無聲無息，所以直接擋住解析。 */}
-                          {needsBooklet && !genFlow && (
+                          {needsBooklet && !genFlow && !isEssay && (
                             <div className="mb-3 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5 leading-relaxed">
                               沒有題本就無法解析。答案卷上只有格子，AI 看不出哪幾題要求寫出計算過程，
                               會把應用題判成填空題，批改時學生只寫答案就能拿分。
@@ -2291,7 +2352,7 @@ export default function AnswerKeyUnifiedModal({
                                 <Upload className="w-8 h-8" />
                               )}
                               <span className="text-sm font-medium">
-                                {isProcessingBooklet ? '處理中…' : sheetSource === 'teacher_scan' ? '點擊上傳題本（試題卷）PDF' : '點擊上傳題本PDF'}
+                                {isProcessingBooklet ? '處理中…' : isEssay ? '點擊上傳作文題目 PDF' : sheetSource === 'teacher_scan' ? '點擊上傳題本（試題卷）PDF' : '點擊上傳題本PDF'}
                               </span>
                               <span className="text-xs text-blue-400/80">支援多檔上傳</span>
                             </button>
@@ -2981,6 +3042,26 @@ export default function AnswerKeyUnifiedModal({
                     onFitStatus={setMakerFitStatus}
                     onQuestionCategoryChange={(qids, category) => setEditingKey((prev) => prev ? { ...prev, questions: prev.questions.map((q) => qids.includes(q.id) ? { ...q, questionCategory: category as typeof q.questionCategory } : q) } : prev)}
                   />
+                </div>
+              )}
+
+              {/* ══ 作文模式 ③：題目與稿紙 ══ */}
+              {activeStep === 'essay' && editingKey?.essay && (
+                <EssayKeyStep
+                  value={editingKey.essay}
+                  onChange={(next: EssayKeyData) => setEditingKey((prev) => prev ? {
+                    ...prev,
+                    essay: next,
+                    questions: prev.questions.map((q) => q.questionCategory === 'essay' ? { ...q, referenceAnswer: next.topicText } : q),
+                  } : prev)}
+                  sheetTitle={[schoolName, title.trim() || '未命名'].filter(Boolean).join(' ')}
+                  questionId={editingKey.questions[0]?.id ?? ESSAY_QUESTION_ID}
+                  onSheetReady={setEssaySheet}
+                />
+              )}
+              {activeStep === 'essay' && !editingKey?.essay && (
+                <div className="p-6 flex flex-col items-center justify-center h-full text-gray-400 text-sm">
+                  請先回上一步上傳作文題目，讓 AI 讀取題目
                 </div>
               )}
 
