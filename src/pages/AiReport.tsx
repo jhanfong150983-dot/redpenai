@@ -1095,6 +1095,35 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
     )
   }
 
+  // 2026-09-19 user：檢討頁兩顆按鈕位置／樣式跟匯入、AI 批改的頁首工具一致
+  const canUseReviewTools = itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 1
+  const reviewActionButtons = (
+    <>
+      {reviewSheetMsg && <span style={{ fontSize: 12, color: reviewSheetMsg.startsWith('✅') ? '#15803d' : '#b91c1c' }}>{reviewSheetMsg}</span>}
+      <button
+        type="button"
+        onClick={() => void handleDownloadReviewSheet()}
+        disabled={reviewSheetBusy}
+        title="學生原卷當底圖、每題旁打 ✓／✗、每大題扣分寫右側、右上總分;不印正解(老師對答案)。全班已批改者人人一份,整班合併一份 PDF"
+        className="flex items-center gap-2 px-4 py-2 border border-slate-300 bg-white text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed transition-colors"
+      >
+        <Printer className="w-4 h-4" aria-hidden />
+        {reviewSheetBusy
+          ? `檢討單產生中${reviewSheetProgress ? ` ${reviewSheetProgress.done}/${reviewSheetProgress.total}` : '…'}`
+          : '下載檢討單'}
+      </button>
+      <button
+        type="button"
+        onClick={() => setShowReviewMode(true)}
+        title="全螢幕投影檢討：左邊題本預覽（可放大、換頁）、右邊每題錯幾人、誰錯了、典型錯法與正確寫法；← → 換題、Esc 離開"
+        className="flex items-center gap-2 px-4 py-2 border border-slate-900 bg-slate-900 text-white text-sm font-medium rounded-xl hover:bg-slate-800 transition-colors"
+      >
+        <Presentation className="w-4 h-4" aria-hidden />
+        檢討模式
+      </button>
+    </>
+  )
+
   return (
     <div className={`ai-report${embedded ? ' embedded' : ''}`}>
       {/* 單一考卷模式（從考卷卡片／批改頁進來）：頁首與匯入考卷、AI 批改統一、版面不另外限寬 */}
@@ -1105,6 +1134,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
             eyebrow="檢討考卷"
             title={singleTitle || '檢討考卷'}
             subtitle={`${[selectedClassroomName, selectedDomain].filter(Boolean).join(' · ')} · 已批改 ${itemAnalysisSubmissions.length} 份`}
+            actions={canUseReviewTools && activeTab === 'overview' ? reviewActionButtons : undefined}
           />
         ) : (
           <header className="page-header">
@@ -1248,38 +1278,11 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
               {/* 2026-09-19 user 拍板：檢討單／檢討模式批改 1 份就能用；全班統計仍要滿 3 份 */}
               {itemAnalysisQuestions.length > 0 && itemAnalysisSubmissions.length >= 1 ? (
                 <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      onClick={() => void handleDownloadReviewSheet()}
-                      disabled={reviewSheetBusy}
-                      title="學生原卷當底圖、每題旁打 ✓／✗、每大題扣分寫右側、右上總分;不印正解(老師對答案)。全班已批改者人人一份,整班合併一份 PDF"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                        height: 34, padding: '0 14px', borderRadius: 8, fontSize: 13, lineHeight: 1, fontWeight: 600, cursor: reviewSheetBusy ? 'not-allowed' : 'pointer',
-                        border: '1px solid #cbd5e1', background: '#fff', color: '#334155', opacity: reviewSheetBusy ? 0.6 : 1,
-                      }}
-                    >
-                      <Printer size={15} aria-hidden />
-                      {reviewSheetBusy
-                        ? `檢討單產生中${reviewSheetProgress ? ` ${reviewSheetProgress.done}/${reviewSheetProgress.total}` : '…'}`
-                        : '下載檢討單'}
-                    </button>
-                    {reviewSheetMsg && <span style={{ fontSize: 12, color: reviewSheetMsg.startsWith('✅') ? '#15803d' : '#b91c1c' }}>{reviewSheetMsg}</span>}
-                    <button
-                      type="button"
-                      onClick={() => setShowReviewMode(true)}
-                      title="全螢幕投影檢討：左邊題本預覽（可放大、換頁）、右邊每題錯幾人、誰錯了、典型錯法與正確寫法；← → 換題、Esc 離開"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                        height: 34, padding: '0 14px', borderRadius: 8, fontSize: 13, lineHeight: 1, fontWeight: 600, cursor: 'pointer',
-                        border: '1px solid #0f172a', background: '#0f172a', color: '#fff',
-                      }}
-                    >
-                      <Presentation size={15} aria-hidden />
-                      檢討模式
-                    </button>
-                  </div>
+                  {!singleMode && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                      {reviewActionButtons}
+                    </div>
+                  )}
                   {itemAnalysisSubmissions.length >= 3 ? (
                     <AssignmentOverviewSection
                       questions={itemAnalysisQuestions}
