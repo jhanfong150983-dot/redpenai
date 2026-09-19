@@ -193,7 +193,7 @@ const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; 
   ? [
       { key: 'metadata', label: '基本資料', shortLabel: '①' },
       { key: 'booklet', label: '上傳作文題目', shortLabel: '②' },
-      { key: 'essay', label: '題目與稿紙', shortLabel: '③' },
+      { key: 'essay', label: '確認題目', shortLabel: '③' },
     ]
   : source === 'generated'
   ? [
@@ -1782,7 +1782,7 @@ export default function AnswerKeyUnifiedModal({
     }
     if (activeStep === 'booklet') {
       if (isExtracting) return { label: isEssay ? 'AI 讀取題目中…' : '結構分析中…', disabled: true, loading: true }
-      if (isEssay) return { label: editingKey?.essay ? '下一步：題目與稿紙' : '下一步：AI 讀取題目', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
+      if (isEssay) return { label: editingKey?.essay ? '下一步：確認題目' : '下一步：AI 讀取題目', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
       return { label: '下一步：製作作答卷', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
     }
     if (activeStep === 'essay') {

@@ -1,12 +1,12 @@
 // 2026-09-19 作文模式建卷步驟「題目與稿紙」：
-//   左＝作文的「答案卷」內容（題目／圖意／寫作任務／可接受的詮釋範圍／離題定義；AI 起草、老師確認）
-//   右＝系統稿紙預覽（比照會考：B4 橫式、每面 23 行×22 格、正反兩頁）。
-//     稿紙每份都一樣 → 這裡只預覽；下載統一走答案卷卡片上的「下載作答卷」圖示（09-19 user 拍板）。
+//   內容＝作文的「答案卷」（題目／圖意／寫作任務／可接受的詮釋範圍／離題定義；AI 起草、老師確認）
+//   稿紙（比照會考：B4 橫式、每面 23 行×22 格、正反兩頁）每份都一樣 → 這一步不顯示也不下載；
+//     存檔後到答案卷卡片上的「下載作答卷」圖示下載（09-19 user 拍板）。
 //   只有「立意取材」和題目有關；其餘三向度用內建會考通用六級分規準（第一版固定、此處僅顯示）。
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import type { EssayKeyData } from '@/lib/db'
-import { generateEssaySheet, ESSAY_GRID, type EssaySheetResult } from '@/lib/essaySheetGenerator'
+import { generateEssaySheet, type EssaySheetResult } from '@/lib/essaySheetGenerator'
 
 interface EssayKeyStepProps {
   value: EssayKeyData
@@ -26,15 +26,10 @@ const RUBRIC_DIMENSIONS = [
 ]
 
 export default function EssayKeyStep({ value, onChange, sheetTitle, questionId, readOnly = false, onSheetReady }: EssayKeyStepProps) {
-  const [previewPage, setPreviewPage] = useState(0)
-
+  // 稿紙每份都一樣 → 這一步不顯示稿紙；只在背景決定性產生，存檔時寫進 generatedSheet＋兩頁 PDF，
+  // 老師存檔後到答案卷卡片的「下載作答卷」圖示下載（09-19 user 拍板）。
   const sheet = useMemo(() => generateEssaySheet({ title: sheetTitle, questionId }), [sheetTitle, questionId])
   useEffect(() => { onSheetReady(sheet) }, [sheet, onSheetReady])
-
-  const previewUrl = useMemo(() => {
-    return URL.createObjectURL(new Blob([sheet.svgs[previewPage] ?? sheet.svgs[0]], { type: 'image/svg+xml' }))
-  }, [sheet, previewPage])
-  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
 
   const set = <K extends keyof EssayKeyData>(k: K, v: EssayKeyData[K]) => onChange({ ...value, [k]: v })
   const inputCls = 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm leading-relaxed focus:border-green-400 focus:outline-none focus:ring-2 focus:ring-green-100 disabled:bg-gray-50 disabled:text-gray-600'
@@ -42,23 +37,31 @@ export default function EssayKeyStep({ value, onChange, sheetTitle, questionId, 
   return (
     <div className="flex-1 overflow-y-auto p-4">
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {/* ── 左：作文答案卷內容 ── */}
-        <div className="space-y-4">
-          <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 leading-relaxed">
+        <div className="xl:col-span-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 leading-relaxed">
             以下內容由 AI 依題目起草，是 AI 批改這篇作文的依據，<b>請務必確認</b>。特別是「可接受的詮釋範圍」：
             寫得太窄，會讓用比喻、意象來發揮的好文章被判成不切題。
-          </div>
+        </div>
+
+        {/* ── 左：題目本身 ── */}
+        <div className="space-y-4">
 
           <section>
             <label className="block text-sm font-semibold text-gray-800 mb-1">作文題目（全文）</label>
-            <textarea className={inputCls} rows={8} value={value.topicText} disabled={readOnly} onChange={(e) => set('topicText', e.target.value)} placeholder="題目引導語、寫作條件、注意事項…" />
+            <textarea className={inputCls} rows={14} value={value.topicText} disabled={readOnly} onChange={(e) => set('topicText', e.target.value)} placeholder="題目引導語、寫作條件、注意事項…" />
           </section>
 
           <section>
             <label className="block text-sm font-semibold text-gray-800 mb-1">圖片內容描述 <span className="font-normal text-xs text-gray-500">（看圖寫作才需要；只描述看得到的，不要寫寓意）</span></label>
-            <textarea className={inputCls} rows={3} value={value.imageDescription} disabled={readOnly} onChange={(e) => set('imageDescription', e.target.value)} placeholder="題目沒有圖片就留空" />
+            <textarea className={inputCls} rows={5} value={value.imageDescription} disabled={readOnly} onChange={(e) => set('imageDescription', e.target.value)} placeholder="題目沒有圖片就留空" />
           </section>
 
+          <p className="text-xs text-gray-500 leading-relaxed">
+            作文稿紙（B4 橫式、每面 506 格、正反兩頁）每份都一樣：儲存後，到答案卷卡片上按<b>「下載作答卷」</b>圖示下載，B4 雙面列印、不要縮放。
+          </p>
+        </div>
+
+        {/* ── 右：批改依據 ── */}
+        <div className="space-y-4">
           <section>
             <label className="block text-sm font-semibold text-gray-800 mb-1">寫作任務 <span className="font-normal text-xs text-gray-500">（學生要回應什麼才算切題）</span></label>
             <div className="space-y-2">
@@ -102,26 +105,6 @@ export default function EssayKeyStep({ value, onChange, sheetTitle, questionId, 
           </section>
         </div>
 
-        {/* ── 右：稿紙預覽 ── */}
-        <div>
-          <div className="flex items-center justify-between gap-3 mb-2">
-            <div className="text-sm font-semibold text-gray-800">作文稿紙 <span className="font-normal text-xs text-gray-500">B4（8K）・每面 {ESSAY_GRID.cols} 行 × {ESSAY_GRID.rows} 格＝{ESSAY_GRID.cols * ESSAY_GRID.rows} 格・正反兩頁</span></div>
-            <div className="flex items-center gap-2">
-              <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden text-xs">
-                {[0, 1].map((p) => (
-                  <button key={p} type="button" onClick={() => setPreviewPage(p)} className={`px-3 py-1 whitespace-nowrap ${p > 0 ? 'border-l border-gray-300' : ''} ${previewPage === p ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>第 {p + 1} 頁</button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <div className="rounded-lg border border-gray-200 bg-slate-100 p-3 flex items-center justify-center min-h-[320px]">
-            <img src={previewUrl} alt={`作文稿紙第 ${previewPage + 1} 頁預覽`} className="w-full h-auto bg-white shadow" />
-          </div>
-          <p className="mt-2 text-xs text-gray-500 leading-relaxed">
-            稿紙每份都一樣：儲存後，到答案卷卡片上按<b>「下載作答卷」</b>圖示即可下載 PDF。請用 <b>B4（8K）橫式、雙面列印</b>、不要縮放。
-            學生由右邊第 1 行開始、由上往下寫；批改時系統依稿紙上的定位方塊對齊，不需要再框選作答區。
-          </p>
-        </div>
       </div>
     </div>
   )
