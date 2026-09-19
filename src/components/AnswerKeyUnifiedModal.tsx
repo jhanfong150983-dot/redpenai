@@ -1963,16 +1963,16 @@ export default function AnswerKeyUnifiedModal({
 
               {/* ══ Step 1: 基本資料 ══ */}
               {activeStep === 'metadata' && (
-                <div className="p-6 pb-8 space-y-8 max-w-lg">
+                <div className="p-6 pb-8 grid grid-cols-1 lg:grid-cols-3 gap-x-6 gap-y-8 items-start">
                   {editMode && (
-                    <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
+                    <div className="col-span-full flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">
                       <Lock className="w-3.5 h-3.5 shrink-0" />
                       <span>編輯模式下基本資料僅供瀏覽，如需修改請建立新答案卷</span>
                     </div>
                   )}
                   {/* 上次未完成的草稿提示 */}
                   {draftRestored && (
-                    <div className="flex items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+                    <div className="col-span-full flex items-center justify-between gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
                       <span>已恢復上次未儲存的輸入</span>
                       <button
                         type="button"
@@ -2101,7 +2101,7 @@ export default function AnswerKeyUnifiedModal({
 
                   {/* 答案卷模式 — 卡片式選擇器（2026-09-13 三模式：一般／自備作答卷／系統製作作答卷）。
                       公版 Word 範本只在「自備作答卷」提供——系統製作作答卷由③製作作答卷取代、一般模式沒有作答卷。 */}
-                  <div>
+                  <div className="col-span-full">
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <label className="block text-base font-semibold text-gray-800">答案卷模式</label>
                       {!editMode && sheetSource === 'teacher_scan' && (
@@ -2140,7 +2140,7 @@ export default function AnswerKeyUnifiedModal({
 
                   {/* 提示 */}
                   {!editMode && !metadataValid && (
-                    <p className="text-xs text-amber-600">請填寫名稱和領域以繼續下一步</p>
+                    <p className="col-span-full text-xs text-amber-600">請填寫名稱和領域以繼續下一步</p>
                   )}
                 </div>
               )}

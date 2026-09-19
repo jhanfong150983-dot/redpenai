@@ -110,7 +110,7 @@ export default function AnswerSheetModeSelector({
 
   return (
     <div>
-      <div className={`grid grid-cols-1 gap-4 ${modes.length >= 4 ? 'md:grid-cols-2 xl:grid-cols-4' : modes.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+      <div className={`grid grid-cols-1 gap-4 ${modes.length >= 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : modes.length === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
         {modes.map((mode) => {
           const isActive = value === mode.value
           return (
