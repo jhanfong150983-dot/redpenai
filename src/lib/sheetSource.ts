@@ -29,7 +29,7 @@ export const SHEET_SOURCE_HINT: Record<SheetSource, string> = {
   teacher_scan: '老師自備的作答卷（題本分開）；批改時 AI 定位作答區（classify）',
   generated: '系統製作的作答卷（含定位錨點）；批改免 classify、匯入可座號辨識',
   essay: '系統製作的作文稿紙（比照會考：每面 506 格、正反兩頁、含定位方塊與座號劃卡）；AI 逐句眉批＋建議級分',
-  essay_byo: '用會考／學測的公版作文稿紙；不必上傳稿紙，系統會直接在學生卷上抓出每一行',
+  essay_byo: '用會考公版作文稿紙（依年級自動套用）；不必上傳稿紙，系統會直接在學生卷上抓出每一行',
 }
 
 /** 卡片小徽章樣式（與 AnswerSheetModeSelector 的紅/藍 accent 對齊；生成卷用綠） */
@@ -49,12 +49,36 @@ export const SHEET_SOURCE_DOMAINS: Partial<Record<SheetSource, string[]>> = {
   essay_byo: ['國語'],
 }
 
-/** 這個領域可選的模式（未選領域＝空字串 → 只回通用模式） */
-export function isSheetSourceAvailable(source: SheetSource, domain: string): boolean {
+// 2026-09-20 學段限制（⚠ 暫時性，等高中作文模式定案後放開）。
+//   自備作文卷在高中會套學測國寫答題卷，而學測**正反面是第一、第二大題＝兩篇不同的作文**，
+//   現行模型是「一份卷＝一篇作文」，套下去會把兩篇合成一篇批 → 無聲批錯。
+//   user 09-20 拍板「學測的題目之後再說，可能要另外建高中作文的答案卷模式」→ 在那之前先不讓高中選得到。
+//   ⛔ 只擋自備作文卷：自製作文卷用的是我們自己的稿紙（一篇寫兩頁），高中拿來考作文完全正常。
+//   要放開＝刪掉這張表裡的 essay_byo 一列（essayByoPreset 的學測版型已經備好且量測過）。
+const SHEET_SOURCE_MAX_GRADE: Partial<Record<SheetSource, number>> = {
+  essay_byo: 9, // 國小 1~6、國中 7~9
+}
+
+/** 這個模式在此領域／年級是否可選（未選領域＝空字串 → 只回通用模式） */
+export function isSheetSourceAvailable(source: SheetSource, domain: string, grade?: number | ''): boolean {
   const only = SHEET_SOURCE_DOMAINS[source]
-  if (!only) return true
-  const d = domain === '國語（測試中）' ? '國語' : domain
-  return only.includes(d)
+  if (only) {
+    const d = domain === '國語（測試中）' ? '國語' : domain
+    if (!only.includes(d)) return false
+  }
+  const maxGrade = SHEET_SOURCE_MAX_GRADE[source]
+  if (maxGrade != null && typeof grade === 'number' && grade > maxGrade) return false
+  return true
+}
+
+/** 這個模式因為年級被擋下時要顯示的說明（沒被擋＝null） */
+export function sheetSourceGradeBlockReason(source: SheetSource, grade?: number | ''): string | null {
+  const maxGrade = SHEET_SOURCE_MAX_GRADE[source]
+  if (maxGrade == null || typeof grade !== 'number' || grade <= maxGrade) return null
+  if (source === 'essay_byo') {
+    return '高中的自備作文卷（學測國寫答題卷）還沒開放：學測正反面是第一、第二大題、等於兩篇不同的作文，批改方式還在規劃。高中要考作文請先用「自製作文卷」。'
+  }
+  return null
 }
 
 
