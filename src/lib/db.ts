@@ -590,6 +590,18 @@ export interface EssayResult {
   ms?: number
 }
 
+/** 2026-09-19 自備作文卷的稿紙規格。批改時直接在學生卷上偵測印刷格線（不需要模板、不需要錨點），
+ *  這裡只記規格：用來核對偵測到的行數、決定每生收幾頁。 */
+export interface EssayByoGeom {
+  source: 'byo'
+  pages: number
+  cols: number
+  rows: number
+  /** 字格與行間窄欄的寬度比（偵測到的行寬含窄欄，用它切出字格） */
+  cellMm: number
+  gutterMm: number
+}
+
 /** 眉批／錯別字在原卷上的位置（第幾頁、第幾直行） */
 export interface EssayLoc { page: number; col: number; toCol?: number }
 

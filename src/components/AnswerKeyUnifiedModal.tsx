@@ -19,6 +19,7 @@ import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } f
 import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData, type PageSize } from '@/lib/answerSheetGenerator'
 import { cropReferenceSheetCells, SheetAlignError } from '@/lib/generatedSheetAlign'
 import { buildEssaySheetPdf, generateEssaySheet, isEssaySheet } from '@/lib/essaySheetGenerator'
+import EssayByoSheetStep from '@/components/EssayByoSheetStep'
 import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { db } from '@/lib/db'
@@ -29,7 +30,7 @@ import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
-import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric } from '@/lib/db'
+import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric, EssayByoGeom } from '@/lib/db'
 import LevelRubricEditor from '@/components/LevelRubricEditor'
 import PageBboxEditorModal from '@/components/PageBboxEditorModal'
 import ParseCheckReminderModal, { isParseCheckReminderDismissed } from '@/components/ParseCheckReminderModal'
@@ -163,7 +164,7 @@ function clearMetadataDraft() {
   } catch { /* noop */ }
 }
 
-type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet'
+type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet' | 'essay_sheet'
 
 // 2026-09-19 作文模式（第四張卡）：預設開放（user 拍板：系統測試中、不需要預覽旗標）。
 //   ⚠ 批改管線尚未接：作文卷送批改時 server 會回「作文卷的 AI 批改尚未開放」（api/proxy.js ESSAY_GRADING_NOT_READY）。
@@ -174,6 +175,8 @@ const ESSAY_MODE_ENABLED = (() => {
 const ESSAY_QUESTION_ID = '1'
 /** 批改時題本圖會直接送給 AI（每篇作文的每次呼叫都帶）→ 只留題目頁，上限 2 頁 */
 const ESSAY_MAX_BOOKLET_PAGES = 2
+/** 自備作文卷的預設規格＝會考寫作測驗答案卷 */
+const ESSAY_BYO_DEFAULT: EssayByoGeom = { source: 'byo', pages: 2, cols: 23, rows: 22, cellMm: 10, gutterMm: 2.5 }
 
 // 2026-09-04 生成作答卷單一流程（A 案）：step④ 作答卷製作。
 // 2026-09-13 三模式上線：「系統製作作答卷」改為預設開放（第三張卡）。
@@ -196,6 +199,7 @@ const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; 
       // 2026-09-19 實驗4 定案：批改時直接把老師上傳的題本圖送給 AI（不經 AI 轉述文字）→ 沒有 AI 起草、沒有要審的草稿；
       //   ②上傳並整理題目頁（刪封面／旋轉）＝老師的檢查點，按「儲存」才存檔。
       { key: 'booklet', label: '上傳作文題目', shortLabel: '②' },
+      ...(source === 'essay_byo' ? [{ key: 'essay_sheet' as UnifiedStep, label: '稿紙設定', shortLabel: '③' }] : []),
     ]
   : source === 'generated'
   ? [
@@ -360,6 +364,11 @@ export default function AnswerKeyUnifiedModal({
 
   // ── step state machine ────────────────────────────────────────────────────
   const isEssay = sheetSource === 'essay' || sheetSource === 'essay_byo'
+  const isEssayByo = sheetSource === 'essay_byo'
+  const [essayByo, setEssayByo] = useState<EssayByoGeom>(() => {
+    const g = (initialGeneratedSheet as { essay?: EssayByoGeom } | undefined)?.essay
+    return g?.source === 'byo' ? g : ESSAY_BYO_DEFAULT
+  })
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? (isEssaySheet(initialGeneratedSheet) ? 'booklet' : 'editing') : 'metadata')
   // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
   //   2026-09-07 編輯模式重開：從已存的 generatedSheet.sheetInputs 還原老師打的內容（參考答案/文字方塊/底圖/畫筆）
@@ -373,7 +382,7 @@ export default function AnswerKeyUnifiedModal({
   const [completedSteps, setCompletedSteps] = useState<Set<UnifiedStep>>(
     () => editMode
       ? new Set<UnifiedStep>(isEssaySheet(initialGeneratedSheet)
-          ? ['metadata', 'booklet']
+          ? ['metadata', 'booklet', 'essay_sheet']
           : genFlow
           ? ['metadata', 'booklet', 'sheet', 'extract', 'editing']
           : ['metadata', 'extract', 'editing'])
@@ -1610,7 +1619,8 @@ export default function AnswerKeyUnifiedModal({
         })
       : editingKey
     if (!keyToSave) return
-    const essaySheet = isEssay ? generateEssaySheet({ title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '), questionId: String(keyToSave.questions[0]?.id ?? ESSAY_QUESTION_ID) }) : null
+    // 自製作文卷：產生稿紙（含錨點）；自備作文卷：只記規格，批改時直接在學生卷上偵測格線
+    const essaySheet = isEssay && !isEssayByo ? generateEssaySheet({ title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '), questionId: String(keyToSave.questions[0]?.id ?? ESSAY_QUESTION_ID) }) : null
     // Validate dimension sums
     const mismatchQuestions = keyToSave.questions.filter((q) => {
       // VJ 題用 vjRubric、不看 rubricsDimensions，跳過維度加總檢查
@@ -1727,8 +1737,10 @@ export default function AnswerKeyUnifiedModal({
         }
       }
       // step④ 定版資料（旗標開啟且排版 ok 時才帶）
-      const generatedSheet: GeneratedSheetData | undefined = essaySheet
-        ? essaySheet.sheet // 作文稿紙幾何（RPESSAY2；帶 essay 欄 → getSheetSource 反推為作文模式）
+      const generatedSheet: GeneratedSheetData | undefined = isEssayByo
+        ? ({ version: 'RPESSAYBYO1', essay: essayByo } as unknown as GeneratedSheetData)
+        : essaySheet
+        ? essaySheet.sheet // 作文稿紙幾何（RPESSAY5；帶 essay 欄 → getSheetSource 反推為作文模式）
         : !genFlow
         ? undefined
         : makerResult
@@ -1789,12 +1801,18 @@ export default function AnswerKeyUnifiedModal({
       return { label: '下一步', disabled: !editMode && !metadataValid, icon: <ChevronRight className="w-4 h-4" /> }
     }
     if (activeStep === 'booklet') {
+      if (isEssayByo) {
+        return { label: '下一步：稿紙設定', disabled: !editMode && bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
+      }
       if (isEssay) {
-        // 作文模式：這一步就是最後一步——整理好題目頁後由老師按儲存
+        // 自製作文卷：這一步就是最後一步——整理好題目頁後由老師按儲存
         return { label: isSaving ? '儲存中…' : (!editMode && bookletPageItems.length === 0) ? '請先上傳作文題目' : '儲存作文答案卷', disabled: isSaving || (!editMode && bookletPageItems.length === 0), loading: isSaving, icon: <Check className="w-4 h-4" /> }
       }
       if (isExtracting) return { label: '結構分析中…', disabled: true, loading: true }
       return { label: '下一步：製作作答卷', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
+    }
+    if (activeStep === 'essay_sheet') {
+      return { label: isSaving ? '儲存中…' : '儲存作文答案卷', disabled: isSaving, loading: isSaving, icon: <Check className="w-4 h-4" /> }
     }
     if (activeStep === 'sheet') {
       // 版面塞不下單面一頁（overflow）→ 明確擋住並說明，不讓老師在失效版面上繼續
@@ -1855,6 +1873,7 @@ export default function AnswerKeyUnifiedModal({
           return
         }
         markComplete('booklet')
+        if (isEssayByo) { setActiveStep('essay_sheet'); return }
         handleSaveClick()
         return
       }
@@ -1864,6 +1883,11 @@ export default function AnswerKeyUnifiedModal({
       //   就會誤重跑、白花一次建卷次數（user 回報）。skeleton 在＝結構已完成，不需再 call AI。
       if (editingKey) { markComplete('booklet'); setActiveStep('sheet'); return }
       void handleStartStructure()
+      return
+    }
+    if (activeStep === 'essay_sheet') {
+      markComplete('essay_sheet')
+      handleSaveClick()
       return
     }
     if (activeStep === 'sheet') {
@@ -1883,6 +1907,7 @@ export default function AnswerKeyUnifiedModal({
   }
 
   const handleBack = () => {
+    if (activeStep === 'essay_sheet') { setActiveStep('booklet'); return }
     if (activeStep === 'booklet') { setActiveStep('metadata'); return }
     if (activeStep === 'sheet') { setActiveStep('booklet'); return }
     if (activeStep === 'extract') { setActiveStep(genFlow ? 'sheet' : 'metadata'); return }
@@ -2137,7 +2162,7 @@ export default function AnswerKeyUnifiedModal({
                     </div>
                     {editMode ? (
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">
-                        {isEssay ? '自製作文卷（系統製作稿紙）' : sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
+                        {isEssayByo ? '自備作文卷（老師自己的稿紙）' : isEssay ? '自製作文卷（系統製作稿紙）' : sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
                       </p>
                     ) : (
                       <AnswerSheetModeSelector
@@ -3059,6 +3084,10 @@ export default function AnswerKeyUnifiedModal({
                     onQuestionCategoryChange={(qids, category) => setEditingKey((prev) => prev ? { ...prev, questions: prev.questions.map((q) => qids.includes(q.id) ? { ...q, questionCategory: category as typeof q.questionCategory } : q) } : prev)}
                   />
                 </div>
+              )}
+
+              {activeStep === 'essay_sheet' && (
+                <EssayByoSheetStep value={essayByo} onChange={setEssayByo} readOnly={editMode} />
               )}
 
               {activeStep === 'editing' && !editingKey && (

@@ -72,11 +72,10 @@ const MODES: ModeOption[] = [
     value: 'essay_byo',
     name: '自備作文卷',
     tagline: '一篇作文，用你自己的稿紙',
-    description: '上傳作文題目與一張空白稿紙（例如會考答案卷），系統自動抓出每一行，你可以再微調。',
+    description: '上傳作文題目、填一下稿紙規格即可；批改時系統直接在學生卷上找出格線，不必上傳空白卷。',
     suit: '適合：學校已經印好稿紙、或想用會考答案卷',
     Illustration: EssayByoIllustration,
     accent: 'amber',
-    comingSoon: true,
   },
 ]
 
