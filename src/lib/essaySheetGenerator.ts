@@ -20,7 +20,7 @@
 import { HEADER_SIZE_MM, ANCHOR_SIZE_MM, TENS_BUBBLES, ONES_BUBBLES } from './answerSheetLayout'
 import { renderSheetPng, type GenBox, type GeneratedSheetData } from './answerSheetGenerator'
 
-export const ESSAY_SHEET_VERSION = 'RPESSAY3'
+export const ESSAY_SHEET_VERSION = 'RPESSAY4'
 
 const PW = 364 // B4／8K 橫式
 const PH = 257
@@ -75,7 +75,8 @@ function pageGeom() {
   // 直式座號欄：寬＝RPOMR1 高(34)、高＝RPOMR1 寬(174)；放在格區右側（中間留一條給直書標題）
   const stripW = HEADER_SIZE_MM.height
   const stripH = HEADER_SIZE_MM.width
-  const seatStripMm: [number, number, number, number] = [PW - 16 - stripW, 30, stripW, stripH]
+  // RPESSAY4（09-19 user）：第 1 頁由左到右＝格區 → 座號欄 → 標題（學校＋考卷名稱在最右側）
+  const seatStripMm: [number, number, number, number] = [16 + gridW + 4, 30, stripW, stripH]
   return { anchorsMm, uvBasis, gridMm, seatStripMm }
 }
 
@@ -201,7 +202,8 @@ function pageSvg(pageNo: number, input: EssaySheetInput, g: EssayGridGeom): stri
   els.push(`<rect x="${px(gx)}" y="${px(gy)}" width="${px(gw)}" height="${px(gh)}" fill="none" stroke="${RED}" stroke-width="${px(0.45)}"/>`)
   // 格區右側的「第一排」：第 1 頁＝學校＋考卷名稱的等高大字（每字對齊一個字格；超過可用格數就等比壓縮字距）；
   //   第 2 頁不放標題，改提示文字。兩頁最下方都寫頁次。
-  const titleX = gx + gw + (g.seatStripMm[0] - (gx + gw)) / 2
+  // 第 1 頁：標題排在座號欄右邊（整張紙最右側）；第 2 頁沒有座號欄 → 提示文字緊鄰格區右側
+  const titleX = pageNo === 1 ? g.seatStripMm[0] + g.seatStripMm[2] + 8.5 : gx + gw + 5.5
   const pageLabel = `第${CN_PAGE[pageNo - 1] ?? pageNo}頁`
   const labelSize = 5
   const labelTop = gy + gh - labelSize * 1.12 * pageLabel.length
