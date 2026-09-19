@@ -315,7 +315,8 @@ export default function TeacherPreferences({
         ) : (
           <div className="space-y-4">
 
-            {/* 1. 學生端顯示分數 */}
+            {/* 1. 學生端顯示分數（2026-09-19 user：學生端暫停 → 先隱藏；值照存不動，和訂正設定同一個開關） */}
+            {STUDENT_CORRECTION_UI_ENABLED && (
             <SectionCard title="學生端設定" icon={Eye}>
               <SettingRow
                 label="顯示分數給學生"
@@ -355,6 +356,7 @@ export default function TeacherPreferences({
                 </div>
               </div>
             </SectionCard>
+            )}
 
             {/* 2. 訂正設定（2026-09-19 學生端暫停 → 收起；值照存不動，開關打開就回來） */}
             {STUDENT_CORRECTION_UI_ENABLED && (
@@ -449,7 +451,9 @@ export default function TeacherPreferences({
             {/* 家長報告設定（localStorage、本機保留、與上方 server 設定分開即時儲存） */}
             <ParentReportSettings />
 
-            {/* 儲存按鈕 */}
+            {/* 儲存按鈕：只存上方「學生端設定／訂正設定」（server 偏好）；兩塊都收起時按鈕沒有對象 → 一併收起。
+                家長報告設定是本機即時儲存，不需要這顆。 */}
+            {STUDENT_CORRECTION_UI_ENABLED && (
             <div className="flex items-center justify-end gap-3 pb-8">
               {saveSuccess && (
                 <span className="flex items-center gap-1.5 text-sm text-emerald-600">
@@ -471,6 +475,7 @@ export default function TeacherPreferences({
                 {isSaving ? '儲存中…' : '儲存設定'}
               </button>
             </div>
+            )}
           </div>
         )}
       </div>
