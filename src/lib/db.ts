@@ -571,7 +571,7 @@ export interface FinalAnswerCached {
 export interface EssayResult {
   version: string
   /** 逐直行抄本；lowConfidence＝該行有墨格數 ≠ 抄本字數（交老師補） */
-  columns: Array<{ page: number; col: number; text: string; inkCells: number; lowConfidence: boolean }>
+  columns: Array<{ page: number; col: number; text: string; inkCells: number; lowConfidence: boolean; bbox?: { x: number; y: number; w: number; h: number } }>
   paragraphs: string[]
   chars: number
   lowConfidenceColumns: number

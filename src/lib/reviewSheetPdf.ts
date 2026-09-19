@@ -579,6 +579,28 @@ async function buildOverlayClassPdf(
 
       const bmp = await getSubmissionBitmap(sub)
       if (!bmp) throw new Error('無原卷影像')
+      // 2026-09-19 作文卷：整卷一題、沒有逐題 bbox；改走專用渲染（原卷疊紅筆＋另一頁批改建議）
+      const essay = (details.find((d) => (d as { essayResult?: unknown }).essayResult) as { essayResult?: import('@/lib/db').EssayResult } | undefined)?.essayResult
+      if (essay) {
+        const { buildEssayReviewPages } = await import('@/lib/essayReviewSheet')
+        const pages = await buildEssayReviewPages(bmp, sub.pageBreaks, essay, {
+          title: assignment.title,
+          who: `${stu.seatNumber}號 ${stu.name ?? ''}`,
+          level: essay.level.final ?? essay.level.suggested,
+          maxLevel: 6,
+          summary: essay.feedback?.summary ?? '',
+        })
+        for (const blob of pages) {
+          const img = await pdf.embedJpg(await blob.arrayBuffer())
+          const sc = Math.min(A4.w / img.width, A4.h / img.height)
+          const dw = img.width * sc, dh = img.height * sc
+          pdf.addPage([A4.w, A4.h]).drawImage(img, { x: (A4.w - dw) / 2, y: (A4.h - dh) / 2, width: dw, height: dh })
+        }
+        bmp.close()
+        done++
+        onProgress?.('build', done, ordered.length)
+        continue
+      }
       const breaks = Array.isArray(sub.pageBreaks) ? sub.pageBreaks.filter((b) => b > 0 && b < 1).sort((a, b) => a - b) : []
       const bounds = [0, ...breaks, 1]
       const who = `${stu.seatNumber}號 ${stu.name ?? ''}`
