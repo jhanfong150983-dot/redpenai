@@ -166,11 +166,11 @@ function clearMetadataDraft() {
 
 type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet' | 'essay'
 
-// 2026-09-19 作文模式（第四張卡）：批改管線（P3）上線前先藏在預覽旗標後——
-//   瀏覽器 console 執行 localStorage.setItem('redpen-essay-mode', '1') 後重新整理才看得到。
-//   ⛔ 旗標未開前不可對外開放：作文卷目前還不能批改。
+// 2026-09-19 作文模式（第四張卡）：預設開放（user 拍板：系統測試中、不需要預覽旗標）。
+//   ⚠ 批改管線尚未接：作文卷送批改時 server 會回「作文卷的 AI 批改尚未開放」（api/proxy.js ESSAY_GRADING_NOT_READY）。
+//   kill-switch（同系統製作作答卷慣例）：console 執行 localStorage.setItem('redpen-essay-mode', '0') 後重新整理 → 隱藏第四張卡。
 const ESSAY_MODE_ENABLED = (() => {
-  try { return localStorage.getItem('redpen-essay-mode') === '1' } catch { return false }
+  try { return localStorage.getItem('redpen-essay-mode') !== '0' } catch { return true }
 })()
 const ESSAY_QUESTION_ID = '1'
 
