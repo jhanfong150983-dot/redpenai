@@ -12,9 +12,9 @@ interface Props {
 }
 
 const PRESETS: Array<{ label: string; cols: number; rows: number; pages: number; hint: string }> = [
-  { label: '會考寫作測驗答案卷', cols: 23, rows: 22, pages: 2, hint: 'B4 橫式、每面 23 行 × 22 格、正反兩頁' },
-  { label: '一般 300 字稿紙', cols: 15, rows: 20, pages: 1, hint: '每面 15 行 × 20 格' },
-  { label: '一般 400 字稿紙', cols: 20, rows: 20, pages: 1, hint: '每面 20 行 × 20 格' },
+  // ⛔ 只放真實在用的公版稿紙（user 拍板）：其餘等老師實際拿來用再加，不要自己發明規格
+  { label: '國中會考寫作測驗答案卷', cols: 23, rows: 22, pages: 2, hint: 'B4 橫式、每面 23 行 × 22 格、正反兩頁' },
+  { label: '學測國寫答題卷', cols: 38, rows: 22, pages: 2, hint: '每面 38 行 × 22 格＝836 格；正反面是第一、第二大題' },
 ]
 
 export default function EssayByoSheetStep({ value, onChange, readOnly = false }: Props) {
