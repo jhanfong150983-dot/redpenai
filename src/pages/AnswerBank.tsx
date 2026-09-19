@@ -769,7 +769,8 @@ export default function AnswerBank(_props: AnswerBankProps) {
   // 卡片下載作答卷：從 storage 拿定版 PDF（generated-sheets/<id>/sheet.pdf）
   const handleDownloadGeneratedSheet = async (t: AnswerKeyTemplate) => {
     try {
-      const res = await fetch(`/api/storage/download?templateId=${encodeURIComponent(t.id)}&prefix=generated-sheets`, { credentials: 'include' })
+      // v＝模板更新時間：重新定版後網址不同，避開瀏覽器先前快取的舊 PDF（server 舊回應帶 max-age=3600）
+      const res = await fetch(`/api/storage/download?templateId=${encodeURIComponent(t.id)}&prefix=generated-sheets&v=${t.updatedAt ?? ''}`, { credentials: 'include', cache: 'no-store' })
       if (!res.ok) {
         await alertModal('找不到這份答案卷的作答卷 PDF。可能是舊版定版資料——請重新 AI 解析並完成「作答卷製作」後再下載。')
         return
