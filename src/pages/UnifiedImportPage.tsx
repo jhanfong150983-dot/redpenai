@@ -770,7 +770,22 @@ export default function UnifiedImportPage({
       }
       for (let i = 0; i < items.length; i++) {
         setBatchProgress(`正在辨識座號（${i + 1}/${items.length}）...`)
-        items[i] = { ...items[i], result: await recognizeSeatFromPage(items[i].blob) }
+        // 作文稿紙：座號欄是公版標頭順時針轉 90° 印在右側，且左十位右個位（與公版相反）
+        items[i] = { ...items[i], result: await recognizeSeatFromPage(items[i].blob, isEssay ? { rotateCcw90: true, swapTensOnes: true } : undefined) }
+      }
+      // 2026-09-19 作文卷：一張紙雙面＝每生兩頁，座號欄只印在第 1 頁 → 第 2 頁沒有座號。
+      //   用「有沒有找到座號欄」把頁面分成正面／背面，再配對：
+      //   ①雙面掃描（正背交錯）→ 相鄰配對；②單面掃描兩疊（先全部正面、再全部背面）→ 依序配對。
+      //   兩種順序都由「正面數＝背面數」成立，配錯的情況在確認畫面仍看得到頁數不符的警告。
+      if (isEssay) {
+        const fronts = items.map((it, i) => ({ it, i })).filter((x) => x.it.result.anchorsFound)
+        const backs = items.map((it, i) => ({ it, i })).filter((x) => !x.it.result.anchorsFound)
+        //   兩種掃描順序下，第 k 個背面都對應第 k 個正面（交錯：2k+1 對 2k；兩疊：n+k 對 k）
+        if (fronts.length > 0 && fronts.length === backs.length) {
+          backs.forEach((b, k) => {
+            items[b.i] = { ...items[b.i], result: { ...items[b.i].result, seatNumber: fronts[k].it.result.seatNumber } }
+          })
+        }
       }
       setOmrPages(items)
       setShowOmrConfirm(true)
@@ -782,7 +797,7 @@ export default function UnifiedImportPage({
       setIsBatchProcessing(false)
       setBatchProgress('')
     }
-  }, [])
+  }, [isEssay])
 
   const cleanupOmrPages = useCallback(() => {
     setOmrPages((prev) => {

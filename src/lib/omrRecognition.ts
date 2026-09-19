@@ -52,15 +52,27 @@ export interface OmrPageResult {
 
 // ── 影像基礎 ──────────────────────────────────────────────────────────────
 
-async function blobToCanvas(blob: Blob, maxWidth: number): Promise<HTMLCanvasElement> {
+async function blobToCanvas(blob: Blob, maxWidth: number, rotateCcw90 = false): Promise<HTMLCanvasElement> {
   const bitmap = await createImageBitmap(blob)
-  const scale = Math.min(1, maxWidth / bitmap.width)
+  // 2026-09-19 作文稿紙：座號欄＝公版標頭順時針轉 90° 印在橫式紙右側 →
+  //   整頁先逆時針轉 90°，標頭就回到「頁面頂部、橫向」的標準姿態，本引擎其餘邏輯完全不動。
+  const srcW = rotateCcw90 ? bitmap.height : bitmap.width
+  const srcH = rotateCcw90 ? bitmap.width : bitmap.height
+  const scale = Math.min(1, maxWidth / srcW)
   const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, Math.round(bitmap.width * scale))
-  canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+  canvas.width = Math.max(1, Math.round(srcW * scale))
+  canvas.height = Math.max(1, Math.round(srcH * scale))
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
   if (!ctx) throw new Error('無法建立 canvas')
-  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  if (rotateCcw90) {
+    // 逆時針 90°：原圖右上角 → 新圖左上角
+    ctx.translate(0, canvas.height)
+    ctx.rotate(-Math.PI / 2)
+    ctx.drawImage(bitmap, 0, 0, canvas.height, canvas.width)
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+  } else {
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+  }
   bitmap.close()
   return canvas
 }
@@ -357,7 +369,14 @@ function cropByNormRect(
 
 // ── 主流程 ────────────────────────────────────────────────────────────────
 
-export async function recognizeSeatFromPage(blob: Blob): Promise<OmrPageResult> {
+/**
+ * @param opts.rotateCcw90  整頁先逆時針轉 90° 再辨識（作文稿紙的直式座號欄）
+ * @param opts.swapTensOnes 引擎讀到的十位／個位對調（作文稿紙印的是「左十位、右個位」，與公版相反）
+ */
+export async function recognizeSeatFromPage(
+  blob: Blob,
+  opts?: { rotateCcw90?: boolean; swapTensOnes?: boolean }
+): Promise<OmrPageResult> {
   const none: OmrPageResult = {
     anchorsFound: false,
     seatNumber: null,
@@ -367,7 +386,7 @@ export async function recognizeSeatFromPage(blob: Blob): Promise<OmrPageResult> 
     headerCropUrl: null
   }
   try {
-    const canvas = await blobToCanvas(blob, THRESHOLDS.workWidth)
+    const canvas = await blobToCanvas(blob, THRESHOLDS.workWidth, opts?.rotateCcw90)
     const ctx = canvas.getContext('2d', { willReadFrequently: true })
     if (!ctx) return none
     const stripH = Math.max(1, Math.round(canvas.height * THRESHOLDS.topStripRatio))
@@ -406,8 +425,10 @@ export async function recognizeSeatFromPage(blob: Blob): Promise<OmrPageResult> 
     const p1 = applyH(h, 0.5 + BUBBLE_RADIUS.u, 0.5)
     const sampleR = Math.hypot(p1.x - p0.x, p1.y - p0.y) * 0.6
 
-    const tens = readRow(TENS_BUBBLES, h, lum, canvas.width, stripH, sampleR)
-    const ones = readRow(ONES_BUBBLES, h, lum, canvas.width, stripH, sampleR)
+    const rowA = readRow(TENS_BUBBLES, h, lum, canvas.width, stripH, sampleR)
+    const rowB = readRow(ONES_BUBBLES, h, lum, canvas.width, stripH, sampleR)
+    const tens = opts?.swapTensOnes ? rowB : rowA
+    const ones = opts?.swapTensOnes ? rowA : rowB
 
     // 十位空白視為 0（低座號常只塗個位）；ambiguous 一律不給座號
     let seatNumber: number | null = null
