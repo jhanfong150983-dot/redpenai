@@ -4,8 +4,7 @@ import {
   type GradingResult,
   type AnswerKey,
   type AnswerKeyQuestion,
-  type AnswerExtractionCorrection,
-  type EssayKeyData
+  type AnswerExtractionCorrection
 } from './db'
 import { normalizeLevelRubric, validateLevelRubric } from './levelRubric'
 import { mathAnswersEquivalent } from './mathEquivalence'
@@ -5829,51 +5828,6 @@ ${list}
     console.warn('[fill_variants criteria] 生成失敗（不擋建卷，老師可手填）', err)
   }
   return out
-}
-
-/**
- * 2026-09-19 作文模式建卷：從題本頁面擷取「題目全文＋圖意描述」並起草「切題範圍」，供老師編輯確認。
- *   實驗教訓（redpenaisever/docs/實驗成本記錄.md 作文模式）：
- *   - AI 起草的題目專屬判準容易把「切題」寫窄（115、114 兩年都讓級分變差）→ prompt 明令「預設寬」，
- *     且此結果只給老師參考編輯、不硬性約束級分判官。
- *   - 題本可能是看圖寫作 → 圖片必須轉成「客觀描述」（不可替學生詮釋），純文字判官才看得到。
- *   復用 answer_key.solve route（3.6＋預設 thinking、proxy 已支援、計入建卷週次數）。
- */
-export async function draftEssayKeyFromBooklet(
-  bookletImages: Blob[],
-  opts?: { gradeLabel?: string; onProgress?: (m: string) => void },
-): Promise<EssayKeyData> {
-  if (!bookletImages.length) throw new Error('請先上傳作文題目')
-  opts?.onProgress?.('AI 正在讀取作文題目…')
-  const imageParts: GeminiRequestPart[] = []
-  for (let i = 0; i < bookletImages.length; i++) {
-    imageParts.push(`【第 ${i + 1} 頁】`)
-    imageParts.push({ inlineData: { mimeType: bookletImages[i].type || 'image/jpeg', data: await blobToBase64(bookletImages[i]) } })
-  }
-  const prompt = `這是一份寫作測驗（作文）的題目卷${opts?.gradeLabel ? `，對象是${opts.gradeLabel}學生` : ''}。請擷取題目並起草「切題範圍」，供老師確認後作為 AI 批改作文的依據。
-
-【請輸出】
-1. topicText：題目全文，逐字照抄（引導語、寫作條件、「※」注意事項都要）；封面、測驗說明、作答須知、空白頁不要抄。圖片裡的文字（圖卡、標語、選項詞彙）也要抄進來並標明出處（例：「【圖二】六個詞彙：……」）。
-2. imageDescription：題目若含圖片（看圖寫作、漫畫、照片），用 2~4 句「客觀描述」圖上看得到的人事物與動作位置；⛔不可詮釋寓意、不可替學生下結論。題目沒有圖片就給空字串。
-3. writingTasks：3~5 點「寫作任務」——考生必須回應哪些要求才算切題（逐項、具體可檢核，照題目的要求寫，不要自己加條件）。
-4. acceptableRange：可接受的詮釋範圍，2~4 句。⚠ 預設要「寬」：會考閱卷實務接受抽象、比喻、意象式的詮釋（例如把具體事物寫成心境或象徵），只要能扣回題目的核心要求就算切題；請明白寫出「以下寫法也算切題：……」，不要把題目讀成只有一種字面寫法。
-5. offTopicRule：什麼情況算「完全離題」、什麼算「僅抄寫或大量引述題目／圖卡內容」，各一句。
-
-【輸出 JSON（純 JSON、無 markdown）】
-{ "topicText": "…", "imageDescription": "…", "writingTasks": ["…"], "acceptableRange": "…", "offTopicRule": "…" }
-只輸出 JSON。`
-  const text = await generateGeminiText(currentModelName, [prompt, ...imageParts], { routeKey: 'answer_key.solve' })
-  const parsed = parseGeminiJsonText(text) as Partial<EssayKeyData> | null
-  const topicText = String(parsed?.topicText ?? '').trim()
-  if (!topicText) throw new Error('AI 沒有讀到作文題目，請確認上傳的是題目頁，或直接手動輸入題目')
-  return {
-    topicText,
-    imageDescription: String(parsed?.imageDescription ?? '').trim(),
-    writingTasks: Array.isArray(parsed?.writingTasks) ? parsed.writingTasks.map((t) => String(t).trim()).filter(Boolean) : [],
-    acceptableRange: String(parsed?.acceptableRange ?? '').trim(),
-    offTopicRule: String(parsed?.offTopicRule ?? '').trim(),
-    rubricPreset: 'cap_6level',
-  }
 }
 
 export async function detectVisualRubric(

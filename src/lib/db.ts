@@ -388,19 +388,11 @@ export interface AnswerKeyQuestion {
   }
 }
 
-/** 2026-09-19 作文模式的「答案卷」內容：題目＋切題範圍（只有立意取材與題目有關；其餘三向度用內建會考通用規準）。
- *  實驗教訓：AI 起草的切題範圍容易寫窄（把意象式高分卷壓分）→ 只給老師參考編輯、預設寬，不拿來硬性約束級分判官。 */
+/** 2026-09-19 作文模式的「答案卷」設定。實驗4 定案：批改時直接把老師上傳的題本圖送給 AI
+ *  （級分 7/7、眉批與文字版持平；AI 轉述題目／圖意會失真、AI 起草的切題範圍會讓給分偏高搖擺）→
+ *  答案卷不存題目文字、圖意、寫作任務、詮釋範圍、離題定義；批改依據＝題本圖（template 的 question booklet）＋內建規準。 */
 export interface EssayKeyData {
-  /** 題目全文（引導語、條件、注意事項） */
-  topicText: string
-  /** 題本裡圖片的「客觀圖意描述」（看圖寫作用；純文字判官看不到圖）。沒有圖＝空字串 */
-  imageDescription: string
-  /** 寫作任務要點（考生要回應什麼才算切題） */
-  writingTasks: string[]
-  /** 可接受的詮釋範圍（預設寬：抽象／意象式詮釋也算切題） */
-  acceptableRange: string
-  /** 什麼算完全離題／僅抄寫題幹 */
-  offTopicRule: string
+  topicSource: 'booklet_image'
   /** 評分規準：會考通用六級分（第一版固定） */
   rubricPreset: 'cap_6level'
 }
