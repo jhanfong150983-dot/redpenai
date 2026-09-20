@@ -33,8 +33,10 @@ export const SHEET_SOURCE_LABEL: Record<SheetSource, string> = {
   with_questions: '一般模式',
   teacher_scan: '自備作答卷',
   generated: '系統製作作答卷',
-  essay: '自製作文卷',
-  essay_byo: '自備作文卷',
+  // 2026-09-21 標上「會考」：之後要加高中端的學測版稿紙，不標就分不出是哪一代
+  //   （徽章位置窄 → 只留代別，完整名稱「系統製作作文稿紙（會考格式）」在模式選擇卡上）
+  essay: '會考作文稿紙（系統製作）',
+  essay_byo: '會考作文稿紙（自備）',
 }
 
 export const SHEET_SOURCE_HINT: Record<SheetSource, string> = {
@@ -50,8 +52,9 @@ export const SHEET_SOURCE_BADGE_CLASS: Record<SheetSource, string> = {
   with_questions: 'bg-rose-50 text-rose-700 border-rose-200',
   teacher_scan: 'bg-blue-50 text-blue-700 border-blue-200',
   generated: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  // 兩種作文模式要分得出來（user 09-21）：自備＝紫、系統製作＝琥珀，與模式卡的 accent 一致
   essay: 'bg-amber-50 text-amber-700 border-amber-200',
-  essay_byo: 'bg-amber-50 text-amber-700 border-amber-200',
+  essay_byo: 'bg-violet-50 text-violet-700 border-violet-200',
 }
 
 // 2026-09-19 領域專屬模式（user 拍板：日後某些領域可能有自己的特殊模式）。

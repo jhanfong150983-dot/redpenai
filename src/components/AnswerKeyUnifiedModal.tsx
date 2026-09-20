@@ -2161,7 +2161,7 @@ export default function AnswerKeyUnifiedModal({
                     </div>
                     {editMode ? (
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">
-                        {isEssayByo ? '自備作文卷（老師自己的稿紙）' : isEssay ? '自製作文卷（系統製作稿紙）' : sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
+                        {isEssayByo ? '自備作文稿紙（限會考格式、老師自己的稿紙）' : isEssay ? '系統製作作文稿紙（會考格式）' : sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
                       </p>
                     ) : (
                       <AnswerSheetModeSelector

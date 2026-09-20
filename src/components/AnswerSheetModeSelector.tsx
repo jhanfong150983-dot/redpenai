@@ -21,7 +21,7 @@ interface ModeOption {
   description: string
   suit: string
   Illustration: typeof WithQuestionsIllustration
-  accent: 'red' | 'blue' | 'green' | 'amber'
+  accent: 'red' | 'blue' | 'green' | 'amber' | 'violet'
   /** 建卷流程尚未實作 → 卡片顯示但不可選 */
   comingSoon?: boolean
 }
@@ -59,22 +59,24 @@ const MODES: ModeOption[] = [
   },
   // 2026-09-19 作文兩張卡（user 拍板：模式全部攤在第一層，不要藏在子選項裡）。
   //   呼叫端用 options 控制顯示；領域對照表在 lib/sheetSource.ts 的 SHEET_SOURCE_DOMAINS（目前只在國語出現）。
-  {
-    value: 'essay',
-    name: '自製作文卷',
-    tagline: '一篇作文，稿紙系統幫你做',
-    description: '上傳作文題目，系統製作比照會考的稿紙（含定位方塊與座號劃卡）；AI 逐句給修改建議與建議級分。',
-    suit: '適合：作文練習、段考寫作測驗',
-    Illustration: EssayModeIllustration,
-    accent: 'amber',
-  },
+  // ⛔ 2026-09-21 名稱一定要標「會考格式」：之後要加高中端的學測版稿紙（38 行×22 格、無窄欄），
+  //   不標的話兩代稿紙在選單上分不出來。排序比照上面的作答卷——自備在前、系統製作在後。
   {
     value: 'essay_byo',
-    name: '自備作文卷',
-    tagline: '一篇作文，用你自己的稿紙',
+    name: '自備作文稿紙（限會考格式）',
+    tagline: '一篇作文，用現成「會考」的稿紙',
     description: '上傳作文題目、填一下稿紙規格即可；批改時系統直接在學生卷上找出格線，不必上傳空白卷。',
     suit: '適合：學校已經印好稿紙、或想用會考答案卷',
     Illustration: EssayByoIllustration,
+    accent: 'violet',
+  },
+  {
+    value: 'essay',
+    name: '系統製作作文稿紙（會考格式）',
+    tagline: '一篇作文，系統產生「會考」的稿紙',
+    description: '上傳作文題目，系統製作比照會考的稿紙（含定位方塊與座號劃卡）；AI 逐句給修改建議與建議級分。',
+    suit: '適合：作文練習、段考寫作測驗',
+    Illustration: EssayModeIllustration,
     accent: 'amber',
   },
 ]
@@ -84,6 +86,7 @@ const SUIT_CLASS: Record<ModeOption['accent'], string> = {
   blue: 'bg-blue-50 text-blue-700',
   green: 'bg-emerald-50 text-emerald-700',
   amber: 'bg-amber-50 text-amber-700',
+  violet: 'bg-violet-50 text-violet-700',
 }
 
 export default function AnswerSheetModeSelector({
