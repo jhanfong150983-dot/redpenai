@@ -111,6 +111,14 @@ const PAD_CELLS = 2
  */
 const PAD_COLS = 0.9
 
+/**
+ * 輸入框依內容自動撐寬。
+ * ⛔ 固定 w-20(80px) 裝不下 4 個 text-2xl(24px) 的中文字 → 第 4 個字被視覺裁掉，
+ *   老師以為 AI 只給了 3 個字（2026-09-20 user 回報「還是只有顯示寸手不」，
+ *   但資料庫其實是「寸手不離」）。詞級輸出後長度不固定，必須跟著內容長。
+ */
+const inputWidth = (v: string) => `${Math.max(3, [...(v || '')].length + 1) * 1.55 + 0.9}rem`
+
 /** 把上下文依錯字切成片段，命中的標紅（孤立單字看不出對錯，要放回詞句裡看） */
 function splitContext(context: string, wrong: string): Array<{ s: string; hit: boolean }> {
   if (!context) return []
@@ -319,17 +327,19 @@ export default function EssayTypoLowConfModal({ entries, onClose, onUpdated }: P
                         <input
                           value={e.wrong}
                           onChange={(ev) => setEdit(r, { wrong: ev.target.value, verdict: 'typo' })}
-                          aria-label="學生寫的字"
-                          className={`w-20 text-center text-2xl font-bold text-red-600 rounded-lg border px-1 py-1 focus:outline-none ${e.verdict === 'ok' ? 'border-gray-200 opacity-40' : 'border-gray-300 focus:border-red-400'}`}
+                          aria-label="學生寫的字詞"
+                          style={{ width: inputWidth(e.wrong) }}
+                          className={`text-center text-2xl font-bold text-red-600 rounded-lg border px-2 py-1 focus:outline-none ${e.verdict === 'ok' ? 'border-gray-200 opacity-40' : 'border-gray-300 focus:border-red-400'}`}
                         />
                         <span className="text-gray-400 text-xl">→</span>
                         <input
                           value={e.correct}
                           onChange={(ev) => setEdit(r, { correct: ev.target.value, verdict: 'typo' })}
-                          aria-label="應該寫的字"
-                          className={`w-20 text-center text-2xl font-bold text-emerald-700 rounded-lg border px-1 py-1 focus:outline-none ${e.verdict === 'ok' ? 'border-gray-200 opacity-40' : 'border-gray-300 focus:border-emerald-400'}`}
+                          aria-label="應該寫的字詞"
+                          style={{ width: inputWidth(e.correct) }}
+                          className={`text-center text-2xl font-bold text-emerald-700 rounded-lg border px-2 py-1 focus:outline-none ${e.verdict === 'ok' ? 'border-gray-200 opacity-40' : 'border-gray-300 focus:border-emerald-400'}`}
                         />
-                        <span className="text-[11px] text-gray-400 ml-1 leading-tight">學生寫的<br />→ 應該寫</span>
+                        <span className="text-[11px] text-gray-400 ml-1 leading-tight shrink-0">學生寫的<br />→ 應該寫</span>
                       </div>
 
                       {/* ⭐ user 指正：孤立一個字無法判斷對錯，**要有詞句才判斷得出來**。
