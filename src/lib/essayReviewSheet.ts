@@ -2,7 +2,7 @@
 //
 // user 的四點要求：
 //   ①不要再多一頁（拿掉原本的「批改建議頁」）
-//   ②錯別字在該格打叉，旁邊**直式**寫下修改後的字
+//   ②錯別字圈起來（原要求是打叉；09-20 改成圈——老師慣例、不遮筆跡、黑白列印也清楚），旁邊**直式**寫正字
 //   ③原句畫記（波浪線），**旁邊直接附上**「建議可以改成：…」
 //   ④總評放在**作文最後、學生沒寫的位置**，比照會考樣卷：白底方框、直式書寫
 //
@@ -130,19 +130,23 @@ async function renderPage(
     const r0 = cellRect(c, rows, loc.row)
     if (!r0 || !inPage(r0.y + r0.h / 2)) continue
     const lastRow = Math.min(rows, loc.toRow ?? loc.row)
-    // 錯詞可能跨好幾格 → 每一格都打叉
-    for (let rr = loc.row; rr <= lastRow; rr++) {
-      const rc = cellRect(c, rows, rr)
-      if (!rc || !inPage(rc.y + rc.h / 2)) continue
-      const x0 = toX(rc.x) + 2 * u
-      const x1 = toX(rc.x + rc.w) - 2 * u
-      const y0 = toY(rc.y) + 2 * u
-      const y1 = toY(rc.y + rc.h) - 2 * u
-      ctx.globalAlpha = 0.8
-      ctx.lineWidth = Math.max(1.4, 2 * u)
+    const rEnd = cellRect(c, rows, lastRow)
+    if (!rEnd) continue
+    // ⭐ 2026-09-20 user：不要打叉，也不要螢光筆。改成**整個錯詞圈起來**——
+    //   ①這是台灣國文老師的標準慣例，學生一看就懂
+    //   ②圈在字的外面、**不會遮住筆跡**（學生要看得到自己寫錯什麼）
+    //   ③黑白列印變成灰線圈，照樣清楚；螢光筆在黑白下會變灰塊、反而壓低筆跡對比
+    //   ④跟稿紙的直角格線在形狀上分得開（圈是圓的）
+    //   詞級錯別字圈**一個**橢圓涵蓋整個詞，不是每格各畫一個（那才像老師圈詞）
+    {
+      const x0 = toX(r0.x) + 1.5 * u
+      const x1 = toX(r0.x + r0.w) - 1.5 * u
+      const y0 = toY(r0.y) + 1.5 * u
+      const y1 = toY(rEnd.y + rEnd.h) - 1.5 * u
+      ctx.globalAlpha = 0.9
+      ctx.lineWidth = Math.max(1.5, 2.2 * u)
       ctx.beginPath()
-      ctx.moveTo(x0, y0); ctx.lineTo(x1, y1)
-      ctx.moveTo(x1, y0); ctx.lineTo(x0, y1)
+      ctx.ellipse((x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2, 0, 0, Math.PI * 2)
       ctx.stroke()
     }
     // 正確的字寫在該行右側行間（與插入字同一個慣例），直式
