@@ -591,3 +591,67 @@ export async function applyVjItemsToSubmission(
     return { submissionId, ok: false, error: e instanceof Error ? e.message : String(e) }
   }
 }
+
+/**
+ * 2026-09-20 作文疑似錯別字：老師確認／訂正 → 寫回 essayResult。
+ * ⛔ 一定要三步都做：只呼叫 onUpdated 更新 React state，關掉 modal 再開就沒了
+ *    （user 09-20 回報「套用變更後再打開並沒有套用」）。比照 applyScoreEditsToSubmission：
+ *    ①寫 Dexie ②POST /api/data/save-grading（跨裝置） ③讓呼叫端 requestSync。
+ * ⛔ 不改分數：錯別字不影響級分，score/scoreSource 原樣帶回避免被覆蓋成 null。
+ * @param patchByIdx typos 陣列索引 → 老師的判定（verdict/wrong/correct）
+ */
+export async function applyEssayTypoEditsToSubmission(
+  submissionId: string,
+  patchByIdx: Map<number, { verdict: 'typo' | 'ok'; wrong: string; correct: string }>
+): Promise<BatchEditResult> {
+  try {
+    const submission = await db.submissions.get(submissionId)
+    if (!submission) return { submissionId, ok: false, error: 'submission not found' }
+    type Typo = { wrong: string; correct: string; aiOriginal?: { wrong: string; correct: string } }
+    type EssayLike = { feedback?: { typos?: Typo[] } }
+    type DetailLike = { essayResult?: EssayLike }
+    const gr = submission.gradingResult as { details?: DetailLike[] } | undefined
+    const details: DetailLike[] = Array.isArray(gr?.details) ? gr.details : []
+    let changed = 0
+    const newDetails = details.map((d) => {
+      const essay = d?.essayResult
+      if (!essay?.feedback?.typos) return d
+      const typos = essay.feedback.typos.map((t, i) => {
+        const e = patchByIdx.get(i)
+        if (!e) return t
+        changed++
+        return {
+          ...t,
+          // 留住 AI 原判：老師改過字之後仍看得出 AI 當初說什麼、也才可能回復
+          aiOriginal: t.aiOriginal ?? { wrong: t.wrong, correct: t.correct },
+          wrong: e.wrong,
+          correct: e.correct,
+          teacherVerdict: e.verdict,
+        }
+      })
+      return { ...d, essayResult: { ...essay, feedback: { ...essay.feedback, typos } } }
+    })
+    if (!changed) return { submissionId, ok: true, updated: submission }
+    const now = Date.now()
+    const newGradingResult = { ...(gr as object), details: newDetails }
+    await db.submissions.update(submissionId, { gradingResult: newGradingResult as Submission['gradingResult'], updatedAt: now })
+    await fetch('/api/data/save-grading', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({
+        submissions: [{
+          id: submissionId,
+          score: submission.score,
+          aiScore: submission.aiScore,
+          scoreSource: submission.scoreSource,
+          gradingResult: newGradingResult,
+          gradedAt: submission.gradedAt,
+        }],
+        fromManualScoreEdit: true,
+      }),
+    }).catch(() => {})
+    const updated = await db.submissions.get(submissionId)
+    return { submissionId, ok: true, updated: updated ?? undefined }
+  } catch (e) {
+    return { submissionId, ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}

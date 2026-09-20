@@ -15,6 +15,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { X, Check, Loader2 } from 'lucide-react'
 import type { EssayResult, GradingDetail, Student, Submission } from '@/lib/db'
+import { applyEssayTypoEditsToSubmission } from '@/lib/answerStats'
+import { requestSync } from '@/lib/sync-events'
 
 type Props = {
   entries: Array<{ submission: Submission; student: Student }>
@@ -218,41 +220,32 @@ export default function EssayTypoLowConfModal({ entries, onClose, onUpdated }: P
   const [saving, setSaving] = useState(false)
   const dirtyCount = Object.keys(edits).length
 
-  /** 套用：逐份卷重寫 typos（移除選「正確無誤」的、套用老師改過的字） */
+  /**
+   * 套用：逐份卷寫回 typos。
+   * ⛔ 只呼叫 onUpdated（React state）是**不夠的**——關掉再開就沒了（user 09-20 回報）。
+   *   要走 applyEssayTypoEditsToSubmission：寫 Dexie ＋ POST save-grading，再 requestSync。
+   * ⛔ 不覆寫 confidence、也不從陣列移除——沿用一般卷低信心 modal 的原則（user 拍板）：
+   *   「低信心是 AI 判定當下的事實，永遠保留、不因老師處理而消失或排除」。
+   */
   const apply = async () => {
     if (!dirtyCount || saving) return
     setSaving(true)
     try {
       const bySub = new Map<string, Row[]>()
       for (const r of rows) if (edits[r.key]) bySub.set(r.submissionId, [...(bySub.get(r.submissionId) ?? []), r])
+      const failed: string[] = []
       for (const [subId, rs] of bySub) {
-        const sub = subOf(subId)
-        const info = sub ? essayOf(sub) : null
-        if (!sub || !info?.essay.feedback) continue
-        // ⛔ 不覆寫 confidence、也不從陣列移除——沿用一般卷低信心 modal 的原則（user 拍板）：
-        //   「低信心是 AI 判定當下的事實，永遠保留、不因老師處理而消失或排除」。
-        //   老師的處理記在 teacherVerdict；要不要印到檢討單由下游依這個欄位決定。
         const patch = new Map(rs.map((r) => [r.idx, editOf(r)]))
-        const typos = info.essay.feedback.typos.map((t, i) => {
-          const e = patch.get(i)
-          if (!e) return t
-          return {
-            ...t,
-            aiOriginal: t.aiOriginal ?? { wrong: t.wrong, correct: t.correct },  // 留住 AI 原判，可回復
-            wrong: e.wrong,
-            correct: e.correct,
-            teacherVerdict: e.verdict,
-          }
-        })
-        const nextEssay: EssayResult = { ...info.essay, feedback: { ...info.essay.feedback, typos } }
-        const details = ((sub.gradingResult as { details?: GradingDetail[] }).details ?? [])
-          .map((d) => (d === info.detail ? { ...d, essayResult: nextEssay } : d))
-        onUpdated({
-          ...sub,
-          gradingResult: { ...(sub.gradingResult as object), details } as Submission['gradingResult'],
-          updatedAt: Date.now(),
-        })
+        const res = await applyEssayTypoEditsToSubmission(subId, patch)
+        if (res.ok && res.updated) onUpdated(res.updated)
+        else failed.push(res.error ?? subId)
       }
+      if (failed.length) {
+        console.warn('[EssayTypo] 部分卷寫入失敗：', failed)
+        setSaving(false)
+        return   // 失敗就不要清掉編輯、也不要關閉，讓老師可以重試
+      }
+      requestSync()
       setEdits({})
       onClose()
     } finally {
