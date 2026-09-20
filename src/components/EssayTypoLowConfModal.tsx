@@ -75,13 +75,12 @@ function useCrop(sub: Submission | undefined, r: Row | undefined) {
         const sh = Math.min(bmp.height - sy, Math.round(h * bmp.height))
         if (sw <= 0 || sh <= 0) { bmp.close(); return }
         const canvas = document.createElement('canvas')
-        // 直書裁下來是細長條 → 轉 90° 變橫的比較好看
-        canvas.width = sh
-        canvas.height = sw
+        // ⛔ 不要轉向（user 09-20 指正）：作文是直書，轉 90° 會讓字躺著、反而難認。
+        //   直接照原方向輸出＝細長直條，版面上擺左邊。
+        canvas.width = sw
+        canvas.height = sh
         const ctx = canvas.getContext('2d')
         if (!ctx) { bmp.close(); return }
-        ctx.translate(0, sw)
-        ctx.rotate(-Math.PI / 2)
         ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh)
         bmp.close()
         canvas.toBlob((b) => {
@@ -235,23 +234,26 @@ export default function EssayTypoLowConfModal({ entries, onClose, onUpdated }: P
                 )}
               </div>
 
-              {/* 稿紙裁圖：該格前後各 2 格 */}
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 mb-4 flex items-center justify-center min-h-[120px]">
-                {crop
-                  ? <img src={crop} alt={`${cur.wrong} 的稿紙原圖`} className="max-h-40 object-contain" />
-                  : <Loader2 className="w-5 h-5 animate-spin text-gray-400" />}
+              {/* 左＝稿紙裁圖（直書原方向、該格前後各 2 格）／右＝判斷需要的文字 */}
+              <div className="flex items-start gap-5">
+                <div className="shrink-0 rounded-xl border border-gray-200 bg-gray-50 p-2 flex items-center justify-center min-w-[92px] min-h-[240px]">
+                  {crop
+                    ? <img src={crop} alt={`${cur.wrong} 的稿紙原圖`} className="max-h-[300px] object-contain" />
+                    : <Loader2 className="w-5 h-5 animate-spin text-gray-400" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-3 mb-2">
+                    <span className="text-4xl font-bold text-red-600">{cur.wrong}</span>
+                    <span className="text-gray-400">→</span>
+                    <span className="text-4xl font-bold text-emerald-700">{cur.correct}</span>
+                  </div>
+                  <p className="text-sm text-gray-600 break-all">AI 抄到的上下文：{cur.context}</p>
+                  <p className="mt-4 text-xs text-gray-500 leading-relaxed">
+                    對照左邊的筆跡判斷：學生<b>真的</b>把「{cur.correct}」寫成「{cur.wrong}」→ 保留；
+                    學生其實寫對了（是 AI 抄錯）→ 移除。移除後不會出現在學生的檢討單上。
+                  </p>
+                </div>
               </div>
-
-              <div className="flex items-baseline gap-3 mb-2">
-                <span className="text-3xl font-bold text-red-600">{cur.wrong}</span>
-                <span className="text-gray-400">→</span>
-                <span className="text-3xl font-bold text-emerald-700">{cur.correct}</span>
-              </div>
-              <p className="text-sm text-gray-600">AI 抄到的上下文：{cur.context}</p>
-              <p className="mt-3 text-xs text-gray-500 leading-relaxed">
-                對照上面的筆跡判斷：學生<b>真的</b>把「{cur.correct}」寫成「{cur.wrong}」→ 保留；
-                學生其實寫對了（是 AI 抄錯）→ 移除。移除後不會出現在學生的檢討單上。
-              </p>
             </div>
 
             <div className="shrink-0 flex items-center gap-2 px-5 py-3 border-t">
