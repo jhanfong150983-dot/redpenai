@@ -100,6 +100,27 @@ function drawVerticalBlock(
   return used
 }
 
+/** 直書、靠**下**對齊（用於方框最後一行最下方的提醒語） */
+function drawVerticalBlockBottom(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  rightX: number,
+  bottomY: number,
+  size: number,
+  maxH: number,
+  colGap: number,
+): number {
+  const step = size * 1.08
+  const perCol = Math.max(1, Math.floor(maxH / step))
+  let used = 0
+  for (let i = 0; i < text.length; i += perCol) {
+    const seg = text.slice(i, i + perCol)
+    drawVertical(ctx, seg, rightX - used, bottomY - seg.length * step, size, maxH)
+    used += size + colGap
+  }
+  return used
+}
+
 const colOf = (r: EssayResult, page: number, col: number) =>
   r.columns.find((c) => c.page === page && c.col === col)
 
@@ -253,7 +274,9 @@ async function renderPage(
 
       // 排版順序（user 指定）：建議：①②③ →（空間距）→ 總評：
       const head = meta.level != null ? `${meta.level} 級分` : ''
-      const blocks: Array<{ text: string; bold?: boolean; scale?: number; gapAfter?: number }> = []
+      // user 指定：白底方框最後一行最下方加免責提醒（AI 抄寫可能出錯，請人工確認）
+      const DISCLAIMER = '※此為AI抄寫後的建議，可能因為字跡、塗改、插入導致錯誤，請務必進行人工確認。'
+      const blocks: Array<{ text: string; bold?: boolean; scale?: number; gapAfter?: number; bottom?: boolean }> = []
       if (head) blocks.push({ text: head, bold: true, scale: 1.45, gapAfter: 1.2 })
       if (notes.length) {
         blocks.push({ text: '建議', bold: true, gapAfter: 0.4 })
@@ -266,8 +289,9 @@ async function renderPage(
       }
       if (summary) {
         blocks.push({ text: '總評', bold: true, gapAfter: 0.4 })
-        blocks.push({ text: summary })
+        blocks.push({ text: summary, gapAfter: 1.4 })
       }
+      blocks.push({ text: DISCLAIMER, scale: 0.72, bottom: true })
 
       // ⛔ 上一版把寬度算少了（沒算標題欄與段間距）→ 迴圈提前 break，**最後一則建議被吃掉**
       //   （user 回報「標註有①②，最後只有①的建議」）。改成精算，且**放不下就把字變小**（user 指定）。
@@ -306,7 +330,9 @@ async function renderPage(
         const sz = size * (b.scale ?? 1)
         if (b.text) {
           ctx.font = `${b.bold ? 'bold ' : ''}${Math.round(sz)}px ${FONT}`
-          cx -= drawVerticalBlock(ctx, b.text, cx, boxTop + padding, sz, textH, gap)
+          cx -= b.bottom
+            ? drawVerticalBlockBottom(ctx, b.text, cx, boxTop + boxH - padding, sz, textH, gap)
+            : drawVerticalBlock(ctx, b.text, cx, boxTop + padding, sz, textH, gap)
         }
         cx -= (b.gapAfter ?? 0.5) * gap
         if (cx < boxLeft) break
