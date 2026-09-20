@@ -572,11 +572,14 @@ export interface EssayResult {
   version: string
   /** 逐直行抄本；lowConfidence＝該行有墨格數 ≠ 抄本字數（交老師補） */
   columns: Array<{ page: number; col: number; text: string; inkCells: number; lowConfidence: boolean; bbox?: { x: number; y: number; w: number; h: number } }>
+  /** 一行幾格（稿紙幾何）；低信心清單要靠它把「第幾格」換算成 bbox 裡的 y 偏移來裁圖 */
+  rows?: number
   paragraphs: string[]
   chars: number
   lowConfidenceColumns: number
   feedback: {
-    typos: Array<{ wrong: string; correct: string; context: string; loc: EssayLoc | null; quoteVerified: boolean }>
+    /** confidence: high＝AI 與教育部辭典都認定（直接採用）／low＝字典無法確認（進低信心清單交老師） */
+    typos: Array<{ wrong: string; correct: string; context: string; loc: EssayLoc | null; quoteVerified: boolean; confidence?: 'high' | 'low'; dictReason?: string }>
     sentenceFeedback: Array<{ quote: string; dimension: string; rubricTerm?: string; problem: string; suggestion: string; why?: string; loc: EssayLoc | null; quoteVerified: boolean }>
     paragraphFeedback: Array<{ paragraph: number; comment: string }>
     strengths: Array<{ quote: string; why: string; loc: EssayLoc | null; quoteVerified: boolean }>
@@ -603,7 +606,8 @@ export interface EssayByoGeom {
 }
 
 /** 眉批／錯別字在原卷上的位置（第幾頁、第幾直行） */
-export interface EssayLoc { page: number; col: number; toCol?: number }
+/** row/toRow＝該行的第幾格（1-based，稿紙一格一字；錯別字要裁圖才需要） */
+export interface EssayLoc { page: number; col: number; toCol?: number; row?: number; toRow?: number }
 
 export interface GradingDetail {
   questionId: string
@@ -630,6 +634,8 @@ export interface GradingDetail {
     matchType: 'exact' | 'synonym' | 'keyword' // 匹配方式
   }
   /** 2026-09-19 作文批改結果（questionCategory='essay'）：逐行抄本、眉批、建議級分 */
+  /** 這份卷有幾個待老師確認的錯別字（字典無法確認的）→ 頂欄「低信心」按鈕的計數來源 */
+  essayLowTypoCount?: number
   essayResult?: EssayResult
   // Type 3 專用：各維度分數
   rubricScores?: Array<{

@@ -60,6 +60,7 @@ import { fixCorruptedBase64 } from '@/lib/utils'
 import SubmissionDetailModal from '@/components/SubmissionDetailModal'
 import AnswerStatsModal from '@/components/AnswerStatsModal'
 import LowConfidenceModal from '@/components/LowConfidenceModal'
+import EssayTypoLowConfModal from '@/components/EssayTypoLowConfModal'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import { blobToBase64 } from '@/lib/imageCompression'
@@ -2931,11 +2932,18 @@ export default function GradingPage({
 
   // 2026-08-11 「重新整理」鈕退役(user:幾乎沒用到)——位置改成「低信心檢視」modal(學校建議)。
   //   syncAndReload 保留給初始載入等既有呼叫點。
+  // 2026-09-20 作文卷：一份卷只有一格，接不上「每格一筆」→ 改數「待老師確認的錯別字」。
+  //   ⛔ 抄寫落差不計入（user 拍板：改抄本不會重跑眉批／級分，是做了等於沒做的動作）。
+  const isEssayAssignment = !!(assignment?.answerKey as { essay?: unknown } | undefined)?.essay
   const lowConfCellCount = useMemo(() => {
     let n = 0
     for (const sub of submissions.values()) {
-      const det = (sub.gradingResult as { details?: Array<{ systemConfidence?: unknown }> } | undefined)?.details ?? []
+      const det = (sub.gradingResult as { details?: Array<{ systemConfidence?: unknown; essayResult?: { feedback?: { typos?: Array<{ confidence?: string }> } } }> } | undefined)?.details ?? []
       for (const d of det) {
+        if (d?.essayResult) {
+          n += (d.essayResult.feedback?.typos ?? []).filter((t) => t?.confidence !== 'high').length
+          continue
+        }
         const c = Number(d?.systemConfidence)
         if (Number.isFinite(c) && c < 70) n++
       }
@@ -7016,7 +7024,19 @@ export default function GradingPage({
         />
       )}
       {/* 低信心檢視(2026-08-11 學校建議):全班低信心格聚合、就地改分/回復;低信心標記永久保留 */}
-      {showLowConf && (
+      {showLowConf && isEssayAssignment && (
+        <EssayTypoLowConfModal
+          entries={sortedStudents
+            .map((student) => ({ student, submission: submissions.get(student.id) }))
+            .filter((e): e is { student: typeof e.student; submission: NonNullable<typeof e.submission> } =>
+              !!e.submission && Array.isArray((e.submission.gradingResult as { details?: unknown[] } | undefined)?.details))}
+          onClose={() => setShowLowConf(false)}
+          onUpdated={(updated) => {
+            setSubmissions((prev) => new Map(prev).set(updated.studentId, updated))
+          }}
+        />
+      )}
+      {showLowConf && !isEssayAssignment && (
         <LowConfidenceModal
           entries={sortedStudents
             .map((student) => ({ student, submission: submissions.get(student.id) }))

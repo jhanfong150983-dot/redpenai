@@ -1,6 +1,9 @@
 // 2026-09-19 作文複核面板（批改詳情 modal 內、questionCategory='essay' 時取代學生答案文字框）。
-//   老師在這裡做三件事：①確認低信心的抄本行（抄錯會連帶影響眉批與級分）②確認／排除疑似錯別字
-//   ③刪掉不同意的眉批。級分用既有的分數欄改（級分即分數、滿分 6）。
+//   老師在這裡做兩件事：①確認／排除疑似錯別字 ②刪掉不同意的眉批。
+//   級分用既有的分數欄改（級分即分數、滿分 6）。
+//   ⛔ 2026-09-20 移除「逐行確認抄本」：改抄本不會重跑眉批／級分（做了等於沒做），
+//      學生檢討單印的也是原卷筆跡。抄本改為唯讀，只在落差比例 >40% 時提示可能掃描有問題。
+//      真正要老師確認的錯別字走頂欄「低信心」modal（EssayTypoLowConfModal）。
 //   ⛔ 錯別字一律是「疑似」：抄寫員抄錯會變成對學生的假指控（實驗2b），所以預設不當定論、由老師拍板。
 import { useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react'
@@ -25,18 +28,10 @@ export default function EssayReviewPanel({ value, onChange, readOnly = false }: 
   const [showTranscript, setShowTranscript] = useState(false)
   const fb = value.feedback
   const lowCols = value.columns.filter((c) => c.lowConfidence)
+  const writtenCols = value.columns.filter((c) => c.text).length
+  const badRatio = writtenCols > 0 ? lowCols.length / writtenCols : 0
   const editable = !readOnly && !!onChange
 
-  const patchColumn = (page: number, col: number, text: string) => {
-    if (!onChange) return
-    onChange({
-      ...value,
-      columns: value.columns.map((c) => (c.page === page && c.col === col
-        ? { ...c, text, lowConfidence: false }  // 老師改過＝已確認，不再算低信心
-        : c)),
-      lowConfidenceColumns: Math.max(0, value.lowConfidenceColumns - 1),
-    })
-  }
   const dropSentence = (i: number) => {
     if (!onChange || !fb) return
     onChange({ ...value, feedback: { ...fb, sentenceFeedback: fb.sentenceFeedback.filter((_, k) => k !== i) } })
@@ -58,9 +53,12 @@ export default function EssayReviewPanel({ value, onChange, readOnly = false }: 
             AI 建議 {value.level.suggested} 級分（分數欄可改）
           </span>
         )}
-        {lowCols.length > 0 && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-200">
-            {lowCols.length} 行抄本待確認
+        {/* 2026-09-20 user 拍板：抄寫落差**不再要老師確認**（改抄本不會重跑眉批／級分＝做了等於沒做；
+            學生檢討單印的是原卷筆跡、抄錯不影響）。只有落差比例過高才提示「整份可能掃描有問題」。 */}
+        {badRatio > 0.4 && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-200"
+            title="抄寫落差偏大，通常是掃描歪掉、拍糊或寫出格線；這種情況下眉批與級分都要打折看">
+            抄寫落差偏大（{lowCols.length}/{writtenCols} 行）
           </span>
         )}
       </div>
@@ -69,25 +67,15 @@ export default function EssayReviewPanel({ value, onChange, readOnly = false }: 
         <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">{value.gate}</div>
       )}
 
-      {/* ── 低信心的抄本行：老師直接補 ── */}
-      {lowCols.length > 0 && (
-        <section className="rounded border border-rose-200 bg-rose-50/60 p-2">
-          <div className="font-semibold text-rose-800 mb-1">請確認這幾行的抄本</div>
-          <p className="text-[11px] text-rose-700/80 mb-1.5">稿紙一格一字，這幾行的字數和 AI 抄出來的不一樣，可能漏字、多字或有塗改。抄錯會連帶影響下面的眉批與級分。</p>
-          <div className="space-y-1.5">
-            {lowCols.map((c) => (
-              <div key={`${c.page}-${c.col}`} className="flex items-start gap-2">
-                <span className="shrink-0 mt-1 text-[10px] text-rose-700 w-24">第 {c.page} 頁・第 {c.col} 行<br />稿紙 {c.inkCells} 字</span>
-                <input
-                  className="flex-1 rounded border border-rose-200 px-2 py-1 text-xs bg-white focus:border-rose-400 focus:outline-none"
-                  defaultValue={c.text}
-                  disabled={!editable}
-                  onBlur={(e) => { if (e.target.value !== c.text) patchColumn(c.page, c.col, e.target.value) }}
-                />
-              </div>
-            ))}
-          </div>
-        </section>
+      {/* ⛔ 舊的「請確認這幾行的抄本」已移除（2026-09-20 user 拍板）。
+          理由：①改抄本不會重跑眉批／級分 ②學生檢討單印原卷筆跡 ③實測 10 份卷每份都有低信心行、
+          提示 100% 亮起等於雜訊。真正要老師確認的是「疑似錯別字」，走頂欄的低信心 modal。
+          只有落差比例過高（>40%＝掃描歪掉／拍糊）才值得吵老師，提示改放在上方徽章。 */}
+      {badRatio > 0.4 && (
+        <div className="rounded border border-rose-200 bg-rose-50/60 px-2 py-1.5 text-[11px] text-rose-800 leading-relaxed">
+          這份有 {lowCols.length}/{writtenCols} 行的字數與稿紙格數對不上，落差偏大。
+          通常是掃描歪掉、拍糊或學生寫出格線——<b>建議先看一下原卷再採信級分與眉批</b>。
+        </div>
       )}
 
       {/* ── 四向度診斷 ── */}
