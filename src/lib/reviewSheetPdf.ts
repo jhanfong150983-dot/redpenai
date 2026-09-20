@@ -592,9 +592,15 @@ async function buildOverlayClassPdf(
         })
         for (const blob of pages) {
           const img = await pdf.embedJpg(await blob.arrayBuffer())
-          const sc = Math.min(A4.w / img.width, A4.h / img.height)
+          // ⭐ 2026-09-20 user 指正：作文稿紙是**橫式**（會考 B4 橫式、直書），
+          //   塞進直式 A4 會被縮到只剩中間一條、上下大片留白（實測放大率 0.31 vs 0.41）。
+          //   → 紙張方向跟著原卷走：影像寬>高就用橫式 A4。
+          const landscape = img.width > img.height
+          const pw = landscape ? A4.h : A4.w
+          const ph = landscape ? A4.w : A4.h
+          const sc = Math.min(pw / img.width, ph / img.height)
           const dw = img.width * sc, dh = img.height * sc
-          pdf.addPage([A4.w, A4.h]).drawImage(img, { x: (A4.w - dw) / 2, y: (A4.h - dh) / 2, width: dw, height: dh })
+          pdf.addPage([pw, ph]).drawImage(img, { x: (pw - dw) / 2, y: (ph - dh) / 2, width: dw, height: dh })
         }
         bmp.close()
         done++
