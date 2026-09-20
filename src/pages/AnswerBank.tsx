@@ -1181,7 +1181,11 @@ export default function AnswerBank(_props: AnswerBankProps) {
       </div>
       <div className="flex items-center gap-1.5 ml-3">
         {/* 答案卷存檔後即鎖定，這裡是「查看」而非編輯——用鉛筆會誤導 */}
-        {t.generatedSheet && (
+        {/* ⛔ 2026-09-21 自備作文卷不能顯示下載：它的 generatedSheet 只存格子幾何（cols/rows/cellMm），
+            稿紙是老師自己的、系統從來沒產生過 PDF（實測 storage 裡沒有 sheet.pdf）。
+            原本只判 `t.generatedSheet` truthy，按鈕會出現、點下去卻跳「找不到作答卷 PDF，請重新 AI 解析」——
+            對自備卷來說那句話是錯的，本來就不該有檔案。 */}
+        {t.generatedSheet && getSheetSource(t) !== 'essay_byo' && (
           <button type="button" onClick={() => void handleDownloadGeneratedSheet(t)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-green-300 hover:text-green-600" title="下載作答卷 PDF">
             <Download className="h-4 w-4" />
           </button>
