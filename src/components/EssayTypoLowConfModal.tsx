@@ -99,6 +99,15 @@ export function hasLegacyEssayTypos(entries: Array<{ submission: Submission }>):
 
 /** 錯詞前後各留 2 格當上下文——單獨看不出對錯 */
 const PAD_CELLS = 2
+/**
+ * 左右各外擴多少個「行寬」。
+ * ⭐ 批改時的裁圖**故意只含右側窄欄、不含左側**（插入字慣例寫在右側；含左側會把鄰行的
+ *    插入字誤收，害 AI 抄錯——見 essay-sheet.js 實驗0 的 5-10 事故）。
+ *    但複核畫面的取捨相反：老師用眼睛看，多看到鄰行只會幫助判斷、不會誤收，
+ *    而學生把字插在格線外時，只看本行就會「看不到他寫的字」（user 09-20 回報）。
+ *    所以這裡左右都外擴，並把目標行框出來避免混淆。
+ */
+const PAD_COLS = 0.9
 
 /** 把上下文依錯字切成片段，命中的標紅（孤立單字看不出對錯，要放回詞句裡看） */
 function splitContext(context: string, wrong: string): Array<{ s: string; hit: boolean }> {
@@ -154,9 +163,12 @@ function TypoCrop({ sub, r, getBmp }: { sub: Submission | undefined; r: Row; get
       const from = Math.max(0, r.row - 1 - PAD_CELLS)
       const to = r.crossCol ? r.rows : Math.min(r.rows, r.toRow + PAD_CELLS)
       if (to <= from) return
-      const sx = Math.max(0, Math.round(c.bbox.x * bmp.width))
+      const colX = c.bbox.x * bmp.width
+      const colW = c.bbox.w * bmp.width
+      const padX = colW * PAD_COLS
+      const sx = Math.max(0, Math.round(colX - padX))
       const sy = Math.max(0, Math.round((c.bbox.y + from * cellH) * bmp.height))
-      const sw = Math.min(bmp.width - sx, Math.round(c.bbox.w * bmp.width))
+      const sw = Math.min(bmp.width - sx, Math.round(colW + padX * 2))
       const sh = Math.min(bmp.height - sy, Math.round(cellH * (to - from) * bmp.height))
       if (sw <= 0 || sh <= 0) return
       const canvas = document.createElement('canvas')
@@ -166,6 +178,10 @@ function TypoCrop({ sub, r, getBmp }: { sub: Submission | undefined; r: Row; get
       const ctx = canvas.getContext('2d')
       if (!ctx) return
       ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, sw, sh)
+      // 外擴後要標出「哪一行才是這筆錯字所在」，否則老師會分不清鄰行
+      ctx.strokeStyle = 'rgba(37,99,235,0.85)'
+      ctx.lineWidth = Math.max(2, Math.round(colW * 0.03))
+      ctx.strokeRect(Math.round(colX - sx), 0, Math.round(colW), sh)
       canvas.toBlob((b) => {
         if (dead || !b) return
         made = URL.createObjectURL(b)
@@ -176,7 +192,7 @@ function TypoCrop({ sub, r, getBmp }: { sub: Submission | undefined; r: Row; get
     return () => { dead = true; if (made) URL.revokeObjectURL(made) }
   }, [sub, r, getBmp])
   return (
-    <div className="shrink-0 w-[86px] min-h-[200px] rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
+    <div className="shrink-0 w-[190px] min-h-[200px] rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
       {url ? <img src={url} alt={`${r.wrong} 的稿紙原圖`} className="max-h-[320px] object-contain" />
         : <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
     </div>
