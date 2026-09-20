@@ -86,6 +86,19 @@ export function hasLegacyEssayTypos(entries: Array<{ submission: Submission }>):
 /** 該格前後各 2 格——單獨一個字看不出上下文，很難判斷 */
 const PAD_CELLS = 2
 
+/** 把上下文依錯字切成片段，命中的標紅（孤立單字看不出對錯，要放回詞句裡看） */
+function splitContext(context: string, wrong: string): Array<{ s: string; hit: boolean }> {
+  if (!context) return []
+  if (!wrong || !context.includes(wrong)) return [{ s: context, hit: false }]
+  const out: Array<{ s: string; hit: boolean }> = []
+  for (const part of context.split(wrong)) {
+    out.push({ s: part, hit: false })
+    out.push({ s: wrong, hit: true })
+  }
+  out.pop()
+  return out.filter((x) => x.s !== '')
+}
+
 /** 每份卷的 ImageBitmap 只解一次（清單十幾筆、每筆重解 1900×2899 會很鈍） */
 function useBitmapCache() {
   const cache = useRef(new Map<string, Promise<ImageBitmap | null>>())
@@ -268,7 +281,25 @@ export default function EssayTypoLowConfModal({ entries, onClose, onUpdated }: P
                         <span className="text-[11px] text-gray-400 ml-1 leading-tight">學生寫的<br />→ 應該寫</span>
                       </div>
 
-                      <p className="text-xs text-gray-500 break-all mb-2">AI 抄到的上下文：{r.context}</p>
+                      {/* ⭐ user 指正：孤立一個字無法判斷對錯，**要有詞句才判斷得出來**。
+                          所以把上下文擺到主位：上排＝學生原文（錯字標紅）、下排＝套用訂正後的樣子。
+                          老師讀兩句話做比較，比盯著單一個字容易得多。 */}
+                      <div className="mb-2 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[15px] leading-relaxed">
+                        <div className="text-gray-800 break-all">
+                          {splitContext(r.context, r.wrong).map((seg, k) => (
+                            <span key={k} className={seg.hit ? 'text-red-600 font-bold underline decoration-red-400 decoration-2 underline-offset-2' : ''}>{seg.s}</span>
+                          ))}
+                          <span className="ml-2 text-[11px] text-gray-400">學生原文</span>
+                        </div>
+                        {e.verdict === 'typo' && e.wrong && e.correct && (
+                          <div className="text-emerald-800 break-all mt-1">
+                            {r.context.split(r.wrong).length > 1
+                              ? r.context.split(r.wrong).join(e.correct)   // 專案 TS target 沒有 replaceAll
+                              : `（上下文找不到「${r.wrong}」，訂正為：${e.correct}）`}
+                            <span className="ml-2 text-[11px] text-emerald-600/70">訂正後</span>
+                          </div>
+                        )}
+                      </div>
 
                       <div className="flex items-center gap-4 text-sm">
                         <label className="inline-flex items-center gap-1.5 cursor-pointer">
