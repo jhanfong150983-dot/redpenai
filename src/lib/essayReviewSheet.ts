@@ -17,7 +17,9 @@
 import type { EssayResult, EssayLoc } from '@/lib/db'
 
 const RED = '#d0021b'
-const FONT = '"Noto Sans TC","Microsoft JhengHei","PingFang TC","Heiti TC",sans-serif'
+// 老師批改用標楷體（台灣教育類慣例）。Windows＝DFKai-SB／標楷體、macOS＝BiauKai；
+//   都沒有才退到明體、最後黑體。⛔ 別只寫黑體——user 09-20 一眼就看出來不是標楷體。
+const FONT = '"DFKai-SB","標楷體","BiauKai","Kaiti TC","楷体","Noto Serif TC","PMingLiU",serif'
 const MAX_W = 2000
 /** 原稿淡化程度（蓋一層白的不透明度）：0＝不淡化、1＝全白 */
 const FADE = 0.45
@@ -34,6 +36,34 @@ export interface EssaySheetMeta {
 type Rect = { x: number; y: number; w: number; h: number }
 type Col = EssayResult['columns'][number]
 
+// ⭐ 直排標點：canvas 的 fillText 只會畫**橫排字形**，所以直書時位置全錯
+//   （user 09-20：「為什麼你的『 上引號會靠右，不是靠左?」）。真正的直排排版要：
+//   ・括號類（「」『』（）〔〕《》〈〉【】）與破折號、刪節號 → **轉 90 度**
+//   ・句逗類（。，、；：）→ 移到格子的**右上角**
+//   canvas 不會套用字型的 vert/vrt2 直排替代字符，只能自己處理。
+const ROTATE_PUNCT = new Set([...'「」『』（）〔〕《》〈〉【】〖〗—─－…‥～~'])
+const CORNER_PUNCT = new Set([...'。，、；：'])
+
+/** 畫一個直排字（依標點類別調整方向與位置） */
+function drawVChar(ctx: CanvasRenderingContext2D, ch: string, x: number, y: number, size: number) {
+  if (ROTATE_PUNCT.has(ch)) {
+    ctx.save()
+    ctx.translate(x, y + size / 2)
+    ctx.rotate(Math.PI / 2)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(ch, 0, 0)
+    ctx.restore()
+    return
+  }
+  if (CORNER_PUNCT.has(ch)) {
+    // 直書的句逗點靠格子右上；橫排字形本來畫在左下，往右上挪回去
+    ctx.fillText(ch, x + size * 0.26, y - size * 0.3)
+    return
+  }
+  ctx.fillText(ch, x, y)
+}
+
 /** 直書：一個字一個字往下畫，回傳實際用掉的高度 */
 function drawVertical(
   ctx: CanvasRenderingContext2D,
@@ -47,7 +77,7 @@ function drawVertical(
   let cy = y
   for (const ch of text) {
     if (cy + step > y + maxH) break
-    ctx.fillText(ch, x, cy)
+    drawVChar(ctx, ch, x, cy, size)
     cy += step
   }
   return cy - y
