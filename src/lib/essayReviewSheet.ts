@@ -2,9 +2,14 @@
 //
 // user 的四點要求：
 //   ①不要再多一頁（拿掉原本的「批改建議頁」）
-//   ②錯別字圈起來（原要求是打叉；09-20 改成圈——老師慣例、不遮筆跡、黑白列印也清楚），旁邊**直式**寫正字
-//   ③原句畫記（波浪線），**旁邊直接附上**「建議可以改成：…」
-//   ④總評放在**作文最後、學生沒寫的位置**，比照會考樣卷：白底方框、直式書寫
+//   ②錯別字圈起來（原要求是打叉；改成圈——老師慣例、不遮筆跡、黑白列印也清楚），旁邊**直式**寫正字
+//   ③原句畫波浪線標註＋①②③編號
+//   ④級分、總評、逐則建議**全部集中在文章最後的白底方框**（學生沒寫的空白直行）
+//
+// ⛔ 走過的彎路（實印驗證後推翻，不要再試）：
+//   ・建議文字寫在句子「旁邊」（左邊那一行）→ 紅字直接壓在學生的字上，兩邊都看不清
+//   ・級分放首頁右上角 → 會壓到第一行的字
+//   ・總評字級 0.6 行寬 → 大到有壓迫感，改 0.42
 //
 // ⛔ 只印老師確認後留下的：teacherVerdict==='ok' 的錯別字不印、被刪掉的眉批不印。
 // 位置全部來自 essayResult.columns[].bbox（批改時算好、合併圖 normalized）＋ loc 的格位，
@@ -16,6 +21,7 @@ const FONT = '"Noto Sans TC","Microsoft JhengHei","PingFang TC","Heiti TC",sans-
 const MAX_W = 2000
 /** 原稿淡化程度（蓋一層白的不透明度）：0＝不淡化、1＝全白 */
 const FADE = 0.45
+const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫']
 
 export interface EssaySheetMeta {
   title: string
@@ -186,31 +192,13 @@ async function renderPage(
         ctx.quadraticCurveTo(x - amp, y + (per * 3) / 4, x, y + per)
       }
       ctx.stroke()
-      void i
+      if (cc === fromCol) {
+        ctx.globalAlpha = 1
+        const size = Math.max(10, 13 * u)
+        ctx.font = `bold ${Math.round(size)}px ${FONT}`
+        ctx.fillText(CIRCLED[i] ?? `(${i + 1})`, x - size * 0.6, yA - size * 0.15)
+      }
     }
-  }
-
-  // 建議文字：寫在該句**左邊那一行**（直書的「旁邊」＝往左），與句子同高、直式、紅筆。
-  //   原稿已淡化，寫在學生字上仍讀得清楚——這就是老師在行間寫評語的樣子。
-  for (const s of fb?.sentenceFeedback ?? []) {
-    const loc = s.loc as EssayLoc | null
-    if (!loc) continue
-    const startCol = (loc.toCol ?? loc.col) + 1        // col 越大越左 → +1 就是左邊那一行
-    const anchor = colOf(essay, loc.page, loc.col)
-    const target = colOf(essay, loc.page, startCol) ?? anchor
-    if (!anchor?.bbox || !target?.bbox) continue
-    const startRow = loc.row ?? 1
-    const a0 = cellRect(anchor, rows, startRow)
-    if (!a0 || !inPage(a0.y + a0.h / 2)) continue
-    const colW = toX(target.bbox.x + target.bbox.w) - toX(target.bbox.x)
-    const size = Math.max(9, colW * 0.46)
-    const top = toY(a0.y)
-    const maxH = toY(anchor.bbox.y + anchor.bbox.h) - top
-    ctx.globalAlpha = 1
-    ctx.fillStyle = RED
-    ctx.textAlign = 'center'
-    ctx.font = `bold ${Math.round(size)}px ${FONT}`
-    drawVerticalBlock(ctx, s.suggestion, toX(target.bbox.x + target.bbox.w) - size * 0.7, top, size, maxH, size * 0.25)
   }
 
   // ── ③ 總評：寫在「學生沒寫的空白直行」，白底方框、直式（比照會考樣卷） ──
@@ -218,51 +206,56 @@ async function renderPage(
     const blanks = essay.columns
       .filter((c) => c.page === pageNo && !c.text && c.bbox)
       .sort((a, b) => a.col - b.col)     // col 越大越左；由右往左依序用
-    if (blanks.length) {
-      const first = blanks[0]
-      const bb = first.bbox!
+    const summary = meta.summary || fb?.summary || ''
+    const notes = (fb?.sentenceFeedback ?? []).map((x, i) => `${CIRCLED[i] ?? `(${i + 1})`}${x.suggestion}`)
+    if (blanks.length && (summary || notes.length)) {
+      const bb = blanks[0].bbox!
       const colW = toX(bb.x + bb.w) - toX(bb.x)
-      const topY = toY(bb.y) + 4 * u
-      const maxH = toY(bb.y + bb.h) - topY - 4 * u
-      const size = Math.max(10, colW * 0.6)
-      const gap = size * 0.4
+      const boxRight = toX(bb.x + bb.w)
       const leftLimit = toX(blanks[blanks.length - 1].bbox!.x)
+      const boxTop = toY(bb.y)
+      const boxH = toY(bb.y + bb.h) - boxTop
+      // ⭐ user：總評字太大 → 縮到 0.42 行寬（原 0.6）。字小了每行放得下更多，整體也不再擁擠。
+      const size = Math.max(8, colW * 0.42)
+      const gap = size * 0.3
+      const padding = size * 0.8
+      const textH = boxH - padding * 2
+      const perCol = Math.max(1, Math.floor(textH / (size * 1.08)))
 
+      // 級分也放進這個區塊（user：放在最後評語那邊，原本擺右上角會壓到學生的字）
+      const head = meta.level != null ? `${meta.level} 級分` : ''
+      const lines = [
+        ...(summary ? ['總評' + '　' + summary] : []),
+        ...notes,
+      ]
+      const needCols = lines.reduce((n, t) => n + Math.ceil(t.length / perCol), 0) + (head ? 1 : 0)
+      const boxLeft = Math.max(leftLimit, boxRight - (needCols * (size + gap) + padding * 2))
+
+      // 底白方框（user：附上底白的標註建議）
       ctx.globalAlpha = 1
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(boxLeft, boxTop, boxRight - boxLeft, boxH)
+      ctx.strokeStyle = RED
+      ctx.lineWidth = Math.max(1.2, 1.6 * u)
+      ctx.strokeRect(boxLeft, boxTop, boxRight - boxLeft, boxH)
+
+      ctx.fillStyle = RED
       ctx.textAlign = 'center'
-      // ⛔ user：空白處**只保留底白的綜合評語**，逐句建議已經寫在句子旁邊了
-      const summary = meta.summary || fb?.summary || ''
-      if (summary) {
-        // 方框寬度依評語長度算（一直行放得下幾個字 → 需要幾行），再夾在可用的空白範圍內
-        const boxTop = topY - 4 * u
-        const boxH = maxH + 8 * u
-        const perCol = Math.max(1, Math.floor((boxH - 12 * u) / (size * 1.08)))
-        const needCols = Math.ceil((summary.length + 3) / perCol)
-        const boxRight = toX(bb.x + bb.w)
-        const boxLeft = Math.max(leftLimit, boxRight - (needCols * (size + gap) + size))
-        ctx.fillStyle = 'rgba(255,255,255,0.95)'
-        ctx.fillRect(boxLeft, boxTop, boxRight - boxLeft, boxH)
-        ctx.strokeStyle = RED
-        ctx.lineWidth = Math.max(1.2, 1.6 * u)
-        ctx.strokeRect(boxLeft, boxTop, boxRight - boxLeft, boxH)
-        ctx.fillStyle = RED
-        ctx.font = `bold ${Math.round(size)}px ${FONT}`
-        // ⛔ 全形空白直接寫在樣板字串裡會觸發 no-irregular-whitespace → 用逸脫碼
-        const summaryText = '總評' + '　' + summary
-        drawVerticalBlock(ctx, summaryText, boxRight - size * 0.8, boxTop + 6 * u, size, boxH - 12 * u, gap)
+      let cx = boxRight - padding - size / 2
+      if (head) {
+        ctx.font = `bold ${Math.round(size * 1.45)}px ${FONT}`
+        drawVertical(ctx, head, cx, boxTop + padding, size * 1.45, textH)
+        cx -= size * 1.45 + gap
+      }
+      ctx.font = `${Math.round(size)}px ${FONT}`
+      for (const t of lines) {
+        if (cx - size < boxLeft) break
+        cx -= drawVerticalBlock(ctx, t, cx, boxTop + padding, size, textH, gap)
+        cx -= gap * 1.6                    // 段與段之間留白，才分得出哪一則是哪一則
       }
     }
   }
 
-  // ── 級分：首頁右上角 ──
-  if (pageNo === 1 && meta.level != null) {
-    ctx.globalAlpha = 1
-    ctx.fillStyle = RED
-    ctx.font = `bold ${Math.round(30 * u)}px ${FONT}`
-    ctx.textAlign = 'right'
-    ctx.textBaseline = 'top'
-    ctx.fillText(`${meta.level} 級分`, W - 14 * u, 12 * u)
-  }
   ctx.restore()
 
   return await new Promise<Blob>((resolve, reject) =>
