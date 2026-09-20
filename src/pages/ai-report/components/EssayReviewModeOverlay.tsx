@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Eye, EyeOff, X } from 'lucide-react'
 import type { EssayResult, GradingDetail, Submission } from '@/lib/db'
+import { studentVisibleSentences } from '@/lib/essayFeedbackFilter'
 
 type StudentLike = { id: string; seatNumber?: number | string | null; name?: string | null }
 type Props = {
@@ -46,7 +47,9 @@ export default function EssayReviewModeOverlay({ title, submissions, students, o
       n++
       const stu = stuById.get(sub.studentId)
       const who = stu ? `${stu.seatNumber ?? '?'}號 ${stu.name ?? ''}`.trim() : '某位同學'
-      for (const s of essay.feedback.sentenceFeedback) {
+      // ⛔ 老師判定「AI 抄錯」的字，引用到它的眉批整則不可信 → 不能拿來統計全班共同問題
+      //   （投影出來會變成「全班 8 人有這個問題」，但其中有些根本是 AI 看錯）
+      for (const s of studentVisibleSentences(essay)) {
         const term = s.rubricTerm || s.dimension
         const key = `${s.dimension}|${term}`
         const cur = map.get(key) ?? { key, dimension: s.dimension, term, count: 0, examples: [] }

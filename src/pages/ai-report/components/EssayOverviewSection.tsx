@@ -6,6 +6,7 @@
 // 純程式即時計算、零墨水（同一般卷）。
 import { useMemo } from 'react'
 import type { EssayResult, GradingDetail, Submission } from '@/lib/db'
+import { studentVisibleSentences } from '@/lib/essayFeedbackFilter'
 
 type Props = {
   submissions: Submission[]
@@ -49,7 +50,8 @@ export default function EssayOverviewSection({ submissions, maxLevel = 6 }: Prop
     const issue = new Map<string, { dimension: string; term: string; count: number }>()
     for (const { s, e } of papers) {
       const seen = new Set<string>()
-      for (const f of e.feedback?.sentenceFeedback ?? []) {
+      // 同檢討模式：引用到「被老師判定為 AI 抄錯」的眉批不計入全班統計
+      for (const f of studentVisibleSentences(e)) {
         const term = f.rubricTerm || f.dimension
         const key = `${f.dimension}|${term}`
         if (seen.has(key)) continue
