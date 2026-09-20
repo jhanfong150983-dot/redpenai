@@ -1109,7 +1109,7 @@ function PipelineStage({ index, label, sublabel, status }: PipelineStageProps) {
   )
 }
 
-export type GradingPipelineMode = 'phase_a_only' | 'phase_b_only' | 'both'
+export type GradingPipelineMode = 'phase_a_only' | 'phase_b_only' | 'both' | 'essay'
 
 export interface PipelineStageProgress {
   classify: { started: number; done: number; total: number }
@@ -1154,8 +1154,20 @@ const STAGE_LABELS: Record<OverlayStageName, string> = {
   accessor: '批改評分',
   explain: '生成引導',
 }
+// 2026-09-20 作文卷走完全不同的三段，沿用上面的名字會對不上實際在做的事
+//   （user：「classify 應該是純 code crop 每一行、read 是 AI 讀取每一行、accessor 是 AI 批改」——正是 server 的實作）。
+//   ⚠ 這三段在 server 是**同一次呼叫裡一氣呵成**的，client 看不到中間點，所以是「每批完一份、三格一起 +1」。
+//   要讓它們逐段亮起來，得把 server 端拆成兩次呼叫（裁行＋抄寫｜眉批＋級分）——另案。
+const ESSAY_STAGE_LABELS: Partial<Record<OverlayStageName, string>> = {
+  classify: '裁出每一行',
+  read: '逐行讀取',
+  arbiter: '眉批與評級',
+}
+const ESSAY_STAGE_ORDER: OverlayStageName[] = ['classify', 'read', 'arbiter']
 
 function isStageInMode(stage: OverlayStageName, mode: GradingPipelineMode): boolean {
+  // 作文卷沒有框位品質檢查（沒有逐題 bbox），Phase B 是零 AI 組裝、快到不必顯示
+  if (mode === 'essay') return ESSAY_STAGE_ORDER.includes(stage)
   if (mode === 'phase_a_only') return stage === 'classify' || stage === 'read' || stage === 'arbiter' || stage === 'quality'
   if (mode === 'phase_b_only') return stage === 'accessor'
   return true
@@ -1175,7 +1187,7 @@ function GradingPipelineOverlay({
   //   done     — done === total 且 total > 0（全部完成）
   //   active   — started > 0 但 done < total（至少一份在跑這個 stage）
   //   pending  — started === 0（還沒有 submission 跑到這個 stage）
-  const stages = STAGE_ORDER
+  const stages = (mode === 'essay' ? ESSAY_STAGE_ORDER : STAGE_ORDER)
     // quality 是動態階段：只有本次 run 真的做了框位品質檢查(started>0)才顯示這格；
     // 照片卷/小批量不做 peer 檢查時就不冒出這格(維持原本步驟數)。
     .filter((stage) => stage !== 'quality' || stageProgress.quality.started > 0)
@@ -1233,7 +1245,7 @@ function GradingPipelineOverlay({
             <PipelineStage
               key={s.stage}
               index={i + 1}
-              label={STAGE_LABELS[s.stage]}
+              label={(mode === 'essay' && ESSAY_STAGE_LABELS[s.stage]) || STAGE_LABELS[s.stage]}
               sublabel={s.sublabel}
               status={s.status}
             />
@@ -3296,6 +3308,9 @@ export default function GradingPage({
     //      判成失敗（09-20 實測：server log 明明 200＋眉批 4 則，畫面卻顯示成功 0 份／失敗 1 份）。
     const isEssayExam = !!(ANSWER_KEY as { essay?: unknown } | undefined)?.essay
     const essayPhaseABySub = new Map<string, PhaseAResult>()
+    // loading 疊層換成作文卷自己的三段（裁出每一行／逐行讀取／眉批與評級），
+    //   否則會顯示「版面掃描→讀取答案→仔細校對→品質檢查」這些作文根本不做的事。
+    if (isEssayExam) setPipelineMode('essay')
 
     // 2026-06-20: 主流程＝classify → 系統檢查(retry 只重跑漂移頁) → read1/read2 → read3(arbiter)。
     //   三段：先全部只跑 classify、用 peer baseline 抓框歪→只重跑該頁 classify 到對得上鄰卷→確認對了才跑 read。
