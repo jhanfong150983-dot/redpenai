@@ -601,7 +601,13 @@ async function buildOverlayClassPdf(
         onProgress?.('build', done, ordered.length)
         continue
       }
-      const breaks = Array.isArray(sub.pageBreaks) ? sub.pageBreaks.filter((b) => b > 0 && b < 1).sort((a, b) => a - b) : []
+      // ⛔ 2026-09-20：老師匯入的卷 **一律沒有 pageBreaks**（全庫 2942 份只有 21 份有，且全是學生自助上傳）。
+      //   沒有 fallback 的話 bounds=[0,1] → 多頁卷會把整張合併圖塞進一張 A4、頁碼也變成 1/1。
+      //   比照 GradingPage 2026-06-20 的作法：改用總頁數平均切（PDF 各頁高度通常一致、夠準）。
+      let breaks = Array.isArray(sub.pageBreaks) ? sub.pageBreaks.filter((b) => b > 0 && b < 1).sort((a, b) => a - b) : []
+      if (breaks.length === 0 && typeof assignment.totalPages === 'number' && assignment.totalPages > 1) {
+        breaks = Array.from({ length: assignment.totalPages - 1 }, (_, i) => (i + 1) / assignment.totalPages)
+      }
       const bounds = [0, ...breaks, 1]
       const who = `${stu.seatNumber}號 ${stu.name ?? ''}`
       for (let p = 0; p < bounds.length - 1; p++) {
