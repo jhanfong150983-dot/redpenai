@@ -15,6 +15,7 @@
 // 位置全部來自 essayResult.columns[].bbox（批改時算好、合併圖 normalized）＋ loc 的格位，
 // 前端不再對齊一次。純 canvas＋pdf-lib、零 server 呼叫。
 import type { EssayResult, EssayLoc } from '@/lib/db'
+import { studentVisibleSentences } from '@/lib/essayFeedbackFilter'
 
 const RED = '#d0021b'
 // 老師批改用標楷體（台灣教育類慣例）。Windows＝DFKai-SB／標楷體、macOS＝BiauKai；
@@ -190,7 +191,10 @@ async function renderPage(
   }
 
   // ── ② 眉批句子：沿該句畫波浪線，**建議直接寫在句子旁邊**（user：不要編號另列清單） ──
-  for (const [i, s] of (fb?.sentenceFeedback ?? []).entries()) {
+  // ⛔ 引用到「被老師判定為 AI 抄錯」的眉批不印給學生——那句原句他根本沒寫過。
+  //   卷面標註與後面的建議清單要用**同一份**，否則會出現「有標註卻沒有對應建議」。
+  const visible = studentVisibleSentences(essay)
+  for (const [i, s] of visible.entries()) {
     const loc = s.loc as EssayLoc | null
     if (!loc) continue
     const fromCol = loc.col
@@ -235,7 +239,7 @@ async function renderPage(
     const summary = meta.summary || fb?.summary || ''
     // ⭐ user：建議欄空間大，「問題」與「建議」分開寫，而且兩個標籤要**等高**。
     //   直書的「等高」＝各自從方框頂端起筆 → 必須拆成兩個 block（同一串文字接著寫就會錯開）。
-    const notes = (fb?.sentenceFeedback ?? []).map((x, i) => ({
+    const notes = visible.map((x, i) => ({
       problem: `${CIRCLED[i] ?? `(${i + 1})`}問題：${x.problem}`,
       suggestion: `建議：${x.suggestion}`,
     }))

@@ -8,6 +8,7 @@
 import { useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react'
 import type { EssayResult, EssayLoc } from '@/lib/db'
+import { dismissedTypoForms, isSentenceTainted } from '@/lib/essayFeedbackFilter'
 
 interface Props {
   value: EssayResult
@@ -27,6 +28,8 @@ const SEVERITY_CLASS: Record<string, string> = {
 export default function EssayReviewPanel({ value, onChange, readOnly = false }: Props) {
   const [showTranscript, setShowTranscript] = useState(false)
   const fb = value.feedback
+  // 老師判定「AI 抄錯」的字 → 引用到它的眉批整則不可信（原句學生沒寫過），不印給學生
+  const dismissed = dismissedTypoForms(value)
   const lowCols = value.columns.filter((c) => c.lowConfidence)
   const writtenCols = value.columns.filter((c) => c.text).length
   const badRatio = writtenCols > 0 ? lowCols.length / writtenCols : 0
@@ -109,16 +112,30 @@ export default function EssayReviewPanel({ value, onChange, readOnly = false }: 
       {/* ── 逐句眉批 ── */}
       {fb && fb.sentenceFeedback.length > 0 && (
         <section>
-          <div className="font-semibold text-gray-800 mb-1">逐句修改建議（{fb.sentenceFeedback.length} 則）</div>
+          <div className="font-semibold text-gray-800 mb-1">
+            逐句修改建議（{fb.sentenceFeedback.filter((s) => !isSentenceTainted(s, dismissed)).length} 則）
+            {dismissed.length > 0 && fb.sentenceFeedback.some((s) => isSentenceTainted(s, dismissed)) && (
+              <span className="ml-2 text-[11px] font-normal text-gray-500">
+                另有 {fb.sentenceFeedback.filter((s) => isSentenceTainted(s, dismissed)).length} 則引用了你判定為抄錯的字，已排除
+              </span>
+            )}
+          </div>
           <div className="space-y-1.5">
-            {fb.sentenceFeedback.map((s, i) => (
-              <div key={i} className="rounded border-l-4 border-amber-300 bg-amber-50/50 px-2 py-1.5">
+            {fb.sentenceFeedback.map((s, i) => {
+              const tainted = isSentenceTainted(s, dismissed)
+              return (
+              <div key={i} className={`rounded border-l-4 px-2 py-1.5 ${tainted ? 'border-gray-300 bg-gray-50 opacity-60' : 'border-amber-300 bg-amber-50/50'}`}>
                 <div className="flex items-start justify-between gap-2">
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500 text-white shrink-0">
                     {s.dimension}{s.rubricTerm ? `・${s.rubricTerm}` : ''}
                   </span>
                   <span className="text-[10px] text-gray-500 flex-1">{locText(s.loc)}</span>
-                  {!s.quoteVerified && (
+                  {tainted && (
+                    <span className="text-[10px] text-gray-600 shrink-0" title="這則引用了被你判定為「AI 抄錯」的字，原句學生沒寫過 → 不印到檢討單">
+                      已排除（引用抄錯的字）
+                    </span>
+                  )}
+                  {!tainted && !s.quoteVerified && (
                     <span className="text-[10px] text-rose-600 shrink-0" title="這句話在抄本裡找不到，可能是 AI 記錯">引用對不上</span>
                   )}
                   {editable && (
@@ -132,7 +149,8 @@ export default function EssayReviewPanel({ value, onChange, readOnly = false }: 
                 <div className="text-emerald-800 font-medium">建議：{s.suggestion}</div>
                 {s.why && <div className="text-[11px] text-gray-500">為什麼：{s.why}</div>}
               </div>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}
