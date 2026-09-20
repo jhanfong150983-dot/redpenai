@@ -3290,6 +3290,13 @@ export default function GradingPage({
       } as unknown as BatchPhaseAEntry
     }
 
+    // 2026-09-20 作文卷：server 端 Phase A 是「一次跑完」（裁行→抄寫→眉批→級分），
+    //   既沒有 classify context，也不需要 read/arbiter、更不該做跨卷統一框。
+    //   ⛔ 沒有這個分支的話，STAGE 1 會因為拿不到 _phaseAClassifyContext 而把「其實已經批好的卷」
+    //      判成失敗（09-20 實測：server log 明明 200＋眉批 4 則，畫面卻顯示成功 0 份／失敗 1 份）。
+    const isEssayExam = !!(ANSWER_KEY as { essay?: unknown } | undefined)?.essay
+    const essayPhaseABySub = new Map<string, PhaseAResult>()
+
     // 2026-06-20: 主流程＝classify → 系統檢查(retry 只重跑漂移頁) → read1/read2 → read3(arbiter)。
     //   三段：先全部只跑 classify、用 peer baseline 抓框歪→只重跑該頁 classify 到對得上鄰卷→確認對了才跑 read。
     //   好處：漂移卷的 read+arbiter 絕不在歪 bbox 上白跑（連第一輪都不浪費）。
@@ -3344,6 +3351,12 @@ export default function GradingPage({
           (stage, event) => bumpStage(stage, event), { stopAfterClassify: true, clearForRerun: true }
         )
         if (r.pipelineFailure) { await markClassifyFail(sub, safeFailMsg(r.pipelineFailure), r.pipelineFailure); return null }
+        // 作文卷：這一趟就已經把 Phase A 全部做完（phaseAComplete）→ 收下結果、跳過 read/arbiter
+        if (isEssayExam && (r as unknown as { phaseAComplete?: boolean }).phaseAComplete) {
+          essayPhaseABySub.set(sub.id, r)
+          okSubs.push(sub)
+          return r
+        }
         const ctx = (r as unknown as { _phaseAClassifyContext?: unknown })._phaseAClassifyContext
         if (!ctx) { await markClassifyFail(sub, 'classify 無回傳內容、請重試'); return null }
         classifyCtxBySub.set(sub.id, ctx)
@@ -3495,7 +3508,7 @@ export default function GradingPage({
 
     // ── STAGE 2：系統檢查（peer baseline 抓框歪）+ 只重跑漂移頁 classify 到對得上鄰卷 ──
     // pdfBoxApplied=true(PDF 抽樣已套統一框)→ 整段跳過。perSheetRegistration（疊合免 classify）→ 各卷已各自貼齊格線、不做跨卷統一框。
-    if (!pdfBoxApplied && !perSheetRegistration) {
+    if (!pdfBoxApplied && !perSheetRegistration && !isEssayExam) {
       // 2026-06-22: 混批拆子集——統一框只對 PDF 子集(teacher_scan)生效；混批時 PDF 卷仍拿回漂移修正、照片不碰。
       const pdfOkSubs = okSubs.filter((s) => s.source === 'teacher_scan')
       const photoOkSubs = okSubs.filter((s) => s.source !== 'teacher_scan')
@@ -3725,7 +3738,7 @@ export default function GradingPage({
             (stage, event) => { if (stage !== 'classify') bumpStage(stage, event) },
             { resumeClassifyContext: classifyCtxBySub.get(sub.id) }
           )
-          const phaseAResult = await runReadArbiter()
+          const phaseAResult = essayPhaseABySub.get(sub.id) ?? await runReadArbiter()
           if (phaseAResult.pipelineFailure) {
             const stu = students.find((s) => s.id === sub.studentId)
             const label = stu ? `${stu.seatNumber}號 ${stu.name}` : sub.id.slice(-8)
