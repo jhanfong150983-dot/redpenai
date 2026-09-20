@@ -36,6 +36,8 @@ type Row = {
   row: number
   /** 錯詞的結束格（AI 改以「詞」為單位後，一筆可能橫跨好幾格） */
   toRow: number
+  /** 錯詞跨到下一直行（toCol ≠ col）——此時 toRow 屬於**另一行**，不可拿來算本行的裁切範圍 */
+  crossCol: boolean
   rows: number
   /** 老師已經處理過的結果（沿用一般卷的原則：低信心永遠保留、只標示已處理） */
   savedVerdict?: 'typo' | 'ok'
@@ -78,6 +80,7 @@ export function buildEssayTypoRows(entries: Array<{ submission: Submission; stud
         col: t.loc.col,
         row: t.loc.row,
         toRow: t.loc.toRow ?? t.loc.row,
+        crossCol: (t.loc.toCol ?? t.loc.col) !== t.loc.col,
         rows: info?.essay.rows ?? 22,
         savedVerdict: t.teacherVerdict,
         aiWrong: t.aiOriginal?.wrong ?? t.wrong,
@@ -144,9 +147,13 @@ function TypoCrop({ sub, r, getBmp }: { sub: Submission | undefined; r: Row; get
       if (!c?.bbox) return
       // ⛔ 要涵蓋**整個錯詞**（row~toRow），不能只裁起始格：AI 改以詞為單位後
       //   四字詞只裁「起始格±2」會把尾巴切掉（2026-09-20 實際發生：「寸手不離」只看得到「寸手不」）
+      // ⛔ 錯詞跨行時 toRow 屬於**下一行**，拿來算本行範圍會得到負值 → 裁出空白
+      //   （2026-09-20 實測 8號「演一出」：row=20、toRow=1 → 裁 18~3 格＝空的）
+      //   跨行就一路裁到本行底部，剩下的由下方「學生原文／訂正後」那兩行字補足。
       const cellH = c.bbox.h / Math.max(1, r.rows)
       const from = Math.max(0, r.row - 1 - PAD_CELLS)
-      const to = Math.min(r.rows, r.toRow + PAD_CELLS)
+      const to = r.crossCol ? r.rows : Math.min(r.rows, r.toRow + PAD_CELLS)
+      if (to <= from) return
       const sx = Math.max(0, Math.round(c.bbox.x * bmp.width))
       const sy = Math.max(0, Math.round((c.bbox.y + from * cellH) * bmp.height))
       const sw = Math.min(bmp.width - sx, Math.round(c.bbox.w * bmp.width))
@@ -289,6 +296,11 @@ export default function EssayTypoLowConfModal({ entries, onClose, onUpdated }: P
                           </span>
                         )}
                         {changed && <span className="ml-2 px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">未儲存的修改</span>}
+                        {r.crossCol && (
+                          <span className="ml-2 text-[10px] text-amber-700" title="這個詞從這一行的結尾跨到下一行開頭，裁圖只顯示前半段">
+                            （跨行，接續第 {r.col + 1} 行）
+                          </span>
+                        )}
                         {(r.wrong !== r.aiWrong || r.correct !== r.aiCorrect) && (
                           <span className="ml-2 text-[10px] text-gray-400">AI 原判：{r.aiWrong}→{r.aiCorrect}</span>
                         )}
