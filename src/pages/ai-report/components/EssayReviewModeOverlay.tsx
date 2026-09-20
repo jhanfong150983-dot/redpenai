@@ -108,44 +108,49 @@ export default function EssayReviewModeOverlay({ title, submissions, students, o
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-6xl mx-auto px-6 py-6">
+          <div className="max-w-[1600px] mx-auto px-8 py-6">
             {/* 這一項共同問題 */}
-            <div className="flex items-baseline gap-3 mb-1">
-              <span className="text-sm px-2 py-0.5 rounded bg-amber-500 text-white">{cur.dimension}</span>
-              <h2 className="text-3xl font-bold">{cur.term}</h2>
-              <span className="text-2xl text-amber-300 font-semibold">{cur.count} 人</span>
-              <span className="text-sm text-slate-400">（第 {idx + 1} / {issues.length} 項）</span>
+            <div className="flex items-baseline flex-wrap gap-x-4 gap-y-1 mb-2">
+              <span className="text-lg font-bold px-3 py-1 rounded bg-amber-500 text-white">{cur.dimension}</span>
+              <h2 className="text-5xl font-bold">{cur.term}</h2>
+              <span className="text-4xl text-amber-300 font-bold">{cur.count} 人</span>
+              <span className="text-lg text-slate-300">（第 {idx + 1} / {issues.length} 項）</span>
             </div>
-            <div className="h-1 rounded bg-slate-700 mb-6">
+            <div className="h-1.5 rounded bg-slate-700 mb-6">
               <div className="h-1 rounded bg-amber-400" style={{ width: `${graded ? Math.min(100, (cur.count / graded) * 100) : 0}%` }} />
             </div>
 
-            {/* 同學的句子 → 改寫 */}
-            <div className="space-y-4">
+            {/* 同學的句子 → 改寫
+                ⛔ 這是投影給全班看的，不是螢幕前一個人看的：
+                  ①內容一律白底近黑字（深底＋灰字投出去會糊成一片，教室有環境光更糟）
+                  ②字級照「教室最後一排看得到」抓，不照桌機習慣
+                一般考卷的檢討模式之所以深底沒問題，是因為它的內容是白底的卷面圖片；
+                作文是純文字，直接沿用深底就會變成現在這樣。 */}
+            <div className="space-y-5">
               {cur.examples.map((ex, i) => (
-                <div key={i} className="rounded-xl border border-slate-700 bg-slate-800/60 p-4">
-                  <div className="text-xs text-slate-400 mb-2">{named ? ex.who : `同學 ${String.fromCharCode(65 + i)}`}</div>
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div key={i} className="rounded-xl bg-white text-slate-900 p-6 shadow-lg">
+                  <div className="text-base font-semibold text-slate-500 mb-3">{named ? ex.who : `同學 ${String.fromCharCode(65 + i)}`}</div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div>
-                      <div className="text-xs text-slate-400 mb-1">原句</div>
-                      <p className="text-lg leading-relaxed text-slate-200">{ex.quote}</p>
+                      <div className="text-base font-bold text-slate-500 mb-1.5">原句</div>
+                      <p className="text-3xl leading-relaxed text-slate-900">{ex.quote}</p>
                     </div>
                     <div>
-                      <div className="text-xs text-emerald-400 mb-1">可以改成</div>
-                      <p className="text-lg leading-relaxed text-emerald-200">{ex.suggestion}</p>
+                      <div className="text-base font-bold text-emerald-700 mb-1.5">可以改成</div>
+                      <p className="text-3xl leading-relaxed text-emerald-800 font-medium">{ex.suggestion}</p>
                     </div>
                   </div>
-                  <p className="mt-3 text-sm text-slate-400">{ex.problem}</p>
+                  <p className="mt-4 pt-3 border-t border-slate-200 text-xl leading-relaxed text-slate-600">{ex.problem}</p>
                 </div>
               ))}
             </div>
 
             {/* 正面例子 */}
             {goodOne && (
-              <div className="mt-6 rounded-xl border border-emerald-700/60 bg-emerald-900/20 p-4">
-                <div className="text-xs text-emerald-300 mb-1">寫得好的例子（{named ? goodOne.who : '班上同學'}）</div>
-                <p className="text-lg text-emerald-100">{goodOne.quote}</p>
-                <p className="mt-1 text-sm text-emerald-300/80">{goodOne.problem}</p>
+              <div className="mt-6 rounded-xl border-4 border-emerald-500 bg-emerald-50 text-emerald-950 p-6 shadow-lg">
+                <div className="text-base font-bold text-emerald-700 mb-1.5">寫得好的例子（{named ? goodOne.who : '班上同學'}）</div>
+                <p className="text-3xl leading-relaxed">{goodOne.quote}</p>
+                <p className="mt-3 text-xl text-emerald-800">{goodOne.problem}</p>
               </div>
             )}
           </div>

@@ -22,6 +22,7 @@ import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
 import ReviewModeOverlay from './ai-report/components/ReviewModeOverlay'
 import EssayReviewModeOverlay from './ai-report/components/EssayReviewModeOverlay'
 import EssayOverviewSection from './ai-report/components/EssayOverviewSection'
+import { withoutEssayAssignments } from '@/lib/essay-assignment'
 
 // 跨班比較（exam-compare 端點的匿名彙總；classCount 之外無任何來源資訊）
 export type CrossCompare = {
@@ -562,11 +563,12 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
 
   const classAssignments = useMemo(() => {
     if (!syncData) return []
-    if (!selectedClassroomId) return syncData.assignments
-    return syncData.assignments.filter(
-      (assignment) => assignment.classroomId === selectedClassroomId
-    )
-  }, [syncData, selectedClassroomId])
+    // 2026-09-21 作文卷不進「後續追蹤／家長報告」（那兩處建立在逐題對錯＋配分＋知識點上，作文整卷一題、分數是級分）。
+    // ⛔ 檢討考卷（variant='exam'）要保留——檢討單／檢討模式／作文總覽都是為作文做的分支。
+    const base = (isTrack || isParent) ? withoutEssayAssignments(syncData.assignments) : syncData.assignments
+    if (!selectedClassroomId) return base
+    return base.filter((assignment) => assignment.classroomId === selectedClassroomId)
+  }, [syncData, selectedClassroomId, isTrack, isParent])
 
   const classAssignmentIds = useMemo(
     () => new Set(classAssignments.map((assignment) => assignment.id)),

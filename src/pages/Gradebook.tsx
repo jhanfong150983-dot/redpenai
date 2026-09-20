@@ -10,6 +10,7 @@ import { ensureSubmissionDetails } from '@/lib/submission-details'
 import { withoutSchoolExamClassrooms, onlySchoolExamClassrooms } from '@/lib/school-exam'
 import { sortClassroomsByName } from '@/lib/classroom-order'
 import { withoutArchivedClassrooms, onlyArchivedClassrooms } from '@/lib/classroom-archive'
+import { withoutEssayAssignments } from '@/lib/essay-assignment'
 import { ClassroomSelectOptions } from '@/components/ClassroomSelectOptions'
 import type {
   Assignment,
@@ -310,7 +311,11 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
             .toArray()
         ])
 
-        const sortedAssignments = [...asgs].sort((a, b) => a.title.localeCompare(b.title))
+        // 2026-09-21 作文卷不進成績統計：整卷一題、分數是 0~6 級分不是百分比，
+        //   被「依滿分折算／權重加總」當一般考卷算會得到沒有意義的數字。
+        //   ⛔ 要在**載入時**就濾掉，不能只濾顯示——否則權重 seeding 仍會分給作文一份權重，
+        //     畫面上卻看不到那一欄，加總就永遠湊不到 100%。
+        const sortedAssignments = withoutEssayAssignments([...asgs]).sort((a, b) => a.title.localeCompare(b.title))
         const sortedStudents = [...stus].sort((a, b) => (a.seatNumber ?? 99999) - (b.seatNumber ?? 99999))
 
         const sortedColumns = [...columnRows]
@@ -427,6 +432,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
     [assignmentFolders]
   )
 
+  // assignments 在載入時已經濾掉作文卷（見上面 sortedAssignments），這裡不必再濾
   const allScoredAssignments = useMemo(
     () => assignments.filter((a) => a.scoringMode !== 'unscored'),
     [assignments]
