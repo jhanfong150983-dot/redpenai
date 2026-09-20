@@ -39,10 +39,11 @@ type Col = EssayResult['columns'][number]
 // ⭐ 直排標點：canvas 的 fillText 只會畫**橫排字形**，所以直書時位置全錯
 //   （user 09-20：「為什麼你的『 上引號會靠右，不是靠左?」）。真正的直排排版要：
 //   ・括號類（「」『』（）〔〕《》〈〉【】）與破折號、刪節號 → **轉 90 度**
-//   ・句逗類（。，、；：）→ 移到格子的**右上角**
-//   canvas 不會套用字型的 vert/vrt2 直排替代字符，只能自己處理。
+//   ⛔ 但**句逗類（。，、；：）不要自己移位**：真正的直排排版它們在格子右上，
+//     那是因為字型有專門的直排字形；拿橫排字形硬移，反而變成飄在角落、看起來歪掉
+//     （user 09-20 實印回報）。維持置中、交給字型原樣呈現。
+//   canvas 不會套用字型的 vert/vrt2 直排替代字符，只能自己處理需要旋轉的那幾個。
 const ROTATE_PUNCT = new Set([...'「」『』（）〔〕《》〈〉【】〖〗—─－…‥～~'])
-const CORNER_PUNCT = new Set([...'。，、；：'])
 
 /** 畫一個直排字（依標點類別調整方向與位置） */
 function drawVChar(ctx: CanvasRenderingContext2D, ch: string, x: number, y: number, size: number) {
@@ -54,11 +55,6 @@ function drawVChar(ctx: CanvasRenderingContext2D, ch: string, x: number, y: numb
     ctx.textBaseline = 'middle'
     ctx.fillText(ch, 0, 0)
     ctx.restore()
-    return
-  }
-  if (CORNER_PUNCT.has(ch)) {
-    // 直書的句逗點靠格子右上；橫排字形本來畫在左下，往右上挪回去
-    ctx.fillText(ch, x + size * 0.26, y - size * 0.3)
     return
   }
   ctx.fillText(ch, x, y)
