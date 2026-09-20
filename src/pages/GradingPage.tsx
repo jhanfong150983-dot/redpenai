@@ -3352,7 +3352,11 @@ export default function GradingPage({
         )
         if (r.pipelineFailure) { await markClassifyFail(sub, safeFailMsg(r.pipelineFailure), r.pipelineFailure); return null }
         // 作文卷：這一趟就已經把 Phase A 全部做完（phaseAComplete）→ 收下結果、跳過 read/arbiter
-        if (isEssayExam && (r as unknown as { phaseAComplete?: boolean }).phaseAComplete) {
+        // ⛔ 不要再加 isEssayExam 條件：那是看本機答案卷副本有沒有 essay 欄位，本機副本可能落後／被瘦身，
+        //    判成 false 就會把「server 明明已經批好的卷」丟進下面的 ctx 檢查、報「classify 無回傳內容」
+        //    （09-20 實測：server 回 phaseAComplete，畫面卻顯示失敗）。
+        //    server 說 Phase A 完成了就是完成了——這本來就是 gradePhaseA「舊版相容：server 一次跑完」的契約。
+        if ((r as unknown as { phaseAComplete?: boolean }).phaseAComplete) {
           essayPhaseABySub.set(sub.id, r)
           okSubs.push(sub)
           return r
@@ -3508,7 +3512,8 @@ export default function GradingPage({
 
     // ── STAGE 2：系統檢查（peer baseline 抓框歪）+ 只重跑漂移頁 classify 到對得上鄰卷 ──
     // pdfBoxApplied=true(PDF 抽樣已套統一框)→ 整段跳過。perSheetRegistration（疊合免 classify）→ 各卷已各自貼齊格線、不做跨卷統一框。
-    if (!pdfBoxApplied && !perSheetRegistration && !isEssayExam) {
+    // essayPhaseABySub 非空＝本批有「server 一次跑完」的卷（作文）→ 沒有逐題 bbox，不做跨卷統一框
+    if (!pdfBoxApplied && !perSheetRegistration && !isEssayExam && essayPhaseABySub.size === 0) {
       // 2026-06-22: 混批拆子集——統一框只對 PDF 子集(teacher_scan)生效；混批時 PDF 卷仍拿回漂移修正、照片不碰。
       const pdfOkSubs = okSubs.filter((s) => s.source === 'teacher_scan')
       const photoOkSubs = okSubs.filter((s) => s.source !== 'teacher_scan')
