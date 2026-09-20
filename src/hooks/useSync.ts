@@ -1041,7 +1041,9 @@ export function useSync(options: UseSyncOptions = {}) {
           // 2026-08-03 sync 瘦身:這三個大 JSONB 已不由 sync 帶下來,
           //   本機是 on-demand 補齊的快取,合併時必須原樣保留(含補齊時間戳,否則會每次都重抓)
           detailsFetchedAt: sub.detailsFetchedAt,
-          gradingClearedAt: sub.gradingClearedAt
+          gradingClearedAt: sub.gradingClearedAt,
+          // 2026-09-20 合併圖的真實頁界：匯入時算好存在本機，server 可能還沒有 → 合併時要兜底
+          pageBreaks: sub.pageBreaks
         }
       ])
     )
@@ -1280,6 +1282,15 @@ export function useSync(options: UseSyncOptions = {}) {
             (sub as { thumbnail_url?: string }).thumbnail_url ??
             local?.thumbnailUrl,
           updatedAt: toMillis(sub.updatedAt ?? (sub as { updated_at?: unknown }).updated_at) || undefined,
+          // ⛔ 2026-09-20：這個物件是「整個重建」的，漏掉哪個欄位＝每次同步就把本機那份洗掉。
+          //   pageBreaks（合併圖的真實頁界）原本沒列進來 → 匯入算好、一同步就沒了。
+          //   server 也一直是 null（client 上傳沒送，見 /api/data/submission 的 pageBreaks），
+          //   於是「本機有、server 沒有」的值被 null 蓋掉。**server 優先、本機兜底，絕不主動抹掉**。
+          //   作文卷靠它切正反面；一般卷是 GradingPage 的多頁 fallback 依據。
+          pageBreaks:
+            (sub as Submission & { pageBreaks?: number[] }).pageBreaks
+            ?? (sub as { page_breaks?: number[] }).page_breaks
+            ?? local?.pageBreaks,
           phaseAState,
           finalAnswers
         }
