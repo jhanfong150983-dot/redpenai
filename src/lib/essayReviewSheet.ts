@@ -228,7 +228,15 @@ export async function buildEssayReviewPages(
     return c?.bbox ? { bbox: c.bbox, correct: t.correct } : null
   }).filter((x): x is { bbox: { x: number; y: number; w: number; h: number }; correct: string } => !!x)
 
-  const breaks = (pageBreaks ?? []).filter((b) => b > 0 && b < 1).sort((a, b) => a - b)
+  // ⛔ 2026-09-20：老師匯入的卷一律沒有 pageBreaks（全庫只有 0.7% 有）。沒有 fallback 的話
+  //   bounds=[0,1] → 兩頁作文會被壓成一張、紅筆註記的位置也全錯。
+  //   頁數不從題號反推（見 feedback_dont_infer_total_pages_from_question_ids），
+  //   改用批改當下就記在 essayResult.columns[].page 的頁碼——那是最可靠的來源。
+  let breaks = (pageBreaks ?? []).filter((b) => b > 0 && b < 1).sort((a, b) => a - b)
+  if (breaks.length === 0) {
+    const pageCount = Math.max(1, ...essay.columns.map((c) => c.page || 1))
+    if (pageCount > 1) breaks = Array.from({ length: pageCount - 1 }, (_, i) => (i + 1) / pageCount)
+  }
   const bounds = [0, ...breaks, 1]
   const pages: Blob[] = []
   for (let p = 0; p < bounds.length - 1; p++) {
