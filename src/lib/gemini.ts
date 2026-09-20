@@ -6312,7 +6312,11 @@ export async function gradePhaseA(
       return classifyParsed as PhaseAResult
     }
     if (!r1.resp.ok && !classifyParsed) {
-      throw new Error((r1.data as any)?.error || `Phase A classify failed: ${r1.resp.status}`)
+      // server 的 500 會把真正的根因放在 technical（外層 error 一律是「Failed to fetch Gemini API」）。
+      //   只留外層＝老師與我們都只看到一句廢話（2026-09-20 作文實測就是這樣，查 DB 才知道真因）。
+      const d = r1.data as { error?: string; technical?: unknown }
+      const tech = typeof d?.technical === 'string' ? d.technical : ''
+      throw new Error([d?.error || `Phase A classify failed: ${r1.resp.status}`, tech].filter(Boolean).join('：'))
     }
   }
   // 舊版相容：server 一次跑完

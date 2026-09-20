@@ -714,6 +714,12 @@ export default function UnifiedImportPage({
           `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name}（${fileSizeMB}MB）`,
         )
         const blobs = await convertPdfToImages(file, {
+          // ⛔ 2026-09-20 作文卷必須提高 PDF 轉圖解析度。convertPdfToImages 預設 maxWidth=1900，
+          //   B4 稿紙 23 行 × 10mm 格 → 每格只剩 46px，遠低於實驗定出的 **63px/格 下限**
+          //   （低於下限 AI 會把學生的別字悄悄改成正字，而且印刷格線會糊到偵測不到）。
+          //   實測 user 第一批卷就是 1684px/頁 → 格線只抓到 14/23 行、被守門擋下。
+          //   2800px＝77px/格（所有已驗證實驗用的解析度）；hardMinWidth 2300＝63px/格 的底線。
+          ...(isEssay ? { maxWidth: 2800, minWidth: 2800, hardMinWidth: 2300, quality: 0.85 } : {}),
           onProgress: (current, total) => {
             setBatchProgress(
               `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name} — 第 ${current}/${total} 頁`,
@@ -738,7 +744,7 @@ export default function UnifiedImportPage({
       setIsBatchProcessing(false)
       setBatchProgress('')
     }
-  }, [])
+  }, [isEssay])
 
   // 2026-08-29 座號辨識模式：轉圖後逐頁跑劃卡辨識（純 code），開確認畫面
   const convertPdfsAndRecognize = useCallback(async (fileArray: File[]) => {
@@ -750,6 +756,12 @@ export default function UnifiedImportPage({
       for (let fi = 0; fi < fileArray.length; fi++) {
         const file = fileArray[fi]
         const blobs = await convertPdfToImages(file, {
+          // ⛔ 2026-09-20 作文卷必須提高 PDF 轉圖解析度。convertPdfToImages 預設 maxWidth=1900，
+          //   B4 稿紙 23 行 × 10mm 格 → 每格只剩 46px，遠低於實驗定出的 **63px/格 下限**
+          //   （低於下限 AI 會把學生的別字悄悄改成正字，而且印刷格線會糊到偵測不到）。
+          //   實測 user 第一批卷就是 1684px/頁 → 格線只抓到 14/23 行、被守門擋下。
+          //   2800px＝77px/格（所有已驗證實驗用的解析度）；hardMinWidth 2300＝63px/格 的底線。
+          ...(isEssay ? { maxWidth: 2800, minWidth: 2800, hardMinWidth: 2300, quality: 0.85 } : {}),
           onProgress: (current, total) => {
             setBatchProgress(
               `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name} — 第 ${current}/${total} 頁`,
