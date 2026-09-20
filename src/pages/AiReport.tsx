@@ -21,6 +21,7 @@ import KpBackfillCard from './ai-report/components/KpBackfillCard'
 import { downloadClassReviewSheetPdf } from '@/lib/reviewSheetPdf'
 import ReviewModeOverlay from './ai-report/components/ReviewModeOverlay'
 import EssayReviewModeOverlay from './ai-report/components/EssayReviewModeOverlay'
+import EssayOverviewSection from './ai-report/components/EssayOverviewSection'
 
 // 跨班比較（exam-compare 端點的匿名彙總；classCount 之外無任何來源資訊）
 export type CrossCompare = {
@@ -538,6 +539,14 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
         && s.source !== 'student_correction'
     ),
     [localSubmissions, selectedAssignmentId]
+  )
+
+  // 這份考卷是不是作文卷——檢討模式與考卷總覽都要分支（一般卷那兩支套在作文上全是無意義的數字）
+  const isEssayAssignmentReport = useMemo(
+    () => itemAnalysisSubmissions.some((s) =>
+      ((s.gradingResult as { details?: Array<{ essayResult?: unknown }> } | undefined)?.details ?? [])
+        .some((d) => d?.essayResult)),
+    [itemAnalysisSubmissions]
   )
 
   useEffect(() => {
@@ -1264,7 +1273,7 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
           {/* 2026-07-16 考試總覽（原考卷總覽）：純程式即時、零墨水。
               2026-08-12 user 拍板:檢討單下載從訂正頁移植到這裡（檢討課情境的第一步） */}
           {/* 2026-09-19 作文卷：檢討模式改走「向度＋規準用語聚合」版（⛔不用級分分類，user 拍板） */}
-          {showReviewMode && itemAnalysisSubmissions.some((s) => ((s.gradingResult as { details?: Array<{ essayResult?: unknown }> } | undefined)?.details ?? []).some((d) => d?.essayResult)) ? (
+          {showReviewMode && isEssayAssignmentReport ? (
             <EssayReviewModeOverlay
               title={assignmentById.get(selectedAssignmentId)?.title ?? ''}
               submissions={itemAnalysisSubmissions}
@@ -1292,7 +1301,11 @@ const [domainDiagnoses, setDomainDiagnoses] = useState<
                       {reviewActionButtons}
                     </div>
                   )}
-                  {itemAnalysisSubmissions.length >= 3 ? (
+                  {/* 作文卷：一般卷的總覽（依滿分折算、失分最多的題、對／錯）套上去全是無意義的數字
+                      → 另走 EssayOverviewSection（級分分布、四向度、全班共同問題）。user 09-20 指定。 */}
+                  {itemAnalysisSubmissions.length >= 3 && isEssayAssignmentReport ? (
+                    <EssayOverviewSection submissions={itemAnalysisSubmissions as unknown as Submission[]} />
+                  ) : itemAnalysisSubmissions.length >= 3 ? (
                     <AssignmentOverviewSection
                       questions={itemAnalysisQuestions}
                       submissions={itemAnalysisSubmissions}
