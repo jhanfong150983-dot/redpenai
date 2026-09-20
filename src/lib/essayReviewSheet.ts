@@ -14,7 +14,8 @@ import type { EssayResult, EssayLoc } from '@/lib/db'
 const RED = '#d0021b'
 const FONT = '"Noto Sans TC","Microsoft JhengHei","PingFang TC","Heiti TC",sans-serif'
 const MAX_W = 2000
-const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫']
+/** 原稿淡化程度（蓋一層白的不透明度）：0＝不淡化、1＝全白 */
+const FADE = 0.45
 
 export interface EssaySheetMeta {
   title: string
@@ -83,7 +84,6 @@ async function renderPage(
   pageNo: number,
   essay: EssayResult,
   meta: EssaySheetMeta,
-  notes: Array<{ ref: string; suggestion: string }>,
   isLast: boolean,
 ): Promise<Blob> {
   const rows = essay.rows ?? 22
@@ -99,6 +99,10 @@ async function renderPage(
   ctx.fillStyle = '#fff'
   ctx.fillRect(0, 0, W, H)
   ctx.drawImage(bmp, 0, Math.round(slice.y0 * bmp.height), bmp.width, Math.round(sliceH), 0, 0, W, H)
+  // ⭐ 2026-09-20 user：原稿太搶眼，紅筆批改反而看不清楚 → 蓋一層半透明白，讓原稿退到背景。
+  //   紅字就能像老師直接寫在卷面上一樣清楚。學生仍看得見自己寫了什麼。
+  ctx.fillStyle = `rgba(255,255,255,${FADE})`
+  ctx.fillRect(0, 0, W, H)
 
   // 合併圖 normalized → 本頁像素
   const toY = (ny: number) => ((ny - slice.y0) / (slice.y1 - slice.y0)) * H
@@ -149,7 +153,7 @@ async function renderPage(
     drawVertical(ctx, t.correct, toX(r0.x + r0.w) - size * 0.5, toY(r0.y), size, cellH * (lastRow - loc.row + 1.8))
   }
 
-  // ── ② 眉批句子：沿該句的格子畫波浪線，起點標①②③ ──
+  // ── ② 眉批句子：沿該句畫波浪線，**建議直接寫在句子旁邊**（user：不要編號另列清單） ──
   for (const [i, s] of (fb?.sentenceFeedback ?? []).entries()) {
     const loc = s.loc as EssayLoc | null
     if (!loc) continue
@@ -178,16 +182,34 @@ async function renderPage(
         ctx.quadraticCurveTo(x - amp, y + (per * 3) / 4, x, y + per)
       }
       ctx.stroke()
-      if (cc === fromCol) {
-        ctx.globalAlpha = 1
-        const size = Math.max(10, 13 * u)
-        ctx.font = `bold ${Math.round(size)}px ${FONT}`
-        ctx.fillText(CIRCLED[i] ?? `(${i + 1})`, x - size * 0.6, yA - size * 0.15)
-      }
+      void i
     }
   }
 
-  // ── ③ 建議與總評：寫在「學生沒寫的空白直行」，直式（比照會考樣卷） ──
+  // 建議文字：寫在該句**左邊那一行**（直書的「旁邊」＝往左），與句子同高、直式、紅筆。
+  //   原稿已淡化，寫在學生字上仍讀得清楚——這就是老師在行間寫評語的樣子。
+  for (const s of fb?.sentenceFeedback ?? []) {
+    const loc = s.loc as EssayLoc | null
+    if (!loc) continue
+    const startCol = (loc.toCol ?? loc.col) + 1        // col 越大越左 → +1 就是左邊那一行
+    const anchor = colOf(essay, loc.page, loc.col)
+    const target = colOf(essay, loc.page, startCol) ?? anchor
+    if (!anchor?.bbox || !target?.bbox) continue
+    const startRow = loc.row ?? 1
+    const a0 = cellRect(anchor, rows, startRow)
+    if (!a0 || !inPage(a0.y + a0.h / 2)) continue
+    const colW = toX(target.bbox.x + target.bbox.w) - toX(target.bbox.x)
+    const size = Math.max(9, colW * 0.46)
+    const top = toY(a0.y)
+    const maxH = toY(anchor.bbox.y + anchor.bbox.h) - top
+    ctx.globalAlpha = 1
+    ctx.fillStyle = RED
+    ctx.textAlign = 'center'
+    ctx.font = `bold ${Math.round(size)}px ${FONT}`
+    drawVerticalBlock(ctx, s.suggestion, toX(target.bbox.x + target.bbox.w) - size * 0.7, top, size, maxH, size * 0.25)
+  }
+
+  // ── ③ 總評：寫在「學生沒寫的空白直行」，白底方框、直式（比照會考樣卷） ──
   if (isLast) {
     const blanks = essay.columns
       .filter((c) => c.page === pageNo && !c.text && c.bbox)
@@ -201,25 +223,19 @@ async function renderPage(
       const size = Math.max(10, colW * 0.6)
       const gap = size * 0.4
       const leftLimit = toX(blanks[blanks.length - 1].bbox!.x)
-      let rightX = toX(bb.x + bb.w) - colW / 2
 
       ctx.globalAlpha = 1
-      ctx.fillStyle = RED
       ctx.textAlign = 'center'
-      ctx.font = `${Math.round(size)}px ${FONT}`
-      for (const nt of notes) {
-        if (rightX - size < leftLimit) break
-        rightX -= drawVerticalBlock(ctx, `${nt.ref}建議可以改成：${nt.suggestion}`, rightX, topY, size, maxH, gap)
-        rightX -= gap
-      }
-
-      // 總評：白底方框、直式（會考樣卷的總評欄就是這個樣子）
+      // ⛔ user：空白處**只保留底白的綜合評語**，逐句建議已經寫在句子旁邊了
       const summary = meta.summary || fb?.summary || ''
-      if (summary && rightX - size > leftLimit) {
-        const boxRight = rightX + size * 0.7
-        const boxLeft = Math.max(leftLimit - 2 * u, boxRight - colW * 2.8)
+      if (summary) {
+        // 方框寬度依評語長度算（一直行放得下幾個字 → 需要幾行），再夾在可用的空白範圍內
         const boxTop = topY - 4 * u
         const boxH = maxH + 8 * u
+        const perCol = Math.max(1, Math.floor((boxH - 12 * u) / (size * 1.08)))
+        const needCols = Math.ceil((summary.length + 3) / perCol)
+        const boxRight = toX(bb.x + bb.w)
+        const boxLeft = Math.max(leftLimit, boxRight - (needCols * (size + gap) + size))
         ctx.fillStyle = 'rgba(255,255,255,0.95)'
         ctx.fillRect(boxLeft, boxTop, boxRight - boxLeft, boxH)
         ctx.strokeStyle = RED
@@ -268,12 +284,6 @@ export async function buildEssayReviewPages(
   }
   const bounds = [0, ...breaks, 1]
 
-  // 眉批的建議：編號與卷面上的①②③對齊，全部寫在最後一頁的空白處
-  const notes = (essay.feedback?.sentenceFeedback ?? []).map((s, i) => ({
-    ref: CIRCLED[i] ?? `(${i + 1})`,
-    suggestion: s.suggestion,
-  }))
-
   const pages: Blob[] = []
   for (let p = 0; p < bounds.length - 1; p++) {
     pages.push(await renderPage(
@@ -282,7 +292,6 @@ export async function buildEssayReviewPages(
       p + 1,
       essay,
       meta,
-      notes,
       p === bounds.length - 2,
     ))
   }
