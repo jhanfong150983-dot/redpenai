@@ -183,7 +183,8 @@ async function renderNotesPage(r: EssayResult, meta: EssaySheetMeta): Promise<Bl
     y += 8
   }
 
-  const typos = fb?.typos ?? []
+  // ⛔ 老師判定「正確無誤」的不印給學生（紀錄仍保留在 essayResult，只是不呈現）
+  const typos = (fb?.typos ?? []).filter((t) => t.teacherVerdict !== 'ok')
   if (typos.length) {
     section('錯別字')
     para(typos.map((t) => `${t.wrong}→${t.correct}`).join('　'), '#333', 17, 0)
@@ -223,7 +224,7 @@ export async function buildEssayReviewPages(
     const c = s.loc ? colOf(essay, s.loc) : undefined
     return c?.bbox ? { bbox: c.bbox, ref: CIRCLED[i] ?? `(${i + 1})` } : null
   }).filter((x): x is { bbox: { x: number; y: number; w: number; h: number }; ref: string } => !!x)
-  const typosAll = (fb?.typos ?? []).map((t) => {
+  const typosAll = (fb?.typos ?? []).filter((t) => t.teacherVerdict !== 'ok').map((t) => {
     const c = t.loc ? colOf(essay, t.loc) : undefined
     return c?.bbox ? { bbox: c.bbox, correct: t.correct } : null
   }).filter((x): x is { bbox: { x: number; y: number; w: number; h: number }; correct: string } => !!x)

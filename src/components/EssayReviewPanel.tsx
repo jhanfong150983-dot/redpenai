@@ -38,7 +38,9 @@ export default function EssayReviewPanel({ value, onChange, readOnly = false }: 
   }
   const dropTypo = (i: number) => {
     if (!onChange || !fb) return
-    onChange({ ...value, feedback: { ...fb, typos: fb.typos.filter((_, k) => k !== i) } })
+    // ⛔ 不要真的刪掉：低信心是 AI 判定當下的事實、永遠保留（同一般卷的原則）。
+    //   標 teacherVerdict='ok' → 檢討單不印、低信心清單仍看得到「老師判：正確無誤」。
+    onChange({ ...value, feedback: { ...fb, typos: fb.typos.map((t, k) => (k === i ? { ...t, teacherVerdict: 'ok' as const } : t)) } })
   }
 
   return (
@@ -138,22 +140,27 @@ export default function EssayReviewPanel({ value, onChange, readOnly = false }: 
       {/* ── 疑似錯別字 ── */}
       {fb && fb.typos.length > 0 && (
         <section className="rounded border border-gray-200 bg-white p-2">
-          <div className="font-semibold text-gray-800 mb-0.5">疑似錯別字（{fb.typos.length}）</div>
-          <p className="text-[11px] text-gray-500 mb-1.5">AI 抄寫時可能看錯，所以一律只當「疑似」。不是錯字請按 ✗ 移除，留下的才會出現在學生的檢討單。</p>
+          <div className="font-semibold text-gray-800 mb-0.5">疑似錯別字（{fb.typos.filter((t) => t.teacherVerdict !== 'ok').length}）</div>
+          <p className="text-[11px] text-gray-500 mb-1.5">AI 抄寫時可能看錯，所以一律只當「疑似」。不是錯字請按 ✗，它會被劃掉、不出現在學生的檢討單（紀錄仍保留）。</p>
           <div className="flex flex-wrap gap-1.5">
-            {fb.typos.map((t, i) => (
-              <span key={i} className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-1.5 py-0.5">
-                <span className="text-rose-700 font-medium">{t.wrong}</span>
-                <span className="text-gray-400">→</span>
-                <span className="text-emerald-700">{t.correct}</span>
-                <span className="text-[10px] text-gray-500">{locText(t.loc)}</span>
-                {editable && (
-                  <button type="button" onClick={() => dropTypo(i)} className="p-0.5 rounded hover:bg-red-100" title="不是錯字">
-                    <X className="w-3 h-3 text-red-500" />
-                  </button>
-                )}
-              </span>
-            ))}
+            {fb.typos.map((t, i) => {
+              const dropped = t.teacherVerdict === 'ok'
+              return (
+                <span key={i} className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 ${dropped ? 'border-gray-200 bg-gray-50 opacity-60' : 'border-rose-200 bg-rose-50'}`}>
+                  <span className={`font-medium ${dropped ? 'text-gray-500 line-through' : 'text-rose-700'}`}>{t.wrong}</span>
+                  <span className="text-gray-400">→</span>
+                  <span className={dropped ? 'text-gray-500 line-through' : 'text-emerald-700'}>{t.correct}</span>
+                  <span className="text-[10px] text-gray-500">{locText(t.loc)}</span>
+                  {dropped
+                    ? <span className="text-[10px] text-gray-500">老師判：正確無誤</span>
+                    : editable && (
+                      <button type="button" onClick={() => dropTypo(i)} className="p-0.5 rounded hover:bg-red-100" title="不是錯字">
+                        <X className="w-3 h-3 text-red-500" />
+                      </button>
+                    )}
+                </span>
+              )
+            })}
           </div>
         </section>
       )}

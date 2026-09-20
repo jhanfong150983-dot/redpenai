@@ -579,7 +579,8 @@ export interface EssayResult {
   lowConfidenceColumns: number
   feedback: {
     /** confidence: high＝AI 與教育部辭典都認定（直接採用）／low＝字典無法確認（進低信心清單交老師） */
-    typos: Array<{ wrong: string; correct: string; context: string; loc: EssayLoc | null; quoteVerified: boolean; confidence?: 'high' | 'low'; dictReason?: string }>
+    /** teacherVerdict＝老師處理過的結果；⛔ 不可覆寫 confidence（低信心是 AI 判定當下的事實、永遠保留） */
+    typos: Array<{ wrong: string; correct: string; context: string; loc: EssayLoc | null; quoteVerified: boolean; confidence?: 'high' | 'low'; dictReason?: string; teacherVerdict?: 'typo' | 'ok'; aiOriginal?: { wrong: string; correct: string } }>
     sentenceFeedback: Array<{ quote: string; dimension: string; rubricTerm?: string; problem: string; suggestion: string; why?: string; loc: EssayLoc | null; quoteVerified: boolean }>
     paragraphFeedback: Array<{ paragraph: number; comment: string }>
     strengths: Array<{ quote: string; why: string; loc: EssayLoc | null; quoteVerified: boolean }>

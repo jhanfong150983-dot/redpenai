@@ -35,6 +35,11 @@ type Row = {
   col: number
   row: number
   rows: number
+  /** 老師已經處理過的結果（沿用一般卷的原則：低信心永遠保留、只標示已處理） */
+  savedVerdict?: 'typo' | 'ok'
+  /** AI 原判（老師改過字之後仍要看得到原本 AI 說什麼） */
+  aiWrong: string
+  aiCorrect: string
 }
 
 const essayOf = (s: Submission): { detail: GradingDetail; essay: EssayResult } | null => {
@@ -71,6 +76,9 @@ export function buildEssayTypoRows(entries: Array<{ submission: Submission; stud
         col: t.loc.col,
         row: t.loc.row,
         rows: info?.essay.rows ?? 22,
+        savedVerdict: t.teacherVerdict,
+        aiWrong: t.aiOriginal?.wrong ?? t.wrong,
+        aiCorrect: t.aiOriginal?.correct ?? t.correct,
       })
     })
   }
@@ -172,9 +180,10 @@ export default function EssayTypoLowConfModal({ entries, onClose, onUpdated }: P
 
   // 預設＝維持 AI 判定（user：AI 抄對的情況「老師不用理會」）
   const [edits, setEdits] = useState<Record<string, Edit>>({})
-  const editOf = (r: Row): Edit => edits[r.key] ?? { verdict: 'typo', wrong: r.wrong, correct: r.correct }
+  const baseOf = (r: Row): Edit => ({ verdict: r.savedVerdict ?? 'typo', wrong: r.wrong, correct: r.correct })
+  const editOf = (r: Row): Edit => edits[r.key] ?? baseOf(r)
   const setEdit = (r: Row, patch: Partial<Edit>) =>
-    setEdits((p) => ({ ...p, [r.key]: { ...(p[r.key] ?? { verdict: 'typo', wrong: r.wrong, correct: r.correct }), ...patch } }))
+    setEdits((p) => ({ ...p, [r.key]: { ...(p[r.key] ?? baseOf(r)), ...patch } }))
 
   const [saving, setSaving] = useState(false)
   const dirtyCount = Object.keys(edits).length
@@ -190,15 +199,21 @@ export default function EssayTypoLowConfModal({ entries, onClose, onUpdated }: P
         const sub = subOf(subId)
         const info = sub ? essayOf(sub) : null
         if (!sub || !info?.essay.feedback) continue
-        const drop = new Set(rs.filter((r) => editOf(r).verdict === 'ok').map((r) => r.idx))
-        const patch = new Map(rs.filter((r) => editOf(r).verdict === 'typo').map((r) => [r.idx, editOf(r)]))
-        const typos = info.essay.feedback.typos
-          // 老師確認過＝以老師為準 → 升成高信心，之後不再出現在待確認清單
-          .map((t, i) => {
-            const e = patch.get(i)
-            return e ? { ...t, wrong: e.wrong, correct: e.correct, confidence: 'high' as const, dictReason: 'teacher-confirmed' } : t
-          })
-          .filter((_, i) => !drop.has(i))
+        // ⛔ 不覆寫 confidence、也不從陣列移除——沿用一般卷低信心 modal 的原則（user 拍板）：
+        //   「低信心是 AI 判定當下的事實，永遠保留、不因老師處理而消失或排除」。
+        //   老師的處理記在 teacherVerdict；要不要印到檢討單由下游依這個欄位決定。
+        const patch = new Map(rs.map((r) => [r.idx, editOf(r)]))
+        const typos = info.essay.feedback.typos.map((t, i) => {
+          const e = patch.get(i)
+          if (!e) return t
+          return {
+            ...t,
+            aiOriginal: t.aiOriginal ?? { wrong: t.wrong, correct: t.correct },  // 留住 AI 原判，可回復
+            wrong: e.wrong,
+            correct: e.correct,
+            teacherVerdict: e.verdict,
+          }
+        })
         const nextEssay: EssayResult = { ...info.essay, feedback: { ...info.essay.feedback, typos } }
         const details = ((sub.gradingResult as { details?: GradingDetail[] }).details ?? [])
           .map((d) => (d === info.detail ? { ...d, essayResult: nextEssay } : d))
@@ -261,7 +276,15 @@ export default function EssayTypoLowConfModal({ entries, onClose, onUpdated }: P
                     <div className="flex-1 min-w-0">
                       <div className="text-xs text-gray-500 mb-1.5">
                         {r.seat ?? '?'}號 {r.name}・第 {r.page} 頁 第 {r.col} 行 第 {r.row} 格
-                        {changed && <span className="ml-2 px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">已修改</span>}
+                        {r.savedVerdict && !changed && (
+                          <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] ${r.savedVerdict === 'ok' ? 'bg-gray-200 text-gray-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                            {r.savedVerdict === 'ok' ? '老師判：正確無誤' : '老師已確認'}
+                          </span>
+                        )}
+                        {changed && <span className="ml-2 px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">未儲存的修改</span>}
+                        {(r.wrong !== r.aiWrong || r.correct !== r.aiCorrect) && (
+                          <span className="ml-2 text-[10px] text-gray-400">AI 原判：{r.aiWrong}→{r.aiCorrect}</span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2 mb-2">
