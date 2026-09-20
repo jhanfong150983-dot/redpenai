@@ -207,31 +207,54 @@ async function renderPage(
       .filter((c) => c.page === pageNo && !c.text && c.bbox)
       .sort((a, b) => a.col - b.col)     // col 越大越左；由右往左依序用
     const summary = meta.summary || fb?.summary || ''
-    const notes = (fb?.sentenceFeedback ?? []).map((x, i) => `${CIRCLED[i] ?? `(${i + 1})`}${x.suggestion}`)
+    // ⭐ user：建議欄空間大，可以連「問題」一起寫（原本只有改寫句）
+    const notes = (fb?.sentenceFeedback ?? []).map((x, i) =>
+      `${CIRCLED[i] ?? `(${i + 1})`}${x.problem}` + '　→' + x.suggestion)   // 全形空白不能直接寫在樣板字串
     if (blanks.length && (summary || notes.length)) {
       const bb = blanks[0].bbox!
-      const colW = toX(bb.x + bb.w) - toX(bb.x)
       const boxRight = toX(bb.x + bb.w)
       const leftLimit = toX(blanks[blanks.length - 1].bbox!.x)
       const boxTop = toY(bb.y)
       const boxH = toY(bb.y + bb.h) - boxTop
-      // ⭐ user：總評字太大 → 縮到 0.42 行寬（原 0.6）。字小了每行放得下更多，整體也不再擁擠。
-      const size = Math.max(8, colW * 0.42)
+      const colW = toX(bb.x + bb.w) - toX(bb.x)
+
+      // 排版順序（user 指定）：建議：①②③ →（空間距）→ 總評：
+      const head = meta.level != null ? `${meta.level} 級分` : ''
+      const blocks: Array<{ text: string; bold?: boolean; scale?: number; gapAfter?: number }> = []
+      if (head) blocks.push({ text: head, bold: true, scale: 1.45, gapAfter: 1.2 })
+      if (notes.length) {
+        blocks.push({ text: '建議', bold: true, gapAfter: 0.4 })
+        notes.forEach((t) => blocks.push({ text: t, gapAfter: 0.9 }))
+        blocks.push({ text: '', gapAfter: 1.6 })          // 建議與總評之間的空間距
+      }
+      if (summary) {
+        blocks.push({ text: '總評', bold: true, gapAfter: 0.4 })
+        blocks.push({ text: summary })
+      }
+
+      // ⛔ 上一版把寬度算少了（沒算標題欄與段間距）→ 迴圈提前 break，**最後一則建議被吃掉**
+      //   （user 回報「標註有①②，最後只有①的建議」）。改成精算，且**放不下就把字變小**（user 指定）。
+      const avail = boxRight - leftLimit
+      const widthAt = (size: number) => {
+        const gap = size * 0.3
+        const perCol = Math.max(1, Math.floor((boxH - size * 1.6) / (size * 1.08)))
+        let w = size * 1.6                                  // 左右內距
+        for (const b of blocks) {
+          const sz = size * (b.scale ?? 1)
+          const cols = b.text ? Math.ceil(b.text.length / Math.max(1, Math.floor((boxH - size * 1.6) / (sz * 1.08)))) : 0
+          w += cols * (sz + gap) + (b.gapAfter ?? 0.5) * gap
+        }
+        void perCol
+        return w
+      }
+      let size = Math.max(7, colW * 0.42)
+      while (size > 7 && widthAt(size) > avail) size -= 0.5   // 寫不下就縮字，縮到 7px 為底
       const gap = size * 0.3
       const padding = size * 0.8
       const textH = boxH - padding * 2
-      const perCol = Math.max(1, Math.floor(textH / (size * 1.08)))
+      const boxLeft = Math.max(leftLimit, boxRight - Math.min(avail, widthAt(size)))
 
-      // 級分也放進這個區塊（user：放在最後評語那邊，原本擺右上角會壓到學生的字）
-      const head = meta.level != null ? `${meta.level} 級分` : ''
-      const lines = [
-        ...(summary ? ['總評' + '　' + summary] : []),
-        ...notes,
-      ]
-      const needCols = lines.reduce((n, t) => n + Math.ceil(t.length / perCol), 0) + (head ? 1 : 0)
-      const boxLeft = Math.max(leftLimit, boxRight - (needCols * (size + gap) + padding * 2))
-
-      // 底白方框（user：附上底白的標註建議）
+      // 底白方框
       ctx.globalAlpha = 1
       ctx.fillStyle = '#fff'
       ctx.fillRect(boxLeft, boxTop, boxRight - boxLeft, boxH)
@@ -242,16 +265,14 @@ async function renderPage(
       ctx.fillStyle = RED
       ctx.textAlign = 'center'
       let cx = boxRight - padding - size / 2
-      if (head) {
-        ctx.font = `bold ${Math.round(size * 1.45)}px ${FONT}`
-        drawVertical(ctx, head, cx, boxTop + padding, size * 1.45, textH)
-        cx -= size * 1.45 + gap
-      }
-      ctx.font = `${Math.round(size)}px ${FONT}`
-      for (const t of lines) {
-        if (cx - size < boxLeft) break
-        cx -= drawVerticalBlock(ctx, t, cx, boxTop + padding, size, textH, gap)
-        cx -= gap * 1.6                    // 段與段之間留白，才分得出哪一則是哪一則
+      for (const b of blocks) {
+        const sz = size * (b.scale ?? 1)
+        if (b.text) {
+          ctx.font = `${b.bold ? 'bold ' : ''}${Math.round(sz)}px ${FONT}`
+          cx -= drawVerticalBlock(ctx, b.text, cx, boxTop + padding, sz, textH, gap)
+        }
+        cx -= (b.gapAfter ?? 0.5) * gap
+        if (cx < boxLeft) break
       }
     }
   }
