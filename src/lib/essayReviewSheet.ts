@@ -1,12 +1,19 @@
-// 2026-09-19 作文檢討單（原卷註記版）：學生的作文原卷做底，疊紅筆註記；批改建議另起一頁。
-//   ⛔ 只印老師確認過的內容——疑似錯別字在複核畫面被移除的、眉批被刪掉的，都不會出現在這裡。
-//   紅字位置用 essayResult.columns[].bbox（批改時由四角錨點對齊算好、合併圖 normalized），前端不再對齊一次。
-//   純 canvas＋pdf-lib、零 server 呼叫（同既有的原卷註記版）。
+// 作文檢討單（原卷註記版）—— 2026-09-20 user 重新定義：**要像老師親手批改的卷子**。
+//
+// user 的四點要求：
+//   ①不要再多一頁（拿掉原本的「批改建議頁」）
+//   ②錯別字在該格打叉，旁邊**直式**寫下修改後的字
+//   ③原句畫記（波浪線），**旁邊直接附上**「建議可以改成：…」
+//   ④總評放在**作文最後、學生沒寫的位置**，比照會考樣卷：白底方框、直式書寫
+//
+// ⛔ 只印老師確認後留下的：teacherVerdict==='ok' 的錯別字不印、被刪掉的眉批不印。
+// 位置全部來自 essayResult.columns[].bbox（批改時算好、合併圖 normalized）＋ loc 的格位，
+// 前端不再對齊一次。純 canvas＋pdf-lib、零 server 呼叫。
 import type { EssayResult, EssayLoc } from '@/lib/db'
 
 const RED = '#d0021b'
 const FONT = '"Noto Sans TC","Microsoft JhengHei","PingFang TC","Heiti TC",sans-serif'
-const MAX_W = 1800
+const MAX_W = 2000
 const CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩', '⑪', '⑫']
 
 export interface EssaySheetMeta {
@@ -17,29 +24,69 @@ export interface EssaySheetMeta {
   summary: string
 }
 
-function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
-  const out: string[] = []
-  let cur = ''
+type Rect = { x: number; y: number; w: number; h: number }
+type Col = EssayResult['columns'][number]
+
+/** 直書：一個字一個字往下畫，回傳實際用掉的高度 */
+function drawVertical(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  maxH: number,
+): number {
+  const step = size * 1.08
+  let cy = y
   for (const ch of text) {
-    const t = cur + ch
-    if (ctx.measureText(t).width > maxW && cur) { out.push(cur); cur = ch } else cur = t
+    if (cy + step > y + maxH) break
+    ctx.fillText(ch, x, cy)
+    cy += step
   }
-  if (cur) out.push(cur)
-  return out
+  return cy - y
 }
 
-const colOf = (r: EssayResult, loc: EssayLoc) =>
-  r.columns.find((c) => c.page === loc.page && c.col === loc.col)
+/** 直書換行：寫到底就往左再開一行，回傳用掉的總寬度 */
+function drawVerticalBlock(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  rightX: number,
+  topY: number,
+  size: number,
+  maxH: number,
+  colGap: number,
+): number {
+  const step = size * 1.08
+  const perCol = Math.max(1, Math.floor(maxH / step))
+  let used = 0
+  for (let i = 0; i < text.length; i += perCol) {
+    drawVertical(ctx, text.slice(i, i + perCol), rightX - used, topY, size, maxH)
+    used += size + colGap
+  }
+  return used
+}
 
-/** 一頁原卷 + 紅筆註記 → JPEG */
+const colOf = (r: EssayResult, page: number, col: number) =>
+  r.columns.find((c) => c.page === page && c.col === col)
+
+/** 某一行第 row 格（1-based）在合併圖上的矩形 */
+function cellRect(c: Col, rows: number, row: number): Rect | null {
+  if (!c.bbox) return null
+  const cellH = c.bbox.h / Math.max(1, rows)
+  return { x: c.bbox.x, y: c.bbox.y + (row - 1) * cellH, w: c.bbox.w, h: cellH }
+}
+
+/** 一頁原卷 + 老師式紅筆註記 → JPEG */
 async function renderPage(
   bmp: ImageBitmap,
   slice: { y0: number; y1: number },
   pageNo: number,
-  marks: Array<{ bbox: { x: number; y: number; w: number; h: number }; ref: string }>,
-  typos: Array<{ bbox: { x: number; y: number; w: number; h: number }; correct: string }>,
+  essay: EssayResult,
   meta: EssaySheetMeta,
+  notes: Array<{ ref: string; suggestion: string }>,
+  isLast: boolean,
 ): Promise<Blob> {
+  const rows = essay.rows ?? 22
   const scale = Math.min(1, MAX_W / bmp.width)
   const sliceH = (slice.y1 - slice.y0) * bmp.height
   const W = Math.max(1, Math.round(bmp.width * scale))
@@ -53,8 +100,10 @@ async function renderPage(
   ctx.fillRect(0, 0, W, H)
   ctx.drawImage(bmp, 0, Math.round(slice.y0 * bmp.height), bmp.width, Math.round(sliceH), 0, 0, W, H)
 
-  // 這一頁的 y 換算：合併圖 normalized → 本頁像素
-  const toY = (ny: number) => (ny - slice.y0) / (slice.y1 - slice.y0) * H
+  // 合併圖 normalized → 本頁像素
+  const toY = (ny: number) => ((ny - slice.y0) / (slice.y1 - slice.y0)) * H
+  const toX = (nx: number) => nx * W
+  const inPage = (ny: number) => ny >= slice.y0 && ny < slice.y1
   const u = W / 1000
 
   ctx.save()
@@ -62,154 +111,146 @@ async function renderPage(
   ctx.fillStyle = RED
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
-
-  // ① 有眉批的直行：沿該行「右側」畫一條紅線＋編號（右側是窄欄、不會蓋到字）
-  for (const m of marks) {
-    const x = (m.bbox.x + m.bbox.w) * W - 2 * u
-    const y0 = toY(m.bbox.y)
-    const y1 = toY(m.bbox.y + m.bbox.h)
-    ctx.globalAlpha = 0.65
-    ctx.lineWidth = Math.max(1.6, 2.4 * u)
-    ctx.beginPath()
-    ctx.moveTo(x, y0)
-    ctx.lineTo(x, y1)
-    ctx.stroke()
-    ctx.globalAlpha = 1
-    ctx.font = `bold ${Math.round(16 * u)}px ${FONT}`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'bottom'
-    ctx.fillText(m.ref, x, Math.max(18 * u, y0 - 3 * u))
-  }
-
-  // ② 疑似錯別字：在該行右側窄欄寫正字（不圈字，避免蓋掉學生筆跡）
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'middle'
-  for (const t of typos) {
-    const x = (t.bbox.x + t.bbox.w) * W - 9 * u
-    const y = toY(t.bbox.y + t.bbox.h / 2)
-    ctx.font = `bold ${Math.round(13 * u)}px ${FONT}`
-    ctx.globalAlpha = 0.9
-    ctx.fillText(t.correct, x, y)
-  }
-  ctx.restore()
-
-  // ③ 首頁右上角：級分
-  if (pageNo === 1 && meta.level != null) {
-    ctx.save()
-    ctx.fillStyle = RED
-    ctx.font = `bold ${Math.round(34 * u)}px ${FONT}`
-    ctx.textAlign = 'right'
-    ctx.textBaseline = 'top'
-    ctx.fillText(`${meta.level} 級分`, W - 14 * u, 12 * u)
-    ctx.restore()
-  }
-  return await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('原卷註記輸出失敗'))), 'image/jpeg', 0.85))
-}
-
-/** 批改建議頁（眉批全文、錯別字、段落建議、優點、總評）→ JPEG，A4 直式 */
-async function renderNotesPage(r: EssayResult, meta: EssaySheetMeta): Promise<Blob> {
-  const W = 1240
-  const H = 1754 // A4 @150dpi
-  const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('無法建立畫布')
-  ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, W, H)
-  const M = 64
-  let y = M
-
-  ctx.fillStyle = '#111'
-  ctx.textAlign = 'left'
+  ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
-  ctx.font = `bold 30px ${FONT}`
-  ctx.fillText('批改建議', M, y)
-  ctx.font = `18px ${FONT}`
-  ctx.fillStyle = '#555'
-  ctx.fillText(`${meta.title}  ${meta.who}`, M + 140, y + 8)
-  if (meta.level != null) {
-    ctx.fillStyle = RED
-    ctx.font = `bold 26px ${FONT}`
-    ctx.textAlign = 'right'
-    ctx.fillText(`${meta.level} / ${meta.maxLevel} 級分`, W - M, y + 2)
-    ctx.textAlign = 'left'
-  }
-  y += 52
-  ctx.strokeStyle = '#ddd'
-  ctx.lineWidth = 1
-  ctx.beginPath(); ctx.moveTo(M, y); ctx.lineTo(W - M, y); ctx.stroke()
-  y += 22
 
-  const section = (title: string) => {
-    ctx.fillStyle = '#111'
-    ctx.font = `bold 21px ${FONT}`
-    ctx.fillText(title, M, y)
-    y += 32
+  const fb = essay.feedback
+
+  // ── ① 錯別字：在該格打叉，右側行間直式寫下正確的字 ──
+  for (const t of fb?.typos ?? []) {
+    if (t.teacherVerdict === 'ok') continue          // 老師判定誤報 → 不印給學生
+    const loc = t.loc as EssayLoc | null
+    if (!loc?.row) continue
+    const c = colOf(essay, loc.page, loc.col)
+    if (!c?.bbox) continue
+    const r0 = cellRect(c, rows, loc.row)
+    if (!r0 || !inPage(r0.y + r0.h / 2)) continue
+    const lastRow = Math.min(rows, loc.toRow ?? loc.row)
+    // 錯詞可能跨好幾格 → 每一格都打叉
+    for (let rr = loc.row; rr <= lastRow; rr++) {
+      const rc = cellRect(c, rows, rr)
+      if (!rc || !inPage(rc.y + rc.h / 2)) continue
+      const x0 = toX(rc.x) + 2 * u
+      const x1 = toX(rc.x + rc.w) - 2 * u
+      const y0 = toY(rc.y) + 2 * u
+      const y1 = toY(rc.y + rc.h) - 2 * u
+      ctx.globalAlpha = 0.8
+      ctx.lineWidth = Math.max(1.4, 2 * u)
+      ctx.beginPath()
+      ctx.moveTo(x0, y0); ctx.lineTo(x1, y1)
+      ctx.moveTo(x1, y0); ctx.lineTo(x0, y1)
+      ctx.stroke()
+    }
+    // 正確的字寫在該行右側行間（與插入字同一個慣例），直式
+    ctx.globalAlpha = 1
+    const cellH = toY(r0.y + r0.h) - toY(r0.y)
+    const size = Math.max(9, cellH * 0.5)
+    ctx.font = `bold ${Math.round(size)}px ${FONT}`
+    drawVertical(ctx, t.correct, toX(r0.x + r0.w) - size * 0.5, toY(r0.y), size, cellH * (lastRow - loc.row + 1.8))
   }
-  const para = (text: string, color = '#333', size = 17, indent = 0) => {
-    ctx.fillStyle = color
-    ctx.font = `${size}px ${FONT}`
-    for (const line of wrap(ctx, text, W - M * 2 - indent)) {
-      if (y > H - M) return
-      ctx.fillText(line, M + indent, y)
-      y += size + 9
+
+  // ── ② 眉批句子：沿該句的格子畫波浪線，起點標①②③ ──
+  for (const [i, s] of (fb?.sentenceFeedback ?? []).entries()) {
+    const loc = s.loc as EssayLoc | null
+    if (!loc) continue
+    const fromCol = loc.col
+    const toCol = loc.toCol ?? loc.col
+    for (let cc = fromCol; cc <= toCol; cc++) {
+      const c = colOf(essay, loc.page, cc)
+      if (!c?.bbox) continue
+      const startRow = cc === fromCol ? (loc.row ?? 1) : 1
+      const endRow = cc === toCol ? (loc.toRow ?? rows) : rows
+      const a = cellRect(c, rows, startRow)
+      const b = cellRect(c, rows, Math.max(startRow, endRow))
+      if (!a || !b || !inPage(a.y + a.h / 2)) continue
+      // 直書的句子沿著行往下走 → 波浪線畫在該行左緣
+      const x = toX(c.bbox.x) + 2.5 * u
+      const yA = toY(a.y)
+      const yB = toY(b.y + b.h)
+      ctx.globalAlpha = 0.85
+      ctx.lineWidth = Math.max(1.2, 1.8 * u)
+      ctx.beginPath()
+      const amp = 2.2 * u
+      const per = 7 * u
+      ctx.moveTo(x, yA)
+      for (let y = yA; y < yB; y += per) {
+        ctx.quadraticCurveTo(x + amp, y + per / 4, x, y + per / 2)
+        ctx.quadraticCurveTo(x - amp, y + (per * 3) / 4, x, y + per)
+      }
+      ctx.stroke()
+      if (cc === fromCol) {
+        ctx.globalAlpha = 1
+        const size = Math.max(10, 13 * u)
+        ctx.font = `bold ${Math.round(size)}px ${FONT}`
+        ctx.fillText(CIRCLED[i] ?? `(${i + 1})`, x - size * 0.6, yA - size * 0.15)
+      }
     }
   }
 
-  const fb = r.feedback
-  if (fb?.summary) { section('總評'); para(fb.summary); y += 16 }
+  // ── ③ 建議與總評：寫在「學生沒寫的空白直行」，直式（比照會考樣卷） ──
+  if (isLast) {
+    const blanks = essay.columns
+      .filter((c) => c.page === pageNo && !c.text && c.bbox)
+      .sort((a, b) => a.col - b.col)     // col 越大越左；由右往左依序用
+    if (blanks.length) {
+      const first = blanks[0]
+      const bb = first.bbox!
+      const colW = toX(bb.x + bb.w) - toX(bb.x)
+      const topY = toY(bb.y) + 4 * u
+      const maxH = toY(bb.y + bb.h) - topY - 4 * u
+      const size = Math.max(10, colW * 0.6)
+      const gap = size * 0.4
+      const leftLimit = toX(blanks[blanks.length - 1].bbox!.x)
+      let rightX = toX(bb.x + bb.w) - colW / 2
 
-  const sents = fb?.sentenceFeedback ?? []
-  if (sents.length) {
-    section('逐句修改建議')
-    sents.forEach((s, i) => {
-      if (y > H - M - 60) return
-      const ref = CIRCLED[i] ?? `(${i + 1})`
-      const loc = s.loc ? `第 ${s.loc.page} 頁・第 ${s.loc.col} 行` : ''
+      ctx.globalAlpha = 1
       ctx.fillStyle = RED
-      ctx.font = `bold 18px ${FONT}`
-      ctx.fillText(`${ref} ${s.dimension}${s.rubricTerm ? `・${s.rubricTerm}` : ''}`, M, y)
-      ctx.fillStyle = '#888'
-      ctx.font = `14px ${FONT}`
-      ctx.fillText(loc, M + 420, y + 3)
-      y += 26
-      para(`原句：${s.quote}`, '#666', 16, 22)
-      para(`問題：${s.problem}`, '#333', 16, 22)
-      para(`可以改成：${s.suggestion}`, '#0a5a2a', 16, 22)
-      y += 12
-    })
-    y += 8
+      ctx.textAlign = 'center'
+      ctx.font = `${Math.round(size)}px ${FONT}`
+      for (const nt of notes) {
+        if (rightX - size < leftLimit) break
+        rightX -= drawVerticalBlock(ctx, `${nt.ref}建議可以改成：${nt.suggestion}`, rightX, topY, size, maxH, gap)
+        rightX -= gap
+      }
+
+      // 總評：白底方框、直式（會考樣卷的總評欄就是這個樣子）
+      const summary = meta.summary || fb?.summary || ''
+      if (summary && rightX - size > leftLimit) {
+        const boxRight = rightX + size * 0.7
+        const boxLeft = Math.max(leftLimit - 2 * u, boxRight - colW * 2.8)
+        const boxTop = topY - 4 * u
+        const boxH = maxH + 8 * u
+        ctx.fillStyle = 'rgba(255,255,255,0.95)'
+        ctx.fillRect(boxLeft, boxTop, boxRight - boxLeft, boxH)
+        ctx.strokeStyle = RED
+        ctx.lineWidth = Math.max(1.2, 1.6 * u)
+        ctx.strokeRect(boxLeft, boxTop, boxRight - boxLeft, boxH)
+        ctx.fillStyle = RED
+        ctx.font = `bold ${Math.round(size)}px ${FONT}`
+        // ⛔ 全形空白直接寫在樣板字串裡會觸發 no-irregular-whitespace → 用逸脫碼
+        const summaryText = '總評' + '　' + summary
+        drawVerticalBlock(ctx, summaryText, boxRight - size * 0.8, boxTop + 6 * u, size, boxH - 12 * u, gap)
+      }
+    }
   }
 
-  // ⛔ 老師判定「正確無誤」的不印給學生（紀錄仍保留在 essayResult，只是不呈現）
-  const typos = (fb?.typos ?? []).filter((t) => t.teacherVerdict !== 'ok')
-  if (typos.length) {
-    section('錯別字')
-    para(typos.map((t) => `${t.wrong}→${t.correct}`).join('　'), '#333', 17, 0)
-    y += 18
+  // ── 級分：首頁右上角 ──
+  if (pageNo === 1 && meta.level != null) {
+    ctx.globalAlpha = 1
+    ctx.fillStyle = RED
+    ctx.font = `bold ${Math.round(30 * u)}px ${FONT}`
+    ctx.textAlign = 'right'
+    ctx.textBaseline = 'top'
+    ctx.fillText(`${meta.level} 級分`, W - 14 * u, 12 * u)
   }
-
-  const paras = fb?.paragraphFeedback ?? []
-  if (paras.length) {
-    section('段落與結構')
-    for (const p of paras) para(`第 ${p.paragraph} 段：${p.comment}`, '#333', 16, 0)
-    y += 18
-  }
-
-  const good = fb?.strengths ?? []
-  if (good.length) {
-    section('寫得好的地方')
-    for (const g of good) { para(g.quote, '#333', 16, 0); para(g.why, '#0a5a2a', 15, 22) }
-  }
+  ctx.restore()
 
   return await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('建議頁輸出失敗'))), 'image/jpeg', 0.9))
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('原卷註記輸出失敗'))), 'image/jpeg', 0.88))
 }
 
 /**
- * 一位學生的作文檢討單 → JPEG 頁面陣列（原卷各頁＋批改建議頁）。
+ * 一位學生的作文檢討單 → JPEG 頁面陣列（**只有原卷本身，不再多一頁**）。
  * 呼叫端負責嵌進 pdf-lib（沿用既有的班級合併流程）。
  */
 export async function buildEssayReviewPages(
@@ -218,41 +259,32 @@ export async function buildEssayReviewPages(
   essay: EssayResult,
   meta: EssaySheetMeta,
 ): Promise<Blob[]> {
-  const fb = essay.feedback
-  // 只印老師留下來的：複核畫面刪掉的眉批／錯別字不會出現在這裡
-  const marksAll = (fb?.sentenceFeedback ?? []).map((s, i) => {
-    const c = s.loc ? colOf(essay, s.loc) : undefined
-    return c?.bbox ? { bbox: c.bbox, ref: CIRCLED[i] ?? `(${i + 1})` } : null
-  }).filter((x): x is { bbox: { x: number; y: number; w: number; h: number }; ref: string } => !!x)
-  const typosAll = (fb?.typos ?? []).filter((t) => t.teacherVerdict !== 'ok').map((t) => {
-    const c = t.loc ? colOf(essay, t.loc) : undefined
-    return c?.bbox ? { bbox: c.bbox, correct: t.correct } : null
-  }).filter((x): x is { bbox: { x: number; y: number; w: number; h: number }; correct: string } => !!x)
-
-  // ⛔ 2026-09-20：老師匯入的卷一律沒有 pageBreaks（全庫只有 0.7% 有）。沒有 fallback 的話
-  //   bounds=[0,1] → 兩頁作文會被壓成一張、紅筆註記的位置也全錯。
-  //   頁數不從題號反推（見 feedback_dont_infer_total_pages_from_question_ids），
-  //   改用批改當下就記在 essayResult.columns[].page 的頁碼——那是最可靠的來源。
+  // ⛔ 老師匯入的卷一律沒有 pageBreaks（全庫只有 0.7% 有）→ 用批改當下記錄的頁碼平均切。
+  //   不從題號反推（見 feedback_dont_infer_total_pages_from_question_ids）。
   let breaks = (pageBreaks ?? []).filter((b) => b > 0 && b < 1).sort((a, b) => a - b)
   if (breaks.length === 0) {
     const pageCount = Math.max(1, ...essay.columns.map((c) => c.page || 1))
     if (pageCount > 1) breaks = Array.from({ length: pageCount - 1 }, (_, i) => (i + 1) / pageCount)
   }
   const bounds = [0, ...breaks, 1]
+
+  // 眉批的建議：編號與卷面上的①②③對齊，全部寫在最後一頁的空白處
+  const notes = (essay.feedback?.sentenceFeedback ?? []).map((s, i) => ({
+    ref: CIRCLED[i] ?? `(${i + 1})`,
+    suggestion: s.suggestion,
+  }))
+
   const pages: Blob[] = []
   for (let p = 0; p < bounds.length - 1; p++) {
-    const slice = { y0: bounds[p], y1: bounds[p + 1] }
-    const inPage = (b: { y: number; h: number }) => {
-      const mid = b.y + b.h / 2
-      return mid >= slice.y0 && mid < slice.y1
-    }
     pages.push(await renderPage(
-      bmp, slice, p + 1,
-      marksAll.filter((m) => inPage(m.bbox)),
-      typosAll.filter((t) => inPage(t.bbox)),
+      bmp,
+      { y0: bounds[p], y1: bounds[p + 1] },
+      p + 1,
+      essay,
       meta,
+      notes,
+      p === bounds.length - 2,
     ))
   }
-  pages.push(await renderNotesPage(essay, meta))
   return pages
 }
