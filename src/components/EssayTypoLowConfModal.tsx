@@ -34,6 +34,8 @@ type Row = {
   page: number
   col: number
   row: number
+  /** 錯詞的結束格（AI 改以「詞」為單位後，一筆可能橫跨好幾格） */
+  toRow: number
   rows: number
   /** 老師已經處理過的結果（沿用一般卷的原則：低信心永遠保留、只標示已處理） */
   savedVerdict?: 'typo' | 'ok'
@@ -75,6 +77,7 @@ export function buildEssayTypoRows(entries: Array<{ submission: Submission; stud
         page: t.loc.page,
         col: t.loc.col,
         row: t.loc.row,
+        toRow: t.loc.toRow ?? t.loc.row,
         rows: info?.essay.rows ?? 22,
         savedVerdict: t.teacherVerdict,
         aiWrong: t.aiOriginal?.wrong ?? t.wrong,
@@ -91,7 +94,7 @@ export function hasLegacyEssayTypos(entries: Array<{ submission: Submission }>):
     .some((t) => t.confidence === undefined))
 }
 
-/** 該格前後各 2 格——單獨一個字看不出上下文，很難判斷 */
+/** 錯詞前後各留 2 格當上下文——單獨看不出對錯 */
 const PAD_CELLS = 2
 
 /** 把上下文依錯字切成片段，命中的標紅（孤立單字看不出對錯，要放回詞句裡看） */
@@ -139,11 +142,15 @@ function TypoCrop({ sub, r, getBmp }: { sub: Submission | undefined; r: Row; get
       if (!bmp || dead) return
       const c = essayOf(sub)?.essay.columns.find((x) => x.page === r.page && x.col === r.col)
       if (!c?.bbox) return
+      // ⛔ 要涵蓋**整個錯詞**（row~toRow），不能只裁起始格：AI 改以詞為單位後
+      //   四字詞只裁「起始格±2」會把尾巴切掉（2026-09-20 實際發生：「寸手不離」只看得到「寸手不」）
       const cellH = c.bbox.h / Math.max(1, r.rows)
+      const from = Math.max(0, r.row - 1 - PAD_CELLS)
+      const to = Math.min(r.rows, r.toRow + PAD_CELLS)
       const sx = Math.max(0, Math.round(c.bbox.x * bmp.width))
-      const sy = Math.max(0, Math.round((c.bbox.y + (r.row - 1 - PAD_CELLS) * cellH) * bmp.height))
+      const sy = Math.max(0, Math.round((c.bbox.y + from * cellH) * bmp.height))
       const sw = Math.min(bmp.width - sx, Math.round(c.bbox.w * bmp.width))
-      const sh = Math.min(bmp.height - sy, Math.round(cellH * (1 + PAD_CELLS * 2) * bmp.height))
+      const sh = Math.min(bmp.height - sy, Math.round(cellH * (to - from) * bmp.height))
       if (sw <= 0 || sh <= 0) return
       const canvas = document.createElement('canvas')
       // ⛔ 不要轉向（user 指正）：作文是直書，轉 90° 會讓字躺著、反而難認
@@ -162,8 +169,8 @@ function TypoCrop({ sub, r, getBmp }: { sub: Submission | undefined; r: Row; get
     return () => { dead = true; if (made) URL.revokeObjectURL(made) }
   }, [sub, r, getBmp])
   return (
-    <div className="shrink-0 w-[74px] min-h-[180px] rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
-      {url ? <img src={url} alt={`${r.wrong} 的稿紙原圖`} className="max-h-[230px] object-contain" />
+    <div className="shrink-0 w-[86px] min-h-[200px] rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
+      {url ? <img src={url} alt={`${r.wrong} 的稿紙原圖`} className="max-h-[320px] object-contain" />
         : <Loader2 className="w-4 h-4 animate-spin text-gray-400" />}
     </div>
   )
