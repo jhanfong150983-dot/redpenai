@@ -207,9 +207,12 @@ async function renderPage(
       .filter((c) => c.page === pageNo && !c.text && c.bbox)
       .sort((a, b) => a.col - b.col)     // col 越大越左；由右往左依序用
     const summary = meta.summary || fb?.summary || ''
-    // ⭐ user：建議欄空間大，可以連「問題」一起寫（原本只有改寫句）
-    const notes = (fb?.sentenceFeedback ?? []).map((x, i) =>
-      `${CIRCLED[i] ?? `(${i + 1})`}${x.problem}` + '　→' + x.suggestion)   // 全形空白不能直接寫在樣板字串
+    // ⭐ user：建議欄空間大，「問題」與「建議」分開寫，而且兩個標籤要**等高**。
+    //   直書的「等高」＝各自從方框頂端起筆 → 必須拆成兩個 block（同一串文字接著寫就會錯開）。
+    const notes = (fb?.sentenceFeedback ?? []).map((x, i) => ({
+      problem: `${CIRCLED[i] ?? `(${i + 1})`}問題：${x.problem}`,
+      suggestion: `建議：${x.suggestion}`,
+    }))
     if (blanks.length && (summary || notes.length)) {
       const bb = blanks[0].bbox!
       const boxRight = toX(bb.x + bb.w)
@@ -224,7 +227,11 @@ async function renderPage(
       if (head) blocks.push({ text: head, bold: true, scale: 1.45, gapAfter: 1.2 })
       if (notes.length) {
         blocks.push({ text: '建議', bold: true, gapAfter: 0.4 })
-        notes.forEach((t) => blocks.push({ text: t, gapAfter: 0.9 }))
+        for (const nt of notes) {
+          // 兩個 block 各自從頂端起筆 → 「問題：」與「建議：」自然等高（user 指定）
+          blocks.push({ text: nt.problem, gapAfter: 0.25 })
+          blocks.push({ text: nt.suggestion, gapAfter: 1.1 })
+        }
         blocks.push({ text: '', gapAfter: 1.6 })          // 建議與總評之間的空間距
       }
       if (summary) {
