@@ -4,12 +4,25 @@
 //   用途：答案卷卡片徽章、匯入頁自動選「照順序／座號辨識」。
 export type SheetSource = 'with_questions' | 'teacher_scan' | 'generated' | 'essay' | 'essay_byo'
 
+/** generated_sheet.essay 裡用來分辨自製／自備的欄位（essayByoPreset 寫 source:'byo'） */
+type EssayGeomLike = { source?: string; gridMm?: unknown; seatOmr?: unknown }
+
 export function getSheetSource(t: {
   answerSheetMode?: 'with_questions' | 'answer_only'
   generatedSheet?: unknown
 }): SheetSource {
   // 2026-09-19 作文模式：generated_sheet 帶 essay 幾何（essaySheetGenerator RPESSAY1）
-  if (t.generatedSheet && typeof t.generatedSheet === 'object' && (t.generatedSheet as { essay?: unknown }).essay) return 'essay'
+  // ⛔ 2026-09-21 自製／自備一定要分開回傳，不能一律回 'essay'——
+  //   ①AnswerBank 徽章兩種都顯示「自製作文卷」（user 回報）
+  //   ②匯入頁靠它選模式：自備卷會被預設成「座號辨識」，但老師自己的稿紙沒有劃卡欄
+  //   ③編輯既有自備卷會被當成自製，存檔時 generateEssaySheet() 會覆蓋掉老師的幾何
+  const essay = (t.generatedSheet as { essay?: EssayGeomLike } | undefined)?.essay
+  if (t.generatedSheet && typeof t.generatedSheet === 'object' && essay) {
+    if (essay.source === 'byo') return 'essay_byo'
+    // 沒有 source 的舊卷：自製卷一定帶版面幾何（gridMm／座號劃卡），自備卷只有格子數
+    if (!essay.gridMm && !essay.seatOmr) return 'essay_byo'
+    return 'essay'
+  }
   if (t.generatedSheet) return 'generated'
   if (t.answerSheetMode === 'answer_only') return 'teacher_scan'
   // 舊卷無此欄 → 歷來預設 with_questions（AnswerBank 編輯開啟同此 fallback）

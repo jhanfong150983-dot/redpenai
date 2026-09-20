@@ -14,7 +14,7 @@ import {
 import { NumericInput } from '@/components/NumericInput'
 import Button from '@/components/ui/Button'
 import AnswerSheetModeSelector from '@/components/AnswerSheetModeSelector'
-import { isSheetSourceAvailable, sheetSourceGradeBlockReason, type SheetSource } from '@/lib/sheetSource'
+import { getSheetSource, isSheetSourceAvailable, sheetSourceGradeBlockReason, type SheetSource } from '@/lib/sheetSource'
 import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
 import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData, type PageSize } from '@/lib/answerSheetGenerator'
 import { cropReferenceSheetCells, SheetAlignError } from '@/lib/generatedSheetAlign'
@@ -346,7 +346,10 @@ export default function AnswerKeyUnifiedModal({
   //   存檔仍只寫舊 2 值 answerSheetMode（teacher_scan/generated 都是 answer_only）＋ generatedSheet 有無，
   //   DB 不加欄位，getSheetSource() 反推回三值（AnswerBank 徽章、匯入頁自動選模式都靠它）。
   const [sheetSource, setSheetSource] = useState<SheetSource>(() => {
-    if (editMode) return isEssaySheet(initialGeneratedSheet) ? 'essay' : initialGeneratedSheet ? 'generated' : initialAnswerSheetMode === 'answer_only' ? 'teacher_scan' : 'with_questions'
+    // ⛔ 2026-09-21 這裡原本用 isEssaySheet() 一律回 'essay'，導致**編輯既有的自備作文卷會被當成自製**，
+    //   存檔時走 generateEssaySheet() 把老師自備稿紙的幾何覆蓋掉。改用 getSheetSource() 統一反推
+    //   （它同時處理 essay／essay_byo／generated／teacher_scan／with_questions，行為與原式一致，只多分出自備）。
+    if (editMode) return getSheetSource({ generatedSheet: initialGeneratedSheet, answerSheetMode: initialAnswerSheetMode })
     if (draft?.sheetSource) return draft.sheetSource
     if (draft?.answerSheetMode === 'answer_only') return 'teacher_scan'
     return 'with_questions'
