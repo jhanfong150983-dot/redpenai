@@ -101,34 +101,48 @@ function useCrop(sub: Submission | undefined, r: Row | undefined) {
   return url
 }
 
-export default function EssayTypoLowConfModal({ entries, onClose, onUpdated }: Props) {
-  const rows = useMemo<Row[]>(() => {
-    const out: Row[] = []
-    for (const { submission, student } of entries) {
-      const info = essayOf(submission)
-      const typos = info?.essay.feedback?.typos ?? []
-      typos.forEach((t, idx) => {
-        if (t.confidence === 'high') return          // 高信心直接採用、不進清單
-        if (!t.loc?.row) return                      // 定位不到就沒圖可看，交由批改詳情處理
-        out.push({
-          key: `${submission.id}#${idx}`,
-          submissionId: submission.id,
-          seat: student.seatNumber ?? null,
-          name: student.name ?? '',
-          idx,
-          wrong: t.wrong,
-          correct: t.correct,
-          context: t.context ?? '',
-          page: t.loc.page,
-          col: t.loc.col,
-          row: t.loc.row,
-          rows: info?.essay.rows ?? 22,
-          removed: false,
-        })
+/**
+ * 哪些錯別字要進待確認清單——**單一真相**，頂欄計數與本 modal 共用。
+ * ⛔ 兩邊各寫一份判斷 → 按鈕顯示 25、清單卻是空的（2026-09-20 實際發生：
+ *    舊資料沒有 confidence 欄位被算進計數，又因為沒有 loc.row 被清單濾掉）。
+ */
+export function buildEssayTypoRows(entries: Array<{ submission: Submission; student: Student }>): Row[] {
+  const out: Row[] = []
+  for (const { submission, student } of entries) {
+    const info = essayOf(submission)
+    const typos = info?.essay.feedback?.typos ?? []
+    typos.forEach((t, idx) => {
+      if (t.confidence === 'high') return          // 高信心直接採用、不進清單
+      if (!t.loc?.row) return                      // 沒有格位＝這份是字典分桶上線前批的，重批才會有
+      out.push({
+        key: `${submission.id}#${idx}`,
+        submissionId: submission.id,
+        seat: student.seatNumber ?? null,
+        name: student.name ?? '',
+        idx,
+        wrong: t.wrong,
+        correct: t.correct,
+        context: t.context ?? '',
+        page: t.loc.page,
+        col: t.loc.col,
+        row: t.loc.row,
+        rows: info?.essay.rows ?? 22,
+        removed: false,
       })
-    }
-    return out.sort((a, b) => Number(a.seat ?? 0) - Number(b.seat ?? 0))
-  }, [entries])
+    })
+  }
+  return out.sort((a, b) => Number(a.seat ?? 0) - Number(b.seat ?? 0))
+}
+
+/** 這份考卷有沒有「舊制」的作文批改（沒有 confidence 欄位＝分桶上線前批的） */
+export function hasLegacyEssayTypos(entries: Array<{ submission: Submission }>): boolean {
+  return entries.some(({ submission }) => (essayOf(submission)?.essay.feedback?.typos ?? [])
+    .some((t) => t.confidence === undefined))
+}
+
+export default function EssayTypoLowConfModal({ entries, onClose, onUpdated }: Props) {
+  const rows = useMemo<Row[]>(() => buildEssayTypoRows(entries), [entries])
+  const legacy = useMemo(() => hasLegacyEssayTypos(entries), [entries])
 
   const [i, setI] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -197,8 +211,17 @@ export default function EssayTypoLowConfModal({ entries, onClose, onUpdated }: P
 
         {rows.length === 0 ? (
           <div className="flex-1 flex items-center justify-center p-10 text-center text-gray-500 text-sm leading-relaxed">
-            這份考卷沒有需要確認的錯別字。<br />
-            <span className="text-xs text-gray-400">AI 與教育部辭典都認定的錯別字已直接採用；抄寫落差不需要確認。</span>
+            {legacy ? (
+              <>
+                這份考卷是<b>字典分桶上線前</b>批改的，錯別字還沒有高／低信心之分。<br />
+                <span className="text-xs text-gray-400">重新批改後，字典無法確認的錯別字就會出現在這裡（含稿紙裁圖）。</span>
+              </>
+            ) : (
+              <>
+                這份考卷沒有需要確認的錯別字。<br />
+                <span className="text-xs text-gray-400">AI 與教育部辭典都認定的錯別字已直接採用；抄寫落差不需要確認。</span>
+              </>
+            )}
           </div>
         ) : cur && (
           <>

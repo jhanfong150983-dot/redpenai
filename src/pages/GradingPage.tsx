@@ -60,7 +60,7 @@ import { fixCorruptedBase64 } from '@/lib/utils'
 import SubmissionDetailModal from '@/components/SubmissionDetailModal'
 import AnswerStatsModal from '@/components/AnswerStatsModal'
 import LowConfidenceModal from '@/components/LowConfidenceModal'
-import EssayTypoLowConfModal from '@/components/EssayTypoLowConfModal'
+import EssayTypoLowConfModal, { buildEssayTypoRows } from '@/components/EssayTypoLowConfModal'
 import SubmissionThumbnail from '@/components/SubmissionThumbnail'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import { blobToBase64 } from '@/lib/imageCompression'
@@ -2936,20 +2936,23 @@ export default function GradingPage({
   //   ⛔ 抄寫落差不計入（user 拍板：改抄本不會重跑眉批／級分，是做了等於沒做的動作）。
   const isEssayAssignment = !!(assignment?.answerKey as { essay?: unknown } | undefined)?.essay
   const lowConfCellCount = useMemo(() => {
+    // 作文卷：⛔ 計數與 modal **必須共用同一個判斷**，否則會出現「按鈕寫 25、清單卻是空的」
+    //   （2026-09-20 實際發生：舊資料沒有 confidence 被算進計數，又因為沒有 loc.row 被清單濾掉）。
+    if (isEssayAssignment) {
+      return buildEssayTypoRows(
+        Array.from(submissions.values()).map((submission) => ({ submission, student: { id: submission.studentId } as Student }))
+      ).length
+    }
     let n = 0
     for (const sub of submissions.values()) {
-      const det = (sub.gradingResult as { details?: Array<{ systemConfidence?: unknown; essayResult?: { feedback?: { typos?: Array<{ confidence?: string }> } } }> } | undefined)?.details ?? []
+      const det = (sub.gradingResult as { details?: Array<{ systemConfidence?: unknown }> } | undefined)?.details ?? []
       for (const d of det) {
-        if (d?.essayResult) {
-          n += (d.essayResult.feedback?.typos ?? []).filter((t) => t?.confidence !== 'high').length
-          continue
-        }
         const c = Number(d?.systemConfidence)
         if (Number.isFinite(c) && c < 70) n++
       }
     }
     return n
-  }, [submissions])
+  }, [submissions, isEssayAssignment])
 
   const handleCloseModal = () => {
     setSelectedSubmission(null)
