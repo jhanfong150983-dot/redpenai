@@ -94,9 +94,11 @@ export const SHEET_SOURCE_DOMAINS: Partial<Record<SheetSource, string[]>> = {
 //   會考格式自備卷（essay_byo）＝國小、國中；學測格式自備卷（essay_gsat_byo）＝高中 1~3（user 拍板）。
 //   兩者是不同的模式值、各走各的格線偵測器（server essay-sheet.js 靠 essay.format 分流），
 //   ⛔ 不要再回到「同一個模式、依年級換版型」：學測正反面是兩大題，模型、解析度、輸出（等第）都不同。
-//   自製作文卷（essay）用我們自己的稿紙，不限學段。
+//   2026-09-21 user 回報「選高中，出現會考」→ 會考格式兩種（自備／系統製作）都只到國中；
+//   高中只出現學測格式兩種。（原本系統製作會考稿紙不限學段，是因為當時高中沒有別的作文模式可用。）
 const SHEET_SOURCE_MAX_GRADE: Partial<Record<SheetSource, number>> = {
-  essay_byo: 9, // 國小 1~6、國中 7~9
+  essay: 9, // 國小 1~6、國中 7~9
+  essay_byo: 9,
 }
 const SHEET_SOURCE_MIN_GRADE: Partial<Record<SheetSource, number>> = {
   essay_gsat_byo: 10, // 高中 1~3；沒選年級＝不顯示
