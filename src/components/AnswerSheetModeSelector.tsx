@@ -21,7 +21,7 @@ interface ModeOption {
   description: string
   suit: string
   Illustration: typeof WithQuestionsIllustration
-  accent: 'red' | 'blue' | 'green' | 'amber' | 'violet' | 'sky'
+  accent: 'red' | 'blue' | 'green' | 'amber' | 'violet' | 'sky' | 'teal'
   /** 建卷流程尚未實作 → 卡片顯示但不可選 */
   comingSoon?: boolean
 }
@@ -89,6 +89,15 @@ const MODES: ModeOption[] = [
     Illustration: EssayModeIllustration,
     accent: 'amber',
   },
+  {
+    value: 'essay_gsat',
+    name: '系統製作作文稿紙（學測格式）',
+    tagline: '國寫第二大題，系統產生「學測」的稿紙',
+    description: '上傳國寫題目，系統製作比照學測的 A3 稿紙（每面 38 行 × 22 格，含定位方塊與座號劃卡）；正面第一大題、背面第二大題，目前只批第二大題，給逐句修改建議與建議等第（A+～C）。',
+    suit: '適合：高中國寫練習、要座號自動辨識的模擬考（需 A3 雙面列印）',
+    Illustration: EssayModeIllustration,
+    accent: 'teal',
+  },
 ]
 
 const SUIT_CLASS: Record<ModeOption['accent'], string> = {
@@ -98,6 +107,7 @@ const SUIT_CLASS: Record<ModeOption['accent'], string> = {
   amber: 'bg-amber-50 text-amber-700',
   violet: 'bg-violet-50 text-violet-700',
   sky: 'bg-sky-50 text-sky-700',
+  teal: 'bg-teal-50 text-teal-700',
 }
 
 export default function AnswerSheetModeSelector({

@@ -18,7 +18,7 @@ import { getSheetSource, isEssaySheetSource, isEssayByoSheetSource, isSheetSourc
 import AnswerSheetMakerStep, { EMPTY_SHEET_MAKER_STATE, type SheetMakerState } from '@/components/AnswerSheetMakerStep'
 import { ANSWER_SHEET_GEN_VERSION, generateAnswerSheet, renderSheetPng, buildSheetPdf, type GenResult, type GeneratedSheetData, type PageSize } from '@/lib/answerSheetGenerator'
 import { cropReferenceSheetCells, SheetAlignError } from '@/lib/generatedSheetAlign'
-import { buildEssaySheetPdf, generateEssaySheet, isEssaySheet } from '@/lib/essaySheetGenerator'
+import { buildEssaySheetPdf, generateEssaySheet, generateGsatEssaySheet, GSAT_PAGE_MM, isEssaySheet } from '@/lib/essaySheetGenerator'
 import { computePointsPerSheet } from '@/lib/exam-pricing'
 import { GRADE_GROUPS, subjectOptionsForGrade, gradeShortLabel, gradeFullLabel } from '@/lib/domainByGrade'
 import { db } from '@/lib/db'
@@ -368,7 +368,9 @@ export default function AnswerKeyUnifiedModal({
   const isEssay = isEssaySheetSource(sheetSource)
   // 自備稿紙（會考格式或學測格式）：都不產生我們的稿紙、都只存格子規格
   const isEssayByo = isEssayByoSheetSource(sheetSource)
-  const isEssayGsat = sheetSource === 'essay_gsat_byo'
+  // 學測格式（自備公版 or 系統製作）：只批第二大題、成績是等第
+  const isEssayGsat = sheetSource === 'essay_gsat_byo' || sheetSource === 'essay_gsat'
+  const isEssayGsatMade = sheetSource === 'essay_gsat'
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? (isEssaySheet(initialGeneratedSheet) ? 'booklet' : 'editing') : 'metadata')
   // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
   //   2026-09-07 編輯模式重開：從已存的 generatedSheet.sheetInputs 還原老師打的內容（參考答案/文字方塊/底圖/畫筆）
@@ -499,6 +501,7 @@ export default function AnswerKeyUnifiedModal({
   const essayByoAvailable = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay_byo', domain, grade)
   // 學測格式：只在高中 1~3 ＋國語出現（user 09-21 拍板）
   const essayGsatAvailable = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay_gsat_byo', domain, grade)
+  const essayGsatMadeAvailable = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay_gsat', domain, grade)
   // 高中的自備作文卷暫不開放（學測兩大題＝兩篇作文，批改模型未定）→ 說明為什麼看不到這張卡
   const essayByoBlockReason = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay_byo', domain) && !essayGsatAvailable
     ? sheetSourceGradeBlockReason('essay_byo', grade)
@@ -508,10 +511,10 @@ export default function AnswerKeyUnifiedModal({
     if (editMode) return
     // ⛔ 學測卡要先判、而且不可以落到下面「自備 → 會考自備」那一行：年級從高中改成國中時，
     //   不能悄悄把學測卷換成會考卷（兩種稿紙不可混），一律退回一般模式讓老師重選。
-    if (isEssayGsat) { if (!essayGsatAvailable) setSheetSource('with_questions'); return }
+    if (isEssayGsat) { if (!(isEssayGsatMade ? essayGsatMadeAvailable : essayGsatAvailable)) setSheetSource('with_questions'); return }
     if (isEssayByo && !essayByoAvailable) { setSheetSource(essayAvailable ? 'essay' : 'with_questions'); return }
     if (isEssay && !essayAvailable) setSheetSource('with_questions')
-  }, [editMode, isEssay, isEssayByo, isEssayGsat, essayAvailable, essayByoAvailable, essayGsatAvailable])
+  }, [editMode, isEssay, isEssayByo, isEssayGsat, isEssayGsatMade, essayAvailable, essayByoAvailable, essayGsatAvailable, essayGsatMadeAvailable])
 
   // 2026-08-29 公版答案卷範本下載（動態產生：帶校名/名稱/科目；docx 套件 dynamic import）
   const [isGeneratingTemplate, setIsGeneratingTemplate] = useState(false)
@@ -1639,7 +1642,8 @@ export default function AnswerKeyUnifiedModal({
       : editingKey
     if (!keyToSave) return
     // 自製作文卷：產生稿紙（含錨點）；自備作文卷：只記規格，批改時直接在學生卷上偵測格線
-    const essaySheet = isEssay && !isEssayByo ? generateEssaySheet({ title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '), questionId: String(keyToSave.questions[0]?.id ?? ESSAY_QUESTION_ID) }) : null
+    // 會考格式與學測格式各用各的產生器（幾何、版號、紙張都不同），⛔ 不共用同一支再用參數切
+    const essaySheet = isEssay && !isEssayByo ? (isEssayGsatMade ? generateGsatEssaySheet : generateEssaySheet)({ title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '), questionId: String(keyToSave.questions[0]?.id ?? ESSAY_QUESTION_ID) }) : null
     // Validate dimension sums
     const mismatchQuestions = keyToSave.questions.filter((q) => {
       // VJ 題用 vjRubric、不看 rubricsDimensions，跳過維度加總檢查
@@ -1688,7 +1692,8 @@ export default function AnswerKeyUnifiedModal({
               if (header) {
                 const qs = updatedKey.questions.map((q) => ({ id: q.id, questionCategory: q.questionCategory ?? 'fill_blank', maxScore: q.maxScore, refAnswer: (q as { answer?: string }).answer, anchorHint: (q as { anchorHint?: string }).anchorHint }))
                 const so = initialGeneratedSheet?.sectionOverrides ?? {}
-                const sizes: PageSize[] = initialGeneratedSheet?.pageSize ? [initialGeneratedSheet.pageSize] : ['A4', 'B4']
+                const savedSize = initialGeneratedSheet?.pageSize
+                const sizes: PageSize[] = savedSize && savedSize !== 'A3' ? [savedSize] : ['A4', 'B4']
                 for (const ps of sizes) {
                   const gen = generateAnswerSheet({ title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '), pageSize: ps, questions: qs, headerDataUri: header, sectionOverrides: so, withRefAnswers: true })
                   if (gen.ok) {
@@ -1742,7 +1747,7 @@ export default function AnswerKeyUnifiedModal({
       let generatedSheetPdf: Blob | undefined
       if (essaySheet) {
         try {
-          generatedSheetPdf = await buildEssaySheetPdf(essaySheet.svgs)
+          generatedSheetPdf = isEssayGsatMade ? await buildEssaySheetPdf(essaySheet.svgs, GSAT_PAGE_MM) : await buildEssaySheetPdf(essaySheet.svgs)
         } catch (err) {
           console.warn('[UnifiedModal] 作文稿紙 PDF 渲染失敗（存檔照常，之後可重新產生）:', err)
         }
@@ -2168,7 +2173,7 @@ export default function AnswerKeyUnifiedModal({
                     </div>
                     {editMode ? (
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">
-                        {isEssayGsat ? '自備作文稿紙（限學測格式、學測國寫公版答題卷）' : isEssayByo ? '自備作文稿紙（限會考格式、老師自己的稿紙）' : isEssay ? '系統製作作文稿紙（會考格式）' : sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
+                        {isEssayGsatMade ? '系統製作作文稿紙（學測格式）' : isEssayGsat ? '自備作文稿紙（限學測格式、學測國寫公版答題卷）' : isEssayByo ? '自備作文稿紙（限會考格式、老師自己的稿紙）' : isEssay ? '系統製作作文稿紙（會考格式）' : sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
                       </p>
                     ) : (
                       <AnswerSheetModeSelector
@@ -2180,6 +2185,7 @@ export default function AnswerKeyUnifiedModal({
                           ...(essayAvailable ? ['essay' as const] : []),
                           ...(essayByoAvailable ? ['essay_byo' as const] : []),
                           ...(essayGsatAvailable ? ['essay_gsat_byo' as const] : []),
+                          ...(essayGsatMadeAvailable ? ['essay_gsat' as const] : []),
                         ]}
                       />
                     )}
@@ -2392,6 +2398,15 @@ export default function AnswerKeyUnifiedModal({
                                   作文題目請上傳第二大題那一頁。
                                 </span>
                               )}
+                            </div>
+                          )}
+                          {isEssayGsatMade && (
+                            <div className="mb-3 text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded px-2 py-1.5 leading-relaxed">
+                              存檔後到答案卷列表下載稿紙：<b>A3 橫式、雙面列印</b>（正面第一大題＋座號劃卡、背面第二大題），請用「實際大小」列印、不要縮放。
+                              <span className="block mt-1 text-amber-800">
+                                目前只批<b>第二大題（背面）</b>，給的是建議等第（A+～C）。正面仍要一起掃進來（座號劃卡在正面），但不會批改。
+                                作文題目請上傳第二大題那一頁。
+                              </span>
                             </div>
                           )}
                           {/* 答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上。

@@ -162,7 +162,8 @@ export interface GenResult {
 /** 存進 answer_key_templates.generated_sheet 的定版資料（回讀與重印的 SSoT） */
 export interface GeneratedSheetData {
   version: string
-  pageSize: PageSize
+  /** 'A3'＝只有學測格式作文稿紙（essaySheetGenerator RPGSAT1）；一般作答卷排版器只支援 A4／B4 */
+  pageSize: PageSize | 'A3'
   pageMm: [number, number]
   anchorsMm: Array<[number, number]>
   uvBasis: { x0: number; y0: number; w: number; h: number }

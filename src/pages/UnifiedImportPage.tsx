@@ -34,7 +34,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import type { Assignment, Student, Submission } from '@/lib/db'
-import { getSheetSource, isEssaySheetSource, type SheetSource } from '@/lib/sheetSource'
+import { getSheetSource, isEssaySheetSource, isEssayMadeSheetSource, type SheetSource } from '@/lib/sheetSource'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { blobToBase64, compressToTargetBytes, rotateImageBlob } from '@/lib/imageCompression'
@@ -323,7 +323,13 @@ export default function UnifiedImportPage({
   const isEssay = isEssaySheetSource(sheetSource)
   // 學測公版是 A3（420mm 寬、10mm 格）：2800px 只有 66px/格，3240px＝76px/格 才與會考卷的 77px 對等。
   //   會考卷維持 2800／2300（所有已驗證實驗的解析度），不因學測而改。
-  const essayWidth = !isEssay ? 0 : sheetSource === 'essay_gsat_byo' ? 3240 : 2800
+  const isGsatSheet = sheetSource === 'essay_gsat_byo' || sheetSource === 'essay_gsat'
+  const essayWidth = !isEssay ? 0 : isGsatSheet ? 3240 : 2800
+  // 座號辨識的姿態：會考稿紙＝直式座號欄（整頁逆時針轉 90°、十位個位對調）；學測格式稿紙＝頂部橫式公版標頭（不轉、不對調；標頭在稿紙上已放大 1.3 倍，引擎門檻不必改）
+  const essaySeatOmrOpts = useMemo(
+    () => (sheetSource === 'essay_gsat' ? {} : { rotateCcw90: true, swapTensOnes: true }),
+    [sheetSource],
+  )
   const essayPdfOpts = useMemo(
     () => (essayWidth ? { maxWidth: essayWidth, minWidth: essayWidth, hardMinWidth: essayWidth > 2800 ? 2800 : 2300, quality: 0.85 } : {}),
     [essayWidth],
@@ -404,7 +410,7 @@ export default function UnifiedImportPage({
       if (!importModeInitRef.current) {
         importModeInitRef.current = true
         // 自製作文卷有座號劃卡欄 → 預設座號辨識；自備作文卷沒有 → 照順序
-        setImportMode(src === 'generated' || src === 'essay' ? 'omr' : 'seq')
+        setImportMode(src === 'generated' || isEssayMadeSheetSource(src) ? 'omr' : 'seq')
       }
 
       const studentsData = await db.students
@@ -797,7 +803,7 @@ export default function UnifiedImportPage({
       for (let i = 0; i < items.length; i++) {
         setBatchProgress(`正在辨識座號（${i + 1}/${items.length}）...`)
         // 作文稿紙：座號欄是公版標頭順時針轉 90° 印在右側，且左十位右個位（與公版相反）
-        items[i] = { ...items[i], result: await recognizeSeatFromPage(items[i].blob, isEssay ? { rotateCcw90: true, swapTensOnes: true } : undefined) }
+        items[i] = { ...items[i], result: await recognizeSeatFromPage(items[i].blob, isEssay ? essaySeatOmrOpts : undefined) }
       }
       // 2026-09-19 作文卷：一張紙雙面＝每生兩頁，座號欄只印在第 1 頁 → 第 2 頁沒有座號。
       //   用「有沒有找到座號欄」把頁面分成正面／背面，再配對：
@@ -823,7 +829,7 @@ export default function UnifiedImportPage({
       setIsBatchProcessing(false)
       setBatchProgress('')
     }
-  }, [isEssay, essayPdfOpts])
+  }, [isEssay, essayPdfOpts, essaySeatOmrOpts])
 
   const cleanupOmrPages = useCallback(() => {
     setOmrPages((prev) => {
@@ -1244,12 +1250,12 @@ export default function UnifiedImportPage({
                 type="button"
                 onClick={() => setImportMode('omr')}
                 // 2026-09-10 非生成作答卷（一般模式／老師掃描卷）沒有座號劃卡標頭 → 停用，避免整批辨識失敗
-                disabled={sheetSource !== null && sheetSource !== 'generated' && sheetSource !== 'essay'}
+                disabled={sheetSource !== null && sheetSource !== 'generated' && !isEssayMadeSheetSource(sheetSource)}
                 className={`rounded-lg px-3 py-1.5 font-medium transition-colors ${
                   importMode === 'omr' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-500`}
                 title={
-                  sheetSource !== null && sheetSource !== 'generated' && sheetSource !== 'essay'
+                  sheetSource !== null && sheetSource !== 'generated' && !isEssayMadeSheetSource(sheetSource)
                     ? '這份考卷不是系統生成的作答卷（沒有座號劃卡標頭），請用「照順序」匯入'
                     : '使用系統生成的作答卷（標頭含座號劃卡格）時，自動辨識每頁座號，不需按號碼排序'
                 }

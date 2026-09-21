@@ -17,7 +17,7 @@
 //     ④第二頁不放標題，改「※此為第二頁，請由第一頁開始作答。」，最下方寫「第二頁」。
 //   實驗依據：redpenaisever/docs/實驗成本記錄.md「作文模式」各段（裁切只含右側窄欄＝5-10 事故修正）。
 
-import { HEADER_SIZE_MM, ANCHOR_SIZE_MM, TENS_BUBBLES, ONES_BUBBLES } from './answerSheetLayout'
+import { HEADER_SIZE_MM, ANCHOR_SIZE_MM, TENS_BUBBLES, ONES_BUBBLES, HANDWRITTEN_BOXES } from './answerSheetLayout'
 import { renderSheetPng, type GenBox, type GeneratedSheetData } from './answerSheetGenerator'
 
 export const ESSAY_SHEET_VERSION = 'RPESSAY5'
@@ -48,9 +48,16 @@ export interface EssayGridGeom {
   gridMm: [number, number, number, number]
   /** 直式座號欄（＝RPOMR1 順時針轉 90°）：[left, top, width, height]；只印在第 1 頁 */
   seatStripMm: [number, number, number, number]
+  /** 稿紙代別：沒有＝會考格式；'gsat'＝學測國寫格式（server 據此用等第判官；定位仍走四角錨點、與自備卷的格線偵測器無關） */
+  format?: 'gsat'
+  /** 要批的題目與所在頁（1-based）。沒有＝整份卷是一篇作文。學測第一期只批第二大題＝背面 */
+  items?: Array<{ id: string; pages: number[] }>
   /** 座號辨識對照：把第 1 頁逆時針轉 90° 後可直接用 RPOMR1 引擎；但十位/個位的語意與引擎相反（左＝十位） */
   seatOmr: {
-    base: 'RPOMR1_cw90'
+    /** RPOMR1_cw90＝會考稿紙的直式座號欄（匯入時整頁逆時針轉 90°）；RPOMR1＝學測稿紙頂部的橫式公版標頭（不轉） */
+    base: 'RPOMR1_cw90' | 'RPOMR1'
+    /** 橫式標頭的放大倍率（學測 A3 稿紙＝1.3）；沒有＝1 */
+    scale?: number
     /** true＝引擎回報的 tens 其實是個位、ones 其實是十位，匯入時要對調 */
     swapTensOnes: boolean
     /** 手寫座號兩格（左＝十位、右＝個位）：[x, y, w, h]（mm、橫式紙座標），確認畫面裁圖用 */
@@ -260,20 +267,159 @@ export function generateEssaySheet(input: EssaySheetInput): EssaySheetResult {
   }
 }
 
-/** 兩頁稿紙 → 一份 PDF（B4 橫式、雙面列印＝正反兩頁）。決定性：固定 metadata 日期 */
-export async function buildEssaySheetPdf(svgs: string[]): Promise<Blob> {
+/** 兩頁稿紙 → 一份 PDF（橫式、雙面列印＝正反兩頁）。決定性：固定 metadata 日期。
+ *  pageMm 沒給＝會考 B4（原行為、輸出不變）；學測稿紙傳 GSAT_PAGE_MM */
+export async function buildEssaySheetPdf(svgs: string[], pageMm: [number, number] = [PW, PH]): Promise<Blob> {
   const { PDFDocument } = await import('pdf-lib')
   const pdf = await PDFDocument.create()
   const epoch = new Date(0)
   pdf.setCreationDate(epoch)
   pdf.setModificationDate(epoch)
-  pdf.setProducer(`RedPen ${ESSAY_SHEET_VERSION}`)
-  const ptW = (PW / 25.4) * 72
-  const ptH = (PH / 25.4) * 72
+  const [pw, ph] = pageMm
+  pdf.setProducer(`RedPen ${pw === PW ? ESSAY_SHEET_VERSION : GSAT_SHEET_VERSION}`)
+  const ptW = (pw / 25.4) * 72
+  const ptH = (ph / 25.4) * 72
   for (const svg of svgs) {
-    const png = await pdf.embedPng(await (await renderSheetPng(svg, [PW, PH])).arrayBuffer())
+    const png = await pdf.embedPng(await (await renderSheetPng(svg, [pw, ph])).arrayBuffer())
     const page = pdf.addPage([ptW, ptH])
     page.drawImage(png, { x: 0, y: 0, width: ptW, height: ptH })
   }
   return new Blob([await pdf.save()], { type: 'application/pdf' })
+}
+
+// ═══ 學測國寫格式（version RPGSAT1，2026-09-21）═══════════════════════════════
+// 比照大考中心國寫答題卷：A3 橫式（420×297mm）、每面 38 直行 × 22 格、每格 10mm、**沒有窄欄**、綠色格線；
+//   正面＝第一大題、背面＝第二大題（第一期只批背面，見 items）。
+// ⛔ 與上面的會考稿紙完全分開（user 09-21：兩種稿紙各自成功、互不影響）：
+//   會考那一支的常數、pageSvg、輸出都沒動；這裡另開一組常數與 gsatPageSvg。
+//   共用的只有純函式 essayColumnRectMm／essayCellRectMm（gutterMm=0 時 pitch＝cellMm，公式本來就成立）。
+// 為什麼座號標頭放頂部、不沿用會考的直式座號欄：A3 放 38 行後左右只剩 40mm，直式欄要 34mm＋四角定位方塊放不下；
+//   上方有 50mm，而且學測公版本身就是「頂部橫排資訊、下面整片格子」。
+//   標頭＝公版 RPOMR1（不旋轉、十位在上個位在下）→ 匯入時不轉頁、不對調。
+//   ⛔ 標頭整個放大 GSAT_HEADER_SCALE 倍：座號引擎用「頁寬 × 5/210」當角標預期邊長（容忍 0.5~2.2 倍），
+//     A3 寬 420mm 上照原尺寸印的 5mm 角標＝0.50 倍，剛好壓在下限（合成圖實測 16.7px vs 門檻 16.67px）→ 實掃會隨機失敗；
+//     改引擎門檻又會讓小字變成候選（實測候選 7→25 個、超過上限 24 → 抓錯標頭）。
+//     放大 1.3 倍＝0.65 倍，落在門檻中段；引擎靠四個角標解透視、是比例制，放大不影響讀卡 → 共用引擎零改動。
+export const GSAT_SHEET_VERSION = 'RPGSAT1'
+const GPW = 420 // A3 橫式
+const GPH = 297
+export const GSAT_PAGE_MM: [number, number] = [GPW, GPH]
+export const GSAT_GRID = { pages: 2, cols: 38, rows: 22, cellMm: 10, gutterMm: 0 } as const
+const GSAT_HEADER_SCALE = 1.3
+const GSAT_GRID_MM: [number, number, number, number] = [20, 53, 380, 220]
+const GSAT_HEADER_MM: [number, number, number, number] = [164, 6.5, HEADER_SIZE_MM.width * GSAT_HEADER_SCALE, HEADER_SIZE_MM.height * GSAT_HEADER_SCALE]
+const GSAT_GREEN = '#2e9e5b'
+
+/** 公版 RPOMR1 標頭（橫式原樣）：四角定位方塊＋班級姓名＋手寫座號兩格＋十位／個位兩排圓 */
+function gsatSeatHeaderSvg(h: [number, number, number, number]): string {
+  // 以下座標都寫「RPOMR1 原始 mm」，畫的時候統一乘 K（＝整個標頭等比例放大）
+  const [hx0, hy0] = h
+  const K = GSAT_HEADER_SCALE
+  const HW = HEADER_SIZE_MM.width
+  const HH = HEADER_SIZE_MM.height
+  const A = ANCHOR_SIZE_MM
+  const GRAY = '#555'
+  const els: string[] = []
+  for (const [x, y] of [[0, 0], [HW - A, 0], [0, HH - A], [HW - A, HH - A]]) {
+    els.push(`<rect x="${px(hx0 + x * K)}" y="${px(hy0 + y * K)}" width="${px(A * K)}" height="${px(A * K)}" fill="#000"/>`)
+  }
+  const label = (t: string, x: number, y: number, size = 3.6) =>
+    `<text x="${px(hx0 + x * K)}" y="${px(hy0 + y * K)}" font-size="${px(size * K)}" fill="${GRAY}">${esc(t)}</text>`
+  const dash = (x1: number, x2: number, y: number) =>
+    `<line x1="${px(hx0 + x1 * K)}" y1="${px(hy0 + y * K)}" x2="${px(hx0 + x2 * K)}" y2="${px(hy0 + y * K)}" stroke="${GRAY}" stroke-width="${px(0.25)}" stroke-dasharray="${px(1.2)} ${px(1)}"/>`
+  els.push(label('班級', 8, 13), dash(18, 68, 14), label('姓名', 8, 25), dash(18, 68, 26))
+  for (const b of HANDWRITTEN_BOXES) {
+    els.push(`<rect x="${px(hx0 + b.u * HW * K)}" y="${px(hy0 + b.v * HH * K)}" width="${px(b.w * HW * K)}" height="${px(b.h * HH * K)}" fill="none" stroke="${GRAY}" stroke-width="${px(0.4)}"/>`)
+  }
+  els.push(`<text x="${px(hx0 + 85.75 * K)}" y="${px(hy0 + 26 * K)}" font-size="${px(3 * K)}" text-anchor="middle" fill="${GRAY}">座號（手寫）</text>`)
+  const R = 2.3 * K
+  const bubbles = (row: typeof TENS_BUBBLES) => row.map((sp) => {
+    const cx = hx0 + sp.u * HW * K, cy = hy0 + sp.v * HH * K
+    return `<circle cx="${px(cx)}" cy="${px(cy)}" r="${px(R)}" fill="none" stroke="#777" stroke-width="${px(0.25)}"/>` +
+      `<text x="${px(cx)}" y="${px(cy + 1.0 * K)}" font-size="${px(2.8 * K)}" text-anchor="middle" fill="#999" font-family="Arial, sans-serif">${sp.digit}</text>`
+  }).join('')
+  els.push(bubbles(TENS_BUBBLES), bubbles(ONES_BUBBLES))
+  els.push(label('十位', 96.5, TENS_BUBBLES[0].v * HH + 1, 2.6), label('個位', 96.5, ONES_BUBBLES[0].v * HH + 1, 2.6))
+  els.push(`<text x="${px(hx0 + 133.5 * K)}" y="${px(hy0 + 30 * K)}" font-size="${px(2.6 * K)}" text-anchor="middle" fill="${GRAY}">座號劃卡　請用黑筆塗滿</text>`)
+  return els.join('')
+}
+
+function gsatPageSvg(pageNo: number, input: EssaySheetInput, g: EssayGridGeom): string {
+  const W = Math.round(GPW * DPMM)
+  const H = Math.round(GPH * DPMM)
+  const a = PAGE_ANCHOR
+  const els: string[] = []
+  for (const [x, y] of [[a.inset, a.inset], [GPW - a.inset - a.size, a.inset], [a.inset, GPH - a.inset - a.size], [GPW - a.inset - a.size, GPH - a.inset - a.size]]) {
+    els.push(`<rect x="${px(x)}" y="${px(y)}" width="${px(a.size)}" height="${px(a.size)}" fill="#000"/>`)
+  }
+  const [gx, gy, gw, gh] = g.gridMm
+  for (let c = 1; c < g.cols; c++) {
+    const x = gx + c * g.cellMm
+    els.push(`<line x1="${px(x)}" y1="${px(gy)}" x2="${px(x)}" y2="${px(gy + gh)}" stroke="${GSAT_GREEN}" stroke-width="${px(0.25)}"/>`)
+  }
+  for (let r = 1; r < g.rows; r++) {
+    const y = gy + r * g.cellMm
+    els.push(`<line x1="${px(gx)}" y1="${px(y)}" x2="${px(gx + gw)}" y2="${px(y)}" stroke="${GSAT_GREEN}" stroke-width="${px(0.2)}"/>`)
+  }
+  els.push(`<rect x="${px(gx)}" y="${px(gy)}" width="${px(gw)}" height="${px(gh)}" fill="none" stroke="${GSAT_GREEN}" stroke-width="${px(0.45)}"/>`)
+  // 行數小標：第 1 行在最右邊，之後每 5 行標一次（學測第一大題有「至多幾行」的限制，學生要數得到）
+  for (let c = 1; c <= g.cols; c++) {
+    if (c !== 1 && c % 5 !== 0) continue
+    const [x, , w] = essayColumnRectMm(g, c, false)
+    els.push(`<text x="${px(x + w / 2)}" y="${px(gy + gh + 4.5)}" font-size="${px(2.6)}" fill="#888" text-anchor="middle" font-family="Arial, sans-serif">${c}</text>`)
+  }
+  const front = pageNo === 1
+  const titleText = input.title.replace(/\s+/g, ' ').trim()
+  const titleSize = Math.min(6.4, (g.seatStripMm[0] - 6 - gx) / Math.max(1, Array.from(titleText).length))
+  els.push(`<text x="${px(gx)}" y="${px(22)}" font-size="${px(titleSize)}" font-weight="bold">${esc(titleText)}</text>`)
+  els.push(`<text x="${px(gx)}" y="${px(33)}" font-size="${px(5.4)}" font-weight="bold">國語文寫作　${front ? '第一大題（正面）' : '第二大題（背面）'}</text>`)
+  els.push(`<text x="${px(gx)}" y="${px(41)}" font-size="${px(3.2)}" fill="#444">直式書寫：由右邊第一行開始、由上往下，每格一字，標點符號佔一格。</text>`)
+  els.push(`<text x="${px(gx)}" y="${px(46.5)}" font-size="${px(3.2)}" fill="#444">${front ? '有小題時請自行標明題號（一）（二），題號單獨寫一行。' : '※ 本面只寫第二大題；第一大題請寫在正面。'}</text>`)
+  if (front) els.push(gsatSeatHeaderSvg(g.seatStripMm))
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="DFKai-SB, BiauKai, 標楷體, TW-Kai, Noto Serif TC, serif">` +
+    `<rect width="${W}" height="${H}" fill="#fff"/>${els.join('')}</svg>`
+  )
+}
+
+/** 學測格式稿紙。回傳形狀與 generateEssaySheet 相同（svgs＋sheet），存檔／下載／批改都走同一條路 */
+export function generateGsatEssaySheet(input: EssaySheetInput): EssaySheetResult {
+  const c = PAGE_ANCHOR.inset + PAGE_ANCHOR.size / 2
+  const anchorsMm: Array<[number, number]> = [[c, c], [GPW - c, c], [c, GPH - c], [GPW - c, GPH - c]]
+  const uvBasis = { x0: c, y0: c, w: GPW - 2 * c, h: GPH - 2 * c }
+  const [hx, hy, hw, hh] = GSAT_HEADER_MM
+  const g: EssayGridGeom = {
+    version: GSAT_SHEET_VERSION, orientation: 'landscape', ...GSAT_GRID,
+    format: 'gsat',
+    // 題號必須與答案卷那一題的 id 相同（server 用它當 questionId）
+    items: [{ id: input.questionId, pages: [2] }],
+    gridMm: GSAT_GRID_MM,
+    seatStripMm: GSAT_HEADER_MM,
+    seatOmr: {
+      base: 'RPOMR1', swapTensOnes: false, scale: GSAT_HEADER_SCALE,
+      handwrittenBoxesMm: HANDWRITTEN_BOXES.map((b) => [hx + b.u * hw, hy + b.v * hh, b.w * hw, b.h * hh] as [number, number, number, number]),
+    },
+  }
+  const uv = {
+    x: (g.gridMm[0] - uvBasis.x0) / uvBasis.w,
+    y: (g.gridMm[1] - uvBasis.y0) / uvBasis.h,
+    w: g.gridMm[2] / uvBasis.w,
+    h: g.gridMm[3] / uvBasis.h,
+  }
+  const boxes: GenBox[] = Array.from({ length: g.pages }, (_, i) => ({
+    id: `${input.questionId}@p${i + 1}`, type: 'essay', kind: 'essay' as const, xyMm: g.gridMm, uv, page: i + 1,
+  }))
+  return {
+    svgs: Array.from({ length: g.pages }, (_, i) => gsatPageSvg(i + 1, input, g)),
+    sheet: {
+      version: GSAT_SHEET_VERSION,
+      pageSize: 'A3',
+      pageMm: [GPW, GPH],
+      anchorsMm,
+      uvBasis,
+      header: { x: hx, y: hy, w: hw, h: hh },
+      boxes,
+      essay: g,
+    },
+  }
 }
