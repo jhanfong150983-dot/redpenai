@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { db, generateId } from '@/lib/db'
 import type { AnswerKey, AnswerKeyTemplate, LevelRubric } from '@/lib/db'
-import { getSheetSource, SHEET_SOURCE_LABEL, SHEET_SOURCE_HINT, SHEET_SOURCE_BADGE_CLASS } from '@/lib/sheetSource'
+import { getSheetSource, isEssayByoSheetSource, SHEET_SOURCE_LABEL, SHEET_SOURCE_HINT, SHEET_SOURCE_BADGE_CLASS } from '@/lib/sheetSource'
 import { requestSync } from '@/lib/sync-events'
 import { rescaleSubmissionForMaxScoreChange } from '@/lib/answerStats'
 import { fetchBuildQuota, type BuildQuota } from '@/lib/buildQuota'
@@ -1185,7 +1185,7 @@ export default function AnswerBank(_props: AnswerBankProps) {
             稿紙是老師自己的、系統從來沒產生過 PDF（實測 storage 裡沒有 sheet.pdf）。
             原本只判 `t.generatedSheet` truthy，按鈕會出現、點下去卻跳「找不到作答卷 PDF，請重新 AI 解析」——
             對自備卷來說那句話是錯的，本來就不該有檔案。 */}
-        {t.generatedSheet && getSheetSource(t) !== 'essay_byo' && (
+        {t.generatedSheet && !isEssayByoSheetSource(getSheetSource(t)) && (
           <button type="button" onClick={() => void handleDownloadGeneratedSheet(t)} className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:border-green-300 hover:text-green-600" title="下載作答卷 PDF">
             <Download className="h-4 w-4" />
           </button>

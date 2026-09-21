@@ -1,4 +1,6 @@
-// 2026-09-20 自備作文卷的稿紙版型：⛔ 不讓老師上傳、也不讓老師選——直接由年級決定（user 拍板）。
+// 2026-09-20 自備作文卷的稿紙版型：⛔ 不讓老師上傳、也不讓老師填規格——選了模式卡就定了。
+//   （09-21 更新：原本「由年級決定」，學測模式落地後改成兩張模式卡各自對應一個版型；
+//     高中才看得到學測卡、國中小才看得到會考卡，所以老師實際上還是不用多選一步。）
 //   「國中 1~3 年級國語 → 會考寫作測驗答案卷；高中 1~3 年級國語 → 學測國寫答題卷。
 //     稿紙不用上傳也不用選擇，直接使用對應的版型就好（少一個步驟）。」
 //   國小沒有公版稿紙 → 沿用會考版（23 行 × 22 格是市售作文紙的常見規格），老師印會考稿紙即可。
@@ -7,6 +9,7 @@
 //   ①核對抓到的行數對不對（抓不全會直接擋下，見 server/ai/essay-sheet.js 的 incomplete 防呆）
 //   ②決定每位學生要收幾頁。
 import type { EssayByoGeom } from '@/lib/db'
+import type { SheetSource } from '@/lib/sheetSource'
 
 export interface EssayByoPreset {
   /** 版型代號 */
@@ -34,26 +37,31 @@ export const ESSAY_PRESET_EXAM_CAP: EssayByoPreset = {
   gutterMm: 2.5,
 }
 
-/** 學測國寫答題卷：每面 38 行 × 22 格，正反面＝第一、第二大題 */
+/** 學測國寫答題卷：A3 橫式（420×297mm）、每面 38 行 × 22 格、無窄欄，正反面＝第一、第二大題
+ *  ⛔ 字格是 10mm（09-21 用 115 年原卷量出來的）；先前寫的 8mm 是估的、是錯的 */
 export const ESSAY_PRESET_GSAT: EssayByoPreset = {
   name: 'gsat',
   label: '學測國寫答題卷',
-  hint: '每面 38 行 × 22 格＝836 格，正反面是第一、第二大題',
+  hint: 'A3 橫式、每面 38 行 × 22 格，正面第一大題、背面第二大題',
   cols: 38,
   rows: 22,
   pages: 2,
-  cellMm: 8,
+  cellMm: 10,
   gutterMm: 0,
 }
 
-/** 年級 → 稿紙版型（高中＝學測，其餘＝會考） */
-export function essayByoPresetForGrade(grade?: number | ''): EssayByoPreset {
-  const g = typeof grade === 'number' ? grade : 0
-  return g >= 10 ? ESSAY_PRESET_GSAT : ESSAY_PRESET_EXAM_CAP
+/** 模式 → 稿紙版型。⛔ 2026-09-21 改由「模式」決定、不再由年級決定：
+ *  會考與學測是兩張不同的模式卡（essay_byo／essay_gsat_byo），版型跟著卡走才不會混在一起 */
+export function essayByoPresetFor(source: SheetSource): EssayByoPreset {
+  return source === 'essay_gsat_byo' ? ESSAY_PRESET_GSAT : ESSAY_PRESET_EXAM_CAP
 }
 
-/** 年級 → 存進答案卷的稿紙幾何 */
-export function essayByoGeomForGrade(grade?: number | ''): EssayByoGeom {
-  const p = essayByoPresetForGrade(grade)
-  return { source: 'byo', pages: p.pages, cols: p.cols, rows: p.rows, cellMm: p.cellMm, gutterMm: p.gutterMm }
+/** 學測第一期只批第二大題（背面＝第 2 頁）；題號與 ESSAY_QUESTION_ID 一致 */
+export const GSAT_ITEMS: NonNullable<EssayByoGeom['items']> = [{ id: '1', pages: [2] }]
+
+/** 模式 → 存進答案卷的稿紙幾何。會考版的輸出與改版前逐欄位相同（不帶 format／items） */
+export function essayByoGeomFor(source: SheetSource): EssayByoGeom {
+  const p = essayByoPresetFor(source)
+  const base: EssayByoGeom = { source: 'byo', pages: p.pages, cols: p.cols, rows: p.rows, cellMm: p.cellMm, gutterMm: p.gutterMm }
+  return p.name === 'gsat' ? { ...base, format: 'gsat', items: GSAT_ITEMS } : base
 }

@@ -2,10 +2,19 @@
 //   DB 只有 answer_sheet_mode(2 值) + generated_sheet；「生成作答卷」在 server 也是靠 generated_sheet 有無推斷
 //   （api/proxy.js 命中定版版面→免 classify）。這裡用同一條規則在 client 推導，不新增欄位（免動 sync SELECT/response map）。
 //   用途：答案卷卡片徽章、匯入頁自動選「照順序／座號辨識」。
-export type SheetSource = 'with_questions' | 'teacher_scan' | 'generated' | 'essay' | 'essay_byo'
+export type SheetSource = 'with_questions' | 'teacher_scan' | 'generated' | 'essay' | 'essay_byo' | 'essay_gsat_byo'
+
+/** 是不是作文模式（會考自製／會考自備／學測自備）。⛔ 新增作文模式時只改這裡，不要在各頁自己列舉 */
+export function isEssaySheetSource(s: SheetSource | null | undefined): boolean {
+  return s === 'essay' || s === 'essay_byo' || s === 'essay_gsat_byo'
+}
+/** 是不是「自備稿紙」的作文模式（沒有我們的定位方塊與座號劃卡、批改時直接找印刷格線） */
+export function isEssayByoSheetSource(s: SheetSource | null | undefined): boolean {
+  return s === 'essay_byo' || s === 'essay_gsat_byo'
+}
 
 /** generated_sheet.essay 裡用來分辨自製／自備的欄位（essayByoPreset 寫 source:'byo'） */
-type EssayGeomLike = { source?: string; gridMm?: unknown; seatOmr?: unknown }
+type EssayGeomLike = { source?: string; format?: string; gridMm?: unknown; seatOmr?: unknown }
 
 export function getSheetSource(t: {
   answerSheetMode?: 'with_questions' | 'answer_only'
@@ -18,6 +27,9 @@ export function getSheetSource(t: {
   //   ③編輯既有自備卷會被當成自製，存檔時 generateEssaySheet() 會覆蓋掉老師的幾何
   const essay = (t.generatedSheet as { essay?: EssayGeomLike } | undefined)?.essay
   if (t.generatedSheet && typeof t.generatedSheet === 'object' && essay) {
+    // 2026-09-21 學測公版（format:'gsat'）要先判：它也是 source:'byo'，落到下一行就會被當成會考卷
+    //   → 匯入解析度用錯（2800 而非 3240）、徽章也錯。server 端同樣是靠 format 分流兩支格線偵測器。
+    if (essay.format === 'gsat') return 'essay_gsat_byo'
     if (essay.source === 'byo') return 'essay_byo'
     // 沒有 source 的舊卷：自製卷一定帶版面幾何（gridMm／座號劃卡），自備卷只有格子數
     if (!essay.gridMm && !essay.seatOmr) return 'essay_byo'
@@ -37,6 +49,7 @@ export const SHEET_SOURCE_LABEL: Record<SheetSource, string> = {
   //   （徽章位置窄 → 只留代別，完整名稱「系統製作作文稿紙（會考格式）」在模式選擇卡上）
   essay: '會考作文稿紙（系統製作）',
   essay_byo: '會考作文稿紙（自備）',
+  essay_gsat_byo: '學測作文稿紙（自備）',
 }
 
 export const SHEET_SOURCE_HINT: Record<SheetSource, string> = {
@@ -45,6 +58,7 @@ export const SHEET_SOURCE_HINT: Record<SheetSource, string> = {
   generated: '系統製作的作答卷（含定位錨點）；批改免 classify、匯入可座號辨識',
   essay: '系統製作的作文稿紙（比照會考：每面 506 格、正反兩頁、含定位方塊與座號劃卡）；AI 逐句眉批＋建議級分',
   essay_byo: '用會考公版作文稿紙（依年級自動套用）；不必上傳稿紙，系統會直接在學生卷上抓出每一行',
+  essay_gsat_byo: '用學測國寫公版答題卷（A3、每面 38 行 × 22 格）；目前只批背面的第二大題，AI 逐句眉批＋建議等第',
 }
 
 /** 卡片小徽章樣式（與 AnswerSheetModeSelector 的紅/藍 accent 對齊；生成卷用綠） */
@@ -55,6 +69,7 @@ export const SHEET_SOURCE_BADGE_CLASS: Record<SheetSource, string> = {
   // 兩種作文模式要分得出來（user 09-21）：自備＝紫、系統製作＝琥珀，與模式卡的 accent 一致
   essay: 'bg-amber-50 text-amber-700 border-amber-200',
   essay_byo: 'bg-violet-50 text-violet-700 border-violet-200',
+  essay_gsat_byo: 'bg-sky-50 text-sky-700 border-sky-200',
 }
 
 // 2026-09-19 領域專屬模式（user 拍板：日後某些領域可能有自己的特殊模式）。
@@ -63,16 +78,19 @@ export const SHEET_SOURCE_BADGE_CLASS: Record<SheetSource, string> = {
 export const SHEET_SOURCE_DOMAINS: Partial<Record<SheetSource, string[]>> = {
   essay: ['國語'],
   essay_byo: ['國語'],
+  essay_gsat_byo: ['國語'],
 }
 
-// 2026-09-20 學段限制（⚠ 暫時性，等高中作文模式定案後放開）。
-//   自備作文卷在高中會套學測國寫答題卷，而學測**正反面是第一、第二大題＝兩篇不同的作文**，
-//   現行模型是「一份卷＝一篇作文」，套下去會把兩篇合成一篇批 → 無聲批錯。
-//   user 09-20 拍板「學測的題目之後再說，可能要另外建高中作文的答案卷模式」→ 在那之前先不讓高中選得到。
-//   ⛔ 只擋自備作文卷：自製作文卷用的是我們自己的稿紙（一篇寫兩頁），高中拿來考作文完全正常。
-//   要放開＝刪掉這張表裡的 essay_byo 一列（essayByoPreset 的學測版型已經備好且量測過）。
+// 學段限制。2026-09-21 學測模式落地後定案：
+//   會考格式自備卷（essay_byo）＝國小、國中；學測格式自備卷（essay_gsat_byo）＝高中 1~3（user 拍板）。
+//   兩者是不同的模式值、各走各的格線偵測器（server essay-sheet.js 靠 essay.format 分流），
+//   ⛔ 不要再回到「同一個模式、依年級換版型」：學測正反面是兩大題，模型、解析度、輸出（等第）都不同。
+//   自製作文卷（essay）用我們自己的稿紙，不限學段。
 const SHEET_SOURCE_MAX_GRADE: Partial<Record<SheetSource, number>> = {
   essay_byo: 9, // 國小 1~6、國中 7~9
+}
+const SHEET_SOURCE_MIN_GRADE: Partial<Record<SheetSource, number>> = {
+  essay_gsat_byo: 10, // 高中 1~3；沒選年級＝不顯示
 }
 
 /** 這個模式在此領域／年級是否可選（未選領域＝空字串 → 只回通用模式） */
@@ -84,6 +102,8 @@ export function isSheetSourceAvailable(source: SheetSource, domain: string, grad
   }
   const maxGrade = SHEET_SOURCE_MAX_GRADE[source]
   if (maxGrade != null && typeof grade === 'number' && grade > maxGrade) return false
+  const minGrade = SHEET_SOURCE_MIN_GRADE[source]
+  if (minGrade != null && !(typeof grade === 'number' && grade >= minGrade)) return false
   return true
 }
 
@@ -92,7 +112,7 @@ export function sheetSourceGradeBlockReason(source: SheetSource, grade?: number 
   const maxGrade = SHEET_SOURCE_MAX_GRADE[source]
   if (maxGrade == null || typeof grade !== 'number' || grade <= maxGrade) return null
   if (source === 'essay_byo') {
-    return '高中的自備作文卷（學測國寫答題卷）還沒開放：學測正反面是第一、第二大題、等於兩篇不同的作文，批改方式還在規劃。高中要考作文請先用「自製作文卷」。'
+    return '高中沒有「限會考格式」的自備稿紙：請改用「自備作文稿紙（限學測格式）」，或用系統製作的作文稿紙。'
   }
   return null
 }

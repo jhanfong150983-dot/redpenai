@@ -588,7 +588,15 @@ export interface EssayResult {
     summary: string
   } | null
   /** suggested＝AI 建議級分、final＝老師確認後的級分（成績以 final 為準） */
-  level: { suggested: number | null; final: number | null; reason: string; dimensions: Array<{ name: string; level: number; comment: string; quotes?: string[] }> }
+  level: {
+    suggested: number | null; final: number | null; reason: string
+    dimensions: Array<{ name: string; level: number; comment: string; quotes?: string[] }>
+    /** 學測國寫才有（server 只在學測卷寫）：0~6 要顯示成等第，見 lib/essayScale.ts */
+    scale?: 'gsat'
+    grade?: string | null
+    /** 學測：是否切題（false＝文不對題、等第由 code 設 0） */
+    onTopic?: boolean | null
+  }
   /** 零 AI 閘門命中時的原因（空白卷／字數過少）；沒命中＝null */
   gate: string | null
   ms?: number
@@ -598,6 +606,10 @@ export interface EssayResult {
  *  這裡只記規格：用來核對偵測到的行數、決定每生收幾頁。 */
 export interface EssayByoGeom {
   source: 'byo'
+  /** 稿紙代別：沒有＝會考格式；'gsat'＝學測國寫公版（server 靠它分流格線偵測器與等第判官） */
+  format?: 'gsat'
+  /** 要批的題目與所在頁（1-based）。沒有＝整份卷是一篇作文（會考）。學測第一期只批第二大題＝背面 */
+  items?: Array<{ id: string; pages: number[] }>
   pages: number
   cols: number
   rows: number

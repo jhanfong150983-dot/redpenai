@@ -34,7 +34,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import type { Assignment, Student, Submission } from '@/lib/db'
-import { getSheetSource, type SheetSource } from '@/lib/sheetSource'
+import { getSheetSource, isEssaySheetSource, type SheetSource } from '@/lib/sheetSource'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { blobToBase64, compressToTargetBytes, rotateImageBlob } from '@/lib/imageCompression'
@@ -86,6 +86,7 @@ interface StudentSubmissionInfo {
 // 目標檔案大小上限：3 MB（對齊學生端，留 0.5 MB buffer 給 Vercel 4.5 MB 邊界）
 // 2026-05-14 從 1.9 MB 拉到 3 MB——批次匯入也吃同一條 useSync 路徑、不該比學生卷壓更兇
 const TARGET_MAX_BYTES = 3 * 1024 * 1024
+const ESSAY_GSAT_TARGET_BYTES = Math.round(2.8 * 1024 * 1024)
 
 // ── Helper: save a single student submission ──────────────────────────────────
 
@@ -95,8 +96,11 @@ async function saveStudentSubmission(
   pageBlobs: Blob[],
   avoidBlobStorage: boolean,
   source: string,
-  essayMode = false,
+  /** 作文卷每頁寬度（0＝不是作文卷）：會考 2800、學測 3240 */
+  essayWidth = 0,
 ): Promise<void> {
+  const essayMode = essayWidth > 0
+  const gsatEssay = essayWidth > 2800
   // Merge pages if needed
   const mergeResult =
     pageBlobs.length === 1
@@ -109,10 +113,13 @@ async function saveStudentSubmission(
   // 2026-09-19 作文卷解析度（實驗5）：每格 <63px 時 AI 會把學生的別字悄悄改成正字。
   //   B4 稿紙 10mm 格 → 每頁 2800px＝77px/格（＝所有已驗證實驗的解析度）、2300px＝63px（下限）。
   //   合併是上下堆疊、每頁保留完整寬度，所以合併圖寬度就是每頁寬度（實測兩頁 2800px 合併僅 ~0.5MB）。
-  const compressMaxWidth = essayMode ? 2800 : pageBlobs.length === 1 ? 2300 : 1900
-  imageBlob = await compressToTargetBytes(imageBlob, TARGET_MAX_BYTES, {
+  const compressMaxWidth = essayMode ? essayWidth : pageBlobs.length === 1 ? 2300 : 1900
+  // ⛔ 2026-09-21 學測卷的目標壓到 2.8MB：useSync 上傳時 base64 超過 400 萬字元（≈2.86MB）會被縮到 2000px，
+  //   學測 A3 稿紙縮到 2000px＝47px/格 → 格線抓不到、整份批改失敗。
+  //   會考卷兩頁才 ~0.5MB、碰不到這條線 → 維持原值不動（兩種稿紙互不影響）。
+  imageBlob = await compressToTargetBytes(imageBlob, gsatEssay ? ESSAY_GSAT_TARGET_BYTES : TARGET_MAX_BYTES, {
     maxWidth: compressMaxWidth,
-    ...(essayMode ? { minWidth: 2300 } : {}),
+    ...(essayMode ? { minWidth: gsatEssay ? 2800 : 2300 } : {}),
   })
 
   // Generate thumbnail
@@ -313,7 +320,14 @@ export default function UnifiedImportPage({
   // 2026-09-10 依答案卷來源模式自動選：生成作答卷（標頭含座號劃卡＋錨點）→ 預設座號辨識；
   //   一般模式／老師掃描卷沒有劃卡標頭 → 只能照順序、座號辨識鈕停用。只在首次載入設預設，不蓋老師手動切換。
   const [sheetSource, setSheetSource] = useState<SheetSource | null>(null)
-  const isEssay = sheetSource === 'essay' || sheetSource === 'essay_byo'
+  const isEssay = isEssaySheetSource(sheetSource)
+  // 學測公版是 A3（420mm 寬、10mm 格）：2800px 只有 66px/格，3240px＝76px/格 才與會考卷的 77px 對等。
+  //   會考卷維持 2800／2300（所有已驗證實驗的解析度），不因學測而改。
+  const essayWidth = !isEssay ? 0 : sheetSource === 'essay_gsat_byo' ? 3240 : 2800
+  const essayPdfOpts = useMemo(
+    () => (essayWidth ? { maxWidth: essayWidth, minWidth: essayWidth, hardMinWidth: essayWidth > 2800 ? 2800 : 2300, quality: 0.85 } : {}),
+    [essayWidth],
+  )
   const [classroomName, setClassroomName] = useState('')
   const importModeInitRef = useRef(false)
   const [omrPages, setOmrPages] = useState<OmrPageItem[]>([])
@@ -507,7 +521,7 @@ export default function UnifiedImportPage({
               next,
               avoidBlobStorage,
               'teacher_camera',
-              isEssay,
+              essayWidth,
             )
               .then(() => {
                 requestSync()
@@ -640,7 +654,7 @@ export default function UnifiedImportPage({
         rotatedBlobs,
         avoidBlobStorage,
         uploadPreviewSource,
-        isEssay,
+        essayWidth,
       )
       requestSync()
 
@@ -719,7 +733,7 @@ export default function UnifiedImportPage({
           //   （低於下限 AI 會把學生的別字悄悄改成正字，而且印刷格線會糊到偵測不到）。
           //   實測 user 第一批卷就是 1684px/頁 → 格線只抓到 14/23 行、被守門擋下。
           //   2800px＝77px/格（所有已驗證實驗用的解析度）；hardMinWidth 2300＝63px/格 的底線。
-          ...(isEssay ? { maxWidth: 2800, minWidth: 2800, hardMinWidth: 2300, quality: 0.85 } : {}),
+          ...essayPdfOpts,
           onProgress: (current, total) => {
             setBatchProgress(
               `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name} — 第 ${current}/${total} 頁`,
@@ -744,7 +758,7 @@ export default function UnifiedImportPage({
       setIsBatchProcessing(false)
       setBatchProgress('')
     }
-  }, [isEssay])
+  }, [essayPdfOpts])
 
   // 2026-08-29 座號辨識模式：轉圖後逐頁跑劃卡辨識（純 code），開確認畫面
   const convertPdfsAndRecognize = useCallback(async (fileArray: File[]) => {
@@ -761,7 +775,7 @@ export default function UnifiedImportPage({
           //   （低於下限 AI 會把學生的別字悄悄改成正字，而且印刷格線會糊到偵測不到）。
           //   實測 user 第一批卷就是 1684px/頁 → 格線只抓到 14/23 行、被守門擋下。
           //   2800px＝77px/格（所有已驗證實驗用的解析度）；hardMinWidth 2300＝63px/格 的底線。
-          ...(isEssay ? { maxWidth: 2800, minWidth: 2800, hardMinWidth: 2300, quality: 0.85 } : {}),
+          ...essayPdfOpts,
           onProgress: (current, total) => {
             setBatchProgress(
               `正在轉換 PDF（${fi + 1}/${fileArray.length}）：${file.name} — 第 ${current}/${total} 頁`,
@@ -809,7 +823,7 @@ export default function UnifiedImportPage({
       setIsBatchProcessing(false)
       setBatchProgress('')
     }
-  }, [isEssay])
+  }, [isEssay, essayPdfOpts])
 
   const cleanupOmrPages = useCallback(() => {
     setOmrPages((prev) => {
@@ -934,7 +948,7 @@ export default function UnifiedImportPage({
             pageBlobs,
             avoidBlobStorage,
             'teacher_scan',
-            isEssay,
+            essayWidth,
           )
           successCount++
         }

@@ -11,6 +11,7 @@
 //   → pdf-lib 合併成「一班一個 PDF」直接列印(user 拍板,不用 zip)。
 import { db, type Submission, type Student, type Assignment } from '@/lib/db'
 import { resolveStdAnswer } from '@/lib/parentReport'
+import { essayScaleOf } from '@/lib/essayScale'
 
 const PDF_ENDPOINT = '/api/report/parent-pdf'
 const FONT_LINK = '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet">'
@@ -588,6 +589,7 @@ async function buildOverlayClassPdf(
           who: `${stu.seatNumber}號 ${stu.name ?? ''}`,
           level: essay.level.final ?? essay.level.suggested,
           maxLevel: 6,
+          scale: essayScaleOf(essay),
           summary: essay.feedback?.summary ?? '',
         })
         for (const blob of pages) {

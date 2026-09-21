@@ -16,6 +16,7 @@
 // 前端不再對齊一次。純 canvas＋pdf-lib、零 server 呼叫。
 import type { EssayResult, EssayLoc } from '@/lib/db'
 import { studentVisibleSentences } from '@/lib/essayFeedbackFilter'
+import { essayLevelLabel } from '@/lib/essayScale'
 
 const RED = '#d0021b'
 // 老師批改用標楷體（台灣教育類慣例）。Windows＝DFKai-SB／標楷體、macOS＝BiauKai；
@@ -31,6 +32,8 @@ export interface EssaySheetMeta {
   who: string
   level: number | null
   maxLevel: number
+  /** 'gsat'＝學測國寫、成績印等第不印級分；沒給＝會考（原行為） */
+  scale?: 'cap' | 'gsat'
   summary: string
 }
 
@@ -273,7 +276,10 @@ async function renderPage(
       const colW = toX(bb.x + bb.w) - toX(bb.x)
 
       // 排版順序（user 指定）：建議：①②③ →（空間距）→ 總評：
-      const head = meta.level != null ? `${meta.level} 級分` : ''
+      // 學測印等第。直書是一字一格往下排 → 半形「A+」會變成兩個歪掉的窄字，改用全形「Ａ＋」
+      const head = meta.level == null ? ''
+        : meta.scale === 'gsat' ? `等第　${essayLevelLabel(meta.level, 'gsat').replace(/[A-C]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0)).replace('+', '＋')}`
+        : `${meta.level} 級分`
       // user 指定：白底方框最後一行最下方加免責提醒（AI 抄寫可能出錯，請人工確認）
       const DISCLAIMER = '※此為AI抄寫後的建議，可能因為字跡、塗改、插入導致錯誤，請務必進行人工確認。'
       const blocks: Array<{ text: string; bold?: boolean; scale?: number; gapAfter?: number; bottom?: boolean }> = []

@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react'
 import type { EssayResult, EssayLoc } from '@/lib/db'
 import { dismissedTypoForms, isSentenceTainted } from '@/lib/essayFeedbackFilter'
+import { essayScaleOf, essayLevelLabel, GSAT_SCORE_LEGEND } from '@/lib/essayScale'
 
 interface Props {
   value: EssayResult
@@ -55,7 +56,9 @@ export default function EssayReviewPanel({ value, onChange, readOnly = false }: 
         <span className="text-[10px] text-gray-400">{value.chars} 字・{value.paragraphs.length} 段</span>
         {value.level.suggested != null && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
-            AI 建議 {value.level.suggested} 級分（分數欄可改）
+            {essayScaleOf(value) === 'gsat'
+              ? <>AI 建議等第 {essayLevelLabel(value.level.suggested, 'gsat')}（分數欄可改：{GSAT_SCORE_LEGEND}）</>
+              : <>AI 建議 {value.level.suggested} 級分（分數欄可改）</>}
           </span>
         )}
         {/* 2026-09-20 user 拍板：抄寫落差**不再要老師確認**（改抄本不會重跑眉批／級分＝做了等於沒做；

@@ -7,6 +7,7 @@
 import { useMemo } from 'react'
 import type { EssayResult, GradingDetail, Submission } from '@/lib/db'
 import { studentVisibleSentences } from '@/lib/essayFeedbackFilter'
+import { essayLevelLabel, essayScaleOf, gsatGradeOf } from '@/lib/essayScale'
 
 type Props = {
   submissions: Submission[]
@@ -27,6 +28,8 @@ export default function EssayOverviewSection({ submissions, maxLevel = 6 }: Prop
       .map((s) => ({ s, e: essayOf(s) }))
       .filter((x): x is { s: Submission; e: EssayResult } => !!x.e)
     if (!papers.length) return null
+    // 學測國寫：成績是等第不是級分，也沒有會考四向度（level.dimensions 放的是題旨要素、每卷不同）
+    const gsat = papers.some(({ e }) => essayScaleOf(e) === 'gsat')
 
     // 級分以老師確認後的分數為準（分數欄就是級分）
     const levels = papers.map(({ s, e }) => (typeof s.score === 'number' ? s.score : (e.level?.final ?? e.level?.suggested ?? 0)))
@@ -74,7 +77,7 @@ export default function EssayOverviewSection({ submissions, maxLevel = 6 }: Prop
 
     const charsArr = papers.map(({ e }) => e.chars ?? 0)
     return {
-      n, mean, median, dist, dims, issues, typoRows, typoTop,
+      n, mean, median, dist, dims, issues, typoRows, typoTop, gsat,
       minLv: Math.min(...levels), maxLv: Math.max(...levels),
       charsAvg: charsArr.reduce((a, b) => a + b, 0) / n,
       charsMin: Math.min(...charsArr), charsMax: Math.max(...charsArr),
@@ -85,10 +88,13 @@ export default function EssayOverviewSection({ submissions, maxLevel = 6 }: Prop
   const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1))
   const maxCount = Math.max(1, ...stat.dist.map((d) => d.count))
 
+  const scale = stat.gsat ? 'gsat' as const : 'cap' as const
+  // ⛔ 等第不是等距量尺 → 學測不顯示「平均 4.3」這種數字，改顯示中位等第
   const tiles = [
-    { label: '平均級分', value: fmt(stat.mean), hint: `滿級分 ${maxLevel}` },
-    { label: '中位數', value: fmt(stat.median) },
-    { label: '最高／最低', value: `${stat.maxLv}／${stat.minLv}` },
+    ...(stat.gsat
+      ? [{ label: '中位等第', value: gsatGradeOf(stat.median) }]
+      : [{ label: '平均級分', value: fmt(stat.mean), hint: `滿級分 ${maxLevel}` }, { label: '中位數', value: fmt(stat.median) }]),
+    { label: '最高／最低', value: stat.gsat ? `${essayLevelLabel(stat.maxLv, scale)}／${essayLevelLabel(stat.minLv, scale)}` : `${stat.maxLv}／${stat.minLv}` },
     { label: '平均字數', value: String(Math.round(stat.charsAvg)), hint: `${stat.charsMin}～${stat.charsMax} 字` },
     { label: '待確認錯別字', value: String(stat.typoRows.length), hint: `平均每份 ${(stat.typoRows.length / stat.n).toFixed(1)} 個` },
   ]
@@ -111,11 +117,11 @@ export default function EssayOverviewSection({ submissions, maxLevel = 6 }: Prop
       </div>
 
       {/* 級分分布：⛔ 不折算百分比（會考就是看級分本身） */}
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>級分分布</div>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{stat.gsat ? '等第分布' : '級分分布'}</div>
       <div style={{ marginBottom: 16 }}>
         {[...stat.dist].reverse().map((d) => (
           <div key={d.lv} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '3px 0' }}>
-            <span style={{ width: 52, fontSize: 12, color: '#475569', textAlign: 'right' }}>{d.lv} 級分</span>
+            <span style={{ width: 52, fontSize: 12, color: '#475569', textAlign: 'right' }}>{essayLevelLabel(d.lv, scale)}</span>
             <div style={{ flex: 1, background: '#f1f5f9', borderRadius: 4, height: 16 }}>
               <div style={{ width: `${(d.count / maxCount) * 100}%`, background: d.count ? '#3b82f6' : 'transparent', height: 16, borderRadius: 4 }} />
             </div>
@@ -124,7 +130,8 @@ export default function EssayOverviewSection({ submissions, maxLevel = 6 }: Prop
         ))}
       </div>
 
-      {/* 四向度：哪一項最弱＝這個班要補強的方向 */}
+      {/* 四向度：哪一項最弱＝這個班要補強的方向（學測沒有四向度 → 整塊不顯示） */}
+      {!stat.gsat && (<>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
         四向度班級平均 <span style={{ fontWeight: 400, fontSize: 11, color: '#94a3b8' }}>數字越低＝全班越弱，優先檢討</span>
       </div>
@@ -138,6 +145,7 @@ export default function EssayOverviewSection({ submissions, maxLevel = 6 }: Prop
           </div>
         ))}
       </div>
+      </>)}
 
       {/* 全班共同問題：直接對應檢討模式的順序 */}
       {stat.issues.length > 0 && (

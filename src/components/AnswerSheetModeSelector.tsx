@@ -21,7 +21,7 @@ interface ModeOption {
   description: string
   suit: string
   Illustration: typeof WithQuestionsIllustration
-  accent: 'red' | 'blue' | 'green' | 'amber' | 'violet'
+  accent: 'red' | 'blue' | 'green' | 'amber' | 'violet' | 'sky'
   /** 建卷流程尚未實作 → 卡片顯示但不可選 */
   comingSoon?: boolean
 }
@@ -70,6 +70,16 @@ const MODES: ModeOption[] = [
     Illustration: EssayByoIllustration,
     accent: 'violet',
   },
+  // 2026-09-21 學測格式（自備在前、系統製作在後；只在高中 1~3 ＋國語出現，見 sheetSource.ts 的 SHEET_SOURCE_MIN_GRADE）
+  {
+    value: 'essay_gsat_byo',
+    name: '自備作文稿紙（限學測格式）',
+    tagline: '國寫第二大題，用現成「學測」的答題卷',
+    description: '上傳國寫題目即可；學生寫在學測國寫公版答題卷上，批改時系統直接找出格線。目前只批背面的第二大題，給逐句修改建議與建議等第（A+～C）。',
+    suit: '適合：高中國寫練習、模擬考',
+    Illustration: EssayByoIllustration,
+    accent: 'sky',
+  },
   {
     value: 'essay',
     name: '系統製作作文稿紙（會考格式）',
@@ -87,6 +97,7 @@ const SUIT_CLASS: Record<ModeOption['accent'], string> = {
   green: 'bg-emerald-50 text-emerald-700',
   amber: 'bg-amber-50 text-amber-700',
   violet: 'bg-violet-50 text-violet-700',
+  sky: 'bg-sky-50 text-sky-700',
 }
 
 export default function AnswerSheetModeSelector({
