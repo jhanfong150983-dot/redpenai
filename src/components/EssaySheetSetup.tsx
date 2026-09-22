@@ -37,6 +37,8 @@ export function customSheetMismatch(c: CustomSheetState): string | null {
 interface Props {
   choice: EssaySheetChoice
   onChoice: (c: EssaySheetChoice) => void
+  /** 可選的稿紙（依年級過濾：國中小＝會考／自備、高中＝學測／自備）；沒給＝全部 */
+  allowed?: EssaySheetChoice[]
   grade?: number | ''
   custom: CustomSheetState
   onCustom: (next: CustomSheetState) => void
@@ -81,7 +83,8 @@ function GridOverlay({ g, thick }: { g: CustomPageGrid | null; thick?: boolean }
   )
 }
 
-export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCustom, savedCustomPages = 0, disabled }: Props) {
+export default function EssaySheetSetup({ choice, onChoice, allowed, grade, custom, onCustom, savedCustomPages = 0, disabled }: Props) {
+  const choices = allowed ? CHOICES.filter((c) => allowed.includes(c.key)) : CHOICES
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editorPage, setEditorPage] = useState(0)
@@ -140,7 +143,7 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
     <div className="mb-3 rounded border border-violet-200 bg-violet-50/60 px-3 py-2.5 text-[12px] text-violet-950 leading-relaxed">
       <div className="font-semibold mb-1.5">稿紙</div>
       <div className="flex flex-wrap gap-1.5 mb-1.5">
-        {CHOICES.map((c) => (
+        {choices.map((c) => (
           <button key={c.key} type="button" disabled={disabled} onClick={() => onChoice(c.key)} title={c.hint}
             className={`px-2.5 py-1 rounded border text-[12px] ${choice === c.key ? 'bg-white border-violet-500 text-violet-900 font-semibold shadow-sm' : 'bg-white/60 border-violet-200 text-violet-700 hover:border-violet-400'}`}>
             {c.name}

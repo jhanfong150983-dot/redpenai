@@ -165,7 +165,7 @@ function clearMetadataDraft() {
   } catch { /* noop */ }
 }
 
-type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet'
+type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet' | 'essaySheet'
 
 // 2026-09-19 作文模式（第四張卡）：預設開放（user 拍板：系統測試中、不需要預覽旗標）。
 //   批改管線已接（09-19）：Phase A 裁行→數格子→逐行抄寫→眉批＋級分，Phase B 零 AI 組結果。
@@ -197,9 +197,11 @@ const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; 
   ? [
       { key: 'metadata', label: '基本資料', shortLabel: '①' },
       // 2026-09-19 實驗4 定案：批改時直接把老師上傳的題本圖送給 AI（不經 AI 轉述文字）→ 沒有 AI 起草、沒有要審的草稿；
-      //   ②上傳並整理題目頁（刪封面／旋轉）＝老師的檢查點，按「儲存」才存檔。
+      //   ②上傳並整理題目頁（刪封面／旋轉）＝老師的檢查點。
       { key: 'booklet', label: '上傳作文題目', shortLabel: '②' },
-      // 2026-09-20 user 拍板：自備作文卷也只有兩步——稿紙版型由年級決定（essayByoPreset），不再讓老師選
+      // 2026-09-22 user 拍板：自備作文稿紙多一步「稿紙」（選會考／學測／自備；自備才上傳空白稿紙框格區），按「儲存」才存檔。
+      //   系統製作的作文稿紙沒有這一步（稿紙由系統產生）。
+      ...(isEssayByoSheetSource(source) ? [{ key: 'essaySheet' as UnifiedStep, label: '稿紙', shortLabel: '③' }] : []),
     ]
   : source === 'generated'
   ? [
@@ -458,6 +460,12 @@ export default function AnswerKeyUnifiedModal({
     setCustomSheet((prev) => (prev.blobs.length ? prev : { ...prev, blobs: [...initialAnswerSheetImages], pages: initialAnswerSheetImages.length }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editMode, initialAnswerSheetImages])
+  // 稿紙選項依年級（user 09-22）：國中小＝會考稿紙／自備稿紙、高中＝學測稿紙／自備稿紙；編輯既有卷時當初選的照留
+  const essaySheetChoices = useMemo<EssaySheetChoice[]>(() => {
+    const base: EssaySheetChoice[] = typeof grade === 'number' && grade >= 10 ? ['gsat', 'custom'] : ['cap', 'custom']
+    return savedByo && !base.includes(essaySheetChoiceOf(savedByo)) ? [essaySheetChoiceOf(savedByo), ...base] : base
+  }, [grade, savedByo])
+  useEffect(() => { if (!editMode && !essaySheetChoices.includes(essaySheetChoice)) setEssaySheetChoiceRaw(essaySheetChoices[0]) }, [essaySheetChoices, essaySheetChoice, editMode])
   const essayScoring = essayScoringFor(essaySheetChoice, grade)
   const essayByo = useMemo<EssayByoGeom>(() => essayByoGeomForChoice(essaySheetChoice, essayScoring, customSheet), [essaySheetChoice, essayScoring, customSheet])
   // 學測評分（25 分制）：自備稿紙＝依稿紙選擇（自備稿紙依年級）；系統製作＝學測格式那張卡
@@ -1868,12 +1876,21 @@ export default function AnswerKeyUnifiedModal({
       return { label: '下一步', disabled: !editMode && !metadataValid, icon: <ChevronRight className="w-4 h-4" /> }
     }
     if (activeStep === 'booklet') {
+      if (isEssayByo) {
+        // 自備作文稿紙：下一步選稿紙
+        return { label: (!editMode && bookletPageItems.length === 0) ? '請先上傳作文題目' : '下一步：稿紙', disabled: !editMode && bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
+      }
       if (isEssay) {
-        // 作文卷（自製／自備）：這一步就是最後一步——整理好題目頁後由老師按儲存
+        // 系統製作的作文稿紙：這一步就是最後一步——整理好題目頁後由老師按儲存
         return { label: isSaving ? '儲存中…' : (!editMode && bookletPageItems.length === 0) ? '請先上傳作文題目' : '儲存作文答案卷', disabled: isSaving || (!editMode && bookletPageItems.length === 0), loading: isSaving, icon: <Check className="w-4 h-4" /> }
       }
       if (isExtracting) return { label: '結構分析中…', disabled: true, loading: true }
       return { label: '下一步：製作作答卷', disabled: bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
+    }
+    if (activeStep === 'essaySheet') {
+      const customIncomplete = essaySheetChoice === 'custom' && !(customSheet.blobs.length || (savedByo?.sheet === 'custom' && savedByo.pages > 0))
+      const customUnframed = essaySheetChoice === 'custom' && !customSheet.grids.some((g) => g.page === 1)
+      return { label: isSaving ? '儲存中…' : customIncomplete ? '請先上傳空白稿紙' : customUnframed ? '請先框出整片格子' : '儲存作文答案卷', disabled: isSaving || customIncomplete || customUnframed, loading: isSaving, icon: <Check className="w-4 h-4" /> }
     }
     if (activeStep === 'sheet') {
       // 版面塞不下單面一頁（overflow）→ 明確擋住並說明，不讓老師在失效版面上繼續
@@ -1934,6 +1951,8 @@ export default function AnswerKeyUnifiedModal({
           return
         }
         markComplete('booklet')
+        // 自備作文稿紙：先去選稿紙，稿紙那一步才儲存
+        if (isEssayByo) { setActiveStep('essaySheet'); return }
         handleSaveClick()
         return
       }
@@ -1943,6 +1962,11 @@ export default function AnswerKeyUnifiedModal({
       //   就會誤重跑、白花一次建卷次數（user 回報）。skeleton 在＝結構已完成，不需再 call AI。
       if (editingKey) { markComplete('booklet'); setActiveStep('sheet'); return }
       void handleStartStructure()
+      return
+    }
+    if (activeStep === 'essaySheet') {
+      markComplete('essaySheet')
+      handleSaveClick()
       return
     }
     if (activeStep === 'sheet') {
@@ -1964,6 +1988,7 @@ export default function AnswerKeyUnifiedModal({
   const handleBack = () => {
     if (activeStep === 'booklet') { setActiveStep('metadata'); return }
     if (activeStep === 'sheet') { setActiveStep('booklet'); return }
+    if (activeStep === 'essaySheet') { setActiveStep('booklet'); return }
     if (activeStep === 'extract') { setActiveStep(genFlow ? 'sheet' : 'metadata'); return }
     if (activeStep === 'editing') { setActiveStep('extract'); return }
   }
@@ -2419,7 +2444,7 @@ export default function AnswerKeyUnifiedModal({
                       </section>
 
                       {/* ── 題本區塊：生成流程＝②上傳題本步驟；舊流程＝answer_only 模式與答案卷同頁 ── */}
-                      {(genFlow ? activeStep === 'booklet' : answerSheetMode === 'answer_only') && (
+                      {((genFlow || isEssayByo) ? activeStep === 'booklet' : answerSheetMode === 'answer_only') && (
                         <section className={`rounded-xl border border-blue-200 bg-blue-50/30 p-4 ${sheetSource === 'teacher_scan' ? 'order-1' : ''}`}>
                           <div className="flex items-baseline justify-between mb-3">
                             <div className="flex items-center gap-2">
@@ -2430,21 +2455,6 @@ export default function AnswerKeyUnifiedModal({
                           </div>
                           {/* 自備作文卷：稿紙版型由年級決定，老師不必上傳空白稿紙也不必選（2026-09-20 user 拍板）。
                               批改時是在學生卷上直接找印刷格線，這裡只是告訴老師系統預期的是哪一種稿紙。 */}
-                          {isEssayByo && (
-                            <>
-                              <EssaySheetSetup
-                                choice={essaySheetChoice}
-                                onChoice={setEssaySheetChoice}
-                                grade={grade}
-                                custom={customSheet}
-                                onCustom={setCustomSheet}
-                                savedCustomPages={savedByo?.sheet === 'custom' ? savedByo.pages : 0}
-                              />
-                              <div className="mb-3 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 leading-relaxed">
-                                學生卷掃描：正反兩面都掃進來（只寫一面的話只掃那一面也可以），整張掃進去、不要裁到格線；彩色或黑白掃描都可以。
-                              </div>
-                            </>
-                          )}
                           {isEssayGsatMade && (
                             <div className="mb-3 text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded px-2 py-1.5 leading-relaxed">
                               存檔後到答案卷列表下載稿紙：<b>A3 橫式、雙面列印</b>（正面有座號劃卡；正背面版面相同、不印題型），請用「實際大小」列印、不要縮放。
@@ -2567,6 +2577,32 @@ export default function AnswerKeyUnifiedModal({
                   {extractError && (
                     <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 shrink-0">{extractError}</div>
                   )}
+                </div>
+              )}
+
+              {/* ══ 自備作文稿紙 ③ 稿紙（2026-09-22）：選會考／學測／自備；自備才上傳空白稿紙、框格區 ══ */}
+              {activeStep === 'essaySheet' && (
+                <div className="p-4 flex flex-col h-full">
+                  <section className="rounded-xl border border-violet-200 bg-violet-50/30 p-4">
+                    <div className="flex items-baseline justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-violet-900">📄 稿紙</h3>
+                        <span className="text-xs text-gray-500">— 學生寫在哪一種稿紙上；批改時系統把學生卷疊到這張稿紙上找出每一格</span>
+                      </div>
+                    </div>
+                    <EssaySheetSetup
+                      choice={essaySheetChoice}
+                      onChoice={setEssaySheetChoice}
+                      allowed={essaySheetChoices}
+                      grade={grade}
+                      custom={customSheet}
+                      onCustom={setCustomSheet}
+                      savedCustomPages={savedByo?.sheet === 'custom' ? savedByo.pages : 0}
+                    />
+                    <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 leading-relaxed">
+                      學生卷掃描：正反兩面都掃進來（只寫一面的話只掃那一面也可以），整張掃進去、不要裁到格線；彩色或黑白掃描都可以。
+                    </div>
+                  </section>
                 </div>
               )}
 
