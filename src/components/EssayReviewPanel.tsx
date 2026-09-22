@@ -54,12 +54,6 @@ export default function EssayReviewPanel({ value, onChange, readOnly = false }: 
         <span className="shrink-0">學生作答：</span>
         <span className="font-medium text-gray-900">作文卷面</span>
         <span className="text-[10px] text-gray-400">{value.chars} 字・{value.paragraphs.length} 段</span>
-        {/* 定位方式（user 09-22 驗收要看得到）：疊合＝老師空白稿紙投影；格線偵測＝在學生卷上找印刷線；錨點＝系統稿紙 */}
-        {Array.isArray(value.locate) && value.locate.length > 0 && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200" title="每頁定位方式">
-            定位：{value.locate.map((l) => `第${l.page}頁${l.method === 'registration' ? '疊合' : l.method === 'grid' ? '格線偵測' : '錨點'}`).join('、')}
-          </span>
-        )}
         {value.level.suggested != null && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
             {essayScaleOf(value) === 'gsat'

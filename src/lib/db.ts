@@ -577,7 +577,7 @@ export interface EssayResult {
   paragraphs: string[]
   chars: number
   lowConfidenceColumns: number
-  /** 每頁定位方式（2026-09-22）：registration＝疊合到老師的空白稿紙、grid＝在學生卷上偵測格線、anchor＝系統稿紙錨點 */
+  /** 每頁定位方式（2026-09-22，內部診斷用、不顯示給老師；user 拍板）：registration＝疊合、grid＝格線偵測、anchor＝系統稿紙錨點 */
   locate?: Array<{ page: number; method: 'registration' | 'grid' | 'anchor' }>
   feedback: {
     /** confidence: high＝AI 與教育部辭典都認定（直接採用）／low＝字典無法確認（進低信心清單交老師） */
