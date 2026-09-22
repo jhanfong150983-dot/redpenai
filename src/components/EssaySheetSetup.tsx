@@ -33,7 +33,10 @@ const CHOICES: Array<{ key: EssaySheetChoice; name: string; hint: string }> = [
 export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCustom, savedCustomPages = 0, disabled }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 開編輯器時要框哪一頁（0-based）；第 2 頁沒另外框＝沿用第 1 頁
+  const [editorPage, setEditorPage] = useState(0)
   const [editorOpen, setEditorOpen] = useState(false)
+  const gridOf = (p: number) => custom.grids.find((g) => g.page === p + 1)?.box ?? custom.grids.find((g) => g.page === 1)?.box ?? null
   const previewUrl = useMemo(() => (custom.blobs[0] ? URL.createObjectURL(custom.blobs[0]) : null), [custom.blobs])
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
 
@@ -100,10 +103,16 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
             </label>
             {custom.blobs.length > 0 && <span className="text-[11px]">已上傳 {custom.blobs.length} 頁</span>}
             {!custom.blobs.length && savedCustomPages > 0 && <span className="text-[11px]">已存 {savedCustomPages} 頁（不重傳就沿用）</span>}
-            <button type="button" disabled={disabled || !custom.blobs.length} onClick={() => setEditorOpen(true)}
+            <button type="button" disabled={disabled || !custom.blobs.length} onClick={() => { setEditorPage(0); setEditorOpen(true) }}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-violet-400 bg-white text-violet-900 text-[12px] font-medium disabled:opacity-50 hover:bg-violet-100">
               <Crop className="w-3.5 h-3.5" />{box ? '重新框整片格子' : '框出整片格子'}
             </button>
+            {custom.blobs.length > 1 && box && (
+              <button type="button" disabled={disabled} onClick={() => { setEditorPage(1); setEditorOpen(true) }} title="背面的格子位置和正面不同時才需要；沒框＝沿用第 1 頁的框"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-violet-300 bg-white text-violet-800 text-[12px] disabled:opacity-50 hover:bg-violet-100">
+                <Crop className="w-3.5 h-3.5" />{custom.grids.some((g) => g.page === 2) ? '重新框第 2 頁' : '另外框第 2 頁'}
+              </button>
+            )}
             <label className="inline-flex items-center gap-1 text-[12px]">行數
               <input type="number" min={1} max={60} value={custom.cols} disabled={disabled} onChange={(e) => onCustom({ ...custom, cols: Math.max(1, Math.min(60, Number(e.target.value) || 1)) })} className="w-14 px-1.5 py-0.5 border border-violet-300 rounded text-center" />
             </label>
@@ -130,7 +139,7 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
           )}
           {box && (
             <div className="text-[11px] text-violet-800">
-              預覽的紫線要壓在稿紙的每一條印刷格線上才算對（只有一條或對不齊＝框錯或行數、格數填錯）；不對就重框，或調整行數／格數／窄欄。第 2 頁沿用同一個框（正反面版面相同時）。
+              預覽的紫線要壓在稿紙的每一條印刷格線上才算對（只有一條或對不齊＝框錯或行數、格數填錯）；不對就重框，或調整行數／格數／窄欄。第 2 頁{custom.grids.some((g) => g.page === 2) ? '已另外框' : '沿用第 1 頁的框（背面格子位置不同時請按「另外框第 2 頁」）'}。
             </div>
           )}
         </div>
@@ -139,16 +148,18 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
         <PageBboxEditorModal
           pageBlobs={custom.blobs}
           questionId="格區"
-          initialPage={0}
-          initialBbox={box}
+          initialPage={editorPage}
+          initialBbox={gridOf(editorPage)}
           isAiBbox={false}
           onConfirm={(b, pageIndex) => {
-            // 同一個框套到每一頁（正反面版面相同）；老師只框第 1 頁
-            void pageIndex
-            onCustom({ ...custom, grids: Array.from({ length: Math.max(1, custom.pages) }, (_, i) => ({ page: i + 1, box: b })) })
+            // 只更新被框的那一頁；沒框的頁沿用第 1 頁（server essayTemplateCells 找不到該頁就用 grids[0]）
+            const page = pageIndex + 1
+            const others = custom.grids.filter((g) => g.page !== page)
+            const grids = [...others, { page, box: b }].sort((x, y) => x.page - y.page)
+            onCustom({ ...custom, grids: page === 1 && !others.length ? [{ page: 1, box: b }] : grids })
             setEditorOpen(false)
           }}
-          onClear={() => { onCustom({ ...custom, grids: [] }); setEditorOpen(false) }}
+          onClear={() => { onCustom({ ...custom, grids: editorPage === 0 ? [] : custom.grids.filter((g) => g.page !== editorPage + 1) }); setEditorOpen(false) }}
           onClose={() => setEditorOpen(false)}
         />
       )}
