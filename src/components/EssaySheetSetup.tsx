@@ -101,8 +101,9 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
     if (getFileType(file) !== 'pdf') { setError(PDF_ONLY_MSG); return }
     setBusy(true)
     try {
-      // 疊合服務內部統一縮到寬 1200；這裡 1600 夠用、也給老師框格區看
-      const blobs = await convertPdfToImages(file, { maxWidth: 1600, minWidth: 1200, quality: 0.9 })
+      // 疊合服務內部統一縮到寬 1200；這裡固定 1600（scale 4 再被 maxWidth 壓到 1600）——預設 scale 2 會讓 A4 直式只轉出 1280px、
+      //   1px 細格線在自動找格區時漏掉（09-22 TEST 卷 6 行事故）；也給老師框格區看
+      const blobs = await convertPdfToImages(file, { scale: 4, maxWidth: 1600, minWidth: 1600, hardMinWidth: 1600, quality: 0.9 })
       if (!blobs.length) throw new Error('PDF 沒有可用頁面')
       if (blobs.length > 2) throw new Error('空白稿紙最多 2 頁（正反面），這份有 ' + blobs.length + ' 頁')
       // 上傳後每頁自動找格區＋數線（user 09-22：不用老師框）；找不到的頁留給老師手動框

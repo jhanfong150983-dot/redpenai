@@ -13,10 +13,7 @@ export interface SheetGridAnalysis {
   hLines: number
 }
 
-function peaks(prof: Float64Array, minSep: number, thrRatio = 0.25): number[] {
-  let mx = 0
-  for (let i = 0; i < prof.length; i++) mx = Math.max(mx, prof[i])
-  const thr = mx * thrRatio
+function peaksAbove(prof: Float64Array, minSep: number, thr: number): number[] {
   const out: number[] = []
   for (let i = 1; i < prof.length - 1; i++) {
     const v = prof[i]
@@ -25,6 +22,17 @@ function peaks(prof: Float64Array, minSep: number, thrRatio = 0.25): number[] {
     out.push(i)
   }
   return out
+}
+
+// 門檻 = thrRatio × 「候選峰高度的 75 百分位」，不是 × 最高峰：稿紙外框常是粗線（投影是細格線的 3~4 倍），
+//   細格線會低於 25%×外框而整條漏掉（2026-09-22 實例：A4 500 字稿紙在瀏覽器轉出 1280px、1px 格線 1103 vs 外框 4533
+//   → 三條直線漏掉、只數到 6 行）。用百分位當基準：格線佔多數、外框只是離群值。門檻只會比舊法低或相等（單調：舊法找得到的照樣找得到）。
+function peaks(prof: Float64Array, minSep: number, thrRatio = 0.25): number[] {
+  let mx = 0
+  for (let i = 0; i < prof.length; i++) mx = Math.max(mx, prof[i])
+  const cands = peaksAbove(prof, minSep, mx * 0.05).map((i) => prof[i]).sort((a, b) => a - b)
+  const ref = cands.length ? cands[Math.floor(cands.length * 0.75)] : mx
+  return peaksAbove(prof, minSep, Math.max(Math.min(mx, ref) * thrRatio, mx * 0.05))
 }
 
 function smooth(a: Float64Array, half = 2): Float64Array {
@@ -141,8 +149,11 @@ export async function autoDetectSheetGrid(blob: Blob): Promise<AutoSheetGrid | n
   }
   let vr = longestRegular(vm, 0.35), hr = longestRegular(hm, 0.35)
   const trimByCross = (lines: number[], crossOf: (p: number) => number) => { const a = [...lines]; const med = a.map(crossOf).sort((p, q) => p - q)[a.length >> 1]; while (a.length > 2 && crossOf(a[0]) < med * 0.95) a.shift(); while (a.length > 2 && crossOf(a[a.length - 1]) < med * 0.95) a.pop(); return a }
+  const dbg = (globalThis as { __ESSAY_DBG?: boolean }).__ESSAY_DBG
+  if (dbg) console.log('[autobox]', W, 'x', H, 'paper', paper, JSON.stringify({ vRaw, v, h, pv, ph, vm, hm, vr, hr }))
   vr = trimByCross(vr, (x) => h.filter((y) => dark(x - 4, y) || dark(x + 4, y)).length)
   hr = trimByCross(hr, (y) => v.filter((x) => dark(x, y - 4) || dark(x, y + 4)).length)
+  if (dbg) console.log('[autobox] trimmed', JSON.stringify({ vr, hr }))
   if (vr.length < 3 || hr.length < 3) return null
   const gutter = v.length >= vr.length + Math.max(3, (vr.length - 1) * 0.5)
   const rightCands = vRaw.filter((x) => x > vr[vr.length - 1] + 2 && x <= vr[vr.length - 1] + pv * 0.45)

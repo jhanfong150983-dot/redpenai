@@ -1686,7 +1686,7 @@ export default function AnswerKeyUnifiedModal({
           const res = await fetch(BUILTIN_ESSAY_SHEETS[essaySheetChoice].pdfUrl)
           if (!res.ok) throw new Error(String(res.status))
           const file = new File([await res.blob()], 'sheet.pdf', { type: 'application/pdf' })
-          essayTemplateBlobs = await convertPdfToImages(file, { maxWidth: 1600, minWidth: 1200, quality: 0.9 })
+          essayTemplateBlobs = await convertPdfToImages(file, { scale: 4, maxWidth: 1600, minWidth: 1600, hardMinWidth: 1600, quality: 0.9 })
         } catch (e) {
           console.warn('[UnifiedModal] 內建公版稿紙轉圖失敗（存檔照常；批改會退回格線偵測）:', e)
         }
