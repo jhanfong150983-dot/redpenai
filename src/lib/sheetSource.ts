@@ -96,13 +96,13 @@ export const SHEET_SOURCE_DOMAINS: Partial<Record<SheetSource, string[]>> = {
 //   ⛔ 不要再回到「同一個模式、依年級換版型」：學測正反面是兩大題，模型、解析度、輸出（等第）都不同。
 //   2026-09-21 user 回報「選高中，出現會考」→ 會考格式兩種（自備／系統製作）都只到國中；
 //   高中只出現學測格式兩種。（原本系統製作會考稿紙不限學段，是因為當時高中沒有別的作文模式可用。）
+// 2026-09-22 自備作文稿紙改成單一模式卡（卡內選會考稿紙／學測稿紙／自備稿紙）→ essay_byo 不限學段；
+//   essay_gsat_byo 只剩徽章用途（getSheetSource 依 format 反推），不再是模式卡。
 const SHEET_SOURCE_MAX_GRADE: Partial<Record<SheetSource, number>> = {
   essay: 9, // 國小 1~6、國中 7~9
-  essay_byo: 9,
 }
 const SHEET_SOURCE_MIN_GRADE: Partial<Record<SheetSource, number>> = {
-  essay_gsat_byo: 10, // 高中 1~3；沒選年級＝不顯示
-  essay_gsat: 10,
+  essay_gsat: 10, // 高中 1~3；沒選年級＝不顯示
 }
 
 /** 這個模式在此領域／年級是否可選（未選領域＝空字串 → 只回通用模式） */

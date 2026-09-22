@@ -29,7 +29,8 @@ import { useAlertModal, useConfirm } from '@/components/ConfirmModal'
 import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
-import { essayByoGeomFor, essayByoPresetFor } from '@/lib/essayByoPreset'
+import { BUILTIN_ESSAY_SHEETS, defaultEssaySheetChoice, essayByoGeomForChoice, essayScoringFor, essaySheetChoiceOf, type EssaySheetChoice } from '@/lib/essayByoPreset'
+import EssaySheetSetup, { type CustomSheetState } from '@/components/EssaySheetSetup'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric, EssayByoGeom } from '@/lib/db'
 import LevelRubricEditor from '@/components/LevelRubricEditor'
 import PageBboxEditorModal from '@/components/PageBboxEditorModal'
@@ -369,7 +370,6 @@ export default function AnswerKeyUnifiedModal({
   // 自備稿紙（會考格式或學測格式）：都不產生我們的稿紙、都只存格子規格
   const isEssayByo = isEssayByoSheetSource(sheetSource)
   // 學測格式（自備公版 or 系統製作）：第一期只開情意題（寫在任一面）、以分數計（25）、等第只當參考
-  const isEssayGsat = sheetSource === 'essay_gsat_byo' || sheetSource === 'essay_gsat'
   const isEssayGsatMade = sheetSource === 'essay_gsat'
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? (isEssaySheet(initialGeneratedSheet) ? 'booklet' : 'editing') : 'metadata')
   // step④ 作答卷製作狀態＋最新排版結果（ok 才能儲存定版）
@@ -438,12 +438,22 @@ export default function AnswerKeyUnifiedModal({
   const [grade, setGrade] = useState<number | ''>(initialGrade ?? draft?.grade ?? '')
   // 自備作文卷的稿紙規格：⛔ 不是狀態、是由年級推出來的（user 拍板：少一個步驟）。
   //   編輯既有答案卷時以存檔的幾何為準（老師當初建卷的版型不能因為改年級而變）。
-  const essayByoPreset = essayByoPresetFor(sheetSource)
-  const essayByo = useMemo<EssayByoGeom>(() => {
-    const saved = (initialGeneratedSheet as { essay?: EssayByoGeom } | undefined)?.essay
-    if (editMode && saved?.source === 'byo') return saved
-    return essayByoGeomFor(sheetSource)
-  }, [editMode, initialGeneratedSheet, sheetSource])
+  // 2026-09-22 自備作文稿紙（user 拍板）：卡內選「會考稿紙／學測稿紙／自備稿紙」；前兩者內建公版直接帶入，
+  //   自備稿紙上傳空白稿紙＋框格區＋行列數。存檔＝幾何（EssayByoGeom.template）＋空白稿紙頁圖（走 answerSheetImagePaths）。
+  //   預設依年級（高中＝學測），老師改過就不再跟年級動。編輯既有卷以存檔的為準。
+  const savedEssayGeom = (initialGeneratedSheet as { essay?: EssayByoGeom } | undefined)?.essay
+  const savedByo = editMode && savedEssayGeom?.source === 'byo' ? savedEssayGeom : null
+  const [essaySheetChoice, setEssaySheetChoiceRaw] = useState<EssaySheetChoice>(() => (savedByo ? essaySheetChoiceOf(savedByo) : defaultEssaySheetChoice(initialGrade ?? draft?.grade)))
+  const sheetChoiceTouched = useRef(!!savedByo)
+  const setEssaySheetChoice = (c: EssaySheetChoice) => { sheetChoiceTouched.current = true; setEssaySheetChoiceRaw(c) }
+  useEffect(() => { if (editMode || sheetChoiceTouched.current) return; setEssaySheetChoiceRaw(defaultEssaySheetChoice(grade)) }, [grade, editMode])
+  const [customSheet, setCustomSheet] = useState<CustomSheetState>(() => (savedByo?.sheet === 'custom'
+    ? { blobs: [], pages: savedByo.pages, cols: savedByo.cols, rows: savedByo.rows, gutter: (savedByo.template?.gutterRatio ?? 1) < 0.98, grids: savedByo.template?.grids ?? [] }
+    : { blobs: [], pages: 1, cols: 20, rows: 20, gutter: false, grids: [] }))
+  const essayScoring = essayScoringFor(essaySheetChoice, grade)
+  const essayByo = useMemo<EssayByoGeom>(() => essayByoGeomForChoice(essaySheetChoice, essayScoring, customSheet), [essaySheetChoice, essayScoring, customSheet])
+  // 學測評分（25 分制）：自備稿紙＝依稿紙選擇（自備稿紙依年級）；系統製作＝學測格式那張卡
+  const isEssayGsat = isEssayByo ? essayScoring === 'gsat' : isEssayGsatMade
   // 2026-09-06 高中數學選修分軌（僅 domain='數學' 且 grade≥11 顯示/有意義）
   const [mathTrack, setMathTrack] = useState<'A' | 'B' | ''>(initialMathTrack ?? draft?.mathTrack ?? '')
   const [subjectLabel, setSubjectLabel] = useState(() => {
@@ -500,10 +510,9 @@ export default function AnswerKeyUnifiedModal({
   const essayAvailable = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay', domain, grade)
   const essayByoAvailable = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay_byo', domain, grade)
   // 學測格式：只在高中 1~3 ＋國語出現（user 09-21 拍板）
-  const essayGsatAvailable = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay_gsat_byo', domain, grade)
   const essayGsatMadeAvailable = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay_gsat', domain, grade)
   // 高中的自備作文卷暫不開放（學測兩大題＝兩篇作文，批改模型未定）→ 說明為什麼看不到這張卡
-  const essayByoBlockReason = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay_byo', domain) && !essayGsatAvailable
+  const essayByoBlockReason = ESSAY_MODE_ENABLED && isSheetSourceAvailable('essay_byo', domain)
     ? sheetSourceGradeBlockReason('essay_byo', grade)
     : null
   useEffect(() => {
@@ -511,10 +520,10 @@ export default function AnswerKeyUnifiedModal({
     if (editMode) return
     // ⛔ 學測卡要先判、而且不可以落到下面「自備 → 會考自備」那一行：年級從高中改成國中時，
     //   不能悄悄把學測卷換成會考卷（兩種稿紙不可混），一律退回一般模式讓老師重選。
-    if (isEssayGsat) { if (!(isEssayGsatMade ? essayGsatMadeAvailable : essayGsatAvailable)) setSheetSource('with_questions'); return }
+    if (isEssayGsatMade) { if (!essayGsatMadeAvailable) setSheetSource('with_questions'); return }
     if (isEssayByo && !essayByoAvailable) { setSheetSource(essayAvailable ? 'essay' : 'with_questions'); return }
     if (isEssay && !essayAvailable) setSheetSource('with_questions')
-  }, [editMode, isEssay, isEssayByo, isEssayGsat, isEssayGsatMade, essayAvailable, essayByoAvailable, essayGsatAvailable, essayGsatMadeAvailable])
+  }, [editMode, isEssay, isEssayByo, isEssayGsatMade, essayAvailable, essayByoAvailable, essayGsatMadeAvailable])
 
   // 2026-08-29 公版答案卷範本下載（動態產生：帶校名/名稱/科目；docx 套件 dynamic import）
   const [isGeneratingTemplate, setIsGeneratingTemplate] = useState(false)
@@ -1642,6 +1651,28 @@ export default function AnswerKeyUnifiedModal({
         })
       : editingKey
     if (!keyToSave) return
+    // 自備稿紙：空白稿紙＋框＋行列數缺一不可（沒模板＝疊不了，批改會退回格線偵測、學校自己的稿紙多半抓不到）
+    let essayTemplateBlobs: Blob[] = []
+    if (isEssayByo) {
+      if (essaySheetChoice === 'custom') {
+        const hasPages = customSheet.blobs.length > 0 || (savedByo?.sheet === 'custom' && savedByo.pages > 0)
+        if (!hasPages || !customSheet.grids.length || customSheet.cols < 1 || customSheet.rows < 1) {
+          await alertModal('自備稿紙還沒設定好：請上傳空白稿紙、框出格區，並填行數與每行格數。')
+          return
+        }
+        essayTemplateBlobs = customSheet.blobs
+      } else if (!(savedByo && savedByo.sheet === essaySheetChoice && savedByo.template)) {
+        // 內建公版：把空白公版 PDF 轉圖當疊合模板上傳（編輯既有卷且稿紙沒換＝沿用 storage 既有頁圖）
+        try {
+          const res = await fetch(BUILTIN_ESSAY_SHEETS[essaySheetChoice].pdfUrl)
+          if (!res.ok) throw new Error(String(res.status))
+          const file = new File([await res.blob()], 'sheet.pdf', { type: 'application/pdf' })
+          essayTemplateBlobs = await convertPdfToImages(file, { maxWidth: 1600, minWidth: 1200, quality: 0.9 })
+        } catch (e) {
+          console.warn('[UnifiedModal] 內建公版稿紙轉圖失敗（存檔照常；批改會退回格線偵測）:', e)
+        }
+      }
+    }
     // 自製作文卷：產生稿紙（含錨點）；自備作文卷：只記規格，批改時直接在學生卷上偵測格線
     // 會考格式與學測格式各用各的產生器（幾何、版號、紙張都不同），⛔ 不共用同一支再用參數切
     const essaySheet = isEssay && !isEssayByo ? (isEssayGsatMade ? generateGsatEssaySheet : generateEssaySheet)({ title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '), questionId: String(keyToSave.questions[0]?.id ?? ESSAY_QUESTION_ID) }) : null
@@ -1789,7 +1820,7 @@ export default function AnswerKeyUnifiedModal({
           //   根治＝持久化 makerState（另做），這裡先止血。
           : undefined
 
-      await onSave(updatedKey, extractedImageBlobs, {
+      await onSave(updatedKey, isEssayByo ? essayTemplateBlobs : extractedImageBlobs, {
         title: title.trim(),
         domain: domainValue,
         docType,
@@ -2174,7 +2205,7 @@ export default function AnswerKeyUnifiedModal({
                     </div>
                     {editMode ? (
                       <p className="text-sm text-gray-700 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-200">
-                        {isEssayGsatMade ? '系統製作作文稿紙（學測格式）' : isEssayGsat ? '自備作文稿紙（限學測格式、學測國寫公版答題卷）' : isEssayByo ? '自備作文稿紙（限會考格式、老師自己的稿紙）' : isEssay ? '系統製作作文稿紙（會考格式）' : sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
+                        {isEssayGsatMade ? '系統製作作文稿紙（學測格式）' : isEssayByo ? `自備作文稿紙（${essaySheetChoice === 'custom' ? '學校自己的稿紙' : BUILTIN_ESSAY_SHEETS[essaySheetChoice].label}）` : isEssay ? '系統製作作文稿紙（會考格式）' : sheetSource === 'with_questions' ? '一般模式（題目帶答案）' : sheetSource === 'generated' ? '系統製作作答卷（題本分開、作答卷由系統排版）' : '自備作答卷（題本分開）'}
                       </p>
                     ) : (
                       <AnswerSheetModeSelector
@@ -2185,7 +2216,6 @@ export default function AnswerKeyUnifiedModal({
                           ...(GENERATED_SHEET_STEP_ENABLED ? ['generated' as const] : []),
                           ...(essayAvailable ? ['essay' as const] : []),
                           ...(essayByoAvailable ? ['essay_byo' as const] : []),
-                          ...(essayGsatAvailable ? ['essay_gsat_byo' as const] : []),
                           ...(essayGsatMadeAvailable ? ['essay_gsat' as const] : []),
                         ]}
                       />
@@ -2390,10 +2420,19 @@ export default function AnswerKeyUnifiedModal({
                           {/* 自備作文卷：稿紙版型由年級決定，老師不必上傳空白稿紙也不必選（2026-09-20 user 拍板）。
                               批改時是在學生卷上直接找印刷格線，這裡只是告訴老師系統預期的是哪一種稿紙。 */}
                           {isEssayByo && (
-                            <div className="mb-3 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 leading-relaxed">
-                              稿紙版型：<b>{essayByoPreset.label}</b>（{essayByoPreset.hint}）——不必上傳空白稿紙。
-                              批改時系統會直接在學生卷上找出印刷格線；正反兩面都掃進來（只寫一面的話只掃那一面也可以），整張掃進去、不要裁到格線；彩色或黑白掃描都可以。
-                            </div>
+                            <>
+                              <EssaySheetSetup
+                                choice={essaySheetChoice}
+                                onChoice={setEssaySheetChoice}
+                                grade={grade}
+                                custom={customSheet}
+                                onCustom={setCustomSheet}
+                                savedCustomPages={savedByo?.sheet === 'custom' ? savedByo.pages : 0}
+                              />
+                              <div className="mb-3 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 leading-relaxed">
+                                學生卷掃描：正反兩面都掃進來（只寫一面的話只掃那一面也可以），整張掃進去、不要裁到格線；彩色或黑白掃描都可以。
+                              </div>
+                            </>
                           )}
                           {isEssayGsatMade && (
                             <div className="mb-3 text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded px-2 py-1.5 leading-relaxed">

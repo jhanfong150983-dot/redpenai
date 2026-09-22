@@ -609,6 +609,11 @@ export interface EssayResult {
  *  這裡只記規格：用來核對偵測到的行數、決定每生收幾頁。 */
 export interface EssayByoGeom {
   source: 'byo'
+  /** 老師選的稿紙：會考公版／學測公版／自備。舊卷沒有＝依 format 推 */
+  sheet?: 'cap' | 'gsat' | 'custom'
+  /** 2026-09-22 疊合定位用：每頁格區在空白稿紙頁圖上的位置（normalized）＋窄欄比例；空白稿紙頁圖存 answerSheetImagePaths。
+   *  沒有＝舊卷，server 只做格線偵測 */
+  template?: { grids: Array<{ page: number; box: { x: number; y: number; w: number; h: number } }>; gutterRatio: number; importWidth?: number }
   /** 稿紙代別：沒有＝會考格式；'gsat'＝學測國寫公版（server 靠它分流格線偵測器與等第判官） */
   format?: 'gsat'
   /** 要批的題目與所在頁（1-based）。沒有＝整份卷是一篇作文（會考）。

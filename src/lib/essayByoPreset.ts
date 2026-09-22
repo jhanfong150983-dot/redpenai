@@ -1,69 +1,115 @@
-// 2026-09-20 自備作文卷的稿紙版型：⛔ 不讓老師上傳、也不讓老師填規格——選了模式卡就定了。
-//   （09-21 更新：原本「由年級決定」，學測模式落地後改成兩張模式卡各自對應一個版型；
-//     高中才看得到學測卡、國中小才看得到會考卡，所以老師實際上還是不用多選一步。）
-//   「國中 1~3 年級國語 → 會考寫作測驗答案卷；高中 1~3 年級國語 → 學測國寫答題卷。
-//     稿紙不用上傳也不用選擇，直接使用對應的版型就好（少一個步驟）。」
-//   國小沒有公版稿紙 → 沿用會考版（23 行 × 22 格是市售作文紙的常見規格），老師印會考稿紙即可。
-//   ⛔ 不要自己發明「300 字」「400 字」這類規格（user 明確否決）：只放真的在用的公版。
-//   批改時不靠這裡的數字定位，而是純 code 在學生卷上找印刷格線；這裡的行列數只用來
-//   ①核對抓到的行數對不對（抓不全會直接擋下，見 server/ai/essay-sheet.js 的 incomplete 防呆）
-//   ②決定每位學生要收幾頁。
+// 自備作文稿紙的版型（2026-09-22 user 拍板：建卷＝上傳題本＋空白稿紙 → 批改時疊合、套 bbox）。
+//   老師選稿紙：會考稿紙／學測稿紙＝內建公版、直接帶入不用上傳；自備稿紙＝上傳空白稿紙、框格區、填行列數。
+//   存進答案卷的是 EssayByoGeom：行列數＋每頁格區 bbox（模板頁 normalized）＋窄欄比例；空白稿紙頁圖另存 storage
+//   （answerSheetImagePaths，與自備作答卷同一條路），server 批改時疊合到它、把格子投到學生卷上。
+//   ⛔ 不要自己發明「300 字」「400 字」這類規格（user 明確否決）：內建只放真的在用的公版。
 import type { EssayByoGeom } from '@/lib/db'
-import type { SheetSource } from '@/lib/sheetSource'
+import type { NormalizedBbox } from '@/components/PageBboxEditorModal'
 
-export interface EssayByoPreset {
-  /** 版型代號 */
-  name: 'exam_cap' | 'gsat'
-  /** 畫面顯示的稿紙名稱 */
+export type EssaySheetChoice = 'cap' | 'gsat' | 'custom'
+
+export interface BuiltinEssaySheet {
+  choice: 'cap' | 'gsat'
   label: string
-  /** 一行話說明規格 */
   hint: string
+  /** 內建空白公版 PDF（public/essay-sheets/）：存檔時轉圖上傳當疊合模板 */
+  pdfUrl: string
+  pages: number
   cols: number
   rows: number
-  pages: number
   cellMm: number
   gutterMm: number
+  /** 字格佔行距的比例（會考 10/12.5＝0.8、學測 1） */
+  gutterRatio: number
+  /** 每頁格區（含窄欄）在空白公版頁圖上的 normalized bbox——用 server 的格線偵測器在公版 PDF 轉圖上量的
+   *  （local-only/essay/_tpl_grids.json，2026-09-22）；正反面版面略有位移，所以逐頁記 */
+  grids: Array<{ page: number; box: NormalizedBbox }>
+  /** 匯入時每頁轉圖寬度（每格 ≥63px 的實驗下限；會考 77px/格、學測 76px/格） */
+  importWidth: number
 }
 
-/** 國中會考寫作測驗答案卷：B4 橫式、每面 23 行 × 22 格、正反兩頁 */
-export const ESSAY_PRESET_EXAM_CAP: EssayByoPreset = {
-  name: 'exam_cap',
-  label: '國中會考寫作測驗答案卷',
-  hint: 'B4 橫式、每面 23 行 × 22 格，正反兩頁',
-  cols: 23,
-  rows: 22,
-  pages: 2,
-  cellMm: 10,
-  gutterMm: 2.5,
+export const BUILTIN_ESSAY_SHEETS: Record<'cap' | 'gsat', BuiltinEssaySheet> = {
+  cap: {
+    choice: 'cap',
+    label: '會考稿紙（國中教育會考寫作測驗答案卷）',
+    hint: 'B4 橫式、每面 23 行 × 22 格、正反兩頁',
+    pdfUrl: '/essay-sheets/cap-blank.pdf',
+    pages: 2, cols: 23, rows: 22, cellMm: 10, gutterMm: 2.5, gutterRatio: 0.8,
+    grids: [
+      { page: 1, box: { x: 0.0565, y: 0.0721, w: 0.8053, h: 0.8544 } },
+      { page: 2, box: { x: 0.0579, y: 0.0721, w: 0.8053, h: 0.8544 } },
+    ],
+    importWidth: 2800,
+  },
+  gsat: {
+    choice: 'gsat',
+    label: '學測稿紙（學測國語文寫作答題卷）',
+    hint: 'A3 橫式、每面 38 行 × 22 格、正反兩頁',
+    pdfUrl: '/essay-sheets/gsat-blank.pdf',
+    pages: 2, cols: 38, rows: 22, cellMm: 10, gutterMm: 0, gutterRatio: 1,
+    grids: [
+      { page: 1, box: { x: 0.0241, y: 0.1731, w: 0.9040, h: 0.7409 } },
+      { page: 2, box: { x: 0.0478, y: 0.1732, w: 0.9040, h: 0.7408 } },
+    ],
+    importWidth: 3240,
+  },
 }
 
-/** 學測國寫答題卷：A3 橫式（420×297mm）、每面 38 行 × 22 格、無窄欄、正反兩面版面相同
- *  ⛔ 字格是 10mm（09-21 用 115 年原卷量出來的）；先前寫的 8mm 是估的、是錯的 */
-export const ESSAY_PRESET_GSAT: EssayByoPreset = {
-  name: 'gsat',
-  label: '學測國寫答題卷',
-  hint: 'A3 橫式、每面 38 行 × 22 格、正反兩面',
-  cols: 38,
-  rows: 22,
-  pages: 2,
-  cellMm: 10,
-  gutterMm: 0,
+/** 自備稿紙老師填的東西 */
+export interface CustomEssaySheetInput {
+  pages: number
+  cols: number
+  rows: number
+  /** 每行右側有窄欄（會考式）→ 字格佔行距 0.8；沒有＝1 */
+  gutter: boolean
+  /** 每頁格區（normalized）。只框第 1 頁時其餘頁沿用 */
+  grids: Array<{ page: number; box: NormalizedBbox }>
 }
 
-/** 模式 → 稿紙版型。⛔ 2026-09-21 改由「模式」決定、不再由年級決定：
- *  會考與學測是兩張不同的模式卡（essay_byo／essay_gsat_byo），版型跟著卡走才不會混在一起 */
-export function essayByoPresetFor(source: SheetSource): EssayByoPreset {
-  return source === 'essay_gsat_byo' ? ESSAY_PRESET_GSAT : ESSAY_PRESET_EXAM_CAP
+/** 老師年級 → 預設稿紙（高中＝學測、其餘＝會考）；老師仍可改 */
+export function defaultEssaySheetChoice(grade?: number | ''): EssaySheetChoice {
+  return typeof grade === 'number' && grade >= 10 ? 'gsat' : 'cap'
 }
 
-/** 學測第一期只開情意題：學生寫在任一面、可翻面續寫 → 正反兩頁當同一篇（與會考同模型）。
- *  2026-09-22 user 說明學校月考會把知性題／情意題拆開考、但都用同一種稿紙 → 不能寫死「第 2 頁才是作文」。
- *  題號與 ESSAY_QUESTION_ID 一致 */
-export const GSAT_ITEMS: NonNullable<EssayByoGeom['items']> = [{ id: '1', pages: [1, 2], kind: 'affective' }]
+/** 稿紙 → 用哪一套評分（會考 6 級分／學測 25 分）：自備稿紙依年級 */
+export function essayScoringFor(choice: EssaySheetChoice, grade?: number | ''): 'cap' | 'gsat' {
+  if (choice === 'gsat') return 'gsat'
+  if (choice === 'cap') return 'cap'
+  return typeof grade === 'number' && grade >= 10 ? 'gsat' : 'cap'
+}
 
-/** 模式 → 存進答案卷的稿紙幾何。會考版的輸出與改版前逐欄位相同（不帶 format／items） */
-export function essayByoGeomFor(source: SheetSource): EssayByoGeom {
-  const p = essayByoPresetFor(source)
-  const base: EssayByoGeom = { source: 'byo', pages: p.pages, cols: p.cols, rows: p.rows, cellMm: p.cellMm, gutterMm: p.gutterMm }
-  return p.name === 'gsat' ? { ...base, format: 'gsat', items: GSAT_ITEMS } : base
+/** 自備稿紙的匯入寬度：每格 77px（與公版同），夾在 2300~3600 */
+export function customImportWidth(input: CustomEssaySheetInput): number {
+  const box = input.grids[0]?.box
+  if (!box || !(box.w > 0)) return 2800
+  return Math.min(3600, Math.max(2300, Math.round((77 * input.cols) / box.w / 10) * 10))
+}
+
+/** 存進答案卷的稿紙幾何 */
+export function essayByoGeomForChoice(choice: EssaySheetChoice, scoring: 'cap' | 'gsat', custom?: CustomEssaySheetInput): EssayByoGeom {
+  const items: EssayByoGeom['items'] = scoring === 'gsat' ? [{ id: '1', pages: [1, 2], kind: 'affective' }] : undefined
+  if (choice === 'custom') {
+    const c = custom ?? { pages: 1, cols: 20, rows: 20, gutter: false, grids: [] }
+    const pages = Math.max(1, c.pages)
+    return {
+      source: 'byo', sheet: 'custom', ...(scoring === 'gsat' ? { format: 'gsat' as const } : {}),
+      pages, cols: c.cols, rows: c.rows, cellMm: 10, gutterMm: c.gutter ? 2.5 : 0,
+      items: items?.map((it) => ({ ...it, pages: Array.from({ length: pages }, (_, i) => i + 1) })),
+      template: { grids: c.grids, gutterRatio: c.gutter ? 0.8 : 1, importWidth: customImportWidth(c) },
+    }
+  }
+  const b = BUILTIN_ESSAY_SHEETS[choice]
+  return {
+    source: 'byo', sheet: choice, ...(scoring === 'gsat' ? { format: 'gsat' as const } : {}),
+    pages: b.pages, cols: b.cols, rows: b.rows, cellMm: b.cellMm, gutterMm: b.gutterMm,
+    items,
+    template: { grids: b.grids, gutterRatio: b.gutterRatio, importWidth: b.importWidth },
+  }
+}
+
+/** 已存的幾何 → 老師當初選的稿紙（舊卷沒有 sheet 欄：學測格式＝學測公版、其餘＝會考公版） */
+export function essaySheetChoiceOf(geom: EssayByoGeom | undefined | null): EssaySheetChoice {
+  if (!geom) return 'cap'
+  if (geom.sheet) return geom.sheet
+  return geom.format === 'gsat' ? 'gsat' : 'cap'
 }

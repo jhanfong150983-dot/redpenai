@@ -290,7 +290,7 @@ export default function UnifiedImportPage({
   const avoidBlobStorage = shouldAvoidIndexedDbBlob()
 
   // 2026-09-19 作文卷：稿紙幾何(RPESSAY)存在 template 的 generated_sheet.essay;匯入要用它決定頁數與解析度
-  const [essayGeom, setEssayGeom] = useState<{ pages?: number } | null>(null)
+  const [essayGeom, setEssayGeom] = useState<{ pages?: number; template?: { importWidth?: number } } | null>(null)
 
   const pagesPerStudent = useMemo(
     // 作文卷每生固定兩頁：舊考卷的 totalPages 是由題號反推的（作文只有 1 題→會是 1），以稿紙幾何為準
@@ -324,7 +324,8 @@ export default function UnifiedImportPage({
   // 學測公版是 A3（420mm 寬、10mm 格）：2800px 只有 66px/格，3240px＝76px/格 才與會考卷的 77px 對等。
   //   會考卷維持 2800／2300（所有已驗證實驗的解析度），不因學測而改。
   const isGsatSheet = sheetSource === 'essay_gsat_byo' || sheetSource === 'essay_gsat'
-  const essayWidth = !isEssay ? 0 : isGsatSheet ? 3240 : 2800
+  // 自備稿紙（09-22）：幾何裡記了匯入寬度（每格 77px 換算）；沒有＝照公版
+  const essayWidth = !isEssay ? 0 : essayGeom?.template?.importWidth || (isGsatSheet ? 3240 : 2800)
   // 座號辨識的姿態：會考稿紙＝直式座號欄（整頁逆時針轉 90°、十位個位對調）；學測格式稿紙＝頂部橫式公版標頭（不轉、不對調；標頭在稿紙上已放大 1.3 倍，引擎門檻不必改）
   const essaySeatOmrOpts = useMemo(
     () => (sheetSource === 'essay_gsat' ? {} : { rotateCcw90: true, swapTensOnes: true }),
@@ -402,7 +403,7 @@ export default function UnifiedImportPage({
         const tpl = await db.answerKeyTemplates.get(assignmentData.answerKeyTemplateId)
         if (tpl) {
           src = getSheetSource(tpl)
-          const gs = tpl.generatedSheet as { essay?: { pages?: number } } | undefined
+          const gs = tpl.generatedSheet as { essay?: { pages?: number; template?: { importWidth?: number } } } | undefined
           if (gs?.essay) setEssayGeom(gs.essay)
         }
       } else {

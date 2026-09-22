@@ -63,23 +63,14 @@ const MODES: ModeOption[] = [
   //   不標的話兩代稿紙在選單上分不出來。排序比照上面的作答卷——自備在前、系統製作在後。
   {
     value: 'essay_byo',
-    name: '自備作文稿紙（限會考格式）',
-    tagline: '一篇作文，用現成「會考」的稿紙',
-    description: '上傳作文題目、填一下稿紙規格即可；批改時系統直接在學生卷上找出格線，不必上傳空白卷。',
-    suit: '適合：學校已經印好稿紙、或想用會考答案卷',
+    name: '自備作文稿紙',
+    tagline: '會考／學測公版稿紙，或學校自己的稿紙',
+    description: '上傳作文題目，選稿紙：會考稿紙、學測稿紙直接帶入；學校自己的稿紙就上傳一張空白的、框出格區。批改時系統把學生卷疊到稿紙上找出每一格，彩色或黑白掃描都可以。',
+    suit: '適合：學校已經印好稿紙、或用會考／學測答案卷',
     Illustration: EssayByoIllustration,
     accent: 'violet',
   },
   // 2026-09-21 學測格式（自備在前、系統製作在後；只在高中 1~3 ＋國語出現，見 sheetSource.ts 的 SHEET_SOURCE_MIN_GRADE）
-  {
-    value: 'essay_gsat_byo',
-    name: '自備作文稿紙（限學測格式）',
-    tagline: '國寫情意題，用現成「學測」的答題卷',
-    description: '上傳國寫題目即可；學生寫在學測國寫公版答題卷上，批改時系統直接找出格線。第一期支援情意題（一篇作文、25 分），給逐句修改建議與建議分數。',
-    suit: '適合：高中國寫練習、模擬考',
-    Illustration: EssayByoIllustration,
-    accent: 'sky',
-  },
   {
     value: 'essay',
     name: '系統製作作文稿紙（會考格式）',
