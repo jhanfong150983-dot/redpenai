@@ -91,7 +91,7 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
       {choice === 'custom' && (
         <div className="space-y-2">
           <div className="text-[11px] text-violet-800">
-            上傳<b>空白</b>稿紙（PDF，1～2 頁），要和發給學生的那張<b>一模一樣</b>（同一個檔印的）。批改時系統把學生卷疊到它上面找格子。
+            上傳<b>空白</b>稿紙（PDF，1～2 頁），要和發給學生的那張<b>一模一樣</b>（同一個檔印的）。然後用一個矩形把<b>整片格子</b>框起來、填行數與每行格數，系統就能切出每一格。
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <label className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-violet-400 bg-white text-violet-900 text-[12px] font-medium ${disabled || busy ? 'opacity-50' : 'cursor-pointer hover:bg-violet-100'}`}>
@@ -102,7 +102,7 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
             {!custom.blobs.length && savedCustomPages > 0 && <span className="text-[11px]">已存 {savedCustomPages} 頁（不重傳就沿用）</span>}
             <button type="button" disabled={disabled || !custom.blobs.length} onClick={() => setEditorOpen(true)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-violet-400 bg-white text-violet-900 text-[12px] font-medium disabled:opacity-50 hover:bg-violet-100">
-              <Crop className="w-3.5 h-3.5" />{box ? '重新框格區' : '框出格區'}
+              <Crop className="w-3.5 h-3.5" />{box ? '重新框整片格子' : '框出整片格子'}
             </button>
             <label className="inline-flex items-center gap-1 text-[12px]">行數
               <input type="number" min={1} max={60} value={custom.cols} disabled={disabled} onChange={(e) => onCustom({ ...custom, cols: Math.max(1, Math.min(60, Number(e.target.value) || 1)) })} className="w-14 px-1.5 py-0.5 border border-violet-300 rounded text-center" />
@@ -125,12 +125,12 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
                   {gridLines.h.map((y, i) => <line key={`h${i}`} x1={box!.x} y1={y} x2={box!.x + box!.w} y2={y} stroke="#7c3aed" strokeWidth={i === 0 || i === gridLines.h.length - 1 ? 0.004 : 0.0015} />)}
                 </svg>
               )}
-              {!box && <div className="absolute inset-x-0 bottom-0 bg-violet-900/70 text-white text-[11px] px-2 py-1">請按「框出格區」：框住所有格子的外框（第 1 行在最右邊）</div>}
+              {!box && <div className="absolute inset-x-0 bottom-0 bg-violet-900/70 text-white text-[11px] px-2 py-1">請按「框出整片格子」：用一個矩形把所有格子一次框起來——從最右上那一格的外緣拉到最左下那一格的外緣，不含旁邊的標題與說明文字</div>}
             </div>
           )}
           {box && (
             <div className="text-[11px] text-violet-800">
-              預覽的紫線要壓在稿紙的印刷格線上才算對；不對就重框，或調整行數／格數／窄欄。第 2 頁沿用同一個框（正反面版面相同時）。
+              預覽的紫線要壓在稿紙的每一條印刷格線上才算對（只有一條或對不齊＝框錯或行數、格數填錯）；不對就重框，或調整行數／格數／窄欄。第 2 頁沿用同一個框（正反面版面相同時）。
             </div>
           )}
         </div>
