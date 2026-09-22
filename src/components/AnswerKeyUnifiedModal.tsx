@@ -2584,12 +2584,6 @@ export default function AnswerKeyUnifiedModal({
               {activeStep === 'essaySheet' && (
                 <div className="p-4 flex flex-col h-full">
                   <section className="rounded-xl border border-violet-200 bg-violet-50/30 p-4">
-                    <div className="flex items-baseline justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold text-violet-900">📄 稿紙</h3>
-                        <span className="text-xs text-gray-500">— 學生寫在哪一種稿紙上；批改時系統把學生卷疊到這張稿紙上找出每一格</span>
-                      </div>
-                    </div>
                     <EssaySheetSetup
                       choice={essaySheetChoice}
                       onChoice={setEssaySheetChoice}
@@ -2599,9 +2593,6 @@ export default function AnswerKeyUnifiedModal({
                       onCustom={setCustomSheet}
                       savedCustomPages={savedByo?.sheet === 'custom' ? savedByo.pages : 0}
                     />
-                    <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 leading-relaxed">
-                      學生卷掃描：正反兩面都掃進來（只寫一面的話只掃那一面也可以），整張掃進去、不要裁到格線；彩色或黑白掃描都可以。
-                    </div>
                   </section>
                 </div>
               )}

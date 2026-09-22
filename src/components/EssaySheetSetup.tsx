@@ -185,7 +185,7 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
 
   return (
     <div className="mb-3 rounded border border-violet-200 bg-violet-50/60 px-3 py-2.5 text-[12px] text-violet-950 leading-relaxed">
-      <div className="font-semibold mb-1.5">稿紙</div>
+      <div className="font-semibold mb-1.5">選擇稿紙</div>
       <div className="flex flex-wrap gap-1.5 mb-1.5">
         {choices.map((c) => (
           <button key={c.key} type="button" disabled={disabled} onClick={() => onChoice(c.key)} title={c.hint}
