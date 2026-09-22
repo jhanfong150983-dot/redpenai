@@ -4,7 +4,7 @@
 //   批改時 server 把老師的空白稿紙與學生卷疊合、再把格子投過去（顏色無關、黑白也可），所以：
 //   ⛔ 上傳的空白稿紙必須和學生寫的那張**一模一樣**（同一個檔印的），否則疊不上。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Upload, Crop } from 'lucide-react'
+import { Upload, Crop, RotateCw } from 'lucide-react'
 import PageBboxEditorModal, { type NormalizedBbox } from '@/components/PageBboxEditorModal'
 import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { BUILTIN_ESSAY_SHEETS, type EssaySheetChoice, type CustomEssaySheetInput, type CustomPageGrid } from '@/lib/essayByoPreset'
@@ -106,18 +106,48 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
       if (!blobs.length) throw new Error('PDF 沒有可用頁面')
       if (blobs.length > 2) throw new Error('空白稿紙最多 2 頁（正反面），這份有 ' + blobs.length + ' 頁')
       // 上傳後每頁自動找格區＋數線（user 09-22：不用老師框）；找不到的頁留給老師手動框
-      const grids: CustomPageGrid[] = []
-      const detected: Record<number, SheetGridAnalysis | null> = {}
-      for (let i = 0; i < blobs.length; i++) {
-        let a = null
-        try { a = await autoDetectSheetGrid(blobs[i]) } catch { a = null }
-        if (a && a.cols >= 3 && a.rows >= 3) { grids.push({ page: i + 1, box: a.box, cols: a.cols, rows: a.rows, gutter: a.gutter }); detected[i + 1] = { cols: a.cols, rows: a.rows, gutter: a.gutter, vLines: a.vLines, hLines: a.hLines } }
-      }
+      const { grids, detected } = await detectPages(blobs)
       onCustom({ ...custom, blobs, pages: blobs.length, grids, detected })
       if (grids.some((g) => g.page === 1)) setZoom(0)
       else setError('系統找不到這張稿紙的格區，請按「框出整片格子」手動框')
     } catch (e) {
       setError(e instanceof Error ? e.message : '讀取失敗')
+    } finally { setBusy(false) }
+  }
+
+  // 每頁自動找格區＋數線；找不到（或格子太少）的頁不放進 grids、留給老師手動框
+  const detectPages = async (blobs: Blob[]) => {
+    const grids: CustomPageGrid[] = []
+    const detected: Record<number, SheetGridAnalysis | null> = {}
+    for (let i = 0; i < blobs.length; i++) {
+      let a = null
+      try { a = await autoDetectSheetGrid(blobs[i]) } catch { a = null }
+      if (a && a.cols >= 3 && a.rows >= 3) { grids.push({ page: i + 1, box: a.box, cols: a.cols, rows: a.rows, gutter: a.gutter }); detected[i + 1] = { cols: a.cols, rows: a.rows, gutter: a.gutter, vLines: a.vLines, hLines: a.hLines } }
+    }
+    return { grids, detected }
+  }
+
+  // 旋轉某一頁 90°（user 09-22：PDF 進來還沒轉正就讓老師先轉）：轉的是頁圖本身（存檔上傳的就是轉正後的圖、
+  //   批改疊合也對這張），轉完該頁重新自動找格區；沒轉的頁照舊
+  const onRotate = async (i: number) => {
+    if (!custom.blobs[i] || busy) return
+    setBusy(true); setError(null)
+    try {
+      const { rotateImageBlob } = await import('../lib/imageCompression')
+      const rotated = await rotateImageBlob(custom.blobs[i], 90)
+      const blobs = custom.blobs.map((b, k) => (k === i ? rotated : b))
+      const page = i + 1
+      const one = await detectPages([rotated])
+      const found = one.grids[0]
+      const grids = [...custom.grids.filter((g) => g.page !== page), ...(found ? [{ ...found, page }] : [])].sort((x, y) => x.page - y.page)
+      const detected = { ...(custom.detected ?? {}) }
+      delete detected[page]
+      if (found) detected[page] = one.detected[1]
+      onCustom({ ...custom, blobs, grids, detected })
+      if (found) setZoom(i)
+      else setError(`轉向後系統仍找不到第 ${page} 頁的格區，請按「框出整片格子」手動框`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '旋轉失敗')
     } finally { setBusy(false) }
   }
 
@@ -172,6 +202,7 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
           <div className="text-[11px] text-violet-800">
             上傳<b>空白</b>稿紙（PDF，1～2 頁），要和發給學生的那張<b>一模一樣</b>（同一個檔印的）。上傳後系統會自動找出每一頁的格區、
             數出行數／每行格數／有無窄欄，並開全幅檢視讓你核對紫線；找錯了再按「重新框整片格子」手動框。正反面格子不同（例如背面滿版）也會各自偵測。
+            頁面進來是橫的、還沒轉正 → 先按該頁的「轉向」轉正（轉完會重新偵測），存檔存的就是轉正後的稿紙。
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <label className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-violet-400 bg-white text-violet-900 text-[12px] font-medium ${disabled || busy ? 'opacity-50' : 'cursor-pointer hover:bg-violet-100'}`}>
@@ -197,6 +228,10 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
                       <button type="button" disabled={disabled} onClick={() => { setEditorPage(i); setEditorOpen(true) }}
                         className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-violet-400 bg-white text-violet-900 text-[12px] font-medium disabled:opacity-50 hover:bg-violet-100">
                         <Crop className="w-3.5 h-3.5" />{own ? '重新框整片格子' : page === 1 ? '框出整片格子' : '另外框第 2 頁'}
+                      </button>
+                      <button type="button" disabled={disabled || busy} onClick={() => void onRotate(i)} title="這一頁轉向 90°（轉完會重新自動找格區）"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-violet-400 bg-white text-violet-900 text-[12px] font-medium disabled:opacity-50 hover:bg-violet-100">
+                        <RotateCw className="w-3.5 h-3.5" />轉向
                       </button>
                       {own ? (
                         <>
