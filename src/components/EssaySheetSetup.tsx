@@ -8,7 +8,7 @@ import { Upload, Crop } from 'lucide-react'
 import PageBboxEditorModal, { type NormalizedBbox } from '@/components/PageBboxEditorModal'
 import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { BUILTIN_ESSAY_SHEETS, type EssaySheetChoice, type CustomEssaySheetInput, type CustomPageGrid } from '@/lib/essayByoPreset'
-import { analyzeSheetGrid, type SheetGridAnalysis } from '@/lib/essaySheetAnalyze'
+import { analyzeSheetGrid, autoDetectSheetGrid, type SheetGridAnalysis } from '@/lib/essaySheetAnalyze'
 
 export interface CustomSheetState extends CustomEssaySheetInput {
   /** 這次上傳的空白稿紙頁圖（存檔時上傳當疊合模板）；編輯既有卷沒重傳＝從 Storage 塞回 */
@@ -105,7 +105,17 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
       const blobs = await convertPdfToImages(file, { maxWidth: 1600, minWidth: 1200, quality: 0.9 })
       if (!blobs.length) throw new Error('PDF 沒有可用頁面')
       if (blobs.length > 2) throw new Error('空白稿紙最多 2 頁（正反面），這份有 ' + blobs.length + ' 頁')
-      onCustom({ ...custom, blobs, pages: blobs.length, grids: [], detected: {} })
+      // 上傳後每頁自動找格區＋數線（user 09-22：不用老師框）；找不到的頁留給老師手動框
+      const grids: CustomPageGrid[] = []
+      const detected: Record<number, SheetGridAnalysis | null> = {}
+      for (let i = 0; i < blobs.length; i++) {
+        let a = null
+        try { a = await autoDetectSheetGrid(blobs[i]) } catch { a = null }
+        if (a && a.cols >= 3 && a.rows >= 3) { grids.push({ page: i + 1, box: a.box, cols: a.cols, rows: a.rows, gutter: a.gutter }); detected[i + 1] = { cols: a.cols, rows: a.rows, gutter: a.gutter, vLines: a.vLines, hLines: a.hLines } }
+      }
+      onCustom({ ...custom, blobs, pages: blobs.length, grids, detected })
+      if (grids.some((g) => g.page === 1)) setZoom(0)
+      else setError('系統找不到這張稿紙的格區，請按「框出整片格子」手動框')
     } catch (e) {
       setError(e instanceof Error ? e.message : '讀取失敗')
     } finally { setBusy(false) }
@@ -160,8 +170,8 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
       {choice === 'custom' && (
         <div className="space-y-2">
           <div className="text-[11px] text-violet-800">
-            上傳<b>空白</b>稿紙（PDF，1～2 頁），要和發給學生的那張<b>一模一樣</b>（同一個檔印的）。逐頁用一個矩形把<b>整片格子</b>框起來，
-            系統會自動數出行數／每行格數／有無窄欄，並開全幅檢視讓你核對紫線。正反面格子不同（例如背面滿版）就各框各的。
+            上傳<b>空白</b>稿紙（PDF，1～2 頁），要和發給學生的那張<b>一模一樣</b>（同一個檔印的）。上傳後系統會自動找出每一頁的格區、
+            數出行數／每行格數／有無窄欄，並開全幅檢視讓你核對紫線；找錯了再按「重新框整片格子」手動框。正反面格子不同（例如背面滿版）也會各自偵測。
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <label className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-violet-400 bg-white text-violet-900 text-[12px] font-medium ${disabled || busy ? 'opacity-50' : 'cursor-pointer hover:bg-violet-100'}`}>
@@ -218,7 +228,7 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
                     <div className="relative inline-block border border-violet-200 bg-white rounded overflow-hidden">
                       <img src={url} alt={`空白稿紙第 ${page} 頁`} className="block max-h-[28rem] w-auto cursor-zoom-in" onClick={() => setZoom(i)} title="點擊放大" />
                       <GridOverlay g={eff} />
-                      {!eff && page === 1 && <div className="absolute inset-x-0 bottom-0 bg-violet-900/70 text-white text-[11px] px-2 py-1">請按「框出整片格子」：用一個矩形把所有格子一次框起來——從最右上那一格的外緣拉到最左下那一格的外緣，不含旁邊的標題與說明文字</div>}
+                      {!eff && page === 1 && <div className="absolute inset-x-0 bottom-0 bg-violet-900/70 text-white text-[11px] px-2 py-1">系統沒找到格區，請按「框出整片格子」：用一個矩形把所有格子一次框起來——從最右上那一格的外緣拉到最左下那一格的外緣</div>}
                     </div>
                   </div>
                 )

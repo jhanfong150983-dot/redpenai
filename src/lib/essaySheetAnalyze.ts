@@ -78,3 +78,75 @@ export async function analyzeSheetGrid(blob: Blob, box: NormalizedBbox): Promise
   const gutter = v1.length >= v2.length + Math.max(3, (v2.length - 1) * 0.5)
   return { cols: Math.max(0, v2.length - 1), rows: Math.max(0, h2.length - 1), gutter, vLines: v2.length, hLines: h2.length }
 }
+
+// ── 自動找格區（2026-09-22 user：上傳後應自動套、不用老師框）──
+//   空白稿紙上最大一片等距的直線／橫線就是格區。做法（Node 同邏輯在 redpenaisever/local-only/essay/_autobox_node_test2.mjs，
+//   會考公版彩色／灰階、學測公版正反面五種全部與真值一致）：
+//   ①整頁「比紙暗」像素的直／橫投影，扣掉中位數底（每列都跨幾十條直線、底很高）後找峰
+//   ②交點篩選：格線一定與（幾乎）所有橫線相交——判準是橫線從直線**兩側延伸出去**（x±4 有墨），
+//     直線本身整條都暗、看 (x,y) 對任何直線都成立，標籤框線會混進來
+//   ③合併窄欄那一對（間距 <0.5 主要間距）、取最長等距段、兩端交點數低於段內中位數 95% 的剔掉
+//   ④有窄欄時最右緣補回窄欄線（它兩側沒橫線、會被②篩掉）
+export interface AutoSheetGrid extends SheetGridAnalysis { box: NormalizedBbox }
+
+export async function autoDetectSheetGrid(blob: Blob): Promise<AutoSheetGrid | null> {
+  const bmp = await createImageBitmap(blob)
+  const canvas = document.createElement('canvas')
+  canvas.width = bmp.width; canvas.height = bmp.height
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })
+  if (!ctx) { bmp.close(); return null }
+  ctx.drawImage(bmp, 0, 0)
+  bmp.close()
+  const W = canvas.width, H = canvas.height
+  const { data } = ctx.getImageData(0, 0, W, H)
+  const lum = new Uint8Array(W * H)
+  const hist = new Uint32Array(256)
+  for (let i = 0, p = 0; i < W * H; i++, p += 4) { const l = (data[p] * 77 + data[p + 1] * 151 + data[p + 2] * 28) >> 8; lum[i] = l; hist[l]++ }
+  let acc = 0, paper = 250
+  for (let l = 0; l < 256; l++) { acc += hist[l]; if (acc >= W * H * 0.8) { paper = l; break } }
+  const thr = paper - 25
+  const dark = (x: number, y: number) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x + dx, yy = y + dy; if (xx >= 0 && xx < W && yy >= 0 && yy < H && lum[yy * W + xx] < thr) return true } return false }
+  const colP = new Float64Array(W), rowP = new Float64Array(H)
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (lum[y * W + x] < thr) { colP[x]++; rowP[y]++ }
+  const defloor = (a: Float64Array) => { const s = Array.from(a).sort((p, q) => p - q); const med = s[s.length >> 1]; return a.map((v) => Math.max(0, v - med)) }
+  const cs = smooth(defloor(colP), 1), rs = smooth(defloor(rowP), 1)
+  let v = peaks(cs, 6, 0.25), h = peaks(rs, 6, 0.25)
+  const vRaw = [...v]
+  for (let it = 0; it < 2; it++) {
+    const v2 = v.filter((x) => h.filter((y) => dark(x - 4, y) || dark(x + 4, y)).length >= h.length * 0.7)
+    const h2 = h.filter((y) => v2.filter((x) => dark(x, y - 4) || dark(x, y + 4)).length >= v2.length * 0.7)
+    v = v2; h = h2
+  }
+  const pitch75 = (ps: number[]) => { const g: number[] = []; for (let i = 1; i < ps.length; i++) g.push(ps[i] - ps[i - 1]); if (!g.length) return 0; const s = [...g].sort((a, b) => a - b); return s[Math.floor(s.length * 0.75)] }
+  const pv = pitch75(v), ph = pitch75(h)
+  if (!(pv > 6) || !(ph > 6)) return null
+  const vm: number[] = [], hm: number[] = []
+  for (const x of v) { if (vm.length && x - vm[vm.length - 1] < pv * 0.5) continue; vm.push(x) }
+  for (const y of h) { if (hm.length && y - hm[hm.length - 1] < ph * 0.5) continue; hm.push(y) }
+  const longestRegular = (ps: number[], tol: number): number[] => {
+    if (ps.length < 3) return ps
+    let best: [number, number] = [0, 0]
+    for (let s = 0; s < ps.length - 1; s++) {
+      let e = s + 1
+      const gaps = [ps[e] - ps[s]]
+      while (e + 1 < ps.length) {
+        const g = ps[e + 1] - ps[e]
+        const all = [...gaps, g]
+        const sorted = [...all].sort((a, b) => a - b); const med = sorted[sorted.length >> 1]
+        if (all.every((x) => Math.abs(x - med) <= med * tol)) { gaps.push(g); e++ } else break
+      }
+      if (e - s > best[1] - best[0]) best = [s, e]
+    }
+    return ps.slice(best[0], best[1] + 1)
+  }
+  let vr = longestRegular(vm, 0.35), hr = longestRegular(hm, 0.35)
+  const trimByCross = (lines: number[], crossOf: (p: number) => number) => { const a = [...lines]; const med = a.map(crossOf).sort((p, q) => p - q)[a.length >> 1]; while (a.length > 2 && crossOf(a[0]) < med * 0.95) a.shift(); while (a.length > 2 && crossOf(a[a.length - 1]) < med * 0.95) a.pop(); return a }
+  vr = trimByCross(vr, (x) => h.filter((y) => dark(x - 4, y) || dark(x + 4, y)).length)
+  hr = trimByCross(hr, (y) => v.filter((x) => dark(x, y - 4) || dark(x, y + 4)).length)
+  if (vr.length < 3 || hr.length < 3) return null
+  const gutter = v.length >= vr.length + Math.max(3, (vr.length - 1) * 0.5)
+  const rightCands = vRaw.filter((x) => x > vr[vr.length - 1] + 2 && x <= vr[vr.length - 1] + pv * 0.45)
+  const right = gutter && rightCands.length ? Math.max(...rightCands) : vr[vr.length - 1]
+  const cols = vr.length - 1, rows = hr.length - 1
+  return { box: { x: vr[0] / W, y: hr[0] / H, w: (right - vr[0]) / W, h: (hr[hr.length - 1] - hr[0]) / H }, cols, rows, gutter, vLines: vr.length, hLines: hr.length }
+}
