@@ -37,12 +37,12 @@ export const ESSAY_PRESET_EXAM_CAP: EssayByoPreset = {
   gutterMm: 2.5,
 }
 
-/** 學測國寫答題卷：A3 橫式（420×297mm）、每面 38 行 × 22 格、無窄欄，正反面＝第一、第二大題
+/** 學測國寫答題卷：A3 橫式（420×297mm）、每面 38 行 × 22 格、無窄欄、正反兩面版面相同
  *  ⛔ 字格是 10mm（09-21 用 115 年原卷量出來的）；先前寫的 8mm 是估的、是錯的 */
 export const ESSAY_PRESET_GSAT: EssayByoPreset = {
   name: 'gsat',
   label: '學測國寫答題卷',
-  hint: 'A3 橫式、每面 38 行 × 22 格，正面第一大題、背面第二大題',
+  hint: 'A3 橫式、每面 38 行 × 22 格、正反兩面',
   cols: 38,
   rows: 22,
   pages: 2,
@@ -56,8 +56,10 @@ export function essayByoPresetFor(source: SheetSource): EssayByoPreset {
   return source === 'essay_gsat_byo' ? ESSAY_PRESET_GSAT : ESSAY_PRESET_EXAM_CAP
 }
 
-/** 學測第一期只批第二大題（背面＝第 2 頁）；題號與 ESSAY_QUESTION_ID 一致 */
-export const GSAT_ITEMS: NonNullable<EssayByoGeom['items']> = [{ id: '1', pages: [2] }]
+/** 學測第一期只開情意題：學生寫在任一面、可翻面續寫 → 正反兩頁當同一篇（與會考同模型）。
+ *  2026-09-22 user 說明學校月考會把知性題／情意題拆開考、但都用同一種稿紙 → 不能寫死「第 2 頁才是作文」。
+ *  題號與 ESSAY_QUESTION_ID 一致 */
+export const GSAT_ITEMS: NonNullable<EssayByoGeom['items']> = [{ id: '1', pages: [1, 2], kind: 'affective' }]
 
 /** 模式 → 存進答案卷的稿紙幾何。會考版的輸出與改版前逐欄位相同（不帶 format／items） */
 export function essayByoGeomFor(source: SheetSource): EssayByoGeom {

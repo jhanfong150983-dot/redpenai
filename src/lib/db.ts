@@ -393,8 +393,8 @@ export interface AnswerKeyQuestion {
  *  答案卷不存題目文字、圖意、寫作任務、詮釋範圍、離題定義；批改依據＝題本圖（template 的 question booklet）＋內建規準。 */
 export interface EssayKeyData {
   topicSource: 'booklet_image'
-  /** 評分規準：會考通用六級分（第一版固定） */
-  rubricPreset: 'cap_6level'
+  /** 評分規準：會考通用六級分；學測＝通用等第階梯→分數帶中間值（gsat_points） */
+  rubricPreset: 'cap_6level' | 'gsat_points'
 }
 
 export interface AnswerKey {
@@ -591,9 +591,12 @@ export interface EssayResult {
   level: {
     suggested: number | null; final: number | null; reason: string
     dimensions: Array<{ name: string; level: number; comment: string; quotes?: string[] }>
-    /** 學測國寫才有（server 只在學測卷寫）：0~6 要顯示成等第，見 lib/essayScale.ts */
+    /** 學測國寫才有（server 只在學測卷寫）：suggested／final 是**分數**（情意題 0~25）、grade 是等第參考，見 lib/essayScale.ts */
     scale?: 'gsat'
     grade?: string | null
+    /** 學測：該題滿分（情意題 25）；會考沒有＝6 級分 */
+    maxScore?: number
+    kind?: 'affective' | 'expository1' | 'expository2'
     /** 學測：是否切題（false＝文不對題、等第由 code 設 0） */
     onTopic?: boolean | null
   }
@@ -608,8 +611,9 @@ export interface EssayByoGeom {
   source: 'byo'
   /** 稿紙代別：沒有＝會考格式；'gsat'＝學測國寫公版（server 靠它分流格線偵測器與等第判官） */
   format?: 'gsat'
-  /** 要批的題目與所在頁（1-based）。沒有＝整份卷是一篇作文（會考）。學測第一期只批第二大題＝背面 */
-  items?: Array<{ id: string; pages: number[] }>
+  /** 要批的題目與所在頁（1-based）。沒有＝整份卷是一篇作文（會考）。
+   *  學測：kind＝affective 情意題（第一期只開這種，正反兩面當同一篇）；expository 知性題待做 */
+  items?: Array<{ id: string; pages: number[]; kind?: 'affective' | 'expository' }>
   pages: number
   cols: number
   rows: number

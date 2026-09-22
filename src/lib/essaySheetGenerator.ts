@@ -50,8 +50,8 @@ export interface EssayGridGeom {
   seatStripMm: [number, number, number, number]
   /** 稿紙代別：沒有＝會考格式；'gsat'＝學測國寫格式（server 據此用等第判官；定位仍走四角錨點、與自備卷的格線偵測器無關） */
   format?: 'gsat'
-  /** 要批的題目與所在頁（1-based）。沒有＝整份卷是一篇作文。學測第一期只批第二大題＝背面 */
-  items?: Array<{ id: string; pages: number[] }>
+  /** 要批的題目與所在頁（1-based）。沒有＝整份卷是一篇作文。學測第一期＝情意題、正反兩面同一篇 */
+  items?: Array<{ id: string; pages: number[]; kind?: 'affective' | 'expository' }>
   /** 座號辨識對照：把第 1 頁逆時針轉 90° 後可直接用 RPOMR1 引擎；但十位/個位的語意與引擎相反（左＝十位） */
   seatOmr: {
     /** RPOMR1_cw90＝會考稿紙的直式座號欄（匯入時整頁逆時針轉 90°）；RPOMR1＝學測稿紙頂部的橫式公版標頭（不轉） */
@@ -289,7 +289,7 @@ export async function buildEssaySheetPdf(svgs: string[], pageMm: [number, number
 
 // ═══ 學測國寫格式（version RPGSAT1，2026-09-21）═══════════════════════════════
 // 比照大考中心國寫答題卷：A3 橫式（420×297mm）、每面 38 直行 × 22 格、每格 10mm、**沒有窄欄**、綠色格線；
-//   正面＝第一大題、背面＝第二大題（第一期只批背面，見 items）。
+//   ⛔ 稿紙上不印題型（user 09-22：學校會把知性題／情意題拆開考、都用同一張紙，當一般稿紙用）。
 // ⛔ 與上面的會考稿紙完全分開（user 09-21：兩種稿紙各自成功、互不影響）：
 //   會考那一支的常數、pageSvg、輸出都沒動；這裡另開一組常數與 gsatPageSvg。
 //   共用的只有純函式 essayColumnRectMm／essayCellRectMm（gutterMm=0 時 pitch＝cellMm，公式本來就成立）。
@@ -362,7 +362,7 @@ function gsatPageSvg(pageNo: number, input: EssaySheetInput, g: EssayGridGeom): 
     els.push(`<line x1="${px(gx)}" y1="${px(y)}" x2="${px(gx + gw)}" y2="${px(y)}" stroke="${GSAT_GREEN}" stroke-width="${px(0.2)}"/>`)
   }
   els.push(`<rect x="${px(gx)}" y="${px(gy)}" width="${px(gw)}" height="${px(gh)}" fill="none" stroke="${GSAT_GREEN}" stroke-width="${px(0.45)}"/>`)
-  // 行數小標：第 1 行在最右邊，之後每 5 行標一次（學測第一大題有「至多幾行」的限制，學生要數得到）
+  // 行數小標：第 1 行在最右邊，之後每 5 行標一次（知性題有「至多幾行」的限制，學生要數得到）
   for (let c = 1; c <= g.cols; c++) {
     if (c !== 1 && c % 5 !== 0) continue
     const [x, , w] = essayColumnRectMm(g, c, false)
@@ -372,9 +372,9 @@ function gsatPageSvg(pageNo: number, input: EssaySheetInput, g: EssayGridGeom): 
   const titleText = input.title.replace(/\s+/g, ' ').trim()
   const titleSize = Math.min(6.4, (g.seatStripMm[0] - 6 - gx) / Math.max(1, Array.from(titleText).length))
   els.push(`<text x="${px(gx)}" y="${px(22)}" font-size="${px(titleSize)}" font-weight="bold">${esc(titleText)}</text>`)
-  els.push(`<text x="${px(gx)}" y="${px(33)}" font-size="${px(5.4)}" font-weight="bold">國語文寫作　${front ? '第一大題（正面）' : '第二大題（背面）'}</text>`)
+  els.push(`<text x="${px(gx)}" y="${px(33)}" font-size="${px(5.4)}" font-weight="bold">國語文寫作　${front ? '正面' : '背面'}</text>`)
   els.push(`<text x="${px(gx)}" y="${px(41)}" font-size="${px(3.2)}" fill="#444">直式書寫：由右邊第一行開始、由上往下，每格一字，標點符號佔一格。</text>`)
-  els.push(`<text x="${px(gx)}" y="${px(46.5)}" font-size="${px(3.2)}" fill="#444">${front ? '有小題時請自行標明題號（一）（二），題號單獨寫一行。' : '※ 本面只寫第二大題；第一大題請寫在正面。'}</text>`)
+  els.push(`<text x="${px(gx)}" y="${px(46.5)}" font-size="${px(3.2)}" fill="#444">${front ? '有小題時請自行標明題號（一）（二），題號單獨寫一行；正面寫不下請翻面續寫。' : '※ 背面：由正面續寫時請接著寫；正背面各考一題時，本面寫第二題。'}</text>`)
   if (front) els.push(gsatSeatHeaderSvg(g.seatStripMm))
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="DFKai-SB, BiauKai, 標楷體, TW-Kai, Noto Serif TC, serif">` +
@@ -392,7 +392,7 @@ export function generateGsatEssaySheet(input: EssaySheetInput): EssaySheetResult
     version: GSAT_SHEET_VERSION, orientation: 'landscape', ...GSAT_GRID,
     format: 'gsat',
     // 題號必須與答案卷那一題的 id 相同（server 用它當 questionId）
-    items: [{ id: input.questionId, pages: [2] }],
+    items: [{ id: input.questionId, pages: [1, 2], kind: 'affective' }],
     gridMm: GSAT_GRID_MM,
     seatStripMm: GSAT_HEADER_MM,
     seatOmr: {

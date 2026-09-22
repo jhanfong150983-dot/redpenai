@@ -276,10 +276,8 @@ async function renderPage(
       const colW = toX(bb.x + bb.w) - toX(bb.x)
 
       // 排版順序（user 指定）：建議：①②③ →（空間距）→ 總評：
-      // 學測印等第。直書是一字一格往下排 → 半形「A+」會變成兩個歪掉的窄字，改用全形「Ａ＋」
-      const head = meta.level == null ? ''
-        : meta.scale === 'gsat' ? `等第　${essayLevelLabel(meta.level, 'gsat').replace(/[A-C]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0xfee0)).replace('+', '＋')}`
-        : `${meta.level} 級分`
+      // 學測印分數（user 09-22：以分數計、不以等第計）；會考印級分
+      const head = meta.level == null ? '' : essayLevelLabel(meta.level, meta.scale ?? 'cap')
       // user 指定：白底方框最後一行最下方加免責提醒（AI 抄寫可能出錯，請人工確認）
       const DISCLAIMER = '※此為AI抄寫後的建議，可能因為字跡、塗改、插入導致錯誤，請務必進行人工確認。'
       const blocks: Array<{ text: string; bold?: boolean; scale?: number; gapAfter?: number; bottom?: boolean }> = []

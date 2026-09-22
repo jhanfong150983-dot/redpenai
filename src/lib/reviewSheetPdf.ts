@@ -588,7 +588,7 @@ async function buildOverlayClassPdf(
           title: assignment.title,
           who: `${stu.seatNumber}號 ${stu.name ?? ''}`,
           level: essay.level.final ?? essay.level.suggested,
-          maxLevel: 6,
+          maxLevel: essay.level.maxScore ?? 6,
           scale: essayScaleOf(essay),
           summary: essay.feedback?.summary ?? '',
         })

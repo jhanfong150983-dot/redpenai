@@ -74,8 +74,8 @@ const MODES: ModeOption[] = [
   {
     value: 'essay_gsat_byo',
     name: '自備作文稿紙（限學測格式）',
-    tagline: '國寫第二大題，用現成「學測」的答題卷',
-    description: '上傳國寫題目即可；學生寫在學測國寫公版答題卷上，批改時系統直接找出格線。目前只批背面的第二大題，給逐句修改建議與建議等第（A+～C）。',
+    tagline: '國寫情意題，用現成「學測」的答題卷',
+    description: '上傳國寫題目即可；學生寫在學測國寫公版答題卷上，批改時系統直接找出格線。第一期支援情意題（一篇作文、25 分），給逐句修改建議與建議分數。',
     suit: '適合：高中國寫練習、模擬考',
     Illustration: EssayByoIllustration,
     accent: 'sky',
@@ -92,8 +92,8 @@ const MODES: ModeOption[] = [
   {
     value: 'essay_gsat',
     name: '系統製作作文稿紙（學測格式）',
-    tagline: '國寫第二大題，系統產生「學測」的稿紙',
-    description: '上傳國寫題目，系統製作比照學測的 A3 稿紙（每面 38 行 × 22 格，含定位方塊與座號劃卡）；正面第一大題、背面第二大題，目前只批第二大題，給逐句修改建議與建議等第（A+～C）。',
+    tagline: '國寫情意題，系統產生「學測」的稿紙',
+    description: '上傳國寫題目，系統製作比照學測的 A3 稿紙（每面 38 行 × 22 格，含定位方塊與座號劃卡）；正反兩面版面相同、不印題型；第一期支援情意題（一篇作文、25 分），給逐句修改建議與建議分數。',
     suit: '適合：高中國寫練習、要座號自動辨識的模擬考（需 A3 雙面列印）',
     Illustration: EssayModeIllustration,
     accent: 'teal',

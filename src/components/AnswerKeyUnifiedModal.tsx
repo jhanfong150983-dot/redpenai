@@ -368,7 +368,7 @@ export default function AnswerKeyUnifiedModal({
   const isEssay = isEssaySheetSource(sheetSource)
   // 自備稿紙（會考格式或學測格式）：都不產生我們的稿紙、都只存格子規格
   const isEssayByo = isEssayByoSheetSource(sheetSource)
-  // 學測格式（自備公版 or 系統製作）：只批第二大題、成績是等第
+  // 學測格式（自備公版 or 系統製作）：第一期只開情意題（寫在任一面）、以分數計（25）、等第只當參考
   const isEssayGsat = sheetSource === 'essay_gsat_byo' || sheetSource === 'essay_gsat'
   const isEssayGsatMade = sheetSource === 'essay_gsat'
   const [activeStep, setActiveStep] = useState<UnifiedStep>(editMode ? (isEssaySheet(initialGeneratedSheet) ? 'booklet' : 'editing') : 'metadata')
@@ -1635,9 +1635,10 @@ export default function AnswerKeyUnifiedModal({
     //   批改依據＝老師上傳的題本圖（questionBookletBlobs）＋內建會考通用規準，答案卷不存任何 AI 轉述的題目文字。
     const keyToSave: AnswerKey | null = isEssay
       ? (editMode && editingKey ? editingKey : {
-          essay: { topicSource: 'booklet_image', rubricPreset: 'cap_6level' },
-          totalScore: 6,
-          questions: [{ id: ESSAY_QUESTION_ID, questionCategory: 'essay', type: 3, maxScore: 6, answer: '' } as AnswerKeyQuestion],
+          // 學測（user 09-22 拍板）：以分數計、不以等第計——情意題 25 分（server 等第→分數帶中間值），老師事後加減
+          essay: { topicSource: 'booklet_image', rubricPreset: isEssayGsat ? 'gsat_points' : 'cap_6level' },
+          totalScore: isEssayGsat ? 25 : 6,
+          questions: [{ id: ESSAY_QUESTION_ID, questionCategory: 'essay', type: 3, maxScore: isEssayGsat ? 25 : 6, answer: '' } as AnswerKeyQuestion],
         })
       : editingKey
     if (!keyToSave) return
@@ -2392,21 +2393,34 @@ export default function AnswerKeyUnifiedModal({
                             <div className="mb-3 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 leading-relaxed">
                               稿紙版型：<b>{essayByoPreset.label}</b>（{essayByoPreset.hint}）——不必上傳空白稿紙。
                               批改時系統會直接在學生卷上找出印刷格線；每位學生請收滿 {essayByo.pages} 頁，掃描時整張掃進去、不要裁到格線。
-                              {isEssayGsat && (
-                                <span className="block mt-1 text-amber-800">
-                                  目前只批<b>第二大題（背面）</b>，給的是建議等第（A+～C）。正面的第一大題仍要一起掃進來（系統靠正反兩頁配對每位學生），但不會批改。
-                                  作文題目請上傳第二大題那一頁。
-                                </span>
-                              )}
                             </div>
                           )}
                           {isEssayGsatMade && (
                             <div className="mb-3 text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded px-2 py-1.5 leading-relaxed">
-                              存檔後到答案卷列表下載稿紙：<b>A3 橫式、雙面列印</b>（正面第一大題＋座號劃卡、背面第二大題），請用「實際大小」列印、不要縮放。
-                              <span className="block mt-1 text-amber-800">
-                                目前只批<b>第二大題（背面）</b>，給的是建議等第（A+～C）。正面仍要一起掃進來（座號劃卡在正面），但不會批改。
-                                作文題目請上傳第二大題那一頁。
-                              </span>
+                              存檔後到答案卷列表下載稿紙：<b>A3 橫式、雙面列印</b>（正面有座號劃卡；正背面版面相同、不印題型），請用「實際大小」列印、不要縮放。
+                            </div>
+                          )}
+                          {/* 學測：這張卷考什麼（user 09-22 拍板的流程：上傳題本 → 選知性題／情意題／兩題皆考 → 下一步）。
+                              第一期只開「情意題」：寫在任一面、可翻面續寫、25 分。知性題要規準編輯＋切小題，還沒做 → 顯示但不可選。 */}
+                          {isEssayGsat && (
+                            <div className="mb-3 rounded border border-sky-200 bg-sky-50 px-2 py-2 text-[11px] text-sky-900 leading-relaxed">
+                              <div className="font-semibold mb-1">這張卷考什麼？</div>
+                              <div className="flex flex-wrap gap-1.5">
+                                {([
+                                  { key: 'affective', label: '情意題', hint: '一篇作文、25 分', enabled: true },
+                                  { key: 'expository', label: '知性題', hint: '兩小題、25 分（規準編輯準備中）', enabled: false },
+                                  { key: 'both', label: '兩題皆考', hint: '正面知性題、背面情意題（準備中）', enabled: false },
+                                ] as const).map((o) => (
+                                  <span key={o.key} title={o.hint}
+                                    className={`px-2 py-1 rounded border ${o.enabled ? 'bg-white border-sky-400 text-sky-900 font-semibold' : 'bg-gray-50 border-gray-200 text-gray-400'}`}>
+                                    {o.label}{o.enabled ? ' ✓' : ''}<span className="ml-1 font-normal text-[10px]">{o.hint}</span>
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="mt-1.5 text-sky-800">
+                                情意題：學生寫在稿紙任一面、寫不下可翻面續寫，正反兩面當同一篇批；AI 給逐句眉批與建議分數（滿分 25、等第只當參考），老師可直接加減分。
+                                題本請只上傳情意題那一頁。
+                              </div>
                             </div>
                           )}
                           {/* 答案卷上只有格子，題型（尤其「要求寫出計算過程」＝應用題）只寫在題本上。

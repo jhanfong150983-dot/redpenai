@@ -9,7 +9,7 @@ import { useState } from 'react'
 import { Check, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react'
 import type { EssayResult, EssayLoc } from '@/lib/db'
 import { dismissedTypoForms, isSentenceTainted } from '@/lib/essayFeedbackFilter'
-import { essayScaleOf, essayLevelLabel, GSAT_SCORE_LEGEND } from '@/lib/essayScale'
+import { essayScaleOf, essayGradeHint } from '@/lib/essayScale'
 
 interface Props {
   value: EssayResult
@@ -57,7 +57,7 @@ export default function EssayReviewPanel({ value, onChange, readOnly = false }: 
         {value.level.suggested != null && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
             {essayScaleOf(value) === 'gsat'
-              ? <>AI 建議等第 {essayLevelLabel(value.level.suggested, 'gsat')}（分數欄可改：{GSAT_SCORE_LEGEND}）</>
+              ? <>AI 建議 {value.level.suggested} 分／{value.level.maxScore ?? 25}（等第參考 {essayGradeHint(value) ?? '—'}；分數欄可改）</>
               : <>AI 建議 {value.level.suggested} 級分（分數欄可改）</>}
           </span>
         )}
