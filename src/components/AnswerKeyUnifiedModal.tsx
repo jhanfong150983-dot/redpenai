@@ -450,6 +450,14 @@ export default function AnswerKeyUnifiedModal({
   const [customSheet, setCustomSheet] = useState<CustomSheetState>(() => (savedByo?.sheet === 'custom'
     ? { blobs: [], pages: savedByo.pages, cols: savedByo.cols, rows: savedByo.rows, gutter: (savedByo.template?.gutterRatio ?? 1) < 0.98, grids: savedByo.template?.grids ?? [] }
     : { blobs: [], pages: 1, cols: 20, rows: 20, gutter: false, grids: [] }))
+  // 編輯既有的自備稿紙卷：空白稿紙頁圖是父層從 Storage 非同步下載（initialAnswerSheetImages）→ 到了就塞進預覽
+  //   （user 09-22：存檔後再開答案卷看不到稿紙預覽）。只在還沒有圖時塞一次，不蓋掉老師剛重傳的。
+  useEffect(() => {
+    if (!editMode || savedByo?.sheet !== 'custom') return
+    if (!initialAnswerSheetImages.length) return
+    setCustomSheet((prev) => (prev.blobs.length ? prev : { ...prev, blobs: [...initialAnswerSheetImages], pages: initialAnswerSheetImages.length }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editMode, initialAnswerSheetImages])
   const essayScoring = essayScoringFor(essaySheetChoice, grade)
   const essayByo = useMemo<EssayByoGeom>(() => essayByoGeomForChoice(essaySheetChoice, essayScoring, customSheet), [essaySheetChoice, essayScoring, customSheet])
   // 學測評分（25 分制）：自備稿紙＝依稿紙選擇（自備稿紙依年級）；系統製作＝學測格式那張卡
