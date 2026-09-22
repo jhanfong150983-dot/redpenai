@@ -55,15 +55,19 @@ export const BUILTIN_ESSAY_SHEETS: Record<'cap' | 'gsat', BuiltinEssaySheet> = {
   },
 }
 
-/** 自備稿紙老師填的東西 */
-export interface CustomEssaySheetInput {
-  pages: number
+/** 自備稿紙某一頁：框＋這一頁的行數／格數／窄欄（兩頁可以不同，user 09-22：有的稿紙背面滿版） */
+export interface CustomPageGrid {
+  page: number
+  box: NormalizedBbox
   cols: number
   rows: number
   /** 每行右側有窄欄（會考式）→ 字格佔行距 0.8；沒有＝1 */
   gutter: boolean
-  /** 每頁格區（normalized）。只框第 1 頁時其餘頁沿用 */
-  grids: Array<{ page: number; box: NormalizedBbox }>
+}
+/** 自備稿紙老師填的東西：只框第 1 頁時其餘頁沿用第 1 頁 */
+export interface CustomEssaySheetInput {
+  pages: number
+  grids: CustomPageGrid[]
 }
 
 /** 老師年級 → 預設稿紙（高中＝學測、其餘＝會考）；老師仍可改 */
@@ -80,22 +84,28 @@ export function essayScoringFor(choice: EssaySheetChoice, grade?: number | ''): 
 
 /** 自備稿紙的匯入寬度：每格 77px（與公版同），夾在 2300~3600 */
 export function customImportWidth(input: CustomEssaySheetInput): number {
-  const box = input.grids[0]?.box
-  if (!box || !(box.w > 0)) return 2800
-  return Math.min(3600, Math.max(2300, Math.round((77 * input.cols) / box.w / 10) * 10))
+  const g = input.grids[0]
+  if (!g || !(g.box.w > 0)) return 2800
+  return Math.min(3600, Math.max(2300, Math.round((77 * g.cols) / g.box.w / 10) * 10))
 }
 
 /** 存進答案卷的稿紙幾何 */
 export function essayByoGeomForChoice(choice: EssaySheetChoice, scoring: 'cap' | 'gsat', custom?: CustomEssaySheetInput): EssayByoGeom {
   const items: EssayByoGeom['items'] = scoring === 'gsat' ? [{ id: '1', pages: [1, 2], kind: 'affective' }] : undefined
   if (choice === 'custom') {
-    const c = custom ?? { pages: 1, cols: 20, rows: 20, gutter: false, grids: [] }
+    const c = custom ?? { pages: 1, grids: [] }
     const pages = Math.max(1, c.pages)
+    const first = c.grids.find((g) => g.page === 1) ?? c.grids[0] ?? { page: 1, box: { x: 0, y: 0, w: 1, h: 1 }, cols: 20, rows: 20, gutter: false }
     return {
       source: 'byo', sheet: 'custom', ...(scoring === 'gsat' ? { format: 'gsat' as const } : {}),
-      pages, cols: c.cols, rows: c.rows, cellMm: 10, gutterMm: c.gutter ? 2.5 : 0,
+      // 整份的 cols／rows／gutter＝第 1 頁；逐頁差異記在 template.grids（server essayPageSpec 逐頁讀）
+      pages, cols: first.cols, rows: first.rows, cellMm: 10, gutterMm: first.gutter ? 2.5 : 0,
       items: items?.map((it) => ({ ...it, pages: Array.from({ length: pages }, (_, i) => i + 1) })),
-      template: { grids: c.grids, gutterRatio: c.gutter ? 0.8 : 1, importWidth: customImportWidth(c) },
+      template: {
+        grids: c.grids.map((g) => ({ page: g.page, box: g.box, cols: g.cols, rows: g.rows, gutterRatio: g.gutter ? 0.8 : 1 })),
+        gutterRatio: first.gutter ? 0.8 : 1,
+        importWidth: customImportWidth(c),
+      },
     }
   }
   const b = BUILTIN_ESSAY_SHEETS[choice]

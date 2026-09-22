@@ -448,8 +448,8 @@ export default function AnswerKeyUnifiedModal({
   const setEssaySheetChoice = (c: EssaySheetChoice) => { sheetChoiceTouched.current = true; setEssaySheetChoiceRaw(c) }
   useEffect(() => { if (editMode || sheetChoiceTouched.current) return; setEssaySheetChoiceRaw(defaultEssaySheetChoice(grade)) }, [grade, editMode])
   const [customSheet, setCustomSheet] = useState<CustomSheetState>(() => (savedByo?.sheet === 'custom'
-    ? { blobs: [], pages: savedByo.pages, cols: savedByo.cols, rows: savedByo.rows, gutter: (savedByo.template?.gutterRatio ?? 1) < 0.98, grids: savedByo.template?.grids ?? [] }
-    : { blobs: [], pages: 1, cols: 20, rows: 20, gutter: false, grids: [] }))
+    ? { blobs: [], pages: savedByo.pages, grids: (savedByo.template?.grids ?? []).map((g) => ({ page: g.page, box: g.box, cols: g.cols ?? savedByo.cols, rows: g.rows ?? savedByo.rows, gutter: (g.gutterRatio ?? savedByo.template?.gutterRatio ?? 1) < 0.98 })), detected: {} }
+    : { blobs: [], pages: 1, grids: [], detected: {} }))
   // 編輯既有的自備稿紙卷：空白稿紙頁圖是父層從 Storage 非同步下載（initialAnswerSheetImages）→ 到了就塞進預覽
   //   （user 09-22：存檔後再開答案卷看不到稿紙預覽）。只在還沒有圖時塞一次，不蓋掉老師剛重傳的。
   useEffect(() => {
@@ -1664,7 +1664,7 @@ export default function AnswerKeyUnifiedModal({
     if (isEssayByo) {
       if (essaySheetChoice === 'custom') {
         const hasPages = customSheet.blobs.length > 0 || (savedByo?.sheet === 'custom' && savedByo.pages > 0)
-        if (!hasPages || !customSheet.grids.length || customSheet.cols < 1 || customSheet.rows < 1) {
+        if (!hasPages || !customSheet.grids.some((g) => g.page === 1 && g.cols >= 1 && g.rows >= 1)) {
           await alertModal('自備稿紙還沒設定好：請上傳空白稿紙、框出格區，並填行數與每行格數。')
           return
         }
