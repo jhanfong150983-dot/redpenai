@@ -51,6 +51,7 @@ type Bbox = { x: number; y: number; w: number; h: number }
 type OpenCorrectionItem = NonNullable<StudentAssignmentItem['openCorrections']>[number]
 
 /** 作文卷每頁寬度（與老師端 UnifiedImportPage 同：會考 2800、學測 3240；非作文 0） */
+import { uprightEssayPages } from '@/lib/essayOrientation'
 const essayWidthOf = (a: { essaySheet?: { format: 'cap' | 'gsat' } } | null | undefined): number =>
   !a?.essaySheet ? 0 : a.essaySheet.format === 'gsat' ? 3240 : 2800
 const essayPdfOptsOf = (w: number) => (w ? { maxWidth: w, minWidth: w, hardMinWidth: w > 2800 ? 2800 : 2300, quality: 0.85 } : {})
@@ -1449,6 +1450,8 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         // mergePageBlobs（與老師端匯入同一套）會把每頁縮到同寬、各自保留長寬比、回傳真實 pageBreaks。
         // 之前學生端用的 mergeImagesVertically 是原始像素直接堆疊（不正規化、不回 pageBreaks），
         // 兩張拍攝解析度不同就會「一大一小」、server 拿不到頁界只能對半切 → 大張那頁下緣題被切掉。
+        // 作文稿紙一律橫式（user 09-22）：直式頁先順時針轉 90° 再合併（與老師端匯入同一條規則）
+        if (essayWidthOf(assignment)) filesToMerge = await uprightEssayPages(filesToMerge)
         const { blob: merged, pageBreaks } = await mergePageBlobs(filesToMerge)
         // compressToTargetBytes 是等比縮放、不改變 pageBreaks 比例。
         // 作文卷：保留作文解析度；學測卷目標 2.8MB（同老師端：超過會被同步縮到 2000px）

@@ -61,9 +61,13 @@ export interface CustomPageGrid {
   box: NormalizedBbox
   cols: number
   rows: number
-  /** 每行右側有窄欄（會考式）→ 字格佔行距 0.8；沒有＝1 */
+  /** 每行右側有窄欄（會考式）→ 字格佔行距 gutterRatio（沒量到＝0.8）；沒有＝1 */
   gutter: boolean
+  /** 有窄欄時字格寬／行距的實測比例（autoDetectSheetGrid 量的；會考 0.8、A4 500 字 0.69） */
+  gutterRatio?: number
 }
+/** 某頁生效的字格／行距比例 */
+export const gutterRatioOf = (g: Pick<CustomPageGrid, 'gutter' | 'gutterRatio'>): number => (g.gutter ? (g.gutterRatio && g.gutterRatio > 0 && g.gutterRatio < 1 ? g.gutterRatio : 0.8) : 1)
 /** 自備稿紙老師填的東西：只框第 1 頁時其餘頁沿用第 1 頁 */
 export interface CustomEssaySheetInput {
   pages: number
@@ -99,11 +103,11 @@ export function essayByoGeomForChoice(choice: EssaySheetChoice, scoring: 'cap' |
     return {
       source: 'byo', sheet: 'custom', ...(scoring === 'gsat' ? { format: 'gsat' as const } : {}),
       // 整份的 cols／rows／gutter＝第 1 頁；逐頁差異記在 template.grids（server essayPageSpec 逐頁讀）
-      pages, cols: first.cols, rows: first.rows, cellMm: 10, gutterMm: first.gutter ? 2.5 : 0,
+      pages, cols: first.cols, rows: first.rows, cellMm: 10, gutterMm: Math.round(10 * (1 / gutterRatioOf(first) - 1) * 10) / 10,
       items: items?.map((it) => ({ ...it, pages: Array.from({ length: pages }, (_, i) => i + 1) })),
       template: {
-        grids: c.grids.map((g) => ({ page: g.page, box: g.box, cols: g.cols, rows: g.rows, gutterRatio: g.gutter ? 0.8 : 1 })),
-        gutterRatio: first.gutter ? 0.8 : 1,
+        grids: c.grids.map((g) => ({ page: g.page, box: g.box, cols: g.cols, rows: g.rows, gutterRatio: gutterRatioOf(g) })),
+        gutterRatio: gutterRatioOf(first),
         importWidth: customImportWidth(c),
       },
     }

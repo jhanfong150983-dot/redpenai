@@ -7,8 +7,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Upload, Crop, RotateCw } from 'lucide-react'
 import PageBboxEditorModal, { type NormalizedBbox } from '@/components/PageBboxEditorModal'
 import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
-import { BUILTIN_ESSAY_SHEETS, type EssaySheetChoice, type CustomEssaySheetInput, type CustomPageGrid } from '@/lib/essayByoPreset'
+import { BUILTIN_ESSAY_SHEETS, gutterRatioOf, type EssaySheetChoice, type CustomEssaySheetInput, type CustomPageGrid } from '@/lib/essayByoPreset'
 import { analyzeSheetGrid, autoDetectSheetGrid, type SheetGridAnalysis } from '@/lib/essaySheetAnalyze'
+import { uprightEssayPages } from '@/lib/essayOrientation'
 
 export interface CustomSheetState extends CustomEssaySheetInput {
   /** 這次上傳的空白稿紙頁圖（存檔時上傳當疊合模板）；編輯既有卷沒重傳＝從 Storage 塞回 */
@@ -60,7 +61,7 @@ function linesFor(g: CustomPageGrid | null) {
   if (!g) return null
   const box = g.box
   const pitch = box.w / Math.max(1, g.cols)
-  const cellW = pitch * (g.gutter ? 0.8 : 1)
+  const cellW = pitch * gutterRatioOf(g)
   const cellH = box.h / Math.max(1, g.rows)
   const v: number[] = [], vCell: number[] = []
   for (let c = 0; c <= g.cols; c++) v.push(box.x + box.w - c * pitch)
@@ -103,9 +104,11 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
     try {
       // 疊合服務內部統一縮到寬 1200；這裡固定 1600（scale 4 再被 maxWidth 壓到 1600）——預設 scale 2 會讓 A4 直式只轉出 1280px、
       //   1px 細格線在自動找格區時漏掉（09-22 TEST 卷 6 行事故）；也給老師框格區看
-      const blobs = await convertPdfToImages(file, { scale: 4, maxWidth: 1600, minWidth: 1600, hardMinWidth: 1600, quality: 0.9 })
-      if (!blobs.length) throw new Error('PDF 沒有可用頁面')
-      if (blobs.length > 2) throw new Error('空白稿紙最多 2 頁（正反面），這份有 ' + blobs.length + ' 頁')
+      const raw = await convertPdfToImages(file, { scale: 4, maxWidth: 1600, minWidth: 1600, hardMinWidth: 1600, quality: 0.9 })
+      if (!raw.length) throw new Error('PDF 沒有可用頁面')
+      if (raw.length > 2) throw new Error('空白稿紙最多 2 頁（正反面），這份有 ' + raw.length + ' 頁')
+      // 作文稿紙一律橫式（user 09-22）：直式頁自動順時針轉 90°，不用老師按轉向
+      const blobs = await uprightEssayPages(raw)
       // 上傳後每頁自動找格區＋數線（user 09-22：不用老師框）；找不到的頁留給老師手動框
       const { grids, detected } = await detectPages(blobs)
       onCustom({ ...custom, blobs, pages: blobs.length, grids, detected })
@@ -123,7 +126,7 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
     for (let i = 0; i < blobs.length; i++) {
       let a = null
       try { a = await autoDetectSheetGrid(blobs[i]) } catch { a = null }
-      if (a && a.cols >= 3 && a.rows >= 3) { grids.push({ page: i + 1, box: a.box, cols: a.cols, rows: a.rows, gutter: a.gutter }); detected[i + 1] = { cols: a.cols, rows: a.rows, gutter: a.gutter, vLines: a.vLines, hLines: a.hLines } }
+      if (a && a.cols >= 3 && a.rows >= 3) { grids.push({ page: i + 1, box: a.box, cols: a.cols, rows: a.rows, gutter: a.gutter, gutterRatio: a.gutterRatio }); detected[i + 1] = { cols: a.cols, rows: a.rows, gutter: a.gutter, gutterRatio: a.gutterRatio, vLines: a.vLines, hLines: a.hLines } }
     }
     return { grids, detected }
   }
@@ -164,7 +167,7 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
         let d: SheetGridAnalysis | null = null
         try { d = await analyzeSheetGrid(custom.blobs[g.page - 1], g.box) } catch { d = null }
         if (!alive) return
-        const grids = next.grids.map((x) => (x.page === g.page && d && d.cols > 0 && d.rows > 0 ? { ...x, cols: d.cols, rows: d.rows, gutter: d.gutter } : x))
+        const grids = next.grids.map((x) => (x.page === g.page && d && d.cols > 0 && d.rows > 0 ? { ...x, cols: d.cols, rows: d.rows, gutter: d.gutter, gutterRatio: d.gutterRatio ?? x.gutterRatio } : x))
         next = { ...next, grids, detected: { ...(next.detected ?? {}), [g.page]: d } }
       }
       onCustom(next)
@@ -256,7 +259,7 @@ export default function EssaySheetSetup({ choice, onChoice, allowed, grade, cust
                         {pageMismatch ? '——與你填的不符，存檔會被擋下。' : '——已自動填入，紫線對不齊再自行調整。'}
                         {pageMismatch && (
                           <button type="button" className="ml-2 px-2 py-0.5 rounded border border-current text-[11px] font-medium hover:bg-white/60"
-                            onClick={() => setGrid(page, { cols: d.cols, rows: d.rows, gutter: d.gutter })}>改回偵測值</button>
+                            onClick={() => setGrid(page, { cols: d.cols, rows: d.rows, gutter: d.gutter, gutterRatio: d.gutterRatio })}>改回偵測值</button>
                         )}
                       </div>
                     )}

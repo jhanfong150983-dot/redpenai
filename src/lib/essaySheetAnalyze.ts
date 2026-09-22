@@ -8,6 +8,8 @@ export interface SheetGridAnalysis {
   cols: number
   rows: number
   gutter: boolean
+  /** 有窄欄時「字格寬／行距」的實測比例（會考 0.8；A4 500 字稿紙 0.69）；沒窄欄＝1 */
+  gutterRatio?: number
   /** 直線／橫線各數到幾條（含外框） */
   vLines: number
   hLines: number
@@ -159,5 +161,19 @@ export async function autoDetectSheetGrid(blob: Blob): Promise<AutoSheetGrid | n
   const rightCands = vRaw.filter((x) => x > vr[vr.length - 1] + 2 && x <= vr[vr.length - 1] + pv * 0.45)
   const right = gutter && rightCands.length ? Math.max(...rightCands) : vr[vr.length - 1]
   const cols = vr.length - 1, rows = hr.length - 1
-  return { box: { x: vr[0] / W, y: hr[0] / H, w: (right - vr[0]) / W, h: (hr[hr.length - 1] - hr[0]) / H }, cols, rows, gutter, vLines: vr.length, hLines: hr.length }
+  // 窄欄比例實測（09-22：A4 500 字稿紙轉橫後 45px 字格＋20px 窄欄＝0.69，不是會考的 0.8；寫死 0.8 會裁進窄欄、server 成對吸附也找錯位置）：
+  //   行距從右緣往左均分（與 linesFor／server essayTemplateCells 同一套），每個行距內第一條原始峰（在 0.4~0.95 行距處）＝字格右緣 → 中位數
+  let gutterRatio = 1
+  if (gutter) {
+    const pitch = (right - vr[0]) / cols
+    const rs: number[] = []
+    for (let c = 0; c < cols; c++) {
+      const L = right - (c + 1) * pitch
+      const p = vRaw.find((x) => x > L + pitch * 0.4 && x < L + pitch * 0.95)
+      if (p != null) rs.push((p - L) / pitch)
+    }
+    if (rs.length >= cols * 0.5) { rs.sort((a, b) => a - b); gutterRatio = Math.min(0.95, Math.max(0.6, Math.round(rs[rs.length >> 1] * 100) / 100)) }
+    else gutterRatio = 0.8
+  }
+  return { box: { x: vr[0] / W, y: hr[0] / H, w: (right - vr[0]) / W, h: (hr[hr.length - 1] - hr[0]) / H }, cols, rows, gutter, gutterRatio, vLines: vr.length, hLines: hr.length }
 }

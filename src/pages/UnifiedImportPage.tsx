@@ -35,6 +35,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { db, generateId, getCurrentTimestamp } from '@/lib/db'
 import type { Assignment, Student, Submission } from '@/lib/db'
 import { getSheetSource, isEssaySheetSource, isEssayMadeSheetSource, type SheetSource } from '@/lib/sheetSource'
+import { uprightEssayPages } from '@/lib/essayOrientation'
 import { requestSync, waitForSync } from '@/lib/sync-events'
 import { queueDeleteMany } from '@/lib/sync-delete-queue'
 import { blobToBase64, compressToTargetBytes, rotateImageBlob } from '@/lib/imageCompression'
@@ -101,6 +102,8 @@ async function saveStudentSubmission(
 ): Promise<void> {
   const essayMode = essayWidth > 0
   const gsatEssay = essayWidth > 2800
+  // 作文稿紙一律橫式（user 09-22）：直式頁（掃描沒轉正）先順時針轉 90° 再合併；server 以「一頁＝扁的」判頁數
+  if (essayMode) pageBlobs = await uprightEssayPages(pageBlobs)
   // Merge pages if needed
   const mergeResult =
     pageBlobs.length === 1

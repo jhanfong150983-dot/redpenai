@@ -24,5 +24,5 @@ const { autoDetectSheetGrid } = await import('../src/lib/essaySheetAnalyze')
 for (const f of process.argv.slice(2)) {
   const blob = new Blob([fs.readFileSync(f)])
   const r = await autoDetectSheetGrid(blob)
-  console.log(f.split(/[\\/]/).pop(), r ? `${r.box.x.toFixed(4)},${r.box.y.toFixed(4)},${r.box.w.toFixed(4)},${r.box.h.toFixed(4)} → ${r.cols}行×${r.rows}格 窄欄${r.gutter} (v${r.vLines} h${r.hLines})` : 'null')
+  console.log(f.split(/[\\/]/).pop(), r ? `${r.box.x.toFixed(4)},${r.box.y.toFixed(4)},${r.box.w.toFixed(4)},${r.box.h.toFixed(4)} → ${r.cols}行×${r.rows}格 窄欄${r.gutter}${r.gutter ? "(" + r.gutterRatio + ")" : ""} (v${r.vLines} h${r.hLines})` : 'null')
 }
