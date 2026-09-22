@@ -37,8 +37,8 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
   const [editorPage, setEditorPage] = useState(0)
   const [editorOpen, setEditorOpen] = useState(false)
   const gridOf = (p: number) => custom.grids.find((g) => g.page === p + 1)?.box ?? custom.grids.find((g) => g.page === 1)?.box ?? null
-  const previewUrl = useMemo(() => (custom.blobs[0] ? URL.createObjectURL(custom.blobs[0]) : null), [custom.blobs])
-  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }, [previewUrl])
+  const previewUrls = useMemo(() => custom.blobs.map((b) => URL.createObjectURL(b)), [custom.blobs])
+  useEffect(() => () => { previewUrls.forEach((u) => URL.revokeObjectURL(u)) }, [previewUrls])
 
   const onUpload = async (file: File | undefined) => {
     if (!file) return
@@ -59,8 +59,8 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
   const box = custom.grids[0]?.box ?? null
   const scoring = choice === 'gsat' || (choice === 'custom' && typeof grade === 'number' && grade >= 10) ? '學測 25 分制' : '會考 6 級分'
 
-  // 預覽切格：依框＋行列數畫線（與 server essayTemplateCells 同一套均分規則）
-  const gridLines = useMemo(() => {
+  // 預覽切格：依框＋行列數畫線（與 server essayTemplateCells 同一套均分規則）；每頁用自己的框（沒有＝第 1 頁的）
+  const linesFor = (box: { x: number; y: number; w: number; h: number } | null) => {
     if (!box) return null
     const pitch = box.w / Math.max(1, custom.cols)
     const cellW = pitch * (custom.gutter ? 0.8 : 1)
@@ -70,8 +70,8 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
     if (custom.gutter) for (let c = 0; c < custom.cols; c++) vCell.push(box.x + box.w - c * pitch - pitch + cellW)
     const h: number[] = []
     for (let r = 0; r <= custom.rows; r++) h.push(box.y + r * cellH)
-    return { v, vCell, h }
-  }, [box, custom.cols, custom.rows, custom.gutter])
+    return { v, vCell, h, box }
+  }
 
   return (
     <div className="mb-3 rounded border border-violet-200 bg-violet-50/60 px-3 py-2.5 text-[12px] text-violet-950 leading-relaxed">
@@ -124,17 +124,28 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
             </label>
           </div>
           {error && <div className="text-[11px] text-red-700">{error}</div>}
-          {previewUrl && (
-            <div className="relative inline-block max-w-full border border-violet-200 bg-white rounded overflow-hidden">
-              <img src={previewUrl} alt="空白稿紙第 1 頁" className="block max-h-72 w-auto" />
-              {gridLines && (
-                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1 1" preserveAspectRatio="none">
-                  {gridLines.v.map((x, i) => <line key={`v${i}`} x1={x} y1={box!.y} x2={x} y2={box!.y + box!.h} stroke="#7c3aed" strokeWidth={i === 0 || i === gridLines.v.length - 1 ? 0.004 : 0.0015} />)}
-                  {gridLines.vCell.map((x, i) => <line key={`vc${i}`} x1={x} y1={box!.y} x2={x} y2={box!.y + box!.h} stroke="#a78bfa" strokeWidth={0.001} strokeDasharray="0.01 0.01" />)}
-                  {gridLines.h.map((y, i) => <line key={`h${i}`} x1={box!.x} y1={y} x2={box!.x + box!.w} y2={y} stroke="#7c3aed" strokeWidth={i === 0 || i === gridLines.h.length - 1 ? 0.004 : 0.0015} />)}
-                </svg>
-              )}
-              {!box && <div className="absolute inset-x-0 bottom-0 bg-violet-900/70 text-white text-[11px] px-2 py-1">請按「框出整片格子」：用一個矩形把所有格子一次框起來——從最右上那一格的外緣拉到最左下那一格的外緣，不含旁邊的標題與說明文字</div>}
+          {previewUrls.length > 0 && (
+            <div className="flex flex-wrap gap-3">
+              {previewUrls.map((url, i) => {
+                const gl = linesFor(gridOf(i))
+                const own = custom.grids.some((g) => g.page === i + 1)
+                return (
+                  <div key={i} className="inline-block max-w-full">
+                    <div className="text-[11px] text-violet-800 mb-0.5">第 {i + 1} 頁{i > 0 ? (own ? '（已另外框）' : '（沿用第 1 頁的框）') : ''}</div>
+                    <div className="relative inline-block border border-violet-200 bg-white rounded overflow-hidden">
+                      <img src={url} alt={`空白稿紙第 ${i + 1} 頁`} className="block max-h-72 w-auto" />
+                      {gl && (
+                        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1 1" preserveAspectRatio="none">
+                          {gl.v.map((x, k) => <line key={`v${k}`} x1={x} y1={gl.box.y} x2={x} y2={gl.box.y + gl.box.h} stroke="#7c3aed" strokeWidth={k === 0 || k === gl.v.length - 1 ? 0.004 : 0.0015} />)}
+                          {gl.vCell.map((x, k) => <line key={`vc${k}`} x1={x} y1={gl.box.y} x2={x} y2={gl.box.y + gl.box.h} stroke="#a78bfa" strokeWidth={0.001} strokeDasharray="0.01 0.01" />)}
+                          {gl.h.map((y, k) => <line key={`h${k}`} x1={gl.box.x} y1={y} x2={gl.box.x + gl.box.w} y2={y} stroke="#7c3aed" strokeWidth={k === 0 || k === gl.h.length - 1 ? 0.004 : 0.0015} />)}
+                        </svg>
+                      )}
+                      {!gl && i === 0 && <div className="absolute inset-x-0 bottom-0 bg-violet-900/70 text-white text-[11px] px-2 py-1">請按「框出整片格子」：用一個矩形把所有格子一次框起來——從最右上那一格的外緣拉到最左下那一格的外緣，不含旁邊的標題與說明文字</div>}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
           {box && (
