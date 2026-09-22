@@ -358,6 +358,9 @@ export default function UnifiedImportPage({
   // ── PDF Import Preview（單一畫面：校稿 + 設定 + 預覽分配）─────────────
   const [showImportPreview, setShowImportPreview] = useState(false)
   const [importPreviewFiles, setImportPreviewFiles] = useState<PdfImportPreviewFile[]>([])
+  // 2026-09-22 作文卷「每位學生頁數」的起始值（user：老師不見得會掃兩頁，不要一開始就預設兩頁）：
+  //   PDF 總頁數＝學生數 → 1；＝學生數×2 → 2；其他維持稿紙頁數。老師在預覽畫面仍可改。null＝非作文、照舊。
+  const [importPreviewPagesHint, setImportPreviewPagesHint] = useState<number | null>(null)
 
   // ── Upload preview (per-page rotation before merge) ─────────────────────
   const [uploadPreviewStudent, setUploadPreviewStudent] = useState<Student | null>(null)
@@ -569,8 +572,10 @@ export default function UnifiedImportPage({
       // 老師端不跑 photoValidation、純壓縮即可
       let blob: Blob = file
       try {
+        // 作文卷：與 PDF 路徑同解析度（會考 2800／學測 3240），否則每格 <63px 格線抓不到、別字被改正
         blob = await compressToTargetBytes(file, 3_000_000, {
-          maxWidth: 2000,
+          maxWidth: essayWidth || 2000,
+          ...(essayWidth ? { minWidth: essayWidth > 2800 ? 2800 : 2300 } : {}),
           qualities: [0.92, 0.88, 0.85, 0.78],
         })
       } catch (err) {
@@ -578,7 +583,7 @@ export default function UnifiedImportPage({
       }
       handleCaptureComplete(blob)
     },
-    [handleCaptureComplete],
+    [handleCaptureComplete, essayWidth],
   )
 
   // ── Single file upload → open preview ───────────────────────────────────
@@ -757,6 +762,11 @@ export default function UnifiedImportPage({
           urls: blobs.map((b) => URL.createObjectURL(b)),
         })
       }
+      if (isEssay) {
+        const total = previewFiles.reduce((n, f) => n + f.blobs.length, 0)
+        const n = students.length
+        setImportPreviewPagesHint(n > 0 && total === n ? 1 : n > 0 && total === n * 2 ? 2 : null)
+      } else setImportPreviewPagesHint(null)
       setImportPreviewFiles(previewFiles)
       setShowImportPreview(true)
     } catch (e) {
@@ -766,7 +776,7 @@ export default function UnifiedImportPage({
       setIsBatchProcessing(false)
       setBatchProgress('')
     }
-  }, [essayPdfOpts])
+  }, [essayPdfOpts, isEssay, students.length])
 
   // 2026-08-29 座號辨識模式：轉圖後逐頁跑劃卡辨識（純 code），開確認畫面
   const convertPdfsAndRecognize = useCallback(async (fileArray: File[]) => {
@@ -1723,7 +1733,7 @@ export default function UnifiedImportPage({
             name: s.name,
           }))}
           singleStudentMode={!!singleImportStudent}
-          initialPagesPerStudent={pagesPerStudent}
+          initialPagesPerStudent={importPreviewPagesHint ?? pagesPerStudent}
           onConfirm={handleImportPreviewConfirm}
           onCancel={handleImportPreviewCancel}
           rotateBlob={rotateImageBlob}

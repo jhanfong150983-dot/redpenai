@@ -50,6 +50,12 @@ type PreviewModalState = { assignmentId: string; index: number } | null
 type Bbox = { x: number; y: number; w: number; h: number }
 type OpenCorrectionItem = NonNullable<StudentAssignmentItem['openCorrections']>[number]
 
+/** 作文卷每頁寬度（與老師端 UnifiedImportPage 同：會考 2800、學測 3240；非作文 0） */
+const essayWidthOf = (a: { essaySheet?: { format: 'cap' | 'gsat' } } | null | undefined): number =>
+  !a?.essaySheet ? 0 : a.essaySheet.format === 'gsat' ? 3240 : 2800
+const essayPdfOptsOf = (w: number) => (w ? { maxWidth: w, minWidth: w, hardMinWidth: w > 2800 ? 2800 : 2300, quality: 0.85 } : {})
+const essayCompressOptsOf = (w: number) => (w ? { maxWidth: w, minWidth: w > 2800 ? 2800 : 2300 } : { maxWidth: 2000 })
+
 const STUDENT_SUBMIT_TIMEOUT_MS = 300_000 // 5 分鐘（同步批改需要等 AI 回應）
 // 2026-05-26 native camera 上線、原始畫質 4K+、訂正小圖也能保留更多細節、target/maxWidth 上修
 // 4K → maxWidth 1500 仍是 downsample (3000+→1500)、JPEG artifacts 比 1200 顯著改善
@@ -75,6 +81,8 @@ type StudentAssignmentItem = {
   classroomKey?: string
   title: string
   totalPages: number
+  /** 作文卷的稿紙代別（server student-overview 帶）：有值＝作文卷，轉圖要用作文解析度 */
+  essaySheet?: { format: 'cap' | 'gsat' }
   status: string
   canUpload: boolean
   uploadLocked?: boolean
@@ -1171,14 +1179,15 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
     if (getFileType(file) !== 'pdf') { setError(PDF_ONLY_MSG); resetCamera(); return }
     let pages: Blob[] = []
     try {
-      pages = await convertPdfToImages(file, { scale: 1.5, quality: 0.85 })
+      // 作文卷：與老師端同解析度（每格 <63px 格線抓不到、別字被改正）
+      pages = await convertPdfToImages(file, { scale: 1.5, quality: 0.85, ...essayPdfOptsOf(essayWidthOf(currentCameraAssignment)) })
     } catch (err) {
       console.warn('[StudentPortal] PDF 轉圖失敗:', err)
     }
     if (pages.length === 0) { setError('PDF 沒有可用頁面，請重新掃描'); resetCamera(); return }
     // 壓到 ≤3MB / ≤2000px（Vercel /api/proxy 4.5MB body limit）
     const compress = (b: Blob) =>
-      compressToTargetBytes(b, 3_000_000, { maxWidth: 2000, qualities: [0.92, 0.88, 0.85, 0.78] }).catch(() => b)
+      compressToTargetBytes(b, 3_000_000, { ...essayCompressOptsOf(essayWidthOf(currentCameraAssignment)), qualities: [0.92, 0.88, 0.85, 0.78] }).catch(() => b)
     // 逐題訂正／單頁重傳：只取第 1 頁，走原本單張流程
     if ((cameraMode === 'correction' && correctionCameraQuestionId) || retakePageIdx !== null) {
       handleCameraCaptureComplete(await compress(pages[0]))
@@ -1442,7 +1451,9 @@ export default function StudentPortal({ onCaptureModeChange }: StudentPortalProp
         // 兩張拍攝解析度不同就會「一大一小」、server 拿不到頁界只能對半切 → 大張那頁下緣題被切掉。
         const { blob: merged, pageBreaks } = await mergePageBlobs(filesToMerge)
         // compressToTargetBytes 是等比縮放、不改變 pageBreaks 比例。
-        const compressed = await compressToTargetBytes(merged, 3_000_000, { maxWidth: 2000 })
+        // 作文卷：保留作文解析度；學測卷目標 2.8MB（同老師端：超過會被同步縮到 2000px）
+        const essayW = essayWidthOf(assignment)
+        const compressed = await compressToTargetBytes(merged, essayW > 2800 ? Math.round(2.8 * 1024 * 1024) : 3_000_000, essayCompressOptsOf(essayW))
         imageDataUrl = await blobToBase64(compressed)
         imageContentType = compressed.type || 'image/webp'
         mergedPageBreaks = pageBreaks

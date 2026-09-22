@@ -2392,7 +2392,7 @@ export default function AnswerKeyUnifiedModal({
                           {isEssayByo && (
                             <div className="mb-3 text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 leading-relaxed">
                               稿紙版型：<b>{essayByoPreset.label}</b>（{essayByoPreset.hint}）——不必上傳空白稿紙。
-                              批改時系統會直接在學生卷上找出印刷格線；每位學生請收滿 {essayByo.pages} 頁，掃描時整張掃進去、不要裁到格線。
+                              批改時系統會直接在學生卷上找出印刷格線；正反兩面都掃進來（只寫一面的話只掃那一面也可以），整張掃進去、不要裁到格線；彩色或黑白掃描都可以。
                             </div>
                           )}
                           {isEssayGsatMade && (
