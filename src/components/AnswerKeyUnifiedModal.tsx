@@ -30,7 +30,7 @@ import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
 import { BUILTIN_ESSAY_SHEETS, defaultEssaySheetChoice, essayByoGeomForChoice, essayScoringFor, essaySheetChoiceOf, type EssaySheetChoice } from '@/lib/essayByoPreset'
-import EssaySheetSetup, { type CustomSheetState } from '@/components/EssaySheetSetup'
+import EssaySheetSetup, { customSheetMismatch, type CustomSheetState } from '@/components/EssaySheetSetup'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric, EssayByoGeom } from '@/lib/db'
 import LevelRubricEditor from '@/components/LevelRubricEditor'
 import PageBboxEditorModal from '@/components/PageBboxEditorModal'
@@ -1660,6 +1660,9 @@ export default function AnswerKeyUnifiedModal({
           await alertModal('自備稿紙還沒設定好：請上傳空白稿紙、框出格區，並填行數與每行格數。')
           return
         }
+        // 防火牆（user 09-22：預覽太小看不清 → 系統自己數）：空白稿紙上數到的行列數與老師填的不符就擋
+        const mm = customSheetMismatch(customSheet)
+        if (mm) { await alertModal(`稿紙設定可能填錯：${mm}。請按「套用偵測值」，或重新框整片格子後再核對。`); return }
         essayTemplateBlobs = customSheet.blobs
       } else if (!(savedByo && savedByo.sheet === essaySheetChoice && savedByo.template)) {
         // 內建公版：把空白公版 PDF 轉圖當疊合模板上傳（編輯既有卷且稿紙沒換＝沿用 storage 既有頁圖）

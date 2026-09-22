@@ -7,10 +7,21 @@ import { Upload, Crop } from 'lucide-react'
 import PageBboxEditorModal from '@/components/PageBboxEditorModal'
 import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { BUILTIN_ESSAY_SHEETS, type EssaySheetChoice, type CustomEssaySheetInput } from '@/lib/essayByoPreset'
+import { analyzeSheetGrid, type SheetGridAnalysis } from '@/lib/essaySheetAnalyze'
 
 export interface CustomSheetState extends CustomEssaySheetInput {
   /** 這次上傳的空白稿紙頁圖（存檔時上傳當疊合模板）；編輯既有卷沒重傳＝空 */
   blobs: Blob[]
+  /** 系統在空白稿紙上數到的行列數（存檔防火牆用）；null＝數不出來、undefined＝還沒數 */
+  detected?: SheetGridAnalysis | null
+}
+
+/** 老師填的與系統數到的差 >1 ＝ 不符（存檔要擋） */
+export function customSheetMismatch(c: CustomSheetState): string | null {
+  const d = c.detected
+  if (!d) return null
+  const bad = Math.abs(d.cols - c.cols) > 1 || Math.abs(d.rows - c.rows) > 1
+  return bad ? `系統在空白稿紙上數到 ${d.cols} 行、每行 ${d.rows} 格${d.gutter ? '、有窄欄' : ''}，但你填的是 ${c.cols} 行、每行 ${c.rows} 格${c.gutter ? '、有窄欄' : ''}` : null
 }
 
 interface Props {
@@ -57,6 +68,17 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
   }
 
   const box = custom.grids[0]?.box ?? null
+  const [zoom, setZoom] = useState<number | null>(null)
+  // 框好或換圖後，自動在空白稿紙上數線（存檔防火牆＋一鍵套用）
+  useEffect(() => {
+    const blob = custom.blobs[0]
+    if (!blob || !box) { if (custom.detected !== undefined) onCustom({ ...custom, detected: undefined }); return }
+    let alive = true
+    analyzeSheetGrid(blob, box).then((d) => { if (alive) onCustom({ ...custom, detected: d }) }).catch(() => { if (alive) onCustom({ ...custom, detected: null }) })
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [custom.blobs, box])
+  const mismatch = customSheetMismatch(custom)
   const scoring = choice === 'gsat' || (choice === 'custom' && typeof grade === 'number' && grade >= 10) ? '學測 25 分制' : '會考 6 級分'
 
   // 預覽切格：依框＋行列數畫線（與 server essayTemplateCells 同一套均分規則）；每頁用自己的框（沒有＝第 1 頁的）
@@ -124,6 +146,17 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
             </label>
           </div>
           {error && <div className="text-[11px] text-red-700">{error}</div>}
+          {box && custom.detected && (
+            <div className={`text-[11px] rounded px-2 py-1 border ${mismatch ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+              系統在空白稿紙上數到 <b>{custom.detected.cols} 行、每行 {custom.detected.rows} 格{custom.detected.gutter ? '、有窄欄' : '、無窄欄'}</b>
+              {mismatch ? '——與你填的不符，存檔會被擋下。' : '——與你填的一致。'}
+              {(mismatch || custom.gutter !== custom.detected.gutter) && (
+                <button type="button" className="ml-2 px-2 py-0.5 rounded border border-current text-[11px] font-medium hover:bg-white/60"
+                  onClick={() => onCustom({ ...custom, cols: custom.detected!.cols, rows: custom.detected!.rows, gutter: custom.detected!.gutter })}>套用偵測值</button>
+              )}
+            </div>
+          )}
+          {box && custom.detected === null && <div className="text-[11px] text-amber-700">系統數不出這張稿紙的格線（太淡或框到格區外）——請確認框住整片格子，並自行核對行數／格數。</div>}
           {previewUrls.length > 0 && (
             <div className="flex flex-wrap gap-3">
               {previewUrls.map((url, i) => {
@@ -133,7 +166,7 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
                   <div key={i} className="inline-block max-w-full">
                     <div className="text-[11px] text-violet-800 mb-0.5">第 {i + 1} 頁{i > 0 ? (own ? '（已另外框）' : '（沿用第 1 頁的框）') : ''}</div>
                     <div className="relative inline-block border border-violet-200 bg-white rounded overflow-hidden">
-                      <img src={url} alt={`空白稿紙第 ${i + 1} 頁`} className="block max-h-72 w-auto" />
+                      <img src={url} alt={`空白稿紙第 ${i + 1} 頁`} className="block max-h-[28rem] w-auto cursor-zoom-in" onClick={() => setZoom(i)} title="點擊放大" />
                       {gl && (
                         <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1 1" preserveAspectRatio="none">
                           {gl.v.map((x, k) => <line key={`v${k}`} x1={x} y1={gl.box.y} x2={x} y2={gl.box.y + gl.box.h} stroke="#7c3aed" strokeWidth={k === 0 || k === gl.v.length - 1 ? 0.004 : 0.0015} />)}
@@ -153,6 +186,20 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
               預覽的紫線要壓在稿紙的每一條印刷格線上才算對（只有一條或對不齊＝框錯或行數、格數填錯）；不對就重框，或調整行數／格數／窄欄。第 2 頁{custom.grids.some((g) => g.page === 2) ? '已另外框' : '沿用第 1 頁的框（背面格子位置不同時請按「另外框第 2 頁」）'}。
             </div>
           )}
+        </div>
+      )}
+      {zoom != null && previewUrls[zoom] && (
+        <div className="fixed inset-0 z-[130] bg-black/70 flex items-center justify-center p-4 cursor-zoom-out" onClick={() => setZoom(null)}>
+          <div className="relative max-w-full max-h-full">
+            <img src={previewUrls[zoom]} alt="" className="block max-w-[96vw] max-h-[92vh] w-auto h-auto bg-white" />
+            {(() => { const gl = linesFor(gridOf(zoom)); return gl ? (
+              <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1 1" preserveAspectRatio="none">
+                {gl.v.map((x, k) => <line key={`v${k}`} x1={x} y1={gl.box.y} x2={x} y2={gl.box.y + gl.box.h} stroke="#7c3aed" strokeWidth={k === 0 || k === gl.v.length - 1 ? 0.003 : 0.0012} />)}
+                {gl.vCell.map((x, k) => <line key={`vc${k}`} x1={x} y1={gl.box.y} x2={x} y2={gl.box.y + gl.box.h} stroke="#a78bfa" strokeWidth={0.0008} strokeDasharray="0.01 0.01" />)}
+                {gl.h.map((y, k) => <line key={`h${k}`} x1={gl.box.x} y1={y} x2={gl.box.x + gl.box.w} y2={y} stroke="#7c3aed" strokeWidth={k === 0 || k === gl.h.length - 1 ? 0.003 : 0.0012} />)}
+              </svg>) : null })()}
+            <div className="absolute top-2 right-2 text-white text-xs bg-black/60 rounded px-2 py-1">第 {zoom + 1} 頁・點任意處關閉</div>
+          </div>
         </div>
       )}
       {editorOpen && custom.blobs.length > 0 && (
