@@ -592,7 +592,9 @@ export default function UnifiedImportPage({
       try {
         let blobs: Blob[]
         if (fileType === 'pdf') {
-          blobs = await convertPdfToImages(file)
+          // ⛔ 2026-09-22 這條路（學生卡片 → 上傳 PDF）漏套作文解析度：學測卷只轉出 1900px＝45px/格，
+          //   server 格線偵測直接失敗（user 第一份學測卷就是這樣掛的）。與批次匯入同一組選項。
+          blobs = await convertPdfToImages(file, essayPdfOpts)
         } else {
           blobs = [file]
         }
@@ -612,7 +614,7 @@ export default function UnifiedImportPage({
         setError(err instanceof Error ? err.message : '上傳失敗')
       }
     },
-    [],
+    [essayPdfOpts],
   )
 
   const handleUploadPreviewRotate = useCallback((pageIndex: number) => {
