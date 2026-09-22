@@ -74,7 +74,8 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
     const blob = custom.blobs[0]
     if (!blob || !box) { if (custom.detected !== undefined) onCustom({ ...custom, detected: undefined }); return }
     let alive = true
-    analyzeSheetGrid(blob, box).then((d) => { if (alive) onCustom({ ...custom, detected: d }) }).catch(() => { if (alive) onCustom({ ...custom, detected: null }) })
+    // 數到就直接填進行數／格數／窄欄（user 09-22：不要叫老師按套用）；老師之後改動才會出現「不符」
+    analyzeSheetGrid(blob, box).then((d) => { if (!alive) return; onCustom(d && d.cols > 0 && d.rows > 0 ? { ...custom, detected: d, cols: d.cols, rows: d.rows, gutter: d.gutter } : { ...custom, detected: d }) }).catch(() => { if (alive) onCustom({ ...custom, detected: null }) })
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [custom.blobs, box])
@@ -149,10 +150,10 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
           {box && custom.detected && (
             <div className={`text-[11px] rounded px-2 py-1 border ${mismatch ? 'bg-red-50 border-red-200 text-red-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
               系統在空白稿紙上數到 <b>{custom.detected.cols} 行、每行 {custom.detected.rows} 格{custom.detected.gutter ? '、有窄欄' : '、無窄欄'}</b>
-              {mismatch ? '——與你填的不符，存檔會被擋下。' : '——與你填的一致。'}
-              {(mismatch || custom.gutter !== custom.detected.gutter) && (
+              {mismatch ? '——與你填的不符，存檔會被擋下。' : '——已自動填入，紫線對不齊再自行調整。'}
+              {mismatch && (
                 <button type="button" className="ml-2 px-2 py-0.5 rounded border border-current text-[11px] font-medium hover:bg-white/60"
-                  onClick={() => onCustom({ ...custom, cols: custom.detected!.cols, rows: custom.detected!.rows, gutter: custom.detected!.gutter })}>套用偵測值</button>
+                  onClick={() => onCustom({ ...custom, cols: custom.detected!.cols, rows: custom.detected!.rows, gutter: custom.detected!.gutter })}>改回偵測值</button>
               )}
             </div>
           )}
