@@ -2,7 +2,7 @@
 //   自備稿紙要上傳空白稿紙）。自備：上傳空白稿紙 PDF → 在第 1 頁框格區 → 填行數×每行格數（＋有沒有窄欄）→ 預覽切格。
 //   批改時 server 把老師的空白稿紙與學生卷疊合、再把格子投過去（顏色無關、黑白也可），所以：
 //   ⛔ 上傳的空白稿紙必須和學生寫的那張**一模一樣**（同一個檔印的），否則疊不上。
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Upload, Crop } from 'lucide-react'
 import PageBboxEditorModal from '@/components/PageBboxEditorModal'
 import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
@@ -69,13 +69,15 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
 
   const box = custom.grids[0]?.box ?? null
   const [zoom, setZoom] = useState<number | null>(null)
+  // 老師這一次操作剛框好（不是編輯既有卷載入的）→ 偵測完直接彈全幅檢視讓他核對紫線
+  const justFramed = useRef(false)
   // 框好或換圖後，自動在空白稿紙上數線（存檔防火牆＋一鍵套用）
   useEffect(() => {
     const blob = custom.blobs[0]
     if (!blob || !box) { if (custom.detected !== undefined) onCustom({ ...custom, detected: undefined }); return }
     let alive = true
     // 數到就直接填進行數／格數／窄欄（user 09-22：不要叫老師按套用）；老師之後改動才會出現「不符」
-    analyzeSheetGrid(blob, box).then((d) => { if (!alive) return; onCustom(d && d.cols > 0 && d.rows > 0 ? { ...custom, detected: d, cols: d.cols, rows: d.rows, gutter: d.gutter } : { ...custom, detected: d }) }).catch(() => { if (alive) onCustom({ ...custom, detected: null }) })
+    analyzeSheetGrid(blob, box).then((d) => { if (!alive) return; onCustom(d && d.cols > 0 && d.rows > 0 ? { ...custom, detected: d, cols: d.cols, rows: d.rows, gutter: d.gutter } : { ...custom, detected: d }); if (justFramed.current) { justFramed.current = false; setZoom(0) } }).catch(() => { if (alive) onCustom({ ...custom, detected: null }) })
     return () => { alive = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [custom.blobs, box])
@@ -200,6 +202,9 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
                 {gl.h.map((y, k) => <line key={`h${k}`} x1={gl.box.x} y1={y} x2={gl.box.x + gl.box.w} y2={y} stroke="#7c3aed" strokeWidth={k === 0 || k === gl.h.length - 1 ? 0.003 : 0.0012} />)}
               </svg>) : null })()}
             <div className="absolute top-2 right-2 text-white text-xs bg-black/60 rounded px-2 py-1">第 {zoom + 1} 頁・點任意處關閉</div>
+            <div className="absolute bottom-2 inset-x-2 text-center text-white text-sm bg-violet-900/85 rounded px-3 py-2">
+              請確認<b>紫線壓在每一條格線上</b>{custom.detected ? `（系統數到 ${custom.detected.cols} 行、每行 ${custom.detected.rows} 格${custom.detected.gutter ? '、有窄欄' : ''}）` : ''}；不對就關閉後重新框整片格子。
+            </div>
           </div>
         </div>
       )}
@@ -213,6 +218,7 @@ export default function EssaySheetSetup({ choice, onChoice, grade, custom, onCus
           onConfirm={(b, pageIndex) => {
             // 只更新被框的那一頁；沒框的頁沿用第 1 頁（server essayTemplateCells 找不到該頁就用 grids[0]）
             const page = pageIndex + 1
+            justFramed.current = page === 1
             const others = custom.grids.filter((g) => g.page !== page)
             const grids = [...others, { page, box: b }].sort((x, y) => x.page - y.page)
             onCustom({ ...custom, grids: page === 1 && !others.length ? [{ page: 1, box: b }] : grids })
