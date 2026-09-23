@@ -2527,7 +2527,7 @@ export default function AnswerKeyUnifiedModal({
                             <div className="mb-3 rounded border border-sky-200 bg-sky-50 px-2 py-2 text-[11px] text-sky-900 leading-relaxed">
                               <div className="font-semibold mb-1">這張卷考什麼？</div>
                               <div className="flex flex-wrap gap-1.5">
-                                {(['affective', 'expository', 'both'] as GsatItemsChoice[]).map((k) => (
+                                {(['expository', 'affective', 'both'] as GsatItemsChoice[]).map((k) => (
                                   <button key={k} type="button" onClick={() => setGsatChoice(k)}
                                     className={`px-2 py-1 rounded border ${gsatChoice === k ? 'bg-white border-sky-500 text-sky-900 font-semibold shadow-sm' : 'bg-white/60 border-sky-200 text-sky-700 hover:border-sky-400'}`}>
                                     {GSAT_CHOICE_LABEL[k]}
