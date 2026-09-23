@@ -581,17 +581,23 @@ async function buildOverlayClassPdf(
       const bmp = await getSubmissionBitmap(sub)
       if (!bmp) throw new Error('無原卷影像')
       // 2026-09-19 作文卷：整卷一題、沒有逐題 bbox；改走專用渲染（原卷疊紅筆＋另一頁批改建議）
-      const essay = (details.find((d) => (d as { essayResult?: unknown }).essayResult) as { essayResult?: import('@/lib/db').EssayResult } | undefined)?.essayResult
-      if (essay) {
+      // 2026-09-23 學測兩題皆考：一份卷兩筆 essayResult（正面知性題、背面情意題）→ 各出一組頁
+      const essayDetails = details.filter((d) => (d as { essayResult?: unknown }).essayResult) as Array<{ questionId?: string; essayResult: import('@/lib/db').EssayResult }>
+      if (essayDetails.length) {
         const { buildEssayReviewPages } = await import('@/lib/essayReviewSheet')
-        const pages = await buildEssayReviewPages(bmp, sub.pageBreaks, essay, {
-          title: assignment.title,
-          who: `${stu.seatNumber}號 ${stu.name ?? ''}`,
-          level: essay.level.final ?? essay.level.suggested,
-          maxLevel: essay.level.maxScore ?? 6,
-          scale: essayScaleOf(essay),
-          summary: essay.feedback?.summary ?? '',
-        })
+        const pages: Blob[] = []
+        for (const d of essayDetails) {
+          const essay = d.essayResult
+          const which = essayDetails.length > 1 ? `第${d.questionId ?? ''}題 ` : ''
+          pages.push(...await buildEssayReviewPages(bmp, sub.pageBreaks, essay, {
+            title: assignment.title,
+            who: `${which}${stu.seatNumber}號 ${stu.name ?? ''}`,
+            level: essay.level.final ?? essay.level.suggested,
+            maxLevel: essay.level.maxScore ?? 6,
+            scale: essayScaleOf(essay),
+            summary: essay.feedback?.summary ?? '',
+          }))
+        }
         for (const blob of pages) {
           const img = await pdf.embedJpg(await blob.arrayBuffer())
           // ⭐ 2026-09-20 user 指正：作文稿紙是**橫式**（會考 B4 橫式、直書），

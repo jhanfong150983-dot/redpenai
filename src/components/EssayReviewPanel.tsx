@@ -75,6 +75,38 @@ export default function EssayReviewPanel({ value, onChange, readOnly = false }: 
         <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800">{value.gate}</div>
       )}
 
+      {/* ── 學測知性題：(一)(二) 各自的等第與分數（2026-09-23）── */}
+      {value.sub && (
+        <section className="rounded border border-sky-200 bg-sky-50/40 p-2 space-y-1.5">
+          <div className="font-semibold text-sky-900">知性題兩小題</div>
+          {value.sub.split.how !== 'marker' && (
+            <div className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+              {value.sub.split.how === 'blankGap'
+                ? `學生沒有標「(二)」，系統依前面的空行把第 ${value.sub.split.rows1 + 1} 行起當成 (二)，請看一下原卷確認切對了。`
+                : '學生沒有標「(二)」，也找不到分界：整篇當 (一) 作答、(二) 給 0 分。學生若有寫但沒標，請在分數欄手動改分。'}
+            </div>
+          )}
+          {([['(一)', value.sub.q1], ['(二)', value.sub.q2]] as const).map(([label, q]) => (
+            <div key={label} className="flex items-start gap-2">
+              <span className="shrink-0 w-10 font-medium text-sky-900">{label}</span>
+              <div className="flex-1 leading-snug">
+                <div>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-sky-200 text-sky-900 mr-1">
+                    {q.grade ?? '—'}・{q.score ?? '—'}／{q.maxScore} 分
+                  </span>
+                  {q.dimensions.length > 0 && (
+                    <span className="text-[10px] text-gray-500">
+                      {q.dimensions.map((d) => `${d.name}：${d.comment}`).join('｜')}
+                    </span>
+                  )}
+                </div>
+                <div className="text-gray-700 whitespace-pre-line">{q.reason}</div>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
       {/* ⛔ 舊的「請確認這幾行的抄本」已移除（2026-09-20 user 拍板）。
           理由：①改抄本不會重跑眉批／級分 ②學生檢討單印原卷筆跡 ③實測 10 份卷每份都有低信心行、
           提示 100% 亮起等於雜訊。真正要老師確認的是「疑似錯別字」，走頂欄的低信心 modal。

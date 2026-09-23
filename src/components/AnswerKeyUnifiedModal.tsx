@@ -30,6 +30,8 @@ import { shouldAutoFocusOnDesktop } from '@/hooks/useAutoFocusOnDesktop'
 import { convertPdfToImages, getFileType, PDF_ONLY_MSG } from '@/lib/pdfToImage'
 import { compressImageFile, MAX_UPLOAD_IMAGES } from '@/lib/imageCompression'
 import { BUILTIN_ESSAY_SHEETS, defaultEssaySheetChoice, essayByoGeomForChoice, essayScoringFor, essaySheetChoiceOf, type EssaySheetChoice } from '@/lib/essayByoPreset'
+import { buildGsatItems, defaultGsatSub, gsatItemsChoiceOf, gsatQuestionsFor, gsatSubOf, normalizeGsatSub, GSAT_CHOICE_LABEL, type GsatItemsChoice, type GsatExpositorySub } from '@/lib/essayGsatItems'
+import { draftEssayGsatRubric } from '@/lib/gemini'
 import EssaySheetSetup, { customSheetMismatch, type CustomSheetState } from '@/components/EssaySheetSetup'
 import type { AnswerKey, AnswerKeyQuestion, QuestionCategory, Rubric, LevelRubric, EssayByoGeom } from '@/lib/db'
 import LevelRubricEditor from '@/components/LevelRubricEditor'
@@ -165,7 +167,7 @@ function clearMetadataDraft() {
   } catch { /* noop */ }
 }
 
-type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet' | 'essaySheet'
+type UnifiedStep = 'metadata' | 'booklet' | 'extract' | 'editing' | 'sheet' | 'essaySheet' | 'essayRubric'
 
 // 2026-09-19 作文模式（第四張卡）：預設開放（user 拍板：系統測試中、不需要預覽旗標）。
 //   批改管線已接（09-19）：Phase A 裁行→數格子→逐行抄寫→眉批＋級分，Phase B 零 AI 組結果。
@@ -193,7 +195,7 @@ const GENERATED_SHEET_STEP_ENABLED = (() => {
 //   generated（系統製作作答卷）＝5 步；
 //   teacher_scan（自備作答卷）＝3 步：②題本＋作答卷同頁一起上傳→一次 AI 解析→③人工檢核（舊 answer_only 流程重新命名）；
 //   with_questions（一般模式）＝舊 3 步（無題本/製作作答卷，classify 照舊）。
-const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; shortLabel: string }[] => isEssaySheetSource(source)
+const stepConfigFor = (source: SheetSource, opts?: { rubricStep?: boolean }): { key: UnifiedStep; label: string; shortLabel: string }[] => isEssaySheetSource(source)
   ? [
       { key: 'metadata', label: '基本資料', shortLabel: '①' },
       // 2026-09-19 實驗4 定案：批改時直接把老師上傳的題本圖送給 AI（不經 AI 轉述文字）→ 沒有 AI 起草、沒有要審的草稿；
@@ -202,6 +204,8 @@ const stepConfigFor = (source: SheetSource): { key: UnifiedStep; label: string; 
       // 2026-09-22 user 拍板：自備作文稿紙多一步「稿紙」（選會考／學測／自備；自備才上傳空白稿紙框格區），按「儲存」才存檔。
       //   系統製作的作文稿紙沒有這一步（稿紙由系統產生）。
       ...(isEssayByoSheetSource(source) ? [{ key: 'essaySheet' as UnifiedStep, label: '稿紙', shortLabel: '③' }] : []),
+      // 2026-09-23 學測知性題／兩題皆考：多一步「知性題規準」（AI 從題本起草 (一) 參考要點／(二) 寫作要求／配分，老師可改），按「儲存」才存檔
+      ...(opts?.rubricStep ? [{ key: 'essayRubric' as UnifiedStep, label: '知性題規準', shortLabel: isEssayByoSheetSource(source) ? '④' : '③' }] : []),
     ]
   : source === 'generated'
   ? [
@@ -362,7 +366,10 @@ export default function AnswerKeyUnifiedModal({
   //   一般模式／自備作答卷即使旗標開也走 3 步：一般模式無題本、答案卷＝老師寫好答案的考卷本身；
   //   自備作答卷＝題本＋作答卷同頁一起上傳、一次解析。兩者批改 classify 照舊（一班算一次）。
   const genFlow = GENERATED_SHEET_STEP_ENABLED && sheetSource === 'generated'
-  const STEP_CONFIG = useMemo(() => stepConfigFor(genFlow ? 'generated' : sheetSource === 'generated' ? 'teacher_scan' : sheetSource), [genFlow, sheetSource])
+  // 學測「這張卷考什麼」（2026-09-23 user 拍板）：情意題／知性題／兩題皆考。只有學測卷的選擇器會改它，會考卷永遠是 affective。
+  //   編輯既有卷以存檔的 items 為準。
+  const [gsatChoice, setGsatChoice] = useState<GsatItemsChoice>(() => gsatItemsChoiceOf((initialGeneratedSheet as { essay?: EssayByoGeom } | undefined)?.essay?.items))
+  const STEP_CONFIG = useMemo(() => stepConfigFor(genFlow ? 'generated' : sheetSource === 'generated' ? 'teacher_scan' : sheetSource, { rubricStep: gsatChoice !== 'affective' }), [genFlow, sheetSource, gsatChoice])
   // 2026-09-13 user 拍板：降本後會考級分模式一律開（數學應用題逐要素看過程），老師不再選。
   //   開關 UI 已移除；舊卷若曾存 false，編輯存檔後即轉開（缺規準的題會提示重新解析）。
   const levelRubricEnabled = true
@@ -467,9 +474,19 @@ export default function AnswerKeyUnifiedModal({
   }, [grade, savedByo])
   useEffect(() => { if (!editMode && !essaySheetChoices.includes(essaySheetChoice)) setEssaySheetChoiceRaw(essaySheetChoices[0]) }, [essaySheetChoices, essaySheetChoice, editMode])
   const essayScoring = essayScoringFor(essaySheetChoice, grade)
-  const essayByo = useMemo<EssayByoGeom>(() => essayByoGeomForChoice(essaySheetChoice, essayScoring, customSheet), [essaySheetChoice, essayScoring, customSheet])
+  // 學測知性題規準（2026-09-23）：(一) 參考要點＋配分、(二) 寫作要求＋配分；編輯既有卷以存檔為準、否則進規準那一步時 AI 起草
+  const [gsatSub, setGsatSub] = useState<GsatExpositorySub>(() => gsatSubOf(savedEssayGeom?.items) ?? defaultGsatSub())
+  const [gsatDrafting, setGsatDrafting] = useState(false)
+  const gsatDrafted = useRef(!!gsatSubOf(savedEssayGeom?.items))
+  const essayByo = useMemo<EssayByoGeom>(
+    () => essayByoGeomForChoice(essaySheetChoice, essayScoring, customSheet, essayScoring === 'gsat' ? buildGsatItems(gsatChoice, essaySheetChoice === 'custom' ? Math.max(1, customSheet.pages) : 2, gsatSub) : undefined),
+    [essaySheetChoice, essayScoring, customSheet, gsatChoice, gsatSub],
+  )
   // 學測評分（25 分制）：自備稿紙＝依稿紙選擇（自備稿紙依年級）；系統製作＝學測格式那張卡
   const isEssayGsat = isEssayByo ? essayScoring === 'gsat' : isEssayGsatMade
+  // 學測知性題／兩題皆考 → 多一步「知性題規準」；不是學測卷（例如年級改回國中）→ 選項退回情意題
+  const needsRubricStep = isEssayGsat && gsatChoice !== 'affective'
+  useEffect(() => { if (!isEssayGsat && gsatChoice !== 'affective') setGsatChoice('affective') }, [isEssayGsat, gsatChoice])
   // 2026-09-06 高中數學選修分軌（僅 domain='數學' 且 grade≥11 顯示/有意義）
   const [mathTrack, setMathTrack] = useState<'A' | 'B' | ''>(initialMathTrack ?? draft?.mathTrack ?? '')
   const [subjectLabel, setSubjectLabel] = useState(() => {
@@ -592,6 +609,30 @@ export default function AnswerKeyUnifiedModal({
   const [bookletFileError, setBookletFileError] = useState<string | null>(null)
   const [bookletPages, setBookletPages] = useState<Array<{ index: number; url: string; blob: Blob }>>([])
   const [bookletPageItems, setBookletPageItems] = useState<PageItem[]>([])
+  // 學測知性題規準起草（2026-09-23）：進到規準那一步、還沒起草過 → AI 從題本圖（依排序、套旋轉）起草一次；老師可改、可重新起草
+  const runGsatDraft = useCallback(async () => {
+    if (gsatDrafting) return
+    setGsatDrafting(true)
+    try {
+      const ordered = bookletPageItems
+        .map((item) => { const orig = bookletPages.find((p) => p.index === item.originalIndex); return orig ? { blob: orig.blob, rotation: item.rotation } : null })
+        .filter((x): x is { blob: Blob; rotation: number } => !!x)
+      const { rotateImageBlob } = await import('../lib/imageCompression')
+      const blobs = await Promise.all(ordered.map(async ({ blob, rotation }) => (rotation !== 0 ? await rotateImageBlob(blob, rotation) : blob)))
+      const d = await draftEssayGsatRubric(blobs)
+      if (d) setGsatSub(normalizeGsatSub(d))
+      else await alertModal(blobs.length ? 'AI 沒有起草出規準，請自行填寫 (一) 的參考要點與 (二) 的寫作要求。' : '沒有題本圖可以起草（編輯既有卷時題本圖還沒載入），請自行填寫或稍後再按「用 AI 重新起草」。')
+    } catch (e) {
+      console.warn('[UnifiedModal] 知性題規準起草失敗', e)
+      await alertModal('規準起草失敗：' + (e instanceof Error ? e.message : String(e)) + '。請自行填寫。')
+    } finally {
+      setGsatDrafting(false)
+      gsatDrafted.current = true
+    }
+  }, [gsatDrafting, bookletPageItems, bookletPages, alertModal])
+  useEffect(() => {
+    if (activeStep === 'essayRubric' && needsRubricStep && !gsatDrafted.current && !gsatDrafting) void runGsatDraft()
+  }, [activeStep, needsRubricStep, gsatDrafting, runGsatDraft])
 
   useEffect(() => {
     setBookletPageItems(bookletPages.map((p) => ({
@@ -1658,12 +1699,16 @@ export default function AnswerKeyUnifiedModal({
   const doSave = async () => {
     // 作文模式：沒有 AI 解析步驟 → 存檔當下組出「整卷一題、滿分＝六級分」的答案卷；
     //   批改依據＝老師上傳的題本圖（questionBookletBlobs）＋內建會考通用規準，答案卷不存任何 AI 轉述的題目文字。
+    // 學測：這張卷考什麼 → items（每題一筆、配分＝老師填的；知性題帶規準）。編輯既有學測卷也照現在的選項重組（題目本來就是由它推出來的）
+    const gsatItemsForSave = isEssayGsat ? buildGsatItems(gsatChoice, isEssayByo ? essayByo.pages : 2, gsatSub) : undefined
     const keyToSave: AnswerKey | null = isEssay
-      ? (editMode && editingKey ? editingKey : {
-          // 學測（user 09-22 拍板）：以分數計、不以等第計——情意題 25 分（server 等第→分數帶中間值），老師事後加減
+      ? (editMode && editingKey && !isEssayGsat ? editingKey : {
+          // 學測（user 09-22 拍板）：以分數計、不以等第計——情意題 25 分（server 等第→分數帶內給分），老師事後加減；
+          //   09-23：知性題 (一)＋(二)、兩題皆考＝兩題（lib/essayGsatItems gsatQuestionsFor）
           essay: { topicSource: 'booklet_image', rubricPreset: isEssayGsat ? 'gsat_points' : 'cap_6level' },
-          totalScore: isEssayGsat ? 25 : 6,
-          questions: [{ id: ESSAY_QUESTION_ID, questionCategory: 'essay', type: 3, maxScore: isEssayGsat ? 25 : 6, answer: '' } as AnswerKeyQuestion],
+          ...(gsatItemsForSave
+            ? gsatQuestionsFor(gsatItemsForSave)
+            : { totalScore: 6, questions: [{ id: ESSAY_QUESTION_ID, questionCategory: 'essay', type: 3, maxScore: 6, answer: '' } as AnswerKeyQuestion] }),
         })
       : editingKey
     if (!keyToSave) return
@@ -1694,7 +1739,7 @@ export default function AnswerKeyUnifiedModal({
     }
     // 自製作文卷：產生稿紙（含錨點）；自備作文卷：只記規格，批改時直接在學生卷上偵測格線
     // 會考格式與學測格式各用各的產生器（幾何、版號、紙張都不同），⛔ 不共用同一支再用參數切
-    const essaySheet = isEssay && !isEssayByo ? (isEssayGsatMade ? generateGsatEssaySheet : generateEssaySheet)({ title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '), questionId: String(keyToSave.questions[0]?.id ?? ESSAY_QUESTION_ID) }) : null
+    const essaySheet = isEssay && !isEssayByo ? (isEssayGsatMade ? generateGsatEssaySheet : generateEssaySheet)({ title: [schoolName, title.trim() || '未命名'].filter(Boolean).join(' '), questionId: String(keyToSave.questions[0]?.id ?? ESSAY_QUESTION_ID), items: isEssayGsatMade ? gsatItemsForSave : undefined }) : null
     // Validate dimension sums
     const mismatchQuestions = keyToSave.questions.filter((q) => {
       // VJ 題用 vjRubric、不看 rubricsDimensions，跳過維度加總檢查
@@ -1881,7 +1926,8 @@ export default function AnswerKeyUnifiedModal({
         return { label: (!editMode && bookletPageItems.length === 0) ? '請先上傳作文題目' : '下一步：稿紙', disabled: !editMode && bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
       }
       if (isEssay) {
-        // 系統製作的作文稿紙：這一步就是最後一步——整理好題目頁後由老師按儲存
+        // 系統製作的作文稿紙：這一步就是最後一步——整理好題目頁後由老師按儲存（學測知性題／兩題皆考再多一步規準）
+        if (needsRubricStep) return { label: (!editMode && bookletPageItems.length === 0) ? '請先上傳作文題目' : '下一步：知性題規準', disabled: !editMode && bookletPageItems.length === 0, icon: <ChevronRight className="w-4 h-4" /> }
         return { label: isSaving ? '儲存中…' : (!editMode && bookletPageItems.length === 0) ? '請先上傳作文題目' : '儲存作文答案卷', disabled: isSaving || (!editMode && bookletPageItems.length === 0), loading: isSaving, icon: <Check className="w-4 h-4" /> }
       }
       if (isExtracting) return { label: '結構分析中…', disabled: true, loading: true }
@@ -1890,7 +1936,12 @@ export default function AnswerKeyUnifiedModal({
     if (activeStep === 'essaySheet') {
       const customIncomplete = essaySheetChoice === 'custom' && !(customSheet.blobs.length || (savedByo?.sheet === 'custom' && savedByo.pages > 0))
       const customUnframed = essaySheetChoice === 'custom' && !customSheet.grids.some((g) => g.page === 1)
+      if (needsRubricStep) return { label: customIncomplete ? '請先上傳空白稿紙' : customUnframed ? '請先框出整片格子' : '下一步：知性題規準', disabled: customIncomplete || customUnframed, icon: <ChevronRight className="w-4 h-4" /> }
       return { label: isSaving ? '儲存中…' : customIncomplete ? '請先上傳空白稿紙' : customUnframed ? '請先框出整片格子' : '儲存作文答案卷', disabled: isSaving || customIncomplete || customUnframed, loading: isSaving, icon: <Check className="w-4 h-4" /> }
+    }
+    if (activeStep === 'essayRubric') {
+      const noPoints = gsatSub.q1.points.filter(Boolean).length === 0
+      return { label: gsatDrafting ? 'AI 起草中…' : isSaving ? '儲存中…' : noPoints ? '請先填 (一) 的參考要點' : '儲存作文答案卷', disabled: gsatDrafting || isSaving || noPoints, loading: gsatDrafting || isSaving, icon: <Check className="w-4 h-4" /> }
     }
     if (activeStep === 'sheet') {
       // 版面塞不下單面一頁（overflow）→ 明確擋住並說明，不讓老師在失效版面上繼續
@@ -1953,6 +2004,8 @@ export default function AnswerKeyUnifiedModal({
         markComplete('booklet')
         // 自備作文稿紙：先去選稿紙，稿紙那一步才儲存
         if (isEssayByo) { setActiveStep('essaySheet'); return }
+        // 學測知性題／兩題皆考：先去規準那一步（AI 起草、老師改）才儲存
+        if (needsRubricStep) { setActiveStep('essayRubric'); return }
         handleSaveClick()
         return
       }
@@ -1966,6 +2019,13 @@ export default function AnswerKeyUnifiedModal({
     }
     if (activeStep === 'essaySheet') {
       markComplete('essaySheet')
+      if (needsRubricStep) { setActiveStep('essayRubric'); return }
+      handleSaveClick()
+      return
+    }
+    if (activeStep === 'essayRubric') {
+      if (gsatDrafting) return
+      markComplete('essayRubric')
       handleSaveClick()
       return
     }
@@ -1989,6 +2049,7 @@ export default function AnswerKeyUnifiedModal({
     if (activeStep === 'booklet') { setActiveStep('metadata'); return }
     if (activeStep === 'sheet') { setActiveStep('booklet'); return }
     if (activeStep === 'essaySheet') { setActiveStep('booklet'); return }
+    if (activeStep === 'essayRubric') { setActiveStep(isEssayByo ? 'essaySheet' : 'booklet'); return }
     if (activeStep === 'extract') { setActiveStep(genFlow ? 'sheet' : 'metadata'); return }
     if (activeStep === 'editing') { setActiveStep('extract'); return }
   }
@@ -2466,20 +2527,18 @@ export default function AnswerKeyUnifiedModal({
                             <div className="mb-3 rounded border border-sky-200 bg-sky-50 px-2 py-2 text-[11px] text-sky-900 leading-relaxed">
                               <div className="font-semibold mb-1">這張卷考什麼？</div>
                               <div className="flex flex-wrap gap-1.5">
-                                {([
-                                  { key: 'affective', label: '情意題', hint: '一篇作文、25 分', enabled: true },
-                                  { key: 'expository', label: '知性題', hint: '兩小題、25 分（規準編輯準備中）', enabled: false },
-                                  { key: 'both', label: '兩題皆考', hint: '正面知性題、背面情意題（準備中）', enabled: false },
-                                ] as const).map((o) => (
-                                  <span key={o.key} title={o.hint}
-                                    className={`px-2 py-1 rounded border ${o.enabled ? 'bg-white border-sky-400 text-sky-900 font-semibold' : 'bg-gray-50 border-gray-200 text-gray-400'}`}>
-                                    {o.label}{o.enabled ? ' ✓' : ''}<span className="ml-1 font-normal text-[10px]">{o.hint}</span>
-                                  </span>
+                                {(['affective', 'expository', 'both'] as GsatItemsChoice[]).map((k) => (
+                                  <button key={k} type="button" onClick={() => setGsatChoice(k)}
+                                    className={`px-2 py-1 rounded border ${gsatChoice === k ? 'bg-white border-sky-500 text-sky-900 font-semibold shadow-sm' : 'bg-white/60 border-sky-200 text-sky-700 hover:border-sky-400'}`}>
+                                    {GSAT_CHOICE_LABEL[k]}
+                                    <span className="ml-1 font-normal text-[10px] text-sky-700">{k === 'affective' ? '一篇作文、25 分' : k === 'expository' ? '(一)(二) 兩小題、25 分' : '正面知性題、背面情意題、50 分'}</span>
+                                  </button>
                                 ))}
                               </div>
                               <div className="mt-1.5 text-sky-800">
-                                情意題：學生寫在稿紙任一面、寫不下可翻面續寫，正反兩面當同一篇批；AI 給逐句眉批與建議分數（滿分 25、等第只當參考），老師可直接加減分。
-                                題本請只上傳情意題那一頁。
+                                {gsatChoice === 'affective' && <>情意題：學生寫在稿紙任一面、寫不下可翻面續寫，正反兩面當同一篇批；AI 給逐句眉批與建議分數（滿分 25、等第只當參考），老師可直接加減分。題本請只上傳情意題那一頁。</>}
+                                {gsatChoice === 'expository' && <>知性題：學生要在稿紙上自己標「(一)」「(二)」，系統依標記切開兩小題各自評分（配分下一步可改，預設 4＋21）。(一) 只給分數與理由、(二) 另有逐句眉批。題本請只上傳知性題那一頁。</>}
+                                {gsatChoice === 'both' && <>兩題皆考：正面寫知性題、背面寫情意題（同官方答題卷），答案卷兩題共 50 分，各自評分。題本請上傳兩大題的頁面。</>}
                               </div>
                             </div>
                           )}
@@ -2577,6 +2636,54 @@ export default function AnswerKeyUnifiedModal({
                   {extractError && (
                     <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 shrink-0">{extractError}</div>
                   )}
+                </div>
+              )}
+
+              {/* ══ 學測知性題規準（2026-09-23）：AI 從題本起草 (一) 參考要點／(二) 寫作要求／配分，老師可改 ══ */}
+              {activeStep === 'essayRubric' && (
+                <div className="p-4 flex flex-col h-full overflow-auto">
+                  <section className="rounded-xl border border-sky-200 bg-sky-50/30 p-4 space-y-3 text-[12px] text-sky-950">
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold">知性題規準</div>
+                      <button type="button" disabled={gsatDrafting} onClick={() => void runGsatDraft()}
+                        className="px-2 py-1 rounded border border-sky-400 bg-white text-sky-900 text-[11px] disabled:opacity-50 hover:bg-sky-100">
+                        {gsatDrafting ? 'AI 起草中…' : '用 AI 重新起草'}
+                      </button>
+                    </div>
+                    <div className="text-[11px] text-sky-800 leading-relaxed">
+                      批改時學生要自己在稿紙上標「(一)」「(二)」，系統依「(二)」的標記切開兩小題（沒標的話 (二) 給 0 分、交給老師改分）。
+                      (一) 依下面的參考要點判 A／B／C，(二) 依寫作要求與通用階梯判等第；配分可改，分數帶會等比換算。
+                    </div>
+                    <div className="rounded border border-sky-200 bg-white p-3 space-y-1.5">
+                      <div className="flex items-center gap-3">
+                        <span className="font-semibold">問題（一）</span>
+                        <label className="inline-flex items-center gap-1">配分
+                          <input type="number" min={1} max={100} value={gsatSub.q1.maxScore} onChange={(e) => setGsatSub((s) => ({ ...s, q1: { ...s.q1, maxScore: Number(e.target.value) } }))} className="w-16 px-1.5 py-0.5 border border-sky-300 rounded text-center" />
+                        </label>
+                      </div>
+                      <div className="text-[11px] text-gray-600">參考要點（一行一條；考生用自己的話寫到同樣意思就算寫到，全部寫到＝A、寫到一半＝B、解讀錯誤＝C）</div>
+                      <textarea rows={4} value={gsatSub.q1.points.join('\n')} disabled={gsatDrafting}
+                        onChange={(e) => setGsatSub((s) => ({ ...s, q1: { ...s.q1, points: e.target.value.split('\n') } }))}
+                        className="w-full px-2 py-1 border border-sky-300 rounded leading-relaxed disabled:bg-gray-50"
+                        placeholder={gsatDrafting ? 'AI 起草中…' : '例：女主角與小豬對視過好幾次，動物的眼神喚起共感，所以吃不下去'} />
+                    </div>
+                    <div className="rounded border border-sky-200 bg-white p-3 space-y-1.5">
+                      <div className="flex items-center gap-3">
+                        <span className="font-semibold">問題（二）</span>
+                        <label className="inline-flex items-center gap-1">配分
+                          <input type="number" min={1} max={100} value={gsatSub.q2.maxScore} onChange={(e) => setGsatSub((s) => ({ ...s, q2: { ...s.q2, maxScore: Number(e.target.value) } }))} className="w-16 px-1.5 py-0.5 border border-sky-300 rounded text-center" />
+                        </label>
+                      </div>
+                      <div className="text-[11px] text-gray-600">寫作要求（一行一條；題目要求考生做到的事，判官會逐條引證，全部沒寫到＝文不對題 0 分）</div>
+                      <textarea rows={3} value={gsatSub.q2.elements.join('\n')} disabled={gsatDrafting}
+                        onChange={(e) => setGsatSub((s) => ({ ...s, q2: { ...s.q2, elements: e.target.value.split('\n') } }))}
+                        className="w-full px-2 py-1 border border-sky-300 rounded leading-relaxed disabled:bg-gray-50"
+                        placeholder={gsatDrafting ? 'AI 起草中…' : '例：就上文對「臉」的說明，舉出生活見聞中選擇逃避或積極承擔的事例'} />
+                    </div>
+                    <div className="text-[11px] text-gray-600">
+                      知性題合計 {gsatSub.q1.maxScore + gsatSub.q2.maxScore} 分{gsatChoice === 'both' ? `；情意題 25 分，全卷 ${gsatSub.q1.maxScore + gsatSub.q2.maxScore + 25} 分` : ''}
+                    </div>
+                  </section>
                 </div>
               )}
 

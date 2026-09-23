@@ -598,12 +598,20 @@ export interface EssayResult {
     grade?: string | null
     /** 學測：該題滿分（情意題 25）；會考沒有＝6 級分 */
     maxScore?: number
-    kind?: 'affective' | 'expository1' | 'expository2'
+    kind?: 'affective' | 'expository' | 'expository1' | 'expository2'
     /** 學測：是否切題（false＝文不對題、等第由 code 設 0） */
     onTopic?: boolean | null
   }
   /** 零 AI 閘門命中時的原因（空白卷／字數過少）；沒命中＝null */
   gate: string | null
+  /** 學測知性題（2026-09-23）：(一)(二) 各自的結果；split.how＝marker（學生有標「(二)」）／blankGap（沒標、依空行切）／none（整篇當 (一)、(二) 0 分） */
+  sub?: {
+    split: { how: 'marker' | 'blankGap' | 'none'; rows1: number; rows2: number; chars1: number; chars2: number }
+    q1: { grade: string | null; score: number | null; maxScore: number; reason: string; dimensions: Array<{ name: string; comment: string; quotes?: string[] }> }
+    q2: { grade: string | null; score: number | null; maxScore: number; reason: string; dimensions: Array<{ name: string; comment: string; quotes?: string[] }> }
+  }
+  /** 學測多題：這份結果屬於版面 items 的哪一題 */
+  itemId?: string | null
   ms?: number
 }
 
@@ -619,8 +627,9 @@ export interface EssayByoGeom {
   /** 稿紙代別：沒有＝會考格式；'gsat'＝學測國寫公版（server 靠它分流格線偵測器與等第判官） */
   format?: 'gsat'
   /** 要批的題目與所在頁（1-based）。沒有＝整份卷是一篇作文（會考）。
-   *  學測：kind＝affective 情意題（第一期只開這種，正反兩面當同一篇）；expository 知性題待做 */
-  items?: Array<{ id: string; pages: number[]; kind?: 'affective' | 'expository' }>
+   *  學測（2026-09-23）：kind＝affective 情意題／expository 知性題（(一)(二) 靠學生標的「(二)」切）；maxScore＝老師配分；
+   *  sub＝知性題規準（(一) 參考要點＋配分、(二) 寫作要求＋配分）。見 lib/essayGsatItems.ts */
+  items?: Array<{ id: string; pages: number[]; kind?: 'affective' | 'expository'; maxScore?: number; sub?: { q1: { maxScore: number; points: string[] }; q2: { maxScore: number; elements: string[] } } }>
   pages: number
   cols: number
   rows: number

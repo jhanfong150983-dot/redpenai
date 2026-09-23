@@ -51,7 +51,7 @@ export interface EssayGridGeom {
   /** 稿紙代別：沒有＝會考格式；'gsat'＝學測國寫格式（server 據此用等第判官；定位仍走四角錨點、與自備卷的格線偵測器無關） */
   format?: 'gsat'
   /** 要批的題目與所在頁（1-based）。沒有＝整份卷是一篇作文。學測第一期＝情意題、正反兩面同一篇 */
-  items?: Array<{ id: string; pages: number[]; kind?: 'affective' | 'expository' }>
+  items?: Array<{ id: string; pages: number[]; kind?: 'affective' | 'expository'; maxScore?: number; sub?: { q1: { maxScore: number; points: string[] }; q2: { maxScore: number; elements: string[] } } }>
   /** 座號辨識對照：把第 1 頁逆時針轉 90° 後可直接用 RPOMR1 引擎；但十位/個位的語意與引擎相反（左＝十位） */
   seatOmr: {
     /** RPOMR1_cw90＝會考稿紙的直式座號欄（匯入時整頁逆時針轉 90°）；RPOMR1＝學測稿紙頂部的橫式公版標頭（不轉） */
@@ -177,6 +177,8 @@ export interface EssaySheetInput {
   title: string
   /** 這題的 questionId（boxes 的 id 前綴） */
   questionId: string
+  /** 學測：這張卷考什麼（lib/essayGsatItems buildGsatItems）；沒給＝情意題一篇、正反兩面 */
+  items?: EssayGridGeom['items']
 }
 
 export interface EssaySheetResult {
@@ -392,7 +394,7 @@ export function generateGsatEssaySheet(input: EssaySheetInput): EssaySheetResult
     version: GSAT_SHEET_VERSION, orientation: 'landscape', ...GSAT_GRID,
     format: 'gsat',
     // 題號必須與答案卷那一題的 id 相同（server 用它當 questionId）
-    items: [{ id: input.questionId, pages: [1, 2], kind: 'affective' }],
+    items: input.items?.length ? input.items : [{ id: input.questionId, pages: [1, 2], kind: 'affective', maxScore: 25 }],
     gridMm: GSAT_GRID_MM,
     seatStripMm: GSAT_HEADER_MM,
     seatOmr: {

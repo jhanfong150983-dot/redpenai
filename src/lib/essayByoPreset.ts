@@ -94,8 +94,9 @@ export function customImportWidth(input: CustomEssaySheetInput): number {
 }
 
 /** 存進答案卷的稿紙幾何 */
-export function essayByoGeomForChoice(choice: EssaySheetChoice, scoring: 'cap' | 'gsat', custom?: CustomEssaySheetInput): EssayByoGeom {
-  const items: EssayByoGeom['items'] = scoring === 'gsat' ? [{ id: '1', pages: [1, 2], kind: 'affective' }] : undefined
+export function essayByoGeomForChoice(choice: EssaySheetChoice, scoring: 'cap' | 'gsat', custom?: CustomEssaySheetInput, gsatItems?: EssayByoGeom['items']): EssayByoGeom {
+  // 學測：這張卷考什麼由建卷時的選項決定（lib/essayGsatItems buildGsatItems）；沒給＝情意題一篇
+  const items: EssayByoGeom['items'] = scoring === 'gsat' ? (gsatItems?.length ? gsatItems : [{ id: '1', pages: [1, 2], kind: 'affective', maxScore: 25 }]) : undefined
   if (choice === 'custom') {
     const c = custom ?? { pages: 1, grids: [] }
     const pages = Math.max(1, c.pages)
@@ -104,7 +105,8 @@ export function essayByoGeomForChoice(choice: EssaySheetChoice, scoring: 'cap' |
       source: 'byo', sheet: 'custom', ...(scoring === 'gsat' ? { format: 'gsat' as const } : {}),
       // 整份的 cols／rows／gutter＝第 1 頁；逐頁差異記在 template.grids（server essayPageSpec 逐頁讀）
       pages, cols: first.cols, rows: first.rows, cellMm: 10, gutterMm: Math.round(10 * (1 / gutterRatioOf(first) - 1) * 10) / 10,
-      items: items?.map((it) => ({ ...it, pages: Array.from({ length: pages }, (_, i) => i + 1) })),
+      // 老師沒指定題目（舊路徑）才把唯一那題攤到全部頁；有指定（buildGsatItems 已依頁數算好）照用
+      items: gsatItems?.length ? items : items?.map((it) => ({ ...it, pages: Array.from({ length: pages }, (_, i) => i + 1) })),
       template: {
         grids: c.grids.map((g) => ({ page: g.page, box: g.box, cols: g.cols, rows: g.rows, gutterRatio: gutterRatioOf(g) })),
         gutterRatio: gutterRatioOf(first),

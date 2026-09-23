@@ -264,6 +264,7 @@ type GeminiRouteKey =
   | 'answer_key.locate'
   | 'answer_key.reanalyze'
   | 'answer_key.tag_concepts'
+  | 'answer_key.essay_gsat_rubric'
   | 'grading.vj_rubric'
   | 'report.teacher_summary'
   | 'report.domain_diagnosis'
@@ -7339,4 +7340,37 @@ export async function extractTeacherScanAnswerKey(
     throw new Error(`作答卷上一個答案都沒讀到（定位 ${located}/${questions.length} 格）。請確認兩邊沒有放反：題本＝試題卷（題目）、作答卷＝寫好標準答案的教師用答案卷（只有格子）。`)
   }
   return { ...skeleton, questions, totalScore: questions.reduce((t, q) => t + (q.maxScore ?? 0), 0) }
+}
+
+// ─── 學測知性題規準起草（2026-09-23）────────────────────────────────────────
+// 建卷時從題本圖起草 (一) 參考要點／(二) 寫作要求／兩小題配分；老師可改後存進版面 items[].sub（lib/essayGsatItems）。
+//   一次性建卷呼叫、計入建卷週配額（server build-quota）。回 null＝AI 沒回或格式不對（老師自己填）。
+export interface EssayGsatRubricDraft {
+  q1: { maxScore: number; points: string[] }
+  q2: { maxScore: number; elements: string[] }
+}
+export async function draftEssayGsatRubric(bookletImages: Blob[]): Promise<EssayGsatRubricDraft | null> {
+  if (!bookletImages.length) return null
+  const imageParts: GeminiRequestPart[] = []
+  for (const img of bookletImages.slice(0, 3)) {
+    imageParts.push({ inlineData: { mimeType: img.type || 'image/jpeg', data: await blobToBase64(img) } })
+  }
+  const prompt = `你是大學入學考試中心「學科能力測驗・國語文寫作能力測驗」的閱卷召集人。附圖是一份試題的第一大題（知性題），分「問題（一）」與「問題（二）」兩小題。
+請閱讀圖中的文章與兩個問題，產出閱卷用的評分依據：
+1. 問題（一）是依據文章說明理由的簡答題：列出 2～4 條「參考要點」——考生要寫到哪些意思才算完整回答。每條一句話、用文章裡的關鍵概念寫，不要抄整段。
+2. 問題（二）是短文寫作：列出 2～3 條「寫作要求」——題目要求考生做到的事（例如：就某概念舉出生活見聞的事例／表達看法與省思）。每條一句話。
+3. 兩小題的配分：題目文字若寫了「占 N 分」就照抄；沒寫則 (一) 4 分、(二) 21 分。
+只輸出 JSON：
+{"q1":{"maxScore":4,"points":["…","…"]},"q2":{"maxScore":21,"elements":["…","…"]}}`
+  const text = (await generateGeminiText(currentModelName, [prompt, ...imageParts], { routeKey: 'answer_key.essay_gsat_rubric' })).replace(/```json|```/g, '').trim()
+  try {
+    const a = text.indexOf('{'), b = text.lastIndexOf('}')
+    const j = JSON.parse(text.slice(a, b + 1)) as Partial<EssayGsatRubricDraft>
+    const clean = (arr: unknown) => (Array.isArray(arr) ? arr : []).map((s) => String(s ?? '').trim()).filter(Boolean)
+    const num = (v: unknown, d: number) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= 1 && n <= 100 ? n : d }
+    return { q1: { maxScore: num(j.q1?.maxScore, 4), points: clean(j.q1?.points) }, q2: { maxScore: num(j.q2?.maxScore, 21), elements: clean(j.q2?.elements) } }
+  } catch (err) {
+    console.warn('[essay_gsat_rubric] 解析失敗', err)
+    return null
+  }
 }
