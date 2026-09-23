@@ -555,8 +555,10 @@ export default function AnswerKeyUnifiedModal({
     //   不能悄悄把學測卷換成會考卷（兩種稿紙不可混），一律退回一般模式讓老師重選。
     if (isEssayGsatMade) { if (!essayGsatMadeAvailable) setSheetSource('with_questions'); return }
     if (isEssayByo && !essayByoAvailable) { setSheetSource(essayAvailable ? 'essay' : 'with_questions'); return }
-    if (isEssay && !essayAvailable) setSheetSource('with_questions')
-  }, [editMode, isEssay, isEssayByo, isEssayGsatMade, essayAvailable, essayByoAvailable, essayGsatMadeAvailable])
+    // ⛔ 只看「系統製作作文稿紙（會考格式）」那一張：isEssay 對自備稿紙也是 true，
+    //   高中（會考格式不可用）一點自備稿紙就被這行踢回一般模式（user 09-23 回報）
+    if (sheetSource === 'essay' && !essayAvailable) setSheetSource('with_questions')
+  }, [editMode, sheetSource, isEssayByo, isEssayGsatMade, essayAvailable, essayByoAvailable, essayGsatMadeAvailable])
 
   // 2026-08-29 公版答案卷範本下載（動態產生：帶校名/名稱/科目；docx 套件 dynamic import）
   const [isGeneratingTemplate, setIsGeneratingTemplate] = useState(false)
