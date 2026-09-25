@@ -119,6 +119,8 @@ export interface SectionOverride {
   bigH?: number
   /** bigbox 每列格數（作圖預設 2、計算預設 1） */
   perRow?: number
+  /** 2026-09-25 勾選題：格內印「1.□ 2.□ …」的選項數（預設 4；multi_check_other 最後一個是「其他」） */
+  optionCount?: number
 }
 
 export interface GenInput {
@@ -214,6 +216,31 @@ interface Section {
 
 const CN_NUM = '一二三四五六七八九十'
 const CHOICE_TYPES = new Set(['single_choice', 'multi_choice', 'true_false'])
+// 2026-09-25 勾選題：格內自動印「1.□ 2.□ 3.□ 4.□」（user：老師之前要自己用 Canva 做）。
+//   答案卷 answer＝1-based 位置編號、read 輸出位置編號、code 比對位置 → 印上編號跟整條鏈同一種語言。
+const CHECK_TYPES = new Set(['single_check', 'multi_check', 'multi_check_other'])
+const DEFAULT_OPTION_COUNT = 4
+/** 一個「N.□」約佔的寬（mm）：編號 2 字半形 + 方框 3mm + 間隔 */
+const CHECK_TOKEN_W = 9.5
+/** 勾選題自動欄數：整列選項要塞得進格子（A4 內寬 186mm；4 選項→4 欄、5~6→3 欄、8→2 欄） */
+function autoCheckCols(optionCount: number): number {
+  return Math.max(1, Math.min(5, Math.floor(186 / (optionCount * CHECK_TOKEN_W + 4))))
+}
+/** 參考答案「2」「1,3」「①③」→ 位置編號集合；解析不出（非位置格式）→ null，退回畫紅字 */
+function parseCheckPositions(raw: string, n: number): number[] | null {
+  const circled = '①②③④⑤⑥⑦⑧⑨⑩'
+  const out = new Set<number>()
+  for (const ch of raw) {
+    const ci = circled.indexOf(ch)
+    if (ci >= 0) out.add(ci + 1)
+  }
+  for (const tok of raw.split(/[^0-9]+/)) {
+    if (!tok) continue
+    const v = Number(tok)
+    if (Number.isInteger(v) && v >= 1 && v <= n) out.add(v)
+  }
+  return out.size ? [...out].sort((a, b) => a - b) : null
+}
 // 步驟2（2026-09-07）：需承載「題目視覺」的型——就地圈選/連線/圈詞/繪圖/填圖。
 // 基本小格承載不了 → 一律用大框(bigbox)，老師編輯時加底圖或圖片（見權威表步驟2決策）。
 const BIGBOX_IMAGE_TYPES = new Set([
@@ -271,7 +298,15 @@ function buildSections(questions: GenQuestion[], overrides: Record<string, Secti
         secs.push({ key, label: gridQs.length ? null : titled(name), kind: 'bigbox', qs: essayQs, cols: 0, ansH: ev.bigH ?? 44, perRow: ev.perRow ?? 1 })
     } else if (qs.every((q) => EXPLAIN_TYPES.has(q.questionCategory))) {
       // 說明題（勾選/圈選/寫代號/判斷 ＋ 寫理由）→ wide 框、作答區切「作答／說明」兩段；預設較高好寫理由
-      secs.push({ key, label: titled('說明題'), kind: 'wide', qs, cols: ov.cols ?? 2, ansH: 22 * sizeMul, stemInCell: true, explain: true })
+      //   勾選說明題：「作答」段印「1.□ 2.□ …」（optionCount 同勾選題）
+      const oc = ov.optionCount ?? DEFAULT_OPTION_COUNT
+      const withOc = qs.map((q) => (q.questionCategory === 'compound_check_with_explain' ? { ...q, optionCount: q.optionCount ?? oc } : q))
+      secs.push({ key, label: titled('說明題'), kind: 'wide', qs: withOc, cols: ov.cols ?? 2, ansH: 22 * sizeMul, stemInCell: true, explain: true })
+    } else if (qs.every((q) => CHECK_TYPES.has(q.questionCategory))) {
+      // 勾選題：小格內印「1.□ 2.□ 3.□ 4.□」，學生直接打勾；欄數依選項數自動（老師可覆寫）
+      const oc = ov.optionCount ?? DEFAULT_OPTION_COUNT
+      const withOc = qs.map((q) => ({ ...q, optionCount: q.optionCount ?? oc }))
+      secs.push({ key, label: titled('勾選題'), kind: 'numgrid', qs: withOc, cols: ov.cols ?? autoCheckCols(oc), ansH: 9 * sizeMul })
     } else if (types.has('short_answer') || types.has('fill_variants')) {
       // 步驟2：fill_variants(注釋/造詞) 沿用 short_answer 的 wide 框（號碼＋寬作答區＝驗收過的注釋版型），
       //   避免改判 fill_variants 後掉進 numgrid 填充框而變版型。
@@ -329,7 +364,50 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
   }
   // 格內物件（跟著 addBox 一起畫，座標以「作答格」左上為基準）：
   // 文字＝自由座標（xMm/yMm）優先、九宮格 preset 後備；底圖 place＝Canva 式自由放置（所有格型通用）
+  // 2026-09-25 勾選題：格內印「1.□ 2.□ 3.□ 4.□」（方框用 rect 畫、印刷清晰；multi_check_other 最後一格接「其他：__」）。
+  //   勾選說明題只印在上段「作答」區（下段留給說明）。回傳 true＝畫了，老師版紅字改成在對應框內畫紅 ✓。
+  const emitCheckRow = (q: GenQuestion, x: number, yy: number, w: number, h: number): boolean => {
+    const cat = String(q.questionCategory ?? '')
+    const isExplain = cat === 'compound_check_with_explain'
+    if (!CHECK_TYPES.has(cat) && !isExplain) return false
+    const n = Math.max(2, Math.min(10, q.optionCount ?? DEFAULT_OPTION_COUNT))
+    const isOther = cat === 'multi_check_other'
+    const regionH = isExplain ? h * 0.4 : h
+    const otherW = isOther ? 18 : 0
+    const natural = n * CHECK_TOKEN_W + otherW
+    const sc = Math.min(1, (w - 3) / natural)
+    const tokenW = CHECK_TOKEN_W * sc
+    const box = 3 * sc
+    const fs = 2.9 * sc
+    const total = natural * sc
+    const startX = x + (w - total) / 2
+    const cy = yy + regionH / 2 + (isExplain ? 1 : 0)
+    const positions: number[] = withRefAnswers && q.refAnswer ? (parseCheckPositions(q.refAnswer.trim(), n) ?? []) : []
+    for (let i = 0; i < n; i++) {
+      const tx = startX + i * tokenW
+      const label = `${i + 1}.`
+      els.push(`<text x="${tx * DPMM}" y="${(cy + fs * 0.38) * DPMM}" font-size="${fs * DPMM}" fill="#444">${label}</text>`)
+      const bx = tx + fs * 0.55 * label.length + 0.6
+      const byy = cy - box / 2
+      els.push(`<rect x="${bx * DPMM}" y="${byy * DPMM}" width="${box * DPMM}" height="${box * DPMM}" fill="none" stroke="#333" stroke-width="${0.25 * DPMM}"/>`)
+      if (positions.includes(i + 1)) {
+        // 老師版：正解框內畫紅 ✓（學生版 withRefAnswers=false → positions 空、絕不畫）
+        const p1 = `${(bx + box * 0.15) * DPMM},${(byy + box * 0.55) * DPMM}`
+        const p2 = `${(bx + box * 0.42) * DPMM},${(byy + box * 0.85) * DPMM}`
+        const p3 = `${(bx + box * 0.9) * DPMM},${(byy + box * 0.12) * DPMM}`
+        els.push(`<polyline points="${p1} ${p2} ${p3}" fill="none" stroke="#c00" stroke-width="${0.45 * DPMM}" stroke-linecap="round" stroke-linejoin="round"/>`)
+      }
+      if (isOther && i === n - 1) {
+        const ox = bx + box + 0.6
+        els.push(`<text x="${ox * DPMM}" y="${(cy + fs * 0.38) * DPMM}" font-size="${fs * DPMM}" fill="#444">其他：</text>`)
+        const ux = ox + fs * 3
+        els.push(`<line x1="${ux * DPMM}" y1="${(cy + box / 2) * DPMM}" x2="${(ux + otherW * sc - fs * 3) * DPMM}" y2="${(cy + box / 2) * DPMM}" stroke="#333" stroke-width="${0.2 * DPMM}"/>`)
+      }
+    }
+    return true
+  }
   const emitCellExtras = (q: GenQuestion, x: number, yy: number, w: number, h: number) => {
+    const drewCheckRow = emitCheckRow(q, x, yy, w, h)
     for (const t of q.cellTexts ?? []) {
       if (!t.text) continue
       const size = t.size === 's' ? 2.6 : t.size === 'l' ? 4.2 : 3.2
@@ -364,7 +442,9 @@ function layoutPages(sections: Section[], g: PageGeom, withRefAnswers: boolean):
     }
     // 2026-09-07 參考答案紅字：只在老師版(withRefAnswers)畫，學生版絕不畫。
     //   短代號/符號類（選擇/成語/是非/勾選/圈選/填空/國字注音等）→ 置中；文字類（注釋/簡答/應用）→ 靠左（長文好讀）。
-    if (withRefAnswers && q.refAnswer && q.refAnswer.trim()) {
+    // 勾選題已在框內畫紅 ✓（參考答案是位置編號時）→ 不再疊紅字；解析不出位置才退回紅字
+    const refDrawnAsTicks = drewCheckRow && !!q.refAnswer && parseCheckPositions(q.refAnswer.trim(), 10) !== null
+    if (withRefAnswers && q.refAnswer && q.refAnswer.trim() && !refDrawnAsTicks) {
       const raw = q.refAnswer.trim()
       const rsize = 3.2
       // 只有「小框代號題型」(選擇/多選/是非＝CHOICE_TYPES；成語填代號也是 single_choice) 置中；

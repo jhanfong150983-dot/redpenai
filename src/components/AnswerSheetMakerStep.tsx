@@ -63,6 +63,8 @@ function sectionKeyOf(id: string): string {
 }
 
 const BIG_KINDS = new Set(['grid_geometry', 'word_problem'])
+// 2026-09-25 勾選題：格內自動印「1.□ 2.□ …」→ 控制卡多一個「選項數」（與 answerSheetGenerator 的 CHECK_TYPES 對齊；勾選說明題也吃）
+const CHECK_KINDS = new Set(['single_check', 'multi_check', 'multi_check_other', 'compound_check_with_explain'])
 // 生成器也排「大框」的圈選/圖類（與 answerSheetGenerator 的 BIGBOX_IMAGE_TYPES 對齊）→ 控制面板要用大框控制項
 const BIGBOX_IMAGE_KINDS = new Set(['circle_select_one', 'circle_select_many', 'matching', 'mark_in_text', 'map_symbol', 'connect_dots', 'diagram_draw', 'diagram_color', 'map_fill'])
 
@@ -242,20 +244,42 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
               })()}
               {!sec.hasBig && (
                 <>
-                  {(() => { const isWide = sec.qs.some((q) => ['short_answer', 'fill_variants'].includes(q.questionCategory)); return (
-                  <label className="block text-xs text-gray-500">
-                    每列格數
-                    <select
-                      value={ov.cols ?? (sec.isChoice ? 10 : isWide ? 2 : 5)}
-                      onChange={(e) => setOverride(sec.key, { cols: Number(e.target.value) })}
-                      className="mt-0.5 w-full border rounded px-2 py-1 text-sm"
-                    >
-                      {(sec.isChoice ? [8, 10] : isWide ? [1, 2, 3, 4] : [3, 4, 5, 6]).map((c) => (
-                        <option key={c} value={c}>{c} 格</option>
-                      ))}
-                    </select>
-                  </label>
-                  ) })()}
+                  {(() => {
+                    const isWide = sec.qs.some((q) => ['short_answer', 'fill_variants'].includes(q.questionCategory))
+                    const isCheck = sec.qs.some((q) => CHECK_KINDS.has(q.questionCategory))
+                    const isPureCheck = sec.qs.every((q) => ['single_check', 'multi_check', 'multi_check_other'].includes(q.questionCategory))
+                    return (
+                      <>
+                        {isCheck && (
+                          <label className="block text-xs text-gray-500">
+                            選項數（格內印 1.□ 2.□ …）
+                            <select
+                              value={ov.optionCount ?? 4}
+                              onChange={(e) => setOverride(sec.key, { optionCount: Number(e.target.value) })}
+                              className="mt-0.5 w-full border rounded px-2 py-1 text-sm"
+                            >
+                              {[2, 3, 4, 5, 6, 7, 8].map((c) => (
+                                <option key={c} value={c}>{c} 個</option>
+                              ))}
+                            </select>
+                          </label>
+                        )}
+                        <label className="block text-xs text-gray-500">
+                          每列格數
+                          <select
+                            value={ov.cols ?? (isPureCheck ? 0 : sec.isChoice ? 10 : isWide ? 2 : 5)}
+                            onChange={(e) => setOverride(sec.key, { cols: Number(e.target.value) || undefined })}
+                            className="mt-0.5 w-full border rounded px-2 py-1 text-sm"
+                          >
+                            {isPureCheck && <option value={0}>自動（依選項數）</option>}
+                            {(sec.isChoice ? [8, 10] : isWide ? [1, 2, 3, 4] : isPureCheck ? [1, 2, 3, 4, 5] : [3, 4, 5, 6]).map((c) => (
+                              <option key={c} value={c}>{c} 格</option>
+                            ))}
+                          </select>
+                        </label>
+                      </>
+                    )
+                  })()}
                   <label className="block text-xs text-gray-500">
                     格子高度
                     <div className="mt-0.5 flex gap-1">
