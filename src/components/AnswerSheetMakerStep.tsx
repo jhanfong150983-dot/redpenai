@@ -17,6 +17,7 @@ import {
   type SectionOverride
 } from '../lib/answerSheetGenerator'
 import { QUESTION_CATEGORY_LABELS } from '../lib/db'
+import { useConfirm } from '@/components/ConfirmModal'
 
 /** step④ 的可調狀態（存進 template.generatedSheet.sectionOverrides 等） */
 export interface SheetMakerState {
@@ -87,6 +88,9 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
   const [headerError, setHeaderError] = useState(false)
   const [cropTarget, setCropTarget] = useState<string | null>(null)
   const [editCell, setEditCell] = useState<string | null>(null)
+  // 2026-09-25 user：格內物件要能複製到別格／一次套到同大題（文字方塊；底圖與參考答案是各題內容、不跟著複製）
+  const [cellClipboard, setCellClipboard] = useState<GenCellText[] | null>(null)
+  const confirmModal = useConfirm()
 
   useEffect(() => {
     if (headerDataUri) return // 已有（模組快取）→ 免重 fetch
@@ -402,6 +406,33 @@ export default function AnswerSheetMakerStep({ title, questions, bookletImages, 
             }}
             onOpenCrop={() => setCropTarget(editCell)}
             onClose={() => setEditCell(null)}
+            canPaste={!!cellClipboard}
+            onCopy={() => setCellClipboard((state.cellTexts?.[editCell] ?? []).map((t) => ({ ...t })))}
+            onPaste={() => {
+              if (!cellClipboard) return
+              onStateChange({ ...state, cellTexts: { ...state.cellTexts, [editCell]: cellClipboard.map((t) => ({ ...t })) } })
+            }}
+            sectionOthers={questions.filter((q) => q.id !== editCell && sectionKeyOf(q.id) === sectionKeyOf(editCell)).length}
+            onApplySection={async () => {
+              const others = questions.filter((q) => q.id !== editCell && sectionKeyOf(q.id) === sectionKeyOf(editCell)).map((q) => q.id)
+              if (!others.length) return
+              const src = (state.cellTexts?.[editCell] ?? []).map((t) => ({ ...t }))
+              const overwritten = others.filter((id) => (state.cellTexts?.[id]?.length ?? 0) > 0).length
+              const ok = await confirmModal({
+                title: '套用到本大題其他格',
+                message: overwritten
+                  ? `會把這格的文字方塊複製到同大題其他 ${others.length} 格，其中 ${overwritten} 格已有文字方塊，會被覆蓋。`
+                  : `會把這格的文字方塊複製到同大題其他 ${others.length} 格。`,
+                tone: overwritten ? 'warning' : 'neutral',
+                confirmLabel: '套用',
+              })
+              if (!ok) return
+              const next = { ...state.cellTexts }
+              for (const id of others) {
+                if (src.length) next[id] = src.map((t) => ({ ...t })); else delete next[id]
+              }
+              onStateChange({ ...state, cellTexts: next })
+            }}
           />
         )
       })()}
@@ -570,7 +601,7 @@ function BaseImageCropModal({ bookletImages, existing, onCancel, onDone }: CropM
 // ── 格編輯視窗（Canva 式）：格子即畫布——文字方塊就地打字拖曳、底圖 8 點縮放拖移 ──
 type BaseImageEntry = GenBaseImage & { bookletPage?: number; rect?: { x: number; y: number; w: number; h: number } }
 
-function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, refAnswer, refAnswerHint, isDrawing, refDrawing, onRefDrawingChange, onRefAnswerChange, onTextsChange, onBaseImageChange, onOpenCrop, onClose }: {
+function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, refAnswer, refAnswerHint, isDrawing, refDrawing, onRefDrawingChange, onRefAnswerChange, onTextsChange, onBaseImageChange, onOpenCrop, onClose, canPaste, onCopy, onPaste, sectionOthers, onApplySection }: {
   qid: string
   cellWMm: number
   cellHMm: number
@@ -587,6 +618,12 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
   onBaseImageChange: (entry: BaseImageEntry | null) => void
   onOpenCrop: () => void
   onClose: () => void
+  canPaste: boolean
+  onCopy: () => void
+  onPaste: () => void
+  /** 同大題其他格數（0 → 不顯示「套用到本大題」） */
+  sectionOthers: number
+  onApplySection: () => void
 }) {
   // px/mm 縮放：畫布上限放大（760×500、單格最多 11x），modal max-w-95vw/max-h-90vh 仍保護不爆版
   const k = Math.min(760 / cellWMm, 500 / cellHMm, 11)
@@ -1031,7 +1068,15 @@ function CellEditModal({ qid, cellWMm, cellHMm, texts, baseImage, hasBooklet, re
             </svg>
           </div>
         </div>
-        <div className="px-4 py-2.5 border-t flex justify-end">
+        <div className="px-4 py-2.5 border-t flex items-center justify-between gap-2">
+          {/* 2026-09-25 複製／貼上／套用到本大題：只搬文字方塊（含位置、字級）；底圖、參考答案、正解圖是各題內容不跟著走 */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button type="button" onClick={onCopy} disabled={texts.length === 0} title="複製這格的文字方塊，到別格按「貼上」" className="text-xs px-2.5 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">複製文字方塊</button>
+            <button type="button" onClick={onPaste} disabled={!canPaste} title={canPaste ? '貼上先前複製的文字方塊（會取代這格現有的）' : '先在別格按「複製文字方塊」'} className="text-xs px-2.5 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">貼上</button>
+            {sectionOthers > 0 && (
+              <button type="button" onClick={onApplySection} title="把這格的文字方塊套到同大題其他每一格" className="text-xs px-2.5 py-1.5 rounded border border-blue-300 text-blue-700 hover:bg-blue-50">套用到本大題其他 {sectionOthers} 格</button>
+            )}
+          </div>
           <button type="button" onClick={onClose} className="px-4 py-1.5 rounded bg-blue-600 text-white text-sm">完成</button>
         </div>
       </div>
