@@ -215,6 +215,8 @@ interface Section {
 }
 
 const CN_NUM = '一二三四五六七八九十'
+/** 大題名稱開頭已有編號：一、／壹、／A.／A、／(A)／Part A／Section 1／I.／1.／第一大題 */
+const SECTION_HAS_OWN_NUMBER = /^(?:[一二三四五六七八九十]+|[壹貳參肆伍陸柒捌玖拾]+|[A-Za-z]|[IVXivx]+|\d+)\s*[、．.:：)）]|^[(（][A-Za-z\d]+[)）]|^(?:Part|Section|Unit)\s*[A-Za-z\d]+\b|^第[一二三四五六七八九十\d]+/i
 const CHOICE_TYPES = new Set(['single_choice', 'multi_choice', 'true_false'])
 // 2026-09-25 勾選題：格內自動印「1.□ 2.□ 3.□ 4.□」（user：老師之前要自己用 Canva 做）。
 //   答案卷 answer＝1-based 位置編號、read 輸出位置編號、code 比對位置 → 印上編號跟整條鏈同一種語言。
@@ -277,7 +279,8 @@ function buildSections(questions: GenQuestion[], overrides: Record<string, Secti
     const hintName = qs.map((q) => (String(q.anchorHint ?? '').match(/『(.+?)』/) ?? [])[1]).find(Boolean)
     const titled = (fallback: string) => {
       const nm = hintName ?? fallback
-      const numbered = /^[一二三四五六七八九十]+、/.test(nm) ? nm : `${CN_NUM[idx - 1] ?? idx}、${nm}`
+      // 2026-09-25 大題名稱已自帶編號（英文卷 A./B.、Part A、壹、貳、、I.、1.、第一大題）→ 照題本印，不再硬套「一、二、三」
+      const numbered = SECTION_HAS_OWN_NUMBER.test(nm) ? nm : `${CN_NUM[idx - 1] ?? idx}、${nm}`
       return `${numbered}（共 ${qs.length} 題，共 ${sum} 分）`
     }
     const types = new Set(qs.map((q) => q.questionCategory))
