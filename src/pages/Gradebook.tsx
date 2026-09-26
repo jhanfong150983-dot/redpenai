@@ -848,6 +848,8 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                   <option value="">尚未建立班級</option>
                 )}
               </select>
+              {/* 2026-09-26 user：班級沒有任何考卷資料夾時，「未分類」＝「全部」，下拉沒有意義 → 不顯示 */}
+              {usedFolders.length > 0 && (
               <select
                 value={selectedFolder}
                 onChange={(e) => setSelectedFolder(e.target.value)}
@@ -867,6 +869,7 @@ export default function Gradebook({ embedded = false, scope = 'teacher' }: Grade
                   )
                 })}
               </select>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {!readOnly && (
